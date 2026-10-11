@@ -48,6 +48,14 @@ $check('invoice candidate helper exists', str_contains($bankLib, 'function bankR
 $check('drafts may be surfaced but not applied', str_contains($bankLib, '"draft", "approved", "sent", "partially_paid"') && str_contains($bankLib, "'can_apply_payment' => \$canApply"));
 $check('only a posted invoice can be applied', str_contains($bankLib, "\$invoice['journal_status'] ?? null") && str_contains($bankLib, "=== 'posted'"));
 $check('bank list preloads invoice suggestions', str_contains($bankApi, 'bankRecAttachInvoiceSuggestions('));
+$check('reference-only partial invoice candidates cannot use exact-balance posting',
+    str_contains($bankLib, 'bankRecInvoiceReferenceTokens(')
+    && str_contains($bankLib, "'can_apply_partial' => " . '$canApplyPartial')
+    && str_contains($bankLib, '$canApply = $posted && $exactBalance;')
+    && str_contains($bankUi, 'accounting-bank-apply-partial-')
+    && str_contains($bankUi, 'onApplyPartial={candidate => {')
+    && str_contains($bankUi, 'initialInvoice={suggestedInvoice}')
+    && str_contains($treasuryUi, 'initialInvoice?.can_apply_partial'));
 $check('matched bank lines show applied invoices',
     str_contains($bankApi, "\$lineRow['applied_invoices']")
     && str_contains($bankUi, 'line.applied_invoices.map(invoice =>'));

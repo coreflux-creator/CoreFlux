@@ -738,6 +738,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
   const [err, setErr]   = useState(null);
   const [splitOpen, setSplitOpen] = useState(false);
   const [receiptSplitOpen, setReceiptSplitOpen] = useState(false);
+  const [suggestedInvoice, setSuggestedInvoice] = useState(null);
   const [apPaymentOpen, setApPaymentOpen] = useState(false);
   const [payoutOpen, setPayoutOpen] = useState(false);
 
@@ -756,7 +757,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
       action: 'suggest_match',
       candidates: line.invoice_matches || [],
       review_required: true,
-      note: 'Exact-balance invoice candidates found for this receipt.',
+      note: 'Review the invoice and amount before applying this receipt.',
     });
   };
 
@@ -795,7 +796,8 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
                   padding: '2px 6px', borderRadius: 4,
                 }}
               >
-                {line.invoice_match.status === 'draft' ? 'Draft invoice' : 'Invoice'} {line.invoice_match.invoice_number}
+                {line.invoice_match.status === 'draft' ? 'Draft invoice'
+                  : line.invoice_match.can_apply_partial ? 'Partial invoice' : 'Invoice'} {line.invoice_match.invoice_number}
               </span>
             )
             : line.ap_payment_match ? (
@@ -837,7 +839,12 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
             </button>
             <button
               className="btn btn--primary"
-              onClick={() => Number(line.amount) > 0 ? setReceiptSplitOpen(true) : setSplitOpen(true)}
+              onClick={() => {
+                if (Number(line.amount) > 0) {
+                  setSuggestedInvoice(null);
+                  setReceiptSplitOpen(true);
+                } else setSplitOpen(true);
+              }}
               disabled={!bankAccount || !bankAccount.entity_id || !bankAccount.gl_account_code}
               data-testid={`accounting-bank-ic-split-${line.id}`}
               title={Number(line.amount) > 0
@@ -861,6 +868,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
               line={line}
               type="deposit"
               accounts={accounts}
+              initialInvoice={suggestedInvoice}
               onSubmit={async ({ invoiceAllocations, accountSplits }) => {
                 if (invoiceAllocations.length > 0) {
                   await api.post(`/modules/accounting/api/bank_statements.php?action=split_match_invoices&line_id=${line.id}`, {
@@ -875,9 +883,10 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
                   });
                 }
                 setReceiptSplitOpen(false);
+                setSuggestedInvoice(null);
                 reload();
               }}
-              onCancel={() => setReceiptSplitOpen(false)}
+              onCancel={() => { setReceiptSplitOpen(false); setSuggestedInvoice(null); }}
             />
           </td>
         </tr>
@@ -923,6 +932,11 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
               ai={aiResp}
               onDismiss={() => setAi(null)}
               onAccepted={() => { setAi(null); reload(); }}
+              onApplyPartial={candidate => {
+                setSuggestedInvoice(candidate);
+                setAi(null);
+                setReceiptSplitOpen(true);
+              }}
             />
           </td>
         </tr>
@@ -1089,7 +1103,7 @@ function ApPaymentMatchPanel({ line, candidates, onMatched, onCancel }) {
   );
 }
 
-function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
+function AiResultPanel({ line, ai, onDismiss, onAccepted, onApplyPartial }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
 
@@ -1238,6 +1252,13 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
                 onClick={() => acceptMatch(c)}
                 data-testid={`accounting-bank-apply-invoice-${line.id}-${c.invoice_id}`}
               >{busy === key ? 'Applying…' : 'Apply payment'}</button>
+            ) : c.can_apply_partial ? (
+              <button
+                className="btn btn--primary"
+                disabled={Boolean(busy)}
+                onClick={() => onApplyPartial?.(c)}
+                data-testid={`accounting-bank-apply-partial-${line.id}-${c.invoice_id}`}
+              >Apply partial</button>
             ) : (
               <Link
                 className="btn btn--ghost"

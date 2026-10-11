@@ -650,9 +650,8 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
 }
 
 /**
- * Find open invoices whose remaining balance exactly matches an incoming
- * bank line. Exact cents are intentionally required for the automatic badge;
- * ambiguous and partial receipts remain available through manual workflows.
+ * Find open invoices for an incoming bank line. Exact-balance candidates can
+ * use the direct receipt action; referenced partial balances require review.
  */
 function bankRecInvoiceMatchCandidates(
     int $tenantId,
@@ -662,6 +661,18 @@ function bankRecInvoiceMatchCandidates(
 ): array {
     $rows = bankRecAttachInvoiceSuggestions($tenantId, $bankAccountId, [$bankLine], $limit);
     return $rows[0]['invoice_matches'] ?? [];
+}
+
+/** Candidate invoice numbers must occupy a whole token in the bank narrative. */
+function bankRecInvoiceReferenceTokens(string $description): array {
+    preg_match_all('/[A-Za-z0-9]+(?:[-_.\/][A-Za-z0-9]+)*/', $description, $matches);
+    $tokens = [];
+    foreach ($matches[0] ?? [] as $token) {
+        if (strlen($token) < 6 || !preg_match('/[0-9]/', $token)) continue;
+        $tokens[strtoupper($token)] = true;
+        if (count($tokens) >= 20) break;
+    }
+    return array_keys($tokens);
 }
 
 /**
@@ -681,11 +692,15 @@ function bankRecAttachInvoiceSuggestions(
     unset($line);
 
     $amountKeys = [];
+    $referenceKeys = [];
+    $lineReferences = [];
     $latestPosted = null;
-    foreach ($bankLines as $line) {
+    foreach ($bankLines as $index => $line) {
         $amount = round((float) ($line['amount'] ?? 0), 2);
         if ($amount <= 0) continue;
         $amountKeys[(string) (int) round($amount * 100)] = $amount;
+        $lineReferences[$index] = bankRecInvoiceReferenceTokens((string) ($line['description'] ?? ''));
+        foreach ($lineReferences[$index] as $reference) $referenceKeys[$reference] = true;
         $date = (string) ($line['posted_date'] ?? '');
         if ($date !== '' && ($latestPosted === null || $date > $latestPosted)) $latestPosted = $date;
     }
@@ -693,7 +708,7 @@ function bankRecAttachInvoiceSuggestions(
 
     try {
         $bank = scopedFind(
-            'SELECT entity_id FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id',
+            'SELECT entity_id, currency FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id',
             ['id' => $bankAccountId]
         );
         if (!$bank) return $bankLines;
@@ -706,11 +721,23 @@ function bankRecAttachInvoiceSuggestions(
             $amountParams[] = ':' . $key;
             $params[$key] = number_format($amount, 2, '.', '');
         }
+        $referenceParams = [];
+        foreach (array_keys($referenceKeys) as $index => $reference) {
+            $key = 'invoice_reference_' . $index;
+            $referenceParams[] = ':' . $key;
+            $params[$key] = $reference;
+        }
+        $candidateSql = 'ROUND(bi.amount_due, 2) IN (' . implode(',', $amountParams) . ')';
+        if ($referenceParams) {
+            $candidateSql = '(' . $candidateSql
+                . ' OR bi.invoice_number IN (' . implode(',', $referenceParams) . '))';
+        }
         $entitySql = '';
         if (!empty($bank['entity_id'])) {
             $entitySql = ' AND (bi.entity_id = :bank_entity_id OR bi.entity_id IS NULL)';
             $params['bank_entity_id'] = (int) $bank['entity_id'];
         }
+        $params['bank_currency'] = strtoupper((string) ($bank['currency'] ?: 'USD'));
 
         $invoices = scopedQuery(
             'SELECT bi.id, bi.invoice_number, bi.client_name, bi.client_company_id, bi.entity_id,
@@ -722,28 +749,44 @@ function bankRecAttachInvoiceSuggestions(
               WHERE bi.tenant_id = :tenant_id
                 AND bi.status IN ("draft", "approved", "sent", "partially_paid")
                 AND bi.amount_due > 0
-                AND ROUND(bi.amount_due, 2) IN (' . implode(',', $amountParams) . ')
+                AND bi.currency = :bank_currency
+                AND ' . $candidateSql . '
                 AND bi.issue_date <= :latest_posted' . $entitySql . '
               ORDER BY bi.due_date ASC, bi.id ASC',
             $params
         );
 
         $byAmount = [];
+        $byReference = [];
         foreach ($invoices as $invoice) {
             $key = (string) (int) round((float) $invoice['amount_due'] * 100);
             $byAmount[$key][] = $invoice;
+            $byReference[strtoupper((string) $invoice['invoice_number'])][] = $invoice;
         }
 
-        foreach ($bankLines as &$line) {
+        foreach ($bankLines as $index => &$line) {
             $amount = round((float) ($line['amount'] ?? 0), 2);
             if ($amount <= 0) continue;
             $key = (string) (int) round($amount * 100);
             $matches = [];
-            foreach ($byAmount[$key] ?? [] as $invoice) {
+            $candidates = [];
+            foreach ($byAmount[$key] ?? [] as $invoice) $candidates[(int) $invoice['id']] = $invoice;
+            foreach ($lineReferences[$index] ?? [] as $reference) {
+                foreach ($byReference[$reference] ?? [] as $invoice) {
+                    $candidates[(int) $invoice['id']] = $invoice;
+                }
+            }
+            foreach ($candidates as $invoice) {
+                if ((string) $invoice['issue_date'] > (string) ($line['posted_date'] ?? '')) continue;
+                $due = round((float) $invoice['amount_due'], 2);
+                if ($due + 0.005 < $amount) continue;
                 $description = strtolower((string) ($line['description'] ?? ''));
                 $invoiceNumber = strtolower((string) $invoice['invoice_number']);
                 $clientName = strtolower((string) $invoice['client_name']);
-                $numberMatch = $invoiceNumber !== '' && str_contains($description, $invoiceNumber);
+                $numberMatch = in_array(strtoupper((string) $invoice['invoice_number']),
+                    $lineReferences[$index] ?? [], true);
+                $exactBalance = abs($due - $amount) < 0.005;
+                if (!$exactBalance && !$numberMatch) continue;
                 $clientTokens = array_values(array_filter(
                     preg_split('/[^a-z0-9]+/i', $clientName) ?: [],
                     static fn(string $token): bool => strlen($token) >= 4
@@ -754,19 +797,26 @@ function bankRecAttachInvoiceSuggestions(
                 ));
                 $clientMatch = $clientTokens && $tokenHits >= min(2, count($clientTokens));
 
-                $canApply = in_array($invoice['status'], ['approved', 'sent', 'partially_paid'], true)
+                $posted = in_array($invoice['status'], ['approved', 'sent', 'partially_paid'], true)
                     && ($invoice['journal_status'] ?? null) === 'posted';
-                $score = $canApply ? 0.86 : 0.72;
+                $canApply = $posted && $exactBalance;
+                $canApplyPartial = $posted && !$exactBalance && $numberMatch
+                    && !empty($bank['entity_id']);
+                $score = $posted ? 0.86 : 0.72;
                 if ($clientMatch) $score += 0.08;
                 if ($numberMatch) $score += 0.06;
                 $score = min(1.0, $score);
-                $reason = 'Exact invoice balance of ' . number_format($amount, 2) . ' ' . $invoice['currency'];
-                if ($numberMatch) $reason .= '; invoice number appears in the bank description';
+                $reason = $exactBalance
+                    ? 'Exact invoice balance of ' . number_format($amount, 2) . ' ' . $invoice['currency']
+                    : 'Possible partial receipt of ' . number_format($amount, 2) . ' ' . $invoice['currency'];
+                if ($numberMatch) $reason .= '; exact invoice number appears in the bank description';
                 elseif ($clientMatch) $reason .= '; customer name appears in the bank description';
-                if (!$canApply) {
+                if (!$posted) {
                     $reason .= $invoice['status'] === 'draft'
                         ? '; finalize and post the draft before applying payment'
                         : '; post the invoice before applying payment';
+                } elseif ($canApplyPartial) {
+                    $reason .= '; review the amount in Apply receipt';
                 }
 
                 $matches[] = [
@@ -781,6 +831,8 @@ function bankRecAttachInvoiceSuggestions(
                     'due_date' => (string) $invoice['due_date'],
                     'journal_entry_id' => !empty($invoice['journal_entry_id']) ? (int) $invoice['journal_entry_id'] : null,
                     'can_apply_payment' => $canApply,
+                    'can_apply_partial' => $canApplyPartial,
+                    'exact_balance' => $exactBalance,
                     'label' => 'Invoice ' . $invoice['invoice_number'] . ' - ' . $invoice['client_name'],
                     'score' => $score,
                     'reasoning' => $reason,

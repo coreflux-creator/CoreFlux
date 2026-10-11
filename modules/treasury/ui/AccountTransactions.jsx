@@ -1281,7 +1281,7 @@ function TreasuryAiResultPanel({ line, ai, canPost, onDismiss, onAccept }) {
  * accounts. Every cent must be assigned so the bank line, subledger, and JE
  * stay in agreement. Outflows retain the original GL/intercompany behavior.
  */
-export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, onCancel }) {
+export function SplitIcPanel({ line, type, accounts, entities = [], initialInvoice = null, onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
   const allowInvoiceTargets = type === 'deposit' && Number(line.amount) > 0;
   const [invoiceSearch, setInvoiceSearch] = useState('');
@@ -1299,7 +1299,15 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
     target_type: allowInvoiceTargets ? 'invoice' : 'account',
     invoice_id: '', invoice_label: '', invoice_due: null, account_id: '', amount, entity_id: '', memo: '',
   });
-  const [rows, setRows] = useState([blankRow(total.toFixed(2))]);
+  const [rows, setRows] = useState(() => {
+    const row = blankRow(total.toFixed(2));
+    if (allowInvoiceTargets && initialInvoice?.can_apply_partial) {
+      row.invoice_id = String(initialInvoice.invoice_id);
+      row.invoice_label = initialInvoice.label;
+      row.invoice_due = Number(initialInvoice.amount_due);
+    }
+    return [row];
+  });
   const selectedInvoices = [...new Map(rows
     .filter(r => r.invoice_id && r.invoice_label && !invoices.some(inv => String(inv.id) === String(r.invoice_id)))
     .map(r => [String(r.invoice_id), { id: r.invoice_id, label: r.invoice_label, amount_due: r.invoice_due }])).values()];
