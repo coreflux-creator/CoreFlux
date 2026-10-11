@@ -62,8 +62,12 @@ $ws = (string) file_get_contents("{$ROOT}/modules/ap/lib/workflow_sync.php");
 $assert('uses decision_at (not decided_at)',         stripos($ws, 'decision_at') !== false);
 $assert('does NOT reference decided_at',             stripos($ws, 'decided_at') === false);
 $assert('does NOT reference decided_by_user_id',     stripos($ws, 'decided_by_user_id') === false);
-$assert('updates ap_bill_approvals to approved',     preg_match("#UPDATE\\s+ap_bill_approvals.*state\\s*=\\s*'approved'#s", $ws) === 1);
-$assert('updates ap_bill_approvals to rejected',     preg_match("#UPDATE\\s+ap_bill_approvals.*state\\s*=\\s*'rejected'#s", $ws) === 1);
+$assert('records approver decision with its workflow step',
+    stripos($ws, 'function apRecordWorkflowDecision') !== false
+    && stripos($ws, 'ON DUPLICATE KEY UPDATE state = VALUES(state)') !== false);
+$assert('records both approval and rejection states',
+    preg_match("#apRecordWorkflowDecision\\([^;]*'approved'#s", $ws) === 1
+    && preg_match("#apRecordWorkflowDecision\\([^;]*'rejected'#s", $ws) === 1);
 $assert('flips ap_bills.status on reject (disputed)',stripos($ws, "status = 'disputed'") !== false);
 $assert('flips ap_bills.status on approved instance',stripos($ws, "status = 'approved'") !== false);
 $assert('scopes by tenant_id on every query',        substr_count($ws, ':t') >= 3);

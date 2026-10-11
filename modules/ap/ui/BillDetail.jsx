@@ -23,6 +23,7 @@ export default function BillDetail({ session }) {
   const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&include_required_dimensions=1');
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
+  const [threadRevision, setThreadRevision] = useState(0);
   const [icSplitOpen, setIcSplitOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
@@ -68,7 +69,7 @@ export default function BillDetail({ session }) {
 
   const run = async (label, fn) => {
     setBusy(label); setActionError(null);
-    try { await fn(); reload(); } catch (e) { setActionError(e); }
+    try { await fn(); reload(); setThreadRevision(value => value + 1); } catch (e) { setActionError(e); }
     finally { setBusy(null); }
   };
 
@@ -174,7 +175,7 @@ export default function BillDetail({ session }) {
       )}
       {hasAccountingActivity && bill.status !== 'void' && (
         <p className="operational-state" data-testid="ap-bill-correction-note">
-          {canCorrect ? 'This unpaid manual bill can be corrected with a linked journal reversal.' : (bill.correction_unavailable_reason || 'Posted and paid bills need a linked accounting or payment correction; they cannot be voided here.')}
+          {canCorrect ? 'This unpaid manual bill can be corrected with a linked journal reversal.' : (bill.correction_unavailable_reason || 'Posted bills need a linked accounting correction; paid bills also need a payment correction. They cannot be voided here.')}
         </p>
       )}
       {bill.journal_entry_id && (
@@ -293,7 +294,7 @@ export default function BillDetail({ session }) {
       )}
 
       {bill.po_number && <ThreeWayMatchPanel billId={id} />}
-      <BillApprovalThread billId={id} />
+      <BillApprovalThread key={`${id}:${threadRevision}`} billId={id} />
 
       <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Lines</h3>
       {codingOpen && <form id="ap-bill-coding-form" onSubmit={saveCoding} data-testid="ap-bill-coding-form" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>

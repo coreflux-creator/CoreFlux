@@ -185,10 +185,8 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
          VALUES (:t, :b, :u, 1, 'pending', NOW())"
     );
     foreach ($step1['approver_user_ids'] as $uid) {
-        try {
-            $insertSql->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid]);
-            $apIds[] = (int) $pdo->lastInsertId();
-        } catch (\Throwable $_) { /* duplicate or schema drift — non-fatal */ }
+        $insertSql->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid]);
+        $apIds[] = (int) $pdo->lastInsertId();
     }
 
     // Sprint 6-cutover — also mirror the routing into the generic
