@@ -1890,7 +1890,7 @@ function apBuild1099Ledger(int $tenantId, int $taxYear): array
     // Sum cleared payment $ attributable to 1099-eligible lines per vendor, via
     // proportional line share: bill_lines_eligible_total / bill_total.
     $q = $pdo->prepare(
-        'SELECT b.vendor_name, b.vendor_type,
+        'SELECT b.vendor_name, v.vendor_type,
                 SUM(a.amount_applied * (
                     COALESCE((SELECT SUM(bl.total) FROM ap_bill_lines bl WHERE bl.bill_id = b.id AND bl.is_1099_eligible = 1), 0) /
                     NULLIF(b.total, 0)
@@ -1898,11 +1898,12 @@ function apBuild1099Ledger(int $tenantId, int $taxYear): array
          FROM ap_payments p
          JOIN ap_payment_allocations a ON a.payment_id = p.id
          JOIN ap_bills b                ON b.id        = a.bill_id
+         JOIN ap_vendors_index v ON v.tenant_id = b.tenant_id AND v.vendor_name = b.vendor_name
          WHERE p.tenant_id = :t
            AND p.status = "cleared"
            AND YEAR(p.cleared_at) = :y
-           AND b.vendor_type IN ("1099_individual","c2c_corp")
-         GROUP BY b.vendor_name, b.vendor_type'
+           AND v.requires_1099 = 1
+         GROUP BY b.vendor_name, v.vendor_type'
     );
     $q->execute(['t' => $tenantId, 'y' => $taxYear]);
     $rows = $q->fetchAll(\PDO::FETCH_ASSOC);
@@ -1927,7 +1928,7 @@ function apBuild1099Ledger(int $tenantId, int $taxYear): array
             'v'  => $r['vendor_name'],
             'vt' => $r['vendor_type'],
             'tp' => $total,
-            'r'  => ($total >= $threshold && $r['vendor_type'] === '1099_individual') ? 1 : 0,
+            'r'  => $total >= $threshold ? 1 : 0,
         ]);
         $upserted++;
     }

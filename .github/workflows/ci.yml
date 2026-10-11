@@ -296,6 +296,9 @@ jobs:
       - name: Exercise tenant-scoped vendor rename and AP reference integrity
         run: php tests/ap_vendor_identity_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise saved vendor classification on new AP bills
+        run: php tests/ap_manual_bill_vendor_1099_db_check.php --confirm-disposable-fixture
+
       - name: Exercise log-only password reset and replay
         run: |
           export MAIL_DRIVER=log

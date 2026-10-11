@@ -32,7 +32,7 @@ export default function BillCreate({ session }) {
   const [vendor, setVendor]       = useState(null);
   const [showCreateVendor, setShowCreateVendor] = useState(false);
   const [pendingVendorName, setPendingVendorName] = useState('');
-  const [vendorType, setVendorType] = useState('w9_business');
+  const [vendorType, setVendorType] = useState('other');
   const [billNumber, setBillNumber] = useState('');
   const [billDate, setBillDate]   = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate]     = useState('');
@@ -129,9 +129,8 @@ export default function BillCreate({ session }) {
       const payload = {
         entity_id: entityId,
         vendor_name: vendor.name,
-        // vendor.id is ap_vendors_index.id; vendor.company_id is companies.id
-        // (null for 1099 individuals). Send only company_id — server will
-        // upsert if missing for non-individual types.
+        // The AP vendor ID lets the shared service use the saved classification.
+        vendor_id: vendor.id || null,
         vendor_company_id: vendor.company_id || null,
         vendor_type: vendorType,
         bill_number: billNumber || null,
@@ -147,7 +146,7 @@ export default function BillCreate({ session }) {
             unit: l.unit || 'each',
             unit_price: Number(l.unit_price) || 0,
             gl_expense_account_code: l.gl_account_code || null,
-            is_1099_eligible: vendorType === '1099_individual',
+            is_1099_eligible: Number(vendor.requires_1099) === 1,
           })),
       };
       const res = await api.post('/modules/ap/api/bills.php', payload);
@@ -200,7 +199,7 @@ export default function BillCreate({ session }) {
             />
           </Field>
           <Field label="Vendor type">
-            <select className="input" value={vendorType} onChange={(e) => setVendorType(e.target.value)} data-testid="ap-bill-create-vendor-type">
+            <select className="input" value={vendorType} onChange={(e) => setVendorType(e.target.value)} disabled={Boolean(vendor?.id)} data-testid="ap-bill-create-vendor-type">
               <option value="w9_business">W-9 business</option>
               <option value="c2c_corp">C2C / corp-to-corp</option>
               <option value="1099_individual">1099 individual</option>
@@ -312,6 +311,7 @@ export default function BillCreate({ session }) {
               id: v.id || null,
               name: v.vendor_name || v.name,
               vendor_type: v.vendor_type,
+              requires_1099: v.requires_1099,
               company_id: v.company_id || null,
               tax_id_last4: v.tax_id_last4 || null,
             });

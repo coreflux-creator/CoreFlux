@@ -85,7 +85,21 @@ $a('offers only postable expense classes',      strpos($choices, "['expense', 'o
     && strpos($choices, 'Number(account.is_postable) === 1') !== false);
 $a('disables accounts needing absent dimensions', strpos($choices, 'disabled: missing.length > 0 || blocked.length > 0') !== false);
 $a('vendor type select',                        strpos($bc, 'data-testid="ap-bill-create-vendor-type"') !== false);
-$a('1099 individual auto-flag',                 strpos($bc, "is_1099_eligible: vendorType === '1099_individual'") !== false);
+$a('manual bill sends saved vendor ID and 1099 flag', strpos($bc, 'vendor_id: vendor.id || null') !== false
+    && strpos($bc, 'is_1099_eligible: Number(vendor.requires_1099) === 1') !== false
+    && strpos($bc, 'disabled={Boolean(vendor?.id)}') !== false);
+$vendorPick = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/VendorTypeahead.jsx');
+$vendorQuick = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/VendorQuickCreate.jsx');
+$a('vendor pick carries the saved 1099 setting', strpos($vendorPick, 'requires_1099: Number(row.requires_1099) === 1') !== false
+    && strpos($vendorQuick, 'requires_1099: requires1099') !== false
+    && strpos($vendorQuick, 'id: res.id') !== false);
+$a('AP service verifies saved vendor and never promotes its 1099 flag from bill type',
+    strpos($billDrafts, 'WHERE tenant_id = :t AND id = :id FOR UPDATE') !== false
+    && strpos($billDrafts, "\$vendorRequires1099 = (int) \$savedVendor['requires_1099'] === 1") !== false
+    && strpos($billDrafts, 'requires_1099 = GREATEST') === false);
+$apDomain = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
+$a('1099 ledger uses saved vendor classification', strpos($apDomain, 'AND v.requires_1099 = 1') !== false
+    && strpos($apDomain, 'AND b.vendor_type IN ("1099_individual","c2c_corp")') === false);
 $a('submit posts to bills.php',                 strpos($bc, "api.post('/modules/ap/api/bills.php'") !== false);
 
 echo "\nReact InvoiceCreate page\n";

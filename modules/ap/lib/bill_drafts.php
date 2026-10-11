@@ -113,6 +113,11 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
     if (!in_array($vendorType, ['1099_individual', 'c2c_corp', 'w9_business', 'utility', 'other'], true)) {
         throw new InvalidArgumentException('Choose a valid vendor type');
     }
+    $vendorId = $body['vendor_id'] ?? null;
+    if ($vendorId !== null && filter_var($vendorId, FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1]]) === false) {
+        throw new InvalidArgumentException('Choose a valid vendor');
+    }
     $currency = (string) ($body['currency'] ?? 'USD');
     if (!preg_match('/^[A-Z]{3}$/D', $currency)) {
         throw new InvalidArgumentException('Currency must be a three-letter code');
@@ -142,12 +147,41 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
     }
 
     $pdo = getDB();
+    $owns = !$pdo->inTransaction();
+    $savepoint = $owns ? null : 'ap_bill_' . bin2hex(random_bytes(4));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+    $vendorLookup = $pdo->prepare($vendorId !== null
+        ? 'SELECT vendor_name, company_id, vendor_type, requires_1099 FROM ap_vendors_index
+            WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        : 'SELECT vendor_name, company_id, vendor_type, requires_1099 FROM ap_vendors_index
+            WHERE tenant_id = :t AND vendor_name = :name FOR UPDATE');
+    $vendorLookup->execute($vendorId !== null
+        ? ['t' => $tenantId, 'id' => (int) $vendorId]
+        : ['t' => $tenantId, 'name' => $vendorName]);
+    $savedVendor = $vendorLookup->fetch(PDO::FETCH_ASSOC);
+    if ($vendorId !== null && !$savedVendor) {
+        throw new InvalidArgumentException('Vendor is unavailable in this workspace');
+    }
+    if ($savedVendor) {
+        if ($vendorId !== null && ($vendorName !== $savedVendor['vendor_name']
+            || $vendorType !== $savedVendor['vendor_type'])) {
+            throw new InvalidArgumentException('Vendor details changed. Select the vendor again');
+        }
+        $vendorName = (string) $savedVendor['vendor_name'];
+        $vendorType = (string) $savedVendor['vendor_type'];
+        $vendorRequires1099 = (int) $savedVendor['requires_1099'] === 1;
+        $vendorCompanyId = $savedVendor['company_id'] !== null ? (int) $savedVendor['company_id'] : null;
+    } else {
+        $vendorRequires1099 = $vendorType === '1099_individual';
+        $vendorCompanyId = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : null;
+    }
     $taxStmt = $pdo->prepare('SELECT ap_default_terms FROM tenants WHERE id = :id');
     $taxStmt->execute(['id' => $tenantId]);
     $cfg = $taxStmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['ap_default_terms'] ?? 'NET30'), $m)
         ? (int) $m[1] : 30;
-    $vendorCompanyId = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : null;
     if ($vendorCompanyId !== null) {
         $vendor = $pdo->prepare('SELECT name FROM companies WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL');
         $vendor->execute(['t' => $tenantId, 'id' => $vendorCompanyId]);
@@ -184,11 +218,6 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
         apValidateDirectBillExpenseAccounts($tenantId, $body['lines']);
     }
 
-    $owns = !$pdo->inTransaction();
-    $savepoint = $owns ? null : 'ap_bill_' . bin2hex(random_bytes(4));
-    if ($owns) $pdo->beginTransaction();
-    else $pdo->exec('SAVEPOINT ' . $savepoint);
-    try {
         $internalRef = apNextInternalRef($tenantId);
         if (!$vendorCompanyId && in_array($vendorType, ['c2c_corp', 'w9_business', 'utility', 'other'], true)) {
             $vendorCompanyId = companiesUpsertByName($tenantId, $vendorName,
@@ -235,14 +264,12 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
              VALUES (:tenant_id, :vendor_name, :company_id, :vendor_type, :requires_1099, NOW(), :placement_id)
              ON DUPLICATE KEY UPDATE
                 company_id = COALESCE(VALUES(company_id), company_id),
-                vendor_type = VALUES(vendor_type),
-                requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
                 last_bill_at = NOW(),
                 placement_id_last = COALESCE(VALUES(placement_id_last), placement_id_last)'
         )->execute([
             'tenant_id' => $tenantId, 'vendor_name' => $vendorName,
             'company_id' => $vendorCompanyId, 'vendor_type' => $vendorType,
-            'requires_1099' => $vendorType === '1099_individual' ? 1 : 0,
+            'requires_1099' => $vendorRequires1099 ? 1 : 0,
             'placement_id' => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
         ]);
         $lineStmt = $pdo->prepare(
@@ -267,7 +294,8 @@ function apCreateManualBill(int $tenantId, array $body, ?int $actorUserId = null
                 'tax_amount' => $line['tax_amount'],
                 'total' => $line['total'],
                 'gl' => $line['gl_expense_account_code'] ?? null,
-                'is_1099' => !empty($line['is_1099_eligible']) ? 1 : 0,
+                'is_1099' => $vendorRequires1099
+                    && (!array_key_exists('is_1099_eligible', $line) || !empty($line['is_1099_eligible'])) ? 1 : 0,
             ]);
         }
         if ($owns) $pdo->commit();

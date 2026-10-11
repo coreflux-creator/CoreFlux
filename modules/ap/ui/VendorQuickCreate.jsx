@@ -77,10 +77,11 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel, st
       };
       const res = await api.post('/modules/ap/api/vendors.php', body);
       onCreated({
-        id: res.company_id || res.id,
+        id: res.id,
         vendor_id: res.id,
         name: name.trim(),
         vendor_type: vendorType,
+        requires_1099: requires1099,
         company_id: res.company_id || null,
         vendor_category: selectedCategory,
       });

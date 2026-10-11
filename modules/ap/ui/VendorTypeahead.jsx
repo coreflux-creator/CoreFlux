@@ -69,6 +69,7 @@ export default function VendorTypeahead({
       id: row.id,
       name: row.vendor_name,
       vendor_type: row.vendor_type,
+      requires_1099: Number(row.requires_1099) === 1,
       tax_id_last4: row.tax_id_last4 || null,
       company_id: row.company_id || null,
     });
@@ -85,7 +86,9 @@ export default function VendorTypeahead({
           id: created.id,
           vendor_name: created.vendor_name || created.name || query.trim(),
           vendor_type: created.vendor_type,
+          requires_1099: created.requires_1099,
           tax_id_last4: created.tax_id_last4,
+          company_id: created.company_id,
         });
       }
       return;
