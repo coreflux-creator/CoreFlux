@@ -55,11 +55,11 @@ $a("registers source_system enum field",          $c($vimp, "'source_system'    
 $a("unique_within_batch includes external_id",    $c($vimp, "'unique_within_batch' => ['vendor_id', 'external_id', 'vendor_name']"));
 $a("INSERT writes external_id + source_system",   $c($vimp, "external_id, source_system,")
                                                && $c($vimp, '(:t, :v, :ext, :src,'));
-$a("ON DUPLICATE preserves external_id when omitted",
+$a("explicit vendor update preserves external_id when omitted",
                                                   $c($vimp, "'external_id' => ['external_id', 'ext']")
-                                               && $c($vimp, 'if ($provided($field)) $assignments[] = "{$column} = VALUES({$column})"'));
-$a("ON DUPLICATE refreshes supplied source_system", $c($vimp, "'source_system' => ['source_system', 'src']")
-                                               && $c($vimp, "ON DUPLICATE KEY UPDATE ' . implode(', ', \$assignments)"));
+                                               && $c($vimp, 'if ($provided($field)) $updates[$column]'));
+$a("explicit vendor update refreshes supplied source_system", $c($vimp, "'source_system' => ['source_system', 'src']")
+                                               && $c($vimp, 'apUpdateVendorIdentity($pdo, $tid, $externalVendorId'));
 $a("resolves imported vendor within tenant",       $c($vimp, 'SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v'));
 
 // ----------------------------------------------------------------- AP bills

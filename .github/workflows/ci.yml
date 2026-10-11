@@ -293,6 +293,9 @@ jobs:
       - name: Exercise legacy password reset schema migration
         run: php tests/coreaccounting_password_reset_migration_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise tenant-scoped vendor rename and AP reference integrity
+        run: php tests/ap_vendor_identity_db_check.php --confirm-disposable-fixture
+
       - name: Exercise log-only password reset and replay
         run: |
           export MAIL_DRIVER=log

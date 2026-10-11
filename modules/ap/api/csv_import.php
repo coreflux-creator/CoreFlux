@@ -19,6 +19,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/vendor_identity.php';
 
 use Core\CsvImportService;
 
@@ -137,6 +138,7 @@ if ($method === 'POST' && $action === 'dry_run') {
         $pdo = getDB();
         $byName = [];
         $byId = [];
+        $nameById = [];
         $sourceById = [];
         $byExternal = [];
         if ($names) {
@@ -154,22 +156,26 @@ if ($method === 'POST' && $action === 'dry_run') {
         if ($ids) {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $pdo->prepare(
-                "SELECT id, source_system FROM ap_vendors_index WHERE tenant_id = ? AND id IN ({$placeholders})"
+                "SELECT id, vendor_name, source_system FROM ap_vendors_index WHERE tenant_id = ? AND id IN ({$placeholders})"
             );
             $stmt->execute(array_merge([$tid], $ids));
             foreach ($stmt as $r) {
                 $byId[(int) $r['id']] = true;
+                $nameById[(int) $r['id']] = (string) $r['vendor_name'];
                 $sourceById[(int) $r['id']] = $r['source_system'];
             }
         }
         if ($externalIds) {
             $placeholders = implode(',', array_fill(0, count($externalIds), '?'));
             $stmt = $pdo->prepare(
-                "SELECT id, source_system, external_id FROM ap_vendors_index
+                "SELECT id, vendor_name, source_system, external_id FROM ap_vendors_index
                   WHERE tenant_id = ? AND external_id IN ({$placeholders})"
             );
             $stmt->execute(array_merge([$tid], $externalIds));
-            foreach ($stmt as $r) $byExternal[$r['source_system'] . ':' . $r['external_id']] = (int) $r['id'];
+            foreach ($stmt as $r) {
+                $byExternal[$r['source_system'] . ':' . $r['external_id']] = (int) $r['id'];
+                $nameById[(int) $r['id']] = (string) $r['vendor_name'];
+            }
         }
         foreach ($result['rows'] as $rn => $row) {
             $vendorId = (int) ($row['vendor_id'] ?? 0);
@@ -193,6 +199,36 @@ if ($method === 'POST' && $action === 'dry_run') {
             } elseif (!$updateExisting && ($vendorId > 0 || $nameId > 0 || $externalMatchId > 0)) {
                 $problem = 'Vendor already exists; enable Update matching editable records to update it';
             }
+            $matchedId = $vendorId ?: $externalMatchId;
+            if ($problem === null && $matchedId > 0
+                && isset($nameById[$matchedId]) && $nameById[$matchedId] !== $name) {
+                $check = $pdo->prepare(
+                    'SELECT vendor_name, form_storage_object_id, submitted_to_irs_at
+                       FROM ap_1099_ledger WHERE tenant_id = :t AND vendor_name IN (:old, :new)'
+                );
+                $check->execute(['t' => $tid, 'old' => $nameById[$matchedId], 'new' => $name]);
+                foreach ($check as $taxRow) {
+                    if ($taxRow['vendor_name'] !== $nameById[$matchedId]) {
+                        $problem = 'A 1099 record already uses the new vendor name';
+                    } elseif ($taxRow['form_storage_object_id'] !== null || $taxRow['submitted_to_irs_at'] !== null) {
+                        $problem = 'Vendor has a generated or filed 1099 form; correct it before renaming';
+                    }
+                    if ($problem !== null) break;
+                }
+                if ($problem === null) {
+                    foreach (['ap_1099_ledger', 'ap_recurring_bills', 'ap_purchase_orders'] as $table) {
+                        $check = $pdo->prepare(
+                            "SELECT id FROM {$table} WHERE tenant_id = :t AND vendor_name = :old
+                               AND vendor_id IS NOT NULL AND vendor_id <> :id LIMIT 1"
+                        );
+                        $check->execute(['t' => $tid, 'old' => $nameById[$matchedId], 'id' => $matchedId]);
+                        if ($check->fetchColumn() !== false) {
+                            $problem = 'A related AP record has a conflicting vendor ID; resolve it before renaming';
+                            break;
+                        }
+                    }
+                }
+            }
             if ($problem !== null) $result['errors'][$rn][] = $problem;
         }
         $result['error_count'] = count($result['errors']);
@@ -211,7 +247,7 @@ if ($method === 'POST' && $action === 'commit') {
     $updateExisting = !empty($_GET['update_existing']);
     $opts = ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap, 'atomic' => !$skipInvalid];
 
-    $result = CsvImportService::commit('ap_vendors', $csv, function (array $row) use ($tid, $updateExisting) {
+    $result = CsvImportService::commit('ap_vendors', $csv, function (array $row) use ($tid, $updateExisting, $user) {
         $vendorId = (int) ($row['vendor_id'] ?? 0);
         if (($row['vendor_id'] ?? '') !== '' && $vendorId <= 0) {
             throw new RuntimeException('Vendor ID must be positive or blank.');
@@ -251,21 +287,38 @@ if ($method === 'POST' && $action === 'commit') {
             'requires_1099' => ['requires_1099', 'r'],
         ];
 
+        $updates = [];
+        foreach ($optional as $field => [$column, $param]) {
+            if ($provided($field)) $updates[$column] = $values[$param];
+        }
+
         if ($vendorId > 0) {
             if (!$updateExisting) throw new RuntimeException('Enable update mode to change an existing vendor.');
-            $find = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND id = :id');
-            $find->execute(['t' => $tid, 'id' => $vendorId]);
-            if (!$find->fetchColumn()) throw new RuntimeException('Vendor ID does not belong to this company.');
-            $sets = ['vendor_name = :v'];
-            $params = ['t' => $tid, 'id' => $vendorId, 'v' => $values['v']];
-            foreach ($optional as $field => [$column, $param]) {
-                if (!$provided($field)) continue;
-                $sets[] = "{$column} = :{$param}";
-                $params[$param] = $values[$param];
-            }
-            $pdo->prepare('UPDATE ap_vendors_index SET ' . implode(', ', $sets)
-                . ' WHERE tenant_id = :t AND id = :id')->execute($params);
+            apUpdateVendorIdentity($pdo, $tid, $vendorId, $values['v'], $updates, (int) $user['id']);
             return $vendorId;
+        }
+
+        if ($updateExisting && $externalId !== null) {
+            $find = $pdo->prepare(
+                'SELECT id FROM ap_vendors_index
+                  WHERE tenant_id = :t AND source_system = :src AND external_id = :ext'
+            );
+            $find->execute(['t' => $tid, 'src' => $sourceSystem, 'ext' => $externalId]);
+            $externalVendorId = (int) $find->fetchColumn();
+            if ($externalVendorId > 0) {
+                apUpdateVendorIdentity($pdo, $tid, $externalVendorId, $values['v'], $updates, (int) $user['id']);
+                return $externalVendorId;
+            }
+        }
+
+        if ($updateExisting) {
+            $find = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
+            $find->execute(['t' => $tid, 'v' => $values['v']]);
+            $namedVendorId = (int) $find->fetchColumn();
+            if ($namedVendorId > 0) {
+                apUpdateVendorIdentity($pdo, $tid, $namedVendorId, $values['v'], $updates, (int) $user['id']);
+                return $namedVendorId;
+            }
         }
 
         $sql =
@@ -275,13 +328,6 @@ if ($method === 'POST' && $action === 'commit') {
                 payment_method, remit_to_email, remit_to_phone,
                 default_terms, tax_id_last4, requires_1099)
              VALUES (:t, :v, :ext, :src, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)';
-        if ($updateExisting) {
-            $assignments = ['vendor_name = VALUES(vendor_name)'];
-            foreach ($optional as $field => [$column]) {
-                if ($provided($field)) $assignments[] = "{$column} = VALUES({$column})";
-            }
-            $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(', ', $assignments);
-        }
         $pdo->prepare($sql)->execute(['t' => $tid] + $values);
         $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
         $findStmt->execute(['t' => $tid, 'v' => $values['v']]);
