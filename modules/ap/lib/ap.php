@@ -76,7 +76,7 @@ function apGeneratedExpenseAccountCode(array $line, string $vendorType): string
 function apValidateGeneratedBillExpenseAccounts(int $tenantId, array $codes): void
 {
     $lookup = getDB()->prepare(
-        'SELECT account_type, subtype, active, is_postable
+        'SELECT account_type, subtype, active, is_postable, is_system_account
            FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code LIMIT 1'
     );
     foreach (array_unique($codes) as $code) {
@@ -87,7 +87,9 @@ function apValidateGeneratedBillExpenseAccounts(int $tenantId, array $codes): vo
         $lookup->execute(['tenant_id' => $tenantId, 'code' => $code]);
         $account = $lookup->fetch(\PDO::FETCH_ASSOC);
         if (!$account || $account['account_type'] !== 'expense' || $account['subtype'] !== 'cogs'
-            || (int) $account['active'] !== 1 || (int) $account['is_postable'] !== 1) {
+            || (int) $account['active'] !== 1 || (int) $account['is_postable'] !== 1
+            || ((int) $account['is_system_account'] === 1
+                && !in_array($code, ['5010', '5070', '5080'], true))) {
             throw new \InvalidArgumentException(
                 "Account {$code} is not an active, postable direct-cost expense account."
             );

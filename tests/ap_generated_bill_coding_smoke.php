@@ -48,8 +48,9 @@ $assert(str_contains($bills, 'apBillCodingMode($bill, $storedLines)')
     'compare-and-swap coding accepts only valid generated direct-cost accounts');
 $assert(str_contains($detail, 'ap-bill-coding-required')
     && str_contains($detail, 'uncodedGenerated')
-    && str_contains($choices, "account.subtype === 'cogs'"),
-    'bill screen exposes coding gaps and limits generated choices to direct cost');
+    && str_contains($choices, "account.subtype === 'cogs'")
+    && str_contains($choices, "['5010', '5070', '5080']"),
+    'bill screen excludes payroll-tax system accounts from generated vendor coding');
 $assert(str_contains($accounts, 'account_type, subtype, statement_section, normal_side'),
     'accounts API supplies the classification required by the picker');
 

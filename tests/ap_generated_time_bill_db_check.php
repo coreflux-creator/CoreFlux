@@ -131,6 +131,13 @@ try {
     $pdo->prepare(
         'UPDATE accounting_accounts SET active = 1 WHERE tenant_id = :t AND code = "5070"'
     )->execute(['t' => $tenantId]);
+    $payrollTaxCodeRejected = false;
+    try {
+        apValidateGeneratedBillExpenseAccounts($tenantId, ['5020']);
+    } catch (InvalidArgumentException $error) {
+        $payrollTaxCodeRejected = str_contains($error->getMessage(), 'direct-cost expense account');
+    }
+    $assert($payrollTaxCodeRejected, 'generated vendor bills cannot be coded as employer payroll tax');
     $assert(count($draft['lines']) === 4
         && count(array_unique(array_column($draft['lines'], 'rate_snapshot_id'))) === 3,
         'same-day rate corrections remain separate and cent-sensitive entries do not merge');

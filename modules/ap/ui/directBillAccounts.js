@@ -19,7 +19,9 @@ export function directBillAccountChoices(rows) {
 }
 
 export function generatedBillAccountChoices(rows) {
+  const staffingSystemCodes = new Set(['5010', '5070', '5080']);
   return rows.filter(account => Number(account.active) === 1 && Number(account.is_postable) === 1
-    && account.account_type === 'expense' && account.subtype === 'cogs')
+    && account.account_type === 'expense' && account.subtype === 'cogs'
+    && (Number(account.is_system_account) !== 1 || staffingSystemCodes.has(account.code)))
     .map(account => ({ ...account, disabled: false }));
 }
