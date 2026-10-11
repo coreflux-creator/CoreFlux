@@ -112,6 +112,7 @@ try {
     if ($curl === false) throw new RuntimeException('HTTP login client unavailable.');
     curl_setopt_array($curl, [
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER => true,
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_TIMEOUT => 15,
         CURLOPT_COOKIEFILE => $cookie,
@@ -125,9 +126,16 @@ try {
     $login = curl_exec($curl);
     $loginStatus = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
     $location = (string) curl_getinfo($curl, CURLINFO_REDIRECT_URL);
+    $headerBytes = (int) curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+    $loginHeaders = substr((string) $login, 0, $headerBytes);
     curl_close($curl);
     $assert($login !== false && $loginStatus === 302 && !str_contains($location, 'error='),
         'disposable administrator signed in over HTTP');
+    $cookieJar = (string) file_get_contents($cookie);
+    $assert(str_contains($cookieJar, 'PHPSESSID'),
+        'HTTP login preserved a session cookie (redirect ' . $location
+        . '; set-cookie header ' . (stripos($loginHeaders, 'set-cookie:') !== false ? 'present' : 'absent')
+        . '; cookie jar bytes ' . strlen($cookieJar) . ')');
 
     $posted = $request('/modules/billing/api/invoices.php?action=post&id=' . $invoiceId, 'POST', []);
     $journalId = (int) ($posted['body']['journal_entry_id'] ?? 0);
