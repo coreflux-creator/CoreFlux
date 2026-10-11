@@ -56,6 +56,21 @@ $divergent = $matched;
 $divergent['counts']['matched']--;
 $refuses(static fn() => coreAccountingUpgradeMigrationCounts($divergent, 'qa_db'));
 
+$readySchema = ['database' => 'qa_db', 'status' => 'schema_ready',
+    'missing' => [], 'incompatible' => []];
+$expect(coreAccountingUpgradeSchemaResult($readySchema, 'qa_db')['status'] === 'schema_ready',
+    'A complete Accounting schema was rejected.');
+$refuses(static fn() => coreAccountingUpgradeSchemaResult($readySchema, 'other_db'));
+foreach (['missing', 'incompatible'] as $name) {
+    $incomplete = $readySchema;
+    $incomplete[$name] = ['accounting_bank_accounts legacy mapping'];
+    $incomplete['status'] = 'incomplete';
+    $refuses(static fn() => coreAccountingUpgradeSchemaResult($incomplete, 'qa_db'));
+}
+$incomplete = $readySchema;
+$incomplete['incompatible'] = ['accounting_bank_accounts legacy mapping'];
+$refuses(static fn() => coreAccountingUpgradeSchemaResult($incomplete, 'qa_db'));
+
 $fixture = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'coreaccounting-upgrade-inspect-'
     . bin2hex(random_bytes(6));
 if (!mkdir($fixture, 0700)) throw new RuntimeException('Could not prepare upgrade fixture.');

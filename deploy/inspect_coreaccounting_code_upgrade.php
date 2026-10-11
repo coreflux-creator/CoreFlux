@@ -76,6 +76,18 @@ function coreAccountingUpgradeMigrationCounts(array $result, string $database): 
     return $counts;
 }
 
+function coreAccountingUpgradeSchemaResult(array $result, string $database): array
+{
+    if (($result['database'] ?? null) !== $database
+        || ($result['status'] ?? null) !== 'schema_ready'
+        || !is_array($result['missing'] ?? null)
+        || !is_array($result['incompatible'] ?? null)
+        || $result['missing'] || $result['incompatible']) {
+        throw new RuntimeException('Code-only upgrade requires a complete, compatible Accounting schema.');
+    }
+    return $result;
+}
+
 function coreAccountingUpgradeAuditMigrations(string $package, string $database,
     string $dbConfig, string $origin): array
 {
@@ -103,6 +115,35 @@ function coreAccountingUpgradeAuditMigrations(string $package, string $database,
     $result = json_decode((string) $output, true);
     if (!is_array($result)) throw new RuntimeException('Migration audit did not return JSON.');
     return coreAccountingUpgradeMigrationCounts($result, $database);
+}
+
+function coreAccountingUpgradeVerifySchema(string $package, string $database,
+    string $dbConfig, string $origin): array
+{
+    $command = [PHP_BINARY, $package . '/public_html/deploy/bootstrap_coreaccounting.php',
+        '--verify-schema'];
+    $environment = getenv();
+    if (!is_array($environment)) $environment = [];
+    $environment['COREFLUX_ENV'] = 'coreaccounting';
+    $environment['COREFLUX_STANDALONE_WEBROOT'] = $package . '/public_html';
+    $environment['COREFLUX_STANDALONE_DATABASE'] = $database;
+    $environment['COREFLUX_ACCOUNTING_DB_CONFIG_PATH'] = $dbConfig;
+    $environment['COREFLUX_PUBLIC_ORIGIN'] = $origin;
+    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes, null, $environment);
+    if (!is_resource($process)) throw new RuntimeException('Could not start read-only schema verification.');
+    $output = stream_get_contents($pipes[1]);
+    $error = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+    if ($status !== 0) {
+        throw new RuntimeException('Code-only upgrade refused by schema verification: '
+            . trim((string) $output . ' ' . (string) $error));
+    }
+    $result = json_decode((string) $output, true);
+    if (!is_array($result)) throw new RuntimeException('Schema verification did not return JSON.');
+    return coreAccountingUpgradeSchemaResult($result, $database);
 }
 
 function coreAccountingUpgradeInspect(array $options): array
@@ -164,6 +205,7 @@ function coreAccountingUpgradeInspect(array $options): array
         $origin, $dbConfig, $privateRuntime . '/vendor/autoload.php', $mailLog);
     coreAccountingInstallVerifyCopied($webroot, $privateRuntime, $old, hash('sha256', $apache));
     $migrationCounts = coreAccountingUpgradeAuditMigrations($package, $database, $dbConfig, $origin);
+    $schema = coreAccountingUpgradeVerifySchema($package, $database, $dbConfig, $origin);
     return [
         'status' => 'ready_for_code_only_upgrade',
         'database' => $database,
@@ -176,6 +218,7 @@ function coreAccountingUpgradeInspect(array $options): array
         'release_public_files' => count($new['files']),
         'release_private_files' => count($new['private_files']),
         'migration_counts' => $migrationCounts,
+        'schema_status' => $schema['status'],
     ];
 }
 
