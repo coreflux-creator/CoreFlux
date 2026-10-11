@@ -71,6 +71,12 @@ $check('finance screens expose exact-run recovery after a tab reload without rei
     && str_contains($history, '<CsvImportRecoveryNotice onRecovered={fetchHistory} />')
     && str_contains($recovery, 'recoverCsvImportAudit({ runId: run.id })')
     && !str_contains($recovery, '?action=commit'));
+$check('bulk import distinguishes active work from an uncertain server outcome',
+    str_contains($bulk, "state: 'processing', input: auditInput")
+    && str_contains($bulk, "f.audit?.state === 'processing'")
+    && str_contains($bulk, "'Verifying server receipt…' : 'Importing…'")
+    && str_contains($bulk, "f.audit?.state === 'unconfirmed'")
+    && str_contains($bulk, 'recoverCsvImportAudit({ runId })'));
 $check('standalone can close only a server-verified unstarted run',
     str_contains($historyApi, "\$action === 'abandon_unstarted'")
     && str_contains($historyApi, 'coreAccountingCsvAbandonUnstarted(')

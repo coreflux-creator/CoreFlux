@@ -306,7 +306,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
             });
           }
           if (financeOnly) rememberCsvImportRun({ id: runId, entity: f.entity });
-          next[idx] = { ...f, audit: { id: runId, state: 'unconfirmed', input: auditInput } };
+          next[idx] = { ...f, audit: { id: runId, state: 'processing', input: auditInput } };
           setFiles([...next]);
           if (financeOnly) {
             await archiveCsvImportAudit({
@@ -574,6 +574,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
                     {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count > 0 ? 'Imported' : 'No rows imported'}</span>}
                     {f.audit?.state === 'logged' && <span data-testid={`csv-bulk-row-${idx}-audit-logged`}> · History #{f.audit.id}</span>}
                     {f.committed?.recovered_from_receipt && <span> · Recovered from server receipt</span>}
+                    {f.audit?.state === 'processing' && <span data-testid={`csv-bulk-row-${idx}-audit-processing`}> · {f.committed ? 'Verifying server receipt…' : 'Importing…'}</span>}
                     {f.audit?.state === 'source_missing' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · No records imported: source CSV not archived. Retry Import all. {f.audit.message}</span>}
                     {f.audit?.state === 'source_missing_after_commit' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · Source CSV not archived; keep the original file.</span>}
                     {f.audit?.state === 'source_missing_after_commit' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-source-retry`}>Retry source archive</button>}
