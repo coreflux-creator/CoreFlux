@@ -113,9 +113,10 @@ $a('post-create attach via uploadFileViaPresignedPost', strpos($bc, 'uploadFileV
                                                      && strpos($bc, "action=upload_url&id=") !== false
                                                      && strpos($bc, "action=attach&id=") !== false);
 $billDetail = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/BillDetail.jsx');
+$billNavigation = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/billNavigation.mjs');
 $a('attach failure keeps bill and points to a retry in detail',
-    strpos($bc, "detailParams.set('attach_error', '1')") !== false
-    && strpos($bc, 'nav(`../bills/${res.id}?${detailParams}`)') !== false
+    strpos($bc, 'billDetailUrl(res.id, contextParams, res.entity_id ?? entityId, true)') !== false
+    && strpos($billNavigation, "params.set('attach_error', '1')") !== false
     && strpos($billDetail, 'data-testid="ap-bill-attachment-warning"') !== false
     && strpos($billDetail, 'href="#ap-bill-evidence-section"') !== false);
 $a('VendorQuickCreate renders conditionally',       strpos($bc, '{showCreateVendor && (') !== false);
