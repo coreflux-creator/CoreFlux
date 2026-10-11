@@ -26,7 +26,7 @@ const result = await build({
 });
 const module = { exports: {} };
 new Function('module', 'exports', result.outputFiles[0].text)(module, module.exports);
-const { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit } = module.exports;
+const { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit } = module.exports;
 
 test('reservation fails closed without a persisted ID', async () => {
   globalThis.csvAuditTestApi = { post: async () => ({ recorded: true, id: null }) };
@@ -85,6 +85,41 @@ test('standalone refuses missing or conflicting server counts', async () => {
   await assert.rejects(finalizeCsvImportAudit({
     runId: 42, result: { imported_count: 1, skipped_count: 0 }, startedAt: Date.now(),
   }), /does not match/);
+});
+
+test('lost response recovers only a finalized server-owned outcome', async () => {
+  const calls = [];
+  globalThis.csvAuditTestApi = { post: async (path, body) => {
+    calls.push({ path, body });
+    return { recorded: true, id: 42, server_outcome_recorded: true,
+      rows_total: 3, rows_imported: 2, rows_skipped: 1, status: 'partial' };
+  } };
+  const receipt = await recoverCsvImportAudit({ runId: 42 });
+  assert.match(calls[0].path, /csv_import_history\.php\?action=finalize$/);
+  assert.deepEqual(calls[0].body, { id: 42 });
+  assert.equal(receipt.result.imported_count, 2);
+  assert.equal(receipt.result.skipped_count, 1);
+  assert.equal(receipt.result.status, 'partial');
+  assert.equal(receipt.result.recovered_from_receipt, true);
+});
+
+test('lost response cannot treat an unconfirmed or mismatched run as imported', async () => {
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 42, rows_total: 1, rows_imported: 1, rows_skipped: 0, status: 'success',
+  }) };
+  await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /No verified server outcome/);
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 43, server_outcome_recorded: true,
+    rows_total: 1, rows_imported: 1, rows_skipped: 0, status: 'success',
+  }) };
+  await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /No verified server outcome/);
+  globalThis.csvAuditTestApi = { post: async () => ({
+    recorded: true, id: 42, server_outcome_recorded: true,
+    rows_total: 1, rows_imported: 2, rows_skipped: 0, status: 'success',
+  }) };
+  await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /No verified server outcome/);
+  globalThis.csvAuditTestApi = { post: async () => { throw new Error('server outcome still unconfirmed'); } };
+  await assert.rejects(recoverCsvImportAudit({ runId: 42 }), /still unconfirmed/);
 });
 
 test('failed finalization never attempts source attachment', async () => {

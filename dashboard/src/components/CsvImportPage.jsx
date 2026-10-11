@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
-import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit } from '../../../dashboard/src/lib/csvImportAudit';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit } from '../../../dashboard/src/lib/csvImportAudit';
 
 /**
  * Shared CSV Import flow — built on Core\CsvImportService.
@@ -286,7 +286,17 @@ export default function CsvImportPage({
         }
       }
     } catch (e) {
-      if (runId) {
+      if (standaloneAccounting && runId && sourceArchived) {
+        try {
+          const receipt = await recoverCsvImportAudit({ runId });
+          setCommitted(receipt.result);
+          setAuditRun({ id: receipt.id, state: 'logged', input: auditInput });
+          setError(null);
+          return;
+        } catch (recoveryError) {
+          setAuditRun({ id: runId, state: 'unconfirmed', input: auditInput, message: recoveryError.message });
+        }
+      } else if (runId) {
         setAuditRun({ id: runId, state: sourceArchived ? 'unconfirmed' : 'source_missing', input: auditInput, message: e.message });
       }
       setError(runId && sourceArchived
@@ -314,6 +324,19 @@ export default function CsvImportPage({
     } finally { setRunning(false); }
   };
 
+  const checkServerOutcome = async () => {
+    if (!standaloneAccounting || !auditRun?.id || auditRun.state !== 'unconfirmed' || committed || running) return;
+    setRunning(true);
+    try {
+      const receipt = await recoverCsvImportAudit({ runId: auditRun.id });
+      setCommitted(receipt.result);
+      setAuditRun({ id: receipt.id, state: 'logged', input: auditRun.input });
+      setError(null);
+    } catch (e) {
+      setAuditRun({ id: auditRun.id, state: 'unconfirmed', input: auditRun.input, message: e.message });
+    } finally { setRunning(false); }
+  };
+
   const reset = () => {
     setCsvText(''); setSourceFile(null); setFileName(''); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
     setInspectResult(null); setColumnMap(null);
@@ -326,7 +349,8 @@ export default function CsvImportPage({
   const rowsArr = preview ? Object.entries(preview.rows || {}) : [];
   const errorsByRow = preview?.errors || {};
   const committedErrors = committed ? Object.entries(committed.errors || {}) : [];
-  const importedLinks = committed && typeof resultLinks === 'function' ? resultLinks(committed) || [] : [];
+  const importedLinks = committed && !committed.recovered_from_receipt && typeof resultLinks === 'function'
+    ? resultLinks(committed) || [] : [];
 
   return (
     <section data-testid={testidPrefix}>
@@ -409,6 +433,14 @@ export default function CsvImportPage({
         )}
 
         {error && <p className="error" data-testid={`${testidPrefix}-error`}>Error: {error.message}</p>}
+        {standaloneAccounting && auditRun?.state === 'unconfirmed' && !committed && (
+          <div className="error" data-testid={`${testidPrefix}-audit-unconfirmed`}>
+            Run #{auditRun.id} needs review. Do not import this file again.
+            {auditRun.message && <p>{auditRun.message}</p>}
+            <button className="btn" onClick={checkServerOutcome} disabled={running} data-testid={`${testidPrefix}-check-server-outcome`}>Check server outcome</button>
+            {' '}<Link to="/modules/accounting/import-history">View import history</Link>
+          </div>
+        )}
 
         {inspecting && (
           <p data-testid={`${testidPrefix}-inspecting`} style={{ color: 'var(--cf-text-secondary)' }}>
@@ -660,6 +692,7 @@ export default function CsvImportPage({
               <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}imported,{' '}
               <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> {groupLabel ? `${groupLabel}s ` : ''}skipped.
             </p>
+            {committed.recovered_from_receipt && <p data-testid={`${testidPrefix}-recovered-result`}>Outcome recovered from the server receipt. Open Import History for row details.</p>}
             {importedLinks.length > 0 && (
               <div data-testid={`${testidPrefix}-result-links`} style={{ margin: '8px 0 14px' }}>
                 <strong>{groupLabel ? `Imported ${groupLabel}s` : 'Imported records'}</strong>

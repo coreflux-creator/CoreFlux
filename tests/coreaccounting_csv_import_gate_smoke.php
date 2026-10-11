@@ -72,8 +72,18 @@ foreach ($entities as $path => $entity) {
         substr_count($commitSource, 'coreAccountingRecordCsvImportOutcome(') > 0
         && substr_count($commitSource, 'api_ok(') === substr_count($commitSource, 'coreAccountingRecordCsvImportOutcome('));
 }
-$assert('single importer sends run identity', str_contains($read('dashboard/src/components/CsvImportPage.jsx'), 'body.import_run_id = runId'));
-$assert('bulk importer sends run identity', str_contains($read('dashboard/src/pages/CsvBulkImport.jsx'), 'body.import_run_id = runId'));
+$single = $read('dashboard/src/components/CsvImportPage.jsx');
+$bulk = $read('dashboard/src/pages/CsvBulkImport.jsx');
+$assert('single importer sends run identity', str_contains($single, 'body.import_run_id = runId'));
+$assert('bulk importer sends run identity', str_contains($bulk, 'body.import_run_id = runId'));
+$assert('single importer can recover a lost response without another source commit',
+    str_contains($single, 'recoverCsvImportAudit({ runId })')
+    && str_contains($single, 'checkServerOutcome')
+    && str_contains($single, 'Check server outcome'));
+$assert('bulk importer can recover a lost response without another source commit',
+    str_contains($bulk, 'recoverCsvImportAudit({ runId })')
+    && str_contains($bulk, "f.audit?.state === 'unconfirmed' && (f.committed || financeOnly)")
+    && str_contains($bulk, 'Check server outcome'));
 $history = $read('api/admin/csv_import_history.php');
 $assert('unconfirmed standalone run cannot be client-finalized', str_contains($history,
     "if (getenv('COREFLUX_ENV') === 'coreaccounting')")

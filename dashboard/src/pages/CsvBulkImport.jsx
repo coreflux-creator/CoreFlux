@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
-import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit } from '../lib/csvImportAudit';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit } from '../lib/csvImportAudit';
 
 /**
  * Tenant Onboarding — Bulk CSV Import Wizard.
@@ -331,9 +331,18 @@ export default function CsvBulkImport({ financeOnly = false }) {
             next[idx] = { ...next[idx], audit: { id: runId, state: 'unconfirmed', input: auditInput, message: auditError.message } };
           }
         } catch (err) {
-          next[idx] = {
+          let recovered = null;
+          let recoveryError = null;
+          if (financeOnly && runId && sourceArchived) {
+            try { recovered = await recoverCsvImportAudit({ runId }); }
+            catch (error) { recoveryError = error; }
+          }
+          next[idx] = recovered ? {
+            ...next[idx], committed: recovered.result, error: null,
+            audit: { id: recovered.id, state: 'logged', input: auditInput },
+          } : {
             ...next[idx], committed: null,
-            audit: runId ? { id: runId, state: sourceArchived ? 'unconfirmed' : 'source_missing', input: auditInput, message: err.message } : next[idx].audit,
+            audit: runId ? { id: runId, state: sourceArchived ? 'unconfirmed' : 'source_missing', input: auditInput, message: recoveryError?.message || err.message } : next[idx].audit,
             error: runId && !sourceArchived ? null : runId
               ? new Error(`Import outcome unconfirmed. Check Import History and source records before retrying. ${err.message}`)
               : err,
@@ -346,18 +355,21 @@ export default function CsvBulkImport({ financeOnly = false }) {
 
   const retryAudit = async (idx) => {
     const f = files[idx];
-    if (!f?.committed || !f.audit?.id || busy) return;
+    if ((!f?.committed && !financeOnly) || !f?.audit?.id || busy) return;
     setBusy(true);
     try {
-      const receipt = await finalizeCsvImportAudit({
-        runId: f.audit.id, result: f.committed, startedAt: Date.now(),
-        postCommitSource: financeOnly ? null : {
-          csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
-          entity: f.entity, columnMap: f.columnMap,
-        },
-      });
+      const receipt = !f.committed
+        ? await recoverCsvImportAudit({ runId: f.audit.id })
+        : await finalizeCsvImportAudit({
+          runId: f.audit.id, result: f.committed, startedAt: Date.now(),
+          postCommitSource: financeOnly ? null : {
+            csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+            entity: f.entity, columnMap: f.columnMap,
+          },
+        });
       setFiles(prev => prev.map((row, i) => i === idx
-        ? { ...row, audit: { id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: f.audit.input } }
+        ? { ...row, committed: row.committed || receipt.result, error: null,
+          audit: { id: receipt.id, state: (receipt.result || receipt.sourceAttached) ? 'logged' : 'source_missing_after_commit', input: f.audit.input } }
         : row));
     } catch (err) {
       setFiles(prev => prev.map((row, i) => i === idx
@@ -552,13 +564,14 @@ export default function CsvBulkImport({ financeOnly = false }) {
                   </td>
                   <td>
                     {f.error && <span style={{ color: '#c0392b' }}>Error: {f.error.message}</span>}
-                    {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>Imported</span>}
+                    {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count > 0 ? 'Imported' : 'No rows imported'}</span>}
                     {f.audit?.state === 'logged' && <span data-testid={`csv-bulk-row-${idx}-audit-logged`}> · History #{f.audit.id}</span>}
+                    {f.committed?.recovered_from_receipt && <span> · Recovered from server receipt</span>}
                     {f.audit?.state === 'source_missing' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · No records imported: source CSV not archived. Retry Import all. {f.audit.message}</span>}
                     {f.audit?.state === 'source_missing_after_commit' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · Source CSV not archived; keep the original file.</span>}
                     {f.audit?.state === 'source_missing_after_commit' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-source-retry`}>Retry source archive</button>}
                     {f.audit?.state === 'unconfirmed' && <span className="error" data-testid={`csv-bulk-row-${idx}-audit-unconfirmed`}> · Run #{f.audit.id} needs review. Do not import again. {f.audit.message}</span>}
-                    {f.audit?.state === 'unconfirmed' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-audit-retry`}>Retry history only</button>}
+                    {f.audit?.state === 'unconfirmed' && (f.committed || financeOnly) && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-audit-retry`}>{f.committed ? 'Retry history only' : 'Check server outcome'}</button>}
                     {!f.error && !f.audit?.id && !f.committed && f.preview && (
                       f.preview.error_count > 0
                         ? <span style={{ color: '#a16207' }}>⚠ {f.preview.error_count} rows have errors</span>

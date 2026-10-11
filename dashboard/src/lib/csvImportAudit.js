@@ -56,3 +56,29 @@ export async function finalizeCsvImportAudit({ runId, result, startedAt, postCom
   const attachment = await attachCsvToImportRun({ importRunId: runId, ...postCommitSource });
   return { id: runId, sourceAttached: !!attachment?.csv?.id };
 }
+
+export async function recoverCsvImportAudit({ runId }) {
+  const receipt = await api.post(`${HISTORY}?action=finalize`, { id: runId });
+  const imported = Number(receipt?.rows_imported);
+  const skipped = Number(receipt?.rows_skipped);
+  const total = Number(receipt?.rows_total);
+  if (!receipt?.recorded || receipt.id !== runId || !receipt.server_outcome_recorded
+    || !['success', 'partial', 'failed'].includes(receipt.status)
+    || ![imported, skipped, total].every(value => Number.isSafeInteger(value) && value >= 0)
+    || total < imported + skipped) {
+    throw new Error('No verified server outcome is available. Check Import History and source records before retrying.');
+  }
+  return {
+    id: runId,
+    result: {
+      imported_count: imported,
+      skipped_count: skipped,
+      imported_row_count: imported,
+      skipped_row_count: skipped,
+      row_count: total,
+      errors: {},
+      status: receipt.status,
+      recovered_from_receipt: true,
+    },
+  };
+}
