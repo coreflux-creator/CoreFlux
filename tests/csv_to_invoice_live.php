@@ -261,10 +261,19 @@ try {
     if (!$message || $outbox->fetch(PDO::FETCH_ASSOC) !== false
         || $message['driver'] !== 'log' || $message['status'] !== 'sent'
         || json_decode((string) $message['to_addresses_json'], true) !== ['ci-billing-recipient@coreflux.test']
-        || !str_contains((string) $message['body_text'], (string) $delivery['url'])
+        || !str_contains((string) $message['body_text'], 'View online: [redacted]')
+        || str_contains((string) $message['body_text'], (string) $delivery['url'])
         || (!empty($delivery['pdf_attached']) && !str_contains((string) $message['body_text'], 'attached'))
         || (empty($delivery['pdf_attached']) && str_contains((string) $message['body_text'], 'attached'))) {
         throw new RuntimeException('Delivered invoice is not accurately recorded in the log-only outbox: ' . json_encode($message));
+    }
+    parse_str((string) parse_url((string) $delivery['url'], PHP_URL_QUERY), $viewQuery);
+    $token = $pdo->prepare('SELECT token_hash, delivery_status FROM billing_invoice_tokens WHERE tenant_id = :t AND id = :id');
+    $token->execute(['t' => $tenantId, 'id' => (int) $delivery['token_id']]);
+    $tokenRow = $token->fetch(PDO::FETCH_ASSOC);
+    if (!$tokenRow || $tokenRow['delivery_status'] !== 'sent'
+        || !hash_equals((string) $tokenRow['token_hash'], hash('sha256', (string) ($viewQuery['t'] ?? '')))) {
+        throw new RuntimeException('Delivered invoice link does not match its persisted token hash');
     }
 
     [$status, $sentDetail] = ciBusinessApi($curl, $base, 'GET', '/modules/billing/api/invoices.php?id=' . $invoiceId);
