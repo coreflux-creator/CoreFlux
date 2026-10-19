@@ -26,6 +26,7 @@ require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
+$placementTenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
 
 const ALLOWED_STATUS = ['draft','pending_start','active','on_hold','ended','cancelled'];
 const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal','referral'];
@@ -544,7 +545,7 @@ if ($method === 'POST') {
                 companiesBumpUsage((int) $co['id']);
             }
         } elseif (!empty($insert['end_client_name'])) {
-            $cid = companiesUpsertByName(currentTenantId(), (string) $insert['end_client_name'], [
+            $cid = companiesUpsertByName($placementTenantId, (string) $insert['end_client_name'], [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['client']);
             $insert['end_client_company_id'] = $cid;
@@ -552,7 +553,7 @@ if ($method === 'POST') {
         }
         if (!empty($insert['end_client_company_id']) || !empty($insert['end_client_name'])) {
             $clientRef = staffingClientEnsureForCompany(
-                currentTenantId(),
+                $placementTenantId,
                 !empty($insert['end_client_company_id']) ? (int) $insert['end_client_company_id'] : null,
                 (string) ($insert['end_client_name'] ?? ''),
                 ['created_by_user_id' => $user['id'] ?? null]
@@ -706,7 +707,7 @@ if ($method === 'PATCH') {
         }
         $clientName = trim((string) ($body['end_client_name'] ?? $existing['end_client_name'] ?? ''));
         if ($companyId || $clientName !== '') {
-            $clientRef = staffingClientEnsureForCompany(currentTenantId(), $companyId, $clientName, [
+            $clientRef = staffingClientEnsureForCompany($placementTenantId, $companyId, $clientName, [
                 'created_by_user_id' => $user['id'] ?? null,
             ]);
             $body['client_id'] = $clientRef['client_id'];

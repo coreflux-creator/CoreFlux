@@ -64,8 +64,11 @@ jobs:
             modules/billing/api/invoices.php \
             modules/billing/lib/billing.php \
             modules/billing/migrations/012_economic_item_source.sql \
+            modules/placements/api/cycles.php \
             modules/placements/api/economics.php \
+            modules/placements/api/placements.php \
             modules/placements/lib/economics.php \
+            modules/people/lib/companies.php \
             modules/placements/ui/PlacementDetail.jsx \
             modules/time/lib/settlement_create.php \
             "${ROOT_ASSETS[@]}" \
@@ -76,6 +79,8 @@ jobs:
             tests/placement_rate_source_repair_smoke.php \
             tests/placement_one_time_items_smoke.php \
             tests/tenant_staffing_economics_defaults_smoke.php \
+            tests/staffing_economics_tenant_scope_smoke.php \
+            tests/placement_client_save_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/jobdiva_contract_projection_smoke.php
 
@@ -143,7 +148,10 @@ jobs:
             php -l modules/placements/lib/economics.php
             php -l core/staffing_economics.php
             php -l core/jobdiva/sync.php
+            php -l modules/placements/api/cycles.php
             php -l modules/placements/api/economics.php
+            php -l modules/placements/api/placements.php
+            php -l modules/people/lib/companies.php
             php -l modules/billing/lib/billing.php
             php -l modules/billing/api/invoices.php
             php -l modules/ap/lib/ap.php
@@ -153,6 +161,8 @@ jobs:
             php tests/placement_commercial_contract_smoke.php
             php tests/placement_rate_source_repair_smoke.php
             php tests/tenant_staffing_economics_defaults_smoke.php
+            php tests/staffing_economics_tenant_scope_smoke.php
+            php tests/placement_client_save_smoke.php
             php tests/staffing_economic_graph_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
 

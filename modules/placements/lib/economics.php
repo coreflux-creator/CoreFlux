@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
+require_once __DIR__ . '/placements.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
 {
@@ -473,6 +474,7 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
 
 function placementEconomicsReconcile(int $tenantId, int $placementId, array $options = []): array
 {
+    $tenantId = (int) placementsGraphTenantId($tenantId);
     $summary = ['available' => true, 'placement_id' => $placementId, 'written' => 0, 'source_refs' => [], 'errors' => []];
     if ($tenantId <= 0 || $placementId <= 0) return $summary;
 
@@ -1053,6 +1055,7 @@ function placementEconomicsReceivableContract(
 
 function placementEconomicsContext(int $tenantId, int $placementId, bool $reconcile = true): array
 {
+    $tenantId = (int) placementsGraphTenantId($tenantId);
     $reconcileResult = $reconcile ? placementEconomicsReconcile($tenantId, $placementId) : ['available' => true];
     if (empty($reconcileResult['available'])) {
         return ['available' => false, 'parties' => [], 'cycles' => [], 'readiness' => [], 'reconcile' => $reconcileResult];
