@@ -115,6 +115,24 @@ $failedWrite = $failedLog->send(['tenant_id' => 7, 'module' => 'billing', 'purpo
 $assert('unwritable test mail log cannot claim delivery',
     ($failedWrite['status'] ?? null) === 'failed' && empty($failedWrite['provider_message_id']));
 
+$priorLogPath = getenv('MAIL_LOG_PATH');
+putenv('MAIL_LOG_PATH');
+try {
+    $defaultLog = new LogDriver();
+    $defaultResult = $defaultLog->send(['tenant_id' => 7, 'module' => 'billing',
+        'purpose' => 'invoice_sent', 'to' => ['test@example.test'], 'subject' => 'Hosted test invoice']);
+    $defaultPath = $defaultLog->log_path();
+    $assert('unconfigured hosted log writes without an /app directory',
+        ($defaultResult['status'] ?? '') === 'sent' && is_file($defaultPath)
+        && str_contains((string) file_get_contents($defaultPath), 'Hosted test invoice'));
+    $assert('default test mail log is private on Unix',
+        PHP_OS_FAMILY === 'Windows' || (fileperms($defaultPath) & 0777) === 0600);
+    $assert('same log driver instance retains its log path', $defaultLog->log_path() === $defaultPath);
+} finally {
+    if (isset($defaultPath)) @unlink($defaultPath);
+    $priorLogPath === false ? putenv('MAIL_LOG_PATH') : putenv('MAIL_LOG_PATH=' . $priorLogPath);
+}
+
 echo "\nDuplicate recipients deduped\n";
 $res2 = $svc->send(7, 'time', 'x', ['a@b.co', 'a@b.co', 'c@d.co'], 'subj', 'body');
 $row2 = end($outbox);

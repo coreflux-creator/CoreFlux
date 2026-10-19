@@ -18,14 +18,15 @@ namespace Core\Mail;
 
 class LogDriver implements MailDriver
 {
-    private string $logPath;
+    private ?string $logPath;
 
     public function __construct(?string $logPath = null)
     {
-        $this->logPath = $logPath
-            ?? (getenv('MAIL_LOG_PATH') ?: '/app/storage/_dev/mail_outbox.log');
-        $dir = dirname($this->logPath);
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $this->logPath = $logPath ?? (getenv('MAIL_LOG_PATH') ?: null);
+        if ($this->logPath !== null) {
+            $dir = dirname($this->logPath);
+            if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        }
     }
 
     public function poll(int $folderId, ?string $cursor): array
@@ -49,7 +50,7 @@ class LogDriver implements MailDriver
             'attach_n'  => count($envelope['attachments'] ?? []),
         ], JSON_UNESCAPED_SLASHES);
 
-        if ($line === false || @file_put_contents($this->logPath, $line . "\n", FILE_APPEND | LOCK_EX) !== strlen($line) + 1) {
+        if ($line === false || @file_put_contents($this->log_path(), $line . "\n", FILE_APPEND | LOCK_EX) !== strlen($line) + 1) {
             return [
                 'provider_message_id' => null,
                 'sent_at'             => null,
@@ -72,5 +73,16 @@ class LogDriver implements MailDriver
     public function driver_name(): string { return 'log'; }
 
     /** Test helper: returns the log path so tests can assert on contents. */
-    public function log_path(): string { return $this->logPath; }
+    public function log_path(): string
+    {
+        if ($this->logPath === null) {
+            // Unconfigured test hosts may have no /app directory. Create a
+            // private (0600) log owned by the worker only when it is needed.
+            // MAIL_LOG_PATH still enables a configured, shared log.
+            $path = @tempnam(sys_get_temp_dir(), 'coreflux-mail-');
+            if ($path === false) throw new \RuntimeException('Could not create a private test mail log');
+            $this->logPath = $path;
+        }
+        return $this->logPath;
+    }
 }
