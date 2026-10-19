@@ -93,7 +93,8 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
         $stmt->execute(['document_id' => $documentId, 'other_document_id' => $documentId, 'placements_tid' => effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId,
             't' => $tenantId, 'id' => $sourceId, 'p' => $placementId]);
     }
-    $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $entries = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
+        static fn(array $entry): bool => (int) $entry[$side === 'ar' ? 'billable' : 'payable'] === 1));
     if (!$entries) throw new RuntimeException('The approved time behind this document line is unavailable.');
     if (abs(array_sum(array_column($entries, 'hours')) - (float) $line['quantity']) > 0.0001) {
         throw new RuntimeException('The document line combines different approved rate or dimension snapshots. Rebuild its draft from approved time.');
@@ -111,7 +112,19 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
         $eventStmt->execute(['t' => $tenantId, 'segment' => $base . ':segment:' . substr((string) ($entry['dimension_snapshot_hash'] ?? ''), 0, 24),
             'assignment' => $base, 'legacy' => $entry['timesheet_id'] . ':' . $engagement]);
         $events = $eventStmt->fetchAll(PDO::FETCH_ASSOC);
-        if (!$events) { $missing++; continue; }
+        if (!$events) {
+            if ($type === 'time_entry') {
+                $legacyCheck = $pdo->prepare('SELECT je.id FROM time_downstream_feed bundle
+                    JOIN accounting_journal_entries je ON je.tenant_id = bundle.tenant_id
+                      AND je.source_module = "time" AND je.source_ref_type = "time_bundle" AND je.source_ref_id = bundle.id
+                    WHERE bundle.tenant_id = :t AND bundle.period_id = :period AND bundle.placement_id = :p
+                      AND bundle.bundle_type = :side LIMIT 1');
+                $legacyCheck->execute(['t' => $tenantId, 'period' => $entry['period_id'], 'p' => $placementId, 'side' => $side]);
+                if ($legacyCheck->fetchColumn()) throw new RuntimeException('This time was accrued as a period bundle. Rebuild the document from that bundle.');
+            }
+            $missing++;
+            continue;
+        }
         if (count($events) !== 1 || $events[0]['status'] !== 'posted') {
             throw new RuntimeException('Staffing recognition is incomplete or ambiguous. Repair the source event before posting.');
         }
@@ -129,6 +142,10 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
         $unitRate = $side === 'ar' ? (float) ($rate['adjusted_bill_rate'] ?? max(0,
             (float) $rate['bill_rate'] * (1 + (float) ($rate['bill_adder_pct'] ?? 0) - (float) ($rate['bill_discount_pct'] ?? 0))
             + (float) ($rate['bill_adder_flat'] ?? 0) - (float) ($rate['bill_discount_flat'] ?? 0))) : (float) $rate['pay_rate'];
+        if ($side === 'ap' && $engagement === 'referral') {
+            $unitRate = (float) ($snapshot['referral_fee_per_hour'] ?? 0);
+            $multiplier = 1.0;
+        }
         $part['weight'] = (float) $entry['hours'] * $unitRate * $multiplier;
         $parts[] = $part;
     }

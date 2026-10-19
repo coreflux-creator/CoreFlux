@@ -34,7 +34,7 @@ echo "\n1. accountingEnsureAccrualAccounts — still defined + idempotent shape\
 $a('function declared', function_exists('accountingEnsureAccrualAccounts'));
 $lib = (string) file_get_contents($root . '/modules/accounting/lib/multi_period.php');
 $a('checks accounting_accounts for existing code (no double-insert)',
-   str_contains($lib, "SELECT id FROM accounting_accounts WHERE tenant_id = :t AND account_code = :c LIMIT 1"));
+   str_contains($lib, "SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1"));
 $a('AR Unbilled inserted as account_type=asset',
    str_contains($lib, "'AR Unbilled (Accrued Revenue)', 'asset'"));
 $a('AP Accrued inserted as account_type=liability',
