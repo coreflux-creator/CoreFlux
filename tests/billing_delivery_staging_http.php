@@ -112,8 +112,11 @@ try {
         WHERE tenant_id = :t AND id = :id AND entity_id = :e',
         ['t' => QA_TENANT, 'id' => $invoiceId, 'e' => $first]);
     if (!$invoiceRow) throw new RuntimeException('Posted invoice not found in its entity.');
+    $deliveryRequest = [
+        'request_id' => '00000000-0000-4000-8000-' . str_pad(dechex($invoiceId), 12, '0', STR_PAD_LEFT),
+    ];
     $sent = qaRequest('/modules/billing/api/invoices.php?action=send&id=' . $invoiceId,
-        'POST', [], $makerCookie);
+        'POST', $deliveryRequest, $makerCookie);
     qaExpect(($sent['email_status'] ?? null) === 'sent' && !empty($sent['pdf_attached']),
         'log-only invoice send rendered and attached its PDF');
     $invoiceOutbox = qaOne($pdo, 'SELECT id, driver, status, to_addresses_json,
@@ -130,6 +133,16 @@ try {
         && is_array($invoiceAttachments) && count($invoiceAttachments) === 1
         && str_ends_with((string) ($invoiceAttachments[0]['filename'] ?? ''), '.pdf'),
         'invoice outbox records the correct recipient, reply address and PDF');
+    $replayed = qaRequest('/modules/billing/api/invoices.php?action=send&id=' . $invoiceId,
+        'POST', $deliveryRequest, $makerCookie);
+    $deliveryCount = qaOne($pdo, 'SELECT COUNT(*) AS n FROM mail_outbox
+        WHERE tenant_id = :t AND module = "billing" AND purpose = "invoice_sent"
+          AND subject LIKE :subject',
+        ['t' => QA_TENANT, 'subject' => '%' . $invoiceRow['invoice_number'] . '%']);
+    qaExpect(!empty($replayed['already_sent'])
+        && (int) ($replayed['token_id'] ?? 0) === (int) ($sent['token_id'] ?? -1)
+        && (int) ($deliveryCount['n'] ?? -1) === 1,
+        'retrying the same delivery request does not send another invoice email');
 
     $preview = qaRequest('/modules/billing/api/send_statement.php?entity_id=' . $first
         . '&client_name=' . rawurlencode($client) . '&as_of=' . $date,
