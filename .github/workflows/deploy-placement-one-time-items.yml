@@ -2,6 +2,11 @@ name: Deploy placement one-time items
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnose_only:
+        description: Read staffing schema and query diagnostics without deploying
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,7 +16,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  diagnose:
+    if: ${{ inputs.diagnose_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect staffing graph prerequisites without writes
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
+            test -f "$APP_ROOT/core/db.php"
+            cd "$APP_ROOT"
+            php <<'PHP'
+            <?php
+            require 'core/db.php';
+            $db = getDB();
+            $db->exec('SET SESSION TRANSACTION READ ONLY');
+            $db->beginTransaction();
+            $queries = [
+                'placement source query' => 'SELECT p.id, pe.pay_frequency, ec.payment_terms_days, sc.payment_terms_days, t.billing_invoice_terms FROM placements p LEFT JOIN people pe ON pe.id=p.person_id AND pe.tenant_id=p.tenant_id LEFT JOIN companies ec ON ec.id=p.end_client_company_id AND ec.tenant_id=p.tenant_id LEFT JOIN staffing_clients sc ON sc.id=p.client_id AND sc.tenant_id=p.tenant_id LEFT JOIN tenants t ON t.id=p.tenant_id WHERE p.tenant_id=0 AND p.id=0',
+                'party schema' => 'SELECT payment_terms_overridden, pwp_overridden, cycle_overridden, operating_cycle_id FROM placement_economic_parties LIMIT 0',
+                'operating cycles' => 'SELECT id, purpose, cadence FROM staffing_operating_cycles LIMIT 0',
+                'referral source' => 'SELECT r.id, c.name, pe.first_name, u.name FROM placement_referrals r LEFT JOIN companies c ON c.id=r.referrer_company_id AND c.tenant_id=r.tenant_id LEFT JOIN people pe ON pe.id=r.referrer_person_id AND pe.tenant_id=r.tenant_id LEFT JOIN users u ON u.id=r.referrer_user_id LIMIT 0',
+                'vendor schema' => 'SELECT company_id, default_terms, default_pwp, placement_id_last FROM ap_vendors_index LIMIT 0',
+            ];
+            foreach ($queries as $label => $sql) {
+                try { $db->query($sql)->closeCursor(); echo "PASS: $label\n"; }
+                catch (Throwable $e) { echo "FAIL: $label: ", $e->getMessage(), "\n"; }
+            }
+            foreach (['126_staffing_economic_graph.sql', '127_staffing_contract_terms.sql'] as $file) {
+                $q = $db->prepare('SELECT filename, last_error FROM _migrations WHERE filename=:file');
+                $q->execute(['file' => $file]);
+                echo json_encode($q->fetch(PDO::FETCH_ASSOC) ?: ['missing' => $file]), "\n";
+            }
+            $db->rollBack();
+            PHP
+
   deploy:
+    if: ${{ !inputs.diagnose_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
