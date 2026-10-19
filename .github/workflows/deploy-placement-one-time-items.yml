@@ -215,6 +215,21 @@ jobs:
             require 'core/db.php';
             $pdo = getDB();
             if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'muzqvdvqbx') exit(2);
+            require 'core/mail_bootstrap.php';
+            $mail = cf_mail_bootstrap();
+            $log = $mail->driver('log');
+            $logPath = $log ? $log->log_path() : '';
+            echo json_encode(['mail_driver' => $mail->default_driver_name(),
+              'mail_log_path' => $logPath,
+              'mail_log_exists' => is_file($logPath),
+              'mail_log_writable_cli' => is_writable($logPath),
+              'mail_log_parent_writable_cli' => is_writable(dirname($logPath))], JSON_UNESCAPED_SLASHES), "\n";
+            $attempts = $pdo->query('SELECT i.id AS invoice_id, t.delivery_status, t.delivery_error,
+                t.delivery_started_at, t.delivery_finished_at
+              FROM billing_invoice_tokens t JOIN billing_invoices i ON i.id=t.invoice_id AND i.tenant_id=t.tenant_id
+              WHERE i.tenant_id=999 AND i.notes_internal LIKE "Synthetic staging delivery acceptance %"
+              ORDER BY t.id DESC LIMIT 3')->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['synthetic_delivery_attempts' => $attempts], JSON_UNESCAPED_SLASHES), "\n";
             $ledger = $pdo->query('SELECT filename, sha256 FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_KEY_PAIR);
             echo json_encode([
               'database_identity_verified' => true,
