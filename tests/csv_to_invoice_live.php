@@ -140,6 +140,9 @@ try {
         || count($import['timesheet_ids'] ?? []) !== 1 || $timesheetId <= 0) {
         throw new RuntimeException('CSV did not create two entries in one weekly timesheet: ' . json_encode($import));
     }
+    $importAudit = $pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id = :t AND event = "time.bulk.uploaded"');
+    $importAudit->execute(['t' => $tenantId]);
+    if ((int) $importAudit->fetchColumn() !== 1) throw new RuntimeException('Time CSV import did not retain its audit record');
 
     $header = $pdo->prepare('SELECT status, artifact_id, total_hours, origin_source FROM staffing_timesheets WHERE tenant_id = :t AND id = :id');
     $header->execute(['t' => $tenantId, 'id' => $timesheetId]);
