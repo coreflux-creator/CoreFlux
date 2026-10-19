@@ -140,7 +140,7 @@ try {
         }
     }
     $eventRow = $rows[0];
-    $pdo->prepare('UPDATE accounting_events SET status = "error" WHERE tenant_id = :t AND source_record_id = :source')
+    $pdo->prepare('UPDATE accounting_events SET status = "failed" WHERE tenant_id = :t AND source_record_id = :source')
         ->execute(['t' => $tenantId, 'source' => $eventRow['source_record_id']]);
     $blocked = false;
     try { accountingSourceAccrualParts($tenantId, $line, 'ar', 0, 1); }
