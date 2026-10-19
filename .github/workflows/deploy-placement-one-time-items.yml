@@ -56,6 +56,25 @@ jobs:
                 echo json_encode($q->fetch(PDO::FETCH_ASSOC) ?: ['missing' => $file]), "\n";
             }
             $db->rollBack();
+            require 'modules/placements/lib/placements.php';
+            require 'modules/placements/lib/economics.php';
+            $db->exec('SET SESSION TRANSACTION READ WRITE');
+            $nonTransactional = $db->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' AND ENGINE <> 'InnoDB'")->fetchAll(PDO::FETCH_COLUMN);
+            if ($nonTransactional) throw new RuntimeException('Rollback probe requires transactional tables');
+            foreach ([810, 120] as $placementId) {
+                $q = $db->prepare('SELECT tenant_id FROM placements WHERE id=:id');
+                $q->execute(['id' => $placementId]);
+                $tenantId = (int) $q->fetchColumn();
+                if (!$tenantId) continue;
+                setRequestTenantId($tenantId);
+                $db->beginTransaction();
+                try {
+                    $result = placementEconomicsReconcile($tenantId, $placementId);
+                    echo 'RECONCILE: ', json_encode(['placement_id' => $placementId, 'available' => $result['available'], 'errors' => $result['errors']]), "\n";
+                } finally {
+                    $db->rollBack();
+                }
+            }
             $logPaths = array_merge(glob(dirname(getcwd()) . '/logs/*') ?: [], [ini_get('error_log')]);
             foreach ($logPaths as $path) {
                 if (!$path || !is_file($path) || !is_readable($path)) continue;
