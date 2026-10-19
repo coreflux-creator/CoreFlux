@@ -2,6 +2,11 @@ name: Deploy placement one-time items
 
 on:
   workflow_dispatch:
+    inputs:
+      repair_client_save:
+        description: Publish only the placement client-save correction
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,7 +16,106 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  repair-client-save:
+    if: ${{ inputs.repair_client_save }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the client-save correction
+        run: |
+          php -l modules/people/lib/companies.php
+          php -l modules/placements/api/placements.php
+          php tests/placement_client_save_smoke.php
+      - name: Stage the client-save correction
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: modules/people/lib/companies.php,modules/placements/api/placements.php,tests/placement_client_save_smoke.php
+          target: /tmp/coreflux-client-save-${{ github.run_id }}
+      - name: Back up, install and verify the client-save correction
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            test "${{ secrets.CW_SSH_HOST }}" = "138.197.121.111"
+            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
+            STAGE="/tmp/coreflux-client-save-${{ github.run_id }}"
+            cd "$APP_ROOT"
+            php <<'PHP'
+            <?php
+            $expected = [
+                'modules/people/lib/companies.php' => '058d77ee192c5bf8cf07703faec5982050acec84d7dfce798f9a62b64840be82',
+                'modules/placements/api/placements.php' => '8de25cb41df70754d4b8d00c372f14bcfbf37867a79cbefaf96bc8e88190bb95',
+            ];
+            foreach ($expected as $path => $hash) {
+                if (hash('sha256', rtrim(str_replace("\r\n", "\n", file_get_contents($path)))) !== $hash) {
+                    throw new RuntimeException("Deployed file changed: $path; refusing to overwrite it");
+                }
+            }
+            PHP
+            for file in modules/people/lib/companies.php modules/placements/api/placements.php; do
+              php -l "$STAGE/$file"
+              mkdir -p "$STAGE/before/$(dirname "$file")"
+              cp "$APP_ROOT/$file" "$STAGE/before/$file"
+            done
+            SUCCESS=0
+            rollback_on_failure() {
+              if [ "$SUCCESS" != 1 ]; then
+                for file in modules/people/lib/companies.php modules/placements/api/placements.php; do
+                  cp --no-preserve=mode,ownership,timestamps "$STAGE/before/$file" "$APP_ROOT/$file"
+                done
+              fi
+            }
+            trap rollback_on_failure EXIT
+            for file in modules/people/lib/companies.php modules/placements/api/placements.php tests/placement_client_save_smoke.php; do
+              cp --no-preserve=mode,ownership,timestamps "$STAGE/$file" "$APP_ROOT/$file"
+            done
+            php tests/placement_client_save_smoke.php
+            php <<'PHP'
+            <?php
+            require 'modules/staffing/lib/clients.php';
+            $db = getDB();
+            $tables = $db->query("SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('companies','company_roles','staffing_clients')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            if (count($tables) !== 3 || array_filter($tables, fn($engine) => $engine !== 'InnoDB')) {
+                throw new RuntimeException('Probe requires all three transactional tables');
+            }
+            $tenant = (int) $db->query('SELECT tenant_id FROM placements WHERE id=810')->fetchColumn();
+            if (!$tenant) throw new RuntimeException('Placement tenant not found');
+            setRequestTenantId($tenant);
+            $name = 'Client save regression ' . bin2hex(random_bytes(6));
+            $db->beginTransaction();
+            try {
+                $ref = staffingClientEnsureForCompany($tenant, null, $name);
+                $q = $db->prepare('SELECT country FROM companies WHERE tenant_id=:t AND id=:id');
+                $q->execute(['t' => $tenant, 'id' => $ref['company_id']]);
+                if ($q->fetchColumn() !== 'US') throw new RuntimeException('Default country was not preserved');
+                if (staffingClientEnsureForCompany($tenant, null, $name) !== $ref) throw new RuntimeException('Repeated save did not reuse identity');
+                companiesUpsertByName($tenant, $name, ['country' => 'CA']);
+                companiesUpsertByName($tenant, $name, ['country' => null]);
+                $q->execute(['t' => $tenant, 'id' => $ref['company_id']]);
+                if ($q->fetchColumn() !== 'CA') throw new RuntimeException('Existing country was overwritten');
+                echo "PASS: live client creation, repeated identity, and country preservation\n";
+            } finally {
+                $db->rollBack();
+            }
+            $q = $db->prepare('SELECT COUNT(*) FROM companies WHERE tenant_id=:t AND name=:name');
+            $q->execute(['t' => $tenant, 'name' => $name]);
+            if ((int) $q->fetchColumn() !== 0) throw new RuntimeException('Probe did not roll back');
+            echo "PASS: synthetic company rolled back; placement data unchanged\n";
+            PHP
+            SUCCESS=1
+            echo 'Placement client save corrected; originals retained in staging.'
+
   deploy:
+    if: ${{ !inputs.repair_client_save }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -66,7 +170,9 @@ jobs:
             modules/billing/migrations/012_economic_item_source.sql \
             modules/placements/api/cycles.php \
             modules/placements/api/economics.php \
+            modules/placements/api/placements.php \
             modules/placements/lib/economics.php \
+            modules/people/lib/companies.php \
             modules/placements/ui/PlacementDetail.jsx \
             modules/time/lib/settlement_create.php \
             "${ROOT_ASSETS[@]}" \
@@ -78,6 +184,7 @@ jobs:
             tests/placement_one_time_items_smoke.php \
             tests/tenant_staffing_economics_defaults_smoke.php \
             tests/staffing_economics_tenant_scope_smoke.php \
+            tests/placement_client_save_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/jobdiva_contract_projection_smoke.php
 
@@ -147,6 +254,8 @@ jobs:
             php -l core/jobdiva/sync.php
             php -l modules/placements/api/cycles.php
             php -l modules/placements/api/economics.php
+            php -l modules/placements/api/placements.php
+            php -l modules/people/lib/companies.php
             php -l modules/billing/lib/billing.php
             php -l modules/billing/api/invoices.php
             php -l modules/ap/lib/ap.php
@@ -157,6 +266,7 @@ jobs:
             php tests/placement_rate_source_repair_smoke.php
             php tests/tenant_staffing_economics_defaults_smoke.php
             php tests/staffing_economics_tenant_scope_smoke.php
+            php tests/placement_client_save_smoke.php
             php tests/staffing_economic_graph_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
 
