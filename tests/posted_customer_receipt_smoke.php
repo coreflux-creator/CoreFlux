@@ -92,7 +92,7 @@ $check('source correction reverses JE, allocations and any bank match',
     && str_contains($service, 'accountingReverseJe(')
     && substr_count($service, 'billingReverseReceiptEvent($tenantId, $eventId)') === 3
     && str_contains($service, 'reversed_at = NOW()')
-    && str_contains($service, 'match_status = "unmatched"'));
+    && str_contains($service, 'accountingAssertReopenedStatementLine('));
 $check('correction refuses closed reconciliation and released PWP',
     str_contains($service, 'status = "closed"') && str_contains($service, 'partial_triggered'));
 $check('UI selects a bank account and shows deposit, posted and corrected states',

@@ -606,6 +606,36 @@ try {
         && !in_array($paymentLineId, $remainingIds, true)
         && !in_array($treasuryLineId, $remainingIds, true),
         'matched synthetic lines no longer appear in the bank review queue');
+    $beforeSourceCorrections = qaBalances($pdo, $entityId);
+    $receiptCorrection = qaRequest('/modules/billing/api/payments.php?action=correct&id=' . (int) $receipt['id'],
+        'POST', ['reason' => 'Synthetic matched receipt correction'], $reviewerCookie);
+    $paymentCorrection = qaRequest('/modules/ap/api/payments.php?action=correct_cleared&id=' . $paymentId,
+        'POST', ['reason' => 'Synthetic matched AP payment correction'], $reviewerCookie);
+    foreach ([$receiptLineId, $paymentLineId] as $correctedLineId) {
+        $correctedLine = qaOne($pdo, 'SELECT match_status, matched_je_id, matched_at, matched_by_user_id
+            FROM accounting_bank_statement_lines WHERE tenant_id = :t AND id = :id',
+            ['t' => QA_TENANT, 'id' => $correctedLineId]);
+        qaExpect($correctedLine['match_status'] === 'unmatched' && $correctedLine['matched_je_id'] === null
+            && $correctedLine['matched_at'] === null && $correctedLine['matched_by_user_id'] === null,
+            'source correction reopens matched bank line ' . $correctedLineId);
+    }
+    $restoredInvoice = qaOne($pdo, 'SELECT amount_paid, amount_due FROM billing_invoices
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $invoiceId]);
+    $restoredBill = qaOne($pdo, 'SELECT amount_paid, amount_due FROM ap_bills
+        WHERE tenant_id = :t AND id = :id', ['t' => QA_TENANT, 'id' => $billId]);
+    $afterSourceCorrections = qaBalances($pdo, $entityId);
+    qaExpect((int) ($receiptCorrection['reversal_je_id'] ?? 0) > 0
+        && (int) ($paymentCorrection['reversal_je_id'] ?? 0) > 0
+        && abs((float) $restoredInvoice['amount_paid']) < 0.005
+        && abs((float) $restoredInvoice['amount_due'] - 1250) < 0.005
+        && abs((float) $restoredBill['amount_paid']) < 0.005
+        && abs((float) $restoredBill['amount_due'] - 750) < 0.005
+        && qaDelta($beforeSourceCorrections, $afterSourceCorrections, QA_BANK_CODE, -150)
+        && qaDelta($beforeSourceCorrections, $afterSourceCorrections, '1100', 400)
+        && qaDelta($beforeSourceCorrections, $afterSourceCorrections, '2000', -250)
+        && qaDelta($beforeSourceCorrections, $afterSourceCorrections, '4000', 0)
+        && qaDelta($beforeSourceCorrections, $afterSourceCorrections, '5000', 0),
+        'AR and AP source corrections restore open balances without changing income');
     echo json_encode(['run' => $run, 'entity_id' => $entityId, 'bank_account_id' => $bankId,
         'invoice_id' => $invoiceId, 'bill_id' => $billId, 'receipt_id' => $receipt['id'],
         'payment_id' => $paymentId, 'bank_line_ids' => array_map('intval', array_column($bankLines, 'id')),

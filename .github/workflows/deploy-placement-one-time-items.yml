@@ -303,5 +303,6 @@ jobs:
             INDEX_SHA="$(sha256sum index.html | cut -d' ' -f1)"
             php deploy/verify_coreaccounting_staging_release.php --expected-index-sha256="$INDEX_SHA"
             php tests/accounting_staging_lifecycle.php --execute
+            php tests/accounting_split_receipt_staging.php --execute
             php tests/billing_delivery_staging_http.php --execute
             echo 'Full-Core staging acceptance passed for ${{ github.sha }}.'

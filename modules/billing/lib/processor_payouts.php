@@ -405,15 +405,7 @@ function billingCorrectProcessorPayout(int $tenantId, int $lineId, string $reaso
         $saveCorrection->execute(['reversal_je_id' => (int) $reversal['je_id'], 'reason' => $reason,
             'actor_user_id' => $actorUserId, 'tenant_id' => $tenantId, 'id' => (int) $payout['id']]);
         if ($saveCorrection->rowCount() !== 1) throw new RuntimeException('Payout changed during correction.');
-        $reopenLine = $pdo->prepare(
-            'UPDATE accounting_bank_statement_lines
-                SET match_status = "unmatched", matched_je_id = NULL,
-                    matched_at = NULL, matched_by_user_id = NULL
-              WHERE tenant_id = :tenant_id AND id = :id AND matched_je_id = :journal_id'
-        );
-        $reopenLine->execute(['tenant_id' => $tenantId, 'id' => $lineId,
-            'journal_id' => (int) $payout['journal_entry_id']]);
-        if ($reopenLine->rowCount() !== 1) throw new RuntimeException('Bank line changed during correction.');
+        accountingAssertReopenedStatementLine($tenantId, 'deposit', $lineId);
         $pdo->prepare(
             'INSERT INTO accounting_subledger_links
                 (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)

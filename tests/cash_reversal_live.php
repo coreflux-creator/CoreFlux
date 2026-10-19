@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/tenant_scope.php';
 require_once __DIR__ . '/../modules/accounting/lib/accounting.php';
 require_once __DIR__ . '/../modules/accounting/lib/bank_rec.php';
+require_once __DIR__ . '/../modules/treasury/lib/statement_state.php';
 require_once __DIR__ . '/../core/business_integrity.php';
 
 $tenantId = (int) (getenv('SIM_TENANT_ID') ?: 0);
@@ -78,6 +79,39 @@ $matched->execute(['t' => $tenantId]);
 $bankLine = $matched->fetch(PDO::FETCH_ASSOC);
 if ($bankLine['match_status'] !== 'matched' || (int) $bankLine['matched_je_id'] !== (int) $replacement['je_id']) {
     throw new RuntimeException('Bank line did not match the corrected journal');
+}
+
+$correction = treasuryCorrectCategorization($pdo, $tenantId, 'deposit', 9501, 'CI Treasury correction', null);
+$matched->execute(['t' => $tenantId]);
+$bankLine = $matched->fetch(PDO::FETCH_ASSOC);
+if ($bankLine['match_status'] !== 'unmatched' || $bankLine['matched_je_id'] !== null
+    || (int) $correction['original_je_id'] !== (int) $replacement['je_id']
+    || (int) $correction['reversal_je_id'] <= 0) {
+    throw new RuntimeException('Source correction did not retain the ledger reversal and reopened bank state');
+}
+$correctionCount = $pdo->prepare('SELECT COUNT(*) FROM treasury_statement_corrections
+    WHERE tenant_id = :t AND line_type = "deposit" AND line_id = 9501');
+$correctionCount->execute(['t' => $tenantId]);
+if ((int) $correctionCount->fetchColumn() !== 1) throw new RuntimeException('Correction provenance missing');
+try {
+    treasuryCorrectCategorization($pdo, $tenantId, 'deposit', 9501, 'Duplicate correction', null);
+    throw new LogicException('Source correction reversed the same posting twice');
+} catch (RuntimeException $e) {
+    if ($e->getMessage() !== 'This statement line has no active Treasury posting to correct.') throw $e;
+}
+$pdo->beginTransaction();
+try {
+    accountingAssertReopenedStatementLine($tenantId, 'deposit', 9501);
+    $pdo->prepare('UPDATE accounting_bank_statement_lines SET match_status = "ignored"
+        WHERE tenant_id = :t AND id = 9501')->execute(['t' => $tenantId]);
+    try {
+        accountingAssertReopenedStatementLine($tenantId, 'deposit', 9501);
+        throw new LogicException('Correction accepted an unexpected bank state');
+    } catch (RuntimeException $e) {
+        if ($e->getMessage() !== 'The statement line was not reopened by its journal reversal.') throw $e;
+    }
+} finally {
+    $pdo->rollBack();
 }
 
 $audit = businessIntegrityAudit($tenantId);

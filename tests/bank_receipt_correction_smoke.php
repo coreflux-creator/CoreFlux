@@ -28,7 +28,7 @@ $check('correction locks invoices before inspecting linked PWP bills',
     && str_contains($lib, 'AND linked_ar_invoice_id IN (\' . $invoicePlaceholders . \') FOR UPDATE'));
 $check('correction reverses JE and restores invoice, payment and bank state',
     str_contains($lib, 'accountingReverseJe(') && str_contains($lib, 'reversed_at = NOW()')
-    && str_contains($lib, 'voided_at = NOW()') && str_contains($lib, 'match_status = "unmatched"'));
+    && str_contains($lib, 'voided_at = NOW()') && str_contains($lib, 'accountingAssertReopenedStatementLine('));
 $check('correction records durable lineage', str_contains($migration, 'billing_receipt_corrections')
     && str_contains($migration, 'uq_brc_original') && str_contains($lib, '"reversal"'));
 $check('new matches use a distinct attempt', substr_count($api, 'billingBankReceiptAttempt(') === 2);

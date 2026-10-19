@@ -182,15 +182,7 @@ function treasuryCorrectCategorization(
             $eventUpdate->execute(['t' => $tenantId, 'id' => (int) $event['id']]);
             if ($eventUpdate->rowCount() !== 1) throw new RuntimeException('The Treasury event changed during correction.');
         }
-        $lineSet = $type === 'deposit'
-            ? 'match_status = "unmatched", matched_je_id = NULL, matched_at = NULL, matched_by_user_id = NULL'
-            : 'match_status = "unmatched", matched_je_id = NULL';
-        $reopen = $pdo->prepare(
-            "UPDATE {$table} SET {$lineSet}
-              WHERE tenant_id = :t AND id = :id AND match_status = 'matched' AND matched_je_id = :je"
-        );
-        $reopen->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
-        if ($reopen->rowCount() !== 1) throw new RuntimeException('The statement line changed during correction.');
+        accountingAssertReopenedStatementLine($tenantId, $type, $lineId);
         $pdo->prepare(
             'INSERT INTO accounting_subledger_links
                 (tenant_id, source_module, source_record_id, journal_entry_id, accounting_event_id, link_kind)

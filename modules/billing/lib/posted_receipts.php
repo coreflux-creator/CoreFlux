@@ -866,15 +866,7 @@ function billingCorrectCustomerDepositRefund(int $tenantId, int $refundId, strin
             't' => $tenantId, 'id' => $refundId]);
         if ($save->rowCount() !== 1) throw new RuntimeException('Refund changed while correcting.');
         if ($matched) {
-            $reopen = $pdo->prepare(
-                'UPDATE accounting_bank_statement_lines
-                    SET match_status = "unmatched", matched_je_id = NULL, matched_at = NULL,
-                        matched_by_user_id = NULL, updated_at = NOW()
-                  WHERE tenant_id = :t AND id = :id AND matched_je_id = :je AND match_status = "matched"'
-            );
-            $reopen->execute(['t' => $tenantId, 'id' => (int) $matched[0]['id'],
-                'je' => (int) $refund['journal_entry_id']]);
-            if ($reopen->rowCount() !== 1) throw new RuntimeException('Bank match changed while correcting.');
+            accountingAssertReopenedStatementLine($tenantId, 'deposit', (int) $matched[0]['id']);
         }
         $pdo->prepare(
             'INSERT INTO accounting_subledger_links
@@ -1067,18 +1059,7 @@ function billingCorrectPostedPayment(int $tenantId, int $paymentId, string $reas
         ]);
         if ($void->rowCount() !== 1) throw new RuntimeException('Payment changed while correcting.');
         if ($matchedLines) {
-            $reopen = $pdo->prepare(
-                'UPDATE accounting_bank_statement_lines
-                    SET match_status = "unmatched", matched_je_id = NULL, matched_at = NULL,
-                        matched_by_user_id = NULL, updated_at = NOW()
-                  WHERE tenant_id = :tenant_id AND id = :id AND matched_je_id = :journal_entry_id
-                    AND match_status = "matched"'
-            );
-            $reopen->execute([
-                'tenant_id' => $tenantId, 'id' => (int) $matchedLines[0]['id'],
-                'journal_entry_id' => (int) $payment['journal_entry_id'],
-            ]);
-            if ($reopen->rowCount() !== 1) throw new RuntimeException('Bank match changed while correcting.');
+            accountingAssertReopenedStatementLine($tenantId, 'deposit', (int) $matchedLines[0]['id']);
         }
         $pdo->prepare(
             'INSERT INTO accounting_subledger_links

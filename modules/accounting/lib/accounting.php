@@ -1261,6 +1261,26 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
 // Trial balance — simple on-read sum
 // ─────────────────────────────────────────────────────────────────────────
 
+/** Source corrections verify the bank state already cleared by accountingReverseJe(). */
+function accountingAssertReopenedStatementLine(int $tenantId, string $type, int $lineId): void
+{
+    if (!in_array($type, ['deposit', 'liability'], true) || $lineId <= 0) {
+        throw new InvalidArgumentException('Invalid statement line identity.');
+    }
+    $pdo = getDB();
+    if (!$pdo->inTransaction()) {
+        throw new RuntimeException('Statement correction must retain its accounting transaction.');
+    }
+    $table = $type === 'deposit' ? 'accounting_bank_statement_lines' : 'treasury_liability_statement_lines';
+    $stmt = $pdo->prepare("SELECT * FROM {$table} WHERE tenant_id = :t AND id = :id FOR UPDATE");
+    $stmt->execute(['t' => $tenantId, 'id' => $lineId]);
+    $line = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$line || $line['match_status'] !== 'unmatched' || $line['matched_je_id'] !== null
+        || ($type === 'deposit' && ($line['matched_at'] !== null || $line['matched_by_user_id'] !== null))) {
+        throw new RuntimeException('The statement line was not reopened by its journal reversal.');
+    }
+}
+
 /**
  * Trial balance per account as of $asOf (inclusive), including originals
  * that have since been reversed so their posted reversal cancels them.

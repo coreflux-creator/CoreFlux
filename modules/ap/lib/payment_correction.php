@@ -210,18 +210,7 @@ function apCorrectClearedManualPayment(int $tenantId, int $paymentId, string $re
 
         apRefreshReleasedPaymentBillsForPayment($pdo, $tenantId, $paymentId);
         if ($review['bank_line_id']) {
-            $reopen = $pdo->prepare(
-                'UPDATE accounting_bank_statement_lines
-                    SET match_status = "unmatched", matched_je_id = NULL, matched_at = NULL,
-                        matched_by_user_id = NULL, updated_at = NOW()
-                  WHERE tenant_id = :tenant_id AND id = :id AND match_status = "matched"
-                    AND matched_je_id = :journal_id'
-            );
-            $reopen->execute([
-                'tenant_id' => $tenantId, 'id' => $review['bank_line_id'],
-                'journal_id' => $review['original_je_id'],
-            ]);
-            if ($reopen->rowCount() !== 1) throw new \RuntimeException('The bank line changed while correcting the payment');
+            accountingAssertReopenedStatementLine($tenantId, 'deposit', (int) $review['bank_line_id']);
         }
         $pdo->prepare(
             'INSERT INTO accounting_subledger_links

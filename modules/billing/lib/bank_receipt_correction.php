@@ -198,15 +198,7 @@ function billingCorrectBankReceipt(int $tenantId, int $bankLineId, string $reaso
             ]);
         }
 
-        $reopen = $pdo->prepare(
-            'UPDATE accounting_bank_statement_lines
-                SET match_status = "unmatched", matched_je_id = NULL, matched_at = NULL,
-                    matched_by_user_id = NULL, updated_at = NOW()
-              WHERE tenant_id = :tenant_id AND id = :id AND match_status = "matched"
-                AND matched_je_id = :original_je_id'
-        );
-        $reopen->execute(['tenant_id' => $tenantId, 'id' => $bankLineId, 'original_je_id' => $originalJeId]);
-        if ($reopen->rowCount() !== 1) throw new RuntimeException('The bank line changed. Refresh and try again.');
+        accountingAssertReopenedStatementLine($tenantId, 'deposit', $bankLineId);
 
         $pdo->prepare(
             'INSERT INTO billing_receipt_corrections
