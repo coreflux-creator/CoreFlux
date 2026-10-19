@@ -162,6 +162,11 @@ function companiesUpsertByName(int $tenantId, string $name, array $extra = [], a
         'msa_signed_at','notes','created_by_user_id',
     ];
     $patch = array_intersect_key($extra, array_flip($writable));
+    // Client bridges may supply an explicit blank billing country. Treat it
+    // as absent: preserve an existing country or the new-company US default.
+    if (array_key_exists('country', $patch) && trim((string) $patch['country']) === '') {
+        unset($patch['country']);
+    }
 
     if (!$id) {
         $insert = array_merge([
