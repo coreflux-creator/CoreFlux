@@ -56,6 +56,18 @@ jobs:
                 echo json_encode($q->fetch(PDO::FETCH_ASSOC) ?: ['missing' => $file]), "\n";
             }
             $db->rollBack();
+            $logPaths = array_merge(glob(dirname(getcwd()) . '/logs/*') ?: [], [ini_get('error_log')]);
+            foreach ($logPaths as $path) {
+                if (!$path || !is_file($path) || !is_readable($path)) continue;
+                $file = fopen($path, 'r');
+                fseek($file, max(0, filesize($path) - 1048576));
+                $errors = [];
+                while (($line = fgets($file)) !== false) {
+                    if (str_contains($line, '[placement economics reconcile]')) $errors[] = substr(trim($line), 0, 1000);
+                }
+                fclose($file);
+                foreach (array_slice($errors, -5) as $line) echo "GRAPH ERROR: $line\n";
+            }
             PHP
 
   deploy:
