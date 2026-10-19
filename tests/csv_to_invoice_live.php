@@ -24,14 +24,14 @@ $pdo->prepare('UPDATE accounting_settings SET multi_period_split_enabled = 0 WHE
 
 function ciStaffingBalances(PDO $pdo, int $tenantId, float $unbilled, float $receivable): void
 {
-    $stmt = $pdo->prepare('SELECT a.account_code, SUM(l.debit - l.credit) AS balance
+    $stmt = $pdo->prepare('SELECT a.code, SUM(l.debit - l.credit) AS balance
         FROM accounting_journal_entries je
         JOIN accounting_journal_entry_lines l ON l.je_id = je.id
         JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = je.tenant_id
         WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed")
           AND (l.counterparty_company_id = 9701 OR JSON_UNQUOTE(JSON_EXTRACT(l.dim_json, "$.client")) = "9701")
-          AND a.account_code IN ("1150", "1100", "4000")
-        GROUP BY a.account_code');
+          AND a.code IN ("1150", "1100", "4000")
+        GROUP BY a.code');
     $stmt->execute(['t' => $tenantId]);
     $balances = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
     foreach (['1150' => $unbilled, '1100' => $receivable, '4000' => -1000.0] as $code => $expected) {

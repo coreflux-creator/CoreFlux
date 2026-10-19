@@ -47,7 +47,9 @@ $check('default due date is based on issue date', str_contains($drafts, 'strtoti
 $check('non-taxable catalog items receive zero line tax', str_contains($billingLib, "array_key_exists('taxable', \$l)") && str_contains($billingLib, '$lineTaxPct'));
 $check('normal invoice is primary list action', str_contains($list, 'btn btn--primary') && str_contains($list, 'billing-new-invoice'));
 $check('staffing invoice paths are grouped separately', str_contains($list, 'billing-create-from-time-menu') && str_contains($list, 'Create from time'));
-$check('manual invoices never use the accrued-time reclassification path', str_contains($invoices, '$allLinesWereAccrued') && str_contains($invoices, "source_type IN (\"time\", \"time_entry\", \"economic_item\")"));
+$check('manual invoices retain revenue coding without a posted source accrual',
+    str_contains($invoices, 'accountingSourceAccrualParts(')
+    && str_contains($invoices, "\$sourceLine['gl_revenue_account_code'] ?: '4000'"));
 $check('negative discount revenue posts as a debit', str_contains($invoices, "'debit' => \$amt < 0 ? abs(\$amt) : 0") && str_contains($invoices, "'credit' => \$amt > 0 ? \$amt : 0"));
 
 require_once $root . '/modules/billing/lib/billing.php';

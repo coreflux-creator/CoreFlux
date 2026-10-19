@@ -128,7 +128,7 @@ function accountingEnsureAccrualAccounts(int $tenantId, array $settings): void {
     ];
     foreach ($rows as [$code, $name, $type]) {
         $exists = $pdo->prepare(
-            'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND account_code = :c LIMIT 1'
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1'
         );
         $exists->execute(['t' => $tenantId, 'c' => $code]);
         if ($exists->fetch()) continue;
@@ -136,10 +136,11 @@ function accountingEnsureAccrualAccounts(int $tenantId, array $settings): void {
         // — these are pure GL accruals, not customer/vendor scoped.
         try {
             $ins = $pdo->prepare(
-                'INSERT INTO accounting_accounts (tenant_id, account_code, account_name, account_type, is_active, created_at, updated_at)
-                 VALUES (:t, :c, :n, :ty, 1, NOW(), NOW())'
+                'INSERT INTO accounting_accounts (tenant_id, code, name, account_type, normal_side, active, created_at, updated_at)
+                 VALUES (:t, :c, :n, :ty, :side, 1, NOW(), NOW())'
             );
-            $ins->execute(['t' => $tenantId, 'c' => $code, 'n' => $name, 'ty' => $type]);
+            $ins->execute(['t' => $tenantId, 'c' => $code, 'n' => $name, 'ty' => $type,
+                'side' => $type === 'asset' ? 'debit' : 'credit']);
         } catch (\Throwable $e) {
             // Race or schema drift — leave the loud-fail to the JE
             // post itself, which will report "account code X not

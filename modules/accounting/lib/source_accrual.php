@@ -25,7 +25,7 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
     }
     $codes = [$side === 'ar' ? '1150' : '2050', $settings[$side === 'ar' ? 'ar_unbilled_account_code' : 'ap_accrued_account_code']];
     $readJournal = static function (int $journalId) use ($pdo, $tenantId, $entityId, $codes, $side): array {
-        $stmt = $pdo->prepare('SELECT je.status, je.entity_id, a.account_code, l.debit, l.credit, l.dim_json
+        $stmt = $pdo->prepare('SELECT je.status, je.entity_id, a.code AS account_code, l.debit, l.credit, l.dim_json
             FROM accounting_journal_entries je
             JOIN accounting_journal_entry_lines l ON l.je_id = je.id
             JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = je.tenant_id
