@@ -7,6 +7,10 @@ on:
         description: Read staffing schema and query diagnostics without deploying
         type: boolean
         default: false
+      repair_errors_only:
+        description: Publish only the contract error-reporting correction
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +20,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  repair-errors:
+    if: ${{ inputs.repair_errors_only && !inputs.diagnose_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the API correction
+        run: php -l modules/placements/api/economics.php
+      - name: Stage the API correction
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: modules/placements/api/economics.php
+          target: /tmp/coreflux-graph-errors-${{ github.run_id }}
+      - name: Back up and install the API correction
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
+            STAGE="/tmp/coreflux-graph-errors-${{ github.run_id }}"
+            TARGET="$APP_ROOT/modules/placements/api/economics.php"
+            test -f "$TARGET"
+            php -l "$STAGE/modules/placements/api/economics.php"
+            cp "$TARGET" "$STAGE/economics.before.php"
+            cp --no-preserve=mode,ownership,timestamps "$STAGE/modules/placements/api/economics.php" "$TARGET"
+            php -l "$TARGET"
+            echo 'Contract error reporting updated; original retained in staging.'
+
   diagnose:
     if: ${{ inputs.diagnose_only }}
     runs-on: ubuntu-latest
@@ -90,7 +130,7 @@ jobs:
             PHP
 
   deploy:
-    if: ${{ !inputs.diagnose_only }}
+    if: ${{ !inputs.diagnose_only && !inputs.repair_errors_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
