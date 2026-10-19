@@ -20,6 +20,26 @@ if ((int) $check->fetchColumn() !== 1) {
 }
 setRequestTenantId($tenantId);
 staffingSeedPostingRules($tenantId);
+$pdo->prepare('UPDATE accounting_settings SET multi_period_split_enabled = 0 WHERE tenant_id = :t')->execute(['t' => $tenantId]);
+
+function ciStaffingBalances(PDO $pdo, int $tenantId, float $unbilled, float $receivable): void
+{
+    $stmt = $pdo->prepare('SELECT a.account_code, SUM(l.debit - l.credit) AS balance
+        FROM accounting_journal_entries je
+        JOIN accounting_journal_entry_lines l ON l.je_id = je.id
+        JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = je.tenant_id
+        WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed")
+          AND (l.counterparty_company_id = 9701 OR JSON_UNQUOTE(JSON_EXTRACT(l.dim_json, "$.client")) = "9701")
+          AND a.account_code IN ("1150", "1100", "4000")
+        GROUP BY a.account_code');
+    $stmt->execute(['t' => $tenantId]);
+    $balances = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    foreach (['1150' => $unbilled, '1100' => $receivable, '4000' => -1000.0] as $code => $expected) {
+        if (abs((float) ($balances[$code] ?? 0) - $expected) > 0.005) {
+            throw new RuntimeException("Staffing balance {$code} expected {$expected}: " . json_encode($balances));
+        }
+    }
+}
 
 foreach (['uploader', 'approver', 'reviewer'] as $actor) {
     $pdo->prepare('INSERT INTO users (tenant_id, name, email, password_hash, role, is_active)
@@ -140,6 +160,7 @@ try {
     if (($header->fetch(PDO::FETCH_ASSOC)['status'] ?? '') !== 'approved') {
         throw new RuntimeException('Imported timesheet did not reach approved status');
     }
+    ciStaffingBalances($pdo, $tenantId, 1000.0, 0.0);
 
     [$status, $created] = ciBusinessApi($curl, $base, 'POST', '/modules/billing/api/invoices.php?action=from-time-entries', [
         'time_entry_ids' => $entryIds,
@@ -205,8 +226,22 @@ try {
         throw new RuntimeException('Invoice draft did not reach approved status: ' . json_encode($approvedInvoice));
     }
 
+    [$status, $post] = ciBusinessApi($curl, $base, 'POST', '/modules/billing/api/invoices.php?action=post&id=' . $invoiceId);
+    ciBusinessExpect($status, 200, $post, 'Post approved invoice');
+    $invoiceJeId = (int) ($post['journal_entry_id'] ?? 0);
+    if ($invoiceJeId <= 0) throw new RuntimeException('Invoice posting did not return a journal entry');
+    $journal = $pdo->prepare('SELECT status, total_debit, total_credit FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id');
+    $journal->execute(['t' => $tenantId, 'id' => $invoiceJeId]);
+    $invoiceJe = $journal->fetch(PDO::FETCH_ASSOC);
+    if (!$invoiceJe || $invoiceJe['status'] !== 'posted'
+        || (float) $invoiceJe['total_debit'] !== 1000.0 || (float) $invoiceJe['total_credit'] !== 1000.0) {
+        throw new RuntimeException('Invoice did not post a balanced $1,000 journal: ' . json_encode($invoiceJe));
+    }
+    ciStaffingBalances($pdo, $tenantId, 0.0, 1000.0);
+
     [$status, $delivery] = ciBusinessApi($curl, $base, 'POST', '/modules/billing/api/invoices.php?action=send&id=' . $invoiceId, [
         'to' => 'ci-billing-recipient@coreflux.test',
+        'request_id' => '00000000-0000-4000-8000-' . str_pad(dechex($invoiceId), 12, '0', STR_PAD_LEFT),
     ]);
     ciBusinessExpect($status, 200, $delivery, 'Send approved invoice');
     if (($delivery['email_status'] ?? '') !== 'sent' || empty($delivery['token_id'])
@@ -235,26 +270,14 @@ try {
         throw new RuntimeException('Sent invoice did not stay visible in Billing: ' . json_encode($sentDetail));
     }
 
-    [$status, $post] = ciBusinessApi($curl, $base, 'POST', '/modules/billing/api/invoices.php?action=post&id=' . $invoiceId);
-    ciBusinessExpect($status, 200, $post, 'Post sent invoice');
-    $invoiceJeId = (int) ($post['journal_entry_id'] ?? 0);
-    if ($invoiceJeId <= 0) throw new RuntimeException('Invoice posting did not return a journal entry');
-    $journal = $pdo->prepare('SELECT status, total_debit, total_credit FROM accounting_journal_entries WHERE tenant_id = :t AND id = :id');
-    $journal->execute(['t' => $tenantId, 'id' => $invoiceJeId]);
-    $invoiceJe = $journal->fetch(PDO::FETCH_ASSOC);
-    if (!$invoiceJe || $invoiceJe['status'] !== 'posted'
-        || (float) $invoiceJe['total_debit'] !== 1000.0 || (float) $invoiceJe['total_credit'] !== 1000.0) {
-        throw new RuntimeException('Invoice did not post a balanced $1,000 journal: ' . json_encode($invoiceJe));
-    }
-
-    $pdo->prepare(
-        "INSERT INTO accounting_bank_accounts
-            (id, tenant_id, entity_id, name, gl_account_code, currency)
-         VALUES (9701, :t, 1, 'CSV test operating bank', '1000', 'USD')"
-    )->execute(['t' => $tenantId]);
+    $bank = $pdo->prepare('SELECT id FROM accounting_bank_accounts
+        WHERE tenant_id = :t AND entity_id = 1 AND gl_account_code = "1000" AND status = "active"');
+    $bank->execute(['t' => $tenantId]);
+    $bankId = (int) $bank->fetchColumn();
+    if ($bankId <= 0) throw new RuntimeException('Canonical simulation operating bank is missing');
     $receiptDate = max((string) $sentDetail['invoice']['issue_date'], date('Y-m-d'));
     $bankCsv = "Date,Description,Amount,FITID\n{$receiptDate},ACH CSV Billing Client,1000.00,ci-invoice-{$invoiceId}\n";
-    [$status, $bankImport] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=9701', [
+    [$status, $bankImport] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=' . $bankId, [
         'csv' => $bankCsv,
     ]);
     ciBusinessExpect($status, 201, $bankImport, 'Import customer receipt');
@@ -266,15 +289,15 @@ try {
     if ((int) $importSummary->fetchColumn() !== 1) {
         throw new RuntimeException('Bank import summary did not retain its imported line count');
     }
-    [$status, $repeatImport] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=9701', [
+    [$status, $repeatImport] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=' . $bankId, [
         'csv' => $bankCsv,
     ]);
     ciBusinessExpect($status, 201, $repeatImport, 'Repeat customer receipt import');
     if (($repeatImport['inserted'] ?? -1) !== 0 || ($repeatImport['duplicates'] ?? 0) !== 1) {
         throw new RuntimeException('Repeated bank CSV created a duplicate receipt: ' . json_encode($repeatImport));
     }
-    $bankLineStmt = $pdo->prepare('SELECT id FROM accounting_bank_statement_lines WHERE tenant_id = :t AND bank_account_id = 9701 AND fitid = :fitid');
-    $bankLineStmt->execute(['t' => $tenantId, 'fitid' => 'ci-invoice-' . $invoiceId]);
+    $bankLineStmt = $pdo->prepare('SELECT id FROM accounting_bank_statement_lines WHERE tenant_id = :t AND bank_account_id = :b AND fitid = :fitid');
+    $bankLineStmt->execute(['t' => $tenantId, 'b' => $bankId, 'fitid' => 'ci-invoice-' . $invoiceId]);
     $bankLineId = (int) $bankLineStmt->fetchColumn();
     if ($bankLineId <= 0) throw new RuntimeException('Imported customer receipt is missing from the bank feed');
 
@@ -326,7 +349,7 @@ try {
         || (float) $receiptJe['total_debit'] !== 1000.0 || (float) $receiptJe['total_credit'] !== 1000.0) {
         throw new RuntimeException('Collected receipt did not create a balanced journal: ' . json_encode($receiptJe));
     }
-    [$status, $unmatched] = ciBusinessApi($curl, $base, 'GET', '/modules/accounting/api/bank_statements.php?bank_account_id=9701&match_status=unmatched');
+    [$status, $unmatched] = ciBusinessApi($curl, $base, 'GET', '/modules/accounting/api/bank_statements.php?bank_account_id=' . $bankId . '&match_status=unmatched');
     ciBusinessExpect($status, 200, $unmatched, 'Check unmatched bank feed');
     if (in_array($bankLineId, array_map('intval', array_column($unmatched['rows'] ?? [], 'id')), true)) {
         throw new RuntimeException('Collected receipt remained in the unmatched bank feed');
@@ -334,10 +357,21 @@ try {
     [$status, $duplicateMatch] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=' . $bankLineId, [
         'invoice_id' => $invoiceId,
     ]);
-    if ($status !== 409 || !str_contains(strtolower((string) ($duplicateMatch['error'] ?? '')), 'already resolved')) {
-        throw new RuntimeException('A second bank match was not safely rejected: ' . json_encode([$status, $duplicateMatch]));
+    if ($status !== 200 || empty($duplicateMatch['idempotent_replay'])
+        || (int) $duplicateMatch['payment_id'] !== $paymentId || (int) $duplicateMatch['matched_je_id'] !== $receiptJeId) {
+        throw new RuntimeException('An identical bank match did not return the original receipt: ' . json_encode([$status, $duplicateMatch]));
     }
-    echo "CSV time -> timesheet -> approved invoice -> logged email -> ledger -> bank receipt -> paid invoice passed.\n";
+    [$status, $conflict] = ciBusinessApi($curl, $base, 'POST', '/modules/accounting/api/bank_statements.php?action=match_invoice&line_id=' . $bankLineId, [
+        'invoice_id' => $invoiceId + 1,
+    ]);
+    if ($status !== 409 || !str_contains(strtolower((string) ($conflict['error'] ?? '')), 'different allocation')) {
+        throw new RuntimeException('A changed bank match did not require correction: ' . json_encode([$status, $conflict]));
+    }
+    $receiptCount = $pdo->prepare('SELECT COUNT(*) FROM billing_payments WHERE tenant_id = :t AND external_id = :ref');
+    $receiptCount->execute(['t' => $tenantId, 'ref' => 'bank-line:' . $bankLineId]);
+    if ((int) $receiptCount->fetchColumn() !== 1) throw new RuntimeException('A bank retry duplicated the receipt');
+    ciStaffingBalances($pdo, $tenantId, 0.0, 0.0);
+    echo "CSV time -> timesheet -> independent invoice approval -> ledger -> logged email -> bank receipt -> paid invoice passed.\n";
 } finally {
     curl_close($curl);
 }

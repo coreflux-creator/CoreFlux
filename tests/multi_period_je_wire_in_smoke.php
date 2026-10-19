@@ -72,20 +72,21 @@ $a('require_once multi_period.php at top of post handler',
    str_contains($inv, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet($tid) inside post action',
    str_contains($inv, '$settings = accountingSettingsGet($tid);'));
-$a('reclassifyOnly gate requires multi-period mode and fully accrued source lines',
-   str_contains($inv, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']) && \$allLinesWereAccrued;"));
-$a('direct manual invoices are excluded from approved-time reclassification',
-   str_contains($inv, 'source_type IN ("time", "time_entry", "economic_item")')
-   && str_contains($inv, "\$allLinesWereAccrued ="));
+$a('invoice clearing is based on posted sources independently of the period flag',
+   str_contains($inv, "accountingSourceAccrualParts(\$tid, \$sourceLine, 'ar'")
+   && !str_contains($inv, "!empty(\$settings['multi_period_split_enabled'])"));
+$a('mixed invoice retains coding for lines without a source accrual',
+   str_contains($inv, 'if (!$parts) $parts = [[')
+   && str_contains($inv, "\$sourceLine['gl_revenue_account_code'] ?: '4000'"));
 $a('reclassification block engages on the flag',
    str_contains($inv, "if (\$reclassifyOnly) {"));
 $a('reclassification debits AR (account 1100) for full total',
    str_contains($inv, "'account_code' => '1100'")
    && str_contains($inv, "'debit' => round(\$total, 2)"));
-$a('reclassification credits AR Unbilled by placement subtotal',
-   str_contains($inv, "'account_code' => \$arUnbilled")
+$a('reclassification preserves the source account and dimensions',
+   str_contains($inv, "'account_code' => \$part['account_code']")
    && str_contains($inv, "'credit' => \$amount > 0 ? \$amount : 0")
-   && str_contains($inv, "\$placementSubtotals as \$placementId => \$amount"));
+   && str_contains($inv, "'dims' => \$part['dims']"));
 $a('reclassification credits Sales Tax Payable (2100) when tax > 0',
    str_contains($inv, "'account_code' => '2100'")
    && str_contains($inv, "'credit' => round(\$taxTotal, 2)"));
@@ -111,15 +112,15 @@ $a('require_once multi_period.php at top of post handler',
    str_contains($ap, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet inside post action',
    str_contains($ap, '$settings = accountingSettingsGet($tid);'));
-$a('reclassifyOnly gate requires multi-period mode and fully accrued source lines',
-   str_contains($ap, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']) && \$allLinesWereAccrued;"));
-$a('manual AP bills are excluded from approved-time reclassification',
-   str_contains($ap, "['time', 'time_entry', 'economic_item']")
-   && str_contains($ap, '$allLinesWereAccrued ='));
-$a('AP reclassification debits AP Accrued by placement subtotal',
-   str_contains($ap, "'account_code' => \$apAccrued")
+$a('bill clearing is based on posted sources independently of the period flag',
+   str_contains($ap, "accountingSourceAccrualParts(\$tid, \$sourceLine, 'ap'")
+   && !str_contains($ap, "!empty(\$settings['multi_period_split_enabled'])"));
+$a('mixed bill retains uncaccrued expense coding',
+   str_contains($ap, '$reclassLines[] = $payloadLines[$lineIndex]'));
+$a('AP reclassification preserves original accrual account and dimensions',
+   str_contains($ap, "'account_code' => \$part['account_code']")
    && str_contains($ap, "'debit' => \$amount > 0 ? \$amount : 0")
-   && str_contains($ap, "\$placementSubtotals as \$placementId => \$amount"));
+   && str_contains($ap, "'dims' => \$part['dims']"));
 $a('AP reclassification credits Accounts Payable (2000) for total',
    str_contains($ap, "'account_code' => '2000'")
    && str_contains($ap, "'credit' => round((float) \$row['total'], 2)"));

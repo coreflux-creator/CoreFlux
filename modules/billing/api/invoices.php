@@ -1148,31 +1148,19 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
     require_once __DIR__ . '/../../accounting/lib/dimensions.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
+    require_once __DIR__ . '/../../accounting/lib/source_accrual.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
     require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
-    // Accrual-at-approval reclassification gate (2026-02). When the
-    // tenant has `multi_period_split_enabled=1`, revenue + AR Unbilled
-    // were already recognised by `accountingPostBundleAccrual()` at
-    // timesheet/bundle approval time. The invoice post becomes a pure
-    // RECLASSIFICATION (single JE on issue_date):
-    //   Dr  Accounts Receivable (full total)
-    //   Cr  AR Unbilled         (subtotal — clears the accrual)
-    //   Cr  Sales Tax Payable   (tax, if any)
-    // No revenue line — recognition is owned by the bundle accrual.
-    // Tenants with the flag OFF keep the legacy "recognise at invoice"
-    // flow below (event-layer first, then direct post).
+    // Resolve each source's actual posted accrual below. Settings and source
+    // labels alone cannot establish whether revenue was already recognized.
     $settings = accountingSettingsGet($tid);
     $sourceStmt = getDB()->prepare(
-        'SELECT COUNT(*) AS line_count,
-                SUM(source_type IN ("time", "time_entry", "economic_item")) AS accrued_line_count
-           FROM billing_invoice_lines WHERE invoice_id = :id'
+        'SELECT * FROM billing_invoice_lines WHERE invoice_id = :id ORDER BY line_no'
     );
     $sourceStmt->execute(['id' => $id]);
-    $sourceCounts = $sourceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $allLinesWereAccrued = (int) ($sourceCounts['line_count'] ?? 0) > 0
-        && (int) ($sourceCounts['line_count'] ?? 0) === (int) ($sourceCounts['accrued_line_count'] ?? 0);
-    $reclassifyOnly = !empty($settings['multi_period_split_enabled']) && $allLinesWereAccrued;
+    $sourceLines = $sourceStmt->fetchAll(PDO::FETCH_ASSOC);
+    $reclassifyOnly = false;
 
     $subtotal = (float) $row['subtotal'];
     $taxTotal = (float) $row['tax_total'];
@@ -1303,35 +1291,43 @@ if ($method === 'POST' && $action === 'post') {
     // AR Unbilled instead of recognizing revenue a second time. Split the
     // clearing lines by placement so the balance-sheet roll-forward retains
     // the same assignment trail as the original accrual.
-    $reclassLines = [];
-    if ($reclassifyOnly) {
-        accountingEnsureAccrualAccounts($tid, $settings);
-        $arUnbilled = (string) $settings['ar_unbilled_account_code'];
-        $reclassLines[] = [
+    $reclassLines = [
+        [
             'account_code' => '1100',
             'debit' => round($total, 2),
             'credit' => 0,
             'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}",
             'counterparty_company_id' => $party,
             'dims' => $documentDimensions,
-        ];
-        foreach ($placementSubtotals as $placementId => $amount) {
-            $amount = round((float) $amount, 2);
+        ],
+    ];
+    foreach ($sourceLines as $sourceLine) {
+        try {
+            $parts = accountingSourceAccrualParts($tid, $sourceLine, 'ar', $id, $documentEntityId);
+        } catch (\Throwable $e) {
+            api_error('Invoice source accrual could not be verified: ' . $e->getMessage(), 422);
+        }
+        if ($parts) $reclassifyOnly = true;
+        $placementId = (int) ($sourceLine['placement_id'] ?? 0);
+        if (!$parts) $parts = [[
+            'account_code' => $sourceLine['gl_revenue_account_code'] ?: '4000',
+            'amount' => (float) $sourceLine['subtotal'],
+            'dims' => $placementId > 0 ? (array) ($placementContexts[$placementId]['dimensions'] ?? []) : $documentDimensions,
+        ]];
+        foreach ($parts as $part) {
+            $amount = round((float) $part['amount'], 2);
             if (abs($amount) <= 0.005) continue;
-            $placementId = (int) $placementId;
-            $lineDimensions = $placementId > 0
-                ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
-                : $documentDimensions;
             $reclassLines[] = [
-                'account_code' => $arUnbilled,
+                'account_code' => $part['account_code'],
                 'debit' => $amount < 0 ? abs($amount) : 0,
                 'credit' => $amount > 0 ? $amount : 0,
-                'memo' => "Clear AR Unbilled — {$row['invoice_number']}",
+                'memo' => "Invoice source — {$row['invoice_number']}",
                 'counterparty_company_id' => $party,
-                'dims' => $lineDimensions,
+                'dims' => $part['dims'],
             ];
         }
-        if ($taxTotal > 0.005) {
+    }
+    if ($taxTotal > 0.005) {
             $reclassLines[] = [
                 'account_code' => '2100',
                 'debit' => 0,
@@ -1340,7 +1336,6 @@ if ($method === 'POST' && $action === 'post') {
                 'counterparty_company_id' => $party,
                 'dims' => $documentDimensions,
             ];
-        }
     }
     $eventPostingLines = $reclassifyOnly ? $reclassLines : $lines;
 
@@ -1419,13 +1414,8 @@ if ($method === 'POST' && $action === 'post') {
         api_error('Invoice event processing failed: ' . ($eventResult['error'] ?? 'missing posted journal'), 422);
     }
 
-    // Reclassification branch (accrual-at-approval model). When the
-    // tenant flag is ON, revenue + AR Unbilled were already posted by
-    // the bundle-accrual hook at timesheet approval time, so the
-    // invoice post is a pure AR reclassification — no revenue, no
-    // expense, no multi-period batching. The event layer above receives
-    // this same reclassification shape; this branch is its direct-post
-    // fallback when no event rule is available.
+    // The direct fallback uses the same verified source clearing and any
+    // newly recognized manual/one-time charges as the event path.
     if ($reclassifyOnly) {
         $pdo_mp = getDB();
         try {

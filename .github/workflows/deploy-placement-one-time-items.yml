@@ -220,7 +220,6 @@ jobs:
               'database_identity_verified' => true,
               'simulation_tenant' => (int) $pdo->query('SELECT is_simulation FROM tenants WHERE id=999')->fetchColumn(),
               'migration_count' => count($ledger),
-              'migration_ledger' => $ledger,
               'root_standalone_rules' => str_contains(file_get_contents('.htaccess'), 'CoreAccounting'),
               'user_ini_present' => is_file('.user.ini'),
               'mail_driver' => defined('MAIL_DRIVER') ? MAIL_DRIVER : getenv('MAIL_DRIVER'),

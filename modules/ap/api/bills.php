@@ -1076,18 +1076,12 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
     require_once __DIR__ . '/../../accounting/lib/dimensions.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
+    require_once __DIR__ . '/../../accounting/lib/source_accrual.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
     require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
-    // Accrual-at-approval reclassification gate (2026-02). When the
-    // tenant has `multi_period_split_enabled=1` and every bill line came
-    // from approved-time accruals, expense + AP Accrued were already
-    // recognised by `accountingPostBundleAccrual()`. The bill post becomes
-    // a pure RECLASSIFICATION (single JE on bill_date):
-    //   Dr  AP Accrued     (subtotal — clears the prior accrual)
-    //   Dr  Input Tax 1310 (tax_total, if any)
-    //   Cr  Accounts Payable (full total)
-    // No expense line — recognition is owned by the bundle accrual.
+    // Clear verified posted source accruals line by line. Other bill charges
+    // retain their expense coding even when they share a document with time.
     $settings = accountingSettingsGet($tid);
 
     $pdo = getDB();
@@ -1099,16 +1093,7 @@ if ($method === 'POST' && $action === 'post') {
     } catch (\InvalidArgumentException|\RuntimeException $e) {
         api_error($e->getMessage(), 422);
     }
-    $accruedLineCount = count(array_filter(
-        $billLines,
-        static fn(array $line): bool => in_array(
-            (string) ($line['source_type'] ?? ''),
-            ['time', 'time_entry', 'economic_item'],
-            true
-        )
-    ));
-    $allLinesWereAccrued = count($billLines) > 0 && $accruedLineCount === count($billLines);
-    $reclassifyOnly = !empty($settings['multi_period_split_enabled']) && $allLinesWereAccrued;
+    $reclassifyOnly = false;
 
     try {
         $postingEntity = activeEntityResolveForTenant(
@@ -1273,33 +1258,32 @@ if ($method === 'POST' && $action === 'post') {
 
     $jeLines = $payloadLines; // reused if we have to fall back to legacy direct post
     $reclassLines = [];
-    if ($reclassifyOnly) {
-        accountingEnsureAccrualAccounts($tid, $settings);
-        $apAccrued = (string) $settings['ap_accrued_account_code'];
-        foreach ($placementSubtotals as $placementId => $amount) {
-            $amount = round((float) $amount, 2);
+    foreach ($billLines as $lineIndex => $sourceLine) {
+        $sourceLine['placement_id'] = $sourceLine['placement_id'] ?? $row['placement_id'] ?? null;
+        try {
+            $parts = accountingSourceAccrualParts($tid, $sourceLine, 'ap', $id, $documentEntityId);
+        } catch (\Throwable $e) {
+            api_error('Bill source accrual could not be verified: ' . $e->getMessage(), 422);
+        }
+        if (!$parts) {
+            $reclassLines[] = $payloadLines[$lineIndex];
+            continue;
+        }
+        $reclassifyOnly = true;
+        foreach ($parts as $part) {
+            $amount = round((float) $part['amount'], 2);
             if (abs($amount) <= 0.005) continue;
-            $placementId = (int) $placementId;
-            $lineDimensions = $placementId > 0
-                ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
-                : $documentDimensions;
-            if ($placementId > 0) {
-                $reclassVendorDimension = $placementContexts[$placementId]['vendor_dimension']
-                    ?? ($documentDimensions['vendor'] ?? null);
-                if ($reclassVendorDimension !== null && $reclassVendorDimension !== '') {
-                    $lineDimensions['vendor'] = $reclassVendorDimension;
-                }
-            }
             $reclassLines[] = [
-                'account_code' => $apAccrued,
+                'account_code' => $part['account_code'],
                 'debit' => $amount > 0 ? $amount : 0,
                 'credit' => $amount < 0 ? abs($amount) : 0,
                 'memo' => "Clear AP Accrued — {$row['internal_ref']}",
                 'counterparty_company_id' => $vendorCompanyId,
-                'dims' => $lineDimensions,
+                'dims' => $part['dims'],
             ];
         }
-        if ($billTaxTotal > 0.005) {
+    }
+    if ($billTaxTotal > 0.005) {
             $reclassLines[] = [
                 'account_code' => '1310',
                 'debit' => $billTaxTotal,
@@ -1308,16 +1292,15 @@ if ($method === 'POST' && $action === 'post') {
                 'counterparty_company_id' => $vendorCompanyId,
                 'dims' => $documentDimensions,
             ];
-        }
-        $reclassLines[] = [
+    }
+    $reclassLines[] = [
             'account_code' => '2000',
             'debit' => 0,
             'credit' => round((float) $row['total'], 2),
             'memo' => "AP {$row['internal_ref']} / {$row['vendor_name']}",
             'counterparty_company_id' => $vendorCompanyId,
             'dims' => $documentDimensions,
-        ];
-    }
+    ];
     $eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines;
 
     $pdo->beginTransaction();

@@ -14,7 +14,7 @@ const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).
 const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 const changed = new Set(execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMRT', 'origin/main', 'HEAD'],
   { encoding: 'utf8' }).trim().split('\n'));
-const runtimeRoots = /^(api|core|modules|lib|includes|helpers|config|auth|oauth|partials|views|sim|deploy|tests)\//;
+const runtimeRoots = /^(api|core|modules|billing|lib|includes|helpers|config|auth|oauth|partials|views|sim|deploy|tests)\//;
 const selected = new Set(tracked.filter(file => {
   if (/\.local\.|(^|\/)\.env|\/node_modules\//.test(file)) return false;
   if (runtimeRoots.test(file) && /\.(php|sql|json)$/.test(file) && !/\/ui\//.test(file)) return true;

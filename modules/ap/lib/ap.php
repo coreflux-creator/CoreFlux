@@ -510,7 +510,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $entries = scopedQuery(
         'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
-                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
+                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id, te.dimension_snapshot_hash,
                 p.title AS placement_title, p.engagement_type, p.accounting_entity_id,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
@@ -628,7 +628,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $linesByKey = [];
         foreach ($rows as $r) {
             $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type']
-                . '|' . $r['_rate_snapshot_id'];
+                . '|' . $r['_rate_snapshot_id'] . '|' . ($r['dimension_snapshot_hash'] ?? '');
             if (!isset($linesByKey[$lk])) {
                 $linesByKey[$lk] = [
                     'placement_id'    => (int) $r['placement_id'],

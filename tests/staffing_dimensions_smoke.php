@@ -129,9 +129,9 @@ $assert('accrued bill event uses reclassification lines',
     str_contains($apPost, '$eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines')
     && str_contains($apPost, "'posting_mode' => \$reclassifyOnly ? 'ap_reclassification'"));
 $assert('manual AP bills never clear time accruals merely because the feature is enabled',
-    str_contains($apPost, '$allLinesWereAccrued')
-    && str_contains($apPost, "['time', 'time_entry', 'economic_item']")
-    && str_contains($apPost, '!empty($settings[\'multi_period_split_enabled\']) && $allLinesWereAccrued'));
+    str_contains($apPost, 'accountingSourceAccrualParts(')
+    && str_contains($apPost, '$reclassLines[] = $payloadLines[$lineIndex]')
+    && !str_contains($apPost, '!empty($settings[\'multi_period_split_enabled\'])'));
 
 $apLib = $read(__DIR__ . '/../modules/ap/lib/ap.php');
 $defaultSeed = $read(__DIR__ . '/../core/posting_engine/seed_defaults.php');
