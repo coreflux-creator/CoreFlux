@@ -2,15 +2,6 @@ name: Deploy placement one-time items
 
 on:
   workflow_dispatch:
-    inputs:
-      diagnose_only:
-        description: Read staffing schema and query diagnostics without deploying
-        type: boolean
-        default: false
-      repair_errors_only:
-        description: Publish only the staffing graph scope correction
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -20,139 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  repair-errors:
-    if: ${{ inputs.repair_errors_only && !inputs.diagnose_only }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate the graph correction
-        run: |
-          php -l modules/placements/api/economics.php
-          php -l modules/placements/api/cycles.php
-          php -l modules/placements/lib/economics.php
-          php tests/staffing_economics_tenant_scope_smoke.php
-      - name: Stage the API correction
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.CW_SSH_HOST }}
-          username: ${{ secrets.CW_SSH_USER }}
-          key: ${{ secrets.CW_SSH_KEY }}
-          port: ${{ secrets.CW_SSH_PORT }}
-          source: modules/placements/api/economics.php,modules/placements/api/cycles.php,modules/placements/lib/economics.php,tests/staffing_economics_tenant_scope_smoke.php
-          target: /tmp/coreflux-graph-errors-${{ github.run_id }}
-      - name: Back up and install the API correction
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.CW_SSH_HOST }}
-          username: ${{ secrets.CW_SSH_USER }}
-          key: ${{ secrets.CW_SSH_KEY }}
-          port: ${{ secrets.CW_SSH_PORT }}
-          script: |
-            set -eu
-            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
-            STAGE="/tmp/coreflux-graph-errors-${{ github.run_id }}"
-            cd "$APP_ROOT"
-            php <<'PHP'
-            <?php
-            $expected = [
-                'modules/placements/lib/economics.php' => 'f5f6568803e4a1097611e31d675fdafc7635e1e6393d1c7f55943cf35c076664',
-                'modules/placements/api/cycles.php' => 'bd212228c4426d5ee04f7d13e752b215effdc05ff0b374e76e2327f6f9ba5141',
-                'modules/placements/api/economics.php' => 'a250ee35f2d3090cba6aef805546135cdf8c2a757e94b0361f966ba7560fe276',
-            ];
-            foreach ($expected as $path => $hash) {
-                if (hash('sha256', rtrim(str_replace("\r\n", "\n", file_get_contents($path)))) !== $hash) {
-                    throw new RuntimeException("Deployed file changed: $path; refusing to overwrite it");
-                }
-            }
-            PHP
-            for file in modules/placements/api/economics.php modules/placements/api/cycles.php modules/placements/lib/economics.php; do
-              php -l "$STAGE/$file"
-              mkdir -p "$STAGE/before/$(dirname "$file")"
-              cp "$APP_ROOT/$file" "$STAGE/before/$file"
-            done
-            for file in modules/placements/api/economics.php modules/placements/api/cycles.php modules/placements/lib/economics.php tests/staffing_economics_tenant_scope_smoke.php; do
-              cp --no-preserve=mode,ownership,timestamps "$STAGE/$file" "$APP_ROOT/$file"
-            done
-            php tests/staffing_economics_tenant_scope_smoke.php
-            echo 'Staffing graph scope updated; originals retained in staging.'
-
-  diagnose:
-    if: ${{ inputs.diagnose_only }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Inspect staffing graph prerequisites without writes
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.CW_SSH_HOST }}
-          username: ${{ secrets.CW_SSH_USER }}
-          key: ${{ secrets.CW_SSH_KEY }}
-          port: ${{ secrets.CW_SSH_PORT }}
-          script: |
-            set -eu
-            if [ "${{ secrets.CW_SSH_HOST }}" = "138.197.121.111" ]; then echo 'DEPLOY TARGET: current public host'; else echo 'DEPLOY TARGET: differs from current public host'; fi
-            APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
-            test -f "$APP_ROOT/core/db.php"
-            cd "$APP_ROOT"
-            php <<'PHP'
-            <?php
-            require 'core/db.php';
-            $db = getDB();
-            $db->exec('SET SESSION TRANSACTION READ ONLY');
-            $db->beginTransaction();
-            $queries = [
-                'placement source query' => 'SELECT p.id, pe.pay_frequency, ec.payment_terms_days, sc.payment_terms_days, t.billing_invoice_terms FROM placements p LEFT JOIN people pe ON pe.id=p.person_id AND pe.tenant_id=p.tenant_id LEFT JOIN companies ec ON ec.id=p.end_client_company_id AND ec.tenant_id=p.tenant_id LEFT JOIN staffing_clients sc ON sc.id=p.client_id AND sc.tenant_id=p.tenant_id LEFT JOIN tenants t ON t.id=p.tenant_id WHERE p.tenant_id=0 AND p.id=0',
-                'party schema' => 'SELECT payment_terms_overridden, pwp_overridden, cycle_overridden, operating_cycle_id FROM placement_economic_parties LIMIT 0',
-                'operating cycles' => 'SELECT id, purpose, cadence FROM staffing_operating_cycles LIMIT 0',
-                'referral source' => 'SELECT r.id, c.name, pe.first_name, u.name FROM placement_referrals r LEFT JOIN companies c ON c.id=r.referrer_company_id AND c.tenant_id=r.tenant_id LEFT JOIN people pe ON pe.id=r.referrer_person_id AND pe.tenant_id=r.tenant_id LEFT JOIN users u ON u.id=r.referrer_user_id LIMIT 0',
-                'vendor schema' => 'SELECT company_id, default_terms, default_pwp, placement_id_last FROM ap_vendors_index LIMIT 0',
-            ];
-            foreach ($queries as $label => $sql) {
-                try { $db->query($sql)->closeCursor(); echo "PASS: $label\n"; }
-                catch (Throwable $e) { echo "FAIL: $label: ", $e->getMessage(), "\n"; }
-            }
-            foreach (['126_staffing_economic_graph.sql', '127_staffing_contract_terms.sql'] as $file) {
-                $q = $db->prepare('SELECT filename, last_error FROM _migrations WHERE filename=:file');
-                $q->execute(['file' => $file]);
-                echo json_encode($q->fetch(PDO::FETCH_ASSOC) ?: ['missing' => $file]), "\n";
-            }
-            $db->rollBack();
-            require 'modules/placements/lib/placements.php';
-            require 'modules/placements/lib/economics.php';
-            $db->exec('SET SESSION TRANSACTION READ WRITE');
-            $nonTransactional = $db->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' AND ENGINE <> 'InnoDB'")->fetchAll(PDO::FETCH_COLUMN);
-            if ($nonTransactional) throw new RuntimeException('Rollback probe requires transactional tables');
-            foreach ([810, 120] as $placementId) {
-                $q = $db->prepare('SELECT tenant_id FROM placements WHERE id=:id');
-                $q->execute(['id' => $placementId]);
-                $tenantId = (int) $q->fetchColumn();
-                if (!$tenantId) continue;
-                setRequestTenantId($tenantId);
-                $db->beginTransaction();
-                try {
-                    $result = placementEconomicsReconcile($tenantId, $placementId);
-                    echo 'RECONCILE: ', json_encode(['placement_id' => $placementId, 'available' => $result['available'], 'errors' => $result['errors']]), "\n";
-                } finally {
-                    $db->rollBack();
-                }
-            }
-            $logPaths = array_merge(glob(dirname(getcwd()) . '/logs/*') ?: [], [ini_get('error_log')]);
-            foreach ($logPaths as $path) {
-                if (!$path || !is_file($path) || !is_readable($path)) continue;
-                $file = fopen($path, 'r');
-                fseek($file, max(0, filesize($path) - 1048576));
-                $errors = [];
-                while (($line = fgets($file)) !== false) {
-                    if (str_contains($line, '[placement economics reconcile]')) $errors[] = substr(trim($line), 0, 1000);
-                }
-                fclose($file);
-                foreach (array_slice($errors, -5) as $line) echo "GRAPH ERROR: $line\n";
-            }
-            PHP
-
   deploy:
-    if: ${{ !inputs.diagnose_only && !inputs.repair_errors_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -205,6 +64,7 @@ jobs:
             modules/billing/api/invoices.php \
             modules/billing/lib/billing.php \
             modules/billing/migrations/012_economic_item_source.sql \
+            modules/placements/api/cycles.php \
             modules/placements/api/economics.php \
             modules/placements/lib/economics.php \
             modules/placements/ui/PlacementDetail.jsx \
@@ -217,6 +77,7 @@ jobs:
             tests/placement_rate_source_repair_smoke.php \
             tests/placement_one_time_items_smoke.php \
             tests/tenant_staffing_economics_defaults_smoke.php \
+            tests/staffing_economics_tenant_scope_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/jobdiva_contract_projection_smoke.php
 
@@ -284,6 +145,7 @@ jobs:
             php -l modules/placements/lib/economics.php
             php -l core/staffing_economics.php
             php -l core/jobdiva/sync.php
+            php -l modules/placements/api/cycles.php
             php -l modules/placements/api/economics.php
             php -l modules/billing/lib/billing.php
             php -l modules/billing/api/invoices.php
@@ -294,6 +156,7 @@ jobs:
             php tests/placement_commercial_contract_smoke.php
             php tests/placement_rate_source_repair_smoke.php
             php tests/tenant_staffing_economics_defaults_smoke.php
+            php tests/staffing_economics_tenant_scope_smoke.php
             php tests/staffing_economic_graph_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
 
