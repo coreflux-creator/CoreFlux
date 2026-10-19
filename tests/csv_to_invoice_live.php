@@ -272,7 +272,7 @@ try {
     $token->execute(['t' => $tenantId, 'id' => (int) $delivery['token_id']]);
     $tokenRow = $token->fetch(PDO::FETCH_ASSOC);
     if (!$tokenRow || $tokenRow['delivery_status'] !== 'sent'
-        || !hash_equals((string) $tokenRow['token_hash'], hash('sha256', (string) ($viewQuery['t'] ?? '')))) {
+        || !hash_equals((string) $tokenRow['token_hash'], hash('sha256', (string) ($viewQuery['t'] ?? ''), true))) {
         throw new RuntimeException('Delivered invoice link does not match its persisted token hash');
     }
 
