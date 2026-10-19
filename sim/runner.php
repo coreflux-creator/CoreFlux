@@ -573,6 +573,7 @@ function simStepRecordBillingPayment(array &$ctx, array $step): void {
     $eventType = 'billing.manual_receipt.posted';
     $jeId = null;
     if (!$ctx['dry_run']) {
+        require_once __DIR__ . '/../core/api_bootstrap.php';
         require_once __DIR__ . '/../modules/billing/lib/posted_receipts.php';
         $tenantId = (int) $ctx['tenant_id'];
         $invoiceId = simResolveDocumentId($ctx, 'invoices', (int) ($step['invoice_id'] ?? 0));
