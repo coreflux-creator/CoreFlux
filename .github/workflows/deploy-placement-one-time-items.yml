@@ -2,6 +2,12 @@ name: Deploy placement one-time items
 
 on:
   workflow_dispatch:
+    inputs:
+      integration_staging:
+        description: Isolated Core integration staging access check
+        type: choice
+        options: [none, inspect]
+        default: none
 
 permissions:
   contents: read
@@ -12,6 +18,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: inputs.integration_staging == 'none' || inputs.integration_staging == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -174,3 +181,30 @@ jobs:
             test "$OPCACHE_STATUS" = "200"
             php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
             echo "Deployed and verified commit ${{ github.sha }}."
+
+  inspect-integration-staging:
+    if: inputs.integration_staging == 'inspect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect existing isolated staging access
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            STAGING_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            test "$(readlink -f "$STAGING_ROOT")" = "$STAGING_ROOT"
+            test -d "$STAGING_ROOT"
+            test -r "$STAGING_ROOT/index.html"
+            test -w "$STAGING_ROOT"
+            printf 'isolated_staging_access=read_write\n'
+            for path in core/db.local.php core/standalone_env.php private_runtime/vendor/autoload.php .deploy-version; do
+              if test -r "$STAGING_ROOT/$path"; then printf 'readable=%s\n' "$path"; fi
+            done
+            php -v | head -1
+            command -v composer || true
+            command -v mysqldump || command -v mariadb-dump || true
