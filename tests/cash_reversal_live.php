@@ -31,7 +31,11 @@ $postReceipt = static fn(string $memo): array => accountingPostJe($tenantId, [
     'entity_id' => 1,
     'posting_date' => '2026-01-20',
     'currency' => 'USD',
-    'source_module' => 'manual',
+    // A bank-owned cash account is posted by its source workflow. Ordinary
+    // manual journals may no longer write this control account.
+    'source_module' => 'treasury_feed',
+    'source_ref_type' => 'bank_statement_line',
+    'source_ref_id' => 9501,
     'memo' => $memo,
     'lines' => [
         ['account_code' => '1010', 'debit' => 100, 'credit' => 0],
