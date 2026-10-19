@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
       repair_errors_only:
-        description: Publish only the contract error-reporting correction
+        description: Publish only the staffing graph scope correction
         type: boolean
         default: false
 
@@ -26,8 +26,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate the API correction
-        run: php -l modules/placements/api/economics.php
+      - name: Validate the graph correction
+        run: |
+          php -l modules/placements/api/economics.php
+          php -l modules/placements/api/cycles.php
+          php -l modules/placements/lib/economics.php
+          php tests/staffing_economics_tenant_scope_smoke.php
       - name: Stage the API correction
         uses: appleboy/scp-action@v1.0.0
         with:
@@ -35,7 +39,7 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: modules/placements/api/economics.php
+          source: modules/placements/api/economics.php,modules/placements/api/cycles.php,modules/placements/lib/economics.php,tests/staffing_economics_tenant_scope_smoke.php
           target: /tmp/coreflux-graph-errors-${{ github.run_id }}
       - name: Back up and install the API correction
         uses: appleboy/ssh-action@v1.2.5
@@ -48,13 +52,30 @@ jobs:
             set -eu
             APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
             STAGE="/tmp/coreflux-graph-errors-${{ github.run_id }}"
-            TARGET="$APP_ROOT/modules/placements/api/economics.php"
-            test -f "$TARGET"
-            php -l "$STAGE/modules/placements/api/economics.php"
-            cp "$TARGET" "$STAGE/economics.before.php"
-            cp --no-preserve=mode,ownership,timestamps "$STAGE/modules/placements/api/economics.php" "$TARGET"
-            php -l "$TARGET"
-            echo 'Contract error reporting updated; original retained in staging.'
+            cd "$APP_ROOT"
+            php <<'PHP'
+            <?php
+            $expected = [
+                'modules/placements/lib/economics.php' => 'f5f6568803e4a1097611e31d675fdafc7635e1e6393d1c7f55943cf35c076664',
+                'modules/placements/api/cycles.php' => 'bd212228c4426d5ee04f7d13e752b215effdc05ff0b374e76e2327f6f9ba5141',
+                'modules/placements/api/economics.php' => 'a250ee35f2d3090cba6aef805546135cdf8c2a757e94b0361f966ba7560fe276',
+            ];
+            foreach ($expected as $path => $hash) {
+                if (hash('sha256', rtrim(str_replace("\r\n", "\n", file_get_contents($path)))) !== $hash) {
+                    throw new RuntimeException("Deployed file changed: $path; refusing to overwrite it");
+                }
+            }
+            PHP
+            for file in modules/placements/api/economics.php modules/placements/api/cycles.php modules/placements/lib/economics.php; do
+              php -l "$STAGE/$file"
+              mkdir -p "$STAGE/before/$(dirname "$file")"
+              cp "$APP_ROOT/$file" "$STAGE/before/$file"
+            done
+            for file in modules/placements/api/economics.php modules/placements/api/cycles.php modules/placements/lib/economics.php tests/staffing_economics_tenant_scope_smoke.php; do
+              cp --no-preserve=mode,ownership,timestamps "$STAGE/$file" "$APP_ROOT/$file"
+            done
+            php tests/staffing_economics_tenant_scope_smoke.php
+            echo 'Staffing graph scope updated; originals retained in staging.'
 
   diagnose:
     if: ${{ inputs.diagnose_only }}

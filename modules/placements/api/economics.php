@@ -10,7 +10,9 @@ require_once __DIR__ . '/../lib/economics.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
-$tenantId = (int) $ctx['tenant_id'];
+// Contract parties and cycles belong to the same shared placement catalog
+// as the overview. Keep the authenticated tenant unchanged for RBAC.
+$tenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $placementId = (int) ($_GET['placement_id'] ?? 0);
