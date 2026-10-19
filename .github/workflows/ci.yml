@@ -150,7 +150,7 @@ jobs:
           php tests/csv_to_invoice_live.php || { tail -100 /tmp/coreflux-business-api.log; exit 1; }
         env:
           SIM_API_BASE: http://127.0.0.1:8765
-            COREFLUX_STAGING_PUBLIC_ORIGIN: https://phpstack-1516771-6707602.cloudwaysapps.com
+          COREFLUX_STAGING_PUBLIC_ORIGIN: https://phpstack-1516771-6707602.cloudwaysapps.com
           MAIL_DRIVER: log
           MAIL_LOG_PATH: /tmp/coreflux-ci-mail.log
           CF_PDF_RENDERER_BIN: /bin/false
