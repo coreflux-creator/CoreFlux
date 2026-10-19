@@ -65,7 +65,17 @@ echo json_encode(['commit' => $manifest['commit'], 'database_verified' => true,
     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";
 if ($argv[1] === '--inspect') exit(0);
 
-$backupParent = dirname(INTEGRATION_STAGE_ROOT) . '/private_core_integration';
+$backupHome = realpath((string) getenv('HOME'));
+if (!$backupHome || $backupHome === '/' || !is_writable($backupHome)
+    || $backupHome === INTEGRATION_STAGE_ROOT || str_starts_with($backupHome, INTEGRATION_STAGE_ROOT . '/')) {
+    throw new RuntimeException('A writable SSH home outside the public staging app is required for private backups.');
+}
+$backupBase = $backupHome . '/.coreflux-integration-backups';
+if (!is_dir($backupBase) && !mkdir($backupBase, 0700)) throw new RuntimeException('Cannot create private backup root.');
+if (is_link($backupBase) || realpath($backupBase) !== $backupBase || !chmod($backupBase, 0700)) {
+    throw new RuntimeException('Invalid private backup root.');
+}
+$backupParent = $backupBase . '/' . INTEGRATION_STAGE_DATABASE;
 if (!is_dir($backupParent) && !mkdir($backupParent, 0700)) throw new RuntimeException('Cannot create private backup parent.');
 if (is_link($backupParent) || realpath($backupParent) !== $backupParent) throw new RuntimeException('Invalid backup location.');
 $backup = $backupParent . '/' . $manifest['commit'] . '-' . gmdate('YmdHis');
