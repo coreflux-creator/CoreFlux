@@ -47,7 +47,9 @@ $assert('assignment owners outrank commission-attribution fallbacks',
 $timesheets = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
 $assert('approved-hour event is assignment-grained',
     str_contains($timesheets, "':placement:' . \$placementId")
-    && str_contains($timesheets, 'te.placement_id, engagement_type'));
+    && str_contains($timesheets, 'te.placement_id, te.dimension_snapshot_hash'));
+$assert('approved-hour event is dimension-versioned',
+    str_contains($timesheets, "':segment:' . substr(\$snapshotHash, 0, 24)"));
 $assert('event posts in accounting tenant',
     str_contains($timesheets, "effectiveTenantIdForModule('accounting'")
     && str_contains($timesheets, 'accountingProcessEvent($accountingTenantId'));

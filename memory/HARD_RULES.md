@@ -154,3 +154,5 @@ small. Marketing-speak in chat replies is forbidden.
 
 *This file is the source of truth. Update it when the user makes a new
 decision. Do not delete entries — only append.*
+
+| 2026-10-19 | Integrate the current native CoreAccounting engine and UI into full Core, combine pending staffing workflow hardening and the placement fixes, and prepare a draft integration PR and isolated full-Core staging release. Keep one canonical financial engine. This approval does not include a production accounting cutover or real-company financial transactions. | User approved the proposed integration and staging next step ("ok") in this chat. |

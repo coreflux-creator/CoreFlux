@@ -288,6 +288,12 @@ function simExecuteStep(array &$ctx, string $action, array $step): void {
         case 'create_bank_line':
             simStepCreateBankLine($ctx, $step);
             return;
+        case 'record_billing_payment':
+            simStepRecordBillingPayment($ctx, $step);
+            return;
+        case 'assert_document_balance':
+            simStepAssertDocumentBalance($ctx, $step);
+            return;
         default:
             throw new \RuntimeException("Unknown sim action: {$action} (extend simExecuteStep in /app/sim/runner.php)");
     }
@@ -503,7 +509,10 @@ function simStepClearApPayment(array &$ctx, array $step): void {
             $bankId = (int) $pdo->lastInsertId();
         }
 
-        $amount = round((float) $bill['total'], 2);
+        $amount = round((float) ($step['amount'] ?? $bill['total']), 2);
+        if ($amount <= 0 || $amount > (float) $bill['total']) {
+            throw new \InvalidArgumentException('Simulation payment must be positive and within the bill total');
+        }
         $paymentId = simReserveApPayment($ctx, [
             'payment_id' => $logicalPaymentId,
             'payment_number' => $reference,
@@ -545,6 +554,7 @@ function simStepClearApPayment(array &$ctx, array $step): void {
     $jeId = (int) $cleared['journal_entry_id'];
     $ctx['state']['payments'][$logicalPaymentId] = $paymentId;
     $ctx['state']['posted_payments'][$paymentId] = $jeId;
+    $ctx['state']['last_payment_replayed'] = !empty($cleared['idempotent_replay']);
     if (!isset($ctx['state']['observed_je_ids'][$jeId])) {
         $ctx['state']['observed_je_ids'][$jeId] = true;
         $ctx['metrics']['je_observed']++;
@@ -557,6 +567,76 @@ function simStepClearApPayment(array &$ctx, array $step): void {
         'je_id' => $jeId,
         'je_hash' => simHash(['journal_entry_id' => $jeId]),
     ];
+}
+
+function simStepRecordBillingPayment(array &$ctx, array $step): void {
+    $eventType = 'billing.manual_receipt.posted';
+    $jeId = null;
+    if (!$ctx['dry_run']) {
+        require_once __DIR__ . '/../modules/billing/lib/posted_receipts.php';
+        $tenantId = (int) $ctx['tenant_id'];
+        $invoiceId = simResolveDocumentId($ctx, 'invoices', (int) ($step['invoice_id'] ?? 0));
+        $pdo = getDB();
+        $invoice = $pdo->prepare('SELECT client_name FROM billing_invoices WHERE tenant_id = :t AND id = :id');
+        $invoice->execute(['t' => $tenantId, 'id' => $invoiceId]);
+        $client = $invoice->fetchColumn();
+        if ($client === false) throw new \RuntimeException('Simulation invoice was not found');
+        $bank = $pdo->prepare('SELECT id, entity_id, status FROM accounting_bank_accounts
+            WHERE tenant_id = :t AND gl_account_code = "1000"');
+        $bank->execute(['t' => $tenantId]);
+        $account = $bank->fetch(\PDO::FETCH_ASSOC);
+        if ($account) {
+            if ((int) $account['entity_id'] !== (int) $ctx['entity_id'] || $account['status'] !== 'active') {
+                throw new \RuntimeException('Simulation receipt bank belongs to another entity or is inactive');
+            }
+            $bankId = (int) $account['id'];
+        } else {
+            $pdo->prepare('INSERT INTO accounting_bank_accounts
+                (tenant_id, entity_id, name, gl_account_code, currency, feed_provider, status)
+                VALUES (:t, :e, "Simulation operating cash", "1000", "USD", "manual_csv", "active")')
+                ->execute(['t' => $tenantId, 'e' => $ctx['entity_id']]);
+            $bankId = (int) $pdo->lastInsertId();
+        }
+        $result = billingPostReceivedPayment($tenantId, [
+            'bank_account_id' => $bankId, 'client_name' => (string) $client,
+            'received_at' => simNow('Y-m-d'), 'amount' => $step['amount'],
+            'request_key' => (string) $step['reference'], 'reference' => (string) $step['reference'],
+            'currency' => 'USD', 'method' => 'ach',
+            'allocations' => [['invoice_id' => $invoiceId, 'amount' => $step['amount']]],
+        ], null);
+        $jeId = (int) $result['journal_entry_id'];
+        $ctx['state']['last_payment_replayed'] = !empty($result['idempotent_replay']);
+        if (!isset($ctx['state']['observed_je_ids'][$jeId])) {
+            $ctx['state']['observed_je_ids'][$jeId] = true;
+            $ctx['metrics']['je_observed']++;
+        }
+        if (empty($result['idempotent_replay'])) $ctx['metrics']['je_posted']++;
+    }
+    $ctx['metrics']['events_emitted']++;
+    $ctx['replay'][] = ['event_type' => $eventType, 'payload_hash' => simHash($step),
+        'je_id' => $jeId, 'je_hash' => $jeId ? simHash(['journal_entry_id' => $jeId]) : null];
+}
+
+function simStepAssertDocumentBalance(array &$ctx, array $step): void {
+    if ($ctx['dry_run']) return;
+    [$table, $kind] = match ($step['type'] ?? '') {
+        'invoice' => ['billing_invoices', 'invoices'],
+        'bill' => ['ap_bills', 'bills'],
+        default => throw new \InvalidArgumentException('Unknown simulation document type'),
+    };
+    $id = simResolveDocumentId($ctx, $kind, (int) $step['id']);
+    $stmt = getDB()->prepare("SELECT amount_paid, amount_due, status FROM {$table} WHERE tenant_id = :t AND id = :id");
+    $stmt->execute(['t' => $ctx['tenant_id'], 'id' => $id]);
+    $actual = $stmt->fetch(\PDO::FETCH_ASSOC);
+    // A replay must preserve the final balance instead of re-applying an earlier partial receipt.
+    $expected = !empty($ctx['state']['last_payment_replayed']) ? ($step['on_replay'] ?? $step) : $step;
+    if (!$actual || abs((float) $actual['amount_paid'] - (float) $expected['paid']) > 0.005
+        || abs((float) $actual['amount_due'] - (float) $expected['due']) > 0.005
+        || $actual['status'] !== $expected['status']) {
+        throw new \RuntimeException('Document balance mismatch: ' . json_encode(['actual' => $actual, 'expected' => $expected]));
+    }
+    $tieOut = simInvariantCustomerBalanceMatchesGL(getDB(), (int) $ctx['tenant_id']);
+    if (!$tieOut['ok']) throw new \RuntimeException('Subledger drift at payment checkpoint: ' . json_encode($tieOut['details']));
 }
 
 function simStepCreateBankLine(array &$ctx, array $step): void {

@@ -1,0 +1,158 @@
+{
+  "name": "partial_settlement_lifecycle",
+  "description": "AR and AP documents stay consistent through partial and final allocations.",
+  "default_seed": 29,
+  "expected": {
+    "events_emitted": 6,
+    "je_posted": 6,
+    "assertions_failed": 0
+  },
+  "invariants": [
+    "debits_equal_credits",
+    "no_orphan_events",
+    "business_graph_consistent",
+    "no_direct_gl",
+    "subledger_balances_match_gl",
+    "ap_payment_canonical_lineage",
+    "replay_reproducible"
+  ],
+  "steps": [
+    {
+      "action": "create_billing_invoice",
+      "id": 9201,
+      "invoice_number": "SIM-PART-INV",
+      "client_name": "Simulation Client",
+      "amount": 1000.0
+    },
+    {
+      "event_type": "ar.invoice.issued",
+      "action": "emit_event",
+      "source_record_id": "sim:partial:invoice:9201",
+      "source_module": "billing",
+      "payload": {
+        "invoice_number": "SIM-PART-INV",
+        "amount": 1000,
+        "client_name": "Simulation Client",
+        "currency": "USD",
+        "invoice_id": 9201,
+        "total": 1000,
+        "lines": [
+          {
+            "debit": 1000,
+            "account_code": "1100",
+            "credit": 0
+          },
+          {
+            "debit": 0,
+            "account_code": "4000",
+            "credit": 1000
+          }
+        ]
+      }
+    },
+    {
+      "action": "record_billing_payment",
+      "invoice_id": 9201,
+      "payment_id": 9202,
+      "amount": 350.0,
+      "reference": "SIM-PART-RECEIPT-9202"
+    },
+    {
+      "action": "assert_document_balance",
+      "type": "invoice",
+      "id": 9201,
+      "paid": 350.0,
+      "due": 650.0,
+      "status": "partially_paid",
+      "on_replay": {
+        "due": 0,
+        "paid": 1000,
+        "status": "paid"
+      }
+    },
+    {
+      "action": "record_billing_payment",
+      "invoice_id": 9201,
+      "payment_id": 9203,
+      "amount": 650.0,
+      "reference": "SIM-PART-RECEIPT-9203"
+    },
+    {
+      "action": "assert_document_balance",
+      "type": "invoice",
+      "id": 9201,
+      "paid": 1000.0,
+      "due": 0.0,
+      "status": "paid"
+    },
+    {
+      "action": "create_ap_bill",
+      "id": 9301,
+      "bill_number": "SIM-PART-BILL",
+      "vendor_name": "Simulation Vendor",
+      "amount": 800.0
+    },
+    {
+      "event_type": "ap.bill.approved",
+      "action": "emit_event",
+      "source_record_id": "sim:partial:bill:9301",
+      "source_module": "ap",
+      "payload": {
+        "currency": "USD",
+        "vendor_name": "Simulation Vendor",
+        "amount": 800,
+        "internal_ref": "SIM-PART-BILL",
+        "bill_id": 9301,
+        "lines": [
+          {
+            "debit": 800,
+            "account_code": "6990",
+            "credit": 0
+          },
+          {
+            "debit": 0,
+            "account_code": "2000",
+            "credit": 800
+          }
+        ]
+      }
+    },
+    {
+      "action": "clear_ap_payment",
+      "payment_id": 9302,
+      "amount": 300.0,
+      "bill_id": 9301,
+      "reference": "SIM-PART-PAY-9302",
+      "bank_gl_account_code": "1000"
+    },
+    {
+      "action": "assert_document_balance",
+      "type": "bill",
+      "id": 9301,
+      "paid": 300.0,
+      "due": 500.0,
+      "status": "partially_paid",
+      "on_replay": {
+        "due": 0,
+        "paid": 800,
+        "status": "paid"
+      }
+    },
+    {
+      "action": "clear_ap_payment",
+      "payment_id": 9303,
+      "amount": 500.0,
+      "bill_id": 9301,
+      "reference": "SIM-PART-PAY-9303",
+      "bank_gl_account_code": "1000"
+    },
+    {
+      "action": "assert_document_balance",
+      "type": "bill",
+      "id": 9301,
+      "paid": 800.0,
+      "due": 0.0,
+      "status": "paid"
+    }
+  ]
+}

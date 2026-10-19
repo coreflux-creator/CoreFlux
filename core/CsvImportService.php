@@ -336,8 +336,7 @@ class CsvImportService
      *
      * @param callable $onRow  fn(array $row): int  — module's writer; returns inserted id, or throws
      * $opts['atomic'] wraps all valid row callbacks in one transaction.
-     * It is ignored when skip_invalid is explicitly enabled because that
-     * mode intentionally asks for a partial import.
+     * $opts['row_atomic'] protects each accepted row when skip_invalid is on.
      *
      * @return array {imported_count, skipped_count, errors, ids}
      */
@@ -363,6 +362,7 @@ class CsvImportService
         $errors   = $dry['errors'];
         $ids      = [];
         $atomic   = !empty($opts['atomic']) && !$skipInvalid;
+        $rowAtomic = !empty($opts['row_atomic']) && $skipInvalid;
         $pdo      = function_exists('getDB') ? \getDB() : null;
         $ownsTxn  = false;
         $allSavepoint = false;
@@ -381,22 +381,36 @@ class CsvImportService
         foreach ($dry['rows'] as $rowNum => $row) {
             if (isset($dry['errors'][$rowNum])) { $skipped++; continue; }
             $rowSavepoint = false;
-            if ($pdo instanceof \PDO && $pdo->inTransaction()
-                && ($atomic || getenv('COREFLUX_ENV') === 'coreaccounting')) {
-                if ($pdo->exec('SAVEPOINT csv_import_row') === false) {
-                    throw new \RuntimeException('Could not start the CSV row savepoint.');
-                }
-                $rowSavepoint = true;
-            }
+            $rowOwnsTxn = false;
             try {
+                if ($rowAtomic && !$pdo instanceof \PDO) {
+                    throw new \RuntimeException('CSV import database is unavailable.');
+                }
+                if ($rowAtomic && !$pdo->inTransaction()) {
+                    if (!$pdo->beginTransaction()) {
+                        throw new \RuntimeException('Could not start the CSV row transaction.');
+                    }
+                    $rowOwnsTxn = true;
+                } elseif ($pdo instanceof \PDO && $pdo->inTransaction()
+                    && ($rowAtomic || $atomic || getenv('COREFLUX_ENV') === 'coreaccounting')) {
+                    if ($pdo->exec('SAVEPOINT csv_import_row') === false) {
+                        throw new \RuntimeException('Could not start the CSV row savepoint.');
+                    }
+                    $rowSavepoint = true;
+                }
                 $id = (int) $onRow($row);
+                if ($rowOwnsTxn && !$pdo->commit()) {
+                    throw new \RuntimeException('Could not complete the CSV row transaction.');
+                }
                 if ($rowSavepoint && $pdo->exec('RELEASE SAVEPOINT csv_import_row') === false) {
                     throw new \RuntimeException('Could not complete the CSV row savepoint.');
                 }
                 $ids[$rowNum] = $id;
                 $imported++;
             } catch (\Throwable $e) {
-                if ($rowSavepoint && $pdo->inTransaction()) {
+                if ($rowOwnsTxn && $pdo->inTransaction()) {
+                    $pdo->rollBack();
+                } elseif ($rowSavepoint && $pdo->inTransaction()) {
                     try {
                         if ($pdo->exec('ROLLBACK TO SAVEPOINT csv_import_row') === false
                             || $pdo->exec('RELEASE SAVEPOINT csv_import_row') === false) {

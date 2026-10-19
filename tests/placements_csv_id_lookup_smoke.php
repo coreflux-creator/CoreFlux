@@ -117,9 +117,15 @@ $a('commit errors out cleanly when neither id nor email present',
     str_contains($svc, "throw new \\RuntimeException('either person_id or person_email is required')"));
 $a('update-existing uses placement_id FIRST',
     strpos($svc, "if (!empty(\$row['placement_id']))")
-  < strpos($svc, "if (!\$existing && !empty(\$row['external_id']))"));
+  < strpos($svc, 'if (!$existing && $externalMatch)'));
 $a('placement_id miss is a hard error (not silent fallback)',
     str_contains($svc, "throw new \\RuntimeException(\"placement_id not found: {\$row['placement_id']}\");"));
+$a('bulk updates reject person and external ID conflicts',
+    str_contains($svc, 'placement identity conflicts with the matched person')
+    && str_contains($svc, 'placement_id and external_id identify different placements'));
+$a('dry-run previews identity conflicts before commit',
+    str_contains($svc, "if (\$result['rows'] && !empty(\$_GET['update_existing']))")
+    && str_contains($svc, 'external_id matches multiple placements'));
 
 echo "\n5. UI — <IdBadge /> + click-to-copy\n";
 $a('IdBadge component exists',
