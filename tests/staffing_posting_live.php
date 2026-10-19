@@ -163,7 +163,7 @@ try {
     $dims['vendor'] = 'company:42';
     $apJournal = accountingPostJe($tenantId, [
         'entity_id' => 1, 'posting_date' => '2026-01-11', 'currency' => 'USD',
-        'source_module' => 'manual', 'memo' => 'Temporary contractor accrual resolver fixture',
+        'source_module' => 'staffing', 'memo' => 'Temporary contractor accrual resolver fixture',
         'lines' => [
             ['account_code' => '5010', 'debit' => 240, 'credit' => 0, 'dims' => $dims],
             ['account_code' => '2050', 'debit' => 0, 'credit' => 240, 'dims' => $dims],

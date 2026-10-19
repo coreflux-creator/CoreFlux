@@ -122,6 +122,9 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
                 $legacyCheck->execute(['t' => $tenantId, 'period' => $entry['period_id'], 'p' => $placementId, 'side' => $side]);
                 if ($legacyCheck->fetchColumn()) throw new RuntimeException('This time was accrued as a period bundle. Rebuild the document from that bundle.');
             }
+            if ((int) $entry['timesheet_id'] > 0 && !empty($entry['dimension_snapshot_hash'])) {
+                throw new RuntimeException('Staffing recognition is incomplete. Post the approved timesheet before its invoice or bill.');
+            }
             $missing++;
             continue;
         }
