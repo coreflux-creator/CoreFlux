@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/tenant_scope.php';
+require_once __DIR__ . '/../core/memberships.php';
 require_once __DIR__ . '/../modules/staffing/lib/posting_rules_seed.php';
 
 $tenantId = (int) (getenv('SIM_TENANT_ID') ?: 0);
@@ -19,6 +20,15 @@ if ((int) $check->fetchColumn() !== 1) {
 }
 setRequestTenantId($tenantId);
 staffingSeedPostingRules($tenantId);
+
+foreach (['uploader', 'approver', 'reviewer'] as $actor) {
+    $pdo->prepare('INSERT INTO users (tenant_id, name, email, password_hash, role, is_active)
+        VALUES (:t, :name, :email, "!no-login-ci-fixture", "tenant_admin", 1)')
+        ->execute(['t' => $tenantId, 'name' => 'CI ' . $actor, 'email' => 'ci-' . $actor . '@coreflux.test']);
+    provisionMembership((int) $pdo->lastInsertId(), $tenantId, 'tenant_admin', [
+        'persona_label' => 'CI ' . $actor, 'is_primary' => true,
+    ]);
+}
 
 $pdo->prepare(
     "INSERT INTO people (id, tenant_id, first_name, last_name, email_primary, classification, entity_id)
@@ -180,6 +190,10 @@ try {
         throw new RuntimeException('Repeat billing did not explain that time is already invoiced: ' . json_encode([$status, $repeat]));
     }
 
+    [$status, $approvedInvoice] = ciBusinessApi($curl, $base, 'POST', '/modules/billing/api/invoices.php?action=approve&id=' . $invoiceId);
+    ciBusinessExpect($status, 403, $approvedInvoice, 'Invoice creator cannot self-approve');
+    [$status, $actor] = ciBusinessApi($curl, $base, 'GET', '/__ci__/session?actor=reviewer');
+    ciBusinessExpect($status, 200, $actor, 'Switch to independent invoice reviewer');
     [$status, $approvedInvoice] = ciBusinessApi($curl, $base, 'POST', '/modules/billing/api/invoices.php?action=approve&id=' . $invoiceId);
     ciBusinessExpect($status, 200, $approvedInvoice, 'Invoice approval');
     if (empty($approvedInvoice['approved']) || ($approvedInvoice['status'] ?? '') !== 'approved') {
