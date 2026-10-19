@@ -25,9 +25,14 @@ foreach (['uploader', 'approver', 'reviewer'] as $actor) {
     $pdo->prepare('INSERT INTO users (tenant_id, name, email, password_hash, role, is_active)
         VALUES (:t, :name, :email, "!no-login-ci-fixture", "tenant_admin", 1)')
         ->execute(['t' => $tenantId, 'name' => 'CI ' . $actor, 'email' => 'ci-' . $actor . '@coreflux.test']);
-    provisionMembership((int) $pdo->lastInsertId(), $tenantId, 'tenant_admin', [
+    $membership = provisionMembership((int) $pdo->lastInsertId(), $tenantId, 'tenant_admin', [
         'persona_label' => 'CI ' . $actor, 'is_primary' => true,
     ]);
+    if ($actor === 'approver') {
+        $pdo->prepare('INSERT INTO membership_module_access (membership_id, module_key, access_level)
+            VALUES (:m, "staffing", "admin") ON DUPLICATE KEY UPDATE access_level = "admin"')
+            ->execute(['m' => $membership['membership_id']]);
+    }
 }
 
 $pdo->prepare(

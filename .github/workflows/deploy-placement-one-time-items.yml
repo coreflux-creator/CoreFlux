@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       integration_staging:
-        description: Isolated Core integration staging access check
+        description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect]
+        options: [none, inspect, prepare, deploy]
         default: none
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: coreflux-cloudways-production
@@ -226,3 +227,82 @@ jobs:
               'php_environment' => getenv('COREFLUX_ENV'),
             ], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
             PHP
+
+  core-integration-staging:
+    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the selected deployment revision
+        if: inputs.integration_staging == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl
+          tools: composer:v2
+      - name: Build full Core release
+        run: |
+          git fetch origin main --depth=1
+          npm ci --prefix dashboard --no-audit --no-fund
+          node --test dashboard/tests/*.test.mjs
+          npm run build --prefix dashboard
+          node scripts/build_core_integration_release.mjs "$RUNNER_TEMP/core-integration-package"
+          tar -czf core-integration-release.tar.gz -C "$RUNNER_TEMP/core-integration-package" .
+          sha256sum core-integration-release.tar.gz > core-integration-release.sha256
+      - name: Upload private staging package
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: core-integration-release.tar.gz,core-integration-release.sha256
+          target: /tmp/core-integration-${{ github.run_id }}
+      - name: Inspect or install isolated full-Core staging
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 15m
+          script: |
+            set -eu
+            export COREFLUX_ENV=staging
+            export COREFLUX_STAGING_PUBLIC_ORIGIN='https://phpstack-1516771-6707602.cloudwaysapps.com'
+            UPLOAD='/tmp/core-integration-${{ github.run_id }}'
+            test "$(readlink -f "$UPLOAD")" = "$UPLOAD"
+            cd "$UPLOAD"
+            sha256sum -c core-integration-release.sha256
+            mkdir -m 700 package
+            tar -xzf core-integration-release.tar.gz -C package
+            php package/deploy/core_integration_staging.php --inspect
+            if [ '${{ inputs.integration_staging }}' != 'deploy' ]; then exit 0; fi
+            php package/deploy/core_integration_staging.php --apply
+            STAGING_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            test "$(readlink -f "$STAGING_ROOT")" = "$STAGING_ROOT"
+            cd "$STAGING_ROOT"
+            OPCACHE_ENDPOINT="$STAGING_ROOT/api/admin/opcache_integration_${{ github.run_id }}.php"
+            trap 'rm -f -- "$OPCACHE_ENDPOINT"' EXIT
+            OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            php -r '$s=file_get_contents($argv[1]); if(substr_count($s,"__COREFLUX_OPCACHE_TOKEN__")!==1)exit(1); file_put_contents($argv[2],str_replace("__COREFLUX_OPCACHE_TOKEN__",$argv[3],$s)); chmod($argv[2],0644);' \
+              "$UPLOAD/package/scripts/opcache_flush_deploy.php.template" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
+            curl -fsS --max-time 30 -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" \
+              "$COREFLUX_STAGING_PUBLIC_ORIGIN/api/admin/opcache_integration_${{ github.run_id }}.php" \
+              | php -r '$r=json_decode(stream_get_contents(STDIN),true); if(($r["ok"]??false)!==true)exit(1); echo "Staging PHP cache refreshed.\n";'
+            unset OPCACHE_TOKEN
+            rm -f -- "$OPCACHE_ENDPOINT"
+            INDEX_SHA="$(sha256sum index.html | cut -d' ' -f1)"
+            php deploy/verify_coreaccounting_staging_release.php --expected-index-sha256="$INDEX_SHA"
+            php tests/accounting_staging_lifecycle.php --execute
+            php tests/billing_delivery_staging_http.php --execute
+            echo 'Full-Core staging acceptance passed for ${{ github.sha }}.'
