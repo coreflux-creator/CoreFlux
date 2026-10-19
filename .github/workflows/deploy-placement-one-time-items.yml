@@ -70,6 +70,7 @@ jobs:
           port: ${{ secrets.CW_SSH_PORT }}
           script: |
             set -eu
+            if [ "${{ secrets.CW_SSH_HOST }}" = "138.197.121.111" ]; then echo 'DEPLOY TARGET: current public host'; else echo 'DEPLOY TARGET: differs from current public host'; fi
             APP_ROOT="${{ secrets.CW_REMOTE_PATH }}/public_html"
             test -f "$APP_ROOT/core/db.php"
             cd "$APP_ROOT"
