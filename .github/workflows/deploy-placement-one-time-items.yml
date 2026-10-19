@@ -208,3 +208,21 @@ jobs:
             php -v | head -1
             command -v composer || true
             command -v mysqldump || command -v mariadb-dump || true
+            cd "$STAGING_ROOT"
+            COREFLUX_ENV=staging php <<'PHP'
+            <?php
+            require 'core/db.php';
+            $pdo = getDB();
+            if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'muzqvdvqbx') exit(2);
+            $ledger = $pdo->query('SELECT filename, sha256 FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_KEY_PAIR);
+            echo json_encode([
+              'database_identity_verified' => true,
+              'simulation_tenant' => (int) $pdo->query('SELECT is_simulation FROM tenants WHERE id=999')->fetchColumn(),
+              'migration_count' => count($ledger),
+              'migration_ledger' => $ledger,
+              'root_standalone_rules' => str_contains(file_get_contents('.htaccess'), 'CoreAccounting'),
+              'user_ini_present' => is_file('.user.ini'),
+              'mail_driver' => defined('MAIL_DRIVER') ? MAIL_DRIVER : getenv('MAIL_DRIVER'),
+              'php_environment' => getenv('COREFLUX_ENV'),
+            ], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
+            PHP

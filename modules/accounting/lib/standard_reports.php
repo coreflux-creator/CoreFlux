@@ -39,7 +39,8 @@ function reportCashFlowClassification(array $account): array
         if ($code === '1010' && $name === 'clearing accounts') {
             return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
         }
-        if (in_array($name, ['ar', 'a/r'], true)
+        if (($code === '1100' && !empty($account['is_system_account']))
+            || in_array($name, ['ar', 'a/r'], true)
             || str_contains($text, 'accounts receivable')
             || str_contains($text, 'trade receivable')) {
             return ['tag' => 'operating_wc_ar', 'source' => 'inferred'];
@@ -61,7 +62,8 @@ function reportCashFlowClassification(array $account): array
         if ($code === '2300' && !empty($account['is_system_account'])) {
             return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
         }
-        if (in_array($name, ['ap', 'a/p'], true)
+        if (($code === '2000' && !empty($account['is_system_account']))
+            || in_array($name, ['ap', 'a/p'], true)
             || str_contains($text, 'accounts payable')
             || str_contains($text, 'trade payable')) {
             return ['tag' => 'operating_wc_ap', 'source' => 'inferred'];

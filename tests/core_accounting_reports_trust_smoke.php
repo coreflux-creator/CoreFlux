@@ -24,6 +24,23 @@ require_once $root . '/modules/accounting/lib/standard_reports.php';
 
 echo "Cash-flow classification defaults\n";
 $cases = [
+    'renamed system receivable retains its classification' => [
+        ['code' => '1100', 'name' => 'Customer obligations', 'account_type' => 'asset', 'is_system_account' => 1],
+        'operating_wc_ar', 'inferred',
+    ],
+    'renamed system payable retains its classification' => [
+        ['code' => '2000', 'name' => 'Vendor obligations', 'account_type' => 'liability', 'is_system_account' => 1],
+        'operating_wc_ap', 'inferred',
+    ],
+    'explicit classification wins over system identity' => [
+        ['code' => '2000', 'name' => 'Vendor obligations', 'account_type' => 'liability', 'is_system_account' => 1,
+            'cash_flow_tag' => 'operating_wc_other'],
+        'operating_wc_other', 'configured',
+    ],
+    'custom account code alone does not imply system identity' => [
+        ['code' => '2000', 'name' => 'Other obligations', 'account_type' => 'liability', 'is_system_account' => 0],
+        'untagged', 'unclassified',
+    ],
     'explicit tag wins' => [
         ['code' => '1000', 'name' => 'Cash', 'account_type' => 'asset', 'cash_flow_tag' => 'investing_custom', 'is_bank_linked' => 1],
         'investing_custom', 'configured',
