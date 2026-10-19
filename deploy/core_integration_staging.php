@@ -19,12 +19,22 @@ if (($manifest['product'] ?? '') !== 'full-core-staging'
     throw new RuntimeException('Invalid full-Core release manifest.');
 }
 foreach ($manifest['files'] as $relative => $hash) {
-    if (!preg_match('~^[A-Za-z0-9_. /-]+$~D', $relative) || str_starts_with($relative, '/')
+    if (preg_match('/[\x00-\x1f\x7f]/', $relative) || str_contains($relative, '\\')
+        || str_contains($relative, ':') || str_starts_with($relative, '/')
         || in_array('..', explode('/', $relative), true) || str_contains($relative, '.local.')
         || is_link($package . '/' . $relative)
         || !is_file($package . '/' . $relative)
         || !hash_equals($hash, hash_file('sha256', $package . '/' . $relative))) {
         throw new RuntimeException('Invalid release file: ' . $relative);
+    }
+    $target = INTEGRATION_STAGE_ROOT . '/' . $relative;
+    $parent = dirname($target);
+    while (!file_exists($parent) && !is_link($parent)) $parent = dirname($parent);
+    $resolvedParent = realpath($parent);
+    if (is_link($target) || $resolvedParent === false
+        || ($resolvedParent !== INTEGRATION_STAGE_ROOT
+            && !str_starts_with($resolvedParent, INTEGRATION_STAGE_ROOT . '/'))) {
+        throw new RuntimeException('Release target escapes the staging app: ' . $relative);
     }
 }
 require_once INTEGRATION_STAGE_ROOT . '/core/db.php';

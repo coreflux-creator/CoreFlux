@@ -27,6 +27,7 @@ $stmt->execute(['t' => (int) getenv('SIM_TENANT_ID'), 'email' => 'ci-' . $actor 
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$user) throw new RuntimeException('Synthetic CI actor is missing');
 session_start();
+$_SESSION = [];
 $userId = (int) $user['id'];
 $_SESSION['user'] = $user;
 $_SESSION['tenant_id'] = (int) getenv('SIM_TENANT_ID');

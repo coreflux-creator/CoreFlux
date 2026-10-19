@@ -133,6 +133,9 @@ jobs:
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 
+      - name: Replay partial settlements without duplicate postings
+        run: php sim/runner.php --scenario=partial_settlement_lifecycle --tenant=999
+
       - name: Verify approved staffing dimensions post to separate journals
         run: php tests/staffing_posting_live.php
 
