@@ -106,3 +106,85 @@ if (count($events->fetchAll(PDO::FETCH_ASSOC)) !== 2) {
     throw new RuntimeException('Replaying an approved week duplicated its journal events');
 }
 echo "Approved staffing dimensions posted and replayed without restatement.\n";
+
+// Exercise the invoice/bill clearing resolver against actual posted journals.
+// These temporary fixtures roll back so subsequent workflow tests see the
+// original approval data, including the later placement master edit.
+require_once __DIR__ . '/../modules/accounting/lib/source_accrual.php';
+$pdo->beginTransaction();
+try {
+    $pdo->prepare('INSERT INTO time_downstream_feed
+        (tenant_id, period_id, placement_id, bundle_type, entries_json, total_amount_bill)
+        VALUES (:t, 1, 9401, "ar", :entries, 700)')
+        ->execute(['t' => $tenantId, 'entries' => json_encode(['entry_ids' => [9401, 9402]])]);
+    $bundleId = (int) $pdo->lastInsertId();
+    $line = ['source_type' => 'time', 'source_ref_id' => $bundleId,
+        'placement_id' => 9401, 'quantity' => 7, 'subtotal' => 700];
+    foreach ([0, 1] as $setting) {
+        $pdo->prepare('UPDATE accounting_settings SET multi_period_split_enabled = :enabled WHERE tenant_id = :t')
+            ->execute(['enabled' => $setting, 't' => $tenantId]);
+        $parts = accountingSourceAccrualParts($tenantId, $line, 'ar', 0, 1);
+        $clearing = [];
+        foreach ($parts as $part) {
+            if ($part['account_code'] !== '1150') throw new RuntimeException('Invoice used the legacy settings account instead of staffing unbilled');
+            $branch = $part['dims']['branch'];
+            $clearing[$branch] = ($clearing[$branch] ?? 0) + $part['amount'];
+        }
+        if (($clearing['East'] ?? 0) !== 400.0 || ($clearing['West'] ?? 0) !== 300.0) {
+            throw new RuntimeException('Invoice clearing lost approved dimension amounts: ' . json_encode($clearing));
+        }
+        foreach (['manual', 'economic_item', 'economic_party'] as $type) {
+            if (accountingSourceAccrualParts($tenantId, ['source_type' => $type, 'subtotal' => 100], 'ar', 0, 1)) {
+                throw new RuntimeException('An unaccrued fee was classified as time recognition');
+            }
+        }
+    }
+    $eventRow = $rows[0];
+    $pdo->prepare('UPDATE accounting_events SET status = "error" WHERE tenant_id = :t AND source_record_id = :source')
+        ->execute(['t' => $tenantId, 'source' => $eventRow['source_record_id']]);
+    $blocked = false;
+    try { accountingSourceAccrualParts($tenantId, $line, 'ar', 0, 1); }
+    catch (RuntimeException $e) { $blocked = str_contains($e->getMessage(), 'incomplete'); }
+    if (!$blocked) throw new RuntimeException('Partial staffing recognition was allowed through invoice posting');
+    $pdo->prepare('UPDATE accounting_events SET status = "posted" WHERE tenant_id = :t AND source_record_id = :source')
+        ->execute(['t' => $tenantId, 'source' => $eventRow['source_record_id']]);
+
+    // An AP source must clear a payable accrual, never a W2 payroll liability.
+    $pdo->prepare('UPDATE time_entries SET ap_extracted_ref = 9399 WHERE tenant_id = :t AND id = 9401')
+        ->execute(['t' => $tenantId]);
+    $apLine = ['source_type' => 'time_entry', 'source_ref_id' => 9401,
+        'placement_id' => 9401, 'quantity' => 4, 'subtotal' => 240];
+    $blocked = false;
+    try { accountingSourceAccrualParts($tenantId, $apLine, 'ap', 9399, 1); }
+    catch (RuntimeException $e) { $blocked = str_contains($e->getMessage(), 'no supported unbilled accrual'); }
+    if (!$blocked) throw new RuntimeException('A W2 source was allowed to clear contractor AP');
+
+    $dims = $byBranch['East']['dimensions'];
+    $dims['vendor'] = 'company:42';
+    $apJournal = accountingPostJe($tenantId, [
+        'entity_id' => 1, 'posting_date' => '2026-01-11', 'currency' => 'USD',
+        'source_module' => 'manual', 'memo' => 'Temporary contractor accrual resolver fixture',
+        'lines' => [
+            ['account_code' => '5010', 'debit' => 240, 'credit' => 0, 'dims' => $dims],
+            ['account_code' => '2050', 'debit' => 0, 'credit' => 240, 'dims' => $dims],
+        ],
+    ], null, true);
+    $eastSource = array_values(array_filter($rows, static fn(array $r): bool =>
+        (json_decode($r['payload'], true)['dimensions']['branch'] ?? '') === 'East'))[0]['source_record_id'];
+    $pdo->prepare('UPDATE accounting_events SET journal_entry_id = :je WHERE tenant_id = :t AND source_record_id = :source')
+        ->execute(['je' => $apJournal['je_id'], 't' => $tenantId, 'source' => $eastSource]);
+    $parts = accountingSourceAccrualParts($tenantId, $apLine, 'ap', 9399, 1);
+    if (count($parts) !== 1 || $parts[0]['account_code'] !== '2050' || $parts[0]['amount'] !== 240.0
+        || $parts[0]['dims']['branch'] !== 'East') {
+        throw new RuntimeException('AP source did not clear its original contractor accrual');
+    }
+    $pdo->prepare('UPDATE accounting_journal_entries SET status = "reversed" WHERE tenant_id = :t AND id = :id')
+        ->execute(['t' => $tenantId, 'id' => $apJournal['je_id']]);
+    $blocked = false;
+    try { accountingSourceAccrualParts($tenantId, $apLine, 'ap', 9399, 1); }
+    catch (RuntimeException $e) { $blocked = str_contains($e->getMessage(), 'reversed'); }
+    if (!$blocked) throw new RuntimeException('A reversed source accrual was allowed through bill posting');
+    echo "Source accrual clearing preserved AR/AP accounts and dimensions with either period setting; incomplete and reversed sources blocked.\n";
+} finally {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+}
