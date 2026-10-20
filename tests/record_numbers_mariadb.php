@@ -71,6 +71,8 @@ $check(coreRecordNumbersAttach($pdo, 1, 'person', [['id' => 333]])[0]['person_nu
 $pdo->exec('DELETE FROM people WHERE id=333');
 $check($fails(fn () => $pdo->exec("INSERT INTO people(id,tenant_id,name) VALUES (333,1,'recycled')")), 'deleted ID cannot recycle its number');
 $check($pdo->query('SELECT id FROM people WHERE id=333')->fetchColumn() === false, 'failed reservation rolls back source insert');
+$fails(fn () => $pdo->exec("INSERT IGNORE INTO people(id,tenant_id,name) VALUES (333,1,'recycled through ignore')"));
+$check($pdo->query('SELECT id FROM people WHERE id=333')->fetchColumn() === false, 'INSERT IGNORE cannot recycle a retired reference');
 $pdo->beginTransaction();
 $check($fails(fn () => coreRecordNumbersMerge($pdo, 1, 'person', 445, 444, 7)), 'foreign-tenant merge refused');
 $pdo->rollBack();

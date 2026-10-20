@@ -425,7 +425,7 @@ specialized access; this dictionary exposes metadata, never those values.
 ### Validation of this foundation
 
 - 60 focused number/import/mapping assertions passed.
-- 47 disposable MariaDB checks passed: backfill, insert triggers, rollback,
+- 48 disposable MariaDB checks passed: backfill, insert triggers, rollback,
   cross-tenant lookup/merge refusal, retired-number lookup, replay, batched
   reads, export-template preservation and custom-field metadata visibility.
 - All 112 relevant existing/new smoke scripts and 56 dashboard unit tests passed.
