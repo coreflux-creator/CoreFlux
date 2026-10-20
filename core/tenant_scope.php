@@ -17,6 +17,7 @@
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/record_numbers.php';
 
 /**
  * Detect the active module key from the current request URL.
@@ -231,6 +232,7 @@ function scopedFind(string $sql, array $params = []): ?array {
  * Returns the newly created row id.
  */
 function scopedInsert(string $table, array $data): int {
+    coreRecordNumbersRejectWrite($data);
     $pdo = getDB();
     if (!$pdo) throw new RuntimeException('No database connection');
 
@@ -254,6 +256,7 @@ function scopedInsert(string $table, array $data): int {
  * Update a row by id, scoped to the current tenant. Returns rows affected.
  */
 function scopedUpdate(string $table, int $id, array $data): int {
+    coreRecordNumbersRejectWrite($data);
     $pdo = getDB();
     if (!$pdo) throw new RuntimeException('No database connection');
 

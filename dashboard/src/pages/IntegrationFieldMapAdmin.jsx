@@ -80,6 +80,27 @@ export default function IntegrationFieldMapAdmin() {
   const [bulkBusy, setBulkBusy]         = useState(false);
   const [bulkResult, setBulkResult]     = useState(null);
 
+  const [dictionaryBusy, setDictionaryBusy] = useState(false);
+  const handleDictionaryDownload = async () => {
+    setDictionaryBusy(true);
+    setError('');
+    try {
+      const contract = await api.get('/api/admin/integrations/field_map.php?action=contract');
+      const url = URL.createObjectURL(new Blob([JSON.stringify(contract, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `core_field_dictionary_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message || 'Field dictionary could not be downloaded');
+    } finally {
+      setDictionaryBusy(false);
+    }
+  };
+
   const handleExport = async () => {
     setError(null);
     try {
@@ -247,6 +268,11 @@ export default function IntegrationFieldMapAdmin() {
             {ENTITY_TYPES.map(e2 => <option key={e2} value={e2}>{e2}</option>)}
           </select>
         </label>
+        <button type="button" className="btn btn--ghost" onClick={handleDictionaryDownload}
+          disabled={dictionaryBusy} data-testid="field-dictionary-download"
+          title="Core fields, stable numbers and mapping gaps. Provider fields still require verification.">
+          {dictionaryBusy ? 'Preparing dictionary…' : 'Download field dictionary'}
+        </button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
           <button
             type="button"

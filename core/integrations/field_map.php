@@ -25,6 +25,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../record_numbers.php';
 
 $__jobdivaCanonicalGraph = __DIR__ . '/../jobdiva/canonical_graph.php';
 if (is_file($__jobdivaCanonicalGraph)) {
@@ -49,7 +50,7 @@ const TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS = [
 
 function tenantIntegrationFieldMapProtectedInternalFields(): array
 {
-    return [
+    return array_merge(coreRecordNumberFields(), [
         'id',
         'tenant_id',
         'external_id',
@@ -59,7 +60,7 @@ function tenantIntegrationFieldMapProtectedInternalFields(): array
         'deleted_at',
         'created_by_user_id',
         'updated_by_user_id',
-    ];
+    ]);
 }
 
 function tenantIntegrationFieldMapIsProtectedInternalField(string $field): bool
@@ -473,6 +474,11 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
     }
     if ($internalField === '' && $targetColumn === '') {
         throw new \InvalidArgumentException('internal_field or target_column required');
+    }
+    if (in_array(strtolower(trim($internalField)), coreRecordNumberFields(), true)
+        || in_array(strtolower(trim($targetColumn)), coreRecordNumberFields(), true)
+        || strtolower(trim($targetTable)) === 'core_record_numbers') {
+        throw new \InvalidArgumentException('Core record numbers are system-owned and cannot be mapped as writable targets');
     }
 
     // If caller used the generalised shape, validate against the

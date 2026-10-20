@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -80,6 +81,8 @@ if ($method === 'GET' && !empty($_GET['id'])) {
         ['id' => $id]
     );
     if (!$row) api_error('Not found', 404);
+    $row = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', [$row])[0];
+    $row = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', [$row], 'company_id')[0];
     if (!empty($_GET['reveal_pii']) && !empty($row['tax_id_full_ct'])) {
         rbac_legacy_require($user, 'ap.vendor.view_pii');
         $row['tax_id_full'] = decryptField($row['tax_id_full_ct']);
@@ -95,7 +98,8 @@ if ($method === 'GET') {
     $params = [];
     if (!empty($_GET['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
-        $where[]      = '(v.vendor_name LIKE :q OR c.name LIKE :q2)';
+        $where[]      = '(v.vendor_name LIKE :q OR c.name LIKE :q2 OR ' . coreRecordNumberSearchSql('vendor', 'v', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $_GET['q']));
         $params['q']  = '%' . str_replace(['%','_'], ['\\%','\\_'], $_GET['q']) . '%';
         $params['q2'] = $params['q'];
     }
@@ -116,6 +120,8 @@ if ($method === 'GET') {
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
+    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', $rows);
+    $rows = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', $rows, 'company_id');
     $count = scopedFind(
         'SELECT COUNT(*) AS c
            FROM ap_vendors_index v

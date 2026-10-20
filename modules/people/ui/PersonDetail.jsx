@@ -63,7 +63,7 @@ export default function PersonDetail({ session }) {
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="person-detail-back">← Directory</button>
           <h1 data-testid="person-detail-name" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>{person.preferred_name || person.first_name} {person.last_name}</span>
-            <IdBadge id={person.id} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
+            <IdBadge id={person.id} number={person.person_number} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
           </h1>
           <p style={{ color: '#666' }}>
             <span data-testid="person-detail-classification" className={`badge badge--${person.classification}`}>{CLASSIFICATION_LABELS[person.classification] || person.classification}</span>

@@ -44,6 +44,8 @@
 
 namespace Core;
 
+require_once __DIR__ . "/record_numbers.php";
+
 class CsvImportService
 {
     /** @var array<string, array> module => schema */
@@ -225,7 +227,21 @@ class CsvImportService
             foreach ($cells as $i => $value) {
                 $field = $headerMap[$i] ?? null;
                 if (!$field) continue;
-                $row[$field] = trim((string) $value);
+                $value = trim((string) $value, " \t\r\n");
+                $referenceType = $schema['fields'][$field]['reference_type'] ?? null;
+                if ($referenceType && $value !== '') {
+                    try {
+                        $normalized = \coreRecordNumberInputId($referenceType, $value);
+                        if (isset($row[$field]) && $row[$field] !== '' && (string) $row[$field] !== (string) $normalized) {
+                            $rowErrors[] = "{$field}: conflicting ID and number columns";
+                        }
+                        $value = (string) $normalized;
+                    } catch (\InvalidArgumentException $e) {
+                        $rowErrors[] = "{$field}: " . $e->getMessage();
+                    }
+                }
+                // A blank duplicate number column must not erase a supplied ID.
+                if (!$referenceType || $value !== '' || !isset($row[$field])) $row[$field] = $value;
             }
 
             // Callers may supply explicit fallback values for fields that are
@@ -263,7 +279,13 @@ class CsvImportService
                 if ($type === 'number' && !is_numeric($val)) {
                     $rowErrors[] = "{$field}: not numeric '{$val}'";
                 }
-                if ($type === 'integer') {
+                if (!empty($def['reference_type'])) {
+                    try {
+                        $row[$field] = \coreRecordNumberInputId($def['reference_type'], (string) $val);
+                    } catch (\InvalidArgumentException $e) {
+                        $rowErrors[] = "{$field}: " . $e->getMessage();
+                    }
+                } elseif ($type === 'integer') {
                     // Accept either the bare integer (1042 — what
                     // <IdBadge /> writes to the clipboard) OR the
                     // displayed form (P-1042, PL-1042, B-1042 — what

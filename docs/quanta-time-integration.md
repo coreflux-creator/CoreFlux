@@ -1,5 +1,11 @@
 # Quanta time integration
 
+This document describes the implemented CoreFlux time connector. The October 20
+[Thunderhawk operating pilot](thunderhawk-core-operating-pilot.md) expands the
+target to people, assignments, onboarding, portal reporting, and PurePay /
+PurePayroll integration. That target does not make the current connector
+bidirectional; the gaps and rollout sequence are tracked in the pilot plan.
+
 The Quanta connector is intentionally disconnected on deployment. There is no
 scheduled sync, webhook, or automatic tenant link. A CoreFlux tenant admin must
 connect a Quanta API key, link worker identities, review placement routes,
@@ -78,9 +84,11 @@ import while a preview contains unresolved rows.
 Quanta owns clock events, timesheet submission, and its source approval state.
 CoreFlux owns placements, rates, accounting dimensions, and downstream billing,
 AP, and payroll decisions. Import never writes an approval or correction back
-to Quanta. Quanta documents write endpoints, but the tenant API-key screen only
-offers read scopes; a bidirectional workflow requires separately verified
-write credentials, conflict rules, and an agreed source of truth before it can
-be enabled. Running Connecteam-to-Quanta and Connecteam-to-CoreFlux time feeds
+to Quanta. At the September 28 verification, the inspected tenant API-key screen
+offered read scopes only. That observation is not a claim about every current
+Quanta integration: the reviewed PurePay source also contains worker writes,
+time approvals, and other Quanta operations. CoreFlux still needs verified
+write credentials, conflict rules, and field ownership before its outbound
+workflow can be enabled. Running Connecteam-to-Quanta and Connecteam-to-CoreFlux time feeds
 for the same activity would risk duplicate time, so only one ingestion path
 should be active for each source clock.

@@ -136,18 +136,18 @@ $a('IdBadge shows ✓ copied feedback briefly',
     str_contains($badgeUi, 'copied') && str_contains($badgeUi, 'setTimeout(() => setCopied(false), 1200)'));
 $a('Placements list imports + uses IdBadge with PL prefix',
     str_contains($listUi, "import IdBadge from '../../../dashboard/src/components/IdBadge'")
-    && str_contains($listUi, '<IdBadge id={p.id} prefix="PL"'));
+    && str_contains($listUi, '<IdBadge id={p.id} number={p.placement_number} prefix="PL"'));
 $a('Placements list also surfaces the linked person_id',
     str_contains($listUi, '<IdBadge id={p.person_id} prefix="P"'));
 $a('Placements list keeps both IDs in the person cell and spans all columns',
-    str_contains($listUi, '<IdBadge id={p.id} prefix="PL"')
+    str_contains($listUi, '<IdBadge id={p.id} number={p.placement_number} prefix="PL"')
     && str_contains($listUi, '<IdBadge id={p.person_id} prefix="P"')
     && str_contains($listUi, 'colSpan={12}'));
 $a('PlacementDetail surfaces PL + linked P badges',
-    str_contains($detailUi, '<IdBadge id={placement.id} prefix="PL"')
+    str_contains($detailUi, '<IdBadge id={placement.id} number={placement.placement_number} prefix="PL"')
     && str_contains($detailUi, '<IdBadge id={placement.person_id} prefix="P"'));
 $a('PersonDetail header surfaces the P badge next to the name',
-    str_contains($personUi, '<IdBadge id={person.id} prefix="P"'));
+    str_contains($personUi, '<IdBadge id={person.id} number={person.person_number} prefix="P"'));
 
 echo "\n6. PHP syntax\n";
 foreach ([

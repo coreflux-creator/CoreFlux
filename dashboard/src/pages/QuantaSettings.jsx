@@ -34,7 +34,7 @@ function normalizedName(value) {
 }
 
 function placementName(placement) {
-  return `PL-${placement.id} · ${placement.person_name || 'Unnamed person'} · ${placement.title || 'Placement'}${placement.end_client_name ? ` · ${placement.end_client_name}` : ''}`;
+  return `${placement.placement_number || `PL-${placement.id}`} · ${placement.person_name || 'Unnamed person'} · ${placement.title || 'Placement'}${placement.end_client_name ? ` · ${placement.end_client_name}` : ''}`;
 }
 
 function dimensionLabel(values, dimensions = []) {
@@ -310,10 +310,10 @@ export default function QuantaSettings() {
                 const creating = createDraft?.worker_id === workerId;
                 return <React.Fragment key={workerId}><tr><td style={cell}><strong>{workerName(worker)}</strong><div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{worker.email || workerId}</div>{worker.active === false && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Inactive in Quanta</div>}</td>
                   <td style={cell}><div style={{ display: 'grid', gap: 5, maxWidth: 460 }}><input type="search" aria-label={`Search people for ${workerName(worker)}`} placeholder="Search people" value={personSearch[workerId] || ''} onChange={e => setPersonSearch(prev => ({ ...prev, [workerId]: e.target.value }))} style={{ ...field, width: '100%' }} /><select aria-label={`CoreFlux person for ${workerName(worker)}`} value={choice} onChange={e => setLinkDrafts(prev => ({ ...prev, [workerId]: e.target.value }))} style={{ ...field, width: '100%' }}>
-                    <option value="">Choose a person</option>{personOptions(workerId, choice).map(person => <option key={person.id} value={person.id}>P-{person.id} · {person.name} · {person.email_primary || 'No email'}{person.connecteam_user_id ? ' · Connecteam linked' : ''}</option>)}
+                    <option value="">Choose a person</option>{personOptions(workerId, choice).map(person => <option key={person.id} value={person.id}>{person.person_number || `P-${person.id}`} · {person.name} · {person.email_primary || 'No email'}{person.connecteam_user_id ? ' · Connecteam linked' : ''}</option>)}
                   </select></div></td><td style={cell}><div style={{ display: 'grid', gap: 7 }}>
                     {suggestion && <span style={{ color: '#075985' }}>Exact email suggested</span>}
-                    {!suggestion && nameMatches.map(person => <button key={person.id} className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setLinkDrafts(prev => ({ ...prev, [workerId]: String(person.id) }))}>Review P-{person.id} · {person.name}</button>)}
+                    {!suggestion && nameMatches.map(person => <button key={person.id} className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setLinkDrafts(prev => ({ ...prev, [workerId]: String(person.id) }))}>Review {person.person_number || `P-${person.id}`} · {person.name}</button>)}
                     {!suggestion && nameMatches.length === 0 && <span style={{ color: 'var(--cf-text-secondary)' }}>No exact match</span>}
                     <button className="btn btn-secondary" type="button" disabled={!!busy || !worker.email} onClick={() => setCreateDraft(creating ? null : { worker_id: workerId, ...suggestedName(worker), confirm_distinct_person: false })}><UserRoundPlus size={14} /> {creating ? 'Cancel' : 'Create person'}</button>
                   </div></td></tr>

@@ -47,7 +47,7 @@ export default function PlacementDetail({ session }) {
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="placement-detail-back">← Placements</button>
           <h1 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span>{placement.title}</span>
-            <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
+            <IdBadge id={placement.id} number={placement.placement_number} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
             {placement.person_id && (
               <span style={{ fontSize: 14, color: '#334155', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 ·{' '}

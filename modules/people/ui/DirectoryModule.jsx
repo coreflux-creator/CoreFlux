@@ -212,7 +212,7 @@ function DirectoryList({ cfg, mode }) {
             return (
               <tr key={c.id} data-testid={`${mode}-row-${c.id}`}>
                 <td><input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleRow(c.id)} aria-label={`Select ${c.name}`} data-testid={`${mode}-select-${c.id}`} /></td>
-                <td><IdBadge id={c.id} prefix="C" /></td>
+                <td><IdBadge id={c.id} number={c.company_number} prefix="CO" /></td>
                 <td>
                   <Link to={String(c.id)} data-testid={`${mode}-link-${c.id}`}>{c.name}</Link>
                   {alsoOther && <span title={`Also acts as ${cfg.crossLabel}`} className="badge" style={{ marginLeft: 6, fontSize: 10 }}>also {cfg.crossLabel}</span>}
@@ -410,7 +410,7 @@ function DirectoryDetail({ cfg, mode }) {
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← {cfg.label}</Link>
       <h1 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }} data-testid={`${mode}-detail-name`}>
         <span>{c.name}</span>
-        <IdBadge id={c.id} prefix="C" title={`Company ID ${c.id} — click to copy for CSV imports`} />
+        <IdBadge id={c.id} number={c.company_number} prefix="CO" title={`Company ID ${c.id} — click to copy for CSV imports`} />
       </h1>
       <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>
         {c.legal_name && c.legal_name !== c.name ? `${c.legal_name} · ` : ''}

@@ -21,6 +21,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/custom_fields.php';
 require_once __DIR__ . '/sub_tenants.php';
+require_once __DIR__ . '/record_numbers.php';
 
 function exportDatasetRegistry(): array {
     static $registry = null;
@@ -572,6 +573,14 @@ function exportDatasetRegistry(): array {
         ],
     ];
 
+    foreach (['people_directory' => 'person', 'placements_directory' => 'placement', 'staffing_clients' => 'client', 'ap_vendors' => 'vendor'] as $dataset => $type) {
+        $definition = coreRecordNumberDefinition($type);
+        $registry[$dataset]['fields'][$definition['field']] = ['label' => ucfirst($type) . ' number', 'sample' => $definition['prefix'] . '42'];
+    }
+    foreach (['staffing_clients', 'ap_vendors'] as $dataset) {
+        $registry[$dataset]['fields']['company_number'] = ['label' => 'Company number', 'sample' => 'CO-42'];
+    }
+    $registry['placements_directory']['fields']['person_number'] = ['label' => 'Person number', 'sample' => 'P-42'];
     return $registry;
 }
 
@@ -876,7 +885,7 @@ function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id AS vendor_id, vendor_name, external_id, source_system,
+        'SELECT id AS vendor_id, company_id, vendor_name, external_id, source_system,
                 vendor_type, vendor_category,
                 default_terms, remit_to_email, remit_to_phone, payment_method,
                 tax_id_last4, payment_account_last4, requires_1099, last_bill_at
@@ -886,7 +895,8 @@ function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
           LIMIT ' . $limit
     );
     $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $tenantId, 'vendor', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [], 'vendor_id');
+    return coreRecordNumbersAttachRelated($pdo, $tenantId, 'company', $rows, 'company_id');
 }
 
 function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
@@ -1412,7 +1422,7 @@ function exportDatasetFetchStaffingClients(int $tenantId, array $opts): array {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT c.id AS client_id,
+        'SELECT c.id AS client_id, c.company_id,
                 c.name,
                 c.legal_name,
                 c.external_id,
@@ -1446,7 +1456,8 @@ function exportDatasetFetchStaffingClients(int $tenantId, array $opts): array {
           LIMIT ' . $limit
     );
     $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $tenantId, 'client', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [], 'client_id');
+    return coreRecordNumbersAttachRelated($pdo, $tenantId, 'company', $rows, 'company_id');
 }
 
 function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
@@ -1479,6 +1490,7 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     );
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $tenantId, 'person', $rows, 'person_id');
 
     $defs = [];
     try {
@@ -1602,6 +1614,8 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
     );
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $placementsTenantId, 'placement', $rows, 'placement_id');
+    $rows = coreRecordNumbersAttachRelated($pdo, $peopleTenantId, 'person', $rows, 'person_id');
     return exportDatasetAttachCustomFieldValues(
         $rows,
         $placementsTenantId,

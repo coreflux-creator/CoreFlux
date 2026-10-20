@@ -26,7 +26,7 @@ use Core\CsvImportService;
 CsvImportService::registerSchema('ap_vendors', [
     'fields' => [
         // Stable ap_vendors_index.id from the Vendors list or CSV export.
-        'vendor_id'        => ['label' => 'Vendor ID',           'type' => 'integer'],
+        'vendor_id'        => ['label' => 'Vendor ID',           'type' => 'integer', 'reference_type' => 'vendor', 'aliases' => ['vendor_number', 'Vendor Number']],
         'vendor_name'      => ['label' => 'Vendor name',         'required' => true],
         // external_id + source_system: per-row correlation back to the
         // system of record (JobDiva, QBO, Mercury, …). When supplied,

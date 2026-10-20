@@ -130,6 +130,9 @@ jobs:
           php deploy/bootstrap_coreaccounting.php --verify-schema
           php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
 
+      - name: Verify stable staffing numbers and replayable migrations
+        run: php tests/record_numbers_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 

@@ -46,7 +46,8 @@ function quantaApiPlacements(int $tenantId): array
        ORDER BY FIELD(p.status, "active", "draft", "ended"), person_name, p.id'
     );
     $stmt->execute(['pt' => $placementTenant, 'pet' => $peopleTenant]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach(getDB(), $placementTenant, 'placement', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    return coreRecordNumbersAttachRelated(getDB(), $peopleTenant, 'person', $rows, 'person_id');
 }
 
 function quantaApiPeople(int $tenantId): array
@@ -65,7 +66,7 @@ function quantaApiPeople(int $tenantId): array
        ORDER BY p.last_name, p.first_name, p.id'
     );
     $stmt->execute(['mt' => $peopleTenant, 'pt' => $peopleTenant]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    return coreRecordNumbersAttach(getDB(), $peopleTenant, 'person', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }
 
 try {

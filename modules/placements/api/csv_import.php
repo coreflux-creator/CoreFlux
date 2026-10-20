@@ -34,12 +34,12 @@ CsvImportService::registerSchema('placements', [
         // from People directory). person_email kept as a fallback for
         // legacy CSVs. At least one is required — enforced in dry_run
         // since CsvImportService validates fields individually.
-        'person_id'         => ['label' => 'Person ID',        'type'  => 'integer'],
+        'person_id'         => ['label' => 'Person ID',        'type'  => 'integer', 'reference_type' => 'person', 'aliases' => ['person_number', 'Person Number']],
         'person_email'      => ['label' => 'Person email',     'type'  => 'email'],
         // placement_id is the preferred match key for the "update
         // existing row" pathway — beats external_id + title + start_date
         // composite lookup. Leave blank when creating a new placement.
-        'placement_id'      => ['label' => 'Placement ID',     'type'  => 'integer'],
+        'placement_id'      => ['label' => 'Placement ID',     'type'  => 'integer', 'reference_type' => 'placement', 'aliases' => ['placement_number', 'Placement Number']],
         'status'            => ['label' => 'Status',
                                 'enum' => ['draft','pending_start','active','on_hold','ended','cancelled']],
         'title'             => ['label' => 'Title',            'required' => true],
@@ -50,7 +50,7 @@ CsvImportService::registerSchema('placements', [
         'end_date'          => ['label' => 'End date',         'type' => 'date'],
         'actual_end_date'   => ['label' => 'Actual end date',  'type' => 'date'],
         'due_date'          => ['label' => 'Due date',         'type' => 'date'],
-        'end_client_company_id' => ['label' => 'End client company ID', 'type' => 'integer'],
+        'end_client_company_id' => ['label' => 'End client company ID', 'type' => 'integer', 'reference_type' => 'company', 'aliases' => ['end_client_company_number', 'End Client Company Number']],
         'end_client_name'   => ['label' => 'End client name'],
         'worksite_state'    => ['label' => 'Worksite state'],
         'worksite_country'  => ['label' => 'Worksite country (2-letter)'],
@@ -80,7 +80,7 @@ CsvImportService::registerSchema('placements', [
                                     'aliases' => ['Referral client rate', 'Client referral fee', 'Hourly Referral Fee Paid by Client']],
         'referral_vendor_name'  => ['label' => 'Referral vendor',
                                     'aliases' => ['Referral Vendor', 'Vendor referral company']],
-        'referral_vendor_company_id' => ['label' => 'Referral vendor company ID', 'type' => 'integer'],
+        'referral_vendor_company_id' => ['label' => 'Referral vendor company ID', 'type' => 'integer', 'reference_type' => 'company', 'aliases' => ['referral_vendor_company_number', 'Referral Vendor Company Number']],
         'referral_payout_rate'  => ['label' => 'Vendor referral payout', 'type' => 'number',
                                     'aliases' => ['Referral payout rate', 'Vendor Referral Payout', 'Hourly vendor referral payout']],
         'referral_payment_terms' => ['label' => 'Referral vendor payment terms'],

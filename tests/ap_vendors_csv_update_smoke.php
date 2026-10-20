@@ -12,7 +12,7 @@ $bulk = (string) file_get_contents($root . '/dashboard/src/pages/CsvBulkImport.j
 $vendorUi = (string) file_get_contents($root . '/modules/ap/ui/VendorsCsvImport.jsx');
 $checks = [
     'raw export includes the stable vendor ID' => str_contains($export, "'vendor_id'             => 'Vendor ID'")
-        && str_contains($datasets, 'SELECT id AS vendor_id, vendor_name, external_id, source_system,'),
+        && str_contains($datasets, 'SELECT id AS vendor_id, company_id, vendor_name, external_id, source_system,'),
     'preview accepts existing vendors only in update mode' => str_contains($vendor, '!$updateExisting && ($vendorId > 0 || $nameId > 0 || $externalMatchId > 0)'),
     'blank vendor IDs remain valid for new rows' => str_contains($vendor, "(\$row['vendor_id'] ?? '') !== '' && \$vendorId <= 0"),
     'preview rejects mismatched identity keys' => str_contains($vendor, '$nameId !== $vendorId')

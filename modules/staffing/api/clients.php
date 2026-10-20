@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/client_audit.php';
 require_once __DIR__ . '/../lib/clients.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -48,7 +49,8 @@ if ($method === 'GET' && $action === 'list') {
                   OR c.source_system LIKE :q_source
                   OR c.status LIKE :q_status
                   OR c.msa_status LIKE :q_msa
-                  OR CAST(c.payment_terms_days AS CHAR) LIKE :q_terms)';
+                  OR CAST(c.payment_terms_days AS CHAR) LIKE :q_terms OR ' . coreRecordNumberSearchSql('client', 'c', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $_GET['q']));
         $like = '%' . trim((string) $_GET['q']) . '%';
         foreach (['q_name','q_legal','q_industry','q_contact','q_email','q_phone','q_city','q_state','q_country','q_external','q_source','q_status','q_msa','q_terms'] as $key) {
             $params[$key] = $like;
@@ -133,11 +135,13 @@ if ($method === 'GET' && $action === 'list') {
              WHERE " . implode(' AND ', $where) . "
              ORDER BY {$sortExpr} {$sortDir}, c.id DESC
              LIMIT " . $limit;
-    api_ok(['rows' => staffingClientCatalogQuery(
+    $numberedRows = coreRecordNumbersAttach(getDB(), $tenantId, 'client', staffingClientCatalogQuery(
         $tenantId,
         $sql,
         array_merge($params, ['placements_tid' => $placementsTenantId])
-    )]);
+    ));
+    $numberedRows = coreRecordNumbersAttachRelated(getDB(), $tenantId, 'company', $numberedRows, 'company_id');
+    api_ok(['rows' => $numberedRows]);
 }
 
 if ($method === 'POST' && $action === 'bulk_update') {
@@ -245,6 +249,8 @@ if ($method === 'GET' && $action === 'get') {
         ['id' => $id]
     );
     if (!$row) api_error('Not found', 404);
+    $row = coreRecordNumbersAttach(getDB(), $tenantId, 'client', [$row])[0];
+    $row = coreRecordNumbersAttachRelated(getDB(), $tenantId, 'company', [$row], 'company_id')[0];
     api_ok(['client' => $row]);
 }
 

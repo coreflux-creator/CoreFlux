@@ -67,7 +67,7 @@ export default function VendorsList() {
           {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
           {rows.map(v => (
             <tr key={v.id} data-testid={`ap-vendor-row-${v.id}`}>
-              <td><IdBadge id={v.id} prefix="V" /></td>
+              <td><IdBadge id={v.id} number={v.vendor_number} prefix="V" /></td>
               <td>{v.vendor_name}</td>
               <td><span className="badge">{v.vendor_type}</span></td>
               <td>{v.default_terms}</td>
