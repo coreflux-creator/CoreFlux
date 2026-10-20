@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../accounting/lib/credit_balances.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
@@ -1273,9 +1274,9 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
             $allocationId = (int) $pdo->lastInsertId();
 
             $newPaid = round((float) $invRow['amount_paid'] + $apply, 2);
-            $newDue  = round((float) $invRow['total'] - $newPaid, 2);
+            $newDue  = round((float) $invRow['total'] - $newPaid - (float) ($invRow['amount_credited'] ?? 0), 2);
             if ($newDue < 0.005) { $newDue = 0; $newStatus = 'paid'; }
-            elseif ($newPaid > 0) { $newStatus = 'partially_paid'; }
+            elseif ($newPaid > 0 || (float) ($invRow['amount_credited'] ?? 0) > 0) { $newStatus = 'partially_paid'; }
             else { $newStatus = $invRow['status']; }
 
             // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
@@ -1318,6 +1319,7 @@ function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityI
 {
     $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
     $clientFilter = $clientName === null ? '' : ' AND i.client_name = :client_name';
+    $credits = accountingCreditAsOfSql(getDB(), 'ar', 'i', $asOf);
     $sql = 'SELECT i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency,
                        CASE WHEN i.opening_cutover_id IS NOT NULL AND i.total < 0 THEN i.total
                        ELSE GREATEST(0, ROUND(i.total - COALESCE(SUM(
@@ -1333,7 +1335,7 @@ function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityI
                                       OR (alloc.reversal_je_id IS NULL
                                           AND DATE(alloc.reversed_at) > :legacy_reversal_as_of))
                                 THEN alloc.amount_applied ELSE 0 END
-                       ), 0), 2)) END AS amount_due
+                       ), 0), 2)) END - ' . $credits . ' AS amount_due
                   FROM billing_invoices i
                   JOIN accounting_journal_entries je
                     ON je.id = i.journal_entry_id

@@ -299,6 +299,9 @@ jobs:
           COREFLUX_ENV=staging \
           COREFLUX_DB_CONFIG_PATH="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
           php tests/accounting_opening_midyear_mariadb.php --confirm-disposable-fixture
+          COREFLUX_ENV=staging \
+          COREFLUX_DB_CONFIG_PATH="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+          php tests/accounting_credit_applications_mariadb.php --confirm-disposable-fixture
 
       - name: Refuse the clean installer after the database is populated
         run: |

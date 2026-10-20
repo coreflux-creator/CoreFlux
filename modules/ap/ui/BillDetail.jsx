@@ -285,6 +285,7 @@ export default function BillDetail({ session }) {
         <SummaryBox label="Tax"       value={`${Number(bill.tax_total).toFixed(2)}`} />
         <SummaryBox label="Total"     value={`${Number(bill.total).toFixed(2)} ${bill.currency}`} highlight />
         <SummaryBox label="Paid"      value={`${Number(bill.amount_paid).toFixed(2)}`} />
+        {Number(bill.amount_credited) !== 0 && <SummaryBox label="Credits applied" value={Number(bill.amount_credited || 0).toFixed(2)} />}
         <SummaryBox label="Due"       value={`${Number(bill.amount_due).toFixed(2)}`} highlight />
       </div>
 

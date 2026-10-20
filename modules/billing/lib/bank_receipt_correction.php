@@ -118,7 +118,7 @@ function billingCorrectBankReceipt(int $tenantId, int $bankLineId, string $reaso
         $invoicePlaceholders = implode(',', array_fill(0, count($invoiceIds), '?'));
 
         $invoiceStmt = $pdo->prepare(
-            'SELECT id, total, amount_paid, sent_at, status
+            'SELECT id, total, amount_credited, amount_paid, sent_at, status
                FROM billing_invoices WHERE tenant_id = ?
                 AND id IN (' . $invoicePlaceholders . ') ORDER BY id FOR UPDATE'
         );
@@ -147,9 +147,9 @@ function billingCorrectBankReceipt(int $tenantId, int $bankLineId, string $reaso
                 throw new RuntimeException('An invoice changed since this receipt was applied. Review it before correcting the bank line.');
             }
             $newPaid = max(0.0, $newPaid);
-            $newDue = round((float) $invoice['total'] - $newPaid, 2);
+            $newDue = round((float) $invoice['total'] - $newPaid - (float) $invoice['amount_credited'], 2);
             $newStatus = $newDue < 0.005 ? 'paid'
-                : ($newPaid > 0 ? 'partially_paid' : ($invoice['sent_at'] ? 'sent' : 'approved'));
+                : (($newPaid > 0 || (float) $invoice['amount_credited'] > 0) ? 'partially_paid' : ($invoice['sent_at'] ? 'sent' : 'approved'));
             $restored[] = ['id' => $invoiceId, 'paid' => $newPaid, 'due' => max(0.0, $newDue), 'status' => $newStatus];
         }
 

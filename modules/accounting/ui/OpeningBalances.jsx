@@ -203,7 +203,7 @@ export default function OpeningBalances() {
         </div>
       </div>
       <p className="opening-balances__note">Balances CSV is optional when open invoices or bills are supplied. Open amounts are unpaid balances at cutover, not original gross totals. AR/AP control accounts are generated from source documents. Payroll and tax controls require separate sources. Cutover is available only before first activity.</p>
-      <p className="opening-balances__note">Credits use negative open amounts and require the original source type and a traceable source reference. Credits remain visible in aging; applying them to other items requires a separate credit workflow. Use a unique reviewed item reference when the source has no document number.</p>
+      <p className="opening-balances__note">Credits use negative open amounts and require the original source type and a traceable source reference. Credits remain visible in aging. After import, <Link to="../opening-credits">apply opening credits</Link> to the same customer&apos;s invoices or vendor&apos;s bills. Use a unique reviewed item reference when the source has no document number.</p>
       {!loadingEntities && !entitiesError && activeEntities.length === 0 && (
         <p className="opening-balances__note">No legal entity is set up yet. <Link to="/modules/accounting/entities">Create one</Link> before importing balances.</p>
       )}

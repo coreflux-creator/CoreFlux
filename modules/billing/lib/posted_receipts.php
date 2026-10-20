@@ -705,7 +705,7 @@ function billingCorrectCustomerDepositApplication(int $tenantId, int $applicatio
             throw new RuntimeException('This deposit application is not active.');
         }
         $invoiceStmt = $pdo->prepare(
-            'SELECT id, total, amount_paid, amount_due, status, sent_at FROM billing_invoices
+            'SELECT id, total, amount_credited, amount_paid, amount_due, status, sent_at FROM billing_invoices
               WHERE tenant_id = :t AND id = :id FOR UPDATE'
         );
         $invoiceStmt->execute(['t' => $tenantId, 'id' => (int) $application['invoice_id']]);
@@ -714,7 +714,7 @@ function billingCorrectCustomerDepositApplication(int $tenantId, int $applicatio
         if (!$invoice || in_array($invoice['status'], ['draft', 'void'], true)
             || (float) $invoice['amount_paid'] + 0.005 < $amount
             || abs((float) $invoice['total'] - (float) $invoice['amount_paid']
-                - (float) $invoice['amount_due']) > 0.005
+                - (float) $invoice['amount_credited'] - (float) $invoice['amount_due']) > 0.005
             || (float) $payment['unallocated_amount'] + $amount > (float) $payment['amount'] + 0.005) {
             throw new RuntimeException('Invoice and deposit balances changed. Review before correcting the application.');
         }
@@ -753,9 +753,9 @@ function billingCorrectCustomerDepositApplication(int $tenantId, int $applicatio
             'id' => (int) $allocation['id'], 'p' => $paymentId]);
         if ($reverseAllocation->rowCount() !== 1) throw new RuntimeException('Allocation changed while correcting.');
         $newPaid = max(0, round((float) $invoice['amount_paid'] - $amount, 2));
-        $newDue = max(0, round((float) $invoice['total'] - $newPaid, 2));
+        $newDue = max(0, round((float) $invoice['total'] - $newPaid - (float) $invoice['amount_credited'], 2));
         $newStatus = $newDue < 0.005 ? 'paid'
-            : ($newPaid > 0 ? 'partially_paid' : ($invoice['sent_at'] ? 'sent' : 'approved'));
+            : (($newPaid > 0 || (float) $invoice['amount_credited'] > 0) ? 'partially_paid' : ($invoice['sent_at'] ? 'sent' : 'approved'));
         $pdo->prepare(
             'UPDATE billing_invoices SET amount_paid = :paid, amount_due = :due, status = :status
               WHERE tenant_id = :t AND id = :id'
@@ -1003,7 +1003,7 @@ function billingCorrectPostedPayment(int $tenantId, int $paymentId, string $reas
                 throw new RuntimeException('Pay-when-paid bills were released by this receipt. Correct those bills first.');
             }
             $invoiceStmt = $pdo->prepare(
-                'SELECT id, total, amount_paid, sent_at, status FROM billing_invoices
+                'SELECT id, total, amount_credited, amount_paid, sent_at, status FROM billing_invoices
                   WHERE tenant_id = ? AND id IN (' . $placeholders . ') ORDER BY id FOR UPDATE'
             );
             $invoiceStmt->execute(array_merge([$tenantId], $invoiceIds));
@@ -1018,8 +1018,8 @@ function billingCorrectPostedPayment(int $tenantId, int $paymentId, string $reas
                 throw new RuntimeException('An invoice changed since this payment was applied. Review before correcting.');
             }
             $paid = max(0, $paid);
-            $due = max(0, round((float) $invoice['total'] - $paid, 2));
-            $status = $due < 0.005 ? 'paid' : ($paid > 0 ? 'partially_paid' : ($invoice['sent_at'] ? 'sent' : 'approved'));
+            $due = max(0, round((float) $invoice['total'] - $paid - (float) $invoice['amount_credited'], 2));
+            $status = $due < 0.005 ? 'paid' : (($paid > 0 || (float) $invoice['amount_credited'] > 0) ? 'partially_paid' : ($invoice['sent_at'] ? 'sent' : 'approved'));
             $restored[] = ['id' => $id, 'amount_paid' => $paid, 'amount_due' => $due, 'status' => $status];
         }
 

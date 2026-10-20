@@ -21,6 +21,7 @@
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/financial_state_cache.php';
 require_once __DIR__ . '/../../../core/tx_helpers.php';
+require_once __DIR__ . '/credit_balances.php';
 require_once __DIR__ . '/../../../core/accounting/control_accounts.php';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -933,6 +934,7 @@ function accountingDeleteJe(
                 if ($currentId === $jeId) throw new \RuntimeException("Journal entry {$jeId} not found");
                 break;
             }
+            accountingCreditAssertJournalMutable($pdo, $tenantId, $currentId, true);
             $entries[$currentId] = $row;
             $nextId = (int) ($row['reversed_by_je_id'] ?? 0);
             if ($nextId <= 0) break;
@@ -1180,6 +1182,7 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
             ];
         }
         if ($je['status'] !== 'posted') throw new \RuntimeException("Can only reverse posted JEs (was {$je['status']})");
+        accountingCreditAssertJournalMutable($pdo, $tenantId, $jeId);
 
         $lines = $pdo->prepare(
             'SELECT * FROM accounting_journal_entry_lines WHERE tenant_id = :t AND je_id = :j ORDER BY line_no'

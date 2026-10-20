@@ -19,6 +19,7 @@ import RecurringJournalEntries from './RecurringJournalEntries';
 import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
 import OpeningBalances from './OpeningBalances';
+import CreditApplications from './CreditApplications';
 import AccountsCsvImport from './AccountsCsvImport';
 import CsvBulkImport from '../../../dashboard/src/pages/CsvBulkImport';
 import CsvImportHistory from '../../../dashboard/src/pages/CsvImportHistory';
@@ -67,6 +68,7 @@ const MORE_NAV = [
       { to: 'imports', label: 'CSV imports', Icon: Upload, standaloneOnly: true },
       { to: 'import', label: 'Import journal entries', Icon: Upload },
       { to: 'opening-balances', label: 'Opening balances', Icon: Wallet },
+      { to: 'opening-credits', label: 'Apply opening credits', Icon: Wallet },
       { to: 'periods', label: 'Accounting periods', Icon: Calendar },
       { to: 'dimensions', label: 'Dimensions', Icon: Settings },
     ],
@@ -164,6 +166,7 @@ export default function AccountingModule({ session }) {
         <Route path="imports" element={session?.product_mode === 'coreaccounting' ? <CsvBulkImport financeOnly /> : <Navigate to="/data/bulk-import" replace />} />
         <Route path="import-history" element={session?.product_mode === 'coreaccounting' ? <CsvImportHistory financeOnly /> : <Navigate to="/data/import-history" replace />} />
         <Route path="opening-balances" element={<OpeningBalances />} />
+        <Route path="opening-credits" element={<CreditApplications />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
         <Route path="xtenant-ic"   element={<XTenantIntercompany session={session} />} />
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />

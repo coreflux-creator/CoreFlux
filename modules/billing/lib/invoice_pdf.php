@@ -49,6 +49,8 @@ function invoiceRenderPdf(int $invoiceId, bool $useCache = true): string {
 
     $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['status']
         . '|' . (string) $inv['amount_due']
+        . '|' . (string) ($inv['amount_credited'] ?? 0)
+        . '|' . (string) ($inv['amount_paid'] ?? 0)
         . '|' . hash_file('sha1', __FILE__));
     $tenantId = (int) $inv['tenant_id'];
     $storageRoot = invoicePdfStorageRoot();
@@ -199,6 +201,8 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
     <table>
       <tr><td class="label">Subtotal</td><td class="val">{$money($inv['subtotal'])}</td></tr>
       <tr><td class="label">Tax</td><td class="val">{$money($inv['tax_total'])}</td></tr>
+      <tr><td class="label">Payments received</td><td class="val">{$money($inv['amount_paid'] ?? 0)}</td></tr>
+      <tr><td class="label">Credits applied</td><td class="val">{$money($inv['amount_credited'] ?? 0)}</td></tr>
       <tr><td class="label grand">{$h($totalLabel)}</td><td class="val grand">{$money($inv['amount_due'])}</td></tr>
     </table>
   </div>

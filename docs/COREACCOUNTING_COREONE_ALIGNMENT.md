@@ -970,3 +970,27 @@ Standard income statements and balance-sheet earnings now include contra-revenue
 Validation: disposable local MariaDB opening-balance tests passed 25 checks, combined opening-document tests passed 53, and the new midyear regression passed 41. Tests cover signed cents, source provenance, cutover dates, rejected/stale previews, exact replay, late-failure atomic rollback, credit-only batches, entity isolation, source-control reconciliation, statements, YTD earnings and zero October profit. Every test financial/party record was rolled back. The new regression also runs in the existing empty-database CI job. All 56 dashboard tests and the full interface build passed (existing lint/build warnings remain).
 
 This is source and local synthetic acceptance. The new code has not been activated on hosted staging or production. Account/source mapping, bank and liability reconciliation, credit application, hosted UI acceptance and separately approved real-company posting remain pilot gates. No real-company journal, credit, payment, correction or opening batch was created.
+# Opening credit applications (2026-10-20)
+
+Carried-forward customer and vendor credits can be reviewed and applied from
+Accounting → Tools → Apply opening credits. Both documents must have the same
+tenant, legal entity, identified counterparty and currency, and must reconcile
+to the same posted AR/AP control. Amounts cannot exceed the credit or the open
+document balance after reserved vendor payments.
+
+Applications are source settlements with no new cash, income, expense, 1099
+expense or GL posting. `amount_paid` remains cash; `amount_credited` records
+noncash settlement separately. Dated application and reversal records feed
+aging and customer statements. Cash allocation and receipt corrections preserve
+credits. Existing source journals cannot be reversed with active applications,
+or deleted when application history exists.
+
+The API requires review tokens, accounting and source permissions, and open
+periods. Corrections retain actor, reason and effective date. Exact retries are
+idempotent; stale reviews and backdated reuse of restored credits are rejected.
+The rollback-only MariaDB test covers these rules, both subledgers, cash
+interaction, reserved payments and atomic correction failures.
+
+Migrations: accounting 044, billing 021 and AP 025. Private pilot mappings and
+source evidence remain outside Git. This feature does not approve a production
+opening import or resolve missing bank/payroll evidence.

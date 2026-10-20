@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../../../core/tx_helpers.php';
+require_once __DIR__ . '/../../accounting/lib/credit_balances.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
@@ -1796,7 +1797,7 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
     if (!$billIds) return;
 
     $load = $pdo->prepare(
-        'SELECT id, total, status, opening_cutover_id
+        'SELECT id, total, status, opening_cutover_id, amount_credited
            FROM ap_bills
           WHERE tenant_id = :tenant_id AND id = :id
           FOR UPDATE'
@@ -1831,12 +1832,12 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
 
         $paid->execute(['bill_id' => $billId, 'tenant_id' => $tenantId]);
         $amountPaid = min((float) $bill['total'], max(0, round((float) $paid->fetchColumn(), 2)));
-        $amountDue = max(0, round((float) $bill['total'] - $amountPaid, 2));
+        $amountDue = max(0, round((float) $bill['total'] - $amountPaid - (float) $bill['amount_credited'], 2));
         if (in_array($bill['status'], ['void', 'disputed'], true)) {
             $status = $bill['status'];
         } elseif ($amountDue <= 0.005) {
             $status = 'paid';
-        } elseif ($amountPaid > 0.005) {
+        } elseif ($amountPaid > 0.005 || (float) $bill['amount_credited'] > 0.005) {
             $status = 'partially_paid';
         } else {
             $status = 'approved';
@@ -2011,6 +2012,7 @@ function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): arr
 {
     $pdo = getDB();
     $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
+    $credits = accountingCreditAsOfSql($pdo, 'ap', 'b', $asOf);
     $q = $pdo->prepare(
         'SELECT aged.vendor_name,
                 SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
@@ -2032,7 +2034,7 @@ function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): arr
                                      AND (payment_je.status = "posted"
                                           OR payment_reversal.posting_date > :payment_reversed_as_of)
                                 THEN alloc.amount_applied ELSE 0 END
-                       ), 0), 2)) END AS amount_due
+                       ), 0), 2)) END - ' . $credits . ' AS amount_due
                   FROM ap_bills b
                   JOIN accounting_journal_entries je
                     ON je.id = b.journal_entry_id

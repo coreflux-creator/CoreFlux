@@ -1879,6 +1879,16 @@ input[type="radio"] {
 .opening-balances__inputs .btn { max-width: 100%; }
 .opening-balances__note { margin: 10px 0 22px; }
 .opening-balances__cutover-options { display: grid; gap: 10px; margin-bottom: 18px; font-size: 13px; }
+.credit-applications fieldset { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 18px 0; padding: 18px; border: 1px solid var(--cf-border, #dce3ed); border-radius: 8px; }
+.credit-applications legend { font-weight: 600; padding: 0 6px; }
+.credit-applications label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; max-width: 100%; }
+.credit-applications label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; width: 100%; }
+.credit-applications select, .credit-applications input:not([type="checkbox"]) { padding: 9px; border: 1px solid var(--cf-border, #dce3ed); border-radius: 5px; max-width: 420px; }
+.credit-applications button { padding: 9px 14px; border: 1px solid var(--cf-border, #dce3ed); border-radius: 5px; cursor: pointer; }
+.credit-applications button:disabled { opacity: .5; cursor: default; }
+.credit-applications fieldset p { width: 100%; margin: 0; }
+.credit-applications table { width: 100%; border-collapse: collapse; }
+.credit-applications th, .credit-applications td { padding: 10px; text-align: left; border-bottom: 1px solid var(--cf-border, #dce3ed); }
 .opening-balances__cutover-options label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .opening-balances__cutover-options input[type="date"] { padding: 6px 8px; border: 1px solid var(--cf-border); border-radius: 4px; background: var(--cf-surface); color: var(--cf-text); font: inherit; }
 .opening-balances__cutover-options p { margin: 0; color: var(--cf-text-secondary); }
