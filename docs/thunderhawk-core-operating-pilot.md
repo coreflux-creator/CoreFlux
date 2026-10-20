@@ -89,10 +89,9 @@ references; do not copy every sensitive field into every app.
 ### Standard numbers and party identity
 
 The October 20 scope addition requires field alignment across all five apps,
-including standardized person and placement numbers. The recommended client
-and vendor design is unique role numbers attached to the existing canonical
-identity. Prefixes below are proposed, with existing `P-` and `PL-` values
-preserved. Examples are illustrative, not newly assigned records.
+including standardized person and placement numbers. The approved client
+and vendor design uses unique role numbers attached to the existing canonical
+identity. The implemented prefixes below preserve existing `P-` and `PL-` values. Examples are illustrative, not newly assigned records.
 
 | Business reference | Example | Identity and lifetime |
 | --- | --- | --- |
@@ -112,8 +111,8 @@ from matching names.
 The current source already has numeric IDs for `people`, `placements`,
 `companies`, `staffing_clients` and `ap_vendors_index`; `company_roles` supports
 multiple company roles. Client and business-vendor records have company
-bridges. `P-<id>` and `PL-<id>` are currently assembled by UI/export code rather
-than governed as universal named business-number fields. The existing
+bridges. At the initial audit, `P-<id>` and `PL-<id>` were assembled by UI/export
+code; this draft now persists them as governed business references. The existing
 `people_employees.employee_number` is a separate employment/payroll reference,
 not a substitute for the canonical person number.
 
@@ -311,10 +310,10 @@ the applicable reversal/adjustment workflow, never silent history rewrites.
    only when an operator can explain every count/amount difference and trace
    a portal event through the staffing graph to its financial result.
 
-The next implementation slice is step 1's field dictionary and standardized
-identity references, followed by step 2's reviewed people/assignment exchange
-after live identity and endpoint verification. A generic
-"Connected" badge or a two-way toggle cannot satisfy that slice.
+Step 1's numbering and Core field inventory are now implemented in this draft.
+Provider identity, endpoint and field ownership verification remains before
+step 2's reviewed people/assignment exchange. The acceptance demonstration
+below defines the evidence needed for that next slice.
 
 ## First end-to-end demonstration
 
