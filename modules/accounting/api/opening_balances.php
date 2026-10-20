@@ -38,27 +38,30 @@ $entityId = (int) ($body['entity_id'] ?? 0);
 $csv = (string) ($body['csv'] ?? '');
 $arCsv = (string) ($body['ar_csv'] ?? '');
 $apCsv = (string) ($body['ap_csv'] ?? '');
+$startDate = isset($body['start_date']) ? trim((string) $body['start_date']) : null;
+$includeYtd = ($body['include_ytd'] ?? false) === true;
 if ($entityId <= 0 || (trim($csv) === '' && trim($arCsv) === '' && trim($apCsv) === '')) {
     api_error('Choose a legal entity and provide balances, open invoices, or open bills.', 422);
 }
 try {
     if ($action === 'preview') {
         api_ok(trim($arCsv) !== '' || trim($apCsv) !== ''
-            ? accountingOpeningCutoverReview(getDB(), $tenantId, $entityId, $csv, $arCsv, $apCsv)
-            : accountingOpeningReview(getDB(), $tenantId, $entityId, $csv));
+            ? accountingOpeningCutoverReview(getDB(), $tenantId, $entityId, $csv, $arCsv, $apCsv, $startDate, $includeYtd)
+            : accountingOpeningReview(getDB(), $tenantId, $entityId, $csv, $startDate, $includeYtd));
     }
     rbac_legacy_require($user, 'accounting.je.post');
     $sourceDocuments = trim($arCsv) !== '' || trim($apCsv) !== '';
     $result = $sourceDocuments
         ? accountingOpeningCutoverCommit(getDB(), $tenantId, $entityId, $csv, $arCsv, $apCsv,
-            (string) ($body['preview_token'] ?? ''), (int) ($user['id'] ?? 0) ?: null)
+            (string) ($body['preview_token'] ?? ''), (int) ($user['id'] ?? 0) ?: null, $startDate, $includeYtd)
         : accountingOpeningCommit(getDB(), $tenantId, $entityId, $csv,
-            (string) ($body['preview_token'] ?? ''), (int) ($user['id'] ?? 0) ?: null);
+            (string) ($body['preview_token'] ?? ''), (int) ($user['id'] ?? 0) ?: null, $startDate, $includeYtd);
     if (!$result['idempotent_replay']) {
         accountingAudit($sourceDocuments ? 'accounting.opening_documents.posted' : 'accounting.opening_balances.posted', [
             'entity_id' => $entityId, 'journal_entry_id' => $result['journal_entry_id'],
             'cutover_id' => $result['cutover_id'] ?? null,
             'ar_count' => $result['ar_count'] ?? 0, 'ap_count' => $result['ap_count'] ?? 0,
+            'start_date' => $startDate, 'include_ytd' => $includeYtd,
         ], $result['journal_entry_id']);
     }
     api_ok($result, $result['idempotent_replay'] ? 200 : 201);

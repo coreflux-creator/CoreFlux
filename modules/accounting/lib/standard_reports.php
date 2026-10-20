@@ -110,7 +110,8 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
            AND ' . implode(' AND ', $where) . '
-         WHERE a.tenant_id = :t_a AND a.account_type IN ("revenue","expense")
+         WHERE a.tenant_id = :t_a AND a.account_type IN
+            ("revenue","contra_revenue","expense","cost_of_goods_sold","other_income","other_expense")
          GROUP BY a.id
          ORDER BY a.account_type DESC, a.code'
     );
@@ -121,10 +122,11 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
     $revTotal = 0.0; $expTotal = 0.0;
     foreach ($rows as $r) {
         $d = (float) $r['debit']; $c = (float) $r['credit'];
-        // Period activity for the account (signed by normal side).
-        $bal = $r['normal_side'] === 'debit' ? round($d - $c, 2) : round($c - $d, 2);
+        // Report contribution, including contra-revenue as a reduction of revenue.
+        $isRevenue = in_array($r['account_type'], ['revenue', 'contra_revenue', 'other_income'], true);
+        $bal = $isRevenue ? round($c - $d, 2) : round($d - $c, 2);
         $r['amount'] = $bal;
-        if ($r['account_type'] === 'revenue') { $revenue[] = $r; $revTotal += $bal; }
+        if ($isRevenue)                       { $revenue[] = $r; $revTotal += $bal; }
         else                                  { $expense[] = $r; $expTotal += $bal; }
     }
     return [
@@ -162,7 +164,8 @@ function reportCurrentFiscalUnclosedEarnings(int $tenantId, string $asOf, ?int $
            JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = je.tenant_id
           WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed")
             AND je.posting_date >= :floor AND je.posting_date <= :as_of
-            AND a.account_type IN ("revenue", "expense")' . $whereEntity . '
+            AND a.account_type IN
+                ("revenue","contra_revenue","expense","cost_of_goods_sold","other_income","other_expense")' . $whereEntity . '
        GROUP BY je.entity_id, e.fiscal_year_start_month, posting_year, posting_month,
                 a.account_type, a.normal_side'
     );
@@ -176,10 +179,7 @@ function reportCurrentFiscalUnclosedEarnings(int $tenantId, string $asOf, ?int $
         $startYear = $asOfMonth >= $startMonth ? $asOfYear : $asOfYear - 1;
         if ((int) $row['posting_year'] * 12 + (int) $row['posting_month']
             < $startYear * 12 + $startMonth) continue;
-        $balance = $row['normal_side'] === 'debit'
-            ? (float) $row['debit'] - (float) $row['credit']
-            : (float) $row['credit'] - (float) $row['debit'];
-        $net += $row['account_type'] === 'revenue' ? $balance : -$balance;
+        $net += (float) $row['credit'] - (float) $row['debit'];
     }
     return round($net, 2);
 }
@@ -222,8 +222,12 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
             case 'asset':     $assets[]      = $r; $aTot += $bal; break;
             case 'liability': $liabilities[] = $r; $lTot += $bal; break;
             case 'equity':    $equity[]      = $r; $eTot += $bal; break;
-            case 'revenue':   $revAcc += $bal;                    break;
-            case 'expense':   $expAcc += $bal;                    break;
+            case 'revenue':
+            case 'contra_revenue':
+            case 'other_income': $revAcc += round($c - $d, 2); break;
+            case 'expense':
+            case 'cost_of_goods_sold':
+            case 'other_expense': $expAcc += round($d - $c, 2); break;
         }
     }
     $netIncome = round($revAcc - $expAcc, 2);

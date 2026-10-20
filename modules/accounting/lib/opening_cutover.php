@@ -17,6 +17,8 @@ function accountingOpeningDocumentRegisterSchemas(): void
             'issue_date' => ['label' => 'Issue date', 'required' => true, 'type' => 'date'],
             'due_date' => ['label' => 'Due date', 'required' => true, 'type' => 'date'],
             'open_amount' => ['label' => 'Open amount', 'required' => true],
+            'source_type' => ['label' => 'Source type'],
+            'source_reference' => ['label' => 'Source reference'],
         ],
         'unique_within_batch' => ['invoice_number'],
     ]);
@@ -27,6 +29,8 @@ function accountingOpeningDocumentRegisterSchemas(): void
             'bill_date' => ['label' => 'Bill date', 'required' => true, 'type' => 'date'],
             'due_date' => ['label' => 'Due date', 'required' => true, 'type' => 'date'],
             'open_amount' => ['label' => 'Open amount', 'required' => true],
+            'source_type' => ['label' => 'Source type'],
+            'source_reference' => ['label' => 'Source reference'],
         ],
     ]);
 }
@@ -48,6 +52,7 @@ function accountingOpeningDocumentRows(PDO $pdo, int $tenantId, int $entityId,
     if ($dry['row_count'] > 500) $errors[0][] = 'Use at most 500 open documents per file.';
     $rows = [];
     $totalCents = 0;
+    $grossCents = 0;
     $seenBills = [];
     $existing = $pdo->prepare($kind === 'ar'
         ? 'SELECT id FROM billing_invoices WHERE tenant_id = :t AND invoice_number = :number LIMIT 1'
@@ -69,10 +74,22 @@ function accountingOpeningDocumentRows(PDO $pdo, int $tenantId, int $entityId,
         }
         try {
             $cents = accountingOpeningSignedCents((string) $row['open_amount']);
-            if ($cents <= 0) $errors[$rowNumber][] = 'Open amount must be greater than zero.';
+            if ($cents === 0) $errors[$rowNumber][] = 'Open amount must be nonzero; credits use a negative amount.';
         } catch (InvalidArgumentException $error) {
             $errors[$rowNumber][] = $error->getMessage();
             $cents = 0;
+        }
+        foreach (['source_type' => 80, 'source_reference' => 255] as $field => $limit) {
+            $value = trim((string) ($row[$field] ?? ''));
+            if (strlen($value) > $limit || preg_match('/[\x00-\x1F\x7F]/', $value)) {
+                $errors[$rowNumber][] = "{$field} must be single-line text of at most {$limit} characters.";
+            }
+            // Keep legacy positive-file replay hashes unchanged when these optional fields are absent.
+            if ($value === '') unset($row[$field]);
+            else $row[$field] = $value;
+        }
+        if ($cents < 0 && (empty($row['source_type']) || empty($row['source_reference']))) {
+            $errors[$rowNumber][] = 'A credit requires its original source type and a traceable source reference.';
         }
         if ($kind === 'ap') {
             $signature = $party . "\0" . $number;
@@ -93,17 +110,25 @@ function accountingOpeningDocumentRows(PDO $pdo, int $tenantId, int $entityId,
         $row['open_amount'] = accountingOpeningAmount($cents);
         $rows[] = $row;
         $totalCents += $cents;
+        $grossCents += abs($cents);
     }
-    if ($totalCents > 99999999999) $errors[0][] = 'Document total cannot exceed $999,999,999.99.';
+    if ($grossCents > 99999999999) $errors[0][] = 'Gross document amounts cannot exceed $999,999,999.99.';
     return ['rows' => $rows, 'errors' => $errors, 'total_cents' => $totalCents];
 }
 
 /** Source documents can establish opening AR/AP without an unrelated balance journal. */
-function accountingOpeningDocumentOnlyReview(PDO $pdo, int $tenantId, int $entityId, ?array $prior): array
+function accountingOpeningDocumentOnlyReview(PDO $pdo, int $tenantId, int $entityId, ?array $prior,
+    ?string $startDate = null, bool $includeYtd = false): array
 {
-    $context = accountingOpeningContext($pdo, $tenantId, $entityId);
+    $context = accountingOpeningContext($pdo, $tenantId, $entityId, $startDate);
     $date = $context['posting_date'];
     $errors = [];
+    if ($context['midyear'] && !$includeYtd) {
+        $errors[0][] = 'Confirm year-to-date balances for a midyear start, including when there is no income or expense to import.';
+    }
+    if ($includeYtd && !$context['midyear']) {
+        $errors[0][] = 'Year-to-date activity is available only for a start within the fiscal year.';
+    }
     if ($prior) {
         if ($prior['balance_je_id'] !== null) {
             $errors[0][] = 'This cutover already includes ordinary opening balances.';
@@ -139,6 +164,8 @@ function accountingOpeningDocumentOnlyReview(PDO $pdo, int $tenantId, int $entit
     return [
         'entity_id' => $entityId, 'entity_name' => $context['entity_name'],
         'first_fiscal_day' => $context['first_fiscal_day'], 'posting_date' => $date,
+        'start_date' => $context['start_date'], 'midyear' => $context['midyear'],
+        'include_ytd' => $includeYtd, 'ytd_net_income' => '0.00',
         'rows' => [], 'row_count' => 0,
         'balancing_equity' => ['account_code' => '3000', 'debit' => '0.00', 'credit' => '0.00'],
         'opening_equity' => accountingOpeningEquitySummary(0),
@@ -166,7 +193,8 @@ function accountingOpeningCutoverFirstJournal(PDO $pdo, int $tenantId, int $batc
 }
 
 function accountingOpeningCutoverReview(PDO $pdo, int $tenantId, int $entityId,
-    string $balancesCsv, string $arCsv, string $apCsv): array
+    string $balancesCsv, string $arCsv, string $apCsv,
+    ?string $startDate = null, bool $includeYtd = false): array
 {
     if (trim($arCsv) === '' && trim($apCsv) === '') {
         throw new InvalidArgumentException('Add an open invoices or open bills CSV, or use the balances-only import.');
@@ -178,8 +206,8 @@ function accountingOpeningCutoverReview(PDO $pdo, int $tenantId, int $entityId,
     $priorStmt->execute(['t' => $tenantId, 'e' => $entityId]);
     $prior = $priorStmt->fetch(PDO::FETCH_ASSOC) ?: null;
     $base = trim($balancesCsv) === ''
-        ? accountingOpeningDocumentOnlyReview($pdo, $tenantId, $entityId, $prior)
-        : accountingOpeningReview($pdo, $tenantId, $entityId, $balancesCsv);
+        ? accountingOpeningDocumentOnlyReview($pdo, $tenantId, $entityId, $prior, $startDate, $includeYtd)
+        : accountingOpeningReview($pdo, $tenantId, $entityId, $balancesCsv, $startDate, $includeYtd);
     $ar = trim($arCsv) === '' ? ['rows' => [], 'errors' => [], 'total_cents' => 0]
         : accountingOpeningDocumentRows($pdo, $tenantId, $entityId, $arCsv, 'ar', $base['posting_date'], !$prior);
     $ap = trim($apCsv) === '' ? ['rows' => [], 'errors' => [], 'total_cents' => 0]
@@ -277,6 +305,15 @@ function accountingOpeningCutoverLink(PDO $pdo, int $tenantId, string $source, i
     )->execute(['t' => $tenantId, 'source' => $source, 'document' => $documentId, 'je' => $jeId]);
 }
 
+function accountingOpeningDocumentNotes(array $row, string $defaultType): string
+{
+    return 'Opening item: remaining balance only; original transaction history was not imported. '
+        . 'Source type: ' . ($row['source_type'] ?? $defaultType) . '. Source reference: '
+        . ($row['source_reference'] ?? $row['invoice_number'] ?? $row['bill_number']) . '.'
+        . (accountingOpeningSignedCents((string) $row['open_amount']) < 0
+            ? ' Credit carried forward; not a cash receipt or payment. Credit application requires a separate workflow.' : '');
+}
+
 function accountingOpeningCutoverInvoice(PDO $pdo, int $tenantId, int $entityId,
     int $batchId, string $postingDate, array $row, ?int $actorUserId): array
 {
@@ -284,6 +321,9 @@ function accountingOpeningCutoverInvoice(PDO $pdo, int $tenantId, int $entityId,
         $pdo, staffingClientCatalogTenantId($tenantId), (string) $row['client_name'], null, $actorUserId
     );
     $amount = (string) $row['open_amount'];
+    $cents = accountingOpeningSignedCents($amount);
+    $debit = accountingOpeningAmount(max(0, $cents));
+    $credit = accountingOpeningAmount(max(0, -$cents));
     $number = (string) $row['invoice_number'];
     $invoiceId = scopedInsert('billing_invoices', [
         'tenant_id' => $tenantId, 'entity_id' => $entityId,
@@ -294,7 +334,7 @@ function accountingOpeningCutoverInvoice(PDO $pdo, int $tenantId, int $entityId,
         'amount_paid' => '0.00', 'amount_due' => $amount,
         'status' => 'approved', 'aggregation' => 'per_client',
         'opening_cutover_id' => $batchId,
-        'notes_internal' => 'Opening receivable: remaining unpaid balance only. Original invoice history was not imported.',
+        'notes_internal' => accountingOpeningDocumentNotes($row, 'Invoice'),
         'approved_by_user_id' => $actorUserId, 'approved_at' => date('Y-m-d H:i:s'),
         'created_by_user_id' => $actorUserId,
     ]);
@@ -311,9 +351,9 @@ function accountingOpeningCutoverInvoice(PDO $pdo, int $tenantId, int $entityId,
         'idempotency_key' => "opening:ar:{$tenantId}:{$entityId}:{$invoiceId}",
         'memo' => 'Opening receivable / ' . $number,
         'lines' => [
-            ['account_code' => '1100', 'debit' => $amount, 'credit' => '0.00',
+            ['account_code' => '1100', 'debit' => $debit, 'credit' => $credit,
                 'counterparty_company_id' => $companyId, 'dims' => ['client' => $companyId]],
-            ['account_code' => '3000', 'debit' => '0.00', 'credit' => $amount],
+            ['account_code' => '3000', 'debit' => $credit, 'credit' => $debit],
         ],
     ], $actorUserId, true);
     $jeId = (int) $posted['je_id'];
@@ -327,22 +367,52 @@ function accountingOpeningCutoverBill(PDO $pdo, int $tenantId, int $entityId,
     int $batchId, string $postingDate, array $row, ?int $actorUserId): array
 {
     $amount = (string) $row['open_amount'];
-    $bill = apCreateManualBill($tenantId, [
-        'entity_id' => $entityId, 'vendor_name' => $row['vendor_name'],
+    $cents = accountingOpeningSignedCents($amount);
+    $debit = accountingOpeningAmount(max(0, $cents));
+    $credit = accountingOpeningAmount(max(0, -$cents));
+    // Opening items are reviewed source balances, not newly incurred expenses.
+    // Keep the ordinary manual-bill path's positive-price validation intact.
+    $vendor = $pdo->prepare(
+        'SELECT company_id, vendor_type, requires_1099 FROM ap_vendors_index
+          WHERE tenant_id = :t AND vendor_name = :name FOR UPDATE'
+    );
+    $vendor->execute(['t' => $tenantId, 'name' => $row['vendor_name']]);
+    $savedVendor = $vendor->fetch(PDO::FETCH_ASSOC) ?: [];
+    $companyId = (int) ($savedVendor['company_id'] ?? 0);
+    if ($companyId > 0) {
+        $company = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL');
+        $company->execute(['t' => $tenantId, 'id' => $companyId]);
+        if (!$company->fetchColumn()) throw new AccountingOpeningConflict('Opening vendor company is unavailable in this workspace.');
+    } else {
+        $companyId = companiesUpsertByName($tenantId, (string) $row['vendor_name'],
+            ['created_by_user_id' => $actorUserId], ['vendor']);
+    }
+    $vendorType = (string) ($savedVendor['vendor_type'] ?? 'other');
+    $billId = scopedInsert('ap_bills', [
+        'tenant_id' => $tenantId, 'entity_id' => $entityId, 'vendor_name' => $row['vendor_name'],
+        'vendor_company_id' => $companyId, 'vendor_type' => $vendorType,
+        'internal_ref' => apNextInternalRef($tenantId),
         'bill_number' => $row['bill_number'], 'bill_date' => $row['bill_date'],
         'received_at' => $postingDate, 'due_date' => $row['due_date'],
-        'currency' => 'USD', 'tax_rate_pct' => 0,
-        'notes_internal' => 'Opening payable: remaining unpaid balance only. Original bill history was not imported.',
-        'lines' => [[
-            'description' => 'Opening payable from prior system: ' . $row['bill_number'],
-            'quantity' => 1, 'unit' => 'each', 'unit_price' => $amount,
-            'is_1099_eligible' => false,
-        ]],
-    ], $actorUserId);
-    $billId = (int) $bill['id'];
-    $companyStmt = $pdo->prepare('SELECT vendor_company_id FROM ap_bills WHERE tenant_id = :t AND id = :id');
-    $companyStmt->execute(['t' => $tenantId, 'id' => $billId]);
-    $companyId = (int) ($companyStmt->fetchColumn() ?: 0);
+        'currency' => 'USD', 'subtotal' => $amount, 'tax_total' => '0.00',
+        'total' => $amount, 'amount_due' => $amount, 'amount_paid' => '0.00',
+        'status' => 'approved', 'source' => 'manual', 'opening_cutover_id' => $batchId,
+        'notes_internal' => accountingOpeningDocumentNotes($row, 'Bill'),
+        'created_by_user_id' => $actorUserId,
+    ]);
+    $pdo->prepare(
+        'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at)
+         VALUES (:t, :name, :company, :type, :requires, NOW())
+         ON DUPLICATE KEY UPDATE company_id = COALESCE(company_id, VALUES(company_id)), last_bill_at = NOW()'
+    )->execute(['t' => $tenantId, 'name' => $row['vendor_name'], 'company' => $companyId,
+        'type' => $vendorType, 'requires' => (int) ($savedVendor['requires_1099'] ?? 0)]);
+    $pdo->prepare(
+        'INSERT INTO ap_bill_lines
+           (bill_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
+            subtotal, tax_rate_pct, tax_amount, total, is_1099_eligible)
+         VALUES (:bill, 1, "manual", "other", :description, 1, "each", :price, :subtotal, 0, 0, :total, 0)'
+    )->execute(['bill' => $billId, 'description' => 'Opening item from prior system: ' . $row['bill_number'],
+        'price' => $amount, 'subtotal' => $amount, 'total' => $amount]);
     $dims = $companyId > 0 ? ['vendor' => $companyId] : [];
     $posted = accountingPostJe($tenantId, [
         'entity_id' => $entityId, 'posting_date' => $postingDate, 'currency' => 'USD',
@@ -350,8 +420,8 @@ function accountingOpeningCutoverBill(PDO $pdo, int $tenantId, int $entityId,
         'idempotency_key' => "opening:ap:{$tenantId}:{$entityId}:{$billId}",
         'memo' => 'Opening payable / ' . $row['bill_number'],
         'lines' => [
-            ['account_code' => '3000', 'debit' => $amount, 'credit' => '0.00'],
-            ['account_code' => '2000', 'debit' => '0.00', 'credit' => $amount,
+            ['account_code' => '3000', 'debit' => $debit, 'credit' => $credit],
+            ['account_code' => '2000', 'debit' => $credit, 'credit' => $debit,
                 'counterparty_company_id' => $companyId ?: null, 'dims' => $dims],
         ],
     ], $actorUserId, true);
@@ -369,7 +439,8 @@ function accountingOpeningCutoverBill(PDO $pdo, int $tenantId, int $entityId,
 
 /** One outer transaction owns the opening journal, all source documents, and their journals. */
 function accountingOpeningCutoverCommit(PDO $pdo, int $tenantId, int $entityId,
-    string $balancesCsv, string $arCsv, string $apCsv, string $previewToken, ?int $actorUserId): array
+    string $balancesCsv, string $arCsv, string $apCsv, string $previewToken, ?int $actorUserId,
+    ?string $startDate = null, bool $includeYtd = false): array
 {
     if (!preg_match('/^[a-f0-9]{64}$/D', $previewToken)) {
         throw new InvalidArgumentException('Preview the opening documents before posting.');
@@ -383,7 +454,7 @@ function accountingOpeningCutoverCommit(PDO $pdo, int $tenantId, int $entityId,
         $lock->execute(['t' => $tenantId, 'e' => $entityId]);
         if (!$lock->fetchColumn()) throw new InvalidArgumentException('Choose a legal entity in this workspace.');
         $review = accountingOpeningCutoverReview($pdo, $tenantId, $entityId,
-            $balancesCsv, $arCsv, $apCsv);
+            $balancesCsv, $arCsv, $apCsv, $startDate, $includeYtd);
         if ($review['error_count'] > 0) {
             $messages = [];
             foreach ($review['errors'] as $group) foreach ($group as $rowErrors) {
@@ -407,7 +478,7 @@ function accountingOpeningCutoverCommit(PDO $pdo, int $tenantId, int $entityId,
             $base = ['journal_entry_id' => null];
         } else {
             $base = accountingOpeningCommit($pdo, $tenantId, $entityId, $balancesCsv,
-                (string) $review['balances']['preview_token'], $actorUserId);
+                (string) $review['balances']['preview_token'], $actorUserId, $startDate, $includeYtd);
         }
         $pdo->prepare(
             'INSERT INTO accounting_opening_document_cutovers

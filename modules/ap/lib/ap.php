@@ -1796,7 +1796,7 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
     if (!$billIds) return;
 
     $load = $pdo->prepare(
-        'SELECT id, total, status
+        'SELECT id, total, status, opening_cutover_id
            FROM ap_bills
           WHERE tenant_id = :tenant_id AND id = :id
           FOR UPDATE'
@@ -1826,6 +1826,8 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
         $load->execute(['tenant_id' => $tenantId, 'id' => $billId]);
         $bill = $load->fetch(PDO::FETCH_ASSOC);
         if (!$bill) continue;
+        // Opening credits are not cash-payable bills; a payment refresh cannot settle them.
+        if (!empty($bill['opening_cutover_id']) && (float) $bill['total'] < 0) continue;
 
         $paid->execute(['bill_id' => $billId, 'tenant_id' => $tenantId]);
         $amountPaid = min((float) $bill['total'], max(0, round((float) $paid->fetchColumn(), 2)));
@@ -2019,7 +2021,8 @@ function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): arr
                 SUM(aged.amount_due) AS total_due
            FROM (
                 SELECT b.id, b.vendor_name, b.due_date,
-                       GREATEST(0, ROUND(b.total - COALESCE(SUM(
+                       CASE WHEN b.opening_cutover_id IS NOT NULL AND b.total < 0 THEN b.total
+                       ELSE GREATEST(0, ROUND(b.total - COALESCE(SUM(
                            CASE WHEN p.status IN ("cleared", "void")
                                      AND p.cleared_at IS NOT NULL
                                      AND DATE(p.cleared_at) <= :payment_as_of
@@ -2029,7 +2032,7 @@ function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): arr
                                      AND (payment_je.status = "posted"
                                           OR payment_reversal.posting_date > :payment_reversed_as_of)
                                 THEN alloc.amount_applied ELSE 0 END
-                       ), 0), 2)) AS amount_due
+                       ), 0), 2)) END AS amount_due
                   FROM ap_bills b
                   JOIN accounting_journal_entries je
                     ON je.id = b.journal_entry_id
@@ -2049,8 +2052,8 @@ function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): arr
                    AND b.bill_date <= :document_as_of
                    AND (je.status = "posted" OR reversal.posting_date > :reversed_as_of)
                    AND (b.status <> "void" OR b.voided_at IS NULL OR DATE(b.voided_at) > :void_as_of)
-              GROUP BY b.id, b.vendor_name, b.due_date, b.total
-                HAVING amount_due > 0
+              GROUP BY b.id, b.vendor_name, b.due_date, b.total, b.opening_cutover_id
+                HAVING amount_due <> 0
            ) aged
        GROUP BY aged.vendor_name
          ORDER BY total_due DESC'

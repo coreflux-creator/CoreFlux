@@ -294,6 +294,12 @@ jobs:
           php deploy/audit_coreaccounting_migrations.php --database=coreaccounting_ci
           COREFLUX_ENV=staging php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
 
+      - name: Verify midyear opening balances and credits with rollback
+        run: |
+          COREFLUX_ENV=staging \
+          COREFLUX_DB_CONFIG_PATH="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+          php tests/accounting_opening_midyear_mariadb.php --confirm-disposable-fixture
+
       - name: Refuse the clean installer after the database is populated
         run: |
           package="$RUNNER_TEMP/coreaccounting-install-extracted"

@@ -1878,6 +1878,10 @@ input[type="radio"] {
 
 .opening-balances__inputs .btn { max-width: 100%; }
 .opening-balances__note { margin: 10px 0 22px; }
+.opening-balances__cutover-options { display: grid; gap: 10px; margin-bottom: 18px; font-size: 13px; }
+.opening-balances__cutover-options label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.opening-balances__cutover-options input[type="date"] { padding: 6px 8px; border: 1px solid var(--cf-border); border-radius: 4px; background: var(--cf-surface); color: var(--cf-text); font: inherit; }
+.opening-balances__cutover-options p { margin: 0; color: var(--cf-text-secondary); }
 .opening-balances__review { border-top: 2px solid #1675d1; padding-top: 14px; }
 .opening-balances__summary { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 16px; }
 .opening-balances__summary > div { display: grid; gap: 3px; border-left: 2px solid #22b7b0; padding-left: 10px; min-width: 120px; }

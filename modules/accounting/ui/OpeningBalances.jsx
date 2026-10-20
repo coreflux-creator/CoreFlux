@@ -11,6 +11,8 @@ export default function OpeningBalances() {
   const arFileRef = useRef(null);
   const apFileRef = useRef(null);
   const [entityId, setEntityId] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [includeYtd, setIncludeYtd] = useState(false);
   const [csv, setCsv] = useState('');
   const [fileName, setFileName] = useState('');
   const [arCsv, setArCsv] = useState('');
@@ -71,6 +73,7 @@ export default function OpeningBalances() {
     try {
       setPreview(await api.post(`${ENDPOINT}?action=preview`, {
         entity_id: Number(entityId), csv, ar_csv: arCsv, ap_csv: apCsv,
+        start_date: startDate, include_ytd: includeYtd,
       }));
     } catch (err) {
       setPreview(null);
@@ -86,6 +89,7 @@ export default function OpeningBalances() {
     try {
       const result = await api.post(`${ENDPOINT}?action=commit`, {
         entity_id: Number(entityId), csv, ar_csv: arCsv, ap_csv: apCsv,
+        start_date: startDate, include_ytd: includeYtd,
         preview_token: preview.preview_token,
       });
       setPosted(result);
@@ -117,7 +121,7 @@ export default function OpeningBalances() {
       <header className="opening-balances__header">
         <div>
           <h2>Opening balances</h2>
-          <p>Bring a new legal entity&apos;s balances and unpaid invoices or bills into the books.</p>
+          <p>Bring a new legal entity&apos;s balances, open invoices, bills, and credits into the books.</p>
         </div>
         <div className="opening-balances__templates">
           {['balances', 'ar', 'ap'].map(kind => (
@@ -129,6 +133,18 @@ export default function OpeningBalances() {
         </div>
       </header>
 
+      <div className="opening-balances__cutover-options">
+        <label>Start using Core on
+          <input type="date" value={startDate} disabled={busy !== ''}
+            onChange={event => { setStartDate(event.target.value); resetReview(); }}
+            data-testid="opening-start-date" />
+        </label>
+        <p>Leave blank to start on the first fiscal day. Opening balances post on the preceding day.</p>
+        <label><input type="checkbox" checked={includeYtd} disabled={busy !== ''}
+          onChange={event => { setIncludeYtd(event.target.checked); resetReview(); }}
+          data-testid="opening-include-ytd" />
+          For a midyear start, I included cumulative income and expenses from the fiscal-year start through the opening date.</label>
+      </div>
       <div className="opening-balances__inputs">
         <label className="opening-balances__entity">Legal entity
           <select value={entityId} onChange={event => { setEntityId(event.target.value); resetReview(); }}
@@ -158,7 +174,7 @@ export default function OpeningBalances() {
           </div>
         </div>
         <div className="opening-balances__file opening-balances__file--ar">
-          <span className="opening-balances__label">Open invoices CSV</span>
+          <span className="opening-balances__label">Open customer items CSV</span>
           <input ref={arFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => chooseDocuments(event, 'ar')} hidden data-testid="opening-ar-file" />
           <div className="opening-balances__file-select">
@@ -172,7 +188,7 @@ export default function OpeningBalances() {
           </div>
         </div>
         <div className="opening-balances__file opening-balances__file--ap">
-          <span className="opening-balances__label">Open bills CSV</span>
+          <span className="opening-balances__label">Open vendor items CSV</span>
           <input ref={apFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => chooseDocuments(event, 'ap')} hidden data-testid="opening-ap-file" />
           <div className="opening-balances__file-select">
@@ -187,6 +203,7 @@ export default function OpeningBalances() {
         </div>
       </div>
       <p className="opening-balances__note">Balances CSV is optional when open invoices or bills are supplied. Open amounts are unpaid balances at cutover, not original gross totals. AR/AP control accounts are generated from source documents. Payroll and tax controls require separate sources. Cutover is available only before first activity.</p>
+      <p className="opening-balances__note">Credits use negative open amounts and require the original source type and a traceable source reference. Credits remain visible in aging; applying them to other items requires a separate credit workflow. Use a unique reviewed item reference when the source has no document number.</p>
       {!loadingEntities && !entitiesError && activeEntities.length === 0 && (
         <p className="opening-balances__note">No legal entity is set up yet. <Link to="/modules/accounting/entities">Create one</Link> before importing balances.</p>
       )}
@@ -197,13 +214,19 @@ export default function OpeningBalances() {
         <div className="opening-balances__review" data-testid="opening-review">
           <div className="opening-balances__summary">
             <div><span>Entity</span><strong>{balancePreview.entity_name}</strong></div>
-            <div><span>Opening date</span><strong>{balancePreview.posting_date}</strong></div>
+            <div><span>Balances as of</span><strong>{balancePreview.posting_date}</strong></div>
+            <div><span>Start using Core</span><strong>{balancePreview.start_date}</strong></div>
             <div><span>First fiscal day</span><strong>{balancePreview.first_fiscal_day}</strong></div>
+            {balancePreview.midyear && <div><span>YTD net income</span><strong>${balancePreview.ytd_net_income}</strong></div>}
             {hasDocuments && <div><span>Open AR</span><strong>{preview.ar_count} · ${preview.ar_total}</strong></div>}
             {hasDocuments && <div><span>Open AP</span><strong>{preview.ap_count} · ${preview.ap_total}</strong></div>}
             {openingEquity && <div><span>Opening Balance Equity · 3000</span>
               <strong>{openingEquity.negative ? `($${openingEquity.amount})` : `$${openingEquity.amount}`}</strong></div>}
           </div>
+          {balancePreview.midyear && <p className="opening-balances__note">
+            Income and expenses are cumulative through {balancePreview.posting_date}. This preserves fiscal-year totals;
+            it does not reconstruct earlier monthly activity. Reports starting on {balancePreview.start_date} exclude this opening activity.
+          </p>}
           {preview.error_count > 0 && (
             <div className="opening-balances__errors" role="alert" data-testid="opening-preview-errors">
               <strong>{preview.error_count} issue{preview.error_count === 1 ? '' : 's'} to resolve</strong>
@@ -233,22 +256,24 @@ export default function OpeningBalances() {
           </div> : <p className="opening-balances__note">No other opening account balances.</p>}
           {hasDocuments && preview.ar_rows.length > 0 && (
             <div className="opening-balances__documents">
-              <h3>Open invoices</h3>
+              <h3>Open customer items</h3>
               <div className="opening-balances__table-wrap"><table className="data-table opening-balances__table">
-                <thead><tr><th>Invoice</th><th>Client</th><th>Due</th><th>Unpaid</th></tr></thead>
+                <thead><tr><th>Item reference</th><th>Source</th><th>Client</th><th>Due</th><th>Open balance</th></tr></thead>
                 <tbody>{preview.ar_rows.map(row => <tr key={row.invoice_number}>
-                  <td>{row.invoice_number}</td><td>{row.client_name}</td><td>{row.due_date}</td><td>{row.open_amount}</td>
+                  <td>{row.invoice_number}</td><td>{row.source_type || 'Invoice'}{row.source_reference ? ` · ${row.source_reference}` : ''}</td>
+                  <td>{row.client_name}</td><td>{row.due_date}</td><td>{row.open_amount}</td>
                 </tr>)}</tbody>
               </table></div>
             </div>
           )}
           {hasDocuments && preview.ap_rows.length > 0 && (
             <div className="opening-balances__documents">
-              <h3>Open bills</h3>
+              <h3>Open vendor items</h3>
               <div className="opening-balances__table-wrap"><table className="data-table opening-balances__table">
-                <thead><tr><th>Bill</th><th>Vendor</th><th>Due</th><th>Unpaid</th></tr></thead>
+                <thead><tr><th>Item reference</th><th>Source</th><th>Vendor</th><th>Due</th><th>Open balance</th></tr></thead>
                 <tbody>{preview.ap_rows.map((row, index) => <tr key={`${row.vendor_name}-${row.bill_number}-${index}`}>
-                  <td>{row.bill_number}</td><td>{row.vendor_name}</td><td>{row.due_date}</td><td>{row.open_amount}</td>
+                  <td>{row.bill_number}</td><td>{row.source_type || 'Bill'}{row.source_reference ? ` · ${row.source_reference}` : ''}</td>
+                  <td>{row.vendor_name}</td><td>{row.due_date}</td><td>{row.open_amount}</td>
                 </tr>)}</tbody>
               </table></div>
             </div>

@@ -48,7 +48,8 @@ function accountingOpeningSignedCents(string $input): int
 
 function accountingOpeningAmount(int $cents): string
 {
-    return intdiv($cents, 100) . '.' . str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
+    return ($cents < 0 ? '-' : '') . intdiv(abs($cents), 100) . '.'
+        . str_pad((string) (abs($cents) % 100), 2, '0', STR_PAD_LEFT);
 }
 
 function accountingOpeningEquitySummary(int $cents): array
@@ -77,8 +78,9 @@ function accountingOpeningStoredLines(PDO $pdo, int $tenantId, int $jeId): array
     return $lines;
 }
 
-/** The cutover date is always the day before the entity's first fiscal year. */
-function accountingOpeningContext(PDO $pdo, int $tenantId, int $entityId): array
+/** Defaults to the first fiscal day; an explicit start may be within that first year. */
+function accountingOpeningContext(PDO $pdo, int $tenantId, int $entityId,
+    ?string $startDate = null): array
 {
     if ($tenantId <= 0 || $entityId <= 0) throw new InvalidArgumentException('Choose a legal entity.');
     $entityStmt = $pdo->prepare(
@@ -93,31 +95,47 @@ function accountingOpeningContext(PDO $pdo, int $tenantId, int $entityId): array
         throw new InvalidArgumentException('Opening balance import currently supports US/USD accrual entities only.');
     }
     $calendar = $pdo->prepare(
-        'SELECT MIN(start_date) FROM accounting_fiscal_calendars
-          WHERE tenant_id = :t AND entity_id = :e AND active = 1'
+        'SELECT start_date, end_date FROM accounting_fiscal_calendars
+          WHERE tenant_id = :t AND entity_id = :e AND active = 1 ORDER BY start_date LIMIT 1'
     );
     $calendar->execute(['t' => $tenantId, 'e' => $entityId]);
-    $firstDay = $calendar->fetchColumn();
-    if (!$firstDay) throw new InvalidArgumentException('Set up the first fiscal calendar before importing opening balances.');
-    $cutoverDate = (new DateTimeImmutable((string) $firstDay))->modify('-1 day')->format('Y-m-d');
+    $fiscal = $calendar->fetch(PDO::FETCH_ASSOC);
+    if (!$fiscal) throw new InvalidArgumentException('Set up the first fiscal calendar before importing opening balances.');
+    $firstDay = (string) $fiscal['start_date'];
+    $startDate = $startDate === null || $startDate === '' ? $firstDay : $startDate;
+    $start = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
+    if (!$start || $start->format('Y-m-d') !== $startDate
+        || $startDate < $firstDay || $startDate > $fiscal['end_date']) {
+        throw new InvalidArgumentException('Start date must be a real date within the first fiscal calendar.');
+    }
+    $cutoverDate = $start->modify('-1 day')->format('Y-m-d');
     return [
         'entity_name' => (string) $entity['legal_name'],
         'first_fiscal_day' => (string) $firstDay,
         'posting_date' => $cutoverDate,
+        'start_date' => $startDate,
+        'midyear' => $startDate > $firstDay,
     ];
 }
 
 /** Preview is read-only; commit calls it again after locking the legal entity. */
-function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string $csv): array
+function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string $csv,
+    ?string $startDate = null, bool $includeYtd = false): array
 {
     if (strlen($csv) > 1048576) throw new InvalidArgumentException('Opening balances CSV is limited to 1 MB.');
     accountingOpeningRegisterSchema();
-    $context = accountingOpeningContext($pdo, $tenantId, $entityId);
+    $context = accountingOpeningContext($pdo, $tenantId, $entityId, $startDate);
     $firstDay = $context['first_fiscal_day'];
     $cutoverDate = $context['posting_date'];
 
     $dry = CsvImportService::dryRun('accounting_opening_balances', $csv);
     $errors = $dry['errors'];
+    if ($includeYtd && !$context['midyear']) {
+        $errors[0][] = 'Year-to-date activity is available only for a start within the fiscal year.';
+    }
+    if ($context['midyear'] && !$includeYtd) {
+        $errors[0][] = 'For a midyear start, confirm that balances include fiscal-year-to-date income and expenses.';
+    }
     if ($dry['row_count'] > 500) $errors[0][] = 'Use at most 500 accounts per opening import.';
     if ($dry['row_count'] === 0) $errors[0][] = 'Add at least one balance row.';
     $accounts = $pdo->prepare(
@@ -127,6 +145,8 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
     $previewRows = [];
     $lines = [];
     $netDebitCents = 0;
+    $ytdIncomeCents = 0;
+    $incomeTypes = ['revenue', 'contra_revenue', 'expense', 'cost_of_goods_sold', 'other_income', 'other_expense'];
     foreach ($dry['rows'] as $rowNumber => $row) {
         if (isset($errors[$rowNumber])) continue;
         $accounts->execute(['t' => $tenantId, 'code' => trim((string) $row['account_code'])]);
@@ -136,9 +156,11 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
             continue;
         }
         $code = (string) $account['code'];
-        if (!in_array($account['account_type'], ['asset', 'liability', 'equity'], true)
+        $isIncome = in_array($account['account_type'], $incomeTypes, true);
+        if ((!in_array($account['account_type'], ['asset', 'liability', 'equity'], true)
+                && !($includeYtd && $context['midyear'] && $isIncome))
             || in_array($code, ACCOUNTING_SOURCE_OWNED_CONTROL_CODES, true)) {
-            $errors[$rowNumber][] = 'This account belongs to a source-document workflow or is not a balance-sheet account.';
+            $errors[$rowNumber][] = 'This account requires a source-document workflow or confirmed midyear income and expenses.';
             continue;
         }
         if ($code === '3000') {
@@ -160,6 +182,7 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
         $debitCents = max(0, $debit);
         $creditCents = max(0, -$debit);
         $netDebitCents += $debitCents - $creditCents;
+        if ($isIncome) $ytdIncomeCents += $creditCents - $debitCents;
         $previewRows[] = [
             'account_code' => $code, 'account_name' => $account['name'],
             'balance' => accountingOpeningAmount(abs($balance)), 'negative' => $balance < 0,
@@ -240,6 +263,8 @@ function accountingOpeningReview(PDO $pdo, int $tenantId, int $entityId, string 
     return [
         'entity_id' => $entityId, 'entity_name' => $context['entity_name'],
         'first_fiscal_day' => $firstDay, 'posting_date' => $cutoverDate,
+        'start_date' => $context['start_date'], 'midyear' => $context['midyear'],
+        'include_ytd' => $includeYtd, 'ytd_net_income' => accountingOpeningAmount($ytdIncomeCents),
         'rows' => $previewRows, 'row_count' => $dry['row_count'],
         'balancing_equity' => [
             'account_code' => '3000',
@@ -276,7 +301,7 @@ function accountingOpeningEnsurePeriod(PDO $pdo, int $tenantId, int $entityId, s
 }
 
 function accountingOpeningCommit(PDO $pdo, int $tenantId, int $entityId, string $csv,
-    string $previewToken, ?int $actorUserId): array
+    string $previewToken, ?int $actorUserId, ?string $startDate = null, bool $includeYtd = false): array
 {
     if (!preg_match('/^[a-f0-9]{64}$/D', $previewToken)) {
         throw new InvalidArgumentException('Preview the opening balances before posting.');
@@ -288,7 +313,7 @@ function accountingOpeningCommit(PDO $pdo, int $tenantId, int $entityId, string 
         );
         $lock->execute(['t' => $tenantId, 'e' => $entityId]);
         if (!$lock->fetchColumn()) throw new InvalidArgumentException('Choose a legal entity in this workspace.');
-        $review = accountingOpeningReview($pdo, $tenantId, $entityId, $csv);
+        $review = accountingOpeningReview($pdo, $tenantId, $entityId, $csv, $startDate, $includeYtd);
         if ($review['error_count'] > 0) {
             throw new AccountingOpeningConflict('Opening balances cannot be posted: '
                 . implode('; ', array_merge(...array_values($review['errors']))));
@@ -306,7 +331,8 @@ function accountingOpeningCommit(PDO $pdo, int $tenantId, int $entityId, string 
             'currency' => 'USD', 'source_module' => 'system',
             'source_ref_type' => 'opening_balance', 'source_ref_id' => $entityId,
             'idempotency_key' => 'opening:balance:' . $tenantId . ':' . $entityId,
-            'memo' => 'Opening balances before ' . $review['first_fiscal_day'],
+            'memo' => 'Opening balances before ' . $review['start_date']
+                . ($review['midyear'] ? ' (includes cumulative fiscal YTD activity)' : ''),
             'lines' => $review['journal_lines'],
         ], $actorUserId, true);
         cf_tx_commit($pdo, $ownsTransaction);

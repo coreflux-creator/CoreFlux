@@ -1319,7 +1319,8 @@ function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityI
     $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
     $clientFilter = $clientName === null ? '' : ' AND i.client_name = :client_name';
     $sql = 'SELECT i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency,
-                       GREATEST(0, ROUND(i.total - COALESCE(SUM(
+                       CASE WHEN i.opening_cutover_id IS NOT NULL AND i.total < 0 THEN i.total
+                       ELSE GREATEST(0, ROUND(i.total - COALESCE(SUM(
                            CASE WHEN p.received_at <= :payment_as_of
                                  AND (alloc.application_je_id IS NULL
                                       OR (application_je.status IN ("posted", "reversed")
@@ -1332,7 +1333,7 @@ function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityI
                                       OR (alloc.reversal_je_id IS NULL
                                           AND DATE(alloc.reversed_at) > :legacy_reversal_as_of))
                                 THEN alloc.amount_applied ELSE 0 END
-                       ), 0), 2)) AS amount_due
+                       ), 0), 2)) END AS amount_due
                   FROM billing_invoices i
                   JOIN accounting_journal_entries je
                     ON je.id = i.journal_entry_id
@@ -1357,8 +1358,8 @@ function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityI
                    AND i.issue_date <= :document_as_of
                    AND (je.status = "posted" OR invoice_reversal.posting_date > :invoice_reversed_as_of)
                    AND (i.status <> "void" OR i.voided_at IS NULL OR DATE(i.voided_at) > :void_as_of)
-              GROUP BY i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency
-                HAVING amount_due > 0';
+              GROUP BY i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency, i.opening_cutover_id
+                HAVING amount_due <> 0';
     $bind = [
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
