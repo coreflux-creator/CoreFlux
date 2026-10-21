@@ -28,6 +28,7 @@ $check('connection endpoint masks key',str_contains($api,"'api_key_last4'"));
 $webhook=$read('api/webhooks/purepay.php');
 $check('webhook reads all published headers',str_contains($webhook,'x-webhook-id')&&str_contains($webhook,'x-webhook-timestamp')&&str_contains($webhook,'x-webhook-signature'));
 $check('webhook rejects invalid signatures before persistence',str_contains($webhook,"if (!\$check['ok']) api_error('Invalid webhook signature', 401)"));
+$check('webhook persists review outcome instead of treating holds as processed',str_contains($webhook,'purepayWebhookRecordOutcome($tenantId, $eventId, $rollup)'));
 
 $payments=$read('modules/ap/api/payments.php');
 $check('AP allows Pure//Pay override',str_contains($payments,"'nacha', 'plaid_transfer', 'purepay'"));

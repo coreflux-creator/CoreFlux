@@ -210,3 +210,10 @@ function purepayWebhookMarkProcessed(int $tenantId, string $eventId, ?string $er
           WHERE tenant_id=:t AND event_id=:id'
     )->execute(['ok'=>$error === null ? 1 : 0,'e'=>$error ? substr($error,0,500) : null,'t'=>$tenantId,'id'=>$eventId]);
 }
+
+function purepayWebhookRecordOutcome(int $tenantId, string $eventId, array $outcome): void
+{
+    $needsReview = in_array($outcome['outcome'] ?? '', ['needs_review', 'unmatched'], true);
+    purepayWebhookMarkProcessed($tenantId, $eventId, $needsReview
+        ? (string) ($outcome['reason'] ?? 'unmatched_payment') : null);
+}

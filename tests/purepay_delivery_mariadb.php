@@ -140,5 +140,14 @@ $check($hook(['bill_id'=>$hookBill,'payment_id'=>$hookPayment],'payment.failed')
 $check($hook(['bill_id'=>$hookBill,'payment_id'=>$hookPayment])['reason']==='terminal_result_requires_review','old settlement callback cannot erase unresolved failure review');
 $pdo->prepare('UPDATE purepay_payment_links SET connection_fingerprint=NULL WHERE source_ref=?')->execute([$lostPayment['external_ref']]);
 $check($hook(['bill_id'=>$otherBill,'payment_id'=>$link($lostPayment['external_ref'])['purepay_payment_id']])['reason']==='unverified_organization','callback cannot bind a historical payment to an inferred organization');
+$reviewPayload=['id'=>'review-event','type'=>'payment.failed','data'=>['bill_id'=>$hookBill,'payment_id'=>$hookPayment,'pay_status'=>'processing']];
+$check(purepayWebhookRecord(1,'review-event','payment.failed',true,null,time(),$reviewPayload,json_encode($reviewPayload)), 'verified event is persisted before projection');
+purepayWebhookRecordOutcome(1,'review-event',$hook($reviewPayload['data'],'payment.failed'));
+$event=$pdo->query('SELECT processed_at,processing_error FROM purepay_webhook_events WHERE tenant_id=1 AND event_id="review-event"')->fetch(PDO::FETCH_ASSOC);
+$check($event['processed_at']===null && $event['processing_error']==='payment_status_conflict','inconsistent payment evidence remains visible for review rather than marked successful');
+$check(purepayWebhookRecord(1,'review-event','payment.failed',true,null,time(),$reviewPayload,json_encode($reviewPayload)), 'held event remains available for reconciliation');
+purepayWebhookRecordOutcome(1,'review-event',['outcome'=>'updated']);
+$event=$pdo->query('SELECT processed_at,processing_error FROM purepay_webhook_events WHERE tenant_id=1 AND event_id="review-event"')->fetch(PDO::FETCH_ASSOC);
+$check($event['processed_at']!==null && $event['processing_error']===null,'successful reconciliation marks the event processed');
 unset($GLOBALS['__purepay_transport']);
 echo "PurePay delivery MariaDB: {$passed} passed\n";
