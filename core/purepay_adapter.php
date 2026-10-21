@@ -26,11 +26,12 @@ function purepayApiBase(): string
  * Test seam: $GLOBALS['__purepay_transport'] receives
  * (method, url, headers, bodyJson) and returns {status, body}.
  */
-function purepayCall(string $apiKey, string $method, string $path, array $body = [], int $timeoutSec = 25, ?string $idempotencyKey = null): array
+function purepayCall(string $apiKey, string $method, string $path, array $body = [], int $timeoutSec = 25, ?string $idempotencyKey = null, ?string $apiBase = null): array
 {
     if ($apiKey === '' || preg_match('/[\r\n]/',$apiKey)) throw new PurePayApiException('Pure//Pay: valid API key required');
     $method = strtoupper($method);
-    $url = purepayApiBase() . '/' . ltrim($path, '/');
+    // A server-configured integration can use its preview without moving the AP rail.
+    $url = ($apiBase ?? purepayApiBase()) . '/' . ltrim($path, '/');
     $headers = [
         'Authorization: Bearer ' . $apiKey,
         'Accept: application/json',

@@ -1,5 +1,44 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Dedicated provider connection — October 20, 2026, late evening
+
+The current Emergent `beautiful-kalam-6` project now contains the callback
+helper, scoped Core exchange module and updated server registration. The
+server and exchange module were read back through the editor and matched the
+tested local source after line-ending normalization. Five remote changes are
+visible: these three files and two pre-existing cron files, which were preserved.
+No provider production publish or live key was created. All 38 local provider
+contract tests pass. The preview currently returns HTTP 502; its backend log
+ends with clean shutdown messages. The user has been asked to start that
+preview. Full-app and preview acceptance remain pending.
+
+Core migration 164 adds a separate encrypted credential for this contract.
+The existing PurePay settings screen now supports connecting that key, checking
+its organization and capabilities, explicitly confirming the company, and
+reviewing paginated assignments, clients, vendors and (with payroll access)
+employees. It does not yet send record links or provision native records.
+
+Company confirmation pins the Core installation, provider organization and
+provider environment. Key rotation or a capability change requires a fresh
+review; disconnect retains the permanent identity. One provider organization
+cannot be silently assigned to another Core company. Reads are refused before
+confirmation and after concurrent connection changes. Provider and consumer
+field projections keep bank/tax secrets out of this view. The endpoint requires
+`accounting.bank.manage`, with an additional `payroll.view` check for employees.
+Connection mutations and their audit events commit together.
+
+`PUREPAY_CORE_API_BASE` can target an HTTPS provider preview independently of
+the AP rail; it must end in `/api/v1`. Changing an established provider
+environment requires migration review. The deployment creates no credential,
+binding, record, payment or payroll run.
+
+Validation: 40 new disposable-MariaDB connection checks, 66 existing PurePay
+delivery checks, 47 payload checks and 39 wiring checks passed. The dashboard
+build passed with existing lint/bundle warnings. A local browser fixture
+verified connection, required confirmation, record pagination and refresh;
+it uses synthetic data and is not live Thunderhawk acceptance. CI and staging
+for this increment are recorded separately once complete.
+
 ## Payment result correction — October 20, 2026
 
 The current PurePay Emergent source confirmed that the public bill-pay route
@@ -16,11 +55,9 @@ and emits minimal terminal callbacks only for consistent evidence. Twenty-four
 isolated tests execute the captured provider functions; 66 Core disposable
 MariaDB checks, 40 callback evidence checks and the existing 47 payload/39 wiring
 checks pass. These do not constitute a live payment or full provider-app test.
-The helper was saved and read back in Emergent. After Chrome reconnected, a
-fresh editor confirmed that the server was still the original captured source
-(line endings normalized). The interrupted server update had not been saved.
-Browser control disconnected again before the remaining source could be saved;
-no provider publish or full-app test pass is claimed.
+The helper was initially saved separately while browser interruptions delayed
+the server update. The subsequent save and read-back are recorded above;
+no provider production publish or full-app test pass is claimed.
 
 The newly captured native PurePay assignment model can create bills and link
 invoice lines automatically. Placement exchange must control those settings
@@ -41,10 +78,11 @@ vendor IDs, retaining all native fields. Concurrent retries return one receipt;
 retargeting, mismatched number types, duplicate native IDs and cross-company
 lookups are refused. Fourteen isolated HTTP/auth/model tests cover this contract,
 including recovery after a lost insert response, bringing the provider suite to
-38 tests. The implementation and its schema are
-local only. It does not yet provision employees, onboarding, assignments, time
-or payments. Native provisioning, Core-side connection/review UI, provider key
-management controls, full-app tests and the live round trip remain outstanding.
+38 tests. The implementation is now saved in the provider editor, with runtime
+acceptance pending. It does not yet provision employees, onboarding,
+assignments, time or payments. Native provisioning, Core-side record linking,
+provider key management controls, full-app tests and the live round trip remain
+outstanding; the Core connection/review UI is described above.
 
 Core runtime `eac339b7` passed all eight
 [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39533242698)
