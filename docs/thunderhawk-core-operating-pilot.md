@@ -5,8 +5,8 @@
 The current Emergent `beautiful-kalam-6` project now contains the callback
 helper, scoped Core exchange module and updated server registration. The
 server and exchange module were read back through the editor and matched the
-tested local source after line-ending normalization. Five remote changes are
-visible: these three files and two pre-existing cron files, which were preserved.
+tested local source after line-ending normalization. The initial backend save
+preserved two pre-existing cron-file changes.
 No provider production publish or live key was created. All 38 local provider
 contract tests pass. The provider key-settings component, capability helper
 and developer documentation are also saved and read back against their local
@@ -45,9 +45,18 @@ verified connection, required confirmation, record pagination and refresh;
 it uses synthetic data and is not live Thunderhawk acceptance. Runtime
 `b97ad278` passed all eight [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39537194872).
 Its [first staging attempt](https://github.com/coreflux-creator/CoreFlux/actions/runs/39537555407)
-failed while uploading the private package, before installation; staging remains
-on the previous runtime. Read-only disk/inode and temporary-upload diagnostics
-were added to the existing inspection workflow to determine the cause before retrying.
+failed while uploading the private package, before installation. Read-only inspection found
+the host disk full (79 GB filesystem, zero available). Six temporary packages
+from verified successful deployments were removed by a dedicated, guarded
+[cleanup run](https://github.com/coreflux-creator/CoreFlux/actions/runs/39538210774),
+restoring 3.9 GB free. Installed applications and private rollback backups were
+preserved. Successful staging runs now remove their own temporary package.
+Revision `19eb2f66` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39538219217).
+The [staging retry](https://github.com/coreflux-creator/CoreFlux/actions/runs/39538543633)
+then passed deployment and acceptance for `19eb2f66`. Migration 164 and the
+new Core connection UI are installed in isolated staging. The production job
+was skipped. No provider credential or company binding was created by deployment.
 
 ## Payment result correction — October 20, 2026
 
@@ -91,7 +100,7 @@ including recovery after a lost insert response, bringing the provider suite to
 38 tests. The implementation is now saved in the provider editor, with runtime
 acceptance pending. It does not yet provision employees, onboarding,
 assignments, time or payments. Native provisioning, Core-side record linking,
-provider key management controls, full-app tests and the live round trip remain
+provider key-management acceptance, full-app tests and the live round trip remain
 outstanding; the Core connection/review UI is described above.
 
 Core runtime `eac339b7` passed all eight
