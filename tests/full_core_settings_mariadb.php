@@ -27,7 +27,9 @@ try {
     $pdo->exec('CREATE DATABASE ' . $database); $createdDatabase = true;
     $pdo->exec('CREATE TABLE ' . $database . '.unchanged (id INT PRIMARY KEY, value_text VARCHAR(50))');
     $pdo->exec("INSERT INTO {$database}.unchanged VALUES (1,'Synthetic balance marker'),(2,'Unchanged source')");
-    foreach (['localhost', '127.0.0.1'] as $host) {
+    // GitHub's forwarded service port reaches MariaDB from the container bridge.
+    // The random, disposable account is SELECT-only on this fixture database.
+    foreach ($ci ? ['%'] : ['localhost', '127.0.0.1'] as $host) {
         $account = $pdo->quote($user) . '@' . $pdo->quote($host);
         $pdo->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $pdo->quote($secret));
         $createdUsers[] = $account;
