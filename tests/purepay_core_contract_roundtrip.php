@@ -6,6 +6,7 @@ if(getenv('COREFLUX_PUREPAY_CONTRACT_FIXTURE')!=='1' || !preg_match('~^http://12
 putenv('COREFLUX_DISABLE_DATABASE=1');
 require_once __DIR__.'/../core/integrations/purepay_links.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
+require_once __DIR__.'/../core/integrations/purepay_payroll_authority.php';
 $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$body)use($origin) {
     $prefix='https://purepay.online/api/v1/integrations/coreflux/';
     if(!str_starts_with($url,$prefix))throw new RuntimeException('Unexpected provider route');
@@ -58,4 +59,20 @@ $check(purepayPayrollInputReceipt($read,'org-a',$input)['id']===$inputReceipt['i
 try {purepayCall('pk_'.hash('sha256','reader'),'POST',PUREPAY_CORE_PATH.'/payroll/inputs',$input,25,integrationDeliveryHash($input),purepayCoreApiBase());$rejected=false;}
 catch(PurePayApiException $e){$rejected=$e->httpStatus===403;}
 $check($rejected,'Payroll read access cannot send input packets');
+$authority=['contract_version'=>PUREPAY_PAYROLL_AUTHORITY_VERSION,'id'=>'cpa_'.str_repeat('d',64),'instance_id'=>$instance,
+    'organization_id'=>'org-a','time_tenant_id'=>77,'input_id'=>$inputReceipt['id'],'content_hash'=>integrationDeliveryHash($input),'components'=>1,'source_time_reserved'=>true];
+$authorityPost=static fn(string $path):array=>purepayCall($key,'POST',PUREPAY_CORE_PATH.$path,$authority,25,integrationDeliveryHash($authority),purepayCoreApiBase());
+$receipt=purepayPayrollAuthorityReceipt($authorityPost('/payroll/authorities'),$authority);
+$check($receipt['state']==='available' && !$receipt['payroll_created'],'PHP grant binds the exact provider input without creating payroll');
+$check(purepayPayrollAuthorityReceipt($authorityPost('/payroll/authorities'),$authority)===$receipt,'Grant retry reuses the provider receipt');
+$check(purepayPayrollAuthorityReceipt(purepayCoreGet($key,'/payroll/authorities/'.$authority['id']),$authority)===$receipt,'Grant receipt recovered with actual PHP client');
+$cancelled=purepayPayrollAuthorityReceipt($authorityPost('/payroll/authorities/'.$authority['id'].'/release'),$authority,true);
+$check($cancelled['release_confirmed'] && !$cancelled['provider_usable'],'PHP verifies deterministic permanent cancellation receipt');
+$check(purepayPayrollAuthorityReceipt($authorityPost('/payroll/authorities'),$authority,true)===$cancelled,'A delayed grant remains cancelled');
+$check(purepayPayrollAuthorityReceipt($authorityPost('/payroll/authorities/'.$authority['id'].'/release'),$authority,true)===$cancelled,'Repeated cancellation returns the original receipt');
+try {purepayPayrollAuthorityReceipt($receipt,$authority,true);$rejected=false;}catch(RuntimeException $e){$rejected=true;}
+$check($rejected,'An available receipt cannot unlock Core source');
+try {purepayCall('pk_'.hash('sha256','reader'),'POST',PUREPAY_CORE_PATH.'/payroll/authorities',$authority,25,integrationDeliveryHash($authority),purepayCoreApiBase());$rejected=false;}
+catch(PurePayApiException $e){$rejected=$e->httpStatus===403;}
+$check($rejected,'Payroll read access cannot grant source authority');
 echo json_encode(['passed'=>$passed,'scope'=>'synthetic Core PHP to PurePay ASGI HTTP contract']),"\n";

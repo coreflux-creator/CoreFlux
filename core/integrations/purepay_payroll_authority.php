@@ -1,5 +1,5 @@
 <?php
-/** Durable Core source reservation. Provider grant/release transport is a separate step. */
+/** Durable Core source reservation and provider cancellation handshake. */
 declare(strict_types=1);
 require_once __DIR__.'/purepay_payroll_inputs.php';
 
@@ -30,7 +30,7 @@ function purepayPayrollAuthorityView(array $row): array
 
 /**
  * Internal service boundary: callers must resolve owners and authorize payroll-create.
- * No API calls this until reviewed provider grant/release handling is implemented.
+ * No API calls this until the native draft review workflow is implemented.
  * A request ID is generated for a review and retained on retry, never an expiry.
  */
 function purepayPayrollAuthorityReserve(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,int $deliveryId,string $reviewHash,string $requestId,?callable $audit=null): array
@@ -96,5 +96,89 @@ function purepayPayrollAuthorityReserve(PDO $pdo,int $tenant,int $actor,string $
         if($audit)$audit('purepay_payroll_source_reserved',['authority_id'=>$id,'input_delivery_id'=>$deliveryId,'components'=>count($entries)]);
         $result=purepayPayrollAuthorityView(purepayPayrollAuthorityRead($pdo,$tenant,$id));
         $pdo->commit();return $result;
+    } catch(Throwable $e) {if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+}
+
+function purepayPayrollAuthorityBody(array $row): array
+{
+    $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
+    return $payload['authority'];
+}
+
+/** Validate the entire immutable grant, including a deterministic cancellation receipt. */
+function purepayPayrollAuthorityReceipt(array $receipt,array $body,bool $requireReleased=false): array
+{
+    $state=$receipt['state']??null;$released=$state==='released';
+    $releaseId=$released?'cpr_'.integrationDeliveryHash([$body['organization_id'],$body['id'],integrationDeliveryHash($body),'released']):null;
+    if(!is_array($receipt['authority']??null) || integrationDeliveryHash($receipt['authority'])!==integrationDeliveryHash($body)
+        || !in_array($state,['available','released'],true) || ($receipt['provider_usable']??null)!==!$released
+        || ($receipt['payroll_created']??null)!==false || ($receipt['release_confirmed']??null)!==$released
+        || !array_key_exists('release_receipt_id',$receipt) || $receipt['release_receipt_id']!==$releaseId
+        || ($requireReleased && !$released))throw new RuntimeException('The provider has not confirmed this exact payroll source reservation or cancellation. Keep the source reserved.');
+    return ['authority'=>$body,'state'=>$state,'provider_usable'=>!$released,'payroll_created'=>false,
+        'release_confirmed'=>$released,'release_receipt_id'=>$releaseId];
+}
+
+function purepayPayrollAuthorityAccess(PDO $pdo,int $tenant,string $instance,array $row,bool $write): array
+{
+    if($row['instance_id']!==$instance)throw new RuntimeException('This reservation belongs to another Core installation.');
+    $access=purepayCoreLinkAccess($pdo,$tenant,$instance,'person',false);
+    if((int)$access['connection']['id']!==(int)$row['connection_id'] || $access['review']['organization']['id']!==$row['organization_id'])throw new RuntimeException('Restore the original provider company connection before reconciling this reservation.');
+    if(($access['review']['payroll_authority_contract_version']??null)!==PUREPAY_PAYROLL_AUTHORITY_VERSION)throw new RuntimeException('The provider payroll reservation contract is unavailable. Keep the source reserved.');
+    if($write && !in_array('write:payroll_authority',$access['review']['capabilities'],true))throw new RuntimeException('The dedicated Core key needs payroll source reservation access.');
+    return $access;
+}
+
+/** Idempotent delivery; failure or an unknown response never frees Core's claims. */
+function purepayPayrollAuthoritySend(PDO $pdo,int $tenant,string $instance,string $id): array
+{
+    if(getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')!=='1')throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
+    if($pdo->inTransaction())throw new LogicException('Commit the source reservation before provider delivery.');
+    $row=purepayPayrollAuthorityRead($pdo,$tenant,$id);$body=purepayPayrollAuthorityBody($row);
+    if($row['instance_id']!==$instance)throw new RuntimeException('This reservation belongs to another Core installation.');
+    if($row['state']==='released')return purepayPayrollAuthorityReceipt(json_decode((string)decryptField($row['release_receipt_ct']),true,64,JSON_THROW_ON_ERROR),$body,true);
+    $access=purepayPayrollAuthorityAccess($pdo,$tenant,$instance,$row,true);
+    purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
+    $receipt=purepayCall($access['key'],'POST',PUREPAY_CORE_PATH.'/payroll/authorities',$body,25,integrationDeliveryHash($body),purepayCoreApiBase());
+    $receipt=purepayPayrollAuthorityReceipt($receipt,$body);
+    purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
+    return $receipt;
+}
+
+/** Read-only recovery does not interpret absence as permission to unlock time. */
+function purepayPayrollAuthorityReconcile(PDO $pdo,int $tenant,string $instance,string $id): array
+{
+    $row=purepayPayrollAuthorityRead($pdo,$tenant,$id);$body=purepayPayrollAuthorityBody($row);
+    $access=purepayPayrollAuthorityAccess($pdo,$tenant,$instance,$row,false);
+    $receipt=purepayPayrollAuthorityReceipt(purepayCoreGet($access['key'],'/payroll/authorities/'.$id),$body,$row['state']==='released');
+    purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
+    return $receipt;
+}
+
+/** Internal service: caller authorizes payroll approval. Provider tombstone commits first. */
+function purepayPayrollAuthorityRelease(PDO $pdo,int $tenant,int $actor,string $instance,string $id,?callable $audit=null): array
+{
+    if(getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')!=='1')throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
+    if($actor<=0)throw new InvalidArgumentException('An authorized payroll reviewer is required.');
+    if($pdo->inTransaction())throw new LogicException('Cancellation requires its own transaction.');
+    $row=purepayPayrollAuthorityRead($pdo,$tenant,$id);$body=purepayPayrollAuthorityBody($row);
+    if($row['instance_id']!==$instance)throw new RuntimeException('This reservation belongs to another Core installation.');
+    if($row['state']==='released')return purepayPayrollAuthorityReceipt(json_decode((string)decryptField($row['release_receipt_ct']),true,64,JSON_THROW_ON_ERROR),$body,true);
+    $access=purepayPayrollAuthorityAccess($pdo,$tenant,$instance,$row,true);
+    purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
+    $receipt=purepayPayrollAuthorityReceipt(purepayCall($access['key'],'POST',PUREPAY_CORE_PATH.'/payroll/authorities/'.$id.'/release',$body,25,integrationDeliveryHash($body),purepayCoreApiBase()),$body,true);
+    $pdo->beginTransaction();
+    try {
+        purepayCoreConnection($pdo,$tenant,true);purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
+        $locked=purepayPayrollAuthorityRead($pdo,$tenant,$id,true);
+        if(!hash_equals((string)$locked['payload_ct'],(string)$row['payload_ct']))throw new RuntimeException('The source reservation changed during cancellation.');
+        if($locked['state']==='released') {
+            $receipt=purepayPayrollAuthorityReceipt(json_decode((string)decryptField($locked['release_receipt_ct']),true,64,JSON_THROW_ON_ERROR),$body,true);
+            $pdo->commit();return $receipt;
+        }
+        $pdo->prepare('DELETE FROM payroll_source_claims WHERE authority_id=?')->execute([$id]);
+        $pdo->prepare('UPDATE payroll_source_authorities SET state="released",released_at=NOW(),release_receipt_ct=? WHERE tenant_id=? AND id=? AND state="held"')->execute([encryptField(integrationDeliveryJson($receipt)),$tenant,$id]);
+        if($audit)$audit('purepay_payroll_source_released',['authority_id'=>$id,'actor_id'=>$actor,'release_receipt_id'=>$receipt['release_receipt_id']]);
+        $pdo->commit();return $receipt;
     } catch(Throwable $e) {if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }

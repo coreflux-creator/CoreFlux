@@ -1,5 +1,33 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Payroll reservation delivery and cancellation — October 21, 2026
+
+Core can now deliver and recover the immutable source grant through the
+dedicated provider connection. Cancellation sends the complete original grant
+and only unlocks Core source after validating a permanent provider cancellation
+receipt. Unknown responses, provider 404s, mismatched receipts, connection
+changes and audit failures retain the claims. Core stores the successful receipt
+encrypted; the original request can never reactivate a released authority.
+These services remain internal and gated OFF pending the native draft workflow.
+
+The companion provider implementation requires a separate
+`write:payroll_authority` capability, in addition to payroll read/input access.
+Creating that capability requires payroll approval permission and a separate
+unchecked UI choice. No existing key receives it automatically. The provider
+binds grants to the exact company, installation, time owner and complete input
+packet. Cancellation before delivery creates a permanent tombstone, so a
+delayed or repeated delivery cannot resurrect it. Unknown/future allocated
+states cannot produce cancellation evidence. Receiving a grant creates no
+payroll run, time claim, payment or employee.
+
+Validation: 118 provider contract tests, including 28 real PHP-to-FastAPI HTTP
+assertions; seven key UI tests and JSX parsing; 83 Core authority MariaDB checks
+plus 33 input checks; 40 connection regression checks. The cancellation race is
+explicitly interleaved in the provider test. Provider source save and current
+runtime CI/staging acceptance are recorded below when confirmed. Native draft
+application, exact placement earnings through recalculation, allocated-run
+cancellation and live Thunderhawk acceptance remain unfinished.
+
 ## Core payroll source authority — October 21, 2026
 
 Core now has a durable source-reservation service, gated by
