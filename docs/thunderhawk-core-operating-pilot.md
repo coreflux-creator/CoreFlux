@@ -30,6 +30,15 @@ and an imported result without new hours; its API is synthetic, not a hosted
 Thunderhawk acceptance test. Proof: `quanta-origin-synthetic-review.png`
 (local untracked artifact).
 
+Runtime `05b9ddfb3a09d6d95e4b3b591493d06cebcd801f` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39546313837)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39546604966).
+The staging log confirms migration 165 applied and schema ready. Production
+was skipped; existing outbound flags stay off. Provider source checkpoint
+`f601971` captures the current automatic/reviewed Quanta writers and workspace
+surface for the native bridge. The provider Core-context API still returned
+HTTP 502 at 2026-10-21 04:53:30 UTC; no hosted provider acceptance is claimed.
+
 The native PurePayroll draft/application and shared source reservations remain
 the next implementation work. No provider source or real data changed in this
 increment. This import path requires Quanta's shared Core contract to be
