@@ -62,6 +62,7 @@ foreach ($manifest['files'] as $relative => $hash) {
 // Use deployed configuration, never candidate configuration or an API bootstrap.
 require_once $root . '/core/db.php';
 require_once $package . '/core/migration_hash.php';
+require_once $package . '/core/accounting/schema_contract.php';
 $db = getDB();
 if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) {
     throw new RuntimeException('Production database does not match the app identity.');
@@ -69,15 +70,35 @@ if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname(
 $db->exec('SET TRANSACTION READ ONLY');
 $db->beginTransaction();
 try {
-    $ledger = $db->query('SELECT filename, sha256 FROM _migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $ledgerRows = $db->query('SELECT filename, sha256, last_error FROM _migrations')->fetchAll(PDO::FETCH_ASSOC);
+    $ledger = array_column($ledgerRows, 'sha256', 'filename');
+    $ledgerErrors = array_column($ledgerRows, 'last_error', 'filename');
+    $legacyExists = (int) $db->query("SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema=DATABASE() AND table_name='coreflux_migrations'")->fetchColumn() === 1;
+    $legacyLedger = $legacyExists ? $db->query('SELECT file_path, checksum_sha FROM coreflux_migrations')->fetchAll(PDO::FETCH_KEY_PAIR) : [];
     $pending = [];
     $drift = [];
+    $legacyOnly = [];
+    $unrecorded = [];
+    $migrationIssues = [];
     foreach (array_keys($manifest['files']) as $relative) {
         if (!preg_match('~^(core/migrations|modules/[^_/][^/]*/migrations)/[^/]+\.sql$~D', $relative)) continue;
         $key = str_starts_with($relative, 'core/') ? basename($relative) : $relative;
-        if (!isset($ledger[$key])) $pending[] = $relative;
+        $sql = (string) file_get_contents($package . '/' . $relative);
+        if (!isset($ledger[$key])) {
+            $pending[] = $relative;
+            if (isset($legacyLedger[$relative]) && corefluxMigrationHashMatches($legacyLedger[$relative], $sql)) {
+                $legacyOnly[] = $relative;
+            } else $unrecorded[] = $relative;
+        }
         elseif (!corefluxMigrationHashMatches($ledger[$key], (string) file_get_contents($package . '/' . $relative))) {
             $drift[] = $relative;
+            $liveSql = is_file($root . '/' . $relative) ? file_get_contents($root . '/' . $relative) : false;
+            $migrationIssues[] = ['path' => $relative,
+                'recorded_failure' => str_starts_with($ledger[$key], 'FAIL:'),
+                'last_error' => $ledgerErrors[$key] ?? null,
+                'deployed_file_matches_record' => $liveSql !== false && corefluxMigrationHashMatches($ledger[$key], $liveSql),
+                'legacy_ledger_matches_candidate' => isset($legacyLedger[$relative]) && corefluxMigrationHashMatches($legacyLedger[$relative], $sql)];
         }
     }
     $clients = $db->query("SELECT t.id, t.name, COUNT(DISTINCT c.id) AS client_count
@@ -103,6 +124,10 @@ try {
         'comparison_base_commit' => $manifest['base_commit'] ?? null,
         'production_source_different_from_both_base_and_candidate' => $productionDivergence,
         'pending_migrations' => $pending, 'applied_migration_drift' => $drift,
+        'matching_migrations_in_legacy_ledger_only' => $legacyOnly,
+        'migrations_without_matching_record_in_either_ledger' => $unrecorded,
+        'migration_record_issues' => $migrationIssues,
+        'accounting_schema' => coreAccountingInspectSchema($db),
         'outbound_flags_from_cli_configuration' => $flags,
         'activation_performed' => false,
         'remaining_release_gates' => ['Review migration/data impact and production-only source changes',
