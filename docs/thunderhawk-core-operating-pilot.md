@@ -8,7 +8,13 @@ server and exchange module were read back through the editor and matched the
 tested local source after line-ending normalization. Five remote changes are
 visible: these three files and two pre-existing cron files, which were preserved.
 No provider production publish or live key was created. All 38 local provider
-contract tests pass. The preview currently returns HTTP 502; its backend log
+contract tests pass. The provider key-settings component, capability helper
+and developer documentation are also saved and read back against their local
+source. The new Core option starts with record viewing; link and payroll
+capabilities require separate selections. Five JavaScript capability tests and
+JSX parsing passed; a full frontend build and rendered provider acceptance are
+still required. The editor now shows eight pending files (six integration files
+plus two pre-existing cron files). The preview currently returns HTTP 502; its backend log
 ends with clean shutdown messages. The user has been asked to start that
 preview. Full-app and preview acceptance remain pending.
 
@@ -36,8 +42,12 @@ Validation: 40 new disposable-MariaDB connection checks, 66 existing PurePay
 delivery checks, 47 payload checks and 39 wiring checks passed. The dashboard
 build passed with existing lint/bundle warnings. A local browser fixture
 verified connection, required confirmation, record pagination and refresh;
-it uses synthetic data and is not live Thunderhawk acceptance. CI and staging
-for this increment are recorded separately once complete.
+it uses synthetic data and is not live Thunderhawk acceptance. Runtime
+`b97ad278` passed all eight [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39537194872).
+Its [first staging attempt](https://github.com/coreflux-creator/CoreFlux/actions/runs/39537555407)
+failed while uploading the private package, before installation; staging remains
+on the previous runtime. Read-only disk/inode and temporary-upload diagnostics
+were added to the existing inspection workflow to determine the cause before retrying.
 
 ## Payment result correction — October 20, 2026
 

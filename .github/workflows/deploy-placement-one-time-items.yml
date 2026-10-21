@@ -203,6 +203,11 @@ jobs:
             test -r "$STAGING_ROOT/index.html"
             test -w "$STAGING_ROOT"
             printf 'isolated_staging_access=read_write\n'
+            df -h "$STAGING_ROOT" /tmp
+            df -i "$STAGING_ROOT" /tmp
+            find /tmp -maxdepth 1 -type d -user "$(id -un)" -name 'core-integration-*' -print | while IFS= read -r upload; do
+              du -sh -- "$upload"
+            done
             for path in core/db.local.php core/standalone_env.php private_runtime/vendor/autoload.php .deploy-version; do
               if test -r "$STAGING_ROOT/$path"; then printf 'readable=%s\n' "$path"; fi
             done
