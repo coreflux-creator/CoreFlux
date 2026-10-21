@@ -31,8 +31,15 @@ required. No live authority is issued by this increment.
 The disposable MariaDB fixture passes 48 new checks plus the existing 33 input
 checks: source/rate drift, source lock contention, old-transaction fencing,
 atomic rollback, replay, tenant isolation, protected edits/deletion/extraction,
-independent billing and migration replay. Hosted CI and staging evidence will
-be recorded after this runtime is verified; this is not live Thunderhawk
+independent billing and migration replay. Runtime
+`d7163287217e9f8428839635c48324ac9414ef57` passed all eight
+[hosted CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39550272133)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39550474098).
+The staging log at 2026-10-21 05:38:11 UTC confirms Core 166, Placements 008 and
+Time 011 applied, `payroll_source_guards: ready` and
+`payroll_authority_enabled: false`. Production was skipped. An earlier CI
+attempt caught a collision between disposable fixture database names; the
+authority fixture now uses its own database. This is not live Thunderhawk
 acceptance and native draft application remains disabled.
 
 ## Provider source-time reservations — October 21, 2026
