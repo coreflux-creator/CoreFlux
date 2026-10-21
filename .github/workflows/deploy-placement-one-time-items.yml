@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, prepare, deploy]
+        options: [none, inspect, prepare, deploy, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -247,6 +247,60 @@ jobs:
             ], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
             PHP
 
+  cleanup-known-staging-uploads:
+    if: inputs.integration_staging == 'cleanup_known_uploads'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify completed deployment identities before reclaiming their temporary copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for release in \
+            39528812913:8f68486b1aa0bf82732d52aa62875fb8f0b1430a \
+            39531315383:96ecd35d5b4e852a92391b730bbfa4aa1576efe0 \
+            39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
+            39534626249:dcd1b6465190163407184bae5dca3ed660745a44 \
+            39527685302:9edaad80bd3e30c137dae404c322b5fe323ae79f \
+            39484184799:28f766640775054c13ae3612e2a661387a7502fa; do
+            run="${release%%:*}"
+            expected="${release#*:}"
+            actual="$(gh api "repos/${{ github.repository }}/actions/runs/$run" --jq '[.status,.conclusion,.head_sha] | join(" ")')"
+            test "$actual" = "completed success $expected"
+          done
+      - name: Remove only verified temporary release copies
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            for release in \
+              39528812913:8f68486b1aa0bf82732d52aa62875fb8f0b1430a \
+              39531315383:96ecd35d5b4e852a92391b730bbfa4aa1576efe0 \
+              39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
+              39534626249:dcd1b6465190163407184bae5dca3ed660745a44 \
+              39527685302:9edaad80bd3e30c137dae404c322b5fe323ae79f \
+              39484184799:28f766640775054c13ae3612e2a661387a7502fa; do
+              run="${release%%:*}"
+              expected="${release#*:}"
+              upload="/tmp/core-integration-$run"
+              if [ ! -e "$upload" ] && [ ! -L "$upload" ]; then continue; fi
+              test ! -L "$upload"
+              test "$(readlink -f "$upload")" = "$upload"
+              test "$(stat -c %u "$upload")" = "$(id -u)"
+              test ! -L "$upload/package"
+              test "$(readlink -f "$upload/package")" = "$upload/package"
+              php -r '$m=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR); if(($m["product"]??"")!=="full-core-staging" || ($m["commit"]??"")!==$argv[2])exit(1);' "$upload/package/integration-manifest.json" "$expected"
+              du -sh -- "$upload"
+              rm -rf -- "$upload"
+              printf 'Removed verified temporary upload %s\n' "$run"
+            done
+            df -h /tmp
+
   core-integration-staging:
     if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy'
     runs-on: ubuntu-latest
@@ -327,3 +381,9 @@ jobs:
             DB_NAME=muzqvdvqbx php tests/accounting_credit_applications_mariadb.php --execute
             php tests/billing_delivery_staging_http.php --execute
             echo 'Full-Core staging acceptance passed for ${{ github.sha }}.'
+            # Rollback files and database dumps are retained separately under the SSH home.
+            # This directory contains only this run's reproducible upload package.
+            cd /tmp
+            test ! -L "$UPLOAD"
+            test "$(readlink -f "$UPLOAD")" = "/tmp/core-integration-${{ github.run_id }}"
+            rm -rf -- "$UPLOAD"
