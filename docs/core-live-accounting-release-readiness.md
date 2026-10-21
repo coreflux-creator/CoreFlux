@@ -74,7 +74,10 @@ checks pass. Candidate `e3fdb0a6` passed all eight
 Workflow-only follow-up `2b675418a6cc0bcecc698da53ddb99b35ab36f02` also passed
 [all eight jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39687322749).
 Its [isolated staging release](https://github.com/coreflux-creator/CoreFlux/actions/runs/39687723345)
-was dispatched; check its result before claiming acceptance of this revision.
+passed, including the accounting lifecycle, split receipts, credit applications
+and invoice-delivery acceptance. Schema/source guards are ready and payroll
+authority remains disabled. Production was skipped. The updated sidebar and
+accounting overview are staged, not live.
 
 The production inspection modes have no install/migration path. Their private
 candidate packages remain under `/tmp/core-integration-39686512795`,
