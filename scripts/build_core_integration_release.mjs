@@ -21,7 +21,7 @@ const baseBlobs = new Map(execFileSync('git', ['ls-tree', '-rz', '--full-tree', 
 const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 const changed = new Set(execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMRT', 'origin/main', 'HEAD'],
   { encoding: 'utf8' }).trim().split('\n'));
-const runtimeRoots = /^(api|core|modules|billing|lib|includes|helpers|config|auth|oauth|partials|views|sim|deploy|tests)\//;
+const runtimeRoots = /^(api|core|modules|billing|lib|includes|helpers|config|auth|oauth|partials|views|sim|deploy|tests|cron)\//;
 const selected = new Set(tracked.filter(file => {
   if (/\.local\.|(^|\/)\.env|\/node_modules\//.test(file)) return false;
   if (runtimeRoots.test(file) && /\.(php|sql|json)$/.test(file) && !/\/ui\//.test(file)) return true;
@@ -29,7 +29,7 @@ const selected = new Set(tracked.filter(file => {
   if (!file.includes('/') && changed.has(file) && /\.(php|html)$/.test(file)) return true;
   return ['.htaccess', '.deploy-version', 'composer.json', 'composer.lock',
     'spa-assets/index.html', 'spa-assets/sw.js', 'spa-assets/manifest.webmanifest',
-    'scripts/opcache_flush_deploy.php.template'].includes(file);
+    'scripts/dunning_daily.php', 'scripts/opcache_flush_deploy.php.template'].includes(file);
 }));
 const dist = path.join(root, 'dashboard/dist');
 selected.add('dashboard/dist/index.html');

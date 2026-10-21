@@ -149,6 +149,14 @@ method/host/expiry guards, successful read-only access and sanitized bootstrap
 failure. The production result is recorded above. Worker scheduling, exact
 migration activation, backups and recovery remain unfinished release gates.
 
+The package selection also now includes CLI cron workers and the updated
+daily dunning script. The earlier full-Core package omitted those entrypoints,
+including the tenant-scoped PurePay status poll and QBO receipt-recovery poll.
+They must accompany their changed libraries. Their production fingerprints
+and schedules require review before activation; packaging them does not enable
+or run a worker. The first operations-only audit stopped on an incorrect vendor
+table name without modifying data; it was corrected to `ap_vendors_index`.
+
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static
 checks pass. Candidate `e3fdb0a6` passed all eight

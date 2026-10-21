@@ -80,7 +80,7 @@ jobs:
                 $objects[strtolower($table)] = (int)$db->query("SELECT COUNT(*) FROM information_schema.$table WHERE $column=DATABASE()")->fetchColumn();
               }
               $counts = [];
-              foreach (['people','companies','staffing_clients','ap_vendors','placements'] as $table) {
+              foreach (['people','companies','staffing_clients','ap_vendors_index','placements'] as $table) {
                 $counts[$table] = (int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
               }
               $database = ['storage'=>$storage,'stored_objects'=>$objects,'active_connections'=>$active,
