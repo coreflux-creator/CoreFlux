@@ -33,14 +33,23 @@ input hashing, replay, readback and scope refusal. The provider's 23 new input
 tests cover permissions, source/link/content conflicts, malformed provenance,
 non-hourly preservation, pagination and absence of payroll side effects.
 
-Provider saving is INCOMPLETE: `backend/coreflux_payroll_inputs.py` and the updated
-`backend/coreflux_exchange.py` were saved and read back in Emergent. Chrome's
-connection disconnected before saving `backend/server.py` and the four frontend
-files. The full tested source is local; no remote commit or production publish.
-The preview was already stopped/returning 502 before these edits. Finish the
-server registration/permission guard first when Chrome reconnects, then save
-and verify the frontend changes. Do not treat this partial save as a release.
-Core runtime CI/staging for this increment is still pending at this checkpoint.
+Provider source checkpoint `37fcb60` is fully saved and read-back verified in
+Emergent: the new input module, exchange registration, server permission/route
+registration, key capability helper/settings, review component and Pay runs
+mount. Two pre-existing cron files were preserved. Opening GL Accounting's
+Beautiful Kalam 6 project resumed its sleeping editor, but its API still
+returned HTTP 502 at 2026-10-21 04:33:57 UTC. No remote commit, full-app acceptance
+or production publish is claimed. A local Chrome fixture opened the provider
+packet detail and verified both placement rates/revisions; it is not the hosted
+app. The Core form's browser date-entry walkthrough remains unverified.
+
+All 64 provider tests (including the 20-assertion actual PHP HTTP fixture), six
+key-UI checks and JSX parsing pass. Core runtime
+`bd8072d811579b51e3a06331dbbd098e49bd4e64` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39544233249)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39544639984).
+The production job was skipped; outbound flags remain off. No source data or
+provider credentials were introduced by the deployment.
 
 Remaining: persist/verify the original Quanta workspace on imported source
 components (historical rows have none and are blocked instead of borrowing the
