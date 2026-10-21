@@ -31,6 +31,32 @@ paths restored byte-for-byte and provider workers available after release
 87e2aee. Its remote `/app` write hold is lifted; no integration edits occurred
 during either coordinated release.
 
+## Frozen placement earnings checkpoint — October 21, 2026
+
+PurePayroll's development source now calculates hourly USD earnings from each
+Core placement/time component and displays the per-component amounts and gross
+preview. Unsupported components withhold the complete total. Native and manual
+recalculation preserve those approved rates and source identities, re-read the
+original immutable packet, and refuse manual changes to imported hours or
+placement earnings. Separate bonus/tax edits remain possible. Tally checks the
+original packet; Pace does not replace Core time with another import.
+
+Four runtime files were saved and read-back verified in Beautiful Kalam 6 after
+the existing files matched their preserved baselines. The source editor now has
+19 pending paths. The central server, worker controls and production were not
+changed. Provider `CORE-EXCHANGE.md` records the exact file hashes and checks.
+146 isolated provider tests (including the real Core PHP HTTP round trip) and
+ten Node checks pass. The native function tests isolate the tax adapter, so they
+do not establish tax accuracy or full-app acceptance. Browser policy refused
+the local file preview; the actual component passed local rendering checks, but
+hosted visual verification remains outstanding.
+
+Native draft creation from the grant, allocation/release recovery, complete
+result lineage and the hosted Thunderhawk round trip remain open. Draft apply
+and live delivery are still disabled. This completes the frozen-earnings
+subtask, not the integration goal. Cloudways sign-in remains pending for Core's
+separate live accounting backup/recovery gate.
+
 ## Payroll reservation delivery and cancellation — October 21, 2026
 
 Core can now deliver and recover the immutable source grant through the
