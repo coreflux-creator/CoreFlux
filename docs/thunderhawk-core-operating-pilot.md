@@ -28,9 +28,13 @@ company binding; changed directory ownership requires review.
 
 `COREFLUX_PUREPAY_CORE_LINK_DELIVERY` defaults off. No live key, provider link,
 employee, assignment or financial transaction was created. This code uses
-existing migrations 156/158/162/164; it adds no schema migration. The previously
-deployed staging revision remains `19eb2f66` until this checkpoint passes CI
-and a new staging release is recorded.
+existing migrations 156/158/162/164; it adds no schema migration. Runtime
+`9bcaa787d8e1cd81eb0753e69fb06dda7879f6ac` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39540985562)
+and [isolated staging deployment and acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39541272639).
+The production job was skipped. The provider source checkpoint is `481fb0f`
+in the separate local captured-source repository; its runtime module is saved
+in Emergent. No provider production publish or full-app acceptance is claimed.
 
 Validation: 63 new MariaDB link/history assertions, 40 connection assertions
 and 93 existing shared delivery assertions pass. The provider has 40 isolated
@@ -47,6 +51,19 @@ controlled onboarding/provisioning and operational time/result exchange.
 Native assignment auto-billing and payroll execution remain separate reviewed
 workflows. The real Thunderhawk round trip and reconciliation remain required
 for completion of the active goal.
+
+The current captured PurePayroll `quanta_payroll.py` confirms a specific next
+gap: `approved_hours` aggregates eligible rows by `person_id` and ISO week;
+`entry_ref` retains only source/local time IDs, person, date and hours/OT. It
+does not retain a placement reference, source revision, rate snapshot or
+currency. `EmployeeBody` has employee-level pay configuration and `RunCreateBody`
+accepts hours keyed by employee. The Core input/actuals contract must therefore
+preserve assignment-level components and original approved versions explicitly,
+including multiple placements for one person. Do not infer allocation from a
+matching employee total or silently replace approved Core rates with a provider
+employee default. Native employee creation activates the employee and requires
+pay configuration; native assignments default to automatic linking and bills.
+Provisioning needs an explicit review boundary before those existing behaviors.
 
 ## Dedicated provider connection — October 20, 2026, late evening
 
