@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ArrowRight, BriefcaseBusiness, Check, Clock3, KeyRound, Link2, RefreshCw, Save, Unplug, UserRoundPlus } from 'lucide-react';
 import { api, useApi } from '../lib/api';
+import QuantaPublicationPanel from './QuantaPublicationPanel';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -290,6 +291,7 @@ export default function QuantaSettings() {
     </div>
 
     {connected && <>
+      {catalog && <QuantaPublicationPanel key={status.data?.workspace?.id} people={people} />}
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'start' }}>
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Worker identities</h2>

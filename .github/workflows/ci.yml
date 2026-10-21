@@ -133,6 +133,9 @@ jobs:
       - name: Verify stable staffing numbers and replayable migrations
         run: php tests/record_numbers_mariadb.php
 
+      - name: Verify durable integration deliveries
+        run: php tests/integration_delivery_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 

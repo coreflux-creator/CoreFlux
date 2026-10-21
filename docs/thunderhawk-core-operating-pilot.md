@@ -1,5 +1,72 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Implementation checkpoint — October 20, 2026, evening
+
+The user requested an active goal to complete this integration. The goal is
+active; the end-to-end operational pilot is not complete.
+
+Live checks in the authorized Chrome sessions established:
+
+- Core's Thunderhawk placement page shows 120 active placements (38 W-2 and
+  80 C2C; those two categories do not account for every placement).
+- PurePay's Thunderhawk Technology Partners organization is present. Its
+  setup page says payroll processing has not been connected and 28 active
+  employees need onboarding review. These are displayed readiness indicators,
+  not an audited payroll or headcount reconciliation. No settings were changed.
+- The [live PurePay API specification](https://purepay.online/api/v1/openapi.json)
+  reports ERP API v1.0.0 and publishes AP/AR, payments, batches and wallet
+  routes. It publishes no employee or payroll-run routes. The
+  [developer reference](https://purepay.online/developers) documents stronger
+  durable idempotency for invoice creation/sending than for its other POST
+  routes. The latter cache completed requests only, without comparing bodies
+  or serializing concurrent requests. Core must retain its own durable attempt
+  and reconciliation controls; a provider idempotency key alone is insufficient.
+- Quanta's signed-in session currently shows Driscoll Law. Selecting Master
+  did not establish a Thunderhawk workspace. Remote organization verification
+  for outbound Core delivery remains outstanding.
+- The user identified Emergent as Quanta's editable source. The open
+  `clockin-hub-16` project reports the Phase 37 commit `8457190`; the editor
+  has three pending changes, so this is not a claim of a clean exact revision.
+  The `backend/app/routers/v1/workers.py` source was read through that editor.
+- The [live Quanta OpenAPI document](https://helloquanta.app/api/v1/openapi.json)
+  reports v1.1.0 and documents worker POST/PATCH plus worksite memberships. It
+  exposes no first-class placement/assignment endpoint or namespaced Core-ID
+  field. Worker source requires `read:workers` / `write:workers` scopes,
+  preserves `external_id` and `employee_id` as independent fields, and accepts
+  an inactive worker without a password. An email collision returns 409.
+  This evidence verifies the worker request/response shape; it does not verify
+  the pilot key's permissions or the remote organization's identity.
+
+This increment adds a Core people-to-Quanta review panel and an encrypted,
+tenant-scoped durable delivery ledger. Repeated identical previews reuse an
+envelope and idempotency key. Reviews expire; connection/source/remote drift
+blocks claims; one active attempt per record is enforced; an unknown outcome
+blocks another envelope for that record. Provider errors are retained as safe
+codes rather than raw responses containing credentials or contact data.
+
+The worker planner requires explicit identity links, flags existing emails,
+preserves both provider ID fields, and proposes only name/phone updates or an
+inactive new worker for onboarding. The narrow writer validates the confirmed
+response and treats timeouts, unexpected success responses, redirects and
+ambiguous provider responses as uncertain. It has no sending API or scheduled
+caller yet. The UI explicitly says previews do not send records. This is
+deliberate until the Quanta workspace and shared identity/assignment contract
+are verified and implemented on both sides; no live records moved in this
+increment.
+
+Validation for this increment: 45 worker-publication assertions, 35 isolated
+MariaDB delivery assertions, 74 existing Quanta integration assertions and 64
+numbering/field-dictionary assertions pass locally. The React production build
+passes. These checks use synthetic data or local fixtures; they are not proof
+of a live Thunderhawk round trip.
+
+Next: obtain the Quanta app/tests source export from the editor, implement
+the namespaced identity and effective-dated assignment contract with tenant
+isolation and conditional updates, then connect Core's reviewed delivery to
+those endpoints. Keep PurePayroll's current `external_id` references intact.
+Folder export requires a native destination picker; the user has been asked
+to save `backend/app` and `backend/tests` to the task's `Quanta-source` folder.
+
 Decision date: October 20, 2026.
 Status: numbering and field-inventory foundation implemented in draft PR #146; the complete live
 round trip has **not** been demonstrated. This document does not enable a
@@ -44,7 +111,7 @@ execution ownership must be explicit before Core starts sending the same work.
 | --- | --- | --- |
 | JobDiva into Core | Canonical graph, external identity mapping, native assignment import and reconciliation | Validate the selected Thunderhawk cohort and its real Start/Assignment IDs; report missing relationships and stale records |
 | Quanta into Core | Catalog reads, reviewed worker-to-person links, provisional Core person creation, effective-dated placement routes, approved-time import with source lineage | Verify nonempty Thunderhawk records and approved hours in the deployed version; expand beyond time to controlled onboarding/assignment changes |
-| Core into Quanta | No outbound client in Core's inspected connector; `core/quanta/client.php` uses GET only | Worker provisioning/update, assignment publication, access and onboarding status, correction feedback, and portal reports |
+| Core into Quanta | Reviewed worker proposals, encrypted delivery ledger and narrow writer implemented; no delivery caller enabled | Verified remote workspace, shared identity and assignment endpoints, reviewed sending and reconciliation, access/onboarding status, correction feedback and portal reports |
 | Core and PurePay | Connection management, AP payment driver, vendor/bill/payment validation, idempotency, status polling and webhooks | Verify Thunderhawk organization/permissions; reconcile PurePay-originated documents and results, including fees/returns, to Core. AR/collection exchange needs its own verified contract |
 | PurePayroll and Quanta | Preserved PurePay repository contains people linking/push, approved hours, payroll prefill, contractor billing, customer invoicing, worksite/client exchange, PTO and approval operations | Match source to the deployed release and inspect Thunderhawk's enabled flows before changing them |
 | Core and PurePayroll | No complete dedicated Core-to-PurePayroll service contract established by this audit | Confirm or implement organization-scoped employee, assignment, payroll-input and payroll-result APIs; add Core adapter and reconciliation |

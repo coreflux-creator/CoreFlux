@@ -51,6 +51,10 @@ numberCheck($rule['disposition'] === 'restricted' && $rule['write_policy'] === '
 numberCheck(staffingFieldContractRules('time_entries', 'hours')['unit'] === 'hours', 'decimal hours declared');
 numberCheck(staffingFieldContractRules('placements', 'future_field')['definition_status'] === 'review_required', 'new fields cannot silently become verified');
 numberCheck(!staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['sync_enabled_by_dictionary'], 'dictionary does not enable outbound writes');
+numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['quanta']['path'] === 'workers.full_name', 'verified Quanta name composition is recorded');
+numberCheck(staffingFieldContractRules('people', 'email_primary')['remote_contracts']['quanta']['direction'] === 'core_to_quanta_preview', 'verified email schema does not claim live delivery');
+numberCheck(staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['status'] === 'unverified', 'existing provider identity is not claimed as a Core ID field');
+numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['purepayroll']['status'] === 'unverified', 'Quanta verification does not imply payroll verification');
 require_once __DIR__ . '/../core/integrations/field_map.php';
 foreach (coreRecordNumberFields() as $field) {
     numberCheck(tenantIntegrationFieldMapIsProtectedInternalField($field), 'number excluded from mapping targets');

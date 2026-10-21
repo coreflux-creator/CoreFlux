@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/quanta/sync.php';
+require_once __DIR__ . '/../core/quanta/publication.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -121,6 +122,14 @@ try {
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
+
+    if ($action === 'publication_preview') {
+        rbac_legacy_require($user, 'people.view');
+        $result = quantaPublicationPreview($tenantId, $actorId, $body['person_ids'] ?? []);
+        platformAuditLogWrite($tenantId, $actorId, 'quanta.publication.previewed', null,
+            ['count' => count($result['rows']), 'delivery_enabled' => false], ['source' => 'quanta']);
+        api_ok($result);
+    }
 
     if ($action === 'connect') {
         $key = trim((string) ($body['api_key'] ?? ''));

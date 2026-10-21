@@ -45,6 +45,22 @@ function staffingFieldContractRules(string $table, string $field): array
     $source = in_array($field, ['external_id', 'source_system', 'source_ref_id', 'jobdiva_job_id', 'connecteam_user_id'], true);
     $approval = preg_match('/(?:approved|approval|superseded|posted|paid|locked|correction)/i', $field);
     [$definition, $unit] = $definitions[$key] ?? [null, null];
+    $remoteContracts = array_fill_keys(['jobdiva', 'quanta', 'purepay', 'purepayroll'], [
+        'path' => null, 'direction' => null, 'status' => 'unverified', 'sync_enabled_by_dictionary' => false,
+    ]);
+    $quantaFields = [
+        'people.first_name' => ['workers.full_name', 'join_with_last_name; reviewed_name_change'],
+        'people.last_name' => ['workers.full_name', 'join_with_first_name; reviewed_name_change'],
+        'people.email_primary' => ['workers.email', 'create_only; existing_email_requires_identity_review'],
+        'people.phone_primary' => ['workers.phone', 'reviewed_change; missing_preserves_remote'],
+    ];
+    if (isset($quantaFields[$key])) {
+        [$path, $transform] = $quantaFields[$key];
+        $remoteContracts['quanta'] = ['path' => $path, 'direction' => 'core_to_quanta_preview',
+            'status' => 'schema_verified_delivery_not_enabled', 'transform' => $transform,
+            'observed_version' => '1.1.0', 'evidence_url' => 'https://helloquanta.app/api/v1/openapi.json',
+            'write_scope' => 'write:workers', 'sync_enabled_by_dictionary' => false];
+    }
     return [
         'definition' => $definition,
         'definition_status' => $definition !== null ? 'reviewed_core_definition' : 'review_required',
@@ -57,9 +73,7 @@ function staffingFieldContractRules(string $table, string $field): array
         'conflict_policy' => 'queue_for_review; no last-writer-wins',
         'effective_date_policy' => str_starts_with($table, 'placement_') || $table === 'people_compensation'
             ? 'preserve_effective_dates_and_approved_history' : 'review_required',
-        'remote_contracts' => array_fill_keys(['jobdiva', 'quanta', 'purepay', 'purepayroll'], [
-            'path' => null, 'direction' => null, 'status' => 'unverified', 'sync_enabled_by_dictionary' => false,
-        ]),
+        'remote_contracts' => $remoteContracts,
     ];
 }
 
@@ -97,7 +111,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ]);
     }
     return [
-        'contract_version' => '2026-10-20.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-20.2', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
