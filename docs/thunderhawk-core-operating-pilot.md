@@ -1,5 +1,25 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Live accounting release gap — October 21, 2026
+
+The user's "still nowhere" report is now traced to two concrete causes:
+the invoice page was scoped to charge d'Affaires, and the newer accounting
+release has never been activated in production. The open invoice page was
+switched to Thunderhawk and its clients verified; production has 1,000 client
+records there. The older accounting dashboard is accessible at `/modules/accounting/bookkeeping`,
+but the newer overview URL is blank on the live bundle. The candidate now
+opens the overview from the main Accounting sidebar.
+
+See [live release readiness](core-live-accounting-release-readiness.md) for
+the read-only production comparisons, 59 missing migration records, actual
+schema gaps, reviewed historical source fingerprints and the configuration
+preservation requirement. Production activation is not yet ready or authorized.
+The goal is active again; the earlier usage-limited note below is historical.
+The separate PurePay approval-return release chat confirmed all 18 integration
+paths restored byte-for-byte and provider workers available after release
+87e2aee. Its remote `/app` write hold is lifted; no integration edits occurred
+during either coordinated release.
+
 ## Payroll reservation delivery and cancellation — October 21, 2026
 
 Core can now deliver and recover the immutable source grant through the
