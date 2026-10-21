@@ -7,6 +7,13 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/encryption.php';
 require_once __DIR__ . '/purepay_adapter.php';
 
+/** Internal binding only; key rotation requires review of existing provider identities. */
+function purepayConnectionFingerprint(int $tenantId,string $apiKey): string
+{
+    if ($tenantId<=0 || $apiKey==='' || preg_match('/[\r\n]/',$apiKey)) throw new InvalidArgumentException('Valid Pure//Pay connection required');
+    return hash('sha256',json_encode(['tenant_id'=>$tenantId,'base'=>purepayApiBase(),'credential_digest'=>hash('sha256',$apiKey)],JSON_THROW_ON_ERROR));
+}
+
 function purepayServiceConfigured(): bool
 {
     $key = defined('COREFLUX_DATA_KEY') ? (string) constant('COREFLUX_DATA_KEY') : (string) getenv('COREFLUX_DATA_KEY');

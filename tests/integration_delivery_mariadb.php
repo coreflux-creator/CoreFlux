@@ -121,4 +121,5 @@ $check((int)$pdo->query('SELECT binding_revision FROM quanta_connections WHERE t
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/159_quanta_workspace_binding.sql'))as$sql)$pdo->exec($sql);
 $check((int)$pdo->query('SELECT binding_revision FROM quanta_connections WHERE tenant_id=1')->fetchColumn()===4,'migration replay preserves connection revision');
 require __DIR__.'/fixtures/quanta_metadata_checks.php';
+require __DIR__.'/fixtures/quanta_numbering_checks.php';
 echo "Integration deliveries MariaDB: {$passed} passed\n";

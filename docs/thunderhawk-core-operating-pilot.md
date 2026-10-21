@@ -141,16 +141,44 @@ The Quanta Chrome session returned `Not authenticated` when opening Master.
 The user has been asked to restore a session with Thunderhawk access, and to
 identify PurePayroll's current editable project. Those replies are pending.
 
+The next Core increment completes the older Quanta screen's reference alignment:
+people search, worker links, creation notices, placement completion links,
+routes and time previews use stored P-/PL- numbers. Missing numbers remain
+unavailable, and joins respect the authorized people/placement directory.
+Fixtures intentionally use P-9001/PL-9002 for database IDs 101/201; the rendered
+page and number search were checked in Chrome with synthetic data.
+
+PurePay's existing AP driver now commits its claim before provider IO and only
+the fresh claimant may create/pay. Confirmed replays return stored references
+without provider IO; interrupted/ambiguous attempts stay in review. Changed
+amounts, recipients, effective dates, invoices and credentials conflict. A
+separate durable vendor attempt prevents another payment reference from
+repeating an uncertain vendor creation. Status polling is tenant-scoped and
+checks payment/bill identities. Serialized result updates preserve settlements
+and unresolved post-settlement failures. Signed callbacks reject contradictory
+IDs, ambiguous matches, changed connections and unbound historical records.
+Redirects and unknown collection shapes cannot be treated as success/absence.
+
+Migration 163 adds connection fingerprints to payment/vendor records and a
+vendor-attempt ledger. Existing rows deliberately remain unbound: review their
+organization and reconcile prior attempts before enabling financial execution.
+There is no automatic adoption, expiry or retry of these historical rows.
+The binding proves credential continuity, not remote organization identity;
+PurePay still needs a verified organization contract and a reviewed rebind flow.
+
+Local validation: 56 real MariaDB driver/callback assertions, 47 payload/error
+checks, 38 existing integration checks and 93 delivery/binding/numbering checks
+pass. The dashboard builds with its 61 existing lint warnings. Provider IO is
+synthetic in these fixtures; no live payment was executed. This increment's
+hosted CI and staging release are pending at commit time.
+
 Next: verify Thunderhawk's remote organization and configure the authorized
-environment for authenticated provider acceptance. Finish the older Quanta
-screen's number alignment: people search, worker-link labels, creation notices,
-placement completion links and time-preview labels still derive some P-/PL-
-labels from database IDs. The new metadata review uses registry numbers.
-Assignment commercial terms, portal onboarding, time routing and PurePayroll
-exchange remain separate unfinished work. Also harden PurePay's existing payment
-driver: it currently allows `creating`/failed/review states to retry without
-consuming its `__fresh` claim flag. Provider idempotency is insufficient to make
-that safe; implement and fixture-test a durable attempt guard before execution.
+environment for authenticated provider acceptance. Assignment commercial terms,
+portal onboarding, time routing and PurePayroll exchange remain unfinished.
+PurePay still needs verified complete pagination/response contracts, installation
+namespacing, organization acceptance/rebinding, and obligation-level reservation
+so an uncertain payment cannot be bypassed by a new Core payment for the same
+bill. Its latest editable source must be identified before changing the provider.
 
 Decision date: October 20, 2026.
 Status: numbering and field-inventory foundation implemented in draft PR #146; the complete live

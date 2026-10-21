@@ -266,10 +266,13 @@ function quantaRoutes(int $tenantId): array
         'SELECT r.*, p.person_id, p.status AS placement_status, p.engagement_type,
                 p.start_date, p.end_date, p.actual_end_date,
                 p.title, p.end_client_name, p.deleted_at, pe.email_primary AS person_email,
-                CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name
+                CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
+                pn.record_number AS placement_number, nn.record_number AS person_number
            FROM quanta_time_routes r
       LEFT JOIN placements p ON p.id = r.placement_id AND p.tenant_id = :pt
       LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet AND pe.deleted_at IS NULL
+      LEFT JOIN core_record_numbers pn ON pn.tenant_id=p.tenant_id AND pn.entity_type="placement" AND pn.record_id=p.id
+      LEFT JOIN core_record_numbers nn ON nn.tenant_id=pe.tenant_id AND nn.entity_type="person" AND nn.record_id=pe.id
           WHERE r.tenant_id = :t ORDER BY r.worker_id, r.worksite_id, r.effective_from'
     );
     $stmt->execute(['pt' => $placementTenant, 'pet' => $peopleTenant, 't' => $tenantId]);
@@ -410,6 +413,8 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
             $row += $entry;
             $route = quantaRouteFor($routes, $entry, $workerPeople);
             $row['placement_id'] = (int) $route['placement_id'];
+            $row['placement_number'] = $route['placement_number'];
+            $row['person_number'] = $route['person_number'];
             $row['person_name'] = $route['person_name'];
             [$row['status'], $row['message']] = quantaEntryDecision($entry, $route, $imports);
         } catch (Throwable $e) {

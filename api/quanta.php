@@ -303,6 +303,7 @@ try {
             ], 'quanta', $actorId);
             $pdo->prepare('INSERT INTO quanta_worker_links (tenant_id, worker_id, person_id, linked_by_user_id) VALUES (:t,:w,:p,:u)')
                 ->execute(['t' => $tenantId, 'w' => $workerId, 'p' => $personId, 'u' => $actorId]);
+            $personNumber = coreRecordNumbersAttach($pdo, $peopleTenant, 'person', [['id'=>$personId]])[0]['person_number'];
             cf_tx_commit($pdo, $owns);
         } catch (Throwable $e) {
             cf_tx_rollback($pdo, $owns);
@@ -315,7 +316,7 @@ try {
             ['source' => 'quanta', 'classification' => 'candidate']);
         platformAuditLogWrite($tenantId, $actorId, 'quanta.worker_link.created_person', $personId,
             ['worker_id' => $workerId, 'people_tenant_id' => $peopleTenant], ['source' => 'quanta']);
-        api_ok(['person_id' => $personId, 'worker_links' => quantaWorkerLinks($tenantId)], 201);
+        api_ok(['person_id' => $personId, 'person_number'=>$personNumber, 'worker_links' => quantaWorkerLinks($tenantId)], 201);
     }
 
     if ($action === 'delete_worker_link') {

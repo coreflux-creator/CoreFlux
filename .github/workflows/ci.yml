@@ -136,6 +136,9 @@ jobs:
       - name: Verify durable integration deliveries
         run: php tests/integration_delivery_mariadb.php
 
+      - name: Verify PurePay attempts and company isolation
+        run: php tests/purepay_delivery_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 

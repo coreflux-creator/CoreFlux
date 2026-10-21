@@ -93,6 +93,19 @@ try {
     $check('non-GET 5xx is treated as outcome-uncertain',$e->outcomeUncertain === true);
 }
 unset($GLOBALS['__purepay_transport']);
+foreach ([0,301,302] as $httpStatus) {
+    $GLOBALS['__purepay_transport']=static fn():array=>['status'=>$httpStatus,'body'=>'{"message":"unconfirmed"}'];
+    try {purepayPayBill('pk_test','bill_1',$payPayload,$payKey);$check('unconfirmed HTTP '.$httpStatus.' refused',false);}
+    catch(PurePayApiException $e){$check('unconfirmed HTTP '.$httpStatus.' refused',$e->outcomeUncertain);}
+}
+try {purepayCollection(['unexpected'=>[]],['vendors']);$check('unknown collection cannot imply no vendors',false);}
+catch(PurePayApiException $e){$check('unknown collection cannot imply no vendors',true);}
+try {purepayGetWallet("key\r\nInjected: value");$check('header injection refused before IO',false);}
+catch(PurePayApiException $e){$check('header injection refused before IO',true);}
+$GLOBALS['__purepay_transport']=static fn():array=>['status'=>403,'body'=>'{"detail":"credential pk_test rejected"}'];
+try {purepayGetWallet('pk_test');$check('credential echo redacted from operator errors',false);}
+catch(PurePayApiException $e){$check('credential echo redacted from operator errors',!str_contains($e->getMessage(),'pk_test'));}
+unset($GLOBALS['__purepay_transport']);
 putenv('COREFLUX_DISABLE_DATABASE');
 
 $secret='whsec_test'; $ts=(string)time(); $raw='{"id":"evt_1","type":"payment.settled"}';

@@ -28,7 +28,7 @@ function purepayApiBase(): string
  */
 function purepayCall(string $apiKey, string $method, string $path, array $body = [], int $timeoutSec = 25, ?string $idempotencyKey = null): array
 {
-    if ($apiKey === '') throw new PurePayApiException('Pure//Pay: API key required');
+    if ($apiKey === '' || preg_match('/[\r\n]/',$apiKey)) throw new PurePayApiException('Pure//Pay: valid API key required');
     $method = strtoupper($method);
     $url = purepayApiBase() . '/' . ltrim($path, '/');
     $headers = [
@@ -43,7 +43,7 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
         }
         $headers[] = 'Idempotency-Key: ' . $idempotencyKey;
     }
-    $bodyJson = ($method === 'GET' || !$body) ? null : json_encode($body, JSON_UNESCAPED_SLASHES);
+    $bodyJson = ($method === 'GET' || !$body) ? null : json_encode($body, JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
 
     if (isset($GLOBALS['__purepay_transport']) && is_callable($GLOBALS['__purepay_transport'])) {
         $resp = ($GLOBALS['__purepay_transport'])($method, $url, $headers, $bodyJson);
@@ -58,6 +58,7 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
             CURLOPT_TIMEOUT => $timeoutSec,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => false,
         ];
         if ($bodyJson !== null) $opts[CURLOPT_POSTFIELDS] = $bodyJson;
         curl_setopt_array($ch, $opts);
@@ -83,15 +84,15 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
         $e->outcomeUncertain = $method !== 'GET';
         throw $e;
     }
-    if ($status >= 400 || isset($data['error']) || isset($data['errors'])) {
+    if ($status < 200 || $status >= 300 || isset($data['error']) || isset($data['errors'])) {
         $msg = $data['detail'] ?? $data['message'] ?? $data['error'] ?? null;
         if (is_array($msg)) $msg = json_encode($msg, JSON_UNESCAPED_SLASHES);
         if (!$msg && isset($data['errors'])) $msg = json_encode($data['errors'], JSON_UNESCAPED_SLASHES);
-        $e = new PurePayApiException('Pure//Pay: ' . ((string) $msg ?: "HTTP {$status}"));
+        $e = new PurePayApiException('Pure//Pay: ' . str_replace($apiKey,'[redacted]',((string) $msg ?: "HTTP {$status}")));
         $e->httpStatus = $status ?: null;
         $e->errorCode = (string) ($data['code'] ?? $data['error_code'] ?? '');
         $e->raw = $data;
-        $e->outcomeUncertain = $method !== 'GET' && ($status === 0 || $status >= 500);
+        $e->outcomeUncertain = $method !== 'GET' && !in_array($status,[400,401,403,404,422],true);
         throw $e;
     }
     return $data;
@@ -114,7 +115,7 @@ function purepayCollection(array $response, array $keys): array
     if (isset($response['data']) && is_array($response['data']) && array_is_list($response['data'])) {
         return $response['data'];
     }
-    return [];
+    throw new PurePayApiException('Pure//Pay collection is incomplete or unrecognized; no absence of records can be inferred');
 }
 
 function purepayResource(array $response, array $keys): array
