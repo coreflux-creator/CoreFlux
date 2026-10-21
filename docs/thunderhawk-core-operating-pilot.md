@@ -1,5 +1,31 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Payment result correction — October 20, 2026
+
+The current PurePay Emergent source confirmed that the public bill-pay route
+emitted `payment.failed` for in-progress wallet payments and `payment.settled`
+for a Mercury request acknowledgement. Core now requires explicit agreeing
+terminal status plus both bill and payment identities before applying a signed
+callback. Missing, malformed or contradictory evidence stays in the webhook
+review queue; it cannot release an in-flight AP obligation. Accounting payment
+records and submission acknowledgements do not establish cash delivery.
+Legacy callbacks without this evidence require detail reconciliation.
+
+The provider patch returns durable payment IDs from wallet/QBO result paths
+and emits minimal terminal callbacks only for consistent evidence. Twenty-four
+isolated tests execute the captured provider functions; 62 Core disposable
+MariaDB checks, 40 callback evidence checks and the existing 47 payload/38 wiring
+checks pass. These do not constitute a live payment or full provider-app test.
+The helper was saved and read back in Emergent. Chrome disconnected during the
+server update attempt, so the server buffer must be checked before further
+remote editing; no provider publish or full-app test pass is claimed.
+
+The newly captured native PurePay assignment model can create bills and link
+invoice lines automatically. Placement exchange must control those settings
+explicitly and preserve its existing financial rules. PurePayroll's employee
+routes still require a session; dedicated service scopes and safe projections
+remain the next implementation work.
+
 ## Implementation checkpoint — October 20, 2026, evening
 
 The user requested an active goal to complete this integration. The goal is

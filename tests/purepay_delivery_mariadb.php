@@ -121,8 +121,16 @@ foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrat
 $check($link($item['external_ref'])['connection_fingerprint']===purepayConnectionFingerprint(1,$key),'migration replay preserves original connection bindings');
 $pdo->exec('UPDATE purepay_payment_links SET core_payment_id=NULL');
 $hookBill=$link($item['external_ref'])['purepay_bill_id'];$hookPayment=$link($item['external_ref'])['purepay_payment_id'];
-$hook=static fn($data,$event='payment.settled',$fingerprint=null)=>purepayWebhookProcess(1,'synthetic-event',$event,['data'=>$data],$fingerprint??purepayConnectionFingerprint(1,$key));
+$hook=static fn($data,$event='payment.settled',$fingerprint=null)=>purepayWebhookProcess(1,'synthetic-event',$event,['data'=>$data+['pay_status'=>$event==='payment.settled'?'settled':'failed']],$fingerprint??purepayConnectionFingerprint(1,$key));
 $prior=$link($item['external_ref']);
+foreach ([['pay_status'=>'processing'], ['pay_status'=>'created'], ['pay_status'=>null], ['pay_status'=>'failed','status'=>'processing']] as $badResult) {
+    $check($hook($badResult+['bill_id'=>$hookBill,'payment_id'=>$hookPayment], 'payment.failed')['reason']==='payment_status_conflict'
+        && $link($item['external_ref'])===$prior, 'inconsistent failure callback cannot release or change an in-flight attempt');
+}
+$check($hook(['bill_id'=>$hookBill,'payment_id'=>$hookPayment,'pay_status'=>'processing','mercury_request_id'=>'submitted-only'])['reason']==='payment_status_conflict'
+    && $link($item['external_ref'])===$prior, 'Mercury request acknowledgement cannot establish settlement');
+$check($hook(['bill_id'=>$hookBill])['reason']==='provider_identity_missing' && $link($item['external_ref'])===$prior,
+    'terminal callback requires the actual payment as well as bill identity');
 $check($hook(['bill_id'=>$hookBill,'payment_id'=>'wrong-payment'])['reason']==='provider_identity_conflict' && $link($item['external_ref'])===$prior,'signed callback cannot attach another payment to a known bill');
 $otherBill=$link($lostPayment['external_ref'])['purepay_bill_id'];
 $check($hook(['bill_id'=>$otherBill,'payment_id'=>$hookPayment])['reason']==='ambiguous_provider_identity','callback naming two different attempts requires reconciliation');
@@ -131,6 +139,6 @@ $check($hook(['bill_id'=>$hookBill,'payment_id'=>$hookPayment])['status']==='set
 $check($hook(['bill_id'=>$hookBill,'payment_id'=>$hookPayment],'payment.failed')['status']==='settled_failed_review','failure callback after settlement remains in review');
 $check($hook(['bill_id'=>$hookBill,'payment_id'=>$hookPayment])['reason']==='terminal_result_requires_review','old settlement callback cannot erase unresolved failure review');
 $pdo->prepare('UPDATE purepay_payment_links SET connection_fingerprint=NULL WHERE source_ref=?')->execute([$lostPayment['external_ref']]);
-$check($hook(['bill_id'=>$otherBill])['reason']==='unverified_organization','callback cannot bind a historical payment to an inferred organization');
+$check($hook(['bill_id'=>$otherBill,'payment_id'=>$link($lostPayment['external_ref'])['purepay_payment_id']])['reason']==='unverified_organization','callback cannot bind a historical payment to an inferred organization');
 unset($GLOBALS['__purepay_transport']);
 echo "PurePay delivery MariaDB: {$passed} passed\n";
