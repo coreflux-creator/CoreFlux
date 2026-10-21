@@ -71,8 +71,13 @@ jobs:
             $db->exec('SET TRANSACTION READ ONLY'); $db->beginTransaction();
             try {
               $storage = $db->query("SELECT COALESCE(ENGINE, 'VIEW') AS engine, COUNT(*) AS object_count,
+                COALESCE(SUM(DATA_LENGTH),0) AS estimated_data_bytes, COALESCE(SUM(INDEX_LENGTH),0) AS estimated_index_bytes,
                 COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH),0) AS estimated_bytes
                 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() GROUP BY ENGINE")->fetchAll(PDO::FETCH_ASSOC);
+              $largest = $db->query("SELECT TABLE_NAME AS table_name, TABLE_ROWS AS estimated_rows,
+                DATA_LENGTH AS estimated_data_bytes, INDEX_LENGTH AS estimated_index_bytes
+                FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'
+                ORDER BY DATA_LENGTH + INDEX_LENGTH DESC LIMIT 8")->fetchAll(PDO::FETCH_ASSOC);
               $active = $db->query("SELECT COMMAND AS command_type, COUNT(*) AS connection_count, MAX(TIME) AS longest_seconds
                 FROM information_schema.PROCESSLIST WHERE DB=DATABASE() AND ID<>CONNECTION_ID() GROUP BY COMMAND")->fetchAll(PDO::FETCH_ASSOC);
               $objects = [];
@@ -83,7 +88,7 @@ jobs:
               foreach (['people','companies','staffing_clients','ap_vendors_index','placements'] as $table) {
                 $counts[$table] = (int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
               }
-              $database = ['storage'=>$storage,'stored_objects'=>$objects,'active_connections'=>$active,
+              $database = ['storage'=>$storage,'largest_tables'=>$largest,'stored_objects'=>$objects,'active_connections'=>$active,
                 'numbering_source_counts'=>$counts,'server_version'=>$db->query('SELECT VERSION()')->fetchColumn()];
             } finally { $db->rollBack(); }
             $cron = proc_open(['crontab','-l'], [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes);
@@ -96,6 +101,10 @@ jobs:
               $matchingCronLines++;
               preg_match_all('~'.preg_quote($root,'~').'/([A-Za-z0-9_./-]+\.php)~', $line, $matches);
               $workerPaths = array_merge($workerPaths, $matches[1]);
+              if (preg_match('~\bcd\s+["\x27]?'.preg_quote($root,'~').'["\x27]?\s*&&~', $line)) {
+                preg_match_all('~(?:^|\s)((?:cron|scripts)/[A-Za-z0-9_.-]+\.php)\b~', $line, $relativeMatches);
+                $workerPaths = array_merge($workerPaths, $relativeMatches[1]);
+              }
               foreach (['COREFLUX_QUANTA_METADATA_DELIVERY','COREFLUX_PUREPAY_CORE_LINK_DELIVERY',
                 'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY','COREFLUX_PUREPAY_PAYROLL_AUTHORITY'] as $flag) {
                 if (preg_match('/\b'.preg_quote($flag,'/').'=["\x27]?1\b/', $line)) $enabledFlags[] = $flag;
@@ -358,6 +367,9 @@ jobs:
             39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
             39534626249:dcd1b6465190163407184bae5dca3ed660745a44 \
             39527685302:9edaad80bd3e30c137dae404c322b5fe323ae79f \
+            39686512795:08c4eadceb94ec8a4c33bf57b469b799cb756c38 \
+            39686720751:e9d887e3c2de463213d6ae00d662189abfe1366a \
+            39686986781:e3fdb0a6f3db698357084add71b65fec7d3350b7 \
             39484184799:28f766640775054c13ae3612e2a661387a7502fa; do
             run="${release%%:*}"
             expected="${release#*:}"
@@ -379,6 +391,9 @@ jobs:
               39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
               39534626249:dcd1b6465190163407184bae5dca3ed660745a44 \
               39527685302:9edaad80bd3e30c137dae404c322b5fe323ae79f \
+              39686512795:08c4eadceb94ec8a4c33bf57b469b799cb756c38 \
+              39686720751:e9d887e3c2de463213d6ae00d662189abfe1366a \
+              39686986781:e3fdb0a6f3db698357084add71b65fec7d3350b7 \
               39484184799:28f766640775054c13ae3612e2a661387a7502fa; do
               run="${release%%:*}"
               expected="${release#*:}"
