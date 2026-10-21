@@ -51,7 +51,24 @@ jobs:
                 'git_blob'=>hash('sha1', 'blob '.strlen($raw)."\0".$raw),
                 'normalized_git_blob'=>hash('sha1', 'blob '.strlen($lf)."\0".$lf)];
             }
-            echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
+            $metadata = [];
+            foreach (['app'=>dirname($root), 'webroot'=>$root, 'private'=>dirname($root).'/private_html',
+              'live_config'=>$root.'/core/config.php', 'db_local'=>$root.'/core/db.local.php',
+              'user_ini'=>$root.'/.user.ini'] as $name=>$path) {
+              $stat = @stat($path);
+              $metadata[$name] = ['exists'=>$stat!==false, 'linked'=>is_link($path),
+                'readable'=>is_readable($path), 'writable'=>is_writable($path),
+                'uid'=>$stat ? $stat['uid'] : null, 'gid'=>$stat ? $stat['gid'] : null,
+                'mode'=>$stat ? decoct($stat['mode'] & 0777) : null,
+                'inside_webroot'=>$stat ? (realpath($path)===$root || str_starts_with((string)realpath($path),$root.'/')) : null];
+            }
+            $configured = [];
+            foreach (['DB_HOST','DB_NAME','DB_USER','DB_PASS','COREFLUX_DB_CONFIG_PATH',
+              'SMTP_HOST','SMTP_USER','SMTP_PASS','DATA_KEY'] as $key) $configured[$key] = getenv($key)!==false && getenv($key)!=='';
+            echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
+              'paths'=>$metadata, 'environment_configured'=>$configured,
+              'cli_uid'=>function_exists('posix_geteuid') ? posix_geteuid() : null,
+              'cli_gid'=>function_exists('posix_getegid') ? posix_getegid() : null], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
             PHP
 
   deploy:
