@@ -176,7 +176,7 @@ function purepayPayrollAuthorityRelease(PDO $pdo,int $tenant,int $actor,string $
             $receipt=purepayPayrollAuthorityReceipt(json_decode((string)decryptField($locked['release_receipt_ct']),true,64,JSON_THROW_ON_ERROR),$body,true);
             $pdo->commit();return $receipt;
         }
-        $pdo->prepare('DELETE FROM payroll_source_claims WHERE authority_id=?')->execute([$id]);
+        $pdo->prepare('DELETE FROM payroll_source_claims WHERE authority_id=? AND time_tenant_id=?')->execute([$id,(int)$locked['time_tenant_id']]);
         $pdo->prepare('UPDATE payroll_source_authorities SET state="released",released_at=NOW(),release_receipt_ct=? WHERE tenant_id=? AND id=? AND state="held"')->execute([encryptField(integrationDeliveryJson($receipt)),$tenant,$id]);
         if($audit)$audit('purepay_payroll_source_released',['authority_id'=>$id,'actor_id'=>$actor,'release_receipt_id'=>$receipt['release_receipt_id']]);
         $pdo->commit();return $receipt;
