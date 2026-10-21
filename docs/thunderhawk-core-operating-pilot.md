@@ -13,18 +13,48 @@ Legacy callbacks without this evidence require detail reconciliation.
 
 The provider patch returns durable payment IDs from wallet/QBO result paths
 and emits minimal terminal callbacks only for consistent evidence. Twenty-four
-isolated tests execute the captured provider functions; 62 Core disposable
-MariaDB checks, 40 callback evidence checks and the existing 47 payload/38 wiring
+isolated tests execute the captured provider functions; 66 Core disposable
+MariaDB checks, 40 callback evidence checks and the existing 47 payload/39 wiring
 checks pass. These do not constitute a live payment or full provider-app test.
-The helper was saved and read back in Emergent. Chrome disconnected during the
-server update attempt, so the server buffer must be checked before further
-remote editing; no provider publish or full-app test pass is claimed.
+The helper was saved and read back in Emergent. After Chrome reconnected, a
+fresh editor confirmed that the server was still the original captured source
+(line endings normalized). The interrupted server update had not been saved.
+Browser control disconnected again before the remaining source could be saved;
+no provider publish or full-app test pass is claimed.
 
 The newly captured native PurePay assignment model can create bills and link
 invoice lines automatically. Placement exchange must control those settings
 explicitly and preserve its existing financial rules. PurePayroll's employee
-routes still require a session; dedicated service scopes and safe projections
-remain the next implementation work.
+routes still require a session. A dedicated service contract is now implemented
+locally in the captured provider source; acceptance and rollout remain pending.
+
+Provider source commit `2a54ff9` adds a dedicated Core key type with explicit
+read/link/payroll capabilities. It cannot access the legacy ERP routes, and
+existing ERP keys gain no payroll access. Organization and payroll-feature
+checks apply before reads. Cursor-paginated metadata and payroll snapshots use
+database/response field projections that omit SSNs, bank fields, DOBs, tax forms
+and internal tokens. Snapshots preserve explicit Quanta time IDs and do not
+claim that a payroll run's `paid` label confirms delivery of funds.
+
+Immutable Core references link to existing employee, assignment, customer and
+vendor IDs, retaining all native fields. Concurrent retries return one receipt;
+retargeting, mismatched number types, duplicate native IDs and cross-company
+lookups are refused. Fourteen isolated HTTP/auth/model tests cover this contract,
+including recovery after a lost insert response, bringing the provider suite to
+38 tests. The implementation and its schema are
+local only. It does not yet provision employees, onboarding, assignments, time
+or payments. Native provisioning, Core-side connection/review UI, provider key
+management controls, full-app tests and the live round trip remain outstanding.
+
+Core runtime `eac339b7` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39533242698)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39533737236).
+Follow-up runtime `dcd1b646` also preserves callback review reasons instead of
+marking held events successfully processed. It passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39534264599)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39534626249).
+Production remains unchanged. Provider local checkpoint `dc6f4fe` contains the
+38 passing tests and the verified remote-save state described above.
 
 ## Implementation checkpoint — October 20, 2026, evening
 
