@@ -158,7 +158,7 @@ $checks = [
         && str_contains($module, "{ to: 'transactions-to-review', label: 'Bank feed'")
         && str_contains($module, "{ to: 'close', label: 'Month-end'")
         && str_contains($module, '<Navigate to="overview" replace />')
-        && str_contains($sidebar, "to: '/modules/accounting/journal-entries'")
+        && str_contains($sidebar, "key: 'accounting', label: 'Accounting', to: '/modules/accounting/overview'")
         && str_contains($module, 'Tools <ChevronDown'),
 ];
 

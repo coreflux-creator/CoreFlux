@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, prepare, deploy, cleanup_known_uploads]
+        options: [none, inspect, prepare, deploy, production_preflight, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -302,7 +302,7 @@ jobs:
             df -h /tmp
 
   core-integration-staging:
-    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy'
+    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_preflight'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -358,6 +358,14 @@ jobs:
             sha256sum -c core-integration-release.sha256
             mkdir -m 700 package
             tar -xzf core-integration-release.tar.gz -C package
+            if [ '${{ inputs.integration_staging }}' = 'production_preflight' ]; then
+              unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
+              export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+              php package/deploy/inspect_full_core_production.php --inspect-production
+              # The inspection has no install or migration path. Retain the private
+              # package as the exact candidate for review; no production files change.
+              exit 0
+            fi
             php package/deploy/core_integration_staging.php --inspect
             if [ '${{ inputs.integration_staging }}' != 'deploy' ]; then exit 0; fi
             php package/deploy/core_integration_staging.php --apply
