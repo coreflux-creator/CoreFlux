@@ -32,11 +32,15 @@ function purepayCoreContextValidate(array $data): array
         || !in_array('read:coreflux',$caps,true)) {
         throw new RuntimeException('PurePay has not provided the required Core organization contract.');
     }
-    $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll'],$caps)); sort($caps);
+    $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll','write:payroll_inputs'],$caps)); sort($caps);
+    if(in_array('write:payroll_inputs',$caps,true) && !in_array('read:payroll',$caps,true))throw new RuntimeException('Payroll input access requires payroll read access.');
     $link=$data['link_contract_version']??null;
     if($link!==null && (!is_string($link) || !preg_match('/^[0-9.-]{1,32}$/D',$link)))throw new RuntimeException('Invalid provider link contract.');
+    $input=$data['payroll_input_contract_version']??null;
+    if($input!==null && (!is_string($input) || !preg_match('/^[0-9.-]{1,32}$/D',$input)))throw new RuntimeException('Invalid provider payroll input contract.');
     return ['organization'=>['id'=>$org['id'],'name'=>$org['name']], 'capabilities'=>$caps,'link_contract_version'=>$link,
-        'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false];
+        'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false]
+        + ($input===null?[]:['payroll_input_contract_version'=>$input]);
 }
 
 /** Never pass provider response text or credentials to the browser or audit trail. */
@@ -118,7 +122,8 @@ function purepayCoreReview(PDO $pdo,int $tenantId,string $instance): array
     if(!$live || $live['status']!=='active' || $live['revision']!==$row['revision'])throw new RuntimeException('The connection changed. Check it again.');
     return ['organization'=>$context['organization'],'capabilities'=>$context['capabilities'],
         'review_hash'=>$hash,'verified'=>is_string($row['binding_hash']) && hash_equals($row['binding_hash'],$hash),
-        'contract_version'=>$context['contract_version'],'link_contract_version'=>$context['link_contract_version']];
+        'contract_version'=>$context['contract_version'],'link_contract_version'=>$context['link_contract_version']]
+        + (isset($context['payroll_input_contract_version'])?['payroll_input_contract_version'=>$context['payroll_input_contract_version']]:[]);
 }
 
 function purepayCoreConfirm(PDO $pdo,int $tenantId,int $actor,string $instance,string $reviewHash,string $organizationId,?callable $audit=null): array

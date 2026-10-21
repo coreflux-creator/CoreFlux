@@ -58,7 +58,8 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     $operations=['person'=>['worker.create','worker.update','person.link'],'placement'=>['assignment.create','assignment.update']];
     $quanta=$context['provider']==='quanta' && in_array($context['operation'],$operations[$context['entity_type']]??[],true);
     $purepay=$context['provider']==='purepay' && $context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true);
-    if (!$quanta && !$purepay) {
+    $payroll=$context['provider']==='purepayroll' && $context['entity_type']==='person' && $context['operation']==='payroll.inputs';
+    if (!$quanta && !$purepay && !$payroll) {
         throw new InvalidArgumentException('This delivery operation is not implemented');
     }
     foreach (['binding_hash','source_hash','remote_hash'] as $key) {

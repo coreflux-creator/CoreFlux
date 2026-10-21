@@ -1,0 +1,98 @@
+<?php
+/** Isolated approved-time/rate fixture with durable send, drift and response-loss checks. */
+declare(strict_types=1);
+$inCi=getenv('GITHUB_ACTIONS')==='true' && getenv('CI')==='true';
+$local=getenv('COREFLUX_DELIVERY_LOCAL_FIXTURE')==='1' && in_array('--confirm-disposable-fixture',$argv,true) && (string)getenv('COREFLUX_DELIVERY_TEST_PASSWORD')!=='';
+if(!$inCi&&!$local)throw new RuntimeException('Explicit disposable fixture configuration required');
+putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));putenv('COREFLUX_DISABLE_DATABASE=1');
+require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';require_once __DIR__.'/../core/migrate.php';
+$password=$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
+$options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
+$pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
+$db='coreflux_ppinput_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
+$observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
+foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
+$pdo->exec('CREATE TABLE people(id BIGINT PRIMARY KEY,tenant_id BIGINT,first_name VARCHAR(50),last_name VARCHAR(50),email_primary VARCHAR(100),status VARCHAR(20),deleted_at DATETIME NULL)');
+$pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,title VARCHAR(100),person_id BIGINT,client_id BIGINT,engagement_type VARCHAR(20),status VARCHAR(20),start_date DATE,end_date DATE,actual_end_date DATE,deleted_at DATETIME NULL)');
+$pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(32),record_id BIGINT,canonical_record_id BIGINT,record_number VARCHAR(64))');
+$pdo->exec('CREATE TABLE time_entries(id BIGINT PRIMARY KEY,tenant_id BIGINT,person_id BIGINT,placement_id BIGINT,work_date DATE,category VARCHAR(32),hours DECIMAL(6,2),source VARCHAR(30),source_system VARCHAR(30),status VARCHAR(30),approved_at DATETIME,rate_snapshot_id BIGINT,superseded_by_id BIGINT NULL,payroll_extracted_at DATETIME NULL,payroll_extracted_ref BIGINT NULL,payable TINYINT)');
+$pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,pay_rate DECIMAL(10,4),pay_rate_unit VARCHAR(16),currency CHAR(3),ot_multiplier DECIMAL(4,2),approved_at DATETIME)');
+$pdo->exec('CREATE TABLE quanta_time_imports(id BIGINT PRIMARY KEY,tenant_id BIGINT,time_entry_id BIGINT,quanta_entry_id VARCHAR(128),component VARCHAR(32),source_hash CHAR(64),source_workspace_id VARCHAR(128) NULL)');
+$pdo->exec("INSERT INTO people VALUES(1,10,'Synthetic','Worker','worker@example.test','active',NULL)");
+$pdo->exec("INSERT INTO placements VALUES(1,20,'Assignment A',1,1,'w2','active','2026-10-01',NULL,NULL,NULL),(2,20,'Assignment B',1,1,'w2','active','2026-10-01',NULL,NULL,NULL)");
+$pdo->exec("INSERT INTO core_record_numbers VALUES(10,'person',1,1,'P-1'),(20,'placement',1,1,'PL-1'),(20,'placement',2,2,'PL-2')");
+$pdo->exec("INSERT INTO placement_rates VALUES(1,20,1,52.5000,'hour','USD',1.50,NOW()),(2,20,2,70.1250,'hour','USD',1.75,NOW())");
+$pdo->exec("INSERT INTO time_entries VALUES(1,1,1,1,'2026-10-02','regular_billable',8.00,'manual_entry','manual','approved',NOW(),1,NULL,NULL,NULL,1),(2,1,1,2,'2026-10-03','OT_billable',2.25,'manual_entry','manual','approved',NOW(),2,NULL,NULL,NULL,1),(3,2,1,1,'2026-10-02','regular_billable',99.00,'manual_entry','manual','approved',NOW(),1,NULL,NULL,NULL,1)");
+$passed=0;$check=static function(bool $ok,string $label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
+$fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable $e){return true;}};
+$instance='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';$owners=['time'=>1,'people'=>10,'placements'=>20];
+$context=['organization'=>['id'=>'org-a','name'=>'Synthetic A'],'contract_version'=>PUREPAY_CORE_VERSION,'link_contract_version'=>PUREPAY_CORE_LINK_VERSION,
+    'payroll_input_contract_version'=>PUREPAY_PAYROLL_INPUT_VERSION,'capabilities'=>['read:coreflux','read:payroll','write:payroll_inputs'],'execution_side_effects'=>false];
+$receipts=[];$posts=0;$mode=null;
+$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$context,&$receipts,&$posts,&$mode,$observer,$check) {
+    $path=substr(parse_url($url,PHP_URL_PATH),strlen('/api/v1'.PUREPAY_CORE_PATH));$response=static fn($body,int $status=200):array=>['status'=>$status,'body'=>json_encode($body)];
+    if($method==='GET' && $path==='/context')return $response($context);
+    if($method==='GET' && str_starts_with($path,'/payroll/inputs/'))return isset($receipts[basename($path)])?$response($receipts[basename($path)]):$response([],404);
+    if($method==='POST' && $path==='/payroll/inputs') {
+        $posts++;$body=json_decode($json,true,64,JSON_THROW_ON_ERROR);$hash=integrationDeliveryHash($body);
+        $check(in_array('Idempotency-Key: '.$hash,$headers,true),'content hash is the wire idempotency key');
+        $check((int)$observer->query('SELECT COUNT(*) FROM integration_deliveries WHERE provider="purepayroll" AND state="sending"')->fetchColumn()>0,'attempt committed before remote IO');
+        $id='cpi_'.integrationDeliveryHash(['org-a',$hash]);
+        $receipt=['id'=>$id,'organization_id'=>'org-a','content_hash'=>$hash,'state'=>'received_for_review','payroll_created'=>false,'source_time_reserved'=>false,'components'=>count($body['components'])];
+        if($mode==='no_receipt')throw new RuntimeException('Synthetic lost request');
+        $receipts[$id]=$receipt;
+        if($mode==='lost')throw new RuntimeException('Synthetic lost response');
+        if($mode==='wrong')$receipt['payroll_created']=true;
+        return $response($receipt);
+    }
+    throw new RuntimeException('Unexpected provider operation');
+};
+$connect=static function(string $key='synthetic-input-key')use($pdo,$instance) {purepayCoreConnect($pdo,1,$key,$instance);$r=purepayCoreReview($pdo,1,$instance);purepayCoreConfirm($pdo,1,7,$instance,$r['review_hash'],'org-a');};
+$connect();$connection=purepayCoreConnection($pdo,1);
+foreach([['person',10,1,'P-1','emp-a'],['placement',20,1,'PL-1','assignment-a'],['placement',20,2,'PL-2','assignment-b']]as[$kind,$owner,$id,$number,$native]) {
+    $ref=integrationRecordReference($instance,$owner,$kind,$number);$body=['reference'=>$ref,'provider_id'=>$native,'expected_record_version'=>str_repeat('a',64)];
+    $ctx=['provider'=>'purepay','connection_ref'=>(string)$connection['id'],'binding_hash'=>str_repeat('a',64),'entity_type'=>$kind,'entity_tenant_id'=>$owner,'entity_id'=>$id,'operation'=>'record.link','source_hash'=>str_repeat('b',64),'remote_hash'=>str_repeat('c',64)];
+    $r=integrationDeliveryPreview($pdo,1,7,$ctx,['organization_id'=>'org-a','body'=>$body]);
+    $pdo->prepare('UPDATE integration_deliveries SET state="delivered",remote_id=:n,remote_receipt_id=:r WHERE id=:i')->execute(['n'=>$native,'r'=>'cfl_'.integrationDeliveryHash(['org-a',$ref]),'i'=>$r['id']]);
+}
+$preview=static fn():array=>purepayPayrollInputPreview($pdo,1,7,$instance,$owners,'P-1','2026-10-01','2026-10-15');
+$send=static fn(array $p):array=>purepayPayrollInputSend($pdo,1,7,$instance,$owners,(int)$p['delivery']['id'],$p['delivery']['review_hash']);
+$reconcile=static fn(array $p):array=>purepayPayrollInputReconcile($pdo,1,$instance,$owners,(int)$p['delivery']['id'],$p['delivery']['review_hash']);
+$before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$p=$preview();$check(!$p['delivery_enabled'] && $posts===0 && $fails(fn()=>$send($p)),'delivery defaults off; preview has no provider write');
+$check(count($p['packet']['components'])===2 && $p['packet']['components'][1]['rate']['pay_rate']==='70.1250' && $p['packet']['components'][1]['rate']['multiplier']==='1.75','per-placement rates and OT precision survive without employee defaults');
+$check($p['packet']['components'][0]['person']['directory_tenant_id']===10 && $p['packet']['components'][0]['placement']['directory_tenant_id']===20 && $p['packet']['time_tenant_id']===1,'source and shared directory owners remain distinct');
+$check($fails(fn()=>purepayPayrollInputPreview($pdo,1,7,$instance,['time'=>2,'people'=>1,'placements'=>20],'P-1','2026-10-01','2026-10-15')),'foreign directory cannot supply the payroll person');
+$check($preview()['delivery']['id']===$p['delivery']['id'],'identical preview reuses durable input review');
+putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY=1');
+$pdo->exec('UPDATE placement_rates SET pay_rate=99.0000 WHERE id=1');
+$check($fails(fn()=>$send($p)) && $posts===0,'frozen rate drift invalidates unsent review');
+$pdo->exec('UPDATE placement_rates SET pay_rate=52.5000 WHERE id=1');
+$pdo->exec('UPDATE time_entries SET hours=9 WHERE id=1');$check($fails(fn()=>$send($p)) && $posts===0,'approved hour drift invalidates unsent review');$pdo->exec('UPDATE time_entries SET hours=8 WHERE id=1');
+$pdo->exec('UPDATE time_entries SET status="pending_review" WHERE id=1');$check($fails(fn()=>$send($p)) && $posts===0,'revoked approval invalidates unsent packet');$pdo->exec('UPDATE time_entries SET status="approved" WHERE id=1');
+$pdo->exec('UPDATE time_entries SET payroll_extracted_at=NOW() WHERE id=1');$check($fails($preview),'already-extracted source is rejected');$pdo->exec('UPDATE time_entries SET payroll_extracted_at=NULL WHERE id=1');
+$pdo->exec('UPDATE placements SET engagement_type="c2c" WHERE id=1');$check($fails($preview),'C2C time cannot enter W-2 payroll inputs');$pdo->exec('UPDATE placements SET engagement_type="w2" WHERE id=1');
+$result=$send($p);$check($result['state']==='delivered' && $posts===1,'reviewed packet receives a recorded provider receipt');
+$check($send($p)===$result && $posts===1,'delivered replay does not resend');
+$check($pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'receipt does not extract or mutate source time');
+$pdo->exec('UPDATE time_entries SET hours=7 WHERE id=1');$p=$preview();$mode='lost';
+$check($send($p)['state']==='uncertain','lost response holds the attempt');$count=$posts;
+$check($fails(fn()=>$send($p)) && $posts===$count,'uncertain packet cannot be resent');
+$connect('synthetic-rotated-input-key');$check($reconcile($p)['state']==='delivered' && $posts===$count,'receipt recovery tolerates reviewed credential rotation without another write');
+$pdo->exec('UPDATE time_entries SET hours=6 WHERE id=1');$p=$preview();$mode='wrong';
+$check($send($p)['state']==='uncertain','receipt claiming payroll creation is rejected');
+$check($reconcile($p)['state']==='delivered','read-only recovery accepts the actual matching input receipt');
+$pdo->exec('UPDATE time_entries SET hours=5 WHERE id=1');$p=$preview();$mode='no_receipt';$send($p);$count=$posts;
+$check($fails(fn()=>$reconcile($p)) && $posts===$count,'absent receipt remains held without automatic retry');
+$pdo->exec('UPDATE time_entries SET source="quanta",source_system="quanta" WHERE id=1');
+$pdo->exec("INSERT INTO quanta_time_imports VALUES(1,1,1,'quanta-1','regular','".str_repeat('b',64)."',NULL)");
+$check($fails($preview),'legacy Quanta import cannot borrow today\'s workspace identity');
+$pdo->exec("UPDATE quanta_time_imports SET source_workspace_id='workspace-original' WHERE id=1");
+$check($preview()['packet']['components'][0]['source']['source_workspace_id']==='workspace-original','persisted original Quanta workspace is retained');
+$bad=$context;$bad['capabilities']=['read:coreflux','write:payroll_inputs'];$check($fails(fn()=>purepayCoreContextValidate($bad)),'input write scope requires payroll read scope');
+$history=purepayPayrollInputHistory($pdo,1,$instance,$owners,'P-1');
+$check(count($history['items'])>=4 && count(array_filter($history['items'],static fn($item)=>$item['delivery']['state']==='uncertain'))===1,'input history recovers held attempts after reload');
+$check(!str_contains(json_encode($history),'payload_ct') && !str_contains(json_encode($history),'api_key'),'input history omits secrets');
+$context['payroll_input_contract_version']='future';$check($fails($preview),'changed input contract invalidates company review');
+unset($GLOBALS['__purepay_transport']);putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY');
+echo "PurePayroll inputs MariaDB: {$passed} passed\n";

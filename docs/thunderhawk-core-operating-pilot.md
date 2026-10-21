@@ -1,5 +1,56 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Approved payroll input review — October 21, 2026
+
+Core now assembles one person's approved W-2 time across placements into a
+reviewed PurePayroll input packet. Each component retains canonical P-/PL-
+references, separate directory/time owners, the immutable provider link receipts,
+the original time identity/revision, and the frozen placement rate, unit,
+currency and multiplier as exact decimal strings. Employee default rates are
+never substituted. Already-extracted, unpaid, unapproved, unmapped or unsupported
+categories fail review. Source/rate/link drift before send invalidates review.
+
+Delivery uses the encrypted ledger and a committed claim before IO. The packet
+content hash is the provider idempotency key; receipt identity is deterministic.
+Lost or malformed responses remain held. Input history recovers attempts after
+reload; receipt reconciliation is read-only and works after a reviewed key
+rotation within the same provider company. The independent delivery flag
+`COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY` defaults OFF. No live credential,
+source export, payroll draft or financial action has been performed.
+
+PurePayroll has a separate `write:payroll_inputs` capability, requiring payroll
+read access and native payroll-create permission when granting a key. Its
+immutable inbox validates existing employee/assignment links, scopes every read
+to the authenticated company, preserves the complete packet and returns an
+explicit received-for-review receipt. The native Pay runs screen includes input
+review with placement detail. Receiving inputs does not reserve time or create
+a pay run. The API and UI expose no apply/approve operation in this increment.
+
+Validation: 33 new MariaDB input checks; 40 connection, 63 identity-link and 93
+shared-delivery checks remain passing. The real Core PHP client completed 20
+HTTP assertions against the authenticated provider FastAPI router, including
+input hashing, replay, readback and scope refusal. The provider's 23 new input
+tests cover permissions, source/link/content conflicts, malformed provenance,
+non-hourly preservation, pagination and absence of payroll side effects.
+
+Provider saving is INCOMPLETE: `backend/coreflux_payroll_inputs.py` and the updated
+`backend/coreflux_exchange.py` were saved and read back in Emergent. Chrome's
+connection disconnected before saving `backend/server.py` and the four frontend
+files. The full tested source is local; no remote commit or production publish.
+The preview was already stopped/returning 502 before these edits. Finish the
+server registration/permission guard first when Chrome reconnects, then save
+and verify the frontend changes. Do not treat this partial save as a release.
+Core runtime CI/staging for this increment is still pending at this checkpoint.
+
+Remaining: persist/verify the original Quanta workspace on imported source
+components (historical rows have none and are blocked instead of borrowing the
+current connection); implement reviewed native payroll draft application with
+fresh Core approval validation and the existing shared source-time reservation
+mechanism, including aliasing direct-Quanta and Core-imported time; preserve
+component attribution through recalculation/results; verify full provider app
+behavior; complete the real Thunderhawk lifecycle. Synthetic receipt tests do
+not satisfy the overall integration goal.
+
 ## Reviewed provider record links — October 20, 2026, latest checkpoint
 
 Core now implements explicit P-/PL-/CL-/V- linking to existing PurePay and

@@ -145,6 +145,9 @@ jobs:
       - name: Verify reviewed Core record links and response-loss reconciliation
         run: php tests/purepay_core_links_mariadb.php
 
+      - name: PurePayroll approved input delivery fixture
+        run: php tests/purepay_payroll_inputs_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 
