@@ -67,6 +67,22 @@ must remain intact. This is a concrete activation prerequisite.
 
 ## Validation and remaining work
 
+Private connection preparation is now implemented separately from activation.
+`production_prepare_settings` requires CI success for the exact selected
+revision. It verifies the known live configuration fingerprint, copies only
+the existing database/SMTP constants into an immutable private directory,
+and tests the actual candidate bootstrap with a read-only database query.
+It writes no bridge into the live tree, performs no migration, and does not
+claim PHP-FPM verification. Existing or changed private content is never
+overwritten. Files use 0640 and directories 0750 with the existing application
+group; no connection values appear in receipts or logs.
+
+The disposable MariaDB rehearsal passes 19 checks locally, including a
+SELECT-only account, special-character preservation, replay, wrong-password
+failure, source-row preservation and path/configuration guards. CI additionally
+checks POSIX permissions and symlink rejection. This preparation mode has not
+yet been run on production; web-runtime verification remains a separate gate.
+
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static
 checks pass. Candidate `e3fdb0a6` passed all eight

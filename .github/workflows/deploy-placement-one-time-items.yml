@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, prepare, deploy, production_preflight, production_source_audit, cleanup_known_uploads]
+        options: [none, inspect, prepare, deploy, production_preflight, production_source_audit, production_prepare_settings, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -355,13 +355,13 @@ jobs:
             df -h /tmp
 
   core-integration-staging:
-    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_preflight'
+    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_preflight' || inputs.integration_staging == 'production_prepare_settings'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Require passing CI for the selected deployment revision
-        if: inputs.integration_staging == 'deploy'
+        if: inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_prepare_settings'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -411,6 +411,14 @@ jobs:
             sha256sum -c core-integration-release.sha256
             mkdir -m 700 package
             tar -xzf core-integration-release.tar.gz -C package
+            if [ '${{ inputs.integration_staging }}' = 'production_prepare_settings' ]; then
+              unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
+              export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+              php package/deploy/prepare_full_core_settings.php --prepare-private-settings
+              # Only immutable private settings and a CLI verification receipt are
+              # written outside the webroot. No bridge, migration or code activation.
+              exit 0
+            fi
             if [ '${{ inputs.integration_staging }}' = 'production_preflight' ]; then
               unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
               export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'

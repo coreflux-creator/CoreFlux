@@ -308,6 +308,9 @@ jobs:
           printf '%s\n' "$inspection"
           printf '%s' "$inspection" | php -r '$result = json_decode(stream_get_contents(STDIN), true); if (($result["database"] ?? null) !== "coreaccounting_ci" || ($result["existing_tables"] ?? -1) !== 0) exit(1);'
 
+      - name: Rehearse private full-Core connection preservation
+        run: php tests/full_core_settings_mariadb.php --confirm-disposable-fixture
+
       - name: Bootstrap canonical schema and first tenant
         run: |
           cd "$COREFLUX_STANDALONE_WEBROOT"
