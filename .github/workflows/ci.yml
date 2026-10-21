@@ -136,6 +136,9 @@ jobs:
       - name: Verify durable integration deliveries
         run: php tests/integration_delivery_mariadb.php
 
+      - name: Verify original Quanta workspace on imported time
+        run: php tests/quanta_time_provenance_mariadb.php
+
       - name: Verify PurePay attempts and company isolation
         run: php tests/purepay_delivery_mariadb.php
 

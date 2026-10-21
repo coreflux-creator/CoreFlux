@@ -19,7 +19,7 @@ function Notice({ error, children }) {
 }
 
 function Status({ status }) {
-  const tone = { ready: ['Ready', '#e0f2fe', '#075985'], update: ['Updated source', '#fef3c7', '#92400e'], imported: ['Imported', '#dcfce7', '#166534'], conflict: ['Needs mapping or review', '#fee2e2', '#991b1b'] }[status] || [status, '#f1f5f9', '#334155'];
+  const tone = { ready: ['Ready', '#e0f2fe', '#075985'], update: ['Updated source', '#fef3c7', '#92400e'], verify_source: ['Confirm original company', '#fef3c7', '#92400e'], imported: ['Imported', '#dcfce7', '#166534'], conflict: ['Needs mapping or review', '#fee2e2', '#991b1b'] }[status] || [status, '#f1f5f9', '#334155'];
   return <span style={{ display: 'inline-block', padding: '3px 7px', borderRadius: 4, background: tone[1], color: tone[2], fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{tone[0]}</span>;
 }
 
@@ -75,6 +75,8 @@ export default function QuantaSettings() {
   const [preview, setPreview] = useState(null);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState([]);
+  const [confirmSource, setConfirmSource] = useState(false);
+  useEffect(() => setConfirmSource(false), [preview, selected]);
   const [linkDrafts, setLinkDrafts] = useState({});
   const [personSearch, setPersonSearch] = useState({});
   const [createDraft, setCreateDraft] = useState(null);
@@ -237,8 +239,11 @@ export default function QuantaSettings() {
 
   const importSelected = () => run('import', async () => {
     if (!selected.length) throw new Error('Select ready entries first');
-    const result = await api.post(`${endpoint}import`, { changed_since: since, source_status: sourceStatus, entry_ids: selected }, { timeoutMs: 120000 });
-    setNotice(`${result.inserted} time row${result.inserted === 1 ? '' : 's'} imported, ${result.updated} updated. ${result.timesheets.length} weekly timesheet${result.timesheets.length === 1 ? '' : 's'} ready for review.`);
+    const sourceReviews = Object.fromEntries((preview?.rows || []).filter(row => selected.includes(row.id) && row.status === 'verify_source').map(row => [row.id, row.source_review_hash]));
+    if (Object.keys(sourceReviews).length && !confirmSource) throw new Error('Confirm the original Quanta company for the selected historical time');
+    const result = await api.post(`${endpoint}import`, { changed_since: since, source_status: sourceStatus, entry_ids: selected,
+      source_reviews: sourceReviews, confirm_original_workspace_id: confirmSource ? preview?.source_workspace?.id : null }, { timeoutMs: 120000 });
+    setNotice(`${result.inserted} time rows imported, ${result.updated} updated, ${result.source_verified || 0} historical source associations confirmed. ${result.timesheets.length} weekly timesheets ready for review.`);
     const data = await api.post(`${endpoint}preview`, { changed_since: since, source_status: sourceStatus, offset }, { timeoutMs: 120000 });
     setPreview(data); setSelected([]);
   });
@@ -256,7 +261,8 @@ export default function QuantaSettings() {
     setNotice('Placement route updated. Preview Quanta time again before importing.');
   });
 
-  const selectable = (preview?.rows || []).filter(row => ['ready', 'update'].includes(row.status)).map(row => row.id);
+  const selectable = (preview?.rows || []).filter(row => ['ready', 'update', 'verify_source'].includes(row.status)).map(row => row.id);
+  const needsSourceConfirmation = (preview?.rows || []).some(row => selected.includes(row.id) && row.status === 'verify_source');
   const allSelected = selectable.length > 0 && selectable.every(id => selected.includes(id));
   const selectAll = () => setSelected(allSelected ? [] : selectable);
 
@@ -392,14 +398,15 @@ export default function QuantaSettings() {
           <button className="btn btn-primary" type="button" disabled={!!busy || !timeAccess?.available} onClick={() => showPreview(0)}><Clock3 size={15} /> Preview time</button>
         </div>
         {preview && <>
+          <p style={{ fontSize: 13 }}>Verified Quanta company: <strong>{preview.source_workspace?.name}</strong> · {preview.source_workspace?.id}</p>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '18px 0 12px', fontSize: 14 }}>
-            <span><strong>{preview.total}</strong> source entries</span><span><strong>{preview.counts.ready}</strong> ready</span><span><strong>{preview.counts.update}</strong> changed</span><span><strong>{preview.counts.imported}</strong> imported</span><span><strong>{preview.counts.conflict}</strong> need review</span>
+            <span><strong>{preview.total}</strong> source entries</span><span><strong>{preview.counts.ready}</strong> ready</span><span><strong>{preview.counts.update}</strong> changed</span><span><strong>{preview.counts.imported}</strong> imported</span><span><strong>{preview.counts.verify_source || 0}</strong> need company confirmation</span><span><strong>{preview.counts.conflict}</strong> need review</span>
           </div>
           <div style={{ overflowX: 'auto', border: '1px solid var(--cf-border)', borderRadius: 5 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 880 }}>
               <thead><tr><th style={head}><input type="checkbox" aria-label="Select all ready entries on this page" checked={allSelected} onChange={selectAll} /></th>{['Date', 'Worker', 'Worksite', 'Hours', 'Placement', 'Status', 'Detail'].map(h => <th key={h} style={head}>{h}</th>)}</tr></thead>
               <tbody>{preview.rows.map((row, index) => <tr key={`${row.id}-${index}`}>
-                <td style={cell}><input type="checkbox" aria-label={`Select Quanta entry ${row.id}`} disabled={!['ready', 'update'].includes(row.status)} checked={selected.includes(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></td>
+                <td style={cell}><input type="checkbox" aria-label={`Select Quanta entry ${row.id}`} disabled={!!busy || !['ready', 'update', 'verify_source'].includes(row.status)} checked={selected.includes(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></td>
                 <td style={cell}>{row.work_date || '—'}</td><td style={cell}>{workerName(workers.get(String(row.worker_id)))}</td><td style={cell}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(row.dimension_values, dimensions)}</div></td>
                 <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `${row.placement_number || 'Placement number unavailable'} · ${row.person_name}` : '—'}</td>
                 <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}</td>
@@ -407,9 +414,10 @@ export default function QuantaSettings() {
             </table>
           </div>
           {preview.total === 0 && <div style={{ padding: 16, color: 'var(--cf-text-secondary)' }}>No approved Quanta entries changed in this window. Draft timesheets stay in Quanta until reviewed and approved there.</div>}
+          {needsSourceConfirmation && <label style={{ display: 'flex', gap: 8, marginTop: 14, fontSize: 13 }}><input type="checkbox" checked={confirmSource} disabled={!!busy} onChange={e => setConfirmSource(e.target.checked)} />I confirm the selected historical time originally came from {preview.source_workspace?.name} ({preview.source_workspace?.id}). Associate this company with those matching records; retain their hours and approval.</label>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
             <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" type="button" disabled={!!busy || offset === 0} onClick={() => showPreview(Math.max(0, offset - 200))}><ArrowLeft size={15} /> Previous</button><button className="btn btn-secondary" type="button" disabled={!!busy || offset + 200 >= preview.total} onClick={() => showPreview(offset + 200)}>Next <ArrowRight size={15} /></button></div>
-            <button className="btn btn-primary" type="button" disabled={!!busy || !selected.length} onClick={importSelected}><Check size={15} /> Import {selected.length} selected</button>
+            <button className="btn btn-primary" type="button" disabled={!!busy || !selected.length || (needsSourceConfirmation && !confirmSource)} onClick={importSelected}><Check size={15} /> {needsSourceConfirmation ? 'Apply' : 'Import'} {selected.length} selected</button>
           </div>
         </>}
       </div>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/identity.php';
+require_once __DIR__ . '/time_provenance.php';
 require_once __DIR__ . '/../sub_tenants.php';
 require_once __DIR__ . '/../../modules/time/lib/time.php';
 require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php';
@@ -306,7 +307,7 @@ function quantaRouteFor(array $routes, array $entry, array $workerPeople): array
     return $route;
 }
 
-function quantaImportLookup(int $tenantId, array $entryIds): array
+function quantaImportLookup(int $tenantId, array $entryIds, bool $lock = false): array
 {
     if (!$entryIds) return [];
     $found = [];
@@ -315,10 +316,12 @@ function quantaImportLookup(int $tenantId, array $entryIds): array
         $stmt = getDB()->prepare(
             "SELECT qi.*, te.status AS entry_status, te.placement_id, te.person_id, te.work_date,
                     te.timesheet_id AS current_timesheet_id, te.bill_extracted_at, te.ap_extracted_at,
-                    te.payroll_extracted_at
+                    te.payroll_extracted_at, te.hours AS current_hours, te.hour_type AS current_hour_type,
+                    te.category AS current_category, te.billable AS current_billable, te.description AS current_description,
+                    te.source AS current_source, te.source_system AS current_source_system, te.superseded_by_id
                FROM quanta_time_imports qi
           LEFT JOIN time_entries te ON te.id = qi.time_entry_id AND te.tenant_id = qi.tenant_id
-              WHERE qi.tenant_id = ? AND qi.quanta_entry_id IN ({$holders})"
+              WHERE qi.tenant_id = ? AND qi.quanta_entry_id IN ({$holders})" . ($lock ? ' FOR UPDATE' : '')
         );
         $stmt->execute(array_merge([$tenantId], $chunk));
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
@@ -359,8 +362,9 @@ function quantaSourceContext(array $entry, array $worksites): array
     ];
 }
 
-function quantaEntryDecision(array $entry, array $route, array $imports): array
+function quantaEntryDecision(array $entry, array $route, array $imports, ?string $workspaceId = null): array
 {
+    if ($workspaceId !== null && ($sourceDecision = quantaTimeSourceDecision($entry, $route, $imports, $workspaceId))) return $sourceDecision;
     $prior = $imports[$entry['id']] ?? [];
     foreach ($prior as $component => $row) {
         if (!isset($entry['components'][$component])) return ['conflict', 'A previously imported hour type is now absent; correct it in CoreFlux'];
@@ -393,7 +397,7 @@ function quantaEntryDecision(array $entry, array $route, array $imports): array
         : ($new ? ['ready', 'Ready for CoreFlux review'] : ['imported', 'Already imported']);
 }
 
-function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, string $requestedStatus): array
+function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, string $requestedStatus, array $access): array
 {
     $routes = quantaRoutes($tenantId);
     $workerPeople = quantaWorkerPersonMap(quantaWorkerLinks($tenantId));
@@ -404,7 +408,7 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
     }
     $imports = quantaImportLookup($tenantId, $ids);
     $rows = [];
-    $counts = ['ready' => 0, 'update' => 0, 'imported' => 0, 'conflict' => 0];
+    $counts = ['ready' => 0, 'update' => 0, 'imported' => 0, 'conflict' => 0, 'verify_source' => 0];
     foreach ($rawEntries as $raw) {
         $id = trim((string) quantaValue($raw, ['id', 'entry_id']));
         $row = ['id' => $id, 'status' => 'conflict'];
@@ -416,14 +420,16 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
             $row['placement_number'] = $route['placement_number'];
             $row['person_number'] = $route['person_number'];
             $row['person_name'] = $route['person_name'];
-            [$row['status'], $row['message']] = quantaEntryDecision($entry, $route, $imports);
+            [$row['status'], $row['message']] = quantaEntryDecision($entry, $route, $imports, $access['context']['workspace']['id']);
+            if ($row['status'] === 'verify_source') $row['source_review_hash'] = quantaTimeSourceReviewHash($access, $entry, $route, $imports);
         } catch (Throwable $e) {
             $row['message'] = $e->getMessage();
         }
         $counts[$row['status']]++;
         $rows[] = $row;
     }
-    return ['rows' => $rows, 'counts' => $counts, 'total' => count($rows)];
+    quantaWorkspaceAssertCurrent(getDB(), $tenantId, $access);
+    return ['rows' => $rows, 'counts' => $counts, 'total' => count($rows), 'source_workspace' => $access['context']['workspace']];
 }
 
 function quantaWorksitesById(array $sites): array
@@ -437,7 +443,7 @@ function quantaWorksitesById(array $sites): array
 }
 
 /** Import only selected source IDs, refetched by the caller after preview. Atomic on conflict. */
-function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, array $worksites, string $requestedStatus, array $selectedIds): array
+function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, array $worksites, string $requestedStatus, array $selectedIds, array $access, array $sourceReviews = []): array
 {
     $selectedIds = array_values(array_unique(array_map('strval', $selectedIds)));
     if (!$selectedIds || count($selectedIds) > 200) throw new InvalidArgumentException('Select between 1 and 200 Quanta entries');
@@ -455,15 +461,21 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
     $inserted = 0;
     $updated = 0;
     $skipped = 0;
+    $verified = 0;
     try {
+        quantaWorkspaceAssertCurrent($pdo, $tenantId, $access, true);
         $routes = quantaRoutes($tenantId);
         $workerPeople = quantaWorkerPersonMap(quantaWorkerLinks($tenantId, true));
-        $imports = quantaImportLookup($tenantId, $selectedIds);
+        $imports = quantaImportLookup($tenantId, $selectedIds, true);
         foreach ($selectedIds as $id) {
             $entry = quantaNormalizeEntry($source[$id], $worksites, $requestedStatus);
             $route = quantaRouteFor($routes, $entry, $workerPeople);
-            [$decision, $message] = quantaEntryDecision($entry, $route, $imports);
+            [$decision, $message] = quantaEntryDecision($entry, $route, $imports, $access['context']['workspace']['id']);
             if ($decision === 'conflict') throw new RuntimeException("Quanta entry {$id}: {$message}");
+            if ($decision === 'verify_source') {
+                $verified += quantaTimeSourceAdopt($pdo, $tenantId, $actorId, $entry, $route, $imports, $access, (string)($sourceReviews[$id] ?? ''));
+                continue;
+            }
             if ($decision === 'imported') { $skipped++; continue; }
             [$weekStart, $weekEnd] = timeWeekBounds($entry['work_date']);
             $timesheet = staffingTimesheetUpsert((int) $route['person_id'], $weekStart, $weekEnd, [
@@ -521,10 +533,11 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     $payload['external_id'] = hash('sha256', $id . '|' . $component);
                     $payload['created_by_user_id'] = $actorId;
                     $entryId = scopedInsert('time_entries', $payload);
-                    scopedInsert('quanta_time_imports', [
+                    quantaTimeImportInsert($pdo, $tenantId, [
                         'quanta_entry_id' => $id, 'component' => $component,
                         'worker_id' => $entry['worker_id'],
                         ...quantaSourceContext($entry, $worksites),
+                        ...quantaTimeSourceFields($access, $actorId),
                         'time_entry_id' => $entryId, 'timesheet_id' => (int) $timesheet['id'],
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
                         'imported_by_user_id' => $actorId,
@@ -548,7 +561,8 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
         $stmt = $pdo->prepare('UPDATE quanta_connections SET last_import_at = NOW(), last_import_error = NULL WHERE tenant_id = :t');
         $stmt->execute(['t' => $tenantId]);
         cf_tx_commit($pdo, $ownsTxn);
-        return ['inserted' => $inserted, 'updated' => $updated, 'already_imported' => $skipped, 'timesheets' => $artifacts];
+        return ['inserted' => $inserted, 'updated' => $updated, 'already_imported' => $skipped, 'source_verified' => $verified,
+            'source_workspace' => $access['context']['workspace'], 'timesheets' => $artifacts];
     } catch (Throwable $e) {
         cf_tx_rollback($pdo, $ownsTxn);
         throw $e;

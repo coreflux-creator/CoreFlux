@@ -25,14 +25,14 @@ export default function QuantaWorkspacePanel({ workspace }) {
   };
   return <section style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--cf-border)' }}>
     <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>Verify the connected organization</h2>
-    <p style={{ fontSize: 13 }}>Before publishing people or assignments, confirm which Quanta workspace this connection reaches.</p>
+    <p style={{ fontSize: 13 }}>Before importing time or publishing people and assignments, confirm which Quanta workspace this connection reaches.</p>
     <button className="btn btn-secondary btn-sm" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check Quanta workspace'}</button>
     {error && <p role="alert" style={{ color: '#b91c1c', marginTop: 12 }}>{error}</p>}
     {context && <div style={{ marginTop: 12, fontSize: 13 }}>
       <p>Core: <strong>{workspace?.name || 'Current workspace'}</strong></p>
       <p>Quanta: <strong>{context.workspace.name}</strong> · Workspace ID: {context.workspace.id}</p>
-      {!context.identity_ready && <p role="status">An administrator must finish this Core installation’s identity setup before publishing.</p>}
-      {context.verified ? <p role="status">Organization verified. Each delivery will recheck this connection before sending.</p> : context.identity_ready && <>
+      {!context.identity_ready && <p role="status">An administrator must finish this Core installation’s identity setup before importing or publishing.</p>}
+      {context.verified ? <p role="status">Organization verified. Each import and delivery will recheck this connection.</p> : context.identity_ready && <>
         <label style={{ display: 'block', marginBottom: 12 }}><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I confirm these workspaces represent the same organization.</label>
         <button className="btn btn-primary btn-sm" disabled={busy || !confirmed} onClick={confirm}>Confirm organization</button>
       </>}

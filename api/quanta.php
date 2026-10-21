@@ -439,11 +439,12 @@ try {
 
     if ($action === 'preview' || $action === 'import') {
         [$since, $sourceStatus] = quantaApiWindow($body);
-        $key = quantaApiKey($tenantId);
+        $access = quantaWorkspaceForDelivery($tenantId);
+        $key = $access['api_key'];
         $sites = quantaWorksitesById(quantaListAll($key, '/worksites', [], 2000));
         $rawEntries = quantaEntries($key, $since, $sourceStatus);
         if ($action === 'preview') {
-            $preview = quantaPreviewRows($tenantId, $rawEntries, $sites, $sourceStatus);
+            $preview = quantaPreviewRows($tenantId, $rawEntries, $sites, $sourceStatus, $access);
             $offset = max(0, (int) ($body['offset'] ?? 0));
             $preview['rows'] = array_slice($preview['rows'], $offset, 200);
             $preview['offset'] = $offset;
@@ -452,9 +453,20 @@ try {
         }
         $ids = $body['entry_ids'] ?? null;
         if (!is_array($ids) || !array_is_list($ids)) throw new InvalidArgumentException('Select Quanta entries from preview');
-        $result = quantaImportSelected($tenantId, $actorId, $rawEntries, $sites, $sourceStatus, $ids);
+        $reviews = $body['source_reviews'] ?? [];
+        if (!is_array($reviews) || count($reviews)>200) throw new InvalidArgumentException('Invalid historical source review');
+        if ($reviews && ($body['confirm_original_workspace_id'] ?? null) !== $access['context']['workspace']['id']) {
+            throw new InvalidArgumentException('Confirm the original company for the selected historical Quanta time');
+        }
+        foreach ($reviews as $id => $hash) {
+            if (!in_array((string)$id, array_map('strval', $ids), true) || !is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D', $hash)) {
+                throw new InvalidArgumentException('Historical source review must match the selected preview');
+            }
+        }
+        $result = quantaImportSelected($tenantId, $actorId, $rawEntries, $sites, $sourceStatus, $ids, $access, $reviews);
         platformAuditLogWrite($tenantId, $actorId, 'quanta.time.imported', null, [
             'selected' => count($ids), 'inserted' => $result['inserted'], 'updated' => $result['updated'],
+            'source_verified' => $result['source_verified'], 'source_workspace_id' => $result['source_workspace']['id'],
         ], ['source' => 'quanta']);
         api_ok($result);
     }

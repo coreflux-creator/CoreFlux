@@ -130,12 +130,36 @@ function quantaWorkspaceReconfigure(PDO $pdo,int $tenantId,callable $change): vo
 function quantaWorkspaceForDelivery(int $tenantId): array
 {
     $instance=integrationInstanceId();
-    if ($instance===null) throw new RuntimeException('An administrator must configure the permanent identity for this Core installation before publishing.');
+    if ($instance===null) throw new RuntimeException('An administrator must configure the permanent identity for this Core installation before importing or publishing.');
     $connection=quantaConnection($tenantId); $key=quantaApiKey($tenantId);
     $context=quantaContractContext($key);
     $hash=quantaWorkspaceBindingHash($tenantId,(int)$connection['id'],$key,$instance,$context,(int)$connection['binding_revision']);
     if (!quantaWorkspaceBindingMatches(quantaWorkspaceBindingGet(getDB(),$tenantId),$hash)) {
-        throw new RuntimeException('Verify the connected organization before preparing or sending Core records.');
+        throw new RuntimeException('Verify the connected organization before importing time or preparing Core records.');
     }
-    return ['connection'=>$connection,'api_key'=>$key,'instance_id'=>$instance,'context'=>$context,'binding_hash'=>$hash];
+    $access=['connection'=>$connection,'api_key'=>$key,'instance_id'=>$instance,'context'=>$context,'binding_hash'=>$hash];
+    quantaWorkspaceAssertCurrent(getDB(),$tenantId,$access);
+    return $access;
+}
+
+/** Fence fetched source data against disconnect, credential rotation and workspace review changes. */
+function quantaWorkspaceAssertCurrent(PDO $pdo,int $tenantId,array $access,bool $lock=false): void
+{
+    if($lock && !$pdo->inTransaction()) throw new LogicException('A transaction is required to lock the Quanta connection');
+    $connection=$access['connection'];
+    $hash=quantaWorkspaceBindingHash($tenantId,(int)$connection['id'],$access['api_key'],$access['instance_id'],
+        $access['context'],(int)$connection['binding_revision']);
+    if(!hash_equals($hash,$access['binding_hash'])) throw new RuntimeException('Invalid Quanta source context');
+    $suffix=$lock?' FOR UPDATE':'';
+    // All connection writers acquire this lock before changing the workspace binding.
+    $stmt=$pdo->prepare('SELECT id,status,api_key_ct,binding_revision FROM quanta_connections WHERE tenant_id=:t'.$suffix);
+    $stmt->execute(['t'=>$tenantId]);$live=$stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt=$pdo->prepare('SELECT * FROM quanta_workspace_bindings WHERE tenant_id=:t'.$suffix);
+    $stmt->execute(['t'=>$tenantId]);$binding=$stmt->fetch(PDO::FETCH_ASSOC)?:null;
+    if(!$live || $live['status']!=='active' || (int)$live['id']!==(int)$connection['id']
+        || (int)$live['binding_revision']!==(int)$connection['binding_revision']
+        || !hash_equals($access['api_key'],(string)decryptField($live['api_key_ct']))
+        || !quantaWorkspaceBindingMatches($binding,$hash)) {
+        throw new RuntimeException('The Quanta connection changed. Verify the workspace and preview source time again.');
+    }
 }

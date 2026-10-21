@@ -291,7 +291,7 @@ $check('imported time preserves the Quanta source context for timesheet review',
     && str_contains((string) file_get_contents($root . '/modules/staffing/api/timesheets.php'), 'qi.source_dimension_values_json')
     && str_contains((string) file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx'), 'sourceDimensions(e.source_dimension_values_json)'));
 $check('page exposes preview, explicit mapping, and selected import', str_contains($ui, 'save_routes')
-    && str_contains($ui, 'save_worker_links') && str_contains($ui, 'Import {selected.length} selected') && str_contains($ui, 'Preview time'));
+    && str_contains($ui, 'save_worker_links') && str_contains($ui, 'onClick={importSelected}') && str_contains($ui, 'Preview time'));
 $check('new person requires people permission and is linked in one transaction',
     str_contains($api, "\$action === 'create_worker_person'") && str_contains($api, "'people.manage'")
     && str_contains($api, 'peopleCreateExternalCandidate') && str_contains($api, 'cf_tx_commit($pdo, $owns)'));

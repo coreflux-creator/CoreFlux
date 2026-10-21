@@ -1,5 +1,40 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Original Quanta company on time — October 21, 2026
+
+Time preview/import now requires the explicitly verified Quanta organization.
+The same reviewed credential fetches the worksite and approved-time data; a
+connection/binding recheck rejects rotation or disconnect before import, and
+the connection and source rows stay locked during the local transaction.
+Migration 165 adds original workspace ID, connection proof, reviewer/time and
+attribution method. New imports persist them; later imports cannot replace an
+existing workspace identity. The Quanta import writer now uses its actual
+`imported_at` schema instead of the generic helper's absent `created_at` column.
+
+Historical rows are not automatically backfilled. Exact source-hash, worker,
+worksite, person, placement, date, hours, category and current Core time matches
+offer a separate original-company confirmation. Its review hash binds the
+fresh source, local rows, route and connection. Source drift, a missing old
+worksite or a superseded time row requires correction review. Confirmation
+updates attribution only; approved hours, frozen rates and extraction state
+stay intact. Any later conflict rolls back the whole selected batch.
+
+Validation: 28 new MariaDB checks cover actual preview/import, immutable source
+identity, company isolation, connection locking/rotation, historical review,
+changed source/Core rows, atomic rollback, replay and migration replay. The 93
+shared delivery and 33 payroll-input checks remain passing, as do 74 Quanta
+integration and 40 workspace checks. The dashboard build passes with its 61
+existing warnings. A local Chrome walkthrough of the actual React page verifies
+selection, disabled Apply before confirmation, explicit company confirmation
+and an imported result without new hours; its API is synthetic, not a hosted
+Thunderhawk acceptance test. Proof: `quanta-origin-synthetic-review.png`
+(local untracked artifact).
+
+The native PurePayroll draft/application and shared source reservations remain
+the next implementation work. No provider source or real data changed in this
+increment. This import path requires Quanta's shared Core contract to be
+available and its organization to be reviewed before live adoption.
+
 ## Approved payroll input review — October 21, 2026
 
 Core now assembles one person's approved W-2 time across placements into a
@@ -51,9 +86,8 @@ and [isolated staging deployment/acceptance](https://github.com/coreflux-creator
 The production job was skipped; outbound flags remain off. No source data or
 provider credentials were introduced by the deployment.
 
-Remaining: persist/verify the original Quanta workspace on imported source
-components (historical rows have none and are blocked instead of borrowing the
-current connection); implement reviewed native payroll draft application with
+Original Quanta provenance is now implemented above; historical adoption still
+requires the operator's source-company review. Remaining: implement reviewed native payroll draft application with
 fresh Core approval validation and the existing shared source-time reservation
 mechanism, including aliasing direct-Quanta and Core-imported time; preserve
 component attribution through recalculation/results; verify full provider app
