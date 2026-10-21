@@ -23,10 +23,33 @@ payroll run, time claim, payment or employee.
 Validation: 118 provider contract tests, including 28 real PHP-to-FastAPI HTTP
 assertions; seven key UI tests and JSX parsing; 83 Core authority MariaDB checks
 plus 33 input checks; 40 connection regression checks. The cancellation race is
-explicitly interleaved in the provider test. Provider source save and current
-runtime CI/staging acceptance are recorded below when confirmed. Native draft
-application, exact placement earnings through recalculation, allocated-run
-cancellation and live Thunderhawk acceptance remain unfinished.
+explicitly interleaved in the provider test.
+
+Runtime `7eab2f57f1cc386a0e11173db31cc4fa813d39e3` passed all eight
+[hosted CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39664909262)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39665422221).
+The staging log at 2026-10-21 19:55:19 UTC confirms the schema and payroll
+source guards are ready, with payroll authority disabled. Production was
+skipped. The first CI attempt caught an insufficiently tenant-scoped claim
+delete; release now binds both authority ID and the locked time-owner ID, and
+the five local tenant checks plus 83 authority assertions passed again.
+
+Provider candidate `57ecc24` is saved in the Beautiful Kalam 6 Emergent source.
+During the separately authorized QBO Retry publication, the coordinating chat
+verified all 18 pending paths and all 16 candidate normalized-LF hashes,
+including the complete server file. It preserved the two existing cron changes
+and made a byte-for-byte snapshot at
+`/tmp/purepay-before-qbo-retry-20261021-cgfgm7bi` plus recoverable stash
+`9f64d8feb737a20d7c4f7acee55c00684b39bbcb`. These backup results are reported
+by that coordinating chat. The shared `/app` workspace is temporarily isolated
+for its four-file Retry release; all integration writes remain held until exact
+restoration is confirmed. This does not establish integration publication or
+hosted provider acceptance.
+
+Native draft application, exact placement earnings through recalculation,
+allocated-run cancellation and live Thunderhawk acceptance remain unfinished.
+The integration goal is currently usage-limited. Resume at this checkpoint
+after verifying the shared workspace restoration; do not mark the goal complete.
 
 ## Core payroll source authority — October 21, 2026
 
