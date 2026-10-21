@@ -60,12 +60,37 @@ numbering/field-dictionary assertions pass locally. The React production build
 passes. These checks use synthetic data or local fixtures; they are not proof
 of a live Thunderhawk round trip.
 
-Next: obtain the Quanta app/tests source export from the editor, implement
-the namespaced identity and effective-dated assignment contract with tenant
-isolation and conditional updates, then connect Core's reviewed delivery to
-those endpoints. Keep PurePayroll's current `external_id` references intact.
-Folder export requires a native destination picker; the user has been asked
-to save `backend/app` and `backend/tests` to the task's `Quanta-source` folder.
+Core runtime commit `4481d969885131e97958aff081a0c25d4b4ee64e` passed all
+eight [CI checks](https://github.com/coreflux-creator/CoreFlux/actions/runs/39522153263)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39522652801).
+This includes migration 158 and the earlier numbering migrations. Production
+was not updated.
+
+Selected Quanta source files were downloaded through the Emergent editor into
+the sibling `Quanta-source` checkout, preserving a baseline before edits.
+Six changed files are saved back in Emergent: the CoreFlux contract service,
+versioned routes, focused tests, API scope registry, API-key scope model and
+server registration. The three existing untracked artifact logs are untouched.
+The [Quanta preview API](https://clockin-hub-16.preview.emergentagent.com/api/v1/docs)
+now displays all nine new CoreFlux operations and durable-receipt documentation.
+No production publish, API-key provisioning or remote commit is claimed.
+
+The contract stores namespaced Core references separately from PurePayroll's
+existing `external_id`, supports explicit one-to-one person links and versioned
+assignment metadata, and holds unknown write outcomes for reconciliation.
+Thirty-eight isolated HTTP/model tests pass locally with real authentication
+and scope checks, including tenant isolation, concurrent claims, payload drift,
+conditional edits and preservation of access/provider IDs. The remote editor's
+Python runner did not start; full-app regression and authenticated preview
+acceptance remain outstanding. Registration alone is not a live round trip.
+
+Next: verify Thunderhawk's remote organization, persist Core's instance identity
+and connection binding, then connect reviewed delivery to the shared contract.
+Assignment commercial terms, portal onboarding, time routing and PurePayroll
+exchange remain separate unfinished work. Also harden PurePay's existing payment
+driver: it currently allows `creating`/failed/review states to retry without
+consuming its `__fresh` claim flag. Provider idempotency is insufficient to make
+that safe; implement and fixture-test a durable attempt guard before execution.
 
 Decision date: October 20, 2026.
 Status: numbering and field-inventory foundation implemented in draft PR #146; the complete live
