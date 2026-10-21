@@ -1,5 +1,37 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Provider source-time reservations — October 21, 2026
+
+PurePayroll partial-source runtime `98ded09` is saved/read-back verified in
+the current Beautiful Kalam 6 Emergent project. Shared original-entry claims
+now cover native Quanta time and future Core input references, retaining old
+claim IDs and checking existing runs without requiring a historical backfill.
+Duplicate imports through different native IDs, mixed direct/Core routes,
+overlapping components and cross-employee sources are refused. Different
+Core regular/OT components can share one original entry in the same run.
+Legacy direct imports without a verified workspace use a conservative
+organization-scoped original-entry alias; same IDs across workspaces need review.
+
+Uncertain saves remain held even after their timer expires. Draft creation,
+Pace, restore and reopen acquire shared claims; restore is company-scoped and
+cannot overwrite an existing run. Prefill excludes already-used originals.
+Fresh Quanta checks also detect changed OT split/worker and invalid hours.
+The 35 new source/reservation/lifecycle tests and full 99-test provider suite
+pass, including the real Core PHP fixture's 20 HTTP assertions. This is isolated
+test evidence, not a full-app or live Thunderhawk round trip.
+
+The five runtime files are saved in Emergent; two unrelated existing cron
+changes are preserved. No remote commit or production publish occurred.
+Resuming the preview restored the editor, but the Core-context API still
+returned HTTP 502 at 2026-10-21 05:16:58 UTC. Proof is the local provider
+artifact `payroll-reservation-source-saved.png`.
+
+Native Core input application remains disabled. Fresh Core authority and
+Core-side reservations, placement-level calculation and result lineage are
+still required; a snapshot cannot authorize payroll. No live credential,
+Thunderhawk data transfer or financial execution occurred. Core's staged
+runtime remains `05b9ddfb` with migration 165 and outbound delivery flags off.
+
 ## Original Quanta company on time — October 21, 2026
 
 Time preview/import now requires the explicitly verified Quanta organization.
