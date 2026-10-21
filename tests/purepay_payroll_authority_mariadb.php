@@ -1,6 +1,7 @@
 <?php
 /** Real MariaDB guards and authority creation against the existing disposable input fixture. */
 declare(strict_types=1);
+define('COREFLUX_AUTHORITY_FIXTURE',true);
 require __DIR__.'/purepay_payroll_inputs_mariadb.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_authority.php';
 $passed=0;$posts=0;$mode=null;$context['payroll_input_contract_version']=PUREPAY_PAYROLL_INPUT_VERSION;

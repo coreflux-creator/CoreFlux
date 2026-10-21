@@ -9,7 +9,7 @@ require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';require_
 $password=$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
 $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
-$db='coreflux_ppinput_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
+$db='coreflux_ppinput_'.(defined('COREFLUX_AUTHORITY_FIXTURE')?'authority_':'').($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
 foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
 $pdo->exec('CREATE TABLE people(id BIGINT PRIMARY KEY,tenant_id BIGINT,first_name VARCHAR(50),last_name VARCHAR(50),email_primary VARCHAR(100),status VARCHAR(20),deleted_at DATETIME NULL)');
