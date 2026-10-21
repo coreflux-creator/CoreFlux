@@ -138,8 +138,9 @@ when prior bindings/attempts exist without their identity. Provider delivery
 stays disabled. No API key is provisioned by this setup.
 
 The Quanta Chrome session returned `Not authenticated` when opening Master.
-The user has been asked to restore a session with Thunderhawk access, and to
-identify PurePayroll's current editable project. Those replies are pending.
+The user has been asked to restore a session with Thunderhawk access; that
+reply remains pending. PurePay/PurePayroll source was subsequently located
+through the already-open Emergent project, as recorded below.
 
 The next Core increment completes the older Quanta screen's reference alignment:
 people search, worker links, creation notices, placement completion links,
@@ -169,8 +170,30 @@ PurePay still needs a verified organization contract and a reviewed rebind flow.
 Local validation: 56 real MariaDB driver/callback assertions, 47 payload/error
 checks, 38 existing integration checks and 93 delivery/binding/numbering checks
 pass. The dashboard builds with its 61 existing lint warnings. Provider IO is
-synthetic in these fixtures; no live payment was executed. This increment's
-hosted CI and staging release are pending at commit time.
+synthetic in these fixtures; no live payment was executed. Runtime
+`96ecd35d5b4e852a92391b730bbfa4aa1576efe0` passed all eight
+[hosted CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39531045472)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39531315383),
+including migration 163. Production was not changed.
+
+The current PurePay/PurePayroll source is now located in Emergent's
+`beautiful-kalam-6` project, whose Manage screen identifies `purepay.online`
+and published revision `8eb8dc9`. The editor branch is
+`codex/release-signed-bill-lines-2026-10-15`; the two pending changes are
+`.emergent/cron/applied.hash` and `.emergent/cron/webhook-crons`. Selected
+current files were preserved in the sibling `PurePay-current-source` checkout;
+this is a partial source capture, not an independently verified full release.
+No provider runtime change was retained or published.
+
+Source confirms separate session-protected employee/run routes and the public
+ERP API-key routes. The integration needs dedicated scoped payroll endpoints,
+not a copied human session. Quanta time already retains explicit daily source
+references and excludes used/review-held history; preserve that provenance.
+Public vendor/bill lists support limit/skip, but payments stop at 1000 rows
+without a continuation argument. The wallet payment response omits its payment
+ID. Also, `v1_pay_bill` emits `payment.failed` for non-settled wallet responses,
+including in-progress results. Correct that event classification and validate
+actual financial-result payloads before any live payment acceptance.
 
 Next: verify Thunderhawk's remote organization and configure the authorized
 environment for authenticated provider acceptance. Assignment commercial terms,
@@ -178,7 +201,8 @@ portal onboarding, time routing and PurePayroll exchange remain unfinished.
 PurePay still needs verified complete pagination/response contracts, installation
 namespacing, organization acceptance/rebinding, and obligation-level reservation
 so an uncertain payment cannot be bypassed by a new Core payment for the same
-bill. Its latest editable source must be identified before changing the provider.
+bill. Provider work can now use the located current source after a fresh
+baseline check; preserve its existing work and complete full-app regression.
 
 Decision date: October 20, 2026.
 Status: numbering and field-inventory foundation implemented in draft PR #146; the complete live
