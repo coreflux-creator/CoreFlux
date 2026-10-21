@@ -7,6 +7,7 @@ require_once __DIR__.'/identity.php';
 require_once __DIR__.'/delivery.php';
 
 const PUREPAY_CORE_VERSION = '2026-10-20.1';
+const PUREPAY_CORE_LINK_VERSION = '2026-10-21.1';
 const PUREPAY_CORE_PATH = '/integrations/coreflux';
 
 function purepayCoreApiBase(): string
@@ -32,7 +33,9 @@ function purepayCoreContextValidate(array $data): array
         throw new RuntimeException('PurePay has not provided the required Core organization contract.');
     }
     $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll'],$caps)); sort($caps);
-    return ['organization'=>['id'=>$org['id'],'name'=>$org['name']], 'capabilities'=>$caps,
+    $link=$data['link_contract_version']??null;
+    if($link!==null && (!is_string($link) || !preg_match('/^[0-9.-]{1,32}$/D',$link)))throw new RuntimeException('Invalid provider link contract.');
+    return ['organization'=>['id'=>$org['id'],'name'=>$org['name']], 'capabilities'=>$caps,'link_contract_version'=>$link,
         'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false];
 }
 
@@ -115,7 +118,7 @@ function purepayCoreReview(PDO $pdo,int $tenantId,string $instance): array
     if(!$live || $live['status']!=='active' || $live['revision']!==$row['revision'])throw new RuntimeException('The connection changed. Check it again.');
     return ['organization'=>$context['organization'],'capabilities'=>$context['capabilities'],
         'review_hash'=>$hash,'verified'=>is_string($row['binding_hash']) && hash_equals($row['binding_hash'],$hash),
-        'contract_version'=>$context['contract_version']];
+        'contract_version'=>$context['contract_version'],'link_contract_version'=>$context['link_contract_version']];
 }
 
 function purepayCoreConfirm(PDO $pdo,int $tenantId,int $actor,string $instance,string $reviewHash,string $organizationId,?callable $audit=null): array
@@ -127,7 +130,7 @@ function purepayCoreConfirm(PDO $pdo,int $tenantId,int $actor,string $instance,s
     $pdo->beginTransaction();
     try {
         $row=purepayCoreConnection($pdo,$tenantId,true);
-        $context=['organization'=>$review['organization'],'capabilities'=>$review['capabilities'],'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false];
+        $context=$review+['execution_side_effects'=>false];
         if(!$row || $row['status']!=='active' || !hash_equals($reviewHash,purepayCoreHash($row,(string)decryptField($row['api_key_ct']),$instance,$context)))throw new RuntimeException('The connection changed during review.');
         purepayCoreAssertPin($row,$instance,$context);
         $pdo->prepare('UPDATE purepay_core_connections SET core_instance_id=:i,remote_organization_id=:o,remote_organization_name=:n,remote_api_base=:b,binding_hash=:h,verified_by=:u,verified_at=NOW() WHERE tenant_id=:t')
@@ -163,6 +166,10 @@ function purepayCoreRecordView(string $kind,array $row): array
         if(!is_scalar($row[$field]) && $row[$field]!==null)throw new RuntimeException('The provider returned an invalid record field.');
         $out[$field]=$row[$field];
     }
+    if(isset($row['record_version'])) {
+        if(!is_string($row['record_version']) || !preg_match('/^[a-f0-9]{64}$/D',$row['record_version']))throw new RuntimeException('Invalid provider record version.');
+        $out['record_version']=$row['record_version'];
+    }
     return $out;
 }
 
@@ -177,7 +184,7 @@ function purepayCoreRecords(PDO $pdo,int $tenantId,string $instance,string $kind
     $row=purepayCoreConnection($pdo,$tenantId);
     if(!$row || $row['status']!=='active')throw new RuntimeException('The connection changed. Check it again.');
     $key=(string)decryptField($row['api_key_ct']);
-    $context=['organization'=>$review['organization'],'capabilities'=>$review['capabilities'],'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false];
+    $context=$review+['execution_side_effects'=>false];
     if($row['status']!=='active' || !hash_equals($review['review_hash'],purepayCoreHash($row,$key,$instance,$context)))throw new RuntimeException('The connection changed. Check it again.');
     $page=purepayCoreGet($key,'/records/'.$kind.'?'.http_build_query(array_filter(['limit'=>$limit,'cursor'=>$cursor],static fn($v)=>$v!==null)));
     $live=purepayCoreConnection($pdo,$tenantId);

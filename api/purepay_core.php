@@ -2,21 +2,35 @@
 /** Separate Core metadata connection. No payment or payroll execution actions. */
 declare(strict_types=1);
 require_once __DIR__.'/../core/api_bootstrap.php';
-require_once __DIR__.'/../core/integrations/purepay_core.php';
+require_once __DIR__.'/../core/integrations/purepay_links.php';
+require_once __DIR__.'/../core/sub_tenants.php';
 $ctx=api_require_auth();
 $user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
 rbac_legacy_require($user,'accounting.bank.manage');
 $action=(string)($_GET['action']??'status');
 $method=api_method();
 $pdo=getDB();
+// Connection management alone does not grant access to the source directories or payroll.
+function purepayCoreApiRecordOwner(array $user,int $tenant,string $kind): int
+{
+    $permission=match($kind) {
+        'person'=>'people.view','placement','client'=>'placements.view','vendor'=>'ap.view',
+        default=>throw new InvalidArgumentException('Unknown record type.'),
+    };
+    rbac_legacy_require($user,$permission);
+    if($kind==='person')rbac_legacy_require($user,'payroll.view');
+    return effectiveTenantIdForModule(coreRecordNumberDefinition($kind)['module'],$tenant)??$tenant;
+}
 try {
     if($method==='GET' && $action==='status')api_ok(purepayCoreSummary(purepayCoreConnection($pdo,$tenantId)));
     if($method!=='POST')api_error('Method not allowed',405);
     $body=api_json_body();
-    $audit=static function()use($pdo,$tenantId,$user,$action):void {
+    $audit=static function()use($pdo,$tenantId,$user,$action,$body):void {
         // Action and company only; credentials and employee payloads never enter audit metadata.
+        $metadata=['action'=>$action];
+        if(in_array($action,['link_send','link_reconcile'],true))$metadata['delivery_id']=$body['delivery_id'];
         $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(:t,:u,:e,NULL,:m,:ip,NOW())')
-            ->execute(['t'=>$tenantId,'u'=>(int)$user['id'],'e'=>'purepay.core.'.$action,'m'=>json_encode(['action'=>$action]),'ip'=>$_SERVER['REMOTE_ADDR']??null]);
+            ->execute(['t'=>$tenantId,'u'=>(int)$user['id'],'e'=>'purepay.core.'.$action,'m'=>json_encode($metadata),'ip'=>$_SERVER['REMOTE_ADDR']??null]);
     };
     $instance=integrationInstanceId();
     if($instance===null && $action!=='disconnect')api_error('Configure the permanent Core installation identity before connecting.',422);
@@ -32,8 +46,26 @@ try {
         case 'records':
             $kind=$body['kind']??null;
             if(!is_string($kind) || (isset($body['cursor'])&&!is_string($body['cursor'])))api_error('Invalid record page',422);
-            if($kind==='person')rbac_legacy_require($user,'payroll.view');
+            purepayCoreApiRecordOwner($user,$tenantId,$kind);
             $result=purepayCoreRecords($pdo,$tenantId,$instance,$kind,50,$body['cursor']??null);break;
+        case 'link_preview':
+            if(!is_string($body['kind']??null) || !is_string($body['number']??null) || !is_string($body['provider_id']??null))api_error('Select a provider record and enter its Core number.',422);
+            $owner=purepayCoreApiRecordOwner($user,$tenantId,$body['kind']);
+            $result=purepayCoreLinkPreview($pdo,$tenantId,(int)$user['id'],$instance,$owner,$body['kind'],strtoupper(trim($body['number'])),$body['provider_id']);break;
+        case 'link_history':
+            if(!is_string($body['kind']??null) || (isset($body['before'])&&!is_int($body['before'])))api_error('Invalid link history page.',422);
+            $owner=purepayCoreApiRecordOwner($user,$tenantId,$body['kind']);
+            $result=purepayCoreLinkHistory($pdo,$tenantId,$instance,$owner,$body['kind'],$body['before']??null);break;
+        case 'link_send':
+        case 'link_reconcile':
+            if(!is_int($body['delivery_id']??null) || $body['delivery_id']<=0 || !is_string($body['review_hash']??null))api_error('A current link review is required.',422);
+            if($action==='link_send' && ($body['confirmed']??null)!==true)api_error('Confirm the two records before linking.',422);
+            $delivery=integrationDeliveryGet($pdo,$tenantId,$body['delivery_id']);
+            $owner=purepayCoreApiRecordOwner($user,$tenantId,$delivery['entity_type']);
+            $result=$action==='link_send'
+                ?purepayCoreLinkSend($pdo,$tenantId,(int)$user['id'],$instance,$owner,$body['delivery_id'],$body['review_hash'],$audit)
+                :purepayCoreLinkReconcile($pdo,$tenantId,$instance,$owner,$body['delivery_id'],$body['review_hash'],$audit);
+            break;
         case 'disconnect': purepayCoreDisconnect($pdo,$tenantId,$audit);$result=['connected'=>false];break;
         default: api_error('Unknown Core connection action',404);
     }

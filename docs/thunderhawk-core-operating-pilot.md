@@ -1,5 +1,53 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Reviewed provider record links — October 20, 2026, latest checkpoint
+
+Core now implements explicit P-/PL-/CL-/V- linking to existing PurePay and
+PurePayroll records. The operator selects a provider record, enters its Core
+number and reviews both records before confirming. Source numbers are resolved
+from the current authorized module directory; merged aliases and deleted
+sources cannot silently become new links. Provider IDs are preserved. API
+access requires connection management plus the relevant directory read
+permission, and employee access also requires payroll viewing.
+
+The provider link contract `2026-10-21.1` adds opaque record versions and a point
+lookup that checks both identities. A provider record changed or recreated
+after review is rejected. An existing immutable receipt remains available after
+later profile edits. The updated module was saved in the existing Emergent
+editor and read back exactly, preserving the other pending source changes.
+Its stopped preview and full-app acceptance remain outstanding.
+
+Core's encrypted delivery ledger is also the durable local link registry.
+Claims commit before provider IO, and confirmed receipt plus audit commit
+together. Unknown outcomes stay held; receipt reconciliation never repeats
+the POST. The history view supports pagination and recovery after page reload,
+including when the native record is no longer listed. Existing provider links
+can be explicitly reviewed and recorded without another provider mutation.
+Reconciliation can survive a verified key rotation within the same permanent
+company binding; changed directory ownership requires review.
+
+`COREFLUX_PUREPAY_CORE_LINK_DELIVERY` defaults off. No live key, provider link,
+employee, assignment or financial transaction was created. This code uses
+existing migrations 156/158/162/164; it adds no schema migration. The previously
+deployed staging revision remains `19eb2f66` until this checkpoint passes CI
+and a new staging release is recorded.
+
+Validation: 63 new MariaDB link/history assertions, 40 connection assertions
+and 93 existing shared delivery assertions pass. The provider has 40 isolated
+tests plus an optional cross-repository test: the actual Core PHP client
+completed 16 checks over HTTP against the authenticated FastAPI router with
+synthetic Mongo records. All four types link and replay without changing native
+records. Dashboard build passed with existing warnings. Chrome exercised the
+required confirmation, uncertain result, history recovery and confirmed receipt
+states using a local synthetic fixture. These checks do not establish live
+Thunderhawk or full provider-app acceptance.
+
+Next: complete provider runtime/key acceptance, then implement and validate
+controlled onboarding/provisioning and operational time/result exchange.
+Native assignment auto-billing and payroll execution remain separate reviewed
+workflows. The real Thunderhawk round trip and reconciliation remain required
+for completion of the active goal.
+
 ## Dedicated provider connection — October 20, 2026, late evening
 
 The current Emergent `beautiful-kalam-6` project now contains the callback

@@ -56,7 +56,9 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     if (!in_array($context['provider'], ['quanta','purepay','purepayroll'], true)) throw new InvalidArgumentException('Unsupported delivery provider');
     // Every operation added here needs a reviewed adapter and fixture before it can be queued.
     $operations=['person'=>['worker.create','worker.update','person.link'],'placement'=>['assignment.create','assignment.update']];
-    if ($context['provider']!=='quanta' || !in_array($context['operation'],$operations[$context['entity_type']]??[],true)) {
+    $quanta=$context['provider']==='quanta' && in_array($context['operation'],$operations[$context['entity_type']]??[],true);
+    $purepay=$context['provider']==='purepay' && $context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true);
+    if (!$quanta && !$purepay) {
         throw new InvalidArgumentException('This delivery operation is not implemented');
     }
     foreach (['binding_hash','source_hash','remote_hash'] as $key) {
@@ -132,7 +134,7 @@ function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $curre
         $pending=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND state IN ("sending","uncertain") LIMIT 1');
         $pending->execute(['t'=>$tenantId,'s'=>$row['subject_hash']]);
         if ($pending->fetchColumn()) throw new RuntimeException('Reconcile the previous attempt before sending another change for this record');
-        if (in_array($row['operation'],['worker.create','person.link','assignment.create'],true)) {
+        if (in_array($row['operation'],['worker.create','person.link','assignment.create','record.link'],true)) {
             $created=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND operation=:o AND state="delivered" LIMIT 1');
             $created->execute(['t'=>$tenantId,'s'=>$row['subject_hash'],'o'=>$row['operation']]);
             if ($created->fetchColumn()) throw new RuntimeException('This record was already published; reconcile its identity before publishing an update');

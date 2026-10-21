@@ -142,6 +142,9 @@ jobs:
       - name: Verify dedicated PurePay Core connection and organization review
         run: php tests/purepay_core_connection_mariadb.php
 
+      - name: Verify reviewed Core record links and response-loss reconciliation
+        run: php tests/purepay_core_links_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 
