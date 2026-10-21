@@ -20,6 +20,12 @@ The 35 new source/reservation/lifecycle tests and full 99-test provider suite
 pass, including the real Core PHP fixture's 20 HTTP assertions. This is isolated
 test evidence, not a full-app or live Thunderhawk round trip.
 
+Eight existing provider reservation regression tests also pass after aligning
+successful save/OT-split expectations with the new contract; the updated test
+file is saved/read-back verified in Emergent. Its original FakeDB fixture was
+captured read only. The editor's final count is 17 pending files, including the
+two preserved cron changes. Backend logs still end with clean shutdown.
+
 The five runtime files are saved in Emergent; two unrelated existing cron
 changes are preserved. No remote commit or production publish occurred.
 Resuming the preview restored the editor, but the Core-context API still
