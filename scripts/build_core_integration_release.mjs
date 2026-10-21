@@ -11,6 +11,13 @@ if (!output || !path.isAbsolute(output) || fs.existsSync(output)
   throw new Error('Provide a new absolute package directory outside the checkout.');
 }
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const baseCommit = execFileSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf8' }).trim();
+const baseBlobs = new Map(execFileSync('git', ['ls-tree', '-rz', '--full-tree', baseCommit],
+  { encoding: 'utf8' }).split('\0').filter(Boolean).map(entry => {
+    const separator = entry.indexOf('\t');
+    const [, kind, digest] = entry.slice(0, separator).split(' ');
+    return [entry.slice(separator + 1), kind === 'blob' ? digest : null];
+  }));
 const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 const changed = new Set(execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMRT', 'origin/main', 'HEAD'],
   { encoding: 'utf8' }).trim().split('\n'));
@@ -49,6 +56,7 @@ function walk(directory) {
 }
 walk(output);
 fs.writeFileSync(path.join(output, 'integration-manifest.json'), JSON.stringify({
-  commit, product: 'full-core-staging', files,
+  commit, product: 'full-core-staging', files, base_commit: baseCommit,
+  source_base_blobs: Object.fromEntries([...selected].sort().map(file => [file, baseBlobs.get(file) ?? null])),
 }, null, 2) + '\n');
 console.log(`Packaged ${Object.keys(files).length} files for full Core at ${commit}.`);

@@ -21,6 +21,7 @@ if (($manifest['product'] ?? '') !== 'full-core-staging'
 }
 $changed = [];
 $added = [];
+$productionDivergence = [];
 foreach ($manifest['files'] as $relative => $hash) {
     if (!is_string($relative) || preg_match('/[\x00-\x1f\x7f]/', $relative)
         || str_contains($relative, '\\') || str_contains($relative, ':')
@@ -44,7 +45,18 @@ foreach ($manifest['files'] as $relative => $hash) {
         throw new RuntimeException('Live path escapes the app: ' . $relative);
     }
     if (!is_file($live)) $added[] = $relative;
-    elseif (!hash_equals($hash, hash_file('sha256', $live))) $changed[] = $relative;
+    elseif (!hash_equals($hash, hash_file('sha256', $live))) {
+        $changed[] = $relative;
+        // Candidate-generated vendor dependencies have no Git source baseline.
+        // Report source that matches neither the candidate nor its main baseline.
+        if (array_key_exists($relative, $manifest['source_base_blobs'] ?? [])) {
+            $baseBlob = $manifest['source_base_blobs'][$relative];
+            $bytes = file_get_contents($live);
+            if ($bytes === false) throw new RuntimeException('Cannot read live source: ' . $relative);
+            $liveBlob = hash('sha1', 'blob ' . strlen($bytes) . "\0" . $bytes);
+            if ($baseBlob === null || !hash_equals($baseBlob, $liveBlob)) $productionDivergence[] = $relative;
+        }
+    }
 }
 
 // Use deployed configuration, never candidate configuration or an API bootstrap.
@@ -88,6 +100,8 @@ try {
         'candidate_bundle' => $candidateBundle[0] ?? null, 'client_counts' => $clients,
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
+        'comparison_base_commit' => $manifest['base_commit'] ?? null,
+        'production_source_different_from_both_base_and_candidate' => $productionDivergence,
         'pending_migrations' => $pending, 'applied_migration_drift' => $drift,
         'outbound_flags_from_cli_configuration' => $flags,
         'activation_performed' => false,
