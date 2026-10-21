@@ -151,6 +151,9 @@ jobs:
       - name: PurePayroll approved input delivery fixture
         run: php tests/purepay_payroll_inputs_mariadb.php
 
+      - name: Core payroll source reservation and database fences
+        run: php tests/purepay_payroll_authority_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 

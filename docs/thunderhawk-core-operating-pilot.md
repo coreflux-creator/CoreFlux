@@ -1,5 +1,40 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Core payroll source authority — October 21, 2026
+
+Core now has a durable source-reservation service, gated by
+`COREFLUX_PUREPAY_PAYROLL_AUTHORITY` (default OFF) and not yet exposed through
+the API/UI. It requires a delivered, matching provider input receipt, a fresh
+verified connection, authorized module owners and a stable per-review request
+ID. A short transaction locks the connection, input receipt, time, rates and
+identity links, rebuilds the current packet and inserts every claim atomically.
+The same request replays the same authority; another packet cannot claim its
+hours. Audit failure rolls back the entire reservation.
+
+Core migration 166 stores encrypted authority packets and unique time-owner /
+entry claims. Time 011 and Placements 008 add database guards that keep the
+approved payroll fields and pay rate unchanged while a claim exists. They use
+locking reads, including against transactions with older read snapshots.
+Core payroll extraction, source corrections, approval removal and deletion are
+refused while held; billing extraction and billing-only rate fields remain
+available. Claims have no automatic expiry and do not mark time extracted.
+
+The intended provider contract is a durable delegation: Core checks current
+approval while reserving it, and keeps that approval stable until the provider
+confirms release. PurePayroll must receive the grant through its dedicated
+authenticated channel, bind it to the exact input and native run, and refuse
+release while a usable run still holds the hours. This avoids introducing a
+general-purpose inbound Core credential. Provider grant/release transport,
+review controls, native component calculation and result lineage are still
+required. No live authority is issued by this increment.
+
+The disposable MariaDB fixture passes 48 new checks plus the existing 33 input
+checks: source/rate drift, source lock contention, old-transaction fencing,
+atomic rollback, replay, tenant isolation, protected edits/deletion/extraction,
+independent billing and migration replay. Hosted CI and staging evidence will
+be recorded after this runtime is verified; this is not live Thunderhawk
+acceptance and native draft application remains disabled.
+
 ## Provider source-time reservations — October 21, 2026
 
 PurePayroll partial-source runtime `98ded09` is saved/read-back verified in
