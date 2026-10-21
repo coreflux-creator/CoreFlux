@@ -118,6 +118,13 @@ readback, replay, conflict and isolation checks pass. Quanta's suite now passes
 39 tests with that optional companion checkout configured. This is synthetic
 contract validation, not a live Thunderhawk acceptance result.
 
+Runtime `8f68486b1aa0bf82732d52aa62875fb8f0b1430a` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39528571278)
+and [isolated staging deployment/acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39528812913).
+The deployment applied migration 162 and initialized the permanent staging
+identity; provider sending remains disabled. The review/confirmation/result UI
+was exercised in Chrome using synthetic data and a local response fixture.
+
 Before binding, set one permanent lowercase UUID v4 as
 `COREFLUX_INTEGRATION_INSTANCE_ID` in each installation's private configuration
 or environment. Staging and production must use different UUIDs; never copy
@@ -134,8 +141,11 @@ The Quanta Chrome session returned `Not authenticated` when opening Master.
 The user has been asked to restore a session with Thunderhawk access, and to
 identify PurePayroll's current editable project. Those replies are pending.
 
-Next: deploy this increment, verify Thunderhawk's remote organization, and
-configure the authorized environment for authenticated provider acceptance.
+Next: verify Thunderhawk's remote organization and configure the authorized
+environment for authenticated provider acceptance. Finish the older Quanta
+screen's number alignment: people search, worker-link labels, creation notices,
+placement completion links and time-preview labels still derive some P-/PL-
+labels from database IDs. The new metadata review uses registry numbers.
 Assignment commercial terms, portal onboarding, time routing and PurePayroll
 exchange remain separate unfinished work. Also harden PurePay's existing payment
 driver: it currently allows `creating`/failed/review states to retry without
