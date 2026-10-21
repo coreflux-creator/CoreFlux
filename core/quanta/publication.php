@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/identity.php';
+require_once __DIR__ . '/workspace.php';
 require_once __DIR__ . '/../record_numbers.php';
 require_once __DIR__ . '/../integrations/delivery.php';
 
@@ -50,8 +51,9 @@ function quantaPublicationPreview(int $tenantId, int $actorId, array $personIds)
     foreach ($personIds as $id) if (!is_int($id) || $id<=0) throw new InvalidArgumentException('Invalid person identity');
     $personIds=array_values(array_unique($personIds));
     $pdo=getDB();
-    $connection=quantaConnection($tenantId);
-    $key=quantaApiKey($tenantId);
+    $verified=quantaWorkspaceForDelivery($tenantId);
+    $connection=$verified['connection'];
+    $key=$verified['api_key'];
     $workers=quantaListAll($key,'/workers',[],5000);
     $workerIndex=[];
     foreach ($workers as $worker) {
@@ -79,11 +81,12 @@ function quantaPublicationPreview(int $tenantId, int $actorId, array $personIds)
         if ($plan['status']==='preview') {
             $row=integrationDeliveryPreview($pdo,$tenantId,$actorId,[
                 'provider'=>'quanta','connection_ref'=>(string)$connection['id'],
-                'binding_hash'=>hash('sha256',QUANTA_API_BASE.'|'.$tenantId.'|'.$key),
+                'binding_hash'=>$verified['binding_hash'],
                 'entity_type'=>'person','entity_tenant_id'=>$peopleTenant,'entity_id'=>(int)$person['id'],
                 'operation'=>$plan['operation'],'source_hash'=>integrationDeliveryHash($person),
                 'remote_hash'=>integrationDeliveryHash($remote??['absent_email'=>strtolower(trim((string)$person['email_primary']))]),
-            ],['worker_id'=>$workerId,'fields'=>$plan['payload']]);
+            ],['worker_id'=>$workerId,'fields'=>$plan['payload'],
+                'person'=>integrationRecordReference($verified['instance_id'],$peopleTenant,'person',$person['person_number'])]);
             $plan['delivery']=integrationDeliverySummary($row);
         }
         $rows[]=$plan;

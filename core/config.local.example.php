@@ -8,6 +8,13 @@
 // DO NOT change once set in production — rotating it will orphan existing ciphertext.
 define('COREFLUX_DATA_KEY', 'REPLACE_ME_WITH_BASE64_32_BYTES');
 
+// Permanent, lowercase UUID v4 namespace for outbound integration record numbers.
+// Generate once per installation and retain across releases. Staging and production
+// must have DIFFERENT values; never copy this value when cloning an environment.
+// Changing it after publication requires an identity migration, not a key rotation.
+// Missing configuration keeps outbound identity binding disabled.
+// define('COREFLUX_INTEGRATION_INSTANCE_ID', 'REPLACE_WITH_PERMANENT_UUID_V4');
+
 // OpenAI key — used directly by core/ai_service.php (no Python sidecar).
 // Get one at https://platform.openai.com/api-keys
 define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');

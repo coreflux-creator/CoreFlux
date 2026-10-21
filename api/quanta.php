@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/quanta/sync.php';
 require_once __DIR__ . '/../core/quanta/publication.php';
+require_once __DIR__ . '/../core/quanta/workspace.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -71,6 +72,10 @@ function quantaApiPeople(int $tenantId): array
 }
 
 try {
+    if ($method === 'GET' && $action === 'contract_context') {
+        rbac_legacy_require($user, 'integrations.quanta.view');
+        api_ok(quantaWorkspaceReview($tenantId));
+    }
     if ($method === 'GET' && $action === 'status') {
         rbac_legacy_require($user, 'integrations.quanta.view');
         $connection = quantaConnection($tenantId);
@@ -81,6 +86,7 @@ try {
             'connected' => $connection && $connection['status'] === 'active',
             'status' => $connection['status'] ?? null,
             'api_key_last4' => $connection['api_key_last4'] ?? null,
+            'connection_revision' => isset($connection['binding_revision']) ? (int)$connection['binding_revision'] : null,
             'last_probe_at' => $connection['last_probe_at'] ?? null,
             'last_probe_error' => $connection['last_probe_error'] ?? null,
             'last_import_at' => $connection['last_import_at'] ?? null,
@@ -123,6 +129,19 @@ try {
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
 
+    if ($action === 'confirm_workspace') {
+        if (($body['confirm_same_organization'] ?? null) !== true) throw new InvalidArgumentException('Confirm that these workspaces represent the same organization');
+        $instance = integrationInstanceId();
+        if ($instance === null) throw new RuntimeException('An administrator must configure the permanent identity for this Core installation before publishing.');
+        $connection = quantaConnection($tenantId); $key = quantaApiKey($tenantId);
+        $context = quantaContractContext($key);
+        if (($body['remote_workspace_id'] ?? null) !== $context['workspace']['id']) throw new RuntimeException('The Quanta workspace changed. Check the connection again.');
+        $bound = quantaWorkspaceBind(getDB(), $tenantId, $actorId, $connection, $key, $instance, $context, (string)($body['review_hash'] ?? ''));
+        platformAuditLogWrite($tenantId, $actorId, 'quanta.workspace.verified', null,
+            ['remote_workspace_id'=>$bound['remote_workspace_id'],'contract_version'=>$bound['contract_version']], ['source'=>'quanta']);
+        api_ok(['verified'=>true,'workspace'=>$context['workspace']]);
+    }
+
     if ($action === 'publication_preview') {
         rbac_legacy_require($user, 'people.view');
         $result = quantaPublicationPreview($tenantId, $actorId, $body['person_ids'] ?? []);
@@ -144,21 +163,23 @@ try {
         quantaProbeConnection($key);
         $ciphertext = encryptField($key);
         $params = ['t' => $tenantId, 'k' => $ciphertext, 'l' => substr($key, -4), 'u' => $actorId];
-        getDB()->prepare(
+        quantaWorkspaceReconfigure(getDB(), $tenantId, static function() use ($params): void { getDB()->prepare(
             'INSERT INTO quanta_connections
                 (tenant_id, api_key_ct, api_key_last4, status, last_probe_at, last_probe_error, connected_by_user_id)
              VALUES (:t,:k,:l,"active",NOW(),NULL,:u)
              ON DUPLICATE KEY UPDATE api_key_ct = VALUES(api_key_ct), api_key_last4 = VALUES(api_key_last4),
                  status = "active", last_probe_at = NOW(), last_probe_error = NULL,
                  connected_by_user_id = VALUES(connected_by_user_id)'
-        )->execute($params);
+        )->execute($params); });
         platformAuditLogWrite($tenantId, $actorId, 'quanta.connection.connected', null, [], ['source' => 'quanta']);
         api_ok(['connected' => true, 'api_key_last4' => substr($key, -4)]);
     }
 
     if ($action === 'disconnect') {
-        getDB()->prepare('UPDATE quanta_connections SET api_key_ct = NULL, status = "revoked" WHERE tenant_id = :t')
-            ->execute(['t' => $tenantId]);
+        quantaWorkspaceReconfigure(getDB(), $tenantId, static function() use ($tenantId): void {
+            getDB()->prepare('UPDATE quanta_connections SET api_key_ct = NULL, status = "revoked" WHERE tenant_id = :t')
+                ->execute(['t' => $tenantId]);
+        });
         platformAuditLogWrite($tenantId, $actorId, 'quanta.connection.disconnected', null, [], ['source' => 'quanta']);
         api_ok(['connected' => false]);
     }

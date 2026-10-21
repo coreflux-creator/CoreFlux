@@ -84,8 +84,32 @@ conditional edits and preservation of access/provider IDs. The remote editor's
 Python runner did not start; full-app regression and authenticated preview
 acceptance remain outstanding. Registration alone is not a live round trip.
 
-Next: verify Thunderhawk's remote organization, persist Core's instance identity
-and connection binding, then connect reviewed delivery to the shared contract.
+Core now implements a permanent installation namespace and an explicit Quanta
+organization confirmation screen. Migration 159 stores the remote workspace
+identity and advances a connection revision on reconnect/disconnect. Binding
+includes the installation, directory context, key digest, contract and provider
+host; an old confirmation cannot survive even a reconnect with the same key.
+Identity retargeting is refused once established. Publication previews require
+a fresh matching provider context and store the typed person reference.
+This increment passes 40 focused checks, 54 disposable MariaDB delivery/binding
+checks and the existing 45 publication and 74 Quanta checks. The dashboard
+build passes with existing warnings. Hosted checks for this increment are
+separate from the earlier runtime revision cited above.
+
+Before binding, set one permanent lowercase UUID v4 as
+`COREFLUX_INTEGRATION_INSTANCE_ID` in each installation's private configuration
+or environment. Staging and production must use different UUIDs; never copy
+this value when cloning an environment or change it after publishing records
+without a migration review. Missing configuration disables binding/publication,
+while the read-only organization check remains available. No identity or API
+key was provisioned by this increment.
+
+The Quanta Chrome session returned `Not authenticated` when opening Master.
+The user has been asked to restore a session with Thunderhawk access, and to
+identify PurePayroll's current editable project. Those replies are pending.
+
+Next: configure the isolated Core installation identity, verify Thunderhawk's
+remote organization, then connect reviewed delivery to the shared contract.
 Assignment commercial terms, portal onboarding, time routing and PurePayroll
 exchange remain separate unfinished work. Also harden PurePay's existing payment
 driver: it currently allows `creating`/failed/review states to retry without
