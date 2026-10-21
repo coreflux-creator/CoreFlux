@@ -415,8 +415,9 @@ jobs:
               unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
               export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
               php package/deploy/prepare_full_core_settings.php --prepare-private-settings
-              # Only immutable private settings and a CLI verification receipt are
-              # written outside the webroot. No bridge, migration or code activation.
+              php package/deploy/verify_full_core_web_settings.php --verify-private-web-settings
+              # Private settings stay outside the webroot. The token-protected
+              # read-only web probe is removed. No runtime bridge or activation.
               exit 0
             fi
             if [ '${{ inputs.integration_staging }}' = 'production_preflight' ]; then

@@ -72,16 +72,21 @@ Private connection preparation is now implemented separately from activation.
 revision. It verifies the known live configuration fingerprint, copies only
 the existing database/SMTP constants into an immutable private directory,
 and tests the actual candidate bootstrap with a read-only database query.
-It writes no bridge into the live tree, performs no migration, and does not
-claim PHP-FPM verification. Existing or changed private content is never
+It then verifies PHP-FPM access through a short-lived token-protected endpoint
+at the canonical Core domain and removes that endpoint in a `finally` block.
+The probe returns only readiness booleans and the four integration delivery
+flags; it exposes no settings or records. The candidate exercises the same
+private-file bridge intended for activation. No bridge is installed into the
+live runtime and no migration is performed. Existing or changed private content is never
 overwritten. Files use 0640 and directories 0750 with the existing application
 group; no connection values appear in receipts or logs.
 
-The disposable MariaDB rehearsal passes 19 checks locally, including a
+The disposable MariaDB and HTTP rehearsal passes 32 checks locally, including a
 SELECT-only account, special-character preservation, replay, wrong-password
 failure, source-row preservation and path/configuration guards. CI additionally
-checks POSIX permissions and symlink rejection. This preparation mode has not
-yet been run on production; web-runtime verification remains a separate gate.
+checks POSIX permissions and symlink rejection. HTTP checks cover wrong tokens,
+method/host/expiry guards, successful read-only access and sanitized bootstrap
+failure. This preparation mode has not yet been run on production.
 
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static

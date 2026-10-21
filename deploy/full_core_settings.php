@@ -134,7 +134,8 @@ function fullCoreVerifyPreparedConnection(string $candidate, string $settingsFil
     $command = array_merge($command, ['-r', $code]);
     $environment = getenv();
     $environment['COREFLUX_ENV'] = 'production';
-    $environment['COREFLUX_DB_CONFIG_PATH'] = $settingsFile;
+    // Exercise the same private-file bridge intended for the eventual release.
+    unset($environment['COREFLUX_DB_CONFIG_PATH']);
     $environment['COREFLUX_SETTINGS_CANDIDATE'] = $candidate;
     unset($environment['COREFLUX_DISABLE_DATABASE']);
     $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $candidate, $environment);
@@ -178,7 +179,7 @@ function fullCorePrepareSettings(string $privateParent, string $webroot, string 
     $directory = $parent . '/core-full-release-' . $commit;
     $created = !file_exists($directory);
     if (!$created) {
-        $allowed = ['settings.php', 'candidate', 'candidate/core', 'candidate/core/config.php',
+        $allowed = ['settings.php', 'candidate', 'candidate/core', 'candidate/core/config.php', 'candidate/core/db.local.php',
             'candidate/core/db.php', 'db.local.php.bridge', 'prepared.json'];
         if (is_link($directory) || !is_dir($directory)
             || (function_exists('posix_geteuid') && fileowner($directory) !== posix_geteuid())) {
@@ -203,6 +204,7 @@ function fullCorePrepareSettings(string $privateParent, string $webroot, string 
     }
     $bridge = "<?php\n// Activation bridge; contains no connection secrets.\nrequire_once " . var_export($settingsFile, true) . ";\n";
     fullCorePrivateFile($directory . '/db.local.php.bridge', $bridge, $group);
+    fullCorePrivateFile($directory . '/candidate/core/db.local.php', $bridge, $group);
     $verified = fullCoreVerifyPreparedConnection($directory . '/candidate', $settingsFile, $settings);
     $receipt = ['candidate_commit' => $commit, 'private_directory' => $directory,
         'private_settings' => $settingsFile, 'candidate_config_sha256' => hash_file('sha256', $source . '/core/config.php'),
@@ -210,4 +212,19 @@ function fullCorePrepareSettings(string $privateParent, string $webroot, string 
         'cli_verification' => $verified, 'web_verification' => false, 'activation_performed' => false];
     fullCorePrivateFile($directory . '/prepared.json', json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", $group);
     return $receipt + ['created' => $created];
+}
+
+/** Render a short-lived, token-protected read-only probe; no credentials enter its source. */
+function fullCoreSettingsProbeSource(array $receipt, string $database, string $token, int $expires, string $host): string
+{
+    if (!preg_match('/^[a-f0-9]{64}$/D', $token) || !preg_match('/^[a-zA-Z0-9_]+$/D', $database)
+        || !preg_match('/^[a-z0-9.-]+$/D', $host) || !is_dir($receipt['private_directory'] ?? '')) {
+        throw new RuntimeException('Invalid web verification identity.');
+    }
+    $spec = ['directory' => $receipt['private_directory'], 'commit' => $receipt['candidate_commit'],
+        'config_sha256' => $receipt['candidate_config_sha256'], 'db_sha256' => $receipt['candidate_db_sha256'],
+        'database' => $database, 'token_sha256' => hash('sha256', $token), 'expires' => $expires, 'host' => $host];
+    $template = (string) file_get_contents(__DIR__ . '/full_core_settings_web_probe.php');
+    if (substr_count($template, '__COREFLUX_SETTINGS_PROBE_SPEC__') !== 1) throw new RuntimeException('Web probe template is invalid.');
+    return str_replace('__COREFLUX_SETTINGS_PROBE_SPEC__', base64_encode(json_encode($spec, JSON_THROW_ON_ERROR)), $template);
 }

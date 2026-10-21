@@ -54,6 +54,62 @@ try {
     $check($pdo->query('SELECT * FROM ' . $database . '.unchanged ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $before, 'database source rows remain unchanged');
     $check(!str_contains(json_encode($receipt), $secret) && !str_contains(json_encode($receipt), $settings['SMTP_PASS']), 'receipt contains no connection secrets');
     $check(!str_contains(file_get_contents($receipt['private_directory'] . '/db.local.php.bridge'), $secret), 'activation bridge contains only a private path');
+    $check(file_get_contents($receipt['private_directory'] . '/db.local.php.bridge') === file_get_contents($receipt['private_directory'] . '/candidate/core/db.local.php'), 'candidate exercises the exact future activation bridge');
+
+    // Real HTTP requests exercise the web bootstrap without production credentials.
+    mkdir($temporary . '/http', 0700);
+    $token = bin2hex(random_bytes(32));
+    $probeSource = fullCoreSettingsProbeSource($receipt, $database, $token, time() + 60, '127.0.0.1');
+    file_put_contents($temporary . '/http/probe.php', $probeSource);
+    file_put_contents($temporary . '/http/expired.php', fullCoreSettingsProbeSource($receipt, $database, $token, time() - 1, '127.0.0.1'));
+    file_put_contents($temporary . '/http/inert.php', file_get_contents(__DIR__ . '/../deploy/full_core_settings_web_probe.php'));
+    $check(!str_contains($probeSource, $secret) && !str_contains($probeSource, $token) && !str_contains($probeSource, $settings['SMTP_PASS']), 'public probe source contains no connection secrets or reusable access token');
+    $socket = stream_socket_server('tcp://127.0.0.1:0', $errorNumber, $errorMessage);
+    if (!$socket) throw new RuntimeException('Cannot reserve fixture HTTP port.');
+    $address = stream_socket_get_name($socket, false); fclose($socket);
+    $command = [PHP_BINARY];
+    if (PHP_OS_FAMILY === 'Windows') $command = array_merge($command, ['-d', 'extension_dir=' . ini_get('extension_dir'), '-d', 'extension=pdo_mysql']);
+    $command = array_merge($command, ['-S', $address, '-t', $temporary . '/http']);
+    $environment = getenv(); $environment['COREFLUX_ENV'] = 'production';
+    unset($environment['COREFLUX_DB_CONFIG_PATH'], $environment['COREFLUX_DISABLE_DATABASE']);
+    $server = proc_open($command, [0 => ['pipe', 'r'], 1 => ['file', $temporary . '/http.log', 'a'],
+        2 => ['file', $temporary . '/http.log', 'a']], $pipes, $temporary . '/http', $environment);
+    if (!is_resource($server)) throw new RuntimeException('Cannot start fixture HTTP server.');
+    fclose($pipes[0]);
+    try {
+        $deadline = microtime(true) + 10; $ready = false;
+        do {
+            $connection = @stream_socket_client('tcp://' . $address, $errorNumber, $errorMessage, 0.1);
+            if ($connection) { fclose($connection); $ready = true; break; }
+            usleep(100000);
+        } while (microtime(true) < $deadline);
+        if (!$ready) throw new RuntimeException('Fixture HTTP server did not become ready.');
+        $request = static function (string $file, string $method, string $access, string $host = '127.0.0.1') use ($address): array {
+            $context = stream_context_create(['http' => ['method' => $method, 'ignore_errors' => true, 'timeout' => 5,
+                'header' => "Host: {$host}\r\nX-CoreFlux-Settings-Probe: {$access}\r\n"]]);
+            $body = file_get_contents('http://' . $address . '/' . $file, false, $context);
+            preg_match('/^HTTP\/\S+ ([0-9]{3})/', $http_response_header[0] ?? '', $status);
+            return [(int) ($status[1] ?? 0), $body];
+        };
+        $check($request('probe.php', 'POST', '') === [404, ''], 'anonymous web probe is denied without output');
+        $check($request('probe.php', 'POST', str_repeat('0', 64)) === [404, ''], 'wrong web token is denied without output');
+        $check($request('probe.php', 'GET', $token) === [404, ''], 'GET cannot execute a valid-token probe');
+        $check($request('probe.php', 'POST', $token, 'wrong.example.invalid') === [404, ''], 'probe is bound to its intended hostname');
+        $check($request('expired.php', 'POST', $token) === [404, ''], 'expired probe cannot connect');
+        $check($request('inert.php', 'POST', $token) === [404, ''], 'unconfigured packaged template is inert');
+        [$status, $body] = $request('probe.php', 'POST', $token);
+        $web = json_decode($body, true);
+        $check($status === 200 && $web['web_verification'] && $web['database_connected'] && $web['read_only_probe']
+            && $web['production_mode'] && !$web['activation_performed'], 'HTTP bootstrap reads private settings and connects with SELECT-only credentials');
+        $check(!in_array(true, $web['outbound_flags_from_web_configuration'], true), 'web verification reports provider delivery disabled');
+        $check(!str_contains($body, $secret) && !str_contains($body, $user) && !str_contains($body, $settings['SMTP_PASS']), 'web response excludes connection identity and secrets');
+        rename($receipt['private_directory'] . '/candidate/core/db.local.php', $receipt['private_directory'] . '/candidate/core/db.local.php.saved');
+        try {
+            [$status, $body] = $request('probe.php', 'POST', $token);
+            $check($status === 503 && json_decode($body, true) === ['error' => 'Candidate web connection verification failed.'], 'web bootstrap failure is sanitized and fails closed');
+        } finally { rename($receipt['private_directory'] . '/candidate/core/db.local.php.saved', $receipt['private_directory'] . '/candidate/core/db.local.php'); }
+        $check($pdo->query('SELECT * FROM ' . $database . '.unchanged ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $before, 'HTTP verification leaves source rows unchanged');
+    } finally { proc_terminate($server); proc_close($server); }
     $settingsHash = hash_file('sha256', $receipt['private_settings']);
     $savedReceipt = file_get_contents($receipt['private_directory'] . '/prepared.json');
     $again = $prepare($revision, $settings);
