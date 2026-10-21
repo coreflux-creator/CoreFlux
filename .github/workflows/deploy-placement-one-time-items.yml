@@ -65,8 +65,50 @@ jobs:
             $configured = [];
             foreach (['DB_HOST','DB_NAME','DB_USER','DB_PASS','COREFLUX_DB_CONFIG_PATH',
               'SMTP_HOST','SMTP_USER','SMTP_PASS','DATA_KEY'] as $key) $configured[$key] = getenv($key)!==false && getenv($key)!=='';
+            require_once $root.'/core/db.php';
+            $db = getDB();
+            if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) exit(5);
+            $db->exec('SET TRANSACTION READ ONLY'); $db->beginTransaction();
+            try {
+              $storage = $db->query("SELECT COALESCE(ENGINE, 'VIEW') AS engine, COUNT(*) AS object_count,
+                COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH),0) AS estimated_bytes
+                FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() GROUP BY ENGINE")->fetchAll(PDO::FETCH_ASSOC);
+              $active = $db->query("SELECT COMMAND AS command_type, COUNT(*) AS connection_count, MAX(TIME) AS longest_seconds
+                FROM information_schema.PROCESSLIST WHERE DB=DATABASE() AND ID<>CONNECTION_ID() GROUP BY COMMAND")->fetchAll(PDO::FETCH_ASSOC);
+              $objects = [];
+              foreach (['TRIGGERS'=>'TRIGGER_SCHEMA','ROUTINES'=>'ROUTINE_SCHEMA','EVENTS'=>'EVENT_SCHEMA'] as $table=>$column) {
+                $objects[strtolower($table)] = (int)$db->query("SELECT COUNT(*) FROM information_schema.$table WHERE $column=DATABASE()")->fetchColumn();
+              }
+              $counts = [];
+              foreach (['people','companies','staffing_clients','ap_vendors','placements'] as $table) {
+                $counts[$table] = (int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
+              }
+              $database = ['storage'=>$storage,'stored_objects'=>$objects,'active_connections'=>$active,
+                'numbering_source_counts'=>$counts,'server_version'=>$db->query('SELECT VERSION()')->fetchColumn()];
+            } finally { $db->rollBack(); }
+            $cron = proc_open(['crontab','-l'], [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes);
+            if (!is_resource($cron)) exit(6);
+            $cronText = stream_get_contents($pipes[1]); fclose($pipes[1]);
+            stream_get_contents($pipes[2]); fclose($pipes[2]); $cronExit = proc_close($cron);
+            $workerPaths = []; $matchingCronLines = 0; $enabledFlags = [];
+            foreach (preg_split('/\r?\n/', $cronText) as $line) {
+              if (preg_match('/^\s*#/', $line) || !str_contains($line, $root)) continue;
+              $matchingCronLines++;
+              preg_match_all('~'.preg_quote($root,'~').'/([A-Za-z0-9_./-]+\.php)~', $line, $matches);
+              $workerPaths = array_merge($workerPaths, $matches[1]);
+              foreach (['COREFLUX_QUANTA_METADATA_DELIVERY','COREFLUX_PUREPAY_CORE_LINK_DELIVERY',
+                'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY','COREFLUX_PUREPAY_PAYROLL_AUTHORITY'] as $flag) {
+                if (preg_match('/\b'.preg_quote($flag,'/').'=["\x27]?1\b/', $line)) $enabledFlags[] = $flag;
+              }
+            }
             echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
               'paths'=>$metadata, 'environment_configured'=>$configured,
+              'database_operations'=>$database,
+              'ssh_user_crontab'=>['readable'=>$cronExit===0,'matching_line_count'=>$matchingCronLines,
+                'php_paths'=>array_values(array_unique($workerPaths)),'explicit_enabled_delivery_flags'=>array_values(array_unique($enabledFlags)),
+                'app_owner_crontab_verified'=>false],
+              'backup_tools'=>['mysqldump'=>is_executable('/usr/bin/mysqldump'),'mariadb_dump'=>is_executable('/usr/bin/mariadb-dump'),
+                'private_free_bytes'=>disk_free_space(dirname($root).'/private_html')],
               'cli_uid'=>function_exists('posix_geteuid') ? posix_geteuid() : null,
               'cli_gid'=>function_exists('posix_getegid') ? posix_getegid() : null], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
             PHP

@@ -14,6 +14,11 @@ See [live release readiness](core-live-accounting-release-readiness.md) for
 the read-only production comparisons, 59 missing migration records, actual
 schema gaps, reviewed historical source fingerprints and the configuration
 preservation requirement. Production activation is not yet ready or authorized.
+The private connection gate is now complete: candidate `fa8a1cfc` passed eight
+CI jobs and 35 settings/HTTP checks, then passed actual production CLI and
+PHP-FPM read-only verification. The settings were preserved privately and the
+temporary probe removed; live configuration and data were not changed.
+Database upgrade, writer maintenance and recovery preparation remain open.
 The goal is active again; the earlier usage-limited note below is historical.
 The separate PurePay approval-return release chat confirmed all 18 integration
 paths restored byte-for-byte and provider workers available after release

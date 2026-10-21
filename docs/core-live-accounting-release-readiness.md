@@ -67,6 +67,66 @@ must remain intact. This is a concrete activation prerequisite.
 
 ## Validation and remaining work
 
+### Private connection gate completed
+
+Candidate `fa8a1cfca8ece9b584a4f5c7a7da646a50761b99` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39689964412),
+including 35 private-settings/HTTP checks on Linux. The subsequent
+[production preparation](https://github.com/coreflux-creator/CoreFlux/actions/runs/39690256340)
+passed both the real CLI and PHP-FPM read-only connection checks. Private
+settings are preserved under `private_html/core-full-release-<candidate>/`;
+the intended activation bridge was exercised in the private candidate copy.
+The temporary public probe was removed, the live configuration hash stayed
+unchanged, and all four new delivery/authority flags were false in PHP-FPM.
+The saved CLI receipt intentionally still says `web_verification: false`;
+the separate web receipt establishes successful PHP-FPM verification.
+
+No runtime bridge was installed, no migrations ran, and the new accounting UI
+is still not active in production. The preparation upload is retained at
+`/tmp/core-integration-39690256340`. Local sanitized receipts are saved as
+`core-production-settings-39690256340.json` in Temp. The first CI fixture run
+failed because its SELECT-only account did not allow the GitHub database
+container bridge; that disposable fixture was corrected and all checks passed.
+No production settings were used in CI.
+
+### Reviewed data effects of the pending migrations
+
+The 59-file upgrade includes more than empty-table creation. The data-changing
+statements have been reviewed in source; production row counts and the exact
+maintenance/backup procedure still need to be bound to the final candidate.
+
+- Stable person, company, client, vendor and placement references are backfilled
+  from existing record IDs. Existing numbers and merge aliases survive; provider
+  IDs are separate. Insert triggers cover future records. Platform export presets
+  gain the reference columns while tenant-customized presets are preserved.
+- Customer Deposits account 2300 is seeded only if absent. These migrations do
+  not create a receipt, invoice, journal or payment. Untouched default invoice
+  posting-rule labels change from "sent" to "issued" without changing IDs or
+  tenant-customized rules.
+- Bill creator attribution is recovered only from its exact CoreOne request and
+  credential owner. Approval projections are repaired from existing recorded
+  reviewer decisions; stale pending reviewer rows become superseded. This must
+  be reconciled against workflow evidence, not treated as new approval.
+- Legacy billing contacts acquire an entity only where their tenant has exactly
+  one active entity. Multi-entity contacts stay unresolved for human review.
+- Bank receipt payment metadata is repaired only where the existing posted
+  journal and matched statement line agree. Amounts and allocations are not
+  changed by that repair.
+- Bank cash-code uniqueness moves from tenant to tenant/entity scope. A NULL
+  entity retains scope zero. Journal-void fields and this index conversion have
+  a populated-table rehearsal in the existing CI suite.
+- Invoice links retain their stored hash while the legacy plaintext token column
+  is dropped. A code-only rollback to a version requiring that column is unsafe;
+  restore the matching database snapshot as well while writers remain stopped.
+
+Three historical migration sources require explicit retention at release:
+007_subtenant_provisioning, 041_csv_mapping_presets and 043_simulation_harness.
+Their deployed bytes match the successful ledger entries. Preserve those exact
+reviewed sources and ledger rows as release exceptions instead of letting the
+web startup runner reapply changed historical files. Do not run either generic
+migration runner against production until the exact pending set, these source
+exceptions and writer maintenance have been verified together.
+
 Private connection preparation is now implemented separately from activation.
 `production_prepare_settings` requires CI success for the exact selected
 revision. It verifies the known live configuration fingerprint, copies only
@@ -86,7 +146,8 @@ SELECT-only account, special-character preservation, replay, wrong-password
 failure, source-row preservation and path/configuration guards. CI additionally
 checks POSIX permissions and symlink rejection. HTTP checks cover wrong tokens,
 method/host/expiry guards, successful read-only access and sanitized bootstrap
-failure. This preparation mode has not yet been run on production.
+failure. The production result is recorded above. Worker scheduling, exact
+migration activation, backups and recovery remain unfinished release gates.
 
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static
