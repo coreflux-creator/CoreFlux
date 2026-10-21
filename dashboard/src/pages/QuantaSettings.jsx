@@ -4,6 +4,7 @@ import { AlertCircle, ArrowLeft, ArrowRight, BriefcaseBusiness, Check, Clock3, K
 import { api, useApi } from '../lib/api';
 import QuantaPublicationPanel from './QuantaPublicationPanel';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
+import QuantaMetadataPanel from './QuantaMetadataPanel';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -294,6 +295,7 @@ export default function QuantaSettings() {
     {connected && <>
       <QuantaWorkspacePanel key={`workspace-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspace={status.data?.workspace} />
       {catalog && <QuantaPublicationPanel key={status.data?.workspace?.id} people={people} />}
+      {catalog && <QuantaMetadataPanel key={`metadata-${status.data?.workspace?.id}-${status.data?.connection_revision}`} people={people} placements={catalog.metadata_placements || placements} worksites={catalog.worksites || []} />}
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'start' }}>
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Worker identities</h2>

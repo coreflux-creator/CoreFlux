@@ -123,6 +123,13 @@ $process = proc_open([PHP_BINARY, INTEGRATION_STAGE_ROOT . '/deploy/migrate_core
 if (!is_resource($process) || proc_close($process) !== 0) {
     throw new RuntimeException('Staging migration failed; backup retained at ' . $backup);
 }
+$identityProcess=proc_open([PHP_BINARY,INTEGRATION_STAGE_ROOT.'/deploy/configure_core_integration_identity.php','--initialize'],
+    [0=>STDIN,1=>STDOUT,2=>STDERR],$identityPipes,INTEGRATION_STAGE_ROOT);
+if (!is_resource($identityProcess) || proc_close($identityProcess)!==0) throw new RuntimeException('Staging integration identity setup failed; runtime backup retained at '.$backup);
+$identityConfig=dirname(INTEGRATION_STAGE_ROOT).'/private_html/coreflux.integration.php';
+if (is_file($identityConfig)) {
+    if (!copy($identityConfig,$backup.'/coreflux.integration.php') || !chmod($backup.'/coreflux.integration.php',0600)) throw new RuntimeException('Cannot retain permanent identity in the private release backup');
+}
 foreach ($manifest['files'] as $relative => $hash) {
     if (!hash_equals($hash, hash_file('sha256', INTEGRATION_STAGE_ROOT . '/' . $relative))) {
         throw new RuntimeException('Installed checksum mismatch: ' . $relative);

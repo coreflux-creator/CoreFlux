@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 function integrationInstanceId(): ?string
 {
+    $privateConfig=dirname(__DIR__,3).'/private_html/coreflux.integration.php';
+    if (is_file($privateConfig)) {
+        $resolved=str_replace('\\','/',(string)realpath($privateConfig));
+        $expected=str_replace('\\','/',$privateConfig);
+        if (PHP_OS_FAMILY==='Windows') { $resolved=strtolower($resolved); $expected=strtolower($expected); }
+        if (is_link($privateConfig) || $resolved!==$expected) throw new RuntimeException('Invalid private Core integration identity location');
+        require_once $privateConfig;
+    }
     $id = defined('COREFLUX_INTEGRATION_INSTANCE_ID') ? constant('COREFLUX_INTEGRATION_INSTANCE_ID') : getenv('COREFLUX_INTEGRATION_INSTANCE_ID');
     if ($id === false || $id === null || $id === '') return null;
     if (!is_string($id) || !preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D', $id)) {

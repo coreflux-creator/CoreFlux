@@ -13,6 +13,7 @@ $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$inCi?'root
 $db='coreflux_delivery_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/158_integration_deliveries.sql'))as$sql)$pdo->exec($sql);
+foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/162_integration_delivery_receipt.sql'))as$sql)$pdo->exec($sql);
 $passed=0;
 $check=static function(bool $ok,string $label)use(&$passed):void{if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS {$label}\n";};
 $fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable $e){return true;}};
@@ -119,4 +120,5 @@ $check($fails(fn()=>quantaWorkspaceBind($pdo,1,7,['id'=>1,'binding_revision'=>2]
 $check((int)$pdo->query('SELECT binding_revision FROM quanta_connections WHERE tenant_id=1')->fetchColumn()===4,'each successful connection change advances its revision; failures do not');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/159_quanta_workspace_binding.sql'))as$sql)$pdo->exec($sql);
 $check((int)$pdo->query('SELECT binding_revision FROM quanta_connections WHERE tenant_id=1')->fetchColumn()===4,'migration replay preserves connection revision');
+require __DIR__.'/fixtures/quanta_metadata_checks.php';
 echo "Integration deliveries MariaDB: {$passed} passed\n";

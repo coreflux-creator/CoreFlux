@@ -14,6 +14,11 @@ define('COREFLUX_DATA_KEY', 'REPLACE_ME_WITH_BASE64_32_BYTES');
 // Changing it after publication requires an identity migration, not a key rotation.
 // Missing configuration keeps outbound identity binding disabled.
 // define('COREFLUX_INTEGRATION_INSTANCE_ID', 'REPLACE_WITH_PERMANENT_UUID_V4');
+// Isolated staging setup can persist this in private_html/coreflux.integration.php.
+// That private file is preserved across releases and must never be cloned to another installation.
+// Enable reviewed identity/assignment metadata delivery only after verifying the provider contract.
+// This does not enable worker activation, access, payroll or payments.
+// define('COREFLUX_QUANTA_METADATA_DELIVERY', true);
 
 // OpenAI key — used directly by core/ai_service.php (no Python sidecar).
 // Get one at https://platform.openai.com/api-keys

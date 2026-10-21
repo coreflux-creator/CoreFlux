@@ -93,23 +93,49 @@ Identity retargeting is refused once established. Publication previews require
 a fresh matching provider context and store the typed person reference.
 This increment passes 40 focused checks, 54 disposable MariaDB delivery/binding
 checks and the existing 45 publication and 74 Quanta checks. The dashboard
-build passes with existing warnings. Hosted checks for this increment are
-separate from the earlier runtime revision cited above.
+build passes with existing warnings. Commit `9edaad80bd3e30c137dae404c322b5fe323ae79f`
+passed [hosted CI](https://github.com/coreflux-creator/CoreFlux/actions/runs/39527038590)
+and [isolated staging deployment](https://github.com/coreflux-creator/CoreFlux/actions/runs/39527685302).
+
+The next increment connects Core to the shared metadata contract: a reviewed
+person link, then assignment creation and conditional title/date/status edits.
+It reads canonical registry numbers from separately authorized people,
+placement, client, company and vendor directories. Immutable relationships
+cannot be silently replaced. Each send rechecks the binding and both snapshots,
+commits an exclusive claim before provider IO, validates the complete response,
+and stores the provider receipt atomically with its result (migration 162).
+A timeout cannot be bypassed with another click or a changed preview.
+
+The review UI exposes these operations, including ended/cancelled placements.
+`COREFLUX_QUANTA_METADATA_DELIVERY` remains off unless explicitly enabled in
+that environment; it enables only reviewed identity/assignment metadata.
+Worker creation/activation, operational access, onboarding, rates and execution
+remain separate. No live provider records have been sent by this increment.
+Validation: 62 contract checks and 88 disposable MariaDB checks pass. A local
+cross-repository test runs the actual Core PHP client through Quanta's real
+authenticated FastAPI handlers with an isolated Mongo mock: 12 exchange,
+readback, replay, conflict and isolation checks pass. Quanta's suite now passes
+39 tests with that optional companion checkout configured. This is synthetic
+contract validation, not a live Thunderhawk acceptance result.
 
 Before binding, set one permanent lowercase UUID v4 as
 `COREFLUX_INTEGRATION_INSTANCE_ID` in each installation's private configuration
 or environment. Staging and production must use different UUIDs; never copy
 this value when cloning an environment or change it after publishing records
 without a migration review. Missing configuration disables binding/publication,
-while the read-only organization check remains available. No identity or API
-key was provisioned by this increment.
+while the read-only organization check remains available. The isolated staging
+installer now has a guarded one-time initializer that stores its UUID in
+`private_html/coreflux.integration.php`, retains it on subsequent releases and
+includes it in private release backups. It refuses replacement or generation
+when prior bindings/attempts exist without their identity. Provider delivery
+stays disabled. No API key is provisioned by this setup.
 
 The Quanta Chrome session returned `Not authenticated` when opening Master.
 The user has been asked to restore a session with Thunderhawk access, and to
 identify PurePayroll's current editable project. Those replies are pending.
 
-Next: configure the isolated Core installation identity, verify Thunderhawk's
-remote organization, then connect reviewed delivery to the shared contract.
+Next: deploy this increment, verify Thunderhawk's remote organization, and
+configure the authorized environment for authenticated provider acceptance.
 Assignment commercial terms, portal onboarding, time routing and PurePayroll
 exchange remain separate unfinished work. Also harden PurePay's existing payment
 driver: it currently allows `creating`/failed/review states to retry without

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/quanta/sync.php';
 require_once __DIR__ . '/../core/quanta/publication.php';
 require_once __DIR__ . '/../core/quanta/workspace.php';
+require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -33,7 +34,7 @@ function quantaApiWindow(array $body): array
     return [$since, $status];
 }
 
-function quantaApiPlacements(int $tenantId): array
+function quantaApiPlacements(int $tenantId, bool $includeCancelled = false): array
 {
     $placementTenant = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
     $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
@@ -44,7 +45,7 @@ function quantaApiPlacements(int $tenantId): array
                 CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name
            FROM placements p
            JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet AND pe.deleted_at IS NULL
-          WHERE p.tenant_id = :pt AND p.deleted_at IS NULL AND p.status != "cancelled"
+          WHERE p.tenant_id = :pt AND p.deleted_at IS NULL' . ($includeCancelled ? '' : ' AND p.status != "cancelled"') . '
        ORDER BY FIELD(p.status, "active", "draft", "ended"), person_name, p.id'
     );
     $stmt->execute(['pt' => $placementTenant, 'pet' => $peopleTenant]);
@@ -104,6 +105,7 @@ try {
         api_ok($catalog + [
             'people' => quantaApiPeople($tenantId), 'worker_links' => quantaWorkerLinks($tenantId),
             'placements' => quantaApiPlacements($tenantId), 'routes' => quantaRoutes($tenantId),
+            'metadata_placements' => quantaApiPlacements($tenantId, true),
             'people_directory' => ['id' => $peopleTenant, 'name' => $directory->fetchColumn() ?: 'People directory'],
         ]);
     }
@@ -128,6 +130,25 @@ try {
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
+
+    if ($action === 'metadata_preview') {
+        rbac_legacy_require($user, 'people.view');
+        $kind=$body['entity_type']??null;
+        if (!in_array($kind,['person','placement'],true) || !is_int($body['entity_id']??null) || $body['entity_id']<=0) throw new InvalidArgumentException('Choose a person or placement');
+        if ($kind==='placement') rbac_legacy_require($user, 'placements.view');
+        $site=$body['worksite_id']??null;
+        if ($site!==null && !is_string($site)) throw new InvalidArgumentException('Invalid worksite');
+        api_ok(quantaMetadataPreview($tenantId,$actorId,$kind,$body['entity_id'],$site));
+    }
+
+    if ($action === 'metadata_send') {
+        rbac_legacy_require($user, 'people.view');
+        if (($body['confirm_metadata']??null)!==true || !is_int($body['delivery_id']??null) || $body['delivery_id']<=0
+            || !is_string($body['review_hash']??null)) throw new InvalidArgumentException('Confirm the reviewed metadata before sending');
+        $delivery=integrationDeliveryGet(getDB(),$tenantId,$body['delivery_id']);
+        if ($delivery['entity_type']==='placement') rbac_legacy_require($user, 'placements.view');
+        api_ok(quantaMetadataSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
+    }
 
     if ($action === 'confirm_workspace') {
         if (($body['confirm_same_organization'] ?? null) !== true) throw new InvalidArgumentException('Confirm that these workspaces represent the same organization');

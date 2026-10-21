@@ -40,7 +40,7 @@ function integrationDeliverySummary(array $row): array
 {
     return array_intersect_key($row, array_flip([
         'id', 'provider', 'entity_type', 'entity_tenant_id', 'entity_id', 'operation',
-        'state', 'review_hash', 'remote_id', 'error_code', 'created_at', 'expires_at',
+        'state', 'review_hash', 'remote_id', 'remote_receipt_id', 'error_code', 'created_at', 'expires_at',
         'approved_at', 'attempted_at', 'finished_at',
     ]));
 }
@@ -55,7 +55,8 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     }
     if (!in_array($context['provider'], ['quanta','purepay','purepayroll'], true)) throw new InvalidArgumentException('Unsupported delivery provider');
     // Every operation added here needs a reviewed adapter and fixture before it can be queued.
-    if ($context['provider']!=='quanta' || $context['entity_type']!=='person' || !in_array($context['operation'],['worker.create','worker.update'],true)) {
+    $operations=['person'=>['worker.create','worker.update','person.link'],'placement'=>['assignment.create','assignment.update']];
+    if ($context['provider']!=='quanta' || !in_array($context['operation'],$operations[$context['entity_type']]??[],true)) {
         throw new InvalidArgumentException('This delivery operation is not implemented');
     }
     foreach (['binding_hash','source_hash','remote_hash'] as $key) {
@@ -131,10 +132,10 @@ function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $curre
         $pending=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND state IN ("sending","uncertain") LIMIT 1');
         $pending->execute(['t'=>$tenantId,'s'=>$row['subject_hash']]);
         if ($pending->fetchColumn()) throw new RuntimeException('Reconcile the previous attempt before sending another change for this record');
-        if ($row['operation']==='worker.create') {
-            $created=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND operation="worker.create" AND state="delivered" LIMIT 1');
-            $created->execute(['t'=>$tenantId,'s'=>$row['subject_hash']]);
-            if ($created->fetchColumn()) throw new RuntimeException('This worker was already created; reconcile its identity before publishing an update');
+        if (in_array($row['operation'],['worker.create','person.link','assignment.create'],true)) {
+            $created=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND operation=:o AND state="delivered" LIMIT 1');
+            $created->execute(['t'=>$tenantId,'s'=>$row['subject_hash'],'o'=>$row['operation']]);
+            if ($created->fetchColumn()) throw new RuntimeException('This record was already published; reconcile its identity before publishing an update');
         }
         $stmt = $pdo->prepare('UPDATE integration_deliveries SET state="sending",claim_hash=:c,attempted_at=NOW()
             WHERE tenant_id=:t AND id=:id AND state="approved" AND expires_at>NOW()');
@@ -146,7 +147,7 @@ function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $curre
 }
 
 /** Errors are codes only: provider error text may contain private payloads or credentials. */
-function integrationDeliveryFinish(PDO $pdo, int $tenantId, int $id, string $claim, string $state, ?string $remoteId=null, ?string $errorCode=null): void
+function integrationDeliveryFinish(PDO $pdo, int $tenantId, int $id, string $claim, string $state, ?string $remoteId=null, ?string $errorCode=null, ?string $receiptId=null): void
 {
     if ($pdo->inTransaction()) throw new LogicException('Delivery results must be durable independently of caller transactions');
     if (!in_array($state,['delivered','uncertain','failed'],true)) throw new InvalidArgumentException('Invalid delivery result');
@@ -154,9 +155,10 @@ function integrationDeliveryFinish(PDO $pdo, int $tenantId, int $id, string $cla
     if ($state==='delivered' && ($remoteId===null || $remoteId==='')) throw new InvalidArgumentException('Confirmed remote identity required');
     if ($remoteId!==null && (strlen($remoteId)>128 || preg_match('/[\x00-\x1f\x7f]/',$remoteId))) throw new InvalidArgumentException('Invalid remote identity');
     if ($errorCode!==null && !preg_match('/^[a-z0-9_]{1,64}$/D',$errorCode)) throw new InvalidArgumentException('Use a safe delivery error code');
-    $stmt=$pdo->prepare('UPDATE integration_deliveries SET state=:s,remote_id=:r,error_code=:e,finished_at=NOW(),claim_hash=NULL
+    if ($receiptId!==null && ($state!=='delivered' || !preg_match('/^[A-Za-z0-9_-]{1,128}$/D',$receiptId))) throw new InvalidArgumentException('Invalid confirmed provider receipt');
+    $stmt=$pdo->prepare('UPDATE integration_deliveries SET state=:s,remote_id=:r,remote_receipt_id=:receipt,error_code=:e,finished_at=NOW(),claim_hash=NULL
         WHERE tenant_id=:t AND id=:id AND state="sending" AND claim_hash=:c');
-    $stmt->execute(['s'=>$state,'r'=>$remoteId,'e'=>$errorCode,'t'=>$tenantId,'id'=>$id,'c'=>hash('sha256',$claim)]);
+    $stmt->execute(['s'=>$state,'r'=>$remoteId,'receipt'=>$receiptId,'e'=>$errorCode,'t'=>$tenantId,'id'=>$id,'c'=>hash('sha256',$claim)]);
     if ($stmt->rowCount()!==1) throw new RuntimeException('Delivery result does not match the active attempt');
 }
 
