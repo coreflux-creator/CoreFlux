@@ -157,6 +157,47 @@ and schedules require review before activation; packaging them does not enable
 or run a worker. The first operations-only audit stopped on an incorrect vendor
 table name without modifying data; it was corrected to `ap_vendors_index`.
 
+### Operations inventory and backup capacity
+
+The [operations audit](https://github.com/coreflux-creator/CoreFlux/actions/runs/39691360210)
+confirmed MariaDB 10.11.18, 387 InnoDB tables, six views and 19 triggers, with
+no stored routines or database events. Estimated data is 6.31 GB plus 1.41 GB
+of indexes; the largest two tables are `entity_sync_history` and
+`integration_payload_field_index`. No application rows were removed. A normal
+uncompressed local backup does not fit in the available space, so an off-server
+backup/recovery option must be verified or a bounded compressed backup rehearsed.
+
+The SSH user's crontab has nine Core entries covering eight scripts: QBO token
+refresh, inbound sync (including a second full-sync schedule), outbound sync,
+two-way sync, payment polling, health alerts, PurePay health and PurePay payment
+status. No explicit new delivery/authority flag is enabled in those lines.
+This is an inventory, not proof that all schedulers are paused; the application
+owner's separate scheduler still requires verification. There were no other
+database connections at the instant of inspection, which is not a maintenance lock.
+
+The [verified upload cleanup](https://github.com/coreflux-creator/CoreFlux/actions/runs/39691272402)
+removed only completed reproducible packages 39686512795, 39686720751 and
+39686986781 after matching their successful workflow revisions, canonical paths,
+ownership and manifest identities. This reclaimed about 2.06 GB; the subsequent
+audit reported 3.24 GB free. Configuration preparation 39690256340 and private
+release backups were retained. The historical inspection reports remain saved
+locally. Cloudways is currently signed out in Chrome; the user has been asked
+to sign in for backup/restore verification. No restore or production activation
+has been attempted.
+
+Candidate `208f61a32d741c3f40e9480548fa34a79be907eb` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39691285740).
+The local Windows package build could copy and hash-check all three updated
+worker entrypoints but could not finish because Composer is unavailable there.
+The [hosted full-package build and staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39691594867)
+then passed for that same revision, including lifecycle, split receipts, credit
+applications and invoice delivery. The source guards remain ready, payroll
+authority remains disabled and production was skipped. The incomplete local
+package `core-release-worker-check-7e885f1ec4d54160944d862eb9ed705b` remains
+in Temp because automatic approval review blocked its removal with only
+"blocked by policy" as the reason. It contains source/build files, not a live
+database backup. No alternate deletion path was attempted.
+
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static
 checks pass. Candidate `e3fdb0a6` passed all eight
@@ -169,11 +210,10 @@ and invoice-delivery acceptance. Schema/source guards are ready and payroll
 authority remains disabled. Production was skipped. The updated sidebar and
 accounting overview are staged, not live.
 
-The production inspection modes have no install/migration path. Their private
-candidate packages remain under `/tmp/core-integration-39686512795`,
-`/tmp/core-integration-39686720751` and `/tmp/core-integration-39686986781`;
-retain the needed exact candidate and clean only verified redundant uploads.
-Complete configuration preservation, the exact migration/activation procedure,
+The production inspection modes have no install/migration path. The superseded
+private candidate packages were reclaimed as recorded above; retain the current
+configuration-preparation package and all needed recovery artifacts.
+Complete the exact migration/activation procedure,
 writer maintenance, verified file/database backups and recovery checks before
 requesting the final production-cutover approval. No live records, migrations,
 credentials, payroll, payment or invoice issuance were changed by this work.

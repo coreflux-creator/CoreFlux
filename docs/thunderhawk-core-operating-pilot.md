@@ -19,6 +19,12 @@ CI jobs and 35 settings/HTTP checks, then passed actual production CLI and
 PHP-FPM read-only verification. The settings were preserved privately and the
 temporary probe removed; live configuration and data were not changed.
 Database upgrade, writer maintenance and recovery preparation remain open.
+The package now includes the updated accounting workers. Runtime `208f61a3`
+passed all eight CI jobs and staging acceptance (run 39691594867); production
+was skipped. The live operations inventory found nine scheduled Core jobs and
+about 7.71 GB of database data/index allocation. Verified removal of three
+superseded upload packages recovered about 2.06 GB, leaving about 3.24 GB free.
+Cloudways sign-in is pending for off-server backup/restore verification.
 The goal is active again; the earlier usage-limited note below is historical.
 The separate PurePay approval-return release chat confirmed all 18 integration
 paths restored byte-for-byte and provider workers available after release
