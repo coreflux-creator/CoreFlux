@@ -31,7 +31,52 @@ paths restored byte-for-byte and provider workers available after release
 87e2aee. Its remote `/app` write hold is lifted; no integration edits occurred
 during either coordinated release.
 
-## Frozen placement earnings checkpoint — October 21, 2026
+## Held payroll draft checkpoint — October 21, 2026
+
+Provider candidate `585a3c1` now creates one recoverable native/manual draft
+from an exact Core source grant. It checks current links, active hourly W-2
+employees, assignment dates/status, one pay group, pay date and payroll settings.
+The review binds those records, YTD and calculated figures; changes require
+another review. Placement rates and original Core/Quanta source identities
+remain attached to every earning component.
+
+The grant is atomically allocated before a deterministic preparing run is
+saved. That non-executable run retains ownership across partial claim writes;
+retry completes the same draft, without releasing time or creating another run.
+A fresh browser can recover the original request from the session status API.
+The input screen shows review figures, draft/recovery status and the existing
+pay-run destination. Read-only users can inspect status but cannot create or
+recover a run. Voided, removed and missing allocated runs are not recreated.
+
+All created runs are explicitly held. Actual approval, funding and payment
+functions reject the hold before banking adapters. `COREFLUX_PAYROLL_DRAFTS`
+defaults OFF and has not been enabled. Core's authority and live-delivery gates
+also remain OFF. Existing authority receipts deliberately refuse allocated
+states, so Core continues to hold the original source claims.
+
+Seven files were saved and read-back verified in Beautiful Kalam 6; there are
+21 pending source paths. This includes fixing a full-app router-ordering bug:
+Core review routes had been added after the main API was copied into the app.
+Only those two server registration lines moved; unrelated server and cron
+content was preserved. The shared release chat received the new exact hashes.
+Provider `CORE-EXCHANGE.md` records the source manifest and browser interruption
+recovery. Source save does not establish deployment or hosted acceptance.
+
+Validation: 177 provider tests and 14 Node checks pass. The 31 new draft tests
+cover concurrent creation, five interrupted-write boundaries, cancellation
+races, stale reviews, permissions/companies, Quanta overlap, reload recovery,
+execution holds and actual server-router mounting. Native function tests still
+isolate the tax adapter; full-app startup and tax correctness remain unverified.
+
+Next: allocated cancellation with durable fencing against delayed writes;
+restore/reopen authority validation; typed allocation/result receipts in Core;
+complete result lineage; then the hosted Thunderhawk draft round trip. Onboarding,
+access and commercial-term exchange also remain open. No real payroll, payment,
+financial posting or production cutover occurred. The integration goal stays
+active. Core's accounting release still awaits Cloudways sign-in for verified
+backup/restore and the remaining migration/activation controls.
+
+## Earlier frozen placement earnings checkpoint — October 21, 2026
 
 PurePayroll's development source now calculates hourly USD earnings from each
 Core placement/time component and displays the per-component amounts and gross
@@ -51,11 +96,11 @@ do not establish tax accuracy or full-app acceptance. Browser policy refused
 the local file preview; the actual component passed local rendering checks, but
 hosted visual verification remains outstanding.
 
-Native draft creation from the grant, allocation/release recovery, complete
-result lineage and the hosted Thunderhawk round trip remain open. Draft apply
-and live delivery are still disabled. This completes the frozen-earnings
-subtask, not the integration goal. Cloudways sign-in remains pending for Core's
-separate live accounting backup/recovery gate.
+At this earlier checkpoint, native draft creation from the grant was still
+open; the held-draft checkpoint above supersedes that status. Allocated release,
+complete result lineage and the hosted Thunderhawk round trip remain open.
+Draft apply and live delivery remain disabled. Cloudways sign-in is still
+pending for Core's separate live accounting backup/recovery gate.
 
 ## Payroll reservation delivery and cancellation — October 21, 2026
 
