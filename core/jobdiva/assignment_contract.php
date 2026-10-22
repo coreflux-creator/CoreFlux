@@ -10,6 +10,23 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/classification.php';
 
+/** JobDiva uses zero for an absent subcontract company; other provider IDs stay opaque. */
+function jobdivaAssignmentCompanyId(mixed $value): string
+{
+    if (!is_scalar($value)) return '';
+    $id = trim((string) $value);
+    if (strtolower($id) === 'null' || preg_match('/^[+-]?0+(?:\.0+)?$/D', $id)) return '';
+    return $id;
+}
+
+/** Only authoritative C2C evidence may create or resolve a subcontract payee. */
+function jobdivaAssignmentSubcontractCompanyId(array $payload): string
+{
+    $review = jobdivaClassificationFromPayload($payload);
+    if ($review['status'] !== 'resolved' || $review['engagement_type'] !== 'c2c') return '';
+    return jobdivaAssignmentCompanyId($payload['_jd_contract']['corporation_id'] ?? null);
+}
+
 function jobdivaAssignmentContractNormaliseKey(string $value): string
 {
     $value = str_replace('%', ' percent ', $value);
@@ -626,6 +643,10 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         ? round(($vmsBillRate - $netBillRate) / $vmsBillRate, 6)
         : null;
 
+    $corporationIdRaw = $pick([
+        'Corporation ID', 'corporationId', 'corporation_id', 'Vendor ID', 'vendorId',
+        'Subcontract Company ID', 'SUBCONTRACT_COMPANYID', 'subcontractCompanyId',
+    ]);
     $contract = [
         'contract_version' => 1,
         'source' => 'EmployeeAssignmentRecordsDetail',
@@ -717,10 +738,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
             'Corporation', 'Corporation Name', 'corporationName', 'corporation_name',
             'Subcontractor Company', 'Vendor Company',
         ])),
-        'corporation_id' => trim((string) $pick([
-            'Corporation ID', 'corporationId', 'corporation_id', 'Vendor ID', 'vendorId',
-            'Subcontract Company ID', 'SUBCONTRACT_COMPANYID', 'subcontractCompanyId',
-        ])),
+        'corporation_id' => jobdivaAssignmentCompanyId($corporationIdRaw),
         'payment_frequency' => $paymentFrequencyRaw,
         'vendor_pay_cycle' => jobdivaAssignmentContractCadence($paymentFrequencyRaw),
         'billing_frequency' => $billingFrequencyRaw,
@@ -809,6 +827,10 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         return $out;
     };
     $result = $prune($contract);
+    // Preserve an explicit no-company sentinel separately from a missing field.
+    if (jobdivaAssignmentContractHasValue($corporationIdRaw)) {
+        $result['corporation_id'] = jobdivaAssignmentCompanyId($corporationIdRaw);
+    }
     // Missing/negative observations are part of the review evidence, not empty display fields.
     $result['classification_review'] = $classificationReview;
     return $result;

@@ -2186,7 +2186,7 @@ function jobdivaSyncAssignmentContractsBatch(
         // while JobDiva responds.
         $subcontractCompanyIds = [];
         foreach ($items as $payload) {
-            $companyExternalId = trim((string) ($payload['_jd_contract']['corporation_id'] ?? ''));
+            $companyExternalId = jobdivaAssignmentSubcontractCompanyId($payload);
             if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
         }
         foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
@@ -2574,7 +2574,7 @@ function jobdivaSyncReviewAssignmentContractsBatch(
 
         $subcontractCompanyIds = [];
         foreach ($items as $payload) {
-            $companyExternalId = trim((string) ($payload['_jd_contract']['corporation_id'] ?? ''));
+            $companyExternalId = jobdivaAssignmentSubcontractCompanyId($payload);
             if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
         }
         foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
@@ -4390,7 +4390,7 @@ function jobdivaApplyStoredAssignmentProjection(
     // transaction. This can call JobDiva and must not hold placement locks.
     foreach (array_keys($selected) as $startId) {
         $contract = $rowsByStart[$startId]['contract']['source_contract'] ?? [];
-        $companyExternalId = trim((string) ($contract['corporation_id'] ?? ''));
+        $companyExternalId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contract]);
         if ($companyExternalId !== '') {
             jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId);
         }
@@ -5051,7 +5051,7 @@ function jobdivaSyncResolveSubcontractCompany(
     string $externalId,
     ?int $userId = null
 ): ?array {
-    $externalId = trim($externalId);
+    $externalId = jobdivaAssignmentCompanyId($externalId);
     if ($tid <= 0 || $externalId === '') return null;
 
     $placeholder = null;
@@ -5208,7 +5208,7 @@ function jobdivaSyncUpsertPlacementCorpDetails(
     $contract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
         ? $jd['_jd_contract']
         : [];
-    $corpExternalId = trim((string) ($contract['corporation_id'] ?? ''));
+    $corpExternalId = jobdivaAssignmentCompanyId($contract['corporation_id'] ?? null);
     $resolvedCompany = $corpExternalId !== ''
         ? jobdivaSyncResolveSubcontractCompany($tid, $corpExternalId, $userId)
         : null;
@@ -5764,43 +5764,67 @@ function jobdivaSyncUpsertSourceAllocationParties(
         }
     }
 
-    $subcontractCompanyId = trim((string) ($contract['corporation_id'] ?? ''));
-    if ($subcontractCompanyId !== '') {
+    $classification = jobdivaClassificationFromPayload($jd);
+    // Missing/conflicting source evidence cannot remove an existing review item.
+    if ($classification['status'] === 'resolved'
+        && ($classification['engagement_type'] !== 'c2c' || array_key_exists('corporation_id', $contract))) {
         try {
             $resolved = getDB()->prepare(
-                'SELECT company_id FROM placement_corp_details
-                  WHERE tenant_id = :t AND placement_id = :p LIMIT 1'
+                'SELECT p.engagement_type, pcd.company_id
+                   FROM placements p
+                   LEFT JOIN placement_corp_details pcd
+                     ON pcd.tenant_id = p.tenant_id AND pcd.placement_id = p.id
+                  WHERE p.tenant_id = :t AND p.id = :p AND p.deleted_at IS NULL LIMIT 1'
             );
             $resolved->execute(['t' => $tid, 'p' => $placementId]);
-            $resolvedCompanyId = (int) $resolved->fetchColumn();
-            if ($resolvedCompanyId <= 0) {
-                placementEconomicsUpsertParty($tid, $placementId, [
-                    'source_ref' => 'jobdiva:unresolved:subcontract_company:' . $subcontractCompanyId,
-                    'source_type' => 'integration',
-                    'role' => 'unresolved_c2c_vendor',
-                    'display_name' => 'JobDiva subcontract company #' . $subcontractCompanyId . ' (name unresolved)',
-                    'money_flow' => 'informational',
-                    'settlement_channel' => 'none',
-                    'fee_basis' => 'pay_rate',
-                    'effective_from' => $startDate !== '' ? $startDate : null,
-                    'effective_to' => $endDate,
-                    'source_system' => 'jobdiva',
-                    'source_external_id' => $subcontractCompanyId,
-                    'source_managed' => 1,
+            $placement = $resolved->fetch(\PDO::FETCH_ASSOC);
+            // A Core-owned classification override also needs a reviewed resolution.
+            if ($placement && $placement['engagement_type'] === $classification['engagement_type']) {
+                $subcontractCompanyId = jobdivaAssignmentSubcontractCompanyId($jd);
+                $needsUnresolved = $subcontractCompanyId !== '' && (int) ($placement['company_id'] ?? 0) <= 0;
+                $sourceRef = 'jobdiva:unresolved:subcontract_company:' . $subcontractCompanyId;
+                // Retire only the integration's informational review rows. Keep
+                // manual overrides, settlement parties and frozen financial history.
+                $owned = 'source_type = "integration" AND COALESCE(source_system, "") = "jobdiva"
+                    AND source_managed = 1 AND role = "unresolved_c2c_vendor"
+                    AND money_flow = "informational" AND settlement_channel = "none"
+                    AND company_id IS NULL AND ap_vendor_id IS NULL
+                    AND payment_terms_overridden = 0 AND pwp_overridden = 0 AND cycle_overridden = 0';
+                $protected = getDB()->prepare(
+                    'SELECT id FROM placement_economic_parties
+                      WHERE tenant_id = :t AND placement_id = :p AND source_ref = :ref
+                        AND NOT (' . $owned . ') LIMIT 1'
+                );
+                $protected->execute(['t' => $tid, 'p' => $placementId, 'ref' => $sourceRef]);
+                if ($needsUnresolved && !$protected->fetchColumn()) {
+                    placementEconomicsUpsertParty($tid, $placementId, [
+                        'source_ref' => $sourceRef,
+                        'source_type' => 'integration',
+                        'role' => 'unresolved_c2c_vendor',
+                        'display_name' => 'JobDiva subcontract company #' . $subcontractCompanyId . ' (name unresolved)',
+                        'money_flow' => 'informational',
+                        'settlement_channel' => 'none',
+                        'fee_basis' => 'pay_rate',
+                        'effective_from' => $startDate !== '' ? $startDate : null,
+                        'effective_to' => $endDate,
+                        'source_system' => 'jobdiva',
+                        'source_external_id' => $subcontractCompanyId,
+                        'source_managed' => 1,
+                    ]);
+                }
+                getDB()->prepare(
+                    'UPDATE placement_economic_parties SET active = 0
+                      WHERE tenant_id = :t AND placement_id = :p
+                        AND ' . $owned . '
+                        AND source_ref LIKE "jobdiva:unresolved:subcontract_company:%"
+                        AND (:retire_all = 1 OR source_ref <> :keep_ref)'
+                )->execute([
+                    't' => $tid,
+                    'p' => $placementId,
+                    'retire_all' => $needsUnresolved ? 0 : 1,
+                    'keep_ref' => $sourceRef,
                 ]);
             }
-            getDB()->prepare(
-                'UPDATE placement_economic_parties SET active = 0
-                  WHERE tenant_id = :t AND placement_id = :p
-                    AND source_type = "integration" AND source_system = "jobdiva"
-                    AND source_ref LIKE "jobdiva:unresolved:subcontract_company:%"
-                    AND (:resolved > 0 OR source_external_id <> :external_id)'
-            )->execute([
-                't' => $tid,
-                'p' => $placementId,
-                'resolved' => $resolvedCompanyId,
-                'external_id' => $subcontractCompanyId,
-            ]);
         } catch (\Throwable $e) {
             error_log('[jobdiva source participants] subcontract-company evidence failed: ' . $e->getMessage());
         }

@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../integrations/source_values.php';
 require_once __DIR__ . '/classification.php';
+require_once __DIR__ . '/assignment_contract.php';
 
 function jobdivaContractProjectionDate(mixed $value): ?string
 {
@@ -192,7 +193,7 @@ function jobdivaContractProjectionBuild(
         ? !empty($contract['paid_when_paid'])
         : null;
     if (str_starts_with($vendorTerms, 'PWP')) $pwp = true;
-    $corporationId = trim((string) ($contract['corporation_id'] ?? ''));
+    $corporationId = jobdivaAssignmentCompanyId($contract['corporation_id'] ?? null);
     $corporationName = trim((string) ($contract['corporation_name'] ?? ''));
     $referralName = trim((string) ($contract['referral_vendor'] ?? ''));
     $referralAmount = jobdivaContractProjectionAmount($contract['referral_fee_amount'] ?? null) ?? 0.0;

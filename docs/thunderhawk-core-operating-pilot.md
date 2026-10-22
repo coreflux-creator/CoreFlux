@@ -1,5 +1,28 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Authenticated pilot and subcontract-party correction - October 22, 2026
+
+Live Core and Quanta sign-ins are confirmed in Thunderhawk. Core's existing
+Quanta connection passed Check access. Quanta has two administrators and no
+workers; the empty worker lists are real. The existing Core key lacks the new
+Core-contract scopes, and the separate Quanta development preview still needs
+its own authenticated session. No key, scope, membership or invitation changed.
+
+A read-only comparison found a JobDiva person/placement matching an existing
+PurePayroll employee, plus a separate provisional spreadsheet duplicate.
+No identity was merged or automatically linked. The reviewed W2 placement has
+an unapproved rate and missing reporting fields. It also exposed an erroneous
+unresolved C2C participant produced from JobDiva's zero subcontract-company ID.
+
+The candidate correction treats zero as no company and resolves subcontract
+payees only from explicit C2C evidence. Reprojection retires obsolete source-owned
+informational vendor review rows only when the current placement classification
+agrees. Missing/conflicting classification, partial C2C evidence, operator-owned
+rows, manual terms, settlement parties, other workspaces and financial snapshots
+remain protected. Genuine unresolved C2C vendors still require review. This is
+source code and disposable-fixture validation, not a claim that the live placement
+has been repaired. No operational transfer or financial execution occurred.
+
 ## Live pilot directory baseline - October 22, 2026 10:23 UTC
 
 The [read-only production inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39762486572)
@@ -29,8 +52,8 @@ state of private endpoints or hosted companion code.
 
 The next required work is authenticated hosted acceptance, not a broader shared
 directory rewrite. Emergent access is restored, and the prepared Quanta worker
-companion is now saved and hash-verified (receipt below). Core and the Quanta
-preview still require separate sign-ins. Establish safe full-app PurePay
+companion is now saved and hash-verified (receipt below). Live Core and Quanta
+are signed in; the Quanta preview needs its separate session. Establish safe full-app PurePay
 acceptance, verify actual workspace bindings and capabilities, then run the
 Thunderhawk person/placement/time/held-payroll/result cycle with onboarding,
 replay, conflict and reconciliation checks. Existing provider IDs and the
