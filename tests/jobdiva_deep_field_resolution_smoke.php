@@ -223,8 +223,8 @@ $a('sync.php placement end_client_name fallback uses dedicated end-client resolv
     && str_contains($sync, "'companyName', 'company_name', 'company name', 'COMPANYNAME'"));
 $a('sync.php placement status fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['status'"));
-$a('sync.php placement engagement_type uses deep pluck',
-    str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'engagementType'"));
+$a('placement classification uses authoritative assignment evidence',
+    str_contains($sync, '$engagement = jobdivaClassificationRequire($jd);'));
 $a('sync.php placement worksite_state uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'worksiteState'"));
 $a('sync.php placement approver_name uses deep pluck',

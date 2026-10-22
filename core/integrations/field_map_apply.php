@@ -881,22 +881,7 @@ function integrationFieldMapBoolValue(mixed $raw): ?int
 
 function integrationFieldMapEngagementValue(mixed $raw): ?string
 {
-    $s = trim((string) $raw);
-    if ($s === '') return null;
-    if (function_exists('jobdivaNormalisePlacementEngagementType')) {
-        $normalised = jobdivaNormalisePlacementEngagementType($s, '');
-        if ($normalised !== '') return $normalised;
-    }
-    $key = strtolower(str_replace(['-', '/', '\\'], ' ', $s));
-    $key = preg_replace('/\s+/', ' ', $key) ?: $key;
-    if ($key === 'ref' || str_contains($key, 'referral')) return 'referral';
-    if ($key === 'internal') return 'internal';
-    if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
-    if (str_contains($key, 'direct hire') || str_contains($key, 'perm')) return 'direct_hire';
-    if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
-    if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
-    if (str_contains($key, 'w2') || str_contains($key, 'w 2') || str_contains($key, 'employee')) return 'w2';
-    return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true) ? $key : null;
+    return jobdivaClassificationValue($raw);
 }
 
 function integrationFieldMapPersonClassificationValue(mixed $raw): ?string
@@ -1076,20 +1061,12 @@ function integrationFieldMapShouldSkipUnsafeJobDivaEngagement(
     array $payload
 ): bool {
     if (strtolower($integration) !== 'jobdiva' || strtolower($entityType) !== 'placement') return false;
-    if ($coercedValue !== 'c2c') return false;
     $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
     $col = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     if ($table !== 'placements' || $col !== 'engagement_type') return false;
+    $review = jobdivaClassificationFromPayload($payload);
+    return $review['status'] !== 'resolved' || $coercedValue !== $review['engagement_type'];
 
-    if (function_exists('jobdivaNormalisePlacementEngagementType')
-        && jobdivaNormalisePlacementEngagementType((string) $rawValue, '') === 'c2c') {
-        return false;
-    }
-    if (function_exists('jobdivaPlacementPayloadHasC2CProof')) {
-        return !jobdivaPlacementPayloadHasC2CProof($payload);
-    }
-
-    return false;
 }
 
 function integrationFieldMapSkippedReason(array $mapping, string $reason): string
@@ -1238,6 +1215,10 @@ function integrationFieldMapApplyAll(
     if ($tid <= 0 || $integration === '' || $entityType === '') return $summary;
     $maps = integrationFieldMapResolveGeneralised($tid, $integration, $entityType);
     if (!$maps) return $summary;
+    if ($integration === 'jobdiva' && $entityType === 'placement') {
+        require_once __DIR__ . '/../jobdiva/classification_mapping.php';
+        $payload = jobdivaClassificationPayloadForTenant($tid, $payload);
+    }
 
     try {
         $pdo = getDB();
@@ -1313,8 +1294,8 @@ function integrationFieldMapApplyAll(
             $val,
             $payload
         )) {
-            integrationFieldMapSkip($summary, $m, 'unsafe_jobdiva_engagement_c2c');
-            $summary['errors'][] = "unsafe_jobdiva_engagement_c2c target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
+            integrationFieldMapSkip($summary, $m, 'jobdiva_classification_needs_review');
+            $summary['errors'][] = "jobdiva_classification_needs_review target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
         }
 
@@ -1379,6 +1360,11 @@ function integrationFieldMapApplyAll(
             try {
                 $tableLower = strtolower((string) ($b['table'] ?? ''));
                 if ($integration === 'jobdiva' && $tableLower === 'placement_rates') {
+                    if (jobdivaClassificationFromPayload($payload)['status'] !== 'resolved') {
+                        $summary['skipped'] += count($b['set']);
+                        $summary['errors'][] = 'jobdiva_classification_needs_review: mapped rates require explicit assignment classification.';
+                        continue;
+                    }
                     $basis = integrationSourceRateBasis($b['raw_set'] + [
                         'bill_rate_raw' => $b['raw_set']['bill_rate'] ?? null,
                         'pay_rate_raw' => $b['raw_set']['pay_rate'] ?? null,

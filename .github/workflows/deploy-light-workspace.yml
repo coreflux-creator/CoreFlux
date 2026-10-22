@@ -117,6 +117,8 @@ jobs:
             core/integrations/data/source_codes.json \
             core/integrations/data/UNICODE-LICENSE.txt \
             core/jobdiva/assignment_contract.php \
+            core/jobdiva/classification.php \
+            core/jobdiva/classification_mapping.php \
             core/jobdiva/contract_projection.php \
             core/jobdiva/mapping_alignment.php \
             core/jobdiva/projector.php \
@@ -713,6 +715,8 @@ jobs:
               core/integrations/data/source_codes.json \
               core/integrations/data/UNICODE-LICENSE.txt \
               core/jobdiva/assignment_contract.php \
+              core/jobdiva/classification.php \
+              core/jobdiva/classification_mapping.php \
               core/jobdiva/contract_projection.php \
               core/jobdiva/mapping_alignment.php \
               core/jobdiva/projector.php \

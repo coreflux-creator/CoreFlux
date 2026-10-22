@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/contract_projection.php';
+require_once __DIR__ . '/classification_mapping.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
@@ -178,6 +179,8 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             (string) ($sourceIdentity['channel'] ?? 'projector')
         );
 
+        $payload = jobdivaClassificationPayloadForTenant($tenantId, $payload);
+        jobdivaClassificationRequire($payload);
         $personId = (int) ($opts['person_id'] ?? 0);
         if ($personId <= 0 && !function_exists('jobdivaPlacementsAutoCreatePerson')) {
             // The stored-assignment reconciliation path loads the canonical

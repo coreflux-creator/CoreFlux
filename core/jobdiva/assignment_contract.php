@@ -8,6 +8,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/classification.php';
+
 function jobdivaAssignmentContractNormaliseKey(string $value): string
 {
     $value = str_replace('%', ' percent ', $value);
@@ -246,21 +248,8 @@ function jobdivaAssignmentContractSnapshotIsStronglyActive(array $payload): bool
 
 function jobdivaAssignmentContractEngagement(string $category, ?bool $w2, ?bool $c2c): string
 {
-    $value = strtolower(trim($category));
-    $value = preg_replace('/[\s_\-\/]+/', ' ', $value) ?: $value;
-    if ($value !== '') {
-        if ($value === 'ref' || str_contains($value, 'referral')) return 'referral';
-        if (str_contains($value, 'subcontract') || str_contains($value, 'corp to corp')
-            || str_contains($value, 'c2c')) return 'c2c';
-        if (str_contains($value, 'independent contractor') || str_contains($value, '1099')) return '1099';
-        if (str_contains($value, 'hourly employee') || str_contains($value, 'salaried employee')
-            || $value === 'employee' || str_contains($value, 'w2')) return 'w2';
-        if (str_contains($value, 'temp to perm') || str_contains($value, 'contract to hire')) return 'temp_to_perm';
-        if (str_contains($value, 'direct hire') || str_contains($value, 'direct placement')) return 'direct_hire';
-    }
-    if ($c2c === true) return 'c2c';
-    if ($w2 === true) return 'w2';
-    return '';
+    // These legacy flags describe cost profiles, not an employment category.
+    return jobdivaClassificationValue($category, true) ?? '';
 }
 
 function jobdivaAssignmentContractCadence(mixed $raw): ?string
@@ -436,6 +425,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
 {
     $expectedStartId = trim($expectedStartId);
     $matching = jobdivaAssignmentContractRowsForStart($rows, $fallback, $expectedStartId);
+    $sourceRows = $matching;
     // Never fall back to explicitly mismatched assignment rows. The source
     // Start remains useful for non-financial identity and lifecycle fields,
     // but a related employee/job row cannot provide rates or terms.
@@ -464,14 +454,23 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $salaryPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($salaryEntries, $labels);
     $billingCompanyPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($billingCompanyEntries, $labels);
     $startId = trim((string) ($pick(['Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId']) ?? $expectedStartId));
-    $employmentCategory = trim((string) $pick([
+    $employmentCategory = trim((string) ($salaryPick([
         'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
-    ]));
+    ]) ?? $pick([
+        'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
+    ])));
     $w2 = jobdivaAssignmentContractBool($pick(['W2', 'W-2', 'W2 Overheads', 'W2 Overhead']))
         || jobdivaAssignmentContractProfileSelected($entries, ['w2']);
     $c2c = jobdivaAssignmentContractBool($pick(['C2C', 'Corp To Corp', 'Crop To Crop', 'C2C Overheads', 'C2C Overhead']))
         || jobdivaAssignmentContractProfileSelected($entries, ['c2c', 'corp to corp', 'crop to crop']);
-    $engagement = jobdivaAssignmentContractEngagement($employmentCategory, $w2, $c2c);
+    $classificationReview = jobdivaClassificationReview($salaryEntries, 'assignment_salary');
+    if (!$classificationReview['has_evidence']) {
+        $classificationReview = jobdivaClassificationReview(jobdivaAssignmentContractEntries($sourceRows), 'assignment_detail');
+    }
+    if (!$classificationReview['has_evidence']) {
+        $classificationReview = jobdivaClassificationFromPayload($fallback);
+    }
+    $engagement = $classificationReview['engagement_type'] ?? '';
 
     $paymentFrequencyRaw = $salaryPick([
         'Payment Frequency', 'paymentFrequency', 'payment_frequency', 'Vendor Payment Frequency',
@@ -633,6 +632,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'start_id' => $startId,
         'employment_category' => $employmentCategory,
         'engagement_type' => $engagement,
+        'classification_review' => $classificationReview,
         'placement_status' => $placementStatus,
         'start_date' => $startDateRaw,
         'end_date' => $endDateRaw,
@@ -808,5 +808,8 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         }
         return $out;
     };
-    return $prune($contract);
+    $result = $prune($contract);
+    // Missing/negative observations are part of the review evidence, not empty display fields.
+    $result['classification_review'] = $classificationReview;
+    return $result;
 }

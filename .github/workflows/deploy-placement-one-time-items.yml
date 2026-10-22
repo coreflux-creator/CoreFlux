@@ -280,9 +280,12 @@ jobs:
             core/staffing_economics.php \
             core/jobdiva/sync.php \
             core/jobdiva/assignment_contract.php \
+            core/jobdiva/classification.php \
+            core/jobdiva/classification_mapping.php \
             core/jobdiva/contract_projection.php \
             core/jobdiva/projector.php \
             core/integrations/field_map_apply.php \
+            core/integrations/field_map.php \
             core/integrations/source_values.php \
             core/integrations/data \
             dashboard/dist \

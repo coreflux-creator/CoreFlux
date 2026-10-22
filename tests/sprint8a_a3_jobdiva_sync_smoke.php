@@ -167,10 +167,8 @@ $assert("placement uses 'jd:' external_id prefix",
 $assert('placement status maps JobDiva → CoreFlux enum',
     strpos($src, 'jobdivaAssignmentValidate($jd)') !== false
     && strpos($src, 'jobdivaAssignmentCanonicalPlacementStatus') !== false);
-$assert("placement engagement_type uses source-evidence inference before defaulting",
-    strpos($src, 'function jobdivaInferPlacementEngagementTypeFromPayload') !== false
-    && strpos($src, '$sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, \'\');') !== false
-    && strpos($src, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\');') !== false);
+$assert('placement requires source classification before writes',
+    strpos($src, '$engagement = jobdivaClassificationRequire($jd);') !== false);
 $assert('placement insert provides title (NOT NULL on placements table)',
     strpos($src, "engagement_type, worksite_state, worksite_country") !== false
     && strpos($src, "client_approver_name, client_approver_email, title") !== false

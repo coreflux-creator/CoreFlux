@@ -706,6 +706,15 @@ export default function JobDivaReconciliation() {
 
 function StoredAssignmentDetails({ row }) {
   const contract = row.contract || {};
+  const classification = contract.classification_review || {};
+  const classificationPairs = [
+    ['Review status', classification.status === 'resolved' ? 'Resolved' : 'Needs review'],
+    ['Evidence source', classification.source?.replace(/_/g, ' ')],
+    ['Verified classification', classification.engagement_type],
+    ...(classification.observations || []).map((observation, index) => [
+      `${index + 1}. ${observation.path || observation.key}`, observation.value,
+    ]),
+  ];
   const sourcePairs = [
     ['Candidate ID', row.source?.candidate_id],
     ['Candidate', row.source?.candidate_name],
@@ -745,6 +754,7 @@ function StoredAssignmentDetails({ row }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
       <KeyValueList title="Assignment projection" items={sourcePairs} />
+      <KeyValueList title="Assignment classification evidence" items={classificationPairs} />
       <KeyValueList title="Economic projection evidence" items={economicsPairs} />
       <KeyValueList title="Current CoreFlux graph" items={currentGraphPairs} />
       <div style={{ gridColumn: '1 / -1' }}>

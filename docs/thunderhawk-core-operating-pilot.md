@@ -1,5 +1,28 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Explicit assignment classification — October 22, 2026 UTC
+
+JobDiva preview, API projection, controlled CSV reconciliation and configured
+field mappings now share one classification resolver. Exact Assignment SALARY
+categories take priority, followed by explicit assignment evidence. A current,
+enabled workspace mapping may fill a missing category, but cannot override an
+ambiguous or conflicting authoritative category. Mapping evidence is re-read
+for preview and apply; disabling a mapping invalidates cached evidence.
+
+No W2, C2C or 1099 classification is inferred from missing values, negative flags,
+cost/overhead profiles, company names, candidate preferences or substring matches.
+Conflicting observations require review regardless of field order. Assignment
+classification is checked before person creation, placement identity repair,
+placement changes or mapped rate writes. The review shows the actual observations;
+hourly cost and margin remain unavailable until classification and rate basis
+are both resolved. The shared field dictionary is version `2026-10-22.6`.
+
+Local validation: 52 classification cases, 43 disposable MariaDB checks,
+53 JobDiva/field-mapping regression suites, 292 numbering/dictionary checks,
+PHP syntax and workflow YAML checks, and the production dashboard build.
+The minimal MariaDB fixture verifies write boundaries and workspace isolation;
+it is not a complete staffing-graph or real Thunderhawk acceptance run.
+
 ## JobDiva source country and rate basis â€” October 22, 2026 UTC
 
 Runtime `592b8815` replaces country-name truncation and inferred hourly/USD

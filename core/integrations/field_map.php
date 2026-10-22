@@ -26,6 +26,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../record_numbers.php';
+require_once __DIR__ . '/../jobdiva/classification.php';
 
 $__jobdivaCanonicalGraph = __DIR__ . '/../jobdiva/canonical_graph.php';
 if (is_file($__jobdivaCanonicalGraph)) {
@@ -748,27 +749,10 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
 {
     if ($value === null || $value === '') return $value;
     $s = is_scalar($value) ? (string) $value : null;
-    $normaliseWorkerEnum = static function (mixed $raw): ?string {
-        $text = strtolower(trim((string) $raw));
-        if ($text === '') return null;
-        if (function_exists('jobdivaNormalisePlacementEngagementType')) {
-            $normalised = jobdivaNormalisePlacementEngagementType($text, '');
-            if ($normalised !== '') return $normalised;
-        }
-        $key = str_replace(['_', '-', '/', '\\'], ' ', $text);
-        $key = preg_replace('/\s+/', ' ', $key) ?: $key;
-        if ($key === 'ref' || str_contains($key, 'referral')) return 'referral';
-        if ($key === 'internal') return 'internal';
-        if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
-        if (str_contains($key, 'direct hire') || str_contains($key, 'direct placement')) return 'direct_hire';
-        if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
-        if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
-        if (str_contains($key, 'w2') || str_contains($key, 'w 2')) return 'w2';
-        return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true) ? $key : null;
-    };
+    $normaliseWorkerEnum = static fn(mixed $raw): ?string => jobdivaClassificationValue($raw);
     $truthyTo = static function (mixed $raw, string $target): ?string {
         if (is_bool($raw)) return $raw ? $target : null;
-        if (is_int($raw) || is_float($raw)) return ((float) $raw) > 0 ? $target : null;
+        if (is_int($raw) || is_float($raw)) return ((float) $raw) === 1.0 ? $target : null;
         $flag = strtolower(trim((string) $raw));
         if ($flag === '') return null;
         if (in_array($flag, ['1', 'true', 'yes', 'y', 'on', 'checked'], true)) return $target;

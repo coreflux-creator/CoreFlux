@@ -10,6 +10,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../integrations/source_values.php';
+require_once __DIR__ . '/classification.php';
 
 function jobdivaContractProjectionDate(mixed $value): ?string
 {
@@ -144,7 +145,9 @@ function jobdivaContractProjectionBuild(
     $country = integrationSourceCountry($countryRaw);
     $hourlyBasis = $basis['errors'] === [] && $basis['bill_rate_unit'] === 'hour' && $basis['pay_rate_unit'] === 'hour';
     $startId = trim((string) ($contract['start_id'] ?? $expectedStartId));
-    $engagement = strtolower(trim((string) ($contract['engagement_type'] ?? '')));
+    $classificationReview = jobdivaClassificationFromPayload(array_replace($payload, ['_jd_contract'=>$contract]));
+    $engagement = $classificationReview['engagement_type'] ?? '';
+    $modelReady = $hourlyBasis && $classificationReview['status'] === 'resolved';
     $startDate = jobdivaContractProjectionDate($contract['start_date'] ?? null);
     $endDate = jobdivaContractProjectionDate($contract['end_date'] ?? null);
     $candidateId = jobdivaContractProjectionScalar($payload, [
@@ -392,6 +395,7 @@ function jobdivaContractProjectionBuild(
         $paymentPayeeCheck,
     ];
     $hasMoney = $requiresHourlyEconomics || $grossBill > 0 || $laborRate > 0;
+    $checks[] = jobdivaContractProjectionCheck('classification_evidence', 'Assignment classification evidence', $classificationReview['status'] === 'resolved', $classificationReview['status'] === 'resolved' ? 'Explicit ' . strtoupper($engagement) . ' from ' . $classificationReview['source'] . '.' : implode(' ', $classificationReview['issues']));
     $checks[] = jobdivaContractProjectionCheck('rate_basis', 'Rate units and currency', !$hasMoney || $basis['errors'] === [], $basis['errors'] === [] ? $basis['currency'] . ' / bill ' . $basis['bill_rate_unit'] . ' / pay ' . $basis['pay_rate_unit'] : implode(' ', $basis['errors']));
     $checks[] = jobdivaContractProjectionCheck('hourly_basis', 'Hourly economics basis', !$hasMoney || $hourlyBasis, $hourlyBasis ? 'Both source rates are hourly.' : 'Automatic JobDiva economics require verified hourly bill/pay rates. Other bases need a reviewed conversion.');
     $checks[] = jobdivaContractProjectionCheck('worksite_country', 'Worksite country', $countryRaw === null || $countryRaw === '' || $country !== null, $country ?? 'Missing or unrecognized source country; no country is inferred.');
@@ -421,9 +425,9 @@ function jobdivaContractProjectionBuild(
             'bill_rate_unit' => $basis['bill_rate_unit'],
             'pay_rate_unit' => $basis['pay_rate_unit'],
             'currency' => $basis['currency'],
-            'hourly_costs' => $hourlyBasis ? round($hourlyCosts, 4) : null,
-            'gross_margin' => $hourlyBasis ? round($margin, 4) : null,
-            'gross_margin_pct' => $hourlyBasis ? round($marginPct, 6) : null,
+            'hourly_costs' => $modelReady ? round($hourlyCosts, 4) : null,
+            'gross_margin' => $modelReady ? round($margin, 4) : null,
+            'gross_margin_pct' => $modelReady ? round($marginPct, 6) : null,
             'fixed_costs' => round($fixedCosts, 2),
         ],
         'participants' => $participants,
@@ -435,5 +439,6 @@ function jobdivaContractProjectionBuild(
         'blocking_issues' => $blocking,
         'warnings' => $warnings,
         'source_contract' => $contract,
+        'classification_review' => $classificationReview,
     ];
 }

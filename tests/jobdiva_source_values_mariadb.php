@@ -57,7 +57,7 @@ $check($snapshot()===$rows,'CSV previews never mutate rate records');
 $mapping=$pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,internal_field,source_path,target_module,target_table,target_column,linked_entity) VALUES(10,"jobdiva","placement",:external,:internal,:source,"placements","placement_rates",:target,"placement_rates")');
 foreach(['bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency']as$field)$mapping->execute(['external'=>$field,'internal'=>$field,'source'=>$field,'target'=>$field]);
 $context=['placement'=>1,'placement_rates'=>(int)$rows[1]['id']];
-$mapped=['bill_rate'=>75,'pay_rate'=>40,'bill_rate_unit'=>'USD/Hour','pay_rate_unit'=>'CAD/Hour','currency'=>'USD'];
+$mapped=['employmentType'=>'W2','bill_rate'=>75,'pay_rate'=>40,'bill_rate_unit'=>'USD/Hour','pay_rate_unit'=>'CAD/Hour','currency'=>'USD'];
 $summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context);
 $check($summary['written']===0&&$summary['errors']!==[]&&$snapshot()===$rows,'mapped mixed currencies cannot disappear during unit coercion');
 $mapped['pay_rate_unit']='hourly bonus';
@@ -66,5 +66,50 @@ $check($summary['written']===0&&$summary['errors']!==[]&&$snapshot()===$rows,'on
 $mapped['pay_rate_unit']='USD/Hour';unset($mapped['currency']);
 $summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context);
 $check($summary['written']===5&&$summary['errors']===[]&&$snapshot()===$rows,'mapped combined descriptors persist their explicit currency');
+$pdo->exec('ALTER TABLE placements ADD engagement_type VARCHAR(30) DEFAULT "w2"');
+$pdo->exec('UPDATE placements SET external_id="legacy:keep" WHERE id=1');
+$placementBefore=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
+$peopleBefore=$pdo->query('SELECT * FROM people')->fetchAll(PDO::FETCH_ASSOC);
+$invalidContracts=[
+    array_replace($contract,['engagement_type'=>'','employment_category'=>'','w2_flag'=>true]),
+    array_replace($contract,['engagement_type'=>'W2 or 1099']),
+    array_replace($contract,['classification_review'=>jobdivaClassificationReview([
+        ['key'=>'workerType','path'=>'assignment.workerType','value'=>'W2'],
+        ['key'=>'employmentType','path'=>'assignment.employmentType','value'=>'1099'],
+    ],'start_assignment')]),
+];
+foreach($invalidContracts as$badContract){
+    $bad=$payload;$bad['_jd_contract']=$badContract;$bad['__cf_existing_placement_id']=1;
+    $message=$failure(fn()=>jobdivaSyncUpsertPlacementRates(10,1,'2026-10-01',$bad));
+    $check(str_contains($message,'classification needs review')&&$snapshot()===$rows,'unresolved classification cannot change source rates');
+    $message=$failure(fn()=>jobdivaSyncUpsertPlacement(10,1,null,$bad,'101'));
+    $check(str_contains($message,'classification needs review')&&$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC)===$placementBefore,'classification preflight preserves an existing external identity');
+    $result=jobdivaProjectorProjectPlacement(10,$bad,null,['external_id'=>'101','existing_placement_id'=>1,'payload_is_enriched'=>true]);
+    $check(!$result['projected']&&str_contains(implode(' ',$result['errors']),'classification needs review')&&$pdo->query('SELECT * FROM people')->fetchAll(PDO::FETCH_ASSOC)===$peopleBefore,'projector rejects classification before person creation');
+}
+$pdo->exec('UPDATE placements SET external_id="jd:101" WHERE id=1');
+$pdo->exec('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,internal_field,source_path,target_module,target_table,target_column,linked_entity) VALUES(10,"jobdiva","placement","assignment.customCategory","engagement_type","assignment.customCategory","placements","placements","engagement_type","self")');
+$gap=$payload;unset($gap['_jd_contract']['engagement_type']);$gap['assignment']=['customCategory'=>'C2C'];
+$mappedReview=jobdivaClassificationPayloadForTenant(10,$gap);
+$check(jobdivaClassificationRequire($mappedReview)==='c2c'&&$mappedReview['_jd_contract']['classification_review']['source']==='mapped_source','configured assignment field resolves a genuine classification gap');
+$gap['assignment']['customCategory']='1099';
+$refreshed=jobdivaClassificationPayloadForTenant(10,array_replace($mappedReview,['assignment'=>$gap['assignment']]));
+$check(jobdivaClassificationRequire($refreshed)==='1099','cached mapping evidence is refreshed from the current source');
+$pdo->exec('UPDATE tenant_integration_field_map SET enabled=0 WHERE internal_field="engagement_type"');
+$check(str_contains($failure(fn()=>jobdivaClassificationRequire(jobdivaClassificationPayloadForTenant(10,$mappedReview))),'needs review'),'disabled classification mapping cannot survive in a cached contract');
+$pdo->exec('UPDATE tenant_integration_field_map SET enabled=1 WHERE internal_field="engagement_type"');
+$authoritative=$payload;$authoritative['_jd_contract']['employment_category']='Hourly Employee';$authoritative['assignment']=['customCategory'=>'C2C'];
+$check(jobdivaClassificationRequire(jobdivaClassificationPayloadForTenant(10,$authoritative))==='w2','configured source mapping cannot override an explicit salary category');
+$authoritative['_jd_contract']['employment_category']='W2 or 1099';
+$check(str_contains($failure(fn()=>jobdivaClassificationRequire(jobdivaClassificationPayloadForTenant(10,$authoritative))),'needs review'),'mapping cannot hide an ambiguous authoritative category');
+$otherTenant=jobdivaClassificationPayloadForTenant(12,$gap);
+$check(str_contains($failure(fn()=>jobdivaClassificationRequire($otherTenant)),'needs review'),'another workspace cannot borrow the classification mapping');
+$withoutContract=$gap;unset($withoutContract['_jd_contract']);$withoutContract=jobdivaClassificationPayloadForTenant(10,$withoutContract);
+$check(jobdivaClassificationRequire($withoutContract)==='1099'&&!isset($withoutContract['_jd_contract']),'mapped classification does not fabricate a financial assignment contract');
+$pdo->exec('UPDATE tenant_integration_field_map SET enabled=0 WHERE internal_field="engagement_type"');
+$check(str_contains($failure(fn()=>jobdivaClassificationRequire(jobdivaClassificationPayloadForTenant(10,$withoutContract))),'needs review'),'thin-payload cached evidence also respects disabled mappings');
+$unclassified=$mapped;unset($unclassified['employmentType']);
+$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$unclassified,$context);
+$check($summary['written']===0&&str_contains(implode(' ',$summary['errors']),'classification_needs_review')&&$snapshot()===$rows,'mapped financial writes cannot bypass missing assignment classification');
 $pdo->exec('USE information_schema'); $pdo->exec('DROP DATABASE '.$db);
 echo "$passed passed\n";

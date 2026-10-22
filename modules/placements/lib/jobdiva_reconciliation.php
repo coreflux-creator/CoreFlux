@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/jobdiva/assignment_identity.php';
 require_once __DIR__ . '/../../../core/integrations/source_values.php';
+require_once __DIR__ . '/../../../core/jobdiva/classification.php';
 
 function jobdivaReconciliationSchema(): array
 {
@@ -189,21 +190,14 @@ function jobdivaReconciliationTruthy(mixed $value): ?bool
 
 function jobdivaReconciliationNormaliseEngagement(mixed $value, string $sourceHeader = ''): ?string
 {
-    $raw = strtolower(trim((string) $value));
-    if ($raw === '') return null;
-    $header = jobdivaReconciliationNormaliseHeader($sourceHeader);
-    $truthy = jobdivaReconciliationTruthy($raw);
-    if ($truthy === true && preg_match('/\b(c2c|corp|crop)\b/', $header)) return 'c2c';
-    if ($truthy === true && preg_match('/\bw ?2\b/', $header)) return 'w2';
-    $flat = preg_replace('/[^a-z0-9]+/', ' ', $raw) ?? $raw;
-    if ($flat === 'ref' || preg_match('/\breferral\b/', $flat)) return 'referral';
-    if ($flat === 'internal') return 'internal';
-    if (preg_match('/\b(c2c|corp to corp|corporation)\b/', $flat)) return 'c2c';
-    if (preg_match('/\b(w2|w 2|employee)\b/', $flat)) return 'w2';
-    if (preg_match('/\b(1099|independent contractor|contractor)\b/', $flat)) return '1099';
-    if (str_contains($flat, 'temp to perm') || str_contains($flat, 'contract to hire')) return 'temp_to_perm';
-    if (str_contains($flat, 'direct hire') || $flat === 'permanent') return 'direct_hire';
-    return null;
+    $header = jobdivaClassificationKey($sourceHeader);
+    $flags = ['c2c'=>'c2c','corptocorp'=>'c2c','croptocrop'=>'c2c','tcsc2c'=>'c2c','isc2c'=>'c2c',
+        'w2'=>'w2','tcsw2'=>'w2','isw2'=>'w2'];
+    if (isset($flags[$header])) {
+        return jobdivaReconciliationTruthy($value) === true ? $flags[$header] : null;
+    }
+    return jobdivaClassificationValue($value, in_array($header, ['employmentcategory','employeecategory'], true));
+
 }
 
 function jobdivaReconciliationNormaliseStatus(mixed $value): ?string

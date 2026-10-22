@@ -58,9 +58,9 @@ $a('placement engagement and rate economics are explicitly coerced',
 echo "\n3. Tenant mappings can explicitly win over built-in engagement scans\n";
 $a('field map exposes an explicit internal-field presence helper',
     str_contains($fieldMap, 'function tenantIntegrationFieldMapHasInternal('));
-$a('placement engagement checks explicit tenant mapping before source scan',
-    str_contains($sync, 'tenantIntegrationFieldMapHasInternal($tid, \'jobdiva\', \'placement\', \'engagement_type\')')
-    && str_contains($sync, '$hasMappedEngagement && $mappedEngagement !== \'\''));
+$a('placement classification uses the shared source and mapping review',
+    str_contains($sync, '$jd = jobdivaClassificationPayloadForTenant($tid, $jd);')
+    && str_contains($sync, '$engagement = jobdivaClassificationRequire($jd);'));
 $a('assignment/job engagement evidence is scanned before candidate classification',
     strpos($sync, "'_jd_start', 'assignment'") !== false
     && strpos($sync, "'_jd_candidate', 'person', 'candidate'") !== false

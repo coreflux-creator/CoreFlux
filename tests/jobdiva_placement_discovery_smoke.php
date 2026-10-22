@@ -205,16 +205,14 @@ $assert('Upsert recovers raw Start IDs that were written into placements.externa
 // allow-listed columns. Catches the "user can pick the column from the
 // dropdown but the upsert silently drops it" failure mode.
 echo "\nSlice 4 — registry-aware writes for expanded allow-list\n";
-foreach (['engagement_type', 'worksite_state', 'worksite_country',
+foreach (['worksite_state', 'worksite_country',
           'remote_policy', 'notes', 'client_approver_name',
           'client_approver_email', 'actual_end_date', 'due_date'] as $col) {
     $assert("upsert resolves placement.{$col} via tenantIntegrationFieldMapPluckInternal",
         strpos($syncSrc, "'jobdiva', 'placement', '{$col}', \$jd,") !== false);
 }
-$assert('engagement_type enum coercion handles common upstream variants',
-    strpos($syncSrc, 'jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')') !== false
-    && strpos($syncSrc, "str_contains(\$s, 'corp to corp')") !== false
-    && strpos($syncSrc, "str_contains(\$s, 'temp to perm')") !== false);
+$assert('engagement type uses the shared evidence boundary before mutation',
+    strpos($syncSrc, '$engagement = jobdivaClassificationRequire($jd);') !== false);
 $assert('worksite_country is validated rather than truncated',
     strpos($syncSrc, 'integrationSourceCountry($worksiteCountryRaw)') !== false
     && strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') === false);

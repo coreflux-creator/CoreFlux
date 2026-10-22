@@ -26,6 +26,7 @@ function staffingFieldContractRules(string $table, string $field): array
     $key = $table . '.' . $field;
     $definitions = [
         'placements.person_id' => ['Canonical person assigned to this placement.', 'reference:person'],
+        'placements.engagement_type' => ['Explicit assignment classification. JobDiva SALARY category takes priority; a reviewed source mapping may fill missing evidence. Conflicts require review. Cost profiles, negative flags and missing values never imply W2, C2C or 1099.', 'verified-enum'],
         'placements.end_client_company_id' => ['Company receiving the work; distinct from the bill-to client.', 'reference:company'],
         'placements.client_id' => ['Staffing client billing profile.', 'reference:client'],
         'staffing_clients.company_id' => ['Canonical company underlying the client role.', 'reference:company'],
@@ -118,7 +119,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ]);
     }
     return [
-        'contract_version' => '2026-10-22.5', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-22.6', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

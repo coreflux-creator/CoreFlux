@@ -29,6 +29,7 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/assignment_contract.php';
 require_once __DIR__ . '/contract_projection.php';
+require_once __DIR__ . '/classification_mapping.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
@@ -4094,6 +4095,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             }
         }
 
+        if ($enriched) $enriched = jobdivaClassificationPayloadForTenant($tenantId, $enriched);
         $contractProjection = $enriched
             ? jobdivaContractProjectionBuild($enriched, $currentGraph, $startId)
             : jobdivaContractProjectionBuild([], $currentGraph, $startId);
@@ -4127,24 +4129,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             'end_client_name',
             static fn() => jobdivaEndClientNameFromPayload($enriched)
         ) : '';
-        $engagementRaw = $enriched ? (string) $mapped(
-            'engagement_type',
-            static fn() => jobdivaPluckFieldDeep($enriched, [
-                'engagementType', 'engagement_type', 'workerType', 'worker_type',
-                'classification', 'employmentType', 'employment type',
-                'employmentCategory', 'employment_category', 'EMPLOYMENT_CATEGORY',
-                'positionType', 'position_type', 'position type',
-            ])
-        ) : '';
-        $engagement = $enriched
-            ? jobdivaNormalisePlacementEngagementType(
-                $engagementRaw,
-                jobdivaInferPlacementEngagementTypeFromPayload($enriched, '')
-            )
-            : '';
-        if (!empty($contractProjection['placement']['engagement_type'])) {
-            $engagement = (string) $contractProjection['placement']['engagement_type'];
-        }
+        $engagement = (string) ($contractProjection['placement']['engagement_type'] ?? '');
         $endDateRaw = $enriched ? jobdivaPluckFieldDeep($enriched, [
             'endDate', 'end_date', 'end date', 'enddate',
         ]) : '';
@@ -4618,53 +4603,8 @@ function jobdivaResolveOrAutoCreateEndClient(
 
 function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback = null): string
 {
-    $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'];
-    $fallback = in_array((string) $fallback, $allowed, true)
-        ? (string) $fallback
-        : ($fallback === '' ? '' : 'w2');
-    $s = strtolower(trim($raw));
-    if ($s === '') return $fallback;
-
-    $s = str_replace(['_', '-', '/', '\\'], ' ', $s);
-    $s = preg_replace('/\s+/', ' ', $s) ?: $s;
-
-    if ($s === 'ref' || str_contains($s, 'referral')) {
-        return 'referral';
-    }
-    if ($s === 'internal') {
-        return 'internal';
-    }
-    if (str_contains($s, 'temp to perm')
-        || str_contains($s, 'contract to hire')
-        || preg_match('/\bcth\b/', $s)) {
-        return 'temp_to_perm';
-    }
-    if (str_contains($s, 'direct hire')
-        || str_contains($s, 'direct placement')
-        || preg_match('/\bperm(?:anent)?\b/', $s)) {
-        return 'direct_hire';
-    }
-    if (str_contains($s, '1099')
-        || str_contains($s, 'independent contractor')
-        || preg_match('/\bic\b/', $s)) {
-        return '1099';
-    }
-    if (str_contains($s, 'c2c')
-        || str_contains($s, 'corp to corp')
-        || str_contains($s, 'crop to crop')
-        || str_contains($s, 'corp 2 corp')
-        || str_contains($s, 'corporation to corporation')
-        || str_contains($s, 'inc to inc')) {
-        return 'c2c';
-    }
-    if (str_contains($s, 'w2')
-        || str_contains($s, 'w 2')
-        || str_contains($s, 'employee')
-        || str_contains($s, 'payroll')) {
-        return 'w2';
-    }
-
-    return $fallback;
+    // Legacy fallback argument retained for callers; it cannot establish source evidence.
+    return jobdivaClassificationValue($raw) ?? '';
 }
 
 function jobdivaPlacementScalarHasC2CSignal(string $key, mixed $value): bool
@@ -4724,34 +4664,8 @@ function jobdivaPlacementScalarHasTypedC2CSignal(string $key, mixed $value): boo
 
 function jobdivaPlacementPayloadHasC2CProof(array $payload): bool
 {
-    $scan = static function (array $node, string $prefix = '') use (&$scan): bool {
-        foreach ($node as $key => $value) {
-            $path = $prefix === '' ? (string) $key : $prefix . '.' . (string) $key;
-            if (is_array($value)) {
-                if ($scan($value, $path)) return true;
-                continue;
-            }
-            if (jobdivaPlacementScalarHasC2CSignal($path, $value)
-                || jobdivaPlacementScalarHasTypedC2CSignal($path, $value)) return true;
-        }
-        return false;
-    };
-
-    foreach ([
-        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-    ] as $root) {
-        if (isset($payload[$root]) && is_array($payload[$root]) && $scan($payload[$root], (string) $root)) {
-            return true;
-        }
-    }
-
-    foreach ($payload as $key => $value) {
-        if (is_array($value)) continue;
-        if (jobdivaPlacementScalarHasC2CSignal((string) $key, $value)
-            || jobdivaPlacementScalarHasTypedC2CSignal((string) $key, $value)) return true;
-    }
-
-    return false;
+    $review = jobdivaClassificationFromPayload($payload);
+    return $review['status'] === 'resolved' && $review['engagement_type'] === 'c2c';
 }
 
 function jobdivaPlacementPayloadC2CFlagState(array $payload): ?bool
@@ -4790,94 +4704,7 @@ function jobdivaPlacementPayloadC2CFlagState(array $payload): ?bool
 
 function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string $fallback = null): string
 {
-    $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'];
-    $fallback = in_array((string) $fallback, $allowed, true)
-        ? (string) $fallback
-        : ($fallback === '' ? '' : 'w2');
-
-    $contractEngagement = jobdivaNormalisePlacementEngagementType(
-        (string) ($payload['_jd_contract']['engagement_type'] ?? ''),
-        ''
-    );
-    if ($contractEngagement !== '') return $contractEngagement;
-
-    $classify = static function (string $key, mixed $value): ?string {
-        if (!is_scalar($value) && $value !== null) return null;
-        $keyNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
-        $valueRaw = trim((string) $value);
-        $keyValue = trim($key . ' ' . $valueRaw);
-
-        if (jobdivaPlacementScalarHasC2CSignal($key, $value)
-            || jobdivaPlacementScalarHasTypedC2CSignal($key, $value)) return 'c2c';
-
-        $typedKey = str_contains($keyNorm, 'engagementtype')
-            || str_contains($keyNorm, 'workertype')
-            || str_contains($keyNorm, 'classification')
-            || str_contains($keyNorm, 'employmenttype')
-            || str_contains($keyNorm, 'employmentcategory')
-            || str_contains($keyNorm, 'employeetype')
-            || str_contains($keyNorm, 'positiontype')
-            || str_contains($keyNorm, 'taxtype')
-            || str_contains($keyNorm, 'payrolltype')
-            || str_contains($keyNorm, 'contracttype')
-            || str_contains($keyNorm, 'jobtype')
-            || str_contains($keyNorm, 'hiretype');
-        if ($typedKey) {
-            $type = jobdivaNormalisePlacementEngagementType($valueRaw, '');
-            if ($type !== '') return $type;
-            $type = jobdivaNormalisePlacementEngagementType($keyValue, '');
-            if ($type !== '') return $type;
-        }
-
-        // Do not classify from arbitrary scalar values. Company/legal names
-        // like "Acme Staffing LLC" or chain labels like "prime vendor" are
-        // business-entity evidence, not worker-classification evidence.
-        return null;
-    };
-
-    $walk = static function (array $node, string $prefix = '') use (&$walk, $classify): ?string {
-        foreach ($node as $key => $value) {
-            $path = $prefix === '' ? (string) $key : $prefix . '.' . (string) $key;
-            if (is_array($value)) {
-                $hit = $walk($value, $path);
-                if ($hit !== null) return $hit;
-                continue;
-            }
-            $hit = $classify($path, $value);
-            if ($hit !== null) return $hit;
-        }
-        return null;
-    };
-
-    $scanNested = static function (array $roots) use ($payload, $walk): ?string {
-        foreach ($roots as $root) {
-            if (!isset($payload[$root]) || !is_array($payload[$root])) continue;
-            $hit = $walk($payload[$root], (string) $root);
-            if ($hit !== null) return $hit;
-        }
-        return null;
-    };
-
-    // Only the Start/Assignment owns the worker classification. A Job can be
-    // open to several engagement types and a candidate can have preferences;
-    // neither is the economic contract represented by this placement.
-    $hit = $scanNested([
-        '_jd_contract', '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-    ]);
-    if ($hit !== null) return $hit;
-
-    foreach ($payload as $key => $value) {
-        if (is_array($value)) continue;
-        $hit = $classify((string) $key, $value);
-        if ($hit !== null) return $hit;
-    }
-
-    // JobDiva's documented searchStart response always carries the C2C flag.
-    // An explicit null/false flag means this Start is not corp-to-corp. When
-    // no stronger 1099/direct-hire classification exists, it is W2.
-    if (jobdivaPlacementPayloadC2CFlagState($payload) === false) return 'w2';
-
-    return $fallback;
+    return jobdivaClassificationFromPayload($payload)['engagement_type'] ?? '';
 }
 
 function jobdivaBoolishTrue(mixed $raw): bool
@@ -6022,10 +5849,7 @@ function jobdivaSyncUpsertPlacementReferral(
 ): int {
     if ($tid <= 0 || $placementId <= 0) return 0;
     $contract = jobdivaContractProjectionContract($jd);
-    $engagement = jobdivaNormalisePlacementEngagementType(
-        (string) ($contract['engagement_type'] ?? ''),
-        jobdivaInferPlacementEngagementTypeFromPayload($jd, '')
-    );
+    $engagement = jobdivaClassificationRequire($jd);
     $isReferralEngagement = $engagement === 'referral';
 
     $feePct = jobdivaParsePercent(jobdivaPluckFieldDeep($jd, [
@@ -6412,6 +6236,8 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         );
     }
     $canonicalExternalId = 'jd:' . $extId;
+    $jd = jobdivaClassificationPayloadForTenant($tid, $jd);
+    $engagement = jobdivaClassificationRequire($jd);
     $assignmentContract = jobdivaContractProjectionContract($jd);
     // Validate before identity repair or any placement mutation.
     jobdivaSyncUpsertPlacementRates($tid, 0, '', $jd, true);
@@ -6658,43 +6484,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // who map e.g. JobDiva's `engagementType` -> CoreFlux `engagement_type`
     // may have free-text upstream values that need normalising.
     // -----------------------------------------------------------------
-    $engagementRaw = (string) tenantIntegrationFieldMapPluckInternal(
-        $tid, 'jobdiva', 'placement', 'engagement_type', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'engagementType', 'engagement_type', 'workerType',
-            'worker_type', 'classification', 'employmentType', 'employment type',
-            'employmentCategory', 'employment_category', 'EMPLOYMENT_CATEGORY', 'employment category',
-            'positionType', 'position_type', 'position type',
-            'employeeType', 'employee_type', 'employee type',
-            'taxType', 'tax_type', 'tax type',
-            'payrollType', 'payroll_type', 'payroll type',
-            'contractType', 'contract_type', 'contract type',
-            'jobType', 'job_type', 'job type',
-            'hireType', 'hire_type', 'hire type',
-            'c2c', 'corp to corp', 'corp-to-corp', 'crop to crop',
-            'corporation to corporation', 'isC2c', 'is_c2c',
-        ])
-    );
-    $sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
-    $mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, '');
-    $hasMappedEngagement = function_exists('tenantIntegrationFieldMapHasInternal')
-        && tenantIntegrationFieldMapHasInternal($tid, 'jobdiva', 'placement', 'engagement_type');
-    // Strong JobDiva assignment evidence (1099/C2C/direct-hire/etc.) beats
-    // a generic mapped W2 value. This prevents one broad tenant mapping from
-    // flattening every placement to W2 while still honoring explicit non-W2
-    // field-map choices.
-    if ($sourceEngagement !== '' && ($mappedEngagement === '' || $mappedEngagement === 'w2')) {
-        $engagement = $sourceEngagement;
-    } elseif ($hasMappedEngagement && $mappedEngagement !== '') {
-        $engagement = $mappedEngagement;
-    } elseif ($sourceEngagement !== '') {
-        $engagement = $sourceEngagement;
-    } else {
-        $engagement = $mappedEngagement !== '' ? $mappedEngagement : 'w2';
-    }
-    if ($engagement === 'c2c' && !jobdivaPlacementPayloadHasC2CProof($jd)) {
-        $engagement = 'w2';
-    }
+    // Classification was resolved from reviewed source evidence before any write.
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
@@ -7078,8 +6868,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'due_date' => $dueDate !== null,
             'status' => $statusRaw !== ''
                 || ($endDateNorm !== null && $endDateNorm < date('Y-m-d')),
-            'engagement_type' => $sourceEngagement !== ''
-                || ($hasMappedEngagement && $mappedEngagement !== ''),
+            'engagement_type' => $engagement !== '',
             'worksite_state' => trim($worksiteState) !== '',
             'worksite_country' => $worksiteCountry !== null,
             'remote_policy' => trim($remoteRaw) !== '' && $remote !== null,
@@ -7368,10 +7157,9 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     $sourceContract = jobdivaContractProjectionContract($jd);
-    $engagement = jobdivaNormalisePlacementEngagementType(
-        (string) ($sourceContract['engagement_type'] ?? ''),
-        jobdivaInferPlacementEngagementTypeFromPayload($jd, '')
-    );
+    $jd = jobdivaClassificationPayloadForTenant($tid, $jd);
+    $sourceContract = jobdivaContractProjectionContract($jd);
+    $engagement = jobdivaClassificationRequire($jd);
     $isReferralEngagement = $engagement === 'referral';
     $sourceC2cOverheadEnabled = null;
     if (array_key_exists('c2c_flag', $sourceContract)) {
