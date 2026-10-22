@@ -5467,7 +5467,8 @@ function jobdivaSyncUpsertPlacementCorpDetails(
     ];
 
     if ($fields['corp_country'] !== '') {
-        $fields['corp_country'] = strtoupper(substr($fields['corp_country'], 0, 2));
+        $fields['corp_country'] = integrationSourceCountry($fields['corp_country']);
+        if ($fields['corp_country'] === null) throw new \RuntimeException('JobDiva corporation country needs review.');
     }
 
     $clean = [];
@@ -6412,6 +6413,23 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     }
     $canonicalExternalId = 'jd:' . $extId;
     $assignmentContract = jobdivaContractProjectionContract($jd);
+    // Validate before identity repair or any placement mutation.
+    jobdivaSyncUpsertPlacementRates($tid, 0, '', $jd, true);
+    $worksiteCountryRaw = (string) ($assignmentContract['worksite_country'] ?? '');
+    if ($worksiteCountryRaw === '') {
+        $worksiteCountryRaw = (string) tenantIntegrationFieldMapPluckInternal(
+            $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, ['worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country'])
+        );
+    }
+    $worksiteCountry = integrationSourceCountry($worksiteCountryRaw);
+    if ($worksiteCountryRaw !== '' && $worksiteCountry === null) {
+        throw new \RuntimeException('JobDiva placement needs review: worksite country is not recognized.');
+    }
+    $corpCountryRaw = jobdivaSyncCorpPluck($tid, $jd, 'corp_country', ['corp country', 'corpCountry', 'corp_country', 'vendor country', 'vendorCountry', 'supplier country', 'payee country']);
+    if ($corpCountryRaw !== '' && integrationSourceCountry($corpCountryRaw) === null) {
+        throw new \RuntimeException('JobDiva placement needs review: corporation country is not recognized.');
+    }
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
@@ -6687,22 +6705,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     if (!empty($assignmentContract['worksite_state'])) {
         $worksiteState = (string) $assignmentContract['worksite_state'];
     }
-    $worksiteCountry = (string) tenantIntegrationFieldMapPluckInternal(
-        $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country',
-        ])
-    );
-    if (!empty($assignmentContract['worksite_country'])) {
-        $worksiteCountry = (string) $assignmentContract['worksite_country'];
-    }
-    // worksite_country is CHAR(2) — coerce to ISO-2 if user mapped a name.
-    if (strlen($worksiteCountry) > 2) {
-        $worksiteCountry = strtoupper(substr($worksiteCountry, 0, 2));
-    } else {
-        $worksiteCountry = strtoupper($worksiteCountry);
-    }
-    if ($worksiteCountry === '') $worksiteCountry = null;
+    // Country was normalized and validated before the first placement write.
 
     $branch = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'branch', $jd,
@@ -7360,7 +7363,7 @@ function jobdivaCanonicalContractPositiveRate(array $jd, array $fields): float
     return 0.0;
 }
 
-function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool
+function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd, bool $validateOnly = false): bool
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
@@ -7462,44 +7465,23 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         // source payout in pay_rate would fabricate worker labor and count the
         // same vendor obligation twice in margin and downstream settlement.
         $payRate = 0.0;
-    } elseif ($payRate <= 0) {
-        jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
-        return false;
     }
 
-    // Coerce 'h' / 'hourly' / 'USD/Hour' / etc. to the ENUM values.
-    // Per-rate units may differ (e.g. day rate + hourly OT) but the
-    // ENUM is `hour|day|week|month|project` per the schema.
-    $coerceUnit = static function (string $raw): string {
-        $s = strtolower(trim($raw));
-        if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
-        if (str_contains($s, 'day'))     return 'day';
-        if (str_contains($s, 'week'))    return 'week';
-        if (str_contains($s, 'month'))   return 'month';
-        if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
-        return 'hour';
-    };
-    $billRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
+    $billRateUnitRaw = tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'bill_rate_unit', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'final bill rate unit', 'finalBillRateUnit', 'final_bill_rate_unit',
             'bill rate currency/unit', 'billRateCurrencyUnit', 'bill_rate_currency_unit',
             'billRateUnit', 'bill_rate_unit', 'BILLRATEUNIT',
         ])
-    ));
-    if (!empty($sourceContract['bill_rate_unit'])) {
-        $billRateUnit = $coerceUnit((string) $sourceContract['bill_rate_unit']);
-    }
-    $payRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
+    );
+    $payRateUnitRaw = tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'pay_rate_unit', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'pay rate currency/unit', 'payRateCurrencyUnit', 'pay_rate_currency_unit',
             'payRateUnit', 'pay_rate_unit', 'PAYRATEUNIT', 'hourly unit',
         ])
-    ));
-    if (!empty($sourceContract['pay_rate_unit'])) {
-        $payRateUnit = $coerceUnit((string) $sourceContract['pay_rate_unit']);
-    }
+    );
 
     // Currency: extract from "USD/Hour" style strings if needed.
     $currencyRaw = (string) tenantIntegrationFieldMapPluckInternal(
@@ -7510,19 +7492,22 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'pay rate currency/unit', 'hourly currency',
         ])
     );
-    if ($currencyRaw === '') $currencyRaw = 'USD';
-    if (preg_match('/\b([A-Z]{3})\b/', strtoupper($currencyRaw), $m)) {
-        $currency = $m[1];
-    } else {
-        $currency = strtoupper(substr($currencyRaw, 0, 3));
+    $basis = integrationSourceRateBasis($sourceContract !== [] ? $sourceContract : [
+        'bill_rate_raw' => $billRateRaw, 'pay_rate_raw' => $payRateRaw,
+        'bill_rate_unit' => $billRateUnitRaw, 'pay_rate_unit' => $payRateUnitRaw, 'currency' => $currencyRaw,
+    ]);
+    if ($basis['errors'] !== []) throw new \RuntimeException('JobDiva rate needs review: ' . implode(' ', $basis['errors']));
+    $billRateUnit = $basis['bill_rate_unit'];
+    $payRateUnit = $basis['pay_rate_unit'];
+    $currency = $basis['currency'];
+    if ($billRateUnit !== 'hour' || $payRateUnit !== 'hour') {
+        throw new \RuntimeException('JobDiva rate needs review: automatic economics require verified hourly bill/pay rates; other bases need a reviewed conversion.');
     }
-    if (strlen($currency) !== 3) $currency = 'USD';
-    if (!empty($sourceContract['currency'])) {
-        $contractCurrency = strtoupper(trim((string) $sourceContract['currency']));
-        if (preg_match('/\b([A-Z]{3})\b/', $contractCurrency, $contractCurrencyMatch)) {
-            $currency = $contractCurrencyMatch[1];
-        }
+    if (!$isReferralEngagement && $payRate <= 0) {
+        if (!$validateOnly) jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
+        return false;
     }
+    if ($validateOnly) return true;
 
     $otRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'ot_multiplier', $jd,

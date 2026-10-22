@@ -215,8 +215,9 @@ $assert('engagement_type enum coercion handles common upstream variants',
     strpos($syncSrc, 'jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')') !== false
     && strpos($syncSrc, "str_contains(\$s, 'corp to corp')") !== false
     && strpos($syncSrc, "str_contains(\$s, 'temp to perm')") !== false);
-$assert('worksite_country is forced to CHAR(2) (matches column type)',
-    strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') !== false);
+$assert('worksite_country is validated rather than truncated',
+    strpos($syncSrc, 'integrationSourceCountry($worksiteCountryRaw)') !== false
+    && strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') === false);
 $assert('remote_policy enum coercion accepts onsite/hybrid/remote synonyms',
     strpos($syncSrc, "'on-site' => 'onsite'") !== false
     && strpos($syncSrc, "'wfh' => 'remote'") !== false);

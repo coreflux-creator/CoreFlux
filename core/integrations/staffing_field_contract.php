@@ -34,8 +34,10 @@ function staffingFieldContractRules(string $table, string $field): array
         'placement_economic_parties.ap_vendor_id' => ['AP vendor used to settle this economic party.', 'reference:vendor'],
         'placement_rates.bill_rate' => ['Client charge in currency per bill_rate_unit; effective dated.', 'currency/bill_rate_unit'],
         'placement_rates.pay_rate' => ['Worker pay in currency per pay_rate_unit; effective dated.', 'currency/pay_rate_unit'],
-        'placement_rates.currency' => ['Currency of this rate agreement.', 'ISO-4217'],
-        'placements.worksite_country' => ['Country where the assignment is performed.', 'ISO-3166-1-alpha-2'],
+        'placement_rates.currency' => ['Explicit source currency of this rate agreement; missing or conflicting JobDiva currencies require review.', 'ISO-4217'],
+        'placements.worksite_country' => ['Recognized country or territory where the assignment is performed; source names are normalized, never truncated.', 'recognized-alpha-2'],
+        'placement_rates.bill_rate_unit' => ['Explicit billing basis. Automatic JobDiva economics require hourly rates; other bases require reviewed conversion.', 'hour|day|week|month|project'],
+        'placement_rates.pay_rate_unit' => ['Explicit pay basis, independent of billing basis. No hourly default is inferred for JobDiva.', 'hour|day|week|month|project'],
         'time_entries.hours' => ['Decimal hours for the work date and category, not minutes.', 'hours'],
         'time_entries.status' => ['Core review status; source approval does not itself approve Core time.', 'enum'],
         'people_employees.employee_number' => ['Legacy employment number; separate from the canonical person number.', 'source_reference'],
@@ -116,7 +118,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ]);
     }
     return [
-        'contract_version' => '2026-10-22.4', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-22.5', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

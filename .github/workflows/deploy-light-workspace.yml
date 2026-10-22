@@ -113,6 +113,9 @@ jobs:
             core/domain_people_graph.php \
             core/integrations/field_map.php \
             core/integrations/field_map_apply.php \
+            core/integrations/source_values.php \
+            core/integrations/data/source_codes.json \
+            core/integrations/data/UNICODE-LICENSE.txt \
             core/jobdiva/assignment_contract.php \
             core/jobdiva/contract_projection.php \
             core/jobdiva/mapping_alignment.php \
@@ -706,6 +709,9 @@ jobs:
               core/domain_people_graph.php \
               core/integrations/field_map.php \
               core/integrations/field_map_apply.php \
+              core/integrations/source_values.php \
+              core/integrations/data/source_codes.json \
+              core/integrations/data/UNICODE-LICENSE.txt \
               core/jobdiva/assignment_contract.php \
               core/jobdiva/contract_projection.php \
               core/jobdiva/mapping_alignment.php \

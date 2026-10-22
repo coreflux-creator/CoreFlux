@@ -1,5 +1,34 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## JobDiva source country and rate basis — October 22, 2026 UTC
+
+The current candidate replaces country-name truncation and inferred hourly/USD
+rate metadata with a shared source-value validator. Preview, API import, mapped
+rate writes and controlled CSV reconciliation retain uncertain values for review.
+The assignment adapter preserves raw rate descriptors and separate bill/pay
+currencies, so conflicting source evidence cannot disappear during normalization.
+Placement preflight runs before identity repair or placement mutation; invalid
+metadata cannot alter existing rate drafts or approved snapshots. CSV rate
+changes require explicit source units and currency instead of inheriting old
+values. Generic mapped rate creation also requires a complete source basis.
+
+The canonical review includes country, both rate units and currency. Hourly cost
+and margin are unavailable when the basis is unresolved. Automatic JobDiva
+economics currently require hourly bill/pay rates; recognized daily, weekly,
+monthly or project bases require a reviewed conversion, which is still pending.
+The UI uses the verified currency rather than labeling every amount USD.
+Recognized country/territory aliases come from pinned Unicode CLDR data and
+currency codes from SIX's September 17, 2026 ISO 4217 list. Provenance and the
+Unicode license are stored with the offline lookup data; no runtime network
+lookup is used. Historical/unsupported codes are held for review.
+
+Local checks cover 53 source-value cases, 25 disposable MariaDB checks, two
+money-display tests and the existing JobDiva/field-mapping regression suites.
+The database checks include replay, immutable approved history, preflight before
+identity repair, CSV inheritance rejection and mixed-currency mapped writes.
+This is implementation evidence; real Thunderhawk round-trip acceptance and
+production accounting cutover remain outstanding.
+
 ## Reviewed JobDiva person links — October 22, 2026 UTC
 
 JobDiva settings now provides a candidate-ID / Core person-number review. It

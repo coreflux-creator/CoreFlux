@@ -162,6 +162,11 @@ jobs:
       - name: Verify reviewed JobDiva person links
         run: php tests/jobdiva_person_review_mariadb.php
 
+      - name: Verify source countries and rate bases before JobDiva writes
+        run: |
+          php tests/jobdiva_source_values_smoke.php
+          php tests/jobdiva_source_values_mariadb.php
+
       - name: Verify original Quanta workspace on imported time
         run: php tests/quanta_time_provenance_mariadb.php
 

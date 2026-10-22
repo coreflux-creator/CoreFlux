@@ -100,6 +100,8 @@ jobs:
             core/integrations/entity_mappings.php \
             core/integrations/field_map.php \
             core/integrations/field_map_apply.php \
+            core/integrations/source_values.php \
+            core/integrations/data \
             core/integrations/payload_field_index.php \
             modules/placements/lib/economics.php \
             modules/placements/lib/placements.php \
@@ -113,6 +115,7 @@ jobs:
             modules/placements/ui/PlacementDetail.jsx \
             modules/placements/ui/List.jsx \
             modules/placements/ui/JobDivaReconciliation.jsx \
+            modules/placements/ui/jobdivaMoney.mjs \
             modules/staffing/api/clients.php \
             modules/staffing/api/csv_import.php \
             modules/staffing/api/csv_export.php \

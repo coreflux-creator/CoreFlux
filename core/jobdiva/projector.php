@@ -77,7 +77,7 @@ function jobdivaProjectorSourceContractDrift(
     $owned = [
         'engagement_type', 'status', 'start_date', 'end_date',
         'end_client_name',
-        'bill_rate', 'pay_rate',
+        'bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit', 'currency', 'worksite_country',
         'client_bill_cycle', 'vendor_pay_cycle',
         'vendor_payment_terms', 'paid_when_paid',
     ];

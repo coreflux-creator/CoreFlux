@@ -526,20 +526,24 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'Benefits Load %', 'Benefits Load Percent', 'benefitsLoadPct', 'benefits_load_pct',
     ]));
 
-    $billRate = jobdivaAssignmentContractAmount(
+    $billRateRaw = (
         $billingPick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate'])
         ?? $pick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate'])
     );
-    $basePayRate = jobdivaAssignmentContractAmount(
+    $basePayRateRaw = (
         $salaryPick(['Salary', 'Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate'])
         ?? $pick(['Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate'])
     );
-    $vendorPayRate = jobdivaAssignmentContractAmount($salaryPick([
+    $vendorPayRateRaw = ($salaryPick([
         'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
     ]) ?? $pick([
         'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
     ]));
-    $payRate = in_array($engagement, ['c2c', '1099', 'referral'], true) && $vendorPayRate !== null && $vendorPayRate > 0
+    $billRate = jobdivaAssignmentContractAmount($billRateRaw);
+    $basePayRate = jobdivaAssignmentContractAmount($basePayRateRaw);
+    $vendorPayRate = jobdivaAssignmentContractAmount($vendorPayRateRaw);
+    $useVendorRate = in_array($engagement, ['c2c', '1099', 'referral'], true) && $vendorPayRate !== null && $vendorPayRate > 0;
+    $payRate = $useVendorRate
         ? $vendorPayRate
         : $basePayRate;
     $primarySales = trim((string) $pick([
@@ -681,6 +685,10 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'c2c_flag' => $c2c,
         'bill_rate' => $billRate,
         'pay_rate' => $payRate,
+        'bill_rate_raw' => $billRateRaw,
+        'pay_rate_raw' => $useVendorRate ? $vendorPayRateRaw : $basePayRateRaw,
+        'bill_currency' => $billingPick(['Currency', 'currencyCode', 'currency_code', 'Bill Currency', 'BILL_CURRENCY']),
+        'pay_currency' => $salaryPick(['Currency', 'currencyCode', 'currency_code', 'Pay Currency', 'PAY_CURRENCY']),
         'bill_rate_unit' => $billingPick([
             'Bill Rate Unit', 'billRateUnit', 'bill_rate_unit', 'Bill Rate Per', 'BILL_RATE_PER',
         ]) ?? $pick(['Bill Rate Unit', 'billRateUnit', 'bill_rate_unit', 'Bill Rate Per', 'BILL_RATE_PER']),

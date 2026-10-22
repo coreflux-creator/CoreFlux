@@ -13,6 +13,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { api } from '../../../dashboard/src/lib/api';
+import { displayJobDivaMoney } from './jobdivaMoney.mjs';
 
 const ENDPOINT = '/modules/placements/api/jobdiva_reconciliation.php';
 const outcomeTone = {
@@ -379,10 +380,10 @@ export default function JobDivaReconciliation() {
                           </td>
                           <td>
                             <div>
-                              Bill {displayMoney(row.source?.bill_rate)} / Pay {displayMoney(row.source?.pay_rate)}
+                              Bill {displayMoney(row.source?.bill_rate, row)} / Pay {displayMoney(row.source?.pay_rate, row, 'pay')}
                             </div>
                             <small style={{ color: '#64748b' }}>
-                              Invoice {displayMoney(row.contract?.economics?.invoice_rate)} / Margin {displayMoney(row.contract?.economics?.gross_margin)}
+                              Invoice {displayMoney(row.contract?.economics?.invoice_rate, row)} / Margin {displayMoney(row.contract?.economics?.gross_margin, row)}
                               {' / '}
                               {row.economics?.vendor || 'no vendor evidence'}
                               {row.economics?.paid_when_paid ? ' / paid when paid' : ''}
@@ -719,8 +720,8 @@ function StoredAssignmentDetails({ row }) {
     ['End', row.source?.end_date],
   ];
   const economicsPairs = [
-    ['Bill rate', displayMoney(row.source?.bill_rate)],
-    ['Pay rate', displayMoney(row.source?.pay_rate)],
+    ['Bill rate', displayMoney(row.source?.bill_rate, row)],
+    ['Pay rate', displayMoney(row.source?.pay_rate, row, 'pay')],
     ['Vendor / contractor company', row.economics?.vendor],
     ['Referrer', row.economics?.referrer],
     ['Commission evidence', row.economics?.commission],
@@ -862,8 +863,7 @@ function displayValue(value) {
   return String(value);
 }
 
-function displayMoney(value) {
-  if (value === null || value === undefined || value === '') return '-';
-  const number = Number(value);
-  return Number.isFinite(number) ? `USD ${number.toFixed(2)}` : String(value);
+function displayMoney(value, row, side = 'bill') {
+  const basis = row?.contract?.economics;
+  return displayJobDivaMoney(value, basis?.currency, basis?.[`${side}_rate_unit`]);
 }

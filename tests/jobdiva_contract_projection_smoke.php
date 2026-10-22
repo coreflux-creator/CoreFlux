@@ -32,6 +32,7 @@ $rows = [[
         'FREQUENCY_LABEL' => 'Weekly',
         'BILL_RATE' => 62.98,
         'BILL_RATE_PER' => 'H',
+        'CURRENCY' => 'USD',
         'WORKING_STATE' => 'AZ',
         'WORKING_COUNTRY' => 'US',
         'NET_BILL' => '$62.98/H',
@@ -47,6 +48,8 @@ $rows = [[
     ]],
     'SALARY' => [[
         'SALARY' => 60,
+        'SALARY_PER' => 'H',
+        'CURRENCY' => 'USD',
         'SUBCONTRACT_COMPANYID' => '12319524',
         'PAYMENT_FREQUENCY' => 'Weekly',
         'EMPLOYMENT_CATEGORY' => 'Subcontract',
