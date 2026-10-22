@@ -1,5 +1,25 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Field alignment checkpoint
+
+The field dictionary export includes 38 implemented payload mappings across
+31 source fields, with sender/receiver source evidence, transformations,
+immutable or conditional write rules, and source verification separated from
+hosted acceptance. It covers typed person/placement/client/vendor/company
+references, Quanta assignment metadata, PurePay links and PurePayroll
+approved-time/frozen-rate inputs including persisted Quanta origin. It remains
+metadata-only: loading or downloading it cannot activate a sync. Restricted,
+unknown, approval and unsupported fields do not receive inferred mappings.
+Native provisioning, portal access/onboarding, commercial term changes and
+complete settlement/liability attribution remain open. This is an intermediate
+field-alignment milestone, not completion of the operating pilot.
+
+The invoice candidate also displays the workspace and explains client search
+versus the initial suggestions. Production still runs the earlier accounting
+bundle. Local record/field checks (126), disposable record-number MariaDB checks
+(51), delivery MariaDB checks (117, including actual sender/dictionary agreement),
+syntax validation and the frontend build pass; hosted verification remains separate.
+
 ## Live accounting release gap — October 21, 2026
 
 The user's "still nowhere" report is now traced to two concrete causes:

@@ -59,6 +59,16 @@ $GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,
 $source=quantaMetadataSource($pdo,$instance,['people'=>10,'placements'=>10,'ap'=>11],'placement',201);
 $check($source['reference']['number']==='PL-9002' && $source['person']['number']==='P-9001','source uses registry numbers rather than database primary keys');
 $check($source['assignment']['vendor']['directory_tenant_id']===11 && $source['assignment']['client']['directory_tenant_id']===10,'shared staffing and isolated vendor directories stay distinct');
+require_once __DIR__.'/../../core/integrations/staffing_exchange_fields.php';
+foreach (staffingExchangeFieldMappings() as $field => $providers) {
+    foreach ($providers['quanta'] ?? [] as $mapping) {
+        if ($mapping['route'] !== '/api/v1/integrations/coreflux/assignments') continue;
+        $check(array_key_exists($mapping['path'], $source['assignment']), 'dictionary assignment path exists in the actual metadata payload: '.$field);
+        if (preg_match('/typed_reference:(\w+)/', $mapping['transform'], $kind)) {
+            $check($source['assignment'][$mapping['path']]['entity_type'] === $kind[1], 'dictionary relationship kind agrees with the actual sender: '.$field);
+        }
+    }
+}
 $check($fails(fn()=>quantaMetadataSource($pdo,$instance,['people'=>10,'placements'=>10,'ap'=>12],'placement',201)),'foreign vendor directory cannot be guessed from a numeric ID');
 $check($fails(fn()=>quantaMetadataSource($pdo,$instance,['people'=>10,'placements'=>10,'ap'=>11],'person',102)),'foreign person with the same display number cannot be published');
 $check($fails(fn()=>quantaMetadataPreview(11,7,'placement',201,'site-1')),'assignment requires a confirmed shared person link');

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../record_numbers.php';
+require_once __DIR__ . '/staffing_exchange_fields.php';
 
 function staffingFieldContractTables(): array
 {
@@ -14,7 +15,7 @@ function staffingFieldContractTables(): array
         'staffing_operating_cycles', 'people_documents', 'placement_documents',
         'people_banking', 'people_tax', 'people_employees', 'people_employment_history',
         'people_compensation', 'people_i9', 'people_tax_federal', 'people_tax_state', 'people_bank_accounts',
-        'time_entries', 'time_periods', 'time_downstream_feed', 'staffing_timesheets',
+        'time_entries', 'time_periods', 'time_downstream_feed', 'staffing_timesheets', 'quanta_time_imports',
         'payroll_runs', 'payroll_line_items', 'ap_bills', 'ap_payments', 'billing_invoices',
         'billing_payments', 'external_entity_mappings',
     ];
@@ -61,6 +62,7 @@ function staffingFieldContractRules(string $table, string $field): array
             'observed_version' => '1.1.0', 'evidence_url' => 'https://helloquanta.app/api/v1/openapi.json',
             'write_scope' => 'write:workers', 'sync_enabled_by_dictionary' => false];
     }
+    if (!$restricted) $remoteContracts = staffingExchangeRemoteContracts($key, $remoteContracts);
     return [
         'definition' => $definition,
         'definition_status' => $definition !== null ? 'reviewed_core_definition' : 'review_required',
@@ -100,7 +102,10 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ], staffingFieldContractRules($table, $field));
     }
     foreach (coreRecordNumberDefinitions() as $type => $definition) {
-        $fields[] = array_merge(staffingFieldContractRules('core_record_numbers', 'id'), [
+        $rules = staffingFieldContractRules('core_record_numbers', 'id');
+        $rules['remote_contracts'] = staffingExchangeRemoteContracts(
+            $definition['table'] . '.' . $definition['field'], $rules['remote_contracts']);
+        $fields[] = array_merge($rules, [
             'key' => $definition['table'] . '.' . $definition['field'],
             'core_path' => 'core_record_numbers.record_number',
             'entity_type' => $type, 'kind' => 'business_reference', 'type' => 'string', 'nullable' => false,
@@ -111,14 +116,15 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ]);
     }
     return [
-        'contract_version' => '2026-10-20.2', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-21.1', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
         'unverified_tables' => array_values(array_diff($tables, array_keys($found))),
         'fields' => $fields,
         'custom_fields_status' => 'not_loaded',
-        'provider_coverage_status' => 'remote schemas and configured mappings require separate verification',
+        'provider_coverage_status' => 'source-backed mappings included; deployed capabilities and hosted acceptance require separate verification',
+        'workflow_gaps' => staffingExchangeWorkflowGaps(),
     ];
 }
 

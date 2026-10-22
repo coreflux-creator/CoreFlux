@@ -13,11 +13,12 @@ import { selectedCompanyMatchesQuery, uniqueExactCompany } from '../../../dashbo
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
  * invoices go through InvoiceFromTimeBundleModal instead.
  */
-export default function InvoiceCreate() {
+export default function InvoiceCreate({ session }) {
   const nav = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
+  const workspace = session?.tenants?.find((tenant) => Number(tenant.id) === Number(session?.tenant_id));
   const requestedScope = searchParams.get('entity_id');
   const requestedEntityId = requestedScope && /^[1-9][0-9]*$/.test(requestedScope)
     ? Number(requestedScope) : null;
@@ -173,6 +174,9 @@ export default function InvoiceCreate() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>{isEdit ? 'Edit invoice' : 'New invoice'}</h2>
+          {workspace?.name && <p className="muted" style={{ margin: '6px 0 0' }} data-testid="billing-invoice-workspace">
+            Workspace: <strong>{workspace.name}</strong>
+          </p>}
         </div>
         <Link to={listPath} className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
       </header>
@@ -188,6 +192,10 @@ export default function InvoiceCreate() {
               testId="billing-invoice-create-client"
               placeholder="Search clients…"
             />
+            <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
+              Type a name to search the client directory. The initial suggestions show up to 12 clients.
+              {' '}For another workspace, use the workspace selector.
+            </p>
           </Field>
           <Field label="Issue date *">
             <input type="date" className="input" value={issueDate} onChange={(e) => setIssue(e.target.value)} data-testid="billing-invoice-create-issue" required />

@@ -18,7 +18,7 @@ from production. Opening the old dashboard does not install that code.
 ## Verified release gap
 
 - Current live frontend: `spa-assets/index-95sB_8ni.js`.
-- Current candidate frontend: `spa-assets/index-BYhjbBMq.js`.
+- Current candidate frontend: `spa-assets/index-BV7etMTV.js`.
 - [Read-only production comparison](https://github.com/coreflux-creator/CoreFlux/actions/runs/39686986781)
   at candidate `e3fdb0a6f3db698357084add71b65fec7d3350b7` found 385 changed
   files and 4,590 new packaged files (including dependencies/tests). There are
@@ -66,6 +66,33 @@ or copy them into Git.** Existing encrypted integration configuration and keys
 must remain intact. This is a concrete activation prerequisite.
 
 ## Validation and remaining work
+
+### Invoice workspace clarity and exchange inventory follow-up
+
+The candidate invoice editor now shows the active workspace beside its title
+and explains that the initial client suggestions contain up to 12 records;
+typing searches the directory. Both create and edit routes pass the actual
+session context. This addresses the ambiguity in the reported screenshot,
+but does not change tenant scope, create clients or activate the release.
+
+The downloadable staffing field dictionary now includes 38 source-backed
+payload mappings across 31 source fields: Quanta shared identities and
+assignments, PurePay identity links, and PurePayroll approved-time inputs with
+their frozen rates and persisted Quanta provenance. References retain their
+instance, directory owner and entity type; bill-to clients remain distinct
+from end-client companies. Multiple destinations remain separate. Verification
+is explicitly source-level, with hosted acceptance pending. Native employee
+provisioning, commercial assignment updates, portal access/onboarding and
+settlement attribution remain explicit workflow gaps. The inventory cannot
+enable delivery or change provider records.
+
+Local validation: 126 record-number/field-contract checks, 51 disposable
+record-number MariaDB checks, 117 delivery MariaDB checks (including advertised
+Quanta paths against the actual sender), PHP syntax checks and the dashboard
+production build passed.
+The build has existing hook/style/bundle-size warnings and no lint errors.
+The live session expired before placement detail verification; the sign-in
+request remains pending. No production activation occurred.
 
 ### Exact migration review plan
 
