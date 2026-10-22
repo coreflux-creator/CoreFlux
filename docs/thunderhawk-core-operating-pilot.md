@@ -1,5 +1,30 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta preview correction and full-app composition - October 22, 2026
+
+The configured Quanta development database contains five test workspaces and
+no Thunderhawk. This was verified by a read-only tenant inventory. The earlier
+request for the user to sign into Thunderhawk in preview is withdrawn. Live
+Core and Quanta Thunderhawk sessions are separate from this development database.
+No preview company, membership, invitation or API key was created.
+
+Eighty metadata, worker-profile and portal cases now pass through the actual
+hosted development `server.app`, including mounted routes and middleware. Eight
+runtime files matched the local Quanta candidate's normalized-LF hashes before
+execution. The runner used an in-memory database, disabled dotenv loading,
+blocked external sockets and omitted lifespan/startup; zero network attempts
+were observed. Tests and receipts were staged outside application source. This
+proves full-app composition, not full application regression, startup migrations,
+browser-session acceptance or a live Thunderhawk round trip. Exact hashes and
+scope are retained in Quanta's `full-app-acceptance-20261022.json`.
+
+The next Quanta gate is release readiness followed by reviewed capabilities and
+binding in the existing live Thunderhawk workspace. Synthetic preview records
+must not be presented as real pilot evidence. The separately coordinated PurePay
+usage release has restored its pending Core source and lifted its source hold;
+its updated server baseline must be captured before any later Core companion save.
+The PurePay preview backend remains stopped pending safe full-app acceptance.
+
 ## Authenticated pilot and subcontract-party correction - October 22, 2026
 
 Candidate `5e041d16859da48f6514297c0518495772804385` passed all nine
@@ -17,8 +42,9 @@ reprojected. The remaining authenticated provider pilot is still open.
 Live Core and Quanta sign-ins are confirmed in Thunderhawk. Core's existing
 Quanta connection passed Check access. Quanta has two administrators and no
 workers; the empty worker lists are real. The existing Core key lacks the new
-Core-contract scopes, and the separate Quanta development preview still needs
-its own authenticated session. No key, scope, membership or invitation changed.
+Core-contract scopes. A read-only preview database inventory confirmed five test
+workspaces and no Thunderhawk; the earlier preview-login request is withdrawn.
+No key, scope, membership or invitation changed.
 
 A read-only comparison found a JobDiva person/placement matching an existing
 PurePayroll employee, plus a separate provisional spreadsheet duplicate.
@@ -65,8 +91,9 @@ state of private endpoints or hosted companion code.
 The next required work is authenticated hosted acceptance, not a broader shared
 directory rewrite. Emergent access is restored, and the prepared Quanta worker
 companion is now saved and hash-verified (receipt below). Live Core and Quanta
-are signed in; the Quanta preview needs its separate session. Establish safe full-app PurePay
-acceptance, verify actual workspace bindings and capabilities, then run the
+are signed in. Quanta full-app synthetic composition checks now pass as recorded
+above; Thunderhawk is absent from its development preview. Establish safe full-app
+PurePay acceptance, verify actual workspace bindings and capabilities, then run the
 Thunderhawk person/placement/time/held-payroll/result cycle with onboarding,
 replay, conflict and reconciliation checks. Existing provider IDs and the
 separate Arabella pilot remain intact. No new permissions were granted.
