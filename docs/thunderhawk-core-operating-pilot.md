@@ -2,6 +2,26 @@
 
 ## Quanta worker onboarding candidate — October 22, 2026 UTC
 
+Core now connects the worker-profile transport to reviewed preview/send/status
+and delivery-history actions. A dedicated `COREFLUX_QUANTA_WORKER_DELIVERY` flag
+defaults off. The review shows current/proposed contact fields, requires explicit
+confirmation, pins the Core workspace and discards stale browser replies. New
+workers remain disabled; native activation/invitation is a separate workflow.
+
+Quanta adds an API-key/workspace-scoped receipt lookup by the original delivery
+key. Core verifies its exact request hash and response before recording the
+confirmed receipt and local worker link in one transaction. Lost responses,
+missing/in-progress/uncertain receipts and competing links never trigger a resend.
+Source, connection and directory-policy changes block completion; recovery uses
+the original receipt after the identity conflict has been resolved.
+
+Validation passes 60 disposable MariaDB worker-delivery assertions, the existing
+117 delivery assertions, 238 number/field checks and 51 numbering MariaDB checks,
+72 dashboard tests, and the full dashboard build. The actual component was
+inspected in Chrome with synthetic data through review, interrupted response and
+receipt recovery. This is not hosted Thunderhawk acceptance. The field dictionary
+now contains 149 mappings over 116 fields, including five worker-profile paths.
+
 The next local candidate adds a dedicated worker-profile contract. Core's actual
 PHP transport passes an isolated HTTP round trip for disabled worker preparation,
 canonical person/worker linking, conditional name/phone updates, exact receipt
@@ -15,15 +35,18 @@ The native reactivation fix preserves provider IDs and omitted roles/approver,
 checks current administrator authority and identity consistency, and rejects a
 concurrent member change before sending mail. The integrated fixture verifies
 that preparation and later native activation preserve the same Core person link.
-All 98 isolated provider/portal/native/cross-language pytest cases pass.
+All 100 isolated provider/portal/native/cross-language pytest cases pass, including
+12 assertions through the actual Core PHP HTTP client and Unicode request hashes.
 
 This candidate is **not yet saved to Emergent or deployed**. The editor went idle
 and the builder session expired; the Google account selector could not be completed
 through browser controls. The user has been asked to finish Emergent sign-in.
-The preceding portal save remains the last verified Quanta source save. Core's
-publication Send action is still disabled: the new transport must be connected
-to its reviewed, durable send/reconciliation flow before pilot delivery. No real
-worker, identity, API permission, invitation or financial record was changed.
+The preceding portal save remains the last verified Quanta source save. Browser
+controls are working again, but the Google account selector still does not
+advance. Core's sender is implemented and gated off until provider source and
+capabilities are verified in the pilot. No real worker, identity, API permission,
+invitation or financial record was changed. Production accounting is unchanged;
+the existing maintenance/upgrade blockers below remain open.
 
 ## Quanta staff portal — October 22, 2026 UTC
 

@@ -102,7 +102,10 @@ $clientMapping = $references['client']['remote_contracts'];
 $check($companyMapping['quanta']['path'] === 'end_client' && $clientMapping['quanta']['path'] === 'client'
     && $companyMapping['purepay']['status'] === 'unverified', 'export distinguishes end-client company from billing client and unsupported provider company');
 $personMappings = $references['person']['remote_contracts'];
-$check(count($personMappings['quanta']['mappings']) === 2
+$check(array_column($personMappings['quanta']['mappings'], 'route') === [
+        '/api/v1/integrations/coreflux/assignments', '/api/v1/integrations/coreflux/person-links',
+        '/api/v1/integrations/coreflux/worker-profiles',
+    ] && array_column($personMappings['quanta']['mappings'], 'path') === ['person', 'person', 'person']
     && array_column($personMappings['purepayroll']['mappings'], 'path') === ['person', 'components[].person', 'reference', 'person']
     && array_column($personMappings['purepayroll']['mappings'], 'route') === [
         '/api/v1/integrations/coreflux/people/inputs', '/api/v1/integrations/coreflux/payroll/inputs',

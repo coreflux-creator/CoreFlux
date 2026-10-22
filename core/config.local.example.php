@@ -19,6 +19,7 @@ define('COREFLUX_DATA_KEY', 'REPLACE_ME_WITH_BASE64_32_BYTES');
 // Enable reviewed identity/assignment metadata delivery only after verifying the provider contract.
 // This does not enable worker activation, access, payroll or payments.
 // define('COREFLUX_QUANTA_METADATA_DELIVERY', true);
+// define('COREFLUX_QUANTA_WORKER_DELIVERY', true); // Reviewed inactive preparation/contact updates only.
 
 // OpenAI key — used directly by core/ai_service.php (no Python sidecar).
 // Get one at https://platform.openai.com/api-keys

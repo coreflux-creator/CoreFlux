@@ -51,8 +51,14 @@ numberCheck($rule['disposition'] === 'restricted' && $rule['write_policy'] === '
 numberCheck(staffingFieldContractRules('time_entries', 'hours')['unit'] === 'hours', 'decimal hours declared');
 numberCheck(staffingFieldContractRules('placements', 'future_field')['definition_status'] === 'review_required', 'new fields cannot silently become verified');
 numberCheck(!staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['sync_enabled_by_dictionary'], 'dictionary does not enable outbound writes');
-numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['quanta']['path'] === 'workers.full_name', 'verified Quanta name composition is recorded');
-numberCheck(staffingFieldContractRules('people', 'email_primary')['remote_contracts']['quanta']['direction'] === 'core_to_quanta_preview', 'verified email schema does not claim live delivery');
+$quantaName = staffingFieldContractRules('people', 'first_name')['remote_contracts']['quanta'];
+numberCheck($quantaName['path'] === 'full_name'
+    && $quantaName['mappings'][0]['route'] === '/api/v1/integrations/coreflux/worker-profiles'
+    && str_contains($quantaName['mappings'][0]['transform'], 'join_trimmed_first_and_last_name'), 'reviewed worker contract records the actual composed name path');
+$quantaEmail = staffingFieldContractRules('people', 'email_primary')['remote_contracts']['quanta'];
+numberCheck($quantaEmail['direction'] === 'core_to_quanta'
+    && $quantaEmail['status'] === 'source_verified_hosted_acceptance_pending'
+    && !$quantaEmail['sync_enabled_by_dictionary'], 'worker mapping does not claim hosted acceptance or enable delivery');
 numberCheck(staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['status'] === 'unverified', 'existing provider identity is not claimed as a Core ID field');
 numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['purepayroll']['path'] === 'first_name', 'explicit people-review mapping carries a separate first name');
 foreach ([['people', 'ssn_ct'], ['people_employees', 'employee_number'], ['placements', 'future_field'],

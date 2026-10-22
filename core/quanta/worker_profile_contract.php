@@ -1,5 +1,5 @@
 <?php
-/** Dedicated inactive-worker/contact contract. The legacy publication sender stays disabled. */
+/** Dedicated inactive-worker/contact contract, used by the reviewed worker delivery workflow. */
 declare(strict_types=1);
 require_once __DIR__.'/core_contract.php';
 
@@ -52,7 +52,7 @@ function quantaWorkerProfileContext(string $key): array
     $raw=quantaGet($key,QUANTA_CORE_CONTRACT_PATH.'/context');
     $context=quantaContractContextValidate($raw);
     if (($raw['worker_profile_contract_version']??null)!==QUANTA_WORKER_PROFILE_VERSION
-        || array_diff(['inactive_worker_preparation','conditional_worker_contact_updates'],$raw['capabilities'])) {
+        || array_diff(['inactive_worker_preparation','conditional_worker_contact_updates','worker_profile_receipt_lookup'],$raw['capabilities'])) {
         throw new RuntimeException('This Quanta environment has not enabled the reviewed worker-profile contract');
     }
     return $context+['worker_profile_contract_version'=>QUANTA_WORKER_PROFILE_VERSION];
@@ -81,11 +81,48 @@ function quantaWorkerProfileRead(string $key,string $workspace,array $person): ?
     return quantaWorkerProfileRecordValidate($record,$workspace,$person);
 }
 
-/** No API action calls this until reviewed delivery/reconciliation is connected. */
-function quantaWriteWorkerProfile(string $key,string $workspace,array $body,string $idempotencyKey): array
+/** Match Python's sorted, compact, ASCII-escaped digest for this string/int/null schema. */
+function quantaWorkerProfileRequestHash(array $body): string
+{
+    return hash('sha256',json_encode(integrationDeliveryCanonical(quantaWorkerProfileBodyValidate($body)),JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES));
+}
+
+function quantaWorkerProfileReceipt(string $key,string $workspace,array $body,string $deliveryKey): ?array
+{
+    if(!preg_match('/^[a-f0-9]{64}$/D',$deliveryKey))throw new InvalidArgumentException('Use the original delivery identity');
+    try{$receipt=quantaGet($key,QUANTA_CORE_CONTRACT_PATH.'/worker-profile-deliveries/'.$deliveryKey);}
+    catch(QuantaApiException $e){if($e->httpStatus===404)return null;throw $e;}
+    if(!is_string($receipt['id']??null)||!preg_match('/^cfd_[a-f0-9]{64}$/D',$receipt['id'])
+        ||($receipt['request_hash']??null)!==quantaWorkerProfileRequestHash($body)
+        ||!in_array($receipt['state']??null,['in_progress','uncertain','complete'],true))throw new RuntimeException('The provider receipt does not match this reviewed request');
+    if($receipt['state']==='complete' && in_array($receipt['status_code']??null,[200,201],true)) {
+        if(($receipt['response']['delivery_id']??null)!==$receipt['id'])throw new RuntimeException('The provider receipt identity is inconsistent');
+        quantaWorkerProfileConfirm($receipt['response'],$workspace,$body,(int)$receipt['status_code']);
+    }
+    return $receipt;
+}
+
+function quantaWorkerProfileConfirm(array $record,string $workspace,array $body,int $status): array
 {
     $body=quantaWorkerProfileBodyValidate($body);
     $id=quantaCoreRemoteId($workspace,$body['person']);
+    if($status!==($body['worker_id']===null?201:200))throw new RuntimeException('Unexpected worker-profile result');
+    quantaWorkerProfileRecordValidate($record,$workspace,$body['person']);
+    $expectedId=$body['worker_id']??('cfw_'.substr($id,4));
+    $expected=['email'=>$body['email'],'full_name'=>$body['full_name'],
+        'phone'=>$body['phone']??($body['expected_worker']['phone']??null),
+        'status'=>$body['expected_worker']['status']??'disabled'];
+    if($record['worker_id']!==$expectedId || !is_string($record['delivery_id']??null)
+        || !preg_match('/^cfd_[a-f0-9]{64}$/D',$record['delivery_id'])
+        || !is_string($record['worker']['updated_at']) || $record['worker']['updated_at']==='')throw new RuntimeException('Unconfirmed worker identity or receipt');
+    foreach($expected as $field=>$value)if($record['worker'][$field]!==$value)throw new RuntimeException('Worker contact response mismatch');
+    return $record;
+}
+
+/** Caller verifies the organization, review and durable claim before IO. */
+function quantaWriteWorkerProfile(string $key,string $workspace,array $body,string $idempotencyKey): array
+{
+    $body=quantaWorkerProfileBodyValidate($body);
     if ($key==='' || preg_match('/[\r\n]/',$key) || !preg_match('/^[a-f0-9]{64}$/D',$idempotencyKey)) {
         throw new InvalidArgumentException('A scoped key and durable delivery identity are required');
     }
@@ -111,15 +148,7 @@ function quantaWriteWorkerProfile(string $key,string $workspace,array $body,stri
     try {
         $record=json_decode($raw,true,64,JSON_THROW_ON_ERROR);
         if (!is_array($record)) throw new RuntimeException('Missing record');
-        quantaWorkerProfileRecordValidate($record,$workspace,$body['person']);
-        $expectedId=$body['worker_id']??('cfw_'.substr($id,4));
-        $expected=['email'=>$body['email'],'full_name'=>$body['full_name'],
-            'phone'=>$body['phone']??($body['expected_worker']['phone']??null),
-            'status'=>$body['expected_worker']['status']??'disabled'];
-        if ($record['worker_id']!==$expectedId || !is_string($record['delivery_id']??null)
-            || !preg_match('/^cfd_[a-f0-9]{64}$/D',$record['delivery_id'])
-            || !is_string($record['worker']['updated_at']) || $record['worker']['updated_at']==='') throw new RuntimeException('Unconfirmed worker identity or receipt');
-        foreach ($expected as $field=>$value) if ($record['worker'][$field]!==$value) throw new RuntimeException('Worker contact response mismatch');
+        quantaWorkerProfileConfirm($record,$workspace,$body,$status);
     } catch(Throwable $e) { throw new QuantaContractWriteException('invalid_worker_profile_response',true); }
     return $record;
 }

@@ -6,6 +6,7 @@ require_once __DIR__ . '/identity.php';
 require_once __DIR__ . '/workspace.php';
 require_once __DIR__ . '/../record_numbers.php';
 require_once __DIR__ . '/../integrations/delivery.php';
+require_once __DIR__ . '/worker_delivery.php';
 
 /** Pure planner. Never infers identity from email or overwrites provider-owned identifiers. */
 function quantaWorkerPublicationPlan(array $person, ?array $linkedWorker, array $workers): array
@@ -47,50 +48,5 @@ function quantaWorkerPublicationPlan(array $person, ?array $linkedWorker, array 
 
 function quantaPublicationPreview(int $tenantId, int $actorId, array $personIds): array
 {
-    if (!$personIds || !array_is_list($personIds) || count($personIds)>50) throw new InvalidArgumentException('Choose 1 to 50 people');
-    foreach ($personIds as $id) if (!is_int($id) || $id<=0) throw new InvalidArgumentException('Invalid person identity');
-    $personIds=array_values(array_unique($personIds));
-    $pdo=getDB();
-    $verified=quantaWorkspaceForDelivery($tenantId);
-    $connection=$verified['connection'];
-    $key=$verified['api_key'];
-    $workers=quantaListAll($key,'/workers',[],5000);
-    $workerIndex=[];
-    foreach ($workers as $worker) {
-        $id=(string)($worker['id']??'');
-        if ($id==='' || isset($workerIndex[$id])) throw new RuntimeException('Quanta worker identities are incomplete or duplicated');
-        $workerIndex[$id]=$worker;
-    }
-    $links=[];
-    foreach (quantaWorkerLinks($tenantId) as $link) $links[(int)$link['person_id']]=$link['worker_id'];
-    $peopleTenant=effectiveTenantIdForModule('people',$tenantId)??$tenantId;
-    $marks=implode(',',array_fill(0,count($personIds),'?'));
-    $stmt=$pdo->prepare("SELECT id,first_name,last_name,email_primary,phone_primary,status FROM people WHERE tenant_id=? AND deleted_at IS NULL AND id IN ({$marks})");
-    $stmt->execute([$peopleTenant,...$personIds]);
-    $people=coreRecordNumbersAttach($pdo,$peopleTenant,'person',$stmt->fetchAll(PDO::FETCH_ASSOC));
-    if (count($people)!==count($personIds)) throw new InvalidArgumentException('One or more people are unavailable in this directory');
-    $rows=[];
-    foreach ($people as $person) {
-        $workerId=$links[(int)$person['id']]??null;
-        if ($workerId!==null && !isset($workerIndex[$workerId])) {
-            $rows[]=['person_id'=>(int)$person['id'],'person_number'=>$person['person_number'],'status'=>'blocked','message'=>'Linked worker is no longer in the connected Quanta catalog.'];
-            continue;
-        }
-        $remote=$workerId!==null?$workerIndex[$workerId]:null;
-        $plan=quantaWorkerPublicationPlan($person,$remote,$workers);
-        if ($plan['status']==='preview') {
-            $row=integrationDeliveryPreview($pdo,$tenantId,$actorId,[
-                'provider'=>'quanta','connection_ref'=>(string)$connection['id'],
-                'binding_hash'=>$verified['binding_hash'],
-                'entity_type'=>'person','entity_tenant_id'=>$peopleTenant,'entity_id'=>(int)$person['id'],
-                'operation'=>$plan['operation'],'source_hash'=>integrationDeliveryHash($person),
-                'remote_hash'=>integrationDeliveryHash($remote??['absent_email'=>strtolower(trim((string)$person['email_primary']))]),
-            ],['worker_id'=>$workerId,'fields'=>$plan['payload'],
-                'person'=>integrationRecordReference($verified['instance_id'],$peopleTenant,'person',$person['person_number'])]);
-            $plan['delivery']=integrationDeliverySummary($row);
-        }
-        $rows[]=$plan;
-    }
-    return ['rows'=>$rows,'delivery_enabled'=>false,
-        'hold_reason'=>'Delivery awaits the verified Quanta workspace and shared identity contract. These previews do not send records.'];
+    return quantaWorkerProfilesPreview($tenantId,$actorId,$personIds);
 }

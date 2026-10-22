@@ -48,6 +48,18 @@ function staffingExchangeFieldMappings(): array
         'immutable_link', '2026-10-20.1', $quantaEvidence);
 
     foreach ([
+        'people.person_number'=>['person','resolve_authorized_directory; typed_reference:person'],
+        'people.first_name'=>['full_name','join_trimmed_first_and_last_name; printable_text_max_120'],
+        'people.last_name'=>['full_name','join_trimmed_first_and_last_name; printable_text_max_120'],
+        'people.email_primary'=>['email','lowercase_trimmed_valid_email_max_254; conflict_check_only_never_identity_match'],
+        'people.phone_primary'=>['phone','trimmed_printable_text_max_100; empty_preserves_existing_phone'],
+    ] as $key=>[$path,$transform]) {
+        $add($key,'quanta','/api/v1/integrations/coreflux/worker-profiles',$path,$transform,
+            'reviewed_disabled_membership_create_or_conditional_contact_update; provider_ids_preserved; native_activation_separate',
+            '2026-10-22.1',['core'=>'core/quanta/worker_delivery.php','provider'=>'Quanta:backend/app/coreflux_workers.py']);
+    }
+
+    foreach ([
         'people.person_number' => ['person', 'resolve_authorized_directory; typed_reference:person'],
         'people.first_name' => ['first_name', 'trimmed_printable_text_max_200; at_least_one_name'],
         'people.last_name' => ['last_name', 'trimmed_printable_text_max_200; at_least_one_name'],
@@ -166,7 +178,7 @@ function staffingExchangeWorkflowGaps(): array
     return [
         'native_payroll_employee_provisioning' => 'Reviewed W-2 contact snapshots can create inactive profiles in candidate source; hosted acceptance, payroll setup, activation and complete onboarding remain open.',
         'native_commercial_assignment_updates' => 'Candidate source supports full approved and current graphs, reviewed draft creation, same-party revisions and separate activation. Core-managed assignments are excluded from native automatic billing. Hosted acceptance and changes to the primary parties remain open.',
-        'quanta_worker_provisioning' => 'Shared person links require an existing reviewed worker; they do not create or invite one.',
+        'quanta_worker_provisioning' => 'Candidate source supports reviewed disabled worker preparation and conditional contacts with receipt recovery. Native identity attachment, activation and invitation are separate; provider publication and hosted acceptance remain open.',
         'portal_access_and_onboarding' => 'Assignment metadata does not grant staff access or complete onboarding.',
         'tax_bank_and_identity_documents' => 'Restricted; require dedicated permissioned workflows.',
         'payroll_settlement_and_liability_attribution' => 'Input receipt is not payroll execution, settlement proof or complete liability attribution.',

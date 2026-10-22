@@ -167,8 +167,25 @@ try {
         rbac_legacy_require($user, 'people.view');
         $result = quantaPublicationPreview($tenantId, $actorId, $body['person_ids'] ?? []);
         platformAuditLogWrite($tenantId, $actorId, 'quanta.publication.previewed', null,
-            ['count' => count($result['rows']), 'delivery_enabled' => false], ['source' => 'quanta']);
+            ['count' => count($result['rows']), 'delivery_enabled' => $result['delivery_enabled']], ['source' => 'quanta']);
         api_ok($result);
+    }
+
+    if (in_array($action,['publication_send','publication_status'],true)) {
+        rbac_legacy_require($user,'people.view');
+        if(!is_int($body['delivery_id']??null)||$body['delivery_id']<=0||!is_string($body['review_hash']??null))throw new InvalidArgumentException('Choose a reviewed worker delivery');
+        if($action==='publication_send'){
+            if(($body['confirm_profile']??null)!==true)throw new InvalidArgumentException('Confirm the reviewed contact fields before sending');
+            api_ok(quantaWorkerProfilesSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
+        }
+        api_ok(quantaWorkerProfilesStatus($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
+    }
+
+    if ($action==='publication_history') {
+        rbac_legacy_require($user,'people.view');
+        if(!is_int($body['person_id']??null)||$body['person_id']<=0||
+            (isset($body['before'])&&(!is_int($body['before'])||$body['before']<=0)))throw new InvalidArgumentException('Choose a person and valid history page');
+        api_ok(quantaWorkerProfilesHistory($tenantId,$body['person_id'],$body['before']??null));
     }
 
     if ($action === 'connect') {

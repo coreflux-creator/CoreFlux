@@ -300,7 +300,7 @@ export default function QuantaSettings() {
 
     {connected && <>
       <QuantaWorkspacePanel key={`workspace-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspace={status.data?.workspace} />
-      {catalog && <QuantaPublicationPanel key={status.data?.workspace?.id} people={people} />}
+      {catalog && <QuantaPublicationPanel key={`workers-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspaceId={status.data?.workspace?.id} people={people} />}
       {catalog && <QuantaMetadataPanel key={`metadata-${status.data?.workspace?.id}-${status.data?.connection_revision}`} people={people} placements={catalog.metadata_placements || placements} worksites={catalog.worksites || []} />}
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'start' }}>
