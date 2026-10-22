@@ -23,6 +23,8 @@ jobs:
         run: |
           php -l deploy/rehearse_core_staging_maintenance.php
           bash tests/full_core_maintenance_apache.sh
+      - name: Rehearse native scheduler pause and process-loss recovery in an isolated container
+        run: bash tests/full_core_maintenance_host_linux.sh
 
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).

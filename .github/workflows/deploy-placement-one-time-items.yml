@@ -107,13 +107,14 @@ jobs:
             }
             $metadata = [];
             foreach (['app'=>dirname($root), 'webroot'=>$root, 'private'=>dirname($root).'/private_html',
-              'live_config'=>$root.'/core/config.php', 'db_local'=>$root.'/core/db.local.php',
+              'live_config'=>$root.'/core/config.php', 'web_config'=>$root.'/.htaccess', 'db_local'=>$root.'/core/db.local.php',
               'user_ini'=>$root.'/.user.ini'] as $name=>$path) {
               $stat = @stat($path);
               $metadata[$name] = ['exists'=>$stat!==false, 'linked'=>is_link($path),
                 'readable'=>is_readable($path), 'writable'=>is_writable($path),
                 'uid'=>$stat ? $stat['uid'] : null, 'gid'=>$stat ? $stat['gid'] : null,
                 'mode'=>$stat ? decoct($stat['mode'] & 0777) : null,
+                'link_count'=>$stat ? $stat['nlink'] : null,
                 'inside_webroot'=>$stat ? (realpath($path)===$root || str_starts_with((string)realpath($path),$root.'/')) : null];
             }
             $configured = [];
@@ -163,8 +164,12 @@ jobs:
             if (!is_resource($cron)) exit(6);
             $cronText = stream_get_contents($pipes[1]); fclose($pipes[1]);
             stream_get_contents($pipes[2]); fclose($pipes[2]); $cronExit = proc_close($cron);
-            $workerPaths = []; $matchingCronLines = 0; $enabledFlags = [];
-            foreach (preg_split('/\r?\n/', $cronText) as $line) {
+            $workerPaths = []; $matchingCronLines = 0; $enabledFlags = []; $cronReview = [];
+            foreach (preg_split('/\r?\n/', $cronText) as $lineIndex=>$line) {
+              $trimmed = ltrim($line);
+              if ($trimmed !== '' && !str_starts_with($trimmed,'#') && !preg_match('/^[A-Za-z_][A-Za-z0-9_]*\s*=/', $trimmed)) {
+                $cronReview[] = ['line'=>$lineIndex+1,'sha256'=>hash('sha256',$line),'contains_target_root'=>str_contains($line,$root)];
+              }
               if (preg_match('/^\s*#/', $line) || !str_contains($line, $root)) continue;
               $matchingCronLines++;
               preg_match_all('~'.preg_quote($root,'~').'/([A-Za-z0-9_./-]+\.php)~', $line, $matches);
@@ -204,7 +209,8 @@ jobs:
               'paths'=>$metadata, 'environment_configured'=>$configured,
               'database_operations'=>$database,
               'migration_history'=>$history,
-              'ssh_user_crontab'=>['readable'=>$cronExit===0,'matching_line_count'=>$matchingCronLines,
+              'ssh_user_crontab'=>['readable'=>$cronExit===0,'sha256'=>$cronExit===0?hash('sha256',$cronText):null,
+                'active_line_reviews'=>$cronReview,'matching_line_count'=>$matchingCronLines,
                 'php_paths'=>array_values(array_unique($workerPaths)),'explicit_enabled_delivery_flags'=>array_values(array_unique($enabledFlags)),
                 'app_owner_crontab_verified'=>false],
               'backup_tools'=>['mysqldump'=>is_executable('/usr/bin/mysqldump'),'mariadb_dump'=>is_executable('/usr/bin/mariadb-dump'),
