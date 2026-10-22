@@ -6,6 +6,7 @@ import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import OnboardingTab from './OnboardingTab';
 
 const CLASSIFICATION_LABELS = {
   w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
@@ -48,6 +49,7 @@ export default function PersonDetail({ session }) {
     { slug: 'overview',   label: 'Overview' },
     { slug: 'placements', label: 'Placements' },
     { slug: 'documents',  label: 'Documents' },
+    ...(canSeePII ? [{ slug: 'onboarding', label: 'Onboarding' }] : []),
     { slug: 'skills',     label: 'Skills' },
     { slug: 'pipeline',   label: 'Pipeline' },
     { slug: 'compliance', label: 'Compliance' },
@@ -110,6 +112,7 @@ export default function PersonDetail({ session }) {
         <Route path="overview"  element={<OverviewTab person={person} reload={reload} />} />
         <Route path="placements"element={<PlacementsTab personId={person.id} />} />
         <Route path="documents" element={<DocumentsTab  personId={person.id} />} />
+        <Route path="onboarding" element={<OnboardingTab key={person.id} personId={person.id} />} />
         <Route path="skills"    element={<SkillsTab     personId={person.id} />} />
         <Route path="pipeline"  element={<PipelineTab   personId={person.id} />} />
         <Route path="compliance"element={<ComplianceTab person={person} reload={reload} />} />
