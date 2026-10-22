@@ -9,7 +9,7 @@ require_once __DIR__.'/../core/quanta/sync.php';require_once __DIR__.'/../core/m
 $password=$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
 $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
-$db='coreflux_qorigin_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
+$db='coreflux_qorigin_'.(defined('COREFLUX_QPAYROLL_FIXTURE')?'payroll_':'').($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
 $migrate=static function(string $file)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);};
 foreach(['147_quanta_time_integration.sql','148_quanta_worker_identity.sql','149_quanta_time_source_context.sql','159_quanta_workspace_binding.sql','165_quanta_time_workspace.sql','170_quanta_time_approval_evidence.sql']as$file)$migrate($file);
@@ -124,5 +124,61 @@ $history=$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')-
 $check(count($history)===2 && $history[0]===$evidenceBefore[0] && (int)$history[1]['observed_by_user_id']===8,'revised source evidence appends history without replacing the old approval');
 $migrate('170_quanta_time_approval_evidence.sql');
 $check($history===$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'migration replay preserves source approval history');
+require_once __DIR__.'/../core/quanta/time_current.php';
+$remote=array_replace($raw,['timesheet_id'=>'sheet-source','approved_at'=>'2026-10-03T10:00:00Z',
+    'approved_by_email'=>'reviewer@example.test','updated_at'=>'2026-10-03T11:00:00Z','payroll_excluded'=>false]);
+$pdo->prepare('UPDATE quanta_time_imports SET source_approval_json=:source_approval_json,source_approval_hash=:source_approval_hash WHERE tenant_id=1 AND quanta_entry_id="entry-1"')
+    ->execute(quantaTimeApprovalFields(quantaNormalizeEntry($remote,$sites,'approved')));
+$mode='current';$requests=0;
+$GLOBALS['__quanta_transport']=static function(string $method,string $url)use(&$remote,&$mode,&$requests,$context,$observer):array{
+    if(str_ends_with(parse_url($url,PHP_URL_PATH),'/context'))return ['status'=>200,'body'=>json_encode($context)];
+    $requests++;parse_str(parse_url($url,PHP_URL_QUERY),$query);
+    if($mode==='failure')return ['status'=>503,'body'=>'{}'];
+    if($mode==='disconnect')$observer->exec('UPDATE quanta_connections SET status="revoked" WHERE tenant_id=1');
+    $item=$mode==='unavailable'?['id'=>'entry-1','state'=>'unavailable']:['id'=>'entry-1','state'=>'approved','entry'=>$remote];
+    return ['status'=>200,'body'=>json_encode(['version'=>1,'workspace_id'=>'workspace-a','request_id'=>$query['request_id'],
+        'checked_at'=>gmdate('Y-m-d\TH:i:s\Z'),'data'=>[$item]])];
+};
+$verify=static function(array $ids=[1,2],int $tenant=1)use($pdo):array{
+    $pdo->beginTransaction();
+    try{$result=quantaTimeAssertCurrent($pdo,$tenant,$ids);$pdo->commit();return $result;}
+    catch(Throwable $e){$pdo->rollBack();throw $e;}
+};
+$result=$verify();
+$check($result['source_entries']===1&&$requests===1&&strlen($result['verified_source_hash'])===64,'current original source is rechecked once for multiple imported components');
+$check($fails(fn()=>quantaTimeAssertCurrent($pdo,1,[1,2])),'source verification cannot run outside the consuming transaction');
+$check($fails(fn()=>$verify([1,2],2)),'foreign company cannot consume this source time');
+$validRemote=$remote;$remote['regular_hours']=6;$remote['hours']=7.5;
+$check($fails(fn()=>$verify()),'changed remote hours block consumption without rewriting approved Core time');
+$remote=$validRemote;$remote['approved_by_email']='different@example.test';
+$check($fails(fn()=>$verify()),'changed source approval blocks consumption even when hours match');
+$remote=$validRemote;$mode='unavailable';
+$timeBefore=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$pdo->beginTransaction();
+try{$pdo->exec('UPDATE time_entries SET bill_extracted_at=NOW() WHERE id=1');quantaTimeAssertCurrent($pdo,1,[1,2]);$pdo->commit();throw new RuntimeException('Revoked source was accepted');}
+catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();}
+$check($timeBefore===$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'revoked or deleted source rolls back the complete consuming transaction');
+$mode='failure';$check($fails(fn()=>$verify()),'provider outage stops consumption instead of trusting stored approval');
+$mode='current';$pdo->exec('UPDATE time_entries SET hours=7 WHERE id=1');
+$check($fails(fn()=>$verify()),'edited Core hours fail the original source comparison');$pdo->exec('UPDATE time_entries SET hours=6.5 WHERE id=1');
+$pdo->exec('UPDATE time_entries SET source="manual_entry",source_system="manual" WHERE id=1');
+$check($fails(fn()=>$verify()),'changed source labels cannot bypass durable Quanta provenance');
+$pdo->exec('UPDATE time_entries SET source="quanta",source_system="quanta" WHERE id=1');
+$pdo->beginTransaction();$pdo->exec('DELETE FROM quanta_time_imports WHERE time_entry_id=2');
+$check($fails(fn()=>quantaTimeAssertCurrent($pdo,1,[1,2])),'missing provenance blocks the complete batch');$pdo->rollBack();
+$mode='disconnect';$check($fails(fn()=>$verify()),'connection revoked during source fetch blocks consumption');
+$observer->exec('UPDATE quanta_connections SET status="active" WHERE tenant_id=1');$mode='current';
+$pdo->exec('INSERT INTO time_entries SELECT 101,tenant_id,placement_id,person_id,work_date,timesheet_id,status,hours,hour_type,category,billable,description,"manual_entry","manual",superseded_by_id,bill_extracted_at,ap_extracted_at,payroll_extracted_at,rate_snapshot_id FROM time_entries WHERE id=1');
+$requestsBefore=$requests;$check($verify([101])===[]&&$requests===$requestsBefore,'native time does not require or contact Quanta');
+$pdo->exec('CREATE TABLE time_downstream_feed(id BIGINT PRIMARY KEY,tenant_id BIGINT,entries_json LONGTEXT)');
+$pdo->exec('INSERT INTO time_downstream_feed VALUES(1,1,\'{"entry_ids":[1,2]}\'),(2,1,\'{"entry_ids":[101]}\'),(3,2,\'{"entry_ids":[1,2]}\')');
+$pdo->beginTransaction();
+$check($fails(fn()=>quantaTimeAssertLegacyBundles($pdo,1,[1])),'legacy aggregate bundle cannot bypass per-entry Quanta settlement');
+$requestsBefore=$requests;quantaTimeAssertLegacyBundles($pdo,1,[2]);
+$check($requests===$requestsBefore,'native aggregate bundle remains usable without Quanta IO');
+$check($fails(fn()=>quantaTimeAssertLegacyBundles($pdo,1,[2,3])),'mixed-company bundle batch is rejected');
+$pdo->exec('UPDATE time_downstream_feed SET entries_json=\'{"entry_ids":[999]}\' WHERE id=2');
+$check($fails(fn()=>quantaTimeAssertLegacyBundles($pdo,1,[2])),'missing bundle source cannot be silently consumed');
+$pdo->rollBack();
 unset($GLOBALS['__quanta_transport']);putenv('COREFLUX_INTEGRATION_INSTANCE_ID');setRequestTenantId(null);
 echo "Quanta time provenance MariaDB: {$passed} passed\n";

@@ -66,7 +66,7 @@ $check($fails(fn()=>$reserve($p,str_repeat('b',64))) && (int)$pdo->query('SELECT
 $check($fails(fn()=>purepayPayrollAuthorityRead($pdo,2,$authority['id'])),'authority read is company scoped');
 foreach([
  'hours=6','category="OT_billable"','status="rejected"','approved_at=NULL','approved_by_user_id=99',
- 'rate_snapshot_id=2','superseded_by_id=9','source_system="manual"','payable=0',
+ 'rate_snapshot_id=2','superseded_by_id=9','source_system="quanta"','payable=0',
  'payroll_extracted_at=NOW()','payroll_extracted_ref=42','person_id=99','placement_id=2','tenant_id=7'
 ]as$change)$check($denied($pdo,'UPDATE time_entries SET '.$change.' WHERE id=1'),'held source rejects '.$change);
 $check($denied($pdo,'DELETE FROM time_entries WHERE id=1'),'held time cannot be deleted');

@@ -1,5 +1,45 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Current Quanta source guards implemented and verified - October 22, 2026
+
+Quanta's development endpoint now answers exact entry IDs with fresh request and
+workspace evidence, including unavailable states for revoked/deleted/excluded
+time. Candidate and installed full-app runs pass 17 tests; 9 new regressions fail
+the preceding version. Source SHA is
+6be25c99ddab759eefd1a1999847bb33dc2856cb168031fa9783106515ecd30d.
+No publication, access expansion, real time mutation, or service command occurred.
+The Quanta mirror retains source-state acceptance/install receipts and screenshot.
+
+Core rechecks original Quanta hours, classification, route, source IDs, approval
+evidence and verified workspace under the consuming transaction. This covers
+individual/staffing/email approvals, existing-target extraction, automatic
+bill/invoice/payroll drafts, direct time-entry invoices and AP bills, and
+PurePayroll input preview/send/reservation rebuild. Durable import associations
+prevent relabeling imported time as native to bypass checks. Connection revocation
+during the check is fenced before commit. Native time does not contact Quanta.
+Legacy aggregate bundle consumption refuses Quanta rows and directs operators to
+per-entry Time Settlement; native bundles continue normally.
+
+Database checks pass: source provenance/current-state 53, combined verified
+Quanta-to-held-PurePayroll input 7, PurePayroll authority 85 and results 20. The
+combined test preserves original IDs, split hours and rates, rejects approval
+revoked after preview before any provider write, and deduplicates replay. Other
+relevant parser/approval/settlement/invoice checks pass. These are synthetic
+fixtures, not a live Thunderhawk acceptance run.
+
+Core changes are prepared for CI and staging; deployed staging remains e97fa704
+until a later deployment receipt below supersedes this statement. Payroll
+authority stays disabled. Source checks do not lock future Quanta edits or replace
+revalidation before later payroll execution. Actual Thunderhawk people,
+assignment, time and held-result exchange remains open.
+
+PurePay preview/source remains on the release owner's hold for 9cd71c83. The
+owner reports 35 pending files restored and hash-verified (server bd01afff, cron
+c2d6a42e), preview STOPPED; publication, production worker restoration and live
+PWP validation must be confirmed before this chat resumes preview work.
+
+
+
 ## PurePay preview startup verified; Quanta export classification repaired - October 22, 2026
 
 Review and harden Pure//Pay confirmed release da85a19/e84aacd publication,

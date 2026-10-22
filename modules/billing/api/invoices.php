@@ -256,6 +256,11 @@ if ($method === 'POST' && $action === 'from-time-entries') {
     require_once __DIR__ . '/../../people/lib/companies.php';
     cf_begin_transaction();
     try {
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)$tid, $entryIds);
+        // Build from the locked rows that passed source verification.
+        $drafts = billingBuildDraftFromTimeEntries($tid, $entryIds, $aggregation);
+        if (!$drafts) throw new RuntimeException('No billable entries remain. Refresh the selection.');
         foreach ($drafts as $d) {
             $inv  = $d['invoice'];
             $inv['tenant_id']          = $tid;
@@ -329,6 +334,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                 'source'          => 'time_entries',
                 'aggregation'     => $aggregation,
                 'entry_ids'       => $d['entry_ids'],
+                'quanta_source_check' => $sourceCheck ?: null,
             ], $invId);
 
             $created[] = [
@@ -365,6 +371,9 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
     require_once __DIR__ . '/../../people/lib/companies.php';
     cf_begin_transaction();
     try {
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $bundleIds = array_merge(...array_column($drafts, 'bundle_ids'));
+        quantaTimeAssertLegacyBundles($pdo, (int)$tid, $bundleIds);
         foreach ($drafts as $d) {
             $inv  = $d['invoice'];
             $inv['tenant_id'] = $tid;

@@ -50,10 +50,12 @@ function purepayPayrollInputBuild(PDO $pdo,int $tenant,string $instance,array $o
     $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$number);
     $org=$access['review']['organization']['id'];
     $personLink=purepayPayrollInputLink($pdo,$tenant,$access['connection'],$person,$org);
-    $s=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=:t AND person_id=:p AND work_date BETWEEN :s AND :e AND status="approved" ORDER BY id LIMIT 201');
+    $s=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=:t AND person_id=:p AND work_date BETWEEN :s AND :e AND status="approved" ORDER BY id LIMIT 201 FOR UPDATE');
     $s->execute(['t'=>$owners['time'],'p'=>$person['entity_id'],'s'=>$start,'e'=>$end]);$entries=$s->fetchAll(PDO::FETCH_ASSOC);
     if(!$entries)throw new RuntimeException('No approved time was found for this person and period.');
     if(count($entries)>200)throw new RuntimeException('This review exceeds 200 time entries. Choose a shorter period.');
+    require_once __DIR__.'/../quanta/time_current.php';
+    quantaTimeAssertCurrent($pdo,$owners['time'],array_column($entries,'id'));
     $components=[];$sourceState=[];
     foreach($entries as$entry) {
         if(empty($entry['approved_at']) || !empty($entry['superseded_by_id']) || !empty($entry['payroll_extracted_at'])

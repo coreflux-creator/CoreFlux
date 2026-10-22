@@ -368,17 +368,33 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
         );
     }
 
-    scopedUpdate('time_entries', $id, [
-        'status'              => 'approved',
-        'rate_snapshot_id'    => (int) $snap['id'],
-        'approved_by_user_id' => $user['id'] ?? null,
-        'approved_at'         => date('Y-m-d H:i:s'),
-        'approved_via'        => $approvedVia,
-    ]);
-    $approvedEntry = timeEntryGet($id) ?? $entry;
-    timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0));
+    require_once __DIR__.'/../../../core/tx_helpers.php';
+    require_once __DIR__.'/../../../core/quanta/time_current.php';
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)currentTenantId(), [$id]);
+        $current = timeEntryGet($id);
+        if (!$current || $current !== $entry) {
+            throw new \RuntimeException('The time entry changed during approval. Refresh and review it again.', 409);
+        }
+        scopedUpdate('time_entries', $id, [
+            'status'              => 'approved',
+            'rate_snapshot_id'    => (int) $snap['id'],
+            'approved_by_user_id' => $user['id'] ?? null,
+            'approved_at'         => date('Y-m-d H:i:s'),
+            'approved_via'        => $approvedVia,
+        ]);
+        $approvedEntry = timeEntryGet($id) ?? $entry;
+        timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0));
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
     timeEntryApprovedEmit($id, $approvedEntry, $approvedVia, [
         'approver_user_id' => $user['id'] ?? null,
+        'quanta_source_check' => $sourceCheck ?: null,
     ]);
     return $approvedEntry;
 }

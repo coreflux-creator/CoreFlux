@@ -966,6 +966,8 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
     if (!in_array($entryVia, ['manual', 'tokenized_client_email', 'bulk_pre_approved'], true)) {
         throw new \InvalidArgumentException('Unsupported time-entry approval channel.');
     }
+    require_once __DIR__.'/../../../core/quanta/time_current.php';
+    $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, array_keys($snapshots));
     $headerUpdate = $pdo->prepare(
         "UPDATE staffing_timesheets
             SET status = 'approved',
@@ -1028,6 +1030,7 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
         'entry_count' => count($snapshots),
         'external_approver_email' => $options['external_approver_email'] ?? null,
         'approval_token_id' => $options['approval_token_id'] ?? null,
+        'quanta_source_check' => $sourceCheck ?: null,
     ], $tenantId);
 }
 

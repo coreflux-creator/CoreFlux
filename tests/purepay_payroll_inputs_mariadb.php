@@ -88,7 +88,12 @@ $pdo->exec('UPDATE time_entries SET source="quanta",source_system="quanta" WHERE
 $pdo->exec("INSERT INTO quanta_time_imports VALUES(1,1,1,'quanta-1','regular','".str_repeat('b',64)."',NULL)");
 $check($fails($preview),'legacy Quanta import cannot borrow today\'s workspace identity');
 $pdo->exec("UPDATE quanta_time_imports SET source_workspace_id='workspace-original' WHERE id=1");
-$check($preview()['packet']['components'][0]['source']['source_workspace_id']==='workspace-original','persisted original Quanta workspace is retained');
+$check($fails($preview),'stored Quanta workspace alone cannot replace a current approved-source check');
+$check($pdo->query('SELECT source_workspace_id FROM quanta_time_imports WHERE id=1')->fetchColumn()==='workspace-original','failed source check preserves the original Quanta workspace');
+// Later native reservation cases do not impersonate an authenticated Quanta source.
+$pdo->exec('UPDATE time_entries SET source="manual_entry",source_system="manual" WHERE id=1');
+$check($fails($preview),'changing both source labels cannot hide an existing Quanta import');
+$pdo->exec('DELETE FROM quanta_time_imports WHERE id=1');
 $bad=$context;$bad['capabilities']=['read:coreflux','write:payroll_inputs'];$check($fails(fn()=>purepayCoreContextValidate($bad)),'input write scope requires payroll read scope');
 $history=purepayPayrollInputHistory($pdo,1,$instance,$owners,'P-1');
 $check(count($history['items'])>=4 && count(array_filter($history['items'],static fn($item)=>$item['delivery']['state']==='uncertain'))===1,'input history recovers held attempts after reload');

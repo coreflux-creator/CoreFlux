@@ -97,6 +97,9 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             }
         }
 
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)$tenantId, $entryIds);
+
         // 2) Group by placement_id.
         $byPlacement = [];
         foreach ($entries as $e) $byPlacement[(int) $e['placement_id']][] = $e;
@@ -344,6 +347,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
 
     settlementAudit("time.settlement.auto_extracted_$target", [
         'count' => count($entryIds), 'created' => $created, 'ids' => $entryIds,
+        'quanta_source_check' => $sourceCheck ?: null,
     ]);
     return ['created' => $created, 'extracted_count' => count($entryIds)];
 }
@@ -559,6 +563,9 @@ function _settleTimeIntoPayroll(
                 throw new TimeSettlementException("Entry #{$e['id']} is approved but has no locked rate snapshot");
             }
         }
+
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, $entryIds);
 
         // 2. Resolve person → employee for the unique person set.
         $personIds = array_values(array_unique(array_map(fn($r) => (int) $r['person_id'], $entries)));
@@ -810,6 +817,7 @@ function _settleTimeIntoPayroll(
     $stamped = array_sum(array_map(fn($c) => $c['line_count'], $created));
     settlementAudit('time.settlement.auto_extracted_payroll', [
         'count'        => $stamped,
+        'quanta_source_check' => $sourceCheck ?: null,
         'created'      => $created,
         'skipped_count'=> count($skipped),
         'ids'          => $entryIds,
