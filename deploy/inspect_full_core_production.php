@@ -64,6 +64,7 @@ require_once $root . '/core/db.php';
 require_once $package . '/core/migration_hash.php';
 require_once $package . '/core/accounting/schema_contract.php';
 require_once $package . '/deploy/full_core_migration_plan.php';
+require_once $package . '/deploy/staffing_directory_inventory.php';
 $db = getDB();
 if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) {
     throw new RuntimeException('Production database does not match the app identity.');
@@ -120,6 +121,7 @@ try {
         'mode' => 'read-only-production-inspection', 'candidate_commit' => $manifest['commit'],
         'database_identity_verified' => true, 'live_bundle' => $liveBundle[0] ?? null,
         'candidate_bundle' => $candidateBundle[0] ?? null, 'client_counts' => $clients,
+        'staffing_directories' => fullCoreStaffingDirectoryInventory($db, ['Thunderhawk', "charge d'Affaires"]),
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
         'comparison_base_commit' => $manifest['base_commit'] ?? null,

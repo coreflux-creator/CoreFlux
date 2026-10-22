@@ -164,6 +164,7 @@ jobs:
 
       - name: Verify source classification, countries and rate bases before JobDiva writes
         run: |
+          php tests/staffing_directory_inventory_mariadb.php
           php tests/jobdiva_classification_smoke.php
           php tests/jobdiva_source_values_smoke.php
           php tests/jobdiva_source_values_mariadb.php
