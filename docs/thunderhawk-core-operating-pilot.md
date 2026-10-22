@@ -1,5 +1,28 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## PurePay scheduler hold verified and release coordination - October 22, 2026
+
+The restored shared PurePay source was independently verified at 9995b676:
+34 pending paths were preserved and only the merged server changed among the
+19 previous Core runtime files. The local startup guard was rebased without
+replacing the duplicate-bill release. A separate active webhook-crond scheduler
+was found; a companion authentication-preserving guard now holds both PWP
+auto-batching and AP-digest requests before writes or tasks in preview review
+mode. All 17 full-application tests passed with in-memory data and zero outbound
+network attempts. PurePay local commit d9bbaa3 records the two-file candidate
+and verification/startup-cron-acceptance-9995b67-20261022.json.
+
+The user explicitly authorized coordination with Review and harden Pure//Pay.
+That chat owns the current Nordic bank-recovery release window. No shared source
+or service changes were made here. Both preview guards remain uninstalled;
+refresh the restored baseline and coordinate the handoff before installation.
+This does not establish hosted acceptance or a live Thunderhawk round trip.
+
+An additional open time-flow gap is confirmed in Core: normalization retains
+source status/hours/identity but drops the source approval actor and revision
+evidence. Inspect the actual Quanta serializer before extending that contract;
+no approval-equivalence or complete audit provenance is claimed.
+
 ## Quanta connection setup verified - October 22, 2026
 
 The API-key screen now offers the existing Core read and write permissions,
