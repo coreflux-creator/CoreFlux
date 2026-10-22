@@ -19,8 +19,8 @@ CI jobs and 35 settings/HTTP checks, then passed actual production CLI and
 PHP-FPM read-only verification. The settings were preserved privately and the
 temporary probe removed; live configuration and data were not changed.
 Database upgrade, writer maintenance and recovery preparation remain open.
-The package now includes the updated accounting workers. Runtime `9337bfff`
-passed all eight CI jobs and staging acceptance (run 39699288911); production
+The package now includes the updated accounting workers. Runtime `27b4d729`
+passed all eight CI jobs and staging acceptance (run 39701429307); production
 was skipped. The live operations inventory found nine scheduled Core jobs and
 about 7.71 GB of database data/index allocation. Verified removal of three
 superseded upload packages recovered about 2.06 GB, leaving about 3.24 GB free.
@@ -60,11 +60,21 @@ and 33 input MariaDB assertions; five tenant checks and five actual UI component
 renders. The Core dashboard compiled with the existing 61 lint warnings; a
 Windows interruption during the final generated-file copy was resolved by
 rerunning that copy. Full provider startup, tax accuracy, hosted payroll and
-settlement delivery remain unverified. Core CI/staging publication of this
-increment is being verified separately from the earlier staged runtime below.
+settlement delivery remain unverified. Core runtime
+`27b4d7292f59f2698c47d214917c144667e1a9d7` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39701131724)
+and [hosted staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39701429307).
+The 6,739-file package applied migration 167; schema and payroll source guards
+were ready, payroll authority remained disabled and production was skipped.
+Accounting lifecycle, split receipts, credits and log-only delivery passed.
+The provider preview's public integration schema returned HTTP 502 on two
+checks. Its existing log showed shutdowns without a matching application
+exception; the Emergent page reports that the preview is resuming. These
+observations do not establish full provider startup or hosted payroll acceptance.
 
 Next: hosted source-to-held-draft-to-result acceptance and reviewed provider
-publication/connection capability setup; actual employee/tax settlement evidence;
+publication/connection capability setup; actual employee/tax settlement evidence
+and liability-level deduction attribution for accounting comparison;
 onboarding/access and commercial-term exchange. The separate live accounting
 backup/upgrade/activation gates remain. The integration goal is active.
 

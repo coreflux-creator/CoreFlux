@@ -204,7 +204,8 @@ and [hosted staging acceptance](https://github.com/coreflux-creator/CoreFlux/act
 The full package contains 6,734 files. Accounting lifecycle, split receipts,
 credits and log-only delivery passed again; schema/source guards were ready,
 payroll authority was disabled and production was skipped. This is the current
-staged runtime; the production backup, upgrade and activation gates above remain.
+staged runtime at that checkpoint; the production backup, upgrade and activation
+gates above remain.
 
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static
@@ -230,6 +231,15 @@ The subsequent payroll-result candidate adds Core migration 167 for encrypted
 provider observations. Include it in the reviewed upgrade plan and refresh the
 pending-migration/schema inventory before cutover; the earlier numeric counts
 above describe the prior audited candidate, not this additional table.
+
+Runtime `27b4d7292f59f2698c47d214917c144667e1a9d7` is now the current
+staged candidate. All eight [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39701131724)
+passed, followed by [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39701429307).
+The 6,739-file package applied migration 167 and passed the accounting lifecycle,
+split receipts, credits and log-only delivery checks. Schema and source guards
+were ready, payroll authority stayed disabled and production was skipped.
+This does not establish provider hosted acceptance or close the production
+backup, maintenance, upgrade and activation gates.
 
 Local evidence: `thunderhawk-live-invoice-clients.png` and
 `thunderhawk-live-accounting-overview.png` (untracked). Full read-only reports
