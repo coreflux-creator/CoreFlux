@@ -23,6 +23,24 @@ PHP syntax and workflow YAML checks, and the production dashboard build.
 The minimal MariaDB fixture verifies write boundaries and workspace isolation;
 it is not a complete staffing-graph or real Thunderhawk acceptance run.
 
+Runtime `7d2caa8f` passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39760034658)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39760480561)
+at October 22 10:08 UTC. The 6,784-file package had no pending migrations.
+Served bundles `index-Cii8YBsS.js`, `index-CpPytuwY.js` and both stylesheets
+matched installed SHA-256 values. Accounting lifecycle, split receipts,
+61 credit checks and log-only delivery passed. The permanent Core installation
+identity was retained, payroll authority stayed disabled and production deployment
+was skipped. This is the current staged runtime. Browser inspection of the actual
+review component used synthetic conflicting categories and verified readable
+source evidence, blocked classification and no fabricated hourly margin.
+
+GitHub rejected the earlier light-deployment workflow before any job ran because
+its embedded script exceeded the expression limit. The unchanged 152-file PHP
+lint list is now a packaged manifest; all 11 deployment-dependent regression
+suites pass. No production light deployment was dispatched. Core, Quanta preview
+and Emergent still showed sign-in during the final access check. The live
+Thunderhawk round trip and production accounting cutover remain outstanding.
+
 ## JobDiva source country and rate basis — October 22, 2026 UTC
 
 Runtime `592b8815` replaces country-name truncation and inferred hourly/USD
@@ -59,8 +77,7 @@ pending. Both served JavaScript bundles (`index-CEx7BZw6.js` and
 `index-B0nBxAR2.js`) and both stylesheets matched installed SHA-256 values.
 Accounting lifecycle, split receipts, 61 credit checks and log-only delivery
 passed. The permanent Core installation identity was retained, payroll authority
-remained disabled and production deployment was skipped. This is the current
-staged runtime. Core, Quanta preview and Emergent were rechecked during this turn
+remained disabled and production deployment was skipped. This preceded the classification release above. Core, Quanta preview and Emergent were rechecked during that turn
 and still displayed sign-in; no real provider write was made.
 
 ## Reviewed JobDiva person links — October 22, 2026 UTC

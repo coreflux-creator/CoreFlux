@@ -3,17 +3,20 @@
 ## Current release checkpoint — October 22, 2026
 
 The updated accounting experience remains absent from production. Core runtime
-`592b8815` is installed in isolated staging and passed all nine
-[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39753759055)
-and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39754140741)
-at October 22 09:19 UTC. Its current bundles are `index-CEx7BZw6.js` and
-`index-B0nBxAR2.js`; all four served asset hashes match the installed 6,781-file
-package. This release validates JobDiva country and rate metadata before writes
-and removes the review screen's inferred USD label. No migrations were pending;
-migrations 168 and 169 were applied in preceding staging releases. The permanent
-Core installation identity was retained. Accounting lifecycle,
-split receipts, 61 credit checks and log-only delivery passed; payroll authority
-remains disabled and production deployment was skipped.
+`7d2caa8f` is installed in isolated staging and passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39760034658)
+and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39760480561)
+at October 22 10:08 UTC. Its current bundles are `index-Cii8YBsS.js` and
+`index-CpPytuwY.js`; all four served asset hashes match the installed 6,784-file
+package. This release adds explicit JobDiva assignment classification to the
+country and rate-basis validation: ambiguous categories cannot create people,
+repair placement identities or change rates, and the review withholds unsupported
+hourly margins. No migrations were pending; migrations 168 and 169 were applied
+in preceding staging releases. The permanent Core installation identity was
+retained. Accounting lifecycle, split receipts, 61 credit checks and log-only
+delivery passed; payroll authority remains disabled and production deployment
+was skipped. The light-deployment workflow expression-length problem was fixed
+without running that production workflow.
 Production maintenance, ownership-preserving recovery and final backup gates
 described below remain open. Earlier inventory counts and candidate fingerprints
 below describe their linked inspections, not a new production inspection.
