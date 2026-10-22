@@ -29,15 +29,27 @@ Core's latest listed restore point was October 19. The first on-demand backup
 ended without a newer restore point; Cloudways reports recent backups failing
 for lack of disk space. A reviewed source-only cleanup (run 39707329532) removed
 eight obsolete upload copies after complete hash checks, leaving about 7 GiB
-free while preserving current/configuration packages and private backups. A new
-Core-only backup is now running. Verify its actual new restore timestamp before
-claiming success. Controlled recovery and writer maintenance remain.
+free while preserving current/configuration packages and private backups. The
+Core-only backup succeeded: the actual restore point and Last Backup Date are
+October 22, 2026 01:50:47 UTC (October 21 at 21:50:47 Eastern). Final cutover
+backup/recovery binding and writer maintenance remain.
 Core's Cloudways application scheduler is verified empty in both Basic and
 Advanced views; nine SSH-user entries remain active. Maintenance preparation
 now passes 17 checks and a real Apache/PHP rehearsal: 17 blocked requests, no
 handler execution, exact restoration and resumed GET/POST. All nine CI jobs
-passed for 1140eef7 and workflow follow-up d6097362. These are disposable
-rehearsals; no hosted maintenance guard or scheduler pause has been activated.
+passed for 1140eef7 and workflow follow-up d6097362. The later native database
+restore fixture passed 14 Windows and 15 Linux checks after a partially committed
+upgrade, including original balances, binary/text values, both ledgers, views
+and executable triggers. All nine CI jobs passed for dbb1cef3.
+The first hosted web-maintenance rehearsal blocked and restored staging requests
+but stopped on a removed API probe returning the router's normal 400 instead
+of 404. Read-only inspection confirmed original configuration restored and all
+probe files absent. The response-baseline correction passes 22 preparation
+checks. All nine CI jobs for f0c41bca passed, followed by successful hosted run
+39710272928: six held requests, six restored handler responses, six absent-file
+checks, exact configuration restoration and all probes removed. This verifies
+staging web ingress; production scheduler pause and writer drain remain open.
+No production guard or scheduler pause has been activated.
 The goal is active again; the earlier usage-limited note below is historical.
 The exact migration-plan checkpoint now passes against production at candidate
 `3b117355`: 60 pending migrations, three source exceptions retained, 18 retired

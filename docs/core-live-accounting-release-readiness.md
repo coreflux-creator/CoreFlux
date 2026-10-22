@@ -196,10 +196,12 @@ logs were retained locally. Manifests/archive checksums are retained privately
 under `/tmp/core-upload-cleanup-39707329532`. Configuration package 39690256340,
 current reviewed candidate 39703479716 and its full preflight receipt, and
 separately stored deployment/database backups were preserved.
-A new application-only Core backup was started after this verified cleanup;
-Cloudways displays `Application backup in progress`. Do not launch another
-while that operation is active or claim completion without its new restore
-point. The prior failed attempt remains documented above.
+The application-only Core backup after this cleanup succeeded. Cloudways now
+lists **October 22, 2026 01:50:47 UTC** (October 21 at 21:50:47 Eastern) as the
+latest restore point and Last Backup Date for app 5829812. This is files-and-
+database backup evidence, not just a stopped progress indicator. Screenshot:
+`core-backup-completed-20261022.png` (untracked). It was taken while business
+writers were active; the final cutover snapshot still requires writer maintenance.
 
 No restore, backup-policy change, server-wide backup or production activation
 was performed. A pre-upgrade backup during verified writer maintenance and a
@@ -228,10 +230,75 @@ passed for 1140eef760262615c07aa1e8cc41a68da520b1c0.
 The storage/cleanup workflow follow-up d60973622022c07bccc60802050e36d937c79010
 also passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39707337001).
 
-This is disposable HTTP acceptance, not verified Cloudways writer maintenance.
-The host adapter, Apache/FPM plus front-proxy behavior, active request/worker
-drain, final backup and recovery binding remain unfinished. No real scheduler
-or hosted `.htaccess` was changed by this increment.
+That initial increment was disposable HTTP acceptance. The next staging-only
+adapter is `deploy/rehearse_core_staging_maintenance.php`. It accepts only the
+fixed synthetic staging app/database, verifies tenant 999 and log-only mail,
+retains an original configuration and hashed receipt outside the webroot, and
+uses three token-protected probes with no application/bootstrap/database calls.
+It verifies baseline, held and restored GET/POST behavior, checks hashes before
+replacement/restoration, and removes its exact temporary probes. Ordinary
+exceptions run cleanup; process loss can be recovered with the explicit
+`--recover-staging-web <operation>` mode against the same private receipt.
+There is no production target override. This tests web ingress only: no scheduler
+is paused and no running financial worker is killed or declared drained.
+
+The first [hosted rehearsal](https://github.com/coreflux-creator/CoreFlux/actions/runs/39708794705)
+passed baseline, all six held requests and all six restored responses, then
+stopped on an incorrect assumption that every removed probe URL returns 404.
+The [read-only inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39709119021)
+proved the original configuration was restored, the guard absent and all three
+files removed. The API router returns its normal 400 for a missing single-
+segment API path; root and accounting-module paths return 404. Its JSON trace
+ID changes on every request. The final check now captures the actual absent
+GET/POST response for a never-created sibling in each route and compares it
+with the probe URL after removal,
+normalizing only the validated request ID on that exact known router error.
+Unexpected success, redirects or other 400 errors still fail. Preparation now
+passes 22 checks, and all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39709416804)
+passed for d6c146ba95b3e4b159ce93e24b356d84aa5d7fc7.
+
+The first response-baseline run (39709764216) stopped before guard installation
+because a newly created probe did not return the expected handler response.
+Inspection 39710054078 again confirmed original configuration and no probe files.
+The absent controls now use separate never-created sibling paths so they do not
+prime a negative file/cache lookup for a file about to be created; normal-probe
+failures now include method/path/status/body hash for precise diagnosis. This
+does not relax the 503 hold or the restored-handler checks.
+
+The corrected [hosted rehearsal](https://github.com/coreflux-creator/CoreFlux/actions/runs/39710272928)
+passed for `f0c41bca099d515255dea992821ed195072ae8f3`, after all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39710035013)
+passed. It blocked six GET/POST requests, verified six restored handler
+responses, and verified six absent-file responses after removing all probes.
+The original configuration hash was restored. The private result explicitly
+records `production_changed: false`, `scheduler_changed: false` and
+`business_writers_drained: false`. This closes the hosted staging web-ingress
+rehearsal; it does not close production scheduler pause, writer drain, file
+ownership preservation, final snapshot binding or activation.
+
+### Native database recovery rehearsal
+
+`tests/full_core_upgrade_recovery_mariadb.php` creates a fresh disposable MariaDB
+database containing two synthetic tenants, exact decimal balances, Unicode and
+binary data, canonical/secondary migration records, a view and an audit trigger.
+The real native dump is captured before running the exact-plan executor through
+committed DDL and a row update to an intentional later SQL failure. The fixture
+verifies the incomplete marker and committed effects before recovery.
+
+After checking the exact created database identity and dump hash, the test
+recreates that disposable database and restores with the native MariaDB client.
+It verifies the full original row/column/ledger/view snapshot, removal of the
+interrupted upgrade's extra table, and actual execution of the restored trigger.
+The failed-upgrade journal remains intact and the restored history reproduces
+the original review-plan hash. Credentials are removed; synthetic dumps and
+receipts remain private. This passed 14 Windows checks and 15 Linux checks
+(including private file permissions). All nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39708564991)
+passed for dbb1cef3669842cfb28162b6ade837adf13dc651.
+
+This verifies native recovery mechanics, not restoration of the production
+Cloudways backup or all 387 live tables. Production writer drain, final
+maintenance-window snapshot, exact candidate/recovery binding and the production
+activation adapter remain unfinished.
 
 ### Reviewed data effects of the pending migrations
 
