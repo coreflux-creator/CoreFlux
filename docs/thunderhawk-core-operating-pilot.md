@@ -26,6 +26,12 @@ about 7.71 GB of database data/index allocation. Verified removal of three
 superseded upload packages recovered about 2.06 GB, leaving about 3.24 GB free.
 Cloudways sign-in is pending for off-server backup/restore verification.
 The goal is active again; the earlier usage-limited note below is historical.
+The exact migration-plan checkpoint now passes against production at candidate
+`3b117355`: 60 pending migrations, three source exceptions retained, 18 retired
+ledger records and 13 earlier legacy versions preserved, with no unresolved
+source-history blockers. All eight CI jobs passed. See the release-readiness
+record for the exact plan hash and private receipt. This was a read-only audit;
+backup/recovery, writer maintenance and guarded activation remain unfinished.
 The separate PurePay approval-return release chat confirmed all 18 integration
 paths restored byte-for-byte and provider workers available after release
 87e2aee. Its remote `/app` write hold is lifted; no integration edits occurred

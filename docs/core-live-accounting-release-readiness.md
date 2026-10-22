@@ -18,7 +18,7 @@ from production. Opening the old dashboard does not install that code.
 ## Verified release gap
 
 - Current live frontend: `spa-assets/index-95sB_8ni.js`.
-- Candidate frontend: `spa-assets/index-CKJg0DMH.js`.
+- Current candidate frontend: `spa-assets/index-BYhjbBMq.js`.
 - [Read-only production comparison](https://github.com/coreflux-creator/CoreFlux/actions/runs/39686986781)
   at candidate `e3fdb0a6f3db698357084add71b65fec7d3350b7` found 385 changed
   files and 4,590 new packaged files (including dependencies/tests). There are
@@ -107,7 +107,19 @@ The local fixture passes 41 checks using actual historical sources, older and
 retired ledger scenarios, changed source/ledger scenarios and CRLF preservation.
 Linux CI also checks symlink refusal. Candidate `4e601ac3` passed all eight
 [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39702461616).
-The reconciled plan is being rechecked against production without applying it.
+The reconciled plan passed the fresh [production preflight](https://github.com/coreflux-creator/CoreFlux/actions/runs/39703479716)
+for `3b11735550d8c941f660e87beefaa40370a80a43`: 248 migrations already applied,
+three reviewed deployed sources retained, 60 pending, 18 retired ledger entries
+preserved and 13 reviewed earlier legacy versions preserved. Source review has
+zero unresolved blockers. The 6,745-file package has its full unmasked receipt at
+`/tmp/core-integration-39703479716/production-preflight.json`; preserve this private
+candidate and receipt. The plan hash is
+`677a939300edfcbacbaad974e80e7540f3ef328add30a849e6feb1802c4ee876`.
+All eight [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39703490212)
+passed for that same revision. No migration or activation occurred; the live
+schema still has 28 gaps and one incompatible key, and all four delivery/authority
+flags remain false. This completes source-history reconciliation, not the
+backup, writer maintenance, guarded execution, recovery or cutover gates.
 
 ### Private connection gate completed
 
@@ -133,7 +145,7 @@ No production settings were used in CI.
 
 ### Reviewed data effects of the pending migrations
 
-The 59-file upgrade includes more than empty-table creation. The data-changing
+The refreshed 60-file upgrade includes more than empty-table creation. The data-changing
 statements have been reviewed in source; production row counts and the exact
 maintenance/backup procedure still need to be bound to the final candidate.
 
