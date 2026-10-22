@@ -2,7 +2,7 @@
 
 ## JobDiva source country and rate basis — October 22, 2026 UTC
 
-The current candidate replaces country-name truncation and inferred hourly/USD
+Runtime `592b8815` replaces country-name truncation and inferred hourly/USD
 rate metadata with a shared source-value validator. Preview, API import, mapped
 rate writes and controlled CSV reconciliation retain uncertain values for review.
 The assignment adapter preserves raw rate descriptors and separate bill/pay
@@ -28,6 +28,17 @@ The database checks include replay, immutable approved history, preflight before
 identity repair, CSV inheritance rejection and mixed-currency mapped writes.
 This is implementation evidence; real Thunderhawk round-trip acceptance and
 production accounting cutover remain outstanding.
+
+All nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39753759055)
+passed for this runtime. Its [isolated staging installation and acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39754140741)
+completed at October 22 09:19 UTC from a 6,781-file package. No migrations were
+pending. Both served JavaScript bundles (`index-CEx7BZw6.js` and
+`index-B0nBxAR2.js`) and both stylesheets matched installed SHA-256 values.
+Accounting lifecycle, split receipts, 61 credit checks and log-only delivery
+passed. The permanent Core installation identity was retained, payroll authority
+remained disabled and production deployment was skipped. This is the current
+staged runtime. Core, Quanta preview and Emergent were rechecked during this turn
+and still displayed sign-in; no real provider write was made.
 
 ## Reviewed JobDiva person links — October 22, 2026 UTC
 
@@ -61,7 +72,7 @@ completed at 08:41 UTC: 23 changed files from a 6,777-file package, migration 16
 applied, all four served asset hashes matched, and accounting lifecycle, split
 receipts, 61 credit checks and log-only delivery passed. The runtime bundles are
 `index-CoXlHm-B.js` and `index-B5u69yI-.js`. Payroll authority remained disabled;
-production deployment was skipped. This is the current staged runtime, not live
+production deployment was skipped. This was the preceding staged runtime, not live
 Thunderhawk pilot proof. Core, Quanta preview and Emergent sign-ins remain pending.
 
 ## JobDiva field-alignment audit — October 22, 2026 UTC
