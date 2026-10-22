@@ -116,7 +116,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ]);
     }
     return [
-        'contract_version' => '2026-10-22.3', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-22.4', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

@@ -42,7 +42,7 @@ function jobdivaStaffingFieldMappings(): array
                 : 'Retain JobDiva candidate identity separately from P number and other provider IDs.',
             $identityPolicy, 'core/jobdiva/sync_placements.php',
             ['accepted_aliases' => ['candidateId', 'candidate_id', 'employeeId'],
-                'known_limitations' => ['Legacy importer can adopt an unbound person by email and can replace conflicting mappings; reviewed cross-provider identity reconciliation is still required.']]);
+                'known_limitations' => ['Email/spreadsheet matches require reviewed candidate/person linking; competing durable links are preserved and blocked. JobDiva projection currently requires tenant-local people and placements; shared-directory projection remains pending.']]);
     }
     foreach (['placements.jobdiva_job_id', 'placements.staffing_job_id'] as $key) {
         $add($key, $start, 'job id',
@@ -58,7 +58,7 @@ function jobdivaStaffingFieldMappings(): array
             ['source_evidence' => ['core' => 'core/jobdiva/sync_placements.php',
                 'transport' => 'core/jobdiva/sync.php', 'fixture' => 'tests/jobdiva_deep_field_resolution_smoke.php'],
                 'known_limitations' => ['Missing names/email can use legacy placeholders during creation; these are not verified contact details.',
-                    'Existing email-based identity adoption needs explicit review before cross-provider use.']]);
+                    'Existing email matches require the candidate/person identity review; linking preserves existing contact fields.']]);
     }
 
     foreach (['placements.end_client_company_id', 'placements.client_id', 'staffing_clients.company_id'] as $key) {

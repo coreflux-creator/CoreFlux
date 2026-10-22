@@ -1,5 +1,32 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Reviewed JobDiva person links — October 22, 2026 UTC
+
+JobDiva settings now provides a candidate-ID / Core person-number review. It
+reads the current candidate, shows both identities and contact fields, and
+requires explicit confirmation. Apply rereads JobDiva and verifies the reviewed
+Core record, connection, installation identity, actor and workspace. It preserves
+contact fields and every existing provider ID. Migration 169 stores encrypted
+review evidence and the original result in the same transaction as the link;
+response-loss recovery reads that receipt without a provider call, and replay
+cannot recreate a subsequently removed link.
+
+The importer no longer adopts email or spreadsheet matches automatically or
+deletes a durable person mapping because names/emails changed. Competing durable
+IDs are blocked and preserved. Generic JobDiva person mapping writes also refuse
+to move either side of a link. New person creation, number allocation and its
+mapping commit together. Existing conflicting links require separate repair;
+this screen intentionally cannot move a candidate or replace another person's
+link. JobDiva's placement joins still assume tenant-local people and placements;
+shared-directory configurations now fail explicitly rather than creating hidden
+child-directory duplicates. Shared-directory projection is still required work.
+
+Local validation: 39 disposable MariaDB checks, six rendered-component checks,
+the relevant JobDiva regressions, dashboard build and visual synthetic review
+passed. The live Core tab still showed sign-in when checked at approximately
+08:31 UTC. No real candidate link or provider write was made. Full CI and staging
+acceptance for this candidate are pending below; this is not live pilot proof.
+
 ## JobDiva field-alignment audit — October 22, 2026 UTC
 
 The shared field dictionary now includes 49 JobDiva adapter mappings across 41
@@ -12,9 +39,9 @@ actual adapter paths and intermediate contract fields. This is metadata for
 review; the dictionary never writes records or enables a connection.
 
 JobDiva mappings explicitly use `adapter_source_verified_live_cohort_pending`.
-They disclose legacy behavior that still conflicts with the target operating
-policy: email-based person adoption and replacement of conflicting mappings;
-country-name truncation; and hour/USD/classification fallbacks. These need
+At audit time, they disclosed email-based person adoption and replacement of
+conflicting mappings; the reviewed-link change above closes those paths.
+Country-name truncation and hour/USD/classification fallbacks still need
 implementation/review before source assumptions can become trusted downstream
 facts. An imported value alone is not source verification or Core approval.
 The earlier JobDiva graph and source tests are representative synthetic evidence,
