@@ -1,5 +1,51 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## PurePay preview startup verified; Quanta export classification repaired - October 22, 2026
+
+Review and harden Pure//Pay confirmed release da85a19/e84aacd publication,
+production worker restoration and successful live checks, then released the
+preview startup window. The prepared host-bound review installation started
+successfully: 20,594 documents in 112 nonempty collections were unchanged before
+and after startup; source, environment, supervisor settings and staged Git entries
+were preserved. Health reported review mode with background jobs, startup
+migrations and scheduled operations disabled. PurePay local commit a2372ef and
+verification/preview-activated-da85a19-20261022.json retain the receipt. Browser
+sign-in reached the existing Meridian demo workspace, not Thunderhawk.
+
+The release owner subsequently requested a temporary source/preview hold for an
+independently reviewed PWP report correction. The hold was granted after all our
+PurePay work finished. The owner may preserve/stop the guarded preview for isolated
+release work and is responsible for publication, worker restoration and returning
+a source-restoration receipt. No PurePay preview/source work should resume until
+that handoff. This chat did not publish PurePay or alter production workers.
+
+Independent Quanta inspection reproduced a material export error: the same
+50-hour approved FLSA week returned 40 regular / 10 overtime hours in one page but
+50 regular / 0 overtime in one-entry pages. Output worksite/changed-since filters
+had the same defect. Quanta now classifies from the complete scoped closed worker
+week, then selects response rows. Mixed punch/duration and local-week handling are
+covered; an over-10,000-row week fails rather than silently using partial context.
+This retains existing policy/rounding semantics, not a complete pay-policy audit.
+
+All eight actual-app pagination/classification cases pass both candidate and
+installed source; the four new regressions fail the previous source. Test storage
+is memory-only, network attempts are zero, unrelated sources and staged Git state
+are unchanged. Development source SHA:
+7b3da82f2680f88fbf37ab52af3a350d0de751aa712e38ff002c296fb5dce794.
+Quanta local commits c61655e and bab37e7 capture the dependencies, fix and receipts
+in verification/week-context-*.json. No Quanta publication, credential or live
+time mutation occurred. Preview wake-up discarded old /tmp files but retained
+installed sources; current backup: /tmp/quanta-week-context-install-2qt_kfxy.
+
+Next: exact-ID source-state reconciliation must detect imported entries whose
+Quanta approval is later revoked, whose source row changes, or which disappears.
+The approved-only changed-since feed alone cannot establish those states. This
+check is not yet implemented. Scoped live publication/binding and the actual
+Thunderhawk people/assignment/time/held-payroll return remain open. Core staging
+still runs e97fa704 with payroll authority disabled; this checkpoint changes docs
+only. The goal remains active, and Arabella's pilot stays separate.
+
+
 ## PurePay preview guards installed on restored release - October 22, 2026
 
 Review and harden Pure//Pay restored all 34 pending shared files after packaging
