@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, prepare, deploy, maintenance_rehearsal, production_preflight, production_source_audit, production_prepare_settings, cleanup_known_uploads]
+        options: [none, inspect, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_source_audit, production_prepare_settings, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -19,12 +19,13 @@ concurrency:
 
 jobs:
   staging-maintenance-rehearsal:
-    if: inputs.integration_staging == 'maintenance_rehearsal'
+    if: inputs.integration_staging == 'maintenance_rehearsal' || inputs.integration_staging == 'maintenance_inspect'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Require passing CI for this rehearsal revision
+        if: inputs.integration_staging == 'maintenance_rehearsal'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -65,7 +66,11 @@ jobs:
             tar -xzf core-maintenance-rehearsal.tar.gz -C package
             php -l package/full_core_maintenance.php
             php -l package/rehearse_core_staging_maintenance.php
-            COREFLUX_ENV=staging php package/rehearse_core_staging_maintenance.php --rehearse-staging-web
+            if [ '${{ inputs.integration_staging }}' = 'maintenance_inspect' ]; then
+              COREFLUX_ENV=staging php package/rehearse_core_staging_maintenance.php --inspect-staging-web
+            else
+              COREFLUX_ENV=staging php package/rehearse_core_staging_maintenance.php --rehearse-staging-web
+            fi
 
   production-source-audit:
     if: inputs.integration_staging == 'production_source_audit'

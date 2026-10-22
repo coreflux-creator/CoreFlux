@@ -100,7 +100,7 @@ function coreMaintenanceStageRecover(array $receipt, string $private): void
 }
 
 if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging'
-    || !in_array($argv[1] ?? '', ['--rehearse-staging-web', '--recover-staging-web'], true)
+    || !in_array($argv[1] ?? '', ['--rehearse-staging-web', '--recover-staging-web', '--inspect-staging-web'], true)
     || realpath(CORE_MAINTENANCE_STAGE_ROOT) !== CORE_MAINTENANCE_STAGE_ROOT
     || str_starts_with((string)realpath(__DIR__), CORE_MAINTENANCE_STAGE_ROOT . '/')) {
     throw new RuntimeException('Exact isolated staging CLI required; no production target is accepted.');
@@ -123,6 +123,29 @@ if (!$home || $home === '/' || str_starts_with($home, CORE_MAINTENANCE_STAGE_ROO
 }
 $parent = $home . '/.coreflux-integration-backups/' . CORE_MAINTENANCE_STAGE_DATABASE;
 if (realpath($parent) !== $parent || is_link($parent) || !is_writable($parent)) throw new RuntimeException('Existing private staging backup directory required.');
+if ($argv[1] === '--inspect-staging-web') {
+    $directories = glob($parent . '/web-maintenance-*', GLOB_ONLYDIR);
+    usort($directories, static fn(string $a, string $b): int => filemtime($b) <=> filemtime($a));
+    $inspections = [];
+    foreach (array_slice($directories, 0, 5) as $private) {
+        if (realpath($private) !== $private || is_link($private) || is_link($private . '/receipt.json') || !is_file($private . '/receipt.json')) continue;
+        $receipt = json_decode((string)file_get_contents($private . '/receipt.json'), true, 512, JSON_THROW_ON_ERROR);
+        if (($receipt['root'] ?? '') !== CORE_MAINTENANCE_STAGE_ROOT || ($receipt['database'] ?? '') !== CORE_MAINTENANCE_STAGE_DATABASE) continue;
+        $currentHash = hash_file('sha256',coreMaintenanceStageFile('.htaccess')); $probes = [];
+        foreach ($receipt['probes'] ?? [] as $relative => $hash) {
+            $path = coreMaintenanceStageFile($relative);
+            [$status, $body, $headers] = coreMaintenanceStageHttp($relative, 'GET', '');
+            $probes[] = ['path' => $relative, 'file_exists' => file_exists($path), 'http_status' => $status,
+                'body_bytes' => strlen($body), 'body_sha256' => hash('sha256',$body),
+                'returns_probe_operation' => (json_decode($body,true)['operation'] ?? null) === ($receipt['operation'] ?? ''),
+                'redirect_path' => isset($headers['location'][0]) ? parse_url($headers['location'][0],PHP_URL_PATH) : null];
+        }
+        $inspections[] = ['operation' => $receipt['operation'], 'original_configuration_restored' => $currentHash === $receipt['original_sha256'],
+            'guard_still_installed' => $currentHash === $receipt['held_sha256'], 'probes' => $probes];
+    }
+    echo json_encode(['status' => 'read-only-staging-maintenance-inspection', 'operations' => $inspections], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
+    exit(0);
+}
 $operation = ($argv[1] === '--recover-staging-web') ? ($argv[2] ?? '') : bin2hex(random_bytes(16));
 if (!preg_match('/^[a-f0-9]{32}$/D', $operation)) throw new RuntimeException('Exact recovery operation identifier required.');
 $private = $parent . '/web-maintenance-' . $operation;
@@ -193,7 +216,7 @@ try {
     coreMaintenanceStageRecover($receipt, $private); $cleanupNeeded = false;
     foreach ($probePaths as $relative) {
         [$status] = coreMaintenanceStageHttp($relative, 'GET', $token);
-        if ($status !== 404) throw new RuntimeException('Removed probe remains reachable.');
+        if ($status !== 404) throw new RuntimeException('Removed probe status mismatch at ' . $relative . ': HTTP ' . $status);
     }
     $result = ['status' => 'staging_web_maintenance_passed', 'operation' => $operation, 'blocked_requests' => $blocked,
         'restored_sha256' => hash_file('sha256', $path), 'probes_removed' => true, 'production_changed' => false,
