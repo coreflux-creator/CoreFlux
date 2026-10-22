@@ -198,18 +198,114 @@ final class FullCoreMaintenanceHost
         fullCoreMaintenanceDigest($this->crontab(), $receipt['held_cron_sha256']);
     }
 
-    /** Explicit recovery only. Call after a verified successful release or matching file/database recovery. */
+    private function activation(string $operation): ?array
+    {
+        $private = $this->operationPath($operation);
+        $path = $private . '/activation.json';
+        if (!file_exists($path) && !is_link($path)) return null;
+        $activation = json_decode($this->privateRead($path), true, 512, JSON_THROW_ON_ERROR);
+        if (($activation['version'] ?? null) !== 1 || ($activation['operation'] ?? '') !== $operation
+            || ($activation['root'] ?? '') !== $this->root
+            || ($activation['maintenance_receipt_sha256'] ?? '') !== hash('sha256', $this->privateRead($private . '/receipt.json'))
+            || !is_string($activation['revision'] ?? null) || !preg_match('/^[a-f0-9]{40}$/D', $activation['revision'])
+            || !is_string($activation['manifest_sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/D', $activation['manifest_sha256'])
+            || !is_string($activation['web_sha256'] ?? null)) {
+            throw new RuntimeException('Activation recovery identity differs.');
+        }
+        fullCoreMaintenanceDigest($this->privateRead($private . '/candidate.htaccess'), $activation['web_sha256']);
+        return $activation;
+    }
+
+    private function assertRecoveryNotStarted(string $operation): void
+    {
+        $path = $this->operationPath($operation) . '/restore-requested.json';
+        if (file_exists($path) || is_link($path)) throw new RuntimeException('Recovery was requested; this operation cannot activate a release.');
+    }
+
+    /** Bind reviewed routing while held. The caller must verify the whole release manifest and approval separately. */
+    public function prepareActivation(string $operation, string $candidateWeb, string $expectedWebHash,
+        string $revision, string $manifestHash): array
+    {
+        fullCoreMaintenanceDigest($candidateWeb, $expectedWebHash);
+        if ($candidateWeb === '' || strlen($candidateWeb) > 1048576 || str_contains($candidateWeb, "\0")
+            || str_contains($candidateWeb, '# CoreFlux maintenance ')
+            || !preg_match('/^[a-f0-9]{40}$/D', $revision) || !preg_match('/^[a-f0-9]{64}$/D', $manifestHash)) {
+            throw new RuntimeException('Reviewed release identity and non-maintenance routing required.');
+        }
+        $receipt = $this->receipt($operation); $private = $this->operationPath($operation);
+        $this->assertRecoveryNotStarted($operation);
+        $this->assertHeld($operation);
+        $expected = ['version' => 1, 'operation' => $operation, 'root' => $this->root,
+            'maintenance_receipt_sha256' => hash('sha256', $this->privateRead($private . '/receipt.json')),
+            'revision' => $revision, 'manifest_sha256' => $manifestHash, 'web_sha256' => $expectedWebHash];
+        $existing = $this->activation($operation);
+        if ($existing !== null) {
+            if ($existing !== $expected) throw new RuntimeException('A different release is already prepared for this operation.');
+            return $existing;
+        }
+        // A process can stop between these durable writes. Reuse only identical orphan candidate bytes.
+        $candidate = $private . '/candidate.htaccess';
+        if (file_exists($candidate) || is_link($candidate)) {
+            fullCoreMaintenanceDigest($this->privateRead($candidate), $expectedWebHash);
+        } else {
+            $this->privateWrite($candidate, $candidateWeb);
+        }
+        $this->privateWrite($private . '/activation.json', json_encode($expected, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
+        $this->assertHeld($operation);
+        return $expected;
+    }
+
+    /** Reopen reviewed candidate routing, never the old routing. Only call after complete release verification and approval. */
+    public function activate(string $operation, string $revision, string $manifestHash): void
+    {
+        $receipt = $this->receipt($operation); $private = $this->operationPath($operation);
+        $this->assertRecoveryNotStarted($operation);
+        $activation = $this->activation($operation);
+        if ($activation === null || $activation['revision'] !== $revision || $activation['manifest_sha256'] !== $manifestHash) {
+            throw new RuntimeException('Exact prepared release identity required for activation.');
+        }
+        $heldWeb = $receipt['original_web']; $heldWeb['sha256'] = $receipt['held_web_sha256'];
+        $candidateWeb = $receipt['original_web']; $candidateWeb['sha256'] = $activation['web_sha256'];
+        $web = $this->webSnapshot(); $cronHash = hash('sha256', $this->crontab());
+        if (!in_array($web, [$heldWeb, $candidateWeb], true)
+            || !in_array($cronHash, [$receipt['held_cron_sha256'], $receipt['original_cron_sha256']], true)) {
+            throw new RuntimeException('Concurrent web/scheduler edit; activation must not overwrite it.');
+        }
+        if ($web !== $candidateWeb) $this->replaceWeb($heldWeb, $this->privateRead($private . '/candidate.htaccess'));
+        if ($cronHash !== $receipt['original_cron_sha256']) {
+            $this->replaceCron($receipt['held_cron_sha256'], $private . '/original.crontab', $receipt['original_cron_sha256']);
+        }
+        $this->assertWeb($candidateWeb);
+        fullCoreMaintenanceDigest($this->crontab(), $receipt['original_cron_sha256']);
+    }
+
+    /** Explicit recovery only, after matching file/database recovery. A successful release must use activate(). */
     public function restore(string $operation): void
     {
         $receipt = $this->receipt($operation); $private = $this->operationPath($operation);
         $web = $this->webSnapshot(); $cronHash = hash('sha256', $this->crontab());
         $heldWeb = $receipt['original_web']; $heldWeb['sha256'] = $receipt['held_web_sha256'];
+        $allowedWeb = [$receipt['original_web'], $heldWeb];
+        $activation = $this->activation($operation);
+        if ($activation !== null) {
+            $candidateWeb = $receipt['original_web']; $candidateWeb['sha256'] = $activation['web_sha256'];
+            $allowedWeb[] = $candidateWeb;
+        }
         // Validate both before restoring either, including the partial-restoration/recovery case.
-        if (!in_array($web, [$receipt['original_web'], $heldWeb], true)
+        if (!in_array($web, $allowedWeb, true)
             || !in_array($cronHash, [$receipt['original_cron_sha256'], $receipt['held_cron_sha256']], true)) {
             throw new RuntimeException('Concurrent web/scheduler edit; recovery must not overwrite it.');
         }
-        if ($web !== $receipt['original_web']) $this->replaceWeb($heldWeb, $this->privateRead($private . '/original.htaccess'));
+        // Persist the direction before reopening anything. A stale activate retry must not resurrect a rolled-back release.
+        $intent = json_encode(['version' => 1, 'operation' => $operation,
+            'maintenance_receipt_sha256' => hash('sha256', $this->privateRead($private . '/receipt.json'))], JSON_THROW_ON_ERROR);
+        $intentPath = $private . '/restore-requested.json';
+        if (file_exists($intentPath) || is_link($intentPath)) {
+            if ($this->privateRead($intentPath) !== $intent) throw new RuntimeException('Recovery request identity differs.');
+        } else {
+            $this->privateWrite($intentPath, $intent);
+        }
+        if ($web !== $receipt['original_web']) $this->replaceWeb($web, $this->privateRead($private . '/original.htaccess'));
         if ($cronHash !== $receipt['original_cron_sha256']) {
             $this->replaceCron($receipt['held_cron_sha256'], $private . '/original.crontab', $receipt['original_cron_sha256']);
         }
