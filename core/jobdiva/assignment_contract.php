@@ -269,8 +269,13 @@ function jobdivaAssignmentContractCadence(mixed $raw): ?string
     if ($value === '') return null;
     $value = str_replace(['_', '-'], ' ', $value);
     $value = preg_replace('/\s+/', ' ', $value) ?: $value;
-    if (str_contains($value, 'semi monthly') || str_contains($value, 'twice a month')) return 'semimonthly';
-    if (str_contains($value, 'bi weekly') || str_contains($value, 'every two week')) return 'biweekly';
+    if (str_contains($value, 'semimonthly') || str_contains($value, 'semi monthly')
+        || str_contains($value, 'twice a month')) return 'semimonthly';
+    if (str_contains($value, 'biweekly') || str_contains($value, 'bi weekly')
+        || str_contains($value, 'every two week')) return 'biweekly';
+    // "Bimonthly" can mean twice a month or every two months. It must not
+    // become monthly just because the word contains the monthly token.
+    if (preg_match('/\bbi\s*monthly\b/', $value)) return null;
     if (str_contains($value, 'weekly')) return 'weekly';
     if (str_contains($value, 'monthly')) return 'monthly';
     if (str_contains($value, 'adhoc') || str_contains($value, 'ad hoc')

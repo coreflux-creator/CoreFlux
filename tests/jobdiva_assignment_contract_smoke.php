@@ -30,6 +30,31 @@ echo "=================================\n";
 $assert('ISO assignment end-of-day preserves the source business date',
     jobdivaNormaliseDate('2026-12-01T23:59:59') === '2026-12-01');
 
+foreach (['weekly', 'biweekly', 'semimonthly', 'monthly', 'adhoc'] as $cadence) {
+    $assert('canonical cadence survives normalization: ' . $cadence,
+        jobdivaAssignmentContractCadence($cadence) === $cadence);
+}
+foreach (['BiWeekly (Friday)' => 'biweekly', 'BI_WEEKLY' => 'biweekly',
+    'Every two weeks' => 'biweekly', 'SemiMonthly (15th/last)' => 'semimonthly',
+    'SEMI_MONTHLY' => 'semimonthly', 'Twice a month' => 'semimonthly',
+    'Weekly (Sun-Sat)' => 'weekly', 'Monthly' => 'monthly'] as $label => $expected) {
+    $assert('source cadence label retains its frequency: ' . $label,
+        jobdivaAssignmentContractCadence($label) === $expected);
+}
+foreach (['bimonthly', 'Bi-Monthly', 'bi_monthly', 'Bimonthly (scheduled)',
+    'quarterly', 'annual', ''] as $ambiguous) {
+    $assert('unsupported or ambiguous cadence needs source review: ' . $ambiguous,
+        jobdivaAssignmentContractCadence($ambiguous) === null);
+}
+$cadenceContract = jobdivaAssignmentContractBuild([[
+    'Start ID' => 'cadence-fixture',
+    'BILLING' => [['FREQUENCY_LABEL' => 'semimonthly']],
+    'SALARY' => [['PAYMENT_FREQUENCY' => 'biweekly']],
+]], [], 'cadence-fixture');
+$assert('Billing and Salary retain separate canonical frequencies in the assignment contract',
+    ($cadenceContract['client_bill_cycle'] ?? '') === 'semimonthly'
+    && ($cadenceContract['vendor_pay_cycle'] ?? '') === 'biweekly');
+
 $w2Rows = [[
     'Start ID' => '56830791',
     'Employment Category' => 'Hourly Employee',

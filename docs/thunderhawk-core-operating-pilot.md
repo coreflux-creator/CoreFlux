@@ -20,7 +20,14 @@ facts. An imported value alone is not source verification or Core approval.
 The earlier JobDiva graph and source tests are representative synthetic evidence,
 not a complete live field-by-field acceptance record.
 
-Validation: 292 number/field checks, 52 assignment-contract checks, 18 canonical
+The audit also reproduced and corrected a cadence bug: canonical `biweekly`
+was reduced to `weekly`, and `semimonthly` to `monthly`, by substring matching.
+Both compact labels now retain their frequencies, including source qualifiers.
+Ambiguous `bimonthly` remains unresolved instead of silently becoming monthly.
+Billing and Salary are checked together to retain separate cycles in the actual
+assignment-contract builder. Existing stored rows are not rewritten by this fix.
+
+Validation: 292 number/field checks, 73 assignment-contract checks, 18 canonical
 projection checks and 47 deep-field resolution checks pass. The existing download
 API includes the inventory without a frontend build or schema change. The staged
 runtime remains `6c61f608` until this metadata candidate is separately deployed.
