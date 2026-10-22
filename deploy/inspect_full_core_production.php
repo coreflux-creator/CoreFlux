@@ -63,6 +63,7 @@ foreach ($manifest['files'] as $relative => $hash) {
 require_once $root . '/core/db.php';
 require_once $package . '/core/migration_hash.php';
 require_once $package . '/core/accounting/schema_contract.php';
+require_once $package . '/deploy/full_core_migration_plan.php';
 $db = getDB();
 if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) {
     throw new RuntimeException('Production database does not match the app identity.');
@@ -127,6 +128,7 @@ try {
         'matching_migrations_in_legacy_ledger_only' => $legacyOnly,
         'migrations_without_matching_record_in_either_ledger' => $unrecorded,
         'migration_record_issues' => $migrationIssues,
+        'migration_upgrade_plan' => fullCoreMigrationPlan($manifest, $package, $root, $ledgerRows, $legacyLedger),
         'accounting_schema' => coreAccountingInspectSchema($db),
         'outbound_flags_from_cli_configuration' => $flags,
         'activation_performed' => false,

@@ -67,6 +67,29 @@ must remain intact. This is a concrete activation prerequisite.
 
 ## Validation and remaining work
 
+### Exact migration review plan
+
+The read-only production preflight now emits a deterministic `migration_upgrade_plan`
+bound to the candidate revision, full file manifest, both migration ledgers and
+the exact deployed migration bytes. Its order matches the canonical runner:
+natural core-file order, then natural module-file order. Each file is classified
+as pending, already applied, a reviewed deployed source to retain, or blocked.
+The three historical exceptions require their reviewed Git blobs and a matching
+successful ledger record. No record is rewritten to pretend the candidate SQL ran.
+
+Failed history, missing deployed proof, unknown changes, incompatible dual-ledger
+history and recorded migrations absent from the package block source review.
+Legacy-only history requires explicit reconciliation because the automatic
+runner reads the canonical ledger. A saved review becomes invalid if the revision,
+manifest, deployed SQL or either ledger changes. The planner executes no SQL;
+`source_review_ready` is not production approval or migration readiness. Backup,
+writer maintenance, recovery, a guarded executor and cutover approval remain open.
+
+The local fixture passes 32 checks using the three actual reviewed historical
+SQL sources, changed source/ledger scenarios and CRLF preservation. Linux CI also
+checks symlink refusal. The next production preflight will refresh the exact
+pending set, including migration 167, without applying it.
+
 ### Private connection gate completed
 
 Candidate `fa8a1cfca8ece9b584a4f5c7a7da646a50761b99` passed all eight
