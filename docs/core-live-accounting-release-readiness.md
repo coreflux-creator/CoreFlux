@@ -1,5 +1,58 @@
 # Live Core accounting release readiness — October 21, 2026
 
+## Core onboarding staged - October 22, 2026
+
+Runtime 209fd027c963fae9de800ad8b310303c01547349 passed all nine CI jobs
+([39872618074](https://github.com/coreflux-creator/CoreFlux/actions/runs/39872618074))
+and isolated hosted staging acceptance
+([39872941045](https://github.com/coreflux-creator/CoreFlux/actions/runs/39872941045)).
+The native HTTP walkthrough passed all 14 checks through temporary synthetic
+maker/reviewer sessions: person and draft placement creation, case/retry,
+requirements, confirmation, submission, stale-review rejection, review, history
+and revision. Person/placement activation stayed unchanged. Accounting lifecycle,
+split receipts, 61 credit checks and log-only delivery also passed. Payroll
+authority remains disabled.
+
+Core now has employer-reviewed, placement-linked onboarding cases in the People
+record. An empty case is never complete. Confirmed requirements, current evidence,
+explicit decisions/waivers and append-only history determine readiness. Source
+setup changes, document changes and expiry invalidate prior completion. The
+MariaDB fixture passes 60 checks, including two genuinely overlapping retries;
+six UI behavior checks pass. A local synthetic visual review is retained in
+onboarding-review-synthetic-20261022.png. Hosted document-object verification is
+not claimed: the hosted walkthrough uses attestation, while document version and
+access cases use an injected storage-head fixture in MariaDB.
+
+Native acceptance exposed old installation gaps. Placement migration 009 repairs
+missing graph-source columns without remapping cycle IDs or changing negotiated
+values. People migration 009 preserves both document-table generations without
+inventing person or storage links. Core migration 172 makes the existing shared
+storage registry part of canonical installation and release verification. These
+repairs are applied in staging; production has not been migrated.
+
+The matching read-only production preflight
+([39872962766](https://github.com/coreflux-creator/CoreFlux/actions/runs/39872962766))
+completed at 23:42 UTC for the same 209fd027 runtime. Production still serves
+index-95sB_8ni.js; the candidate uses index-DD7X6JD2.js. It found 411 changed files,
+4,667 added packaged files, 67 pending migrations, 30 accounting schema gaps
+(including the two shared storage tables) and the existing incompatible bank
+uniqueness constraint. Migration source review is ready with no blockers;
+activation_authorized and activation_performed are false. All seven outbound and
+payroll-authority flags remain false in the inspected CLI configuration. The
+unmasked receipt is retained privately at
+/tmp/core-integration-39872962766/production-preflight.json; masked log values are
+not valid execution identities. Production maintenance, writer drain, matching
+backup/recovery and owner coordination remain outstanding.
+
+The Core task/evidence workflow is implemented. Quanta portal publication, worker
+submission exchange, provider publication and real Thunderhawk round-trip
+acceptance remain open. PurePay and Quanta review refs and unsaved Live/Test forms
+remain unchanged. PL-864 was observed Active with legal entity, branch/business
+unit and WC class still blank; this chat did not change it. A later fresh Core
+reload redirected to sign-in. Neither the session nor the missing setup is
+assumed resolved by this synthetic walkthrough. See docs/staffing-onboarding.md.
+
+
 ## Employee setup read staged and companion reviewed - October 22, 2026
 
 Core runtime b7579c33d83fc60db09130a53e2659df77a4fa18 passed all nine CI jobs (39865016278) and isolated staging installation/acceptance (39865683398). No migrations were pending; payroll authority remains disabled. The added read-only employee setup view requires exact confirmed person links and separately reviewed capability. It reports native indicators without private values or onboarding/payroll approval. The 71-check MariaDB link fixture includes eight new access, identity and concurrent-change cases.
