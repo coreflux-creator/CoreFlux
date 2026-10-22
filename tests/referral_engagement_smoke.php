@@ -67,7 +67,9 @@ $assert('create form asks for payout rate', str_contains($create, 'Vendor referr
 
 echo "\nSource-system normalization\n";
 $sync = $read('core/jobdiva/sync.php');
-$assert('Ref normalizes to referral', str_contains($sync, "\$s === 'ref' || str_contains(\$s, 'referral')"));
+require_once __DIR__ . '/../core/jobdiva/classification.php';
+$assert('Ref normalizes to referral', jobdivaClassificationValue('Ref') === 'referral');
+$assert('negative referral descriptions cannot classify an assignment', jobdivaClassificationValue('not a referral') === null);
 $assert('JobDiva referral payouts are hourly', str_contains($sync, "\$isReferralEngagement") && str_contains($sync, "? 'per_hour'"));
 $assert('JobDiva referral payout is not duplicated as worker pay',
     str_contains($sync, 'same vendor obligation twice') && str_contains($sync, '$payRate = 0.0;'));
