@@ -109,14 +109,40 @@ function purepayPayrollAuthorityBody(array $row): array
 function purepayPayrollAuthorityReceipt(array $receipt,array $body,bool $requireReleased=false): array
 {
     $state=$receipt['state']??null;$released=$state==='released';
-    $releaseId=$released?'cpr_'.integrationDeliveryHash([$body['organization_id'],$body['id'],integrationDeliveryHash($body),'released']):null;
+    $allocation=null;$created=false;$usable=!$released;
+    $releaseParts=[$body['organization_id'],$body['id'],integrationDeliveryHash($body),'released'];
+    if(array_key_exists('allocation',$receipt)) {
+        $allocation=$receipt['allocation'];
+        $runId='run_core_'.integrationDeliveryHash([$body['organization_id'],$body['id']]);
+        if(($receipt['receipt_version']??null)!=='2026-10-21.2' || !is_array($allocation)
+            || !in_array($state,['allocating','allocated','cancelling','released'],true)
+            || ($allocation['run_id']??null)!==$runId || ($allocation['input_id']??null)!==$body['input_id']
+            || !is_string($allocation['request_hash']??null) || !preg_match('/^[a-f0-9]{64}$/D',$allocation['request_hash'])
+            || !in_array($allocation['run_state']??null,['not_created','core_preparing','draft','void','core_archived','approved','awaiting_funds','paying','submitted','paid'],true)
+            || !is_bool($allocation['archived']??null) || !array_key_exists('fence_id',$allocation)) {
+            throw new RuntimeException('The provider allocation receipt is incomplete or belongs to another source reservation. Keep the source reserved.');
+        }
+        $fence=$released?'cpf_'.integrationDeliveryHash([$body['organization_id'],$body['id'],$runId,$allocation['request_hash'],'cancelled']):null;
+        if($allocation['fence_id']!==$fence || ($released && $allocation['run_state']!=='void')) {
+            throw new RuntimeException('The provider has not confirmed a permanent cancellation fence. Keep the source reserved.');
+        }
+        $created=$allocation['run_state']!=='not_created';$usable=false;
+        $allocation=['run_id'=>$runId,'request_hash'=>$allocation['request_hash'],'input_id'=>$body['input_id'],
+            'run_state'=>$allocation['run_state'],'archived'=>$allocation['archived'],'fence_id'=>$fence];
+        $releaseParts[]=['run_id'=>$runId,'request_hash'=>$allocation['request_hash'],'input_id'=>$body['input_id'],'fence_id'=>$fence];
+    } elseif(!in_array($state,['available','released'],true) || array_key_exists('receipt_version',$receipt)) {
+        throw new RuntimeException('The provider allocation contract is unavailable. Keep the source reserved.');
+    }
+    $releaseId=$released?'cpr_'.integrationDeliveryHash($releaseParts):null;
     if(!is_array($receipt['authority']??null) || integrationDeliveryHash($receipt['authority'])!==integrationDeliveryHash($body)
-        || !in_array($state,['available','released'],true) || ($receipt['provider_usable']??null)!==!$released
-        || ($receipt['payroll_created']??null)!==false || ($receipt['release_confirmed']??null)!==$released
+        || ($receipt['provider_usable']??null)!==$usable
+        || ($receipt['payroll_created']??null)!==$created || ($receipt['release_confirmed']??null)!==$released
         || !array_key_exists('release_receipt_id',$receipt) || $receipt['release_receipt_id']!==$releaseId
         || ($requireReleased && !$released))throw new RuntimeException('The provider has not confirmed this exact payroll source reservation or cancellation. Keep the source reserved.');
-    return ['authority'=>$body,'state'=>$state,'provider_usable'=>!$released,'payroll_created'=>false,
+    $result=['authority'=>$body,'state'=>$state,'provider_usable'=>$usable,'payroll_created'=>$created,
         'release_confirmed'=>$released,'release_receipt_id'=>$releaseId];
+    if($allocation!==null)$result+=['receipt_version'=>'2026-10-21.2','allocation'=>$allocation];
+    return $result;
 }
 
 function purepayPayrollAuthorityAccess(PDO $pdo,int $tenant,string $instance,array $row,bool $write): array

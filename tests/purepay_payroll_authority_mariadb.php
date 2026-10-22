@@ -90,7 +90,16 @@ $context['capabilities'][]='write:payroll_authority';
 $review=purepayCoreReview($pdo,1,$instance);
 purepayCoreConfirm($pdo,1,7,$instance,$review['review_hash'],'org-a');
 $remote=null;$mode=null;$wirePosts=0;$body=purepayPayrollAuthorityBody(purepayPayrollAuthorityRead($pdo,1,$authority['id']));
-$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$context,&$remote,&$mode,&$wirePosts,$body,$observer,$check):array {
+$allocationMode=false;
+$allocationReceipt=static function(array $value)use($body):array {
+    $released=$value['state']==='released';$run='run_core_'.integrationDeliveryHash(['org-a',$body['id']]);$request=str_repeat('d',64);
+    $fence=$released?'cpf_'.integrationDeliveryHash(['org-a',$body['id'],$run,$request,'cancelled']):null;
+    $proof=['run_id'=>$run,'request_hash'=>$request,'input_id'=>$body['input_id'],'fence_id'=>$fence];
+    return array_replace($value,['receipt_version'=>'2026-10-21.2','state'=>$released?'released':'allocated','provider_usable'=>false,'payroll_created'=>true,
+        'allocation'=>$proof+['run_state'=>$released?'void':'draft','archived'=>false],
+        'release_receipt_id'=>$released?'cpr_'.integrationDeliveryHash(['org-a',$body['id'],integrationDeliveryHash($body),'released',$proof]):null]);
+};
+$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$context,&$remote,&$mode,&$wirePosts,$body,$observer,$check,&$allocationMode,$allocationReceipt):array {
     $path=substr(parse_url($url,PHP_URL_PATH),strlen('/api/v1'.PUREPAY_CORE_PATH));
     $response=static fn(array $value,int $status=200):array=>['status'=>$status,'body'=>json_encode($value)];
     if($method==='GET' && $path==='/context')return $response($context);
@@ -103,6 +112,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     $released=str_ends_with($path,'/release') || ($remote['state']??null)==='released';
     $remote=['authority'=>$body,'state'=>$released?'released':'available','provider_usable'=>!$released,'payroll_created'=>false,'release_confirmed'=>$released,
         'release_receipt_id'=>$released?'cpr_'.integrationDeliveryHash(['org-a',$body['id'],integrationDeliveryHash($body),'released']):null];
+    if($allocationMode)$remote=$allocationReceipt($remote);
     if($mode==='lost')throw new RuntimeException('Synthetic lost response after remote commit');
     if($mode==='wrong')return $response(array_replace($remote,['release_receipt_id'=>'cpr_'.str_repeat('0',64)]));
     if($mode==='changed')$observer->exec('UPDATE purepay_core_connections SET revision=revision+1 WHERE tenant_id=1');
@@ -118,6 +128,9 @@ $mode=null;$check($grant()['state']==='available','grant retry is idempotent');
 $wrong=$remote;$wrong['authority']['time_tenant_id']=99;
 $check($fails(fn()=>purepayPayrollAuthorityReceipt($wrong,$body)),'mismatched source owner receipt is rejected');
 $check($fails(fn()=>purepayPayrollAuthorityReceipt($remote,$body,true)),'available grant is not cancellation evidence');
+$allocationMode=true;$remote=$allocationReceipt($remote);
+$check($recover()['state']==='allocated' && $denied($pdo,'UPDATE time_entries SET hours=8 WHERE id=1'),'typed allocation receipt is readable while Core source remains locked');
+$check($fails(fn()=>purepayPayrollAuthorityReceipt($remote,$body,true)),'native draft allocation alone cannot unlock Core source');
 $mode='timeout';$check($fails(fn()=>$release()) && $denied($pdo,'UPDATE time_entries SET hours=8 WHERE id=1'),'uncertain cancellation holds source');
 $mode='lost';$check($fails(fn()=>$release()) && $recover()['state']==='released' && $denied($pdo,'UPDATE time_entries SET hours=8 WHERE id=1'),'remote cancellation is recoverable while Core stays held');
 $mode='wrong';$check($fails(fn()=>$release()) && $denied($pdo,'UPDATE time_entries SET hours=8 WHERE id=1'),'invalid cancellation receipt cannot release Core claims');
@@ -125,7 +138,9 @@ $mode=null;$check($fails(fn()=>$release(static function(){throw new RuntimeExcep
 $mode='changed';$check($fails(fn()=>$release()) && $denied($pdo,'UPDATE time_entries SET hours=8 WHERE id=1'),'connection mutation during cancellation retains local claims');
 $mode=null;$review=purepayCoreReview($pdo,1,$instance);purepayCoreConfirm($pdo,1,7,$instance,$review['review_hash'],'org-a');
 $cancelled=$release();
-$check($cancelled['release_confirmed'] && (int)$pdo->query('SELECT COUNT(*) FROM payroll_source_claims')->fetchColumn()===0,'only exact permanent cancellation receipt unlocks all Core claims');
+$check($cancelled['release_confirmed'] && $cancelled['payroll_created'] && $cancelled['allocation']['run_state']==='void'
+    && str_starts_with($cancelled['allocation']['fence_id'],'cpf_') && (int)$pdo->query('SELECT COUNT(*) FROM payroll_source_claims')->fetchColumn()===0,
+    'only exact permanent allocated-run cancellation receipt unlocks all Core claims');
 $saved=purepayPayrollAuthorityRead($pdo,1,$authority['id']);
 $check($saved['state']==='released' && $saved['released_at']!==null && purepayPayrollAuthorityReceipt(json_decode((string)decryptField($saved['release_receipt_ct']),true),$body,true)===$cancelled,'Core stores encrypted permanent cancellation evidence');
 $count=$wirePosts;$check($release()===$cancelled && $grant()===$cancelled && $count===$wirePosts,'local release and grant retries never reactivate cancelled authority');

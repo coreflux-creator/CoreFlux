@@ -154,6 +154,9 @@ jobs:
       - name: Core payroll source reservation and database fences
         run: php tests/purepay_payroll_authority_mariadb.php
 
+      - name: Core payroll allocation and permanent cancellation receipts
+        run: php tests/purepay_payroll_allocation_receipt.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 
