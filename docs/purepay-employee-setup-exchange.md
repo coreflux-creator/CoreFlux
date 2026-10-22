@@ -67,15 +67,30 @@ Local isolated validation: 40 provider/identity/people/PHP bridge tests passed;
 the PHP bridge includes 41 cross-language checks. The new receipt validator has
 22 checks, key-scope controls have 10 tests, and the new Core view has three render
 tests. The full Core frontend build passed with existing unrelated warnings.
-The MariaDB link fixture includes eight new setup access, identity and concurrent
-change checks and is included in CI.
+The MariaDB link fixture passed 71 checks, including eight new setup access,
+identity and concurrent-change cases. All nine CI jobs passed for Core revision
+`b7579c33d83fc60db09130a53e2659df77a4fa18` in run
+[39865016278](https://github.com/coreflux-creator/CoreFlux/actions/runs/39865016278).
+That revision also passed isolated staging installation and acceptance in run
+[39865683398](https://github.com/coreflux-creator/CoreFlux/actions/runs/39865683398),
+with no pending migrations and payroll authority disabled.
 
-This addition initially exists only in the Core branch and local PurePay mirror.
-The hosted PurePay review commit `7dbab9b0` predates it. Hosted dependency/runtime
-validation and an updated companion review commit are still required. The prior
-Live/Test setting corrections remain unsaved pending the user's answer. No new
-key or access grant, production publication, live employee change or Thunderhawk
-round trip is established by these tests.
+The full hosted PurePayroll application passed 20 setup/identity route checks
+with candidate module overlays, memory-only fixtures and zero network attempts.
+The complete 448-file frontend compiled without warnings in a private copy. The
+shared source, index, HEAD and protected configuration were preserved.
+
+Hosted review commit `aca0895ce9c42d376183b2d3435e3ed6582ddeb0`, on
+`codex/coreflux-setup-20261022`, adds the 11 tested source/test files over prior
+companion `7dbab9b0`. It was created using a private index without modifying the
+shared checkout or the prior companion ref. The existing preview still runs the
+earlier source; neither review branch has been published. Receipts are retained
+in the companion mirror's `verification/employee-setup-*-20261022.json` files.
+
+The Live/Test setting corrections remain unsaved pending the user's answer. No
+new key or access grant, production publication, live employee change or actual
+Thunderhawk round trip is established by these tests. Full onboarding and Quanta
+portal status delivery are not completed by this addition.
 
 Onboarding task ownership, required evidence, employer review, expiry/revision
 history, restricted document references and Quanta portal delivery remain to be
