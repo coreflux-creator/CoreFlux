@@ -1,5 +1,27 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta connection setup verified - October 22, 2026
+
+The API-key screen now offers the existing Core read and write permissions,
+unchecked by default, with guidance about the separate worker permissions. Six
+authenticated browser checks in Acme cover selection, warnings, cancellation and
+reset behavior. No key was created or changed. The assignment unmount cleanup
+was simplified and all seven existing React behavior checks pass.
+
+The final hosted normal production build passes, with sixteen source hashes and
+the staged index unchanged during verification. The assignment warning is gone;
+twenty-three other existing files retain warnings, so the whole-app strict CI
+gate is not clear. A direct standalone lint invocation encountered the existing
+ESLint configuration mismatch; it is not reported as a passing check. Evidence
+is in Quanta's verification/core-setup-final-20261022.json and
+verification/core-setup-browser-20261022.json.
+
+Thunderhawk is absent from this development preview. The user does not need to
+log into or create Thunderhawk there. This is verified preview setup, not live
+Thunderhawk exchange. Publication readiness, reviewed live connection scopes and
+the actual people/assignment/time/payroll round trip remain open. PurePay shared
+source is held while the separate duplicate-bill release is in progress.
+
 ## PurePay preview startup candidate verified - October 22, 2026
 
 The hosted PurePay checkout is release 031c7b2. Nineteen Core runtime files still
