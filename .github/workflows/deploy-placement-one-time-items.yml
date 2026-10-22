@@ -88,6 +88,20 @@ jobs:
               foreach (['people','companies','staffing_clients','ap_vendors_index','placements'] as $table) {
                 $counts[$table] = (int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
               }
+              $history = ['canonical'=>$db->query('SELECT filename, sha256, applied_at, (last_error IS NOT NULL) AS failed FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC),
+                'legacy'=>$db->query('SELECT file_path, checksum_sha, applied_at FROM coreflux_migrations ORDER BY file_path')->fetchAll(PDO::FETCH_ASSOC),
+                'deployed'=>[]];
+              foreach ($history['canonical'] as $record) {
+                $path = str_contains($record['filename'], '/') ? $record['filename'] : 'core/migrations/'.$record['filename'];
+                if (!preg_match('~^(core/migrations|modules/[a-zA-Z0-9][a-zA-Z0-9_-]*/migrations)/[a-zA-Z0-9][a-zA-Z0-9_.-]*\.sql$~D', $path)) exit(7);
+                $full = $root.'/'.$path;
+                if (!is_file($full)) { $history['deployed'][] = ['path'=>$path,'exists'=>false]; continue; }
+                if (is_link($full) || !str_starts_with((string)realpath($full),$root.'/')) exit(8);
+                $raw = file_get_contents($full); if ($raw === false) exit(9);
+                $lf = str_replace("\r\n", "\n", $raw);
+                $history['deployed'][] = ['path'=>$path,'exists'=>true,'sha256'=>hash('sha256',$raw),
+                  'normalized_sha256'=>hash('sha256',$lf),'normalized_git_blob'=>hash('sha1','blob '.strlen($lf)."\0".$lf)];
+              }
               $database = ['storage'=>$storage,'largest_tables'=>$largest,'stored_objects'=>$objects,'active_connections'=>$active,
                 'numbering_source_counts'=>$counts,'server_version'=>$db->query('SELECT VERSION()')->fetchColumn()];
             } finally { $db->rollBack(); }
@@ -113,6 +127,7 @@ jobs:
             echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
               'paths'=>$metadata, 'environment_configured'=>$configured,
               'database_operations'=>$database,
+              'migration_history'=>$history,
               'ssh_user_crontab'=>['readable'=>$cronExit===0,'matching_line_count'=>$matchingCronLines,
                 'php_paths'=>array_values(array_unique($workerPaths)),'explicit_enabled_delivery_flags'=>array_values(array_unique($enabledFlags)),
                 'app_owner_crontab_verified'=>false],
