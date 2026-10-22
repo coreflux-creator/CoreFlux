@@ -1,5 +1,24 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Release routing activation verified - October 22, 2026
+
+Core revision f83349ec70717f0464b3229a7446247b54ae7d5c passed all nine CI jobs
+in run 39861995816. The native host fixture passes 47 checks. Successful release
+activation now installs the reviewed candidate routing, bound to its revision and
+manifest, while recovery restores the original routing. Both preserve UID/GID/mode.
+A durable recovery request prevents a stale activation retry from reopening a
+rolled-back release. New-process recovery from a simulated candidate-installed,
+scheduler-held boundary passes; no forced crash inside the native call is claimed.
+
+This is a private library with no production activation entry point. The live
+file-owner/scheduler-owner coordination, writer drain, matching final backup and
+cutover approval remain open. Existing staged business runtime ae411200 is unchanged.
+No production routing, scheduler, database or operational provider record changed.
+PurePay and Quanta's prepared Live/Test corrections still await user confirmation.
+The draft PR now reflects the exact hosted companion revisions and acceptance limits.
+
+
+
 ## Quanta immutable candidate and combined environment correction - October 22, 2026
 
 Quanta hosted review commit 8f67fc33892a9060c1c35de03bc9b84753896637 captures 27

@@ -2,6 +2,36 @@
 
 ## Current release checkpoint — October 22, 2026
 
+The host-maintenance library now separates successful release activation from
+recovery. `prepareActivation()` retains the exact candidate routing with its
+revision and manifest fingerprint while the web and scheduler remain held.
+`activate()` reopens that candidate routing and restores the reviewed scheduler;
+`restore()` reopens the original routing only after matching data/file recovery.
+A persisted recovery request prevents a stale activation retry from reopening a
+rolled-back release, including releases whose routing bytes did not change.
+All replacement paths retain the original UID, GID and file mode.
+
+For `f83349ec70717f0464b3229a7446247b54ae7d5c`, the
+[native-host/Apache CI job](https://github.com/coreflux-creator/CoreFlux/actions/runs/39861995816/job/120114736001)
+passed 47 host checks at 22:04 UTC, including changed manifests, corrupted
+candidate files, concurrent scheduler/routing edits, repeat activation, explicit
+recovery, and fresh-process completion from a simulated candidate-installed,
+scheduler-held boundary. The boundary fixture deliberately writes that partial
+state; it does not claim a forced crash between the adapter's native calls.
+The existing Apache rehearsal and 22 local maintenance-preparation checks pass.
+All nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39861995816)
+also passed for this revision. This deployment-library change was pushed; it
+does not replace the currently staged business runtime or activate production.
+
+This remains a library with no production activation entry point. The caller
+must verify the whole release, database state, required approval and writer
+drain before activation. It does not resolve the live UID mismatch, inventory
+other scheduler owners, make two native replacements atomic, or establish a
+production backup/restore procedure. The nine live schedules were not changed.
+The production file owner and scheduler owner require a coordinated hosting
+procedure; merely running the existing combined adapter as the file owner does
+not establish control of the deployment account's separate scheduler.
+
 The updated accounting experience remains absent from production. Core runtime
 ae411200940fbc52e400d559eca8e44668b083e1 passed all nine
 [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39853929574)
