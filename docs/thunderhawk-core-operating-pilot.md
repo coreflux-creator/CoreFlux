@@ -1,5 +1,22 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## PurePay restored baseline and Core API composition - October 22, 2026
+
+The restored PurePay server and its new usage dependency were captured read-only
+and matched the release restoration hashes. The local integration copy now
+preserves all five reviewed usage hunks. Nineteen runtime files matched before
+15 Core API checks passed through the actual full server: authentication/scopes,
+company isolation, links, replay/recovery, pagination and payroll-result reads.
+The fixture uses in-memory data and synthetic feature settings, disables dotenv,
+blocks external sockets and omits startup/lifespan. No network attempts occurred.
+Test dependencies live in a separate temporary directory. The preview backend
+remains stopped, and no remote application or live record was changed.
+
+This is API composition evidence, not acceptance of native review/provisioning,
+held-payroll application, startup migrations, browser UI or the real Thunderhawk
+workflow. PurePay's `full-app-acceptance-20261022.json` contains exact hashes and
+scope. The Core companion remains unpublished.
+
 ## Quanta preview correction and full-app composition - October 22, 2026
 
 The configured Quanta development database contains five test workspaces and
