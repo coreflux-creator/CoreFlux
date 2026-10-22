@@ -17,6 +17,13 @@ retained. Accounting lifecycle, split receipts, 61 credit checks and log-only
 delivery passed; payroll authority remains disabled and production deployment
 was skipped. The light-deployment workflow expression-length problem was fixed
 without running that production workflow.
+A fresh [read-only production inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39762486572)
+at October 22 10:23 UTC, using CI-passed inventory candidate `c70ec3bd`, found
+62 pending migrations, 28 accounting schema gaps and one incompatible key.
+Production still serves `index-95sB_8ni.js`. Thunderhawk is its own master
+directory (workspace 2): 230 nondeleted people, 191 nondeleted placements, and
+all placement-person links stay inside that directory. No production install,
+migration, activation or data write ran; staging remains `7d2caa8f`.
 Production maintenance, ownership-preserving recovery and final backup gates
 described below remain open. Earlier inventory counts and candidate fingerprints
 below describe their linked inspections, not a new production inspection.

@@ -1,5 +1,43 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Live pilot directory baseline - October 22, 2026 10:23 UTC
+
+The [read-only production inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39762486572)
+ran from candidate `c70ec3bd` after all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39761987398)
+passed. No install, migration, activation or production data write ran.
+Thunderhawk is workspace 2, an active master workspace with no parent and no
+module-scope overrides. It owns 230 nondeleted people and 191 nondeleted
+placements. All 191 placements resolve to nondeleted people in directory 2.
+Its JobDiva person mappings also resolve only to directory 2; the mapping count
+was partially redacted in the workflow log and is not asserted or reconstructed.
+Thunderhawk has 1,000 nondeleted company records carrying the client role.
+These are inventory counts across statuses, not an active-payroll headcount.
+
+Shared-directory JobDiva projection remains a product gap, but is not a blocker
+for this Thunderhawk pilot. Do not change its directory configuration or create
+parent/child duplicates to bypass integration checks. The inspector reports
+configured policy and actual relationship owners without exporting person data.
+Twelve disposable MariaDB checks cover parent/child isolation, dangling and
+deleted relationships, missing schema and read-only execution.
+
+Production still serves `index-95sB_8ni.js`; this inspection found 62 pending
+migrations, 28 accounting schema gaps and one incompatible key. The accepted
+staged runtime remains `7d2caa8f`, not the inventory-only candidate above.
+Public Quanta v1.1.0 (31 routes) and PurePay ERP v1.0.0 (19 routes) specifications
+remain unchanged; their absence of Core-specific routes does not establish the
+state of private endpoints or hosted companion code.
+
+The next required work is authenticated hosted acceptance, not a broader shared
+directory rewrite: restore the Emergent project session, re-read pending source
+before saving the prepared Quanta/PurePay companion changes, establish safe
+full-app acceptance, and verify the actual Thunderhawk person/placement/time/
+held-payroll/result cycle with onboarding, replay, conflict and reconciliation
+checks. Existing provider IDs and the separate Arabella pilot remain intact.
+Core and Quanta preview sign-ins are also required. A normal Emergent Google
+sign-in reached the existing account chooser, but browser mouse input timed out
+and keyboard selection did not complete the flow. The chooser is left open for
+the user; no new account, permission grant or invitation was performed.
+
 ## Explicit assignment classification — October 22, 2026 UTC
 
 JobDiva preview, API projection, controlled CSV reconciliation and configured
