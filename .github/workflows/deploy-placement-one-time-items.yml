@@ -118,6 +118,17 @@ jobs:
                 'inside_webroot'=>$stat ? (realpath($path)===$root || str_starts_with((string)realpath($path),$root.'/')) : null];
             }
             $configured = [];
+            $ownerIdentity = ['sudo_available'=>is_executable('/usr/bin/sudo'),'can_act_as_web_file_owner'=>false];
+            if ($ownerIdentity['sudo_available'] && isset($metadata['web_config']['uid'])) {
+              $identity = proc_open(['/usr/bin/sudo','-n','-u','#'.$metadata['web_config']['uid'],'/usr/bin/id','-u'],
+                [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$identityPipes);
+              if (is_resource($identity)) {
+                $ownerOutput=trim(stream_get_contents($identityPipes[1])); fclose($identityPipes[1]);
+                $ownerExit=proc_close($identity);
+                $ownerIdentity['can_act_as_web_file_owner']=$ownerExit===0 && $ownerOutput===(string)$metadata['web_config']['uid'];
+                $ownerIdentity['identity_command_exit']=$ownerExit;
+              }
+            }
             foreach (['DB_HOST','DB_NAME','DB_USER','DB_PASS','COREFLUX_DB_CONFIG_PATH',
               'SMTP_HOST','SMTP_USER','SMTP_PASS','DATA_KEY'] as $key) $configured[$key] = getenv($key)!==false && getenv($key)!=='';
             require_once $root.'/core/db.php';
@@ -206,7 +217,7 @@ jobs:
                 'manifest_sha256'=>is_file($manifestPath)?hash_file('sha256',$manifestPath):null];
             }
             echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
-              'paths'=>$metadata, 'environment_configured'=>$configured,
+              'paths'=>$metadata, 'web_owner_identity_check'=>$ownerIdentity, 'environment_configured'=>$configured,
               'database_operations'=>$database,
               'migration_history'=>$history,
               'ssh_user_crontab'=>['readable'=>$cronExit===0,'sha256'=>$cronExit===0?hash('sha256',$cronText):null,

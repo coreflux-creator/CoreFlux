@@ -53,6 +53,11 @@ if (($argv[1] ?? '') === '--pause-exit') {
     exit(73); // No destructor restoration: process exit must leave the guard and durable recovery files.
 }
 if (($argv[1] ?? '') !== '--confirm-disposable-container') throw new RuntimeException('Explicit fixture confirmation required.');
+set_exception_handler(static function (Throwable $error) use ($private): void {
+    // This executable only runs with generated synthetic commands inside its isolated container.
+    foreach (glob($private . '/scheduler-*.stderr') as $path) echo 'Fixture scheduler diagnostic: ', file_get_contents($path), "\n";
+    fwrite(STDERR, (string)$error . "\n"); exit(1);
+});
 file_put_contents($root . '/.htaccess', $original); chmod($root . '/.htaccess', 0644);
 // Use a supplemental group different from the process primary group; replacement must retain it.
 if (!chgrp($root . '/.htaccess', 'coremaintweb')) throw new RuntimeException('Fixture supplemental group unavailable.');
@@ -106,6 +111,10 @@ $assert($host->webSnapshot() === $web && $host->crontab() === $cron, 'process-lo
 $cronInstall('');
 $empty = bin2hex(random_bytes(16)); $host->pause($empty, $web, hash('sha256',''), []); $host->restore($empty);
 $assert($host->crontab() === '' && $host->webSnapshot() === $web, 'installed empty scheduler survives pause and recovery');
+chmod($root . '/.htaccess', 0664); $groupWritable = $host->webSnapshot();
+$groupOperation = bin2hex(random_bytes(16)); $host->pause($groupOperation, $groupWritable, hash('sha256',''), []);
+$host->restore($groupOperation);
+$assert($host->webSnapshot() === $groupWritable, 'existing 0664 web mode is preserved exactly');
 unset($host);
 rename($root . '/.htaccess', $root . '/original-file'); symlink($root . '/original-file', $root . '/.htaccess');
 $host = new FullCoreMaintenanceHost($root, $private);

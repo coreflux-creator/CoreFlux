@@ -44,15 +44,18 @@ final class FullCoreMaintenanceHost
 
     private function cronCommand(array $args): string
     {
+        $diagnostic = $this->privateParent . '/scheduler-' . bin2hex(random_bytes(8)) . '.stderr';
+        $this->privateWrite($diagnostic, '');
         $process = proc_open(array_merge(['/usr/bin/crontab'], $args),
-            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes,
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $diagnostic, 'w']], $pipes,
             null, array_merge(getenv(), ['LC_ALL' => 'C']));
         if (!is_resource($process)) throw new RuntimeException('Cannot invoke the current user scheduler.');
         $output = stream_get_contents($pipes[1], 1048577); fclose($pipes[1]);
         $exit = proc_close($process);
         if ($exit !== 0 || $output === false || strlen($output) > 1048576) {
-            throw new RuntimeException('Scheduler command failed; an existing readable crontab is required.');
+            throw new RuntimeException('Scheduler command failed (exit ' . $exit . '); private diagnostic: ' . basename($diagnostic));
         }
+        if (filesize($diagnostic) === 0) unlink($diagnostic);
         return $output;
     }
 
@@ -62,12 +65,12 @@ final class FullCoreMaintenanceHost
         $stat = lstat($path);
         if (!$stat || is_link($path) || !is_file($path) || $stat['nlink'] !== 1
             || realpath($path) !== $path || $stat['uid'] !== posix_geteuid()
-            || ($stat['mode'] & 07777) !== 0644) {
-            throw new RuntimeException('Web configuration must be a single ordinary 0644 file owned by this CLI user.');
+            || !in_array($stat['mode'] & 07777, [0644, 0664], true)) {
+            throw new RuntimeException('Web configuration must be a single ordinary 0644/0664 file owned by this CLI user.');
         }
         $bytes = file_get_contents($path);
         if ($bytes === false) throw new RuntimeException('Cannot read web configuration.');
-        return ['sha256' => hash('sha256', $bytes), 'uid' => $stat['uid'], 'gid' => $stat['gid'], 'mode' => 0644];
+        return ['sha256' => hash('sha256', $bytes), 'uid' => $stat['uid'], 'gid' => $stat['gid'], 'mode' => $stat['mode'] & 07777];
     }
 
     private function assertWeb(array $expected): void
