@@ -10,6 +10,13 @@ require_once __DIR__.'/../core/migrate.php';
 require_once __DIR__.'/../core/rbac/legacy_map.php';
 $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
 $password=$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
+if(($argv[1]??'')==='--retry-child'){
+    if(!$ci||($argv[2]??'')!=='coreflux_onboard_ci')throw new RuntimeException('Exact disposable child database required');
+    $child=new PDO('mysql:host=127.0.0.1;port=3306;dbname=coreflux_onboard_ci;charset=utf8mb4','root',$password,$options);
+    $scope=json_decode(base64_decode($argv[3],true),true,32,JSON_THROW_ON_ERROR);
+    $body=json_decode(base64_decode($argv[4],true),true,32,JSON_THROW_ON_ERROR);
+    echo onboardingJson(onboardingCommand($child,$scope,$body,static fn($key)=>null));exit;
+}
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
 $db='coreflux_onboard_'.($ci?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
@@ -109,6 +116,21 @@ try{
     $pdo->exec('DROP TRIGGER fixture_reject_event');
     $pdo->exec('UPDATE placements SET person_id=2 WHERE id=1');$fails($view,'reassigned placement cannot reveal former person case');$pdo->exec('UPDATE placements SET person_id=1 WHERE id=1');
     $pdo->exec('UPDATE people SET deleted_at=UTC_TIMESTAMP() WHERE id=1');$fails($view,'deleted person cannot retain accessible onboarding');$pdo->exec('UPDATE people SET deleted_at=NULL WHERE id=1');
+    if($ci){
+        $before=$view()['version'];$concurrent=['action'=>'reopen','request_id'=>onboardingUuid(),'case_id'=>$id,'expected_version'=>$before,'task_id'=>$task2,'reason'=>'Concurrent retry fixture'];
+        $children=[];$observer->beginTransaction();$lock=$observer->prepare('SELECT id FROM staffing_onboarding_cases WHERE tenant_id=1 AND id=? FOR UPDATE');$lock->execute([$id]);$lock->fetchAll();
+        try{
+            foreach([1,2]as$i){$pipes=[];$process=proc_open([PHP_BINARY,__FILE__,'--retry-child',$db,base64_encode(onboardingJson($scope)),base64_encode(onboardingJson($concurrent))],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);if(!is_resource($process))throw new RuntimeException('Could not start concurrency fixture');fclose($pipes[0]);$children[]=[$process,$pipes];}
+            $waiting=0;$deadline=microtime(true)+8;
+            do{$waiting=(int)$pdo->query("SELECT COUNT(*) FROM information_schema.innodb_lock_waits w JOIN information_schema.innodb_trx t ON t.trx_id=w.requesting_trx_id WHERE t.trx_query LIKE 'SELECT * FROM staffing_onboarding_cases%'")->fetchColumn();if($waiting>=2)break;usleep(100000);}while(microtime(true)<$deadline);
+            $check($waiting>=2,'two independent requests reach the conditional row lock concurrently');
+            $observer->commit();$results=[];
+            foreach($children as[$process,$pipes]){$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($process);if($exit!==0)throw new RuntimeException('Concurrent request failed: '.$err);$results[]=json_decode($out,true,32,JSON_THROW_ON_ERROR);}
+            $children=[];
+            $check($results[0]['case_version']===$before+1&&$results[1]['case_version']===$before+1&&$results[0]['replayed']!==$results[1]['replayed'],'concurrent retry returns the committed receipt instead of a stale-version conflict');
+            $check($view()['version']===$before+1,'concurrent retry creates exactly one state revision');
+        }finally{if($observer->inTransaction())$observer->rollBack();foreach($children as[$process,$pipes]){if(is_resource($process))proc_terminate($process);foreach([1,2]as$i)if(is_resource($pipes[$i]))fclose($pipes[$i]);if(is_resource($process))proc_close($process);}}
+    }
     $v=$view();$check(count($v['history'])===$v['version'],'every committed revision has a durable history event');
     $check((int)$pdo->query("SELECT COUNT(*) FROM people WHERE status='active'")->fetchColumn()===3,'workflow does not activate or alter people');
     $check((int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn()===3,'workflow does not copy or upload documents');

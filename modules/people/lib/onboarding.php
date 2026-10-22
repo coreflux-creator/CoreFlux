@@ -103,8 +103,8 @@ function onboardingView(PDO $pdo,array $scope,string $id,callable $head): array 
     $case['history_has_more']=count($events)>100;$case['history']=array_map(static function($e){$e['details']=json_decode($e['details_json'],true,32,JSON_THROW_ON_ERROR);unset($e['details_json']);return $e;},array_slice($events,0,100));
     return $case;
 }
-function onboardingReceipt(PDO $pdo,array $scope,string $requestId,string $hash): ?array {
-    $st=$pdo->prepare('SELECT request_hash,receipt_json FROM staffing_onboarding_events WHERE tenant_id=:t AND request_id=:r');
+function onboardingReceipt(PDO $pdo,array $scope,string $requestId,string $hash,bool $lock=false): ?array {
+    $st=$pdo->prepare('SELECT request_hash,receipt_json FROM staffing_onboarding_events WHERE tenant_id=:t AND request_id=:r'.($lock?' FOR UPDATE':''));
     $st->execute(['t'=>$scope['tenant_id'],'r'=>$requestId]);$row=$st->fetch(PDO::FETCH_ASSOC);
     if(!$row)return null;if(!hash_equals($row['request_hash'],$hash))throw new OnboardingConflict('This request identifier was already used for a different change.');
     return json_decode($row['receipt_json'],true,32,JSON_THROW_ON_ERROR)+['replayed'=>true];
@@ -139,7 +139,9 @@ function onboardingCommand(PDO $pdo,array $scope,array $body,callable $head): ar
         }else{
             $case=onboardingCase($pdo,$scope,onboardingId($body['case_id']??null),true);
             // Recheck after the row lock: a simultaneous retry may have committed while we waited.
-            if($receipt=onboardingReceipt($pdo,$scope,$rid,$hash)){$pdo->commit();return $receipt;}
+            // A locking read sees a receipt committed while we waited, including
+            // under MySQL's default REPEATABLE READ transaction isolation.
+            if($receipt=onboardingReceipt($pdo,$scope,$rid,$hash,true)){$pdo->commit();return $receipt;}
             if(!is_int($body['expected_version']??null)||$body['expected_version']!==$case['version'])throw new OnboardingConflict('This case changed. Reload and review the latest version.');
             if($action==='add_task'){
                 if(count($case['tasks'])>=25)throw new InvalidArgumentException('A case can contain at most 25 tasks, including retired tasks.');
