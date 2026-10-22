@@ -188,13 +188,19 @@ $normal = static function (string $relative, string $method) use ($token, $opera
     [$status, $body] = coreMaintenanceStageHttp($relative, $method, $token);
     $value = json_decode($body, true);
     if ($status !== 200 || ($value['operation'] ?? '') !== $operation || ($value['method'] ?? '') !== $method) {
-        throw new RuntimeException('Synthetic staging handler did not return its expected response.');
+        throw new RuntimeException('Synthetic staging handler response mismatch: ' . $method . ' ' . $relative
+            . ' HTTP ' . $status . '; body SHA256 ' . hash('sha256',$body));
     }
 };
 try {
     $absent = [];
     foreach ($probePaths as $relative) foreach (['GET', 'POST'] as $method) {
-        [$status, $body] = coreMaintenanceStageHttp($relative, $method, $token);
+        // A separate never-created sibling measures the same missing-file route without
+        // priming the host's negative file/cache entry for the probe we are about to create.
+        $controlOperation = substr(hash('sha256', $operation . ':absent'), 0, 32);
+        $controlPath = str_replace($operation, $controlOperation, $relative);
+        if (file_exists(coreMaintenanceStageFile($controlPath))) throw new RuntimeException('Absent control path is occupied.');
+        [$status, $body] = coreMaintenanceStageHttp($controlPath, $method, $token);
         $absent[$relative][$method] = fullCoreMaintenanceAbsentSignature($status, $body);
     }
     coreMaintenancePrivateWrite($private . '/absent-responses.json', json_encode($absent, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
