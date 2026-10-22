@@ -36,10 +36,11 @@ working provider preview. Neither a missing receipt nor a new preview permits an
 automatic retry. Native activation and onboarding remain separate in Quanta.
 
 Core's reviewed workflow passes local database, browser and component checks.
-The Quanta worker companion is still local, awaiting Emergent sign-in and source
-save; the earlier assignment portal is saved but its authenticated Thunderhawk
-acceptance remains open. These code and synthetic checks do not establish a live
-Thunderhawk round trip. Consult the pilot document for exact release receipts.
+The Quanta worker companion `fac667a` is saved and hash-verified in Emergent.
+Its development preview registers the worker routes and passes health and
+unauthenticated access checks. The assignment portal is also saved, but
+authenticated Thunderhawk acceptance remains open. These checks do not establish
+a live Thunderhawk round trip. Consult the pilot document for release receipts.
 
 The Quanta connector is intentionally disconnected on deployment. There is no
 scheduled sync, webhook, or automatic tenant link. A CoreFlux tenant admin must

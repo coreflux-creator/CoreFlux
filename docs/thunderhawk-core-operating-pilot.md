@@ -28,15 +28,13 @@ remain unchanged; their absence of Core-specific routes does not establish the
 state of private endpoints or hosted companion code.
 
 The next required work is authenticated hosted acceptance, not a broader shared
-directory rewrite: restore the Emergent project session, re-read pending source
-before saving the prepared Quanta/PurePay companion changes, establish safe
-full-app acceptance, and verify the actual Thunderhawk person/placement/time/
-held-payroll/result cycle with onboarding, replay, conflict and reconciliation
-checks. Existing provider IDs and the separate Arabella pilot remain intact.
-Core and Quanta preview sign-ins are also required. A normal Emergent Google
-sign-in reached the existing account chooser, but browser mouse input timed out
-and keyboard selection did not complete the flow. The chooser is left open for
-the user; no new account, permission grant or invitation was performed.
+directory rewrite. Emergent access is restored, and the prepared Quanta worker
+companion is now saved and hash-verified (receipt below). Core and the Quanta
+preview still require separate sign-ins. Establish safe full-app PurePay
+acceptance, verify actual workspace bindings and capabilities, then run the
+Thunderhawk person/placement/time/held-payroll/result cycle with onboarding,
+replay, conflict and reconciliation checks. Existing provider IDs and the
+separate Arabella pilot remain intact. No new permissions were granted.
 
 ## Explicit assignment classification — October 22, 2026 UTC
 
@@ -312,15 +310,28 @@ that preparation and later native activation preserve the same Core person link.
 All 100 isolated provider/portal/native/cross-language pytest cases pass, including
 12 assertions through the actual Core PHP HTTP client and Unicode request hashes.
 
-This candidate is **not yet saved to Emergent or deployed**. The editor went idle
-and the builder session expired; the Google account selector could not be completed
-through browser controls. The user has been asked to finish Emergent sign-in.
-The preceding portal save remains the last verified Quanta source save. Browser
-controls are working again, but the Google account selector still does not
-advance. Core's sender is implemented and gated off until provider source and
-capabilities are verified in the pilot. No real worker, identity, API permission,
-invitation or financial record was changed. Production accounting is unchanged;
-the existing maintenance/upgrade blockers below remain open.
+Candidate `fac667a` is now **saved and hash-verified in Emergent development**.
+Restored sign-in opened GL Accounting / Clockin Hub 15 / Watch Agent /
+clockin-hub-16 / Code. Both existing runtime files matched their captured
+baselines before editing, and all three files matched their tested normalized-LF
+hashes after reloading the editor. Source Control has 16 entries (one staged and
+15 unstaged), preserving the prior staged server file and three artifact logs.
+The companion's `worker-source-save.json` records the exact readbacks.
+
+The running preview registers worker preparation, worker read and original-key
+receipt recovery. Health returns 200; context, worker POST/read, receipt lookup
+and portal list/export return 401 without credentials. These are hosted route
+and authentication-boundary checks, not authenticated Thunderhawk acceptance.
+Core and Quanta still show separate sign-in pages; the user has been asked to
+restore both while source work continues. PurePayroll remains signed in for
+Thunderhawk: its native Quanta connection reports zero worker links, worksites
+and imported entries, with automatic catch-up off and federation unset.
+
+Core's sender remains gated off until authenticated provider capabilities and
+pilot binding are verified. No real worker, identity, API permission, invitation
+or financial record was changed. No remote Quanta commit or production
+publication was performed. Production accounting is unchanged; the existing
+maintenance/upgrade blockers below remain open.
 
 ## Quanta staff portal â€” October 22, 2026 UTC
 
