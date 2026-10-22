@@ -9,6 +9,19 @@ on:
     - cron: '17 6 * * *'
 
 jobs:
+  maintenance-http:
+    name: Full-Core maintenance Apache rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Verify web pause and exact restoration against real Apache/PHP
+        run: bash tests/full_core_maintenance_apache.sh
+
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).
   # Same test code path; --lane=NAME filters by scripts/ci_lane_classifier.sh.
