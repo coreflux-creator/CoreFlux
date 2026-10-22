@@ -192,6 +192,12 @@ $normal = static function (string $relative, string $method) use ($token, $opera
     }
 };
 try {
+    $absent = [];
+    foreach ($probePaths as $relative) foreach (['GET', 'POST'] as $method) {
+        [$status, $body] = coreMaintenanceStageHttp($relative, $method, $token);
+        $absent[$relative][$method] = fullCoreMaintenanceAbsentSignature($status, $body);
+    }
+    coreMaintenancePrivateWrite($private . '/absent-responses.json', json_encode($absent, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
     foreach ($probePaths as $relative) {
         $probe = coreMaintenanceStageFile($relative); coreMaintenancePrivateWrite($probe, $probeSource);
         if (!chmod($probe, 0644)) throw new RuntimeException('Cannot expose synthetic staging probe.');
@@ -214,11 +220,15 @@ try {
     coreMaintenanceStageReplace($path, $receipt['held_sha256'], $original, 0644);
     foreach ($probePaths as $relative) foreach (['GET', 'POST'] as $method) $normal($relative, $method);
     coreMaintenanceStageRecover($receipt, $private); $cleanupNeeded = false;
-    foreach ($probePaths as $relative) {
-        [$status] = coreMaintenanceStageHttp($relative, 'GET', $token);
-        if ($status !== 404) throw new RuntimeException('Removed probe status mismatch at ' . $relative . ': HTTP ' . $status);
+    foreach ($probePaths as $relative) foreach (['GET', 'POST'] as $method) {
+        if (file_exists(coreMaintenanceStageFile($relative))) throw new RuntimeException('Probe file remains after cleanup.');
+        [$status, $body] = coreMaintenanceStageHttp($relative, $method, $token);
+        if (fullCoreMaintenanceAbsentSignature($status,$body) !== $absent[$relative][$method]) {
+            throw new RuntimeException('Removed probe response differs from the pre-rehearsal baseline.');
+        }
     }
     $result = ['status' => 'staging_web_maintenance_passed', 'operation' => $operation, 'blocked_requests' => $blocked,
+        'restored_response_checks' => 6, 'absent_response_checks' => 6,
         'restored_sha256' => hash_file('sha256', $path), 'probes_removed' => true, 'production_changed' => false,
         'scheduler_changed' => false, 'business_writers_drained' => false];
     coreMaintenancePrivateWrite($private . '/result.json', json_encode($result, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));

@@ -52,4 +52,14 @@ $assert($empty['held_bytes'] === '' && $empty['paused_jobs'] === 0, 'empty appli
 foreach (["not a cron", "* * * * * php task\0", "# x\rbroken"] as $bad) {
     $refuses(fn() => fullCoreMaintenanceCron($bad, $hash($bad), $root, [], $operation), 'malformed scheduler input refused');
 }
+$absent = ['error' => 'Bad request: expected /api/<module>/<endpoint> or /api/v1/<module>/<resource>',
+    'status' => 400, 'request_id' => str_repeat('a',16)];
+$first = fullCoreMaintenanceAbsentSignature(400,json_encode($absent));
+$absent['request_id'] = str_repeat('b',16);
+$assert(fullCoreMaintenanceAbsentSignature(400,json_encode($absent)) === $first, 'known missing API route compares independently of trace ID');
+$absent['error'] = 'Unexpected backend error';
+$refuses(fn() => fullCoreMaintenanceAbsentSignature(400,json_encode($absent)), 'arbitrary bad request cannot pass cleanup');
+$refuses(fn() => fullCoreMaintenanceAbsentSignature(200,'probe ran'), 'executed probe cannot pass missing-file check');
+$refuses(fn() => fullCoreMaintenanceAbsentSignature(302,''), 'unexpected redirect cannot pass cleanup');
+$assert(fullCoreMaintenanceAbsentSignature(404,'missing') !== fullCoreMaintenanceAbsentSignature(404,'different'), 'ordinary missing response body remains exact');
 echo "PASS $checks maintenance preparation checks; no scheduler or webroot changed\n";

@@ -73,3 +73,22 @@ function fullCoreMaintenanceRestore(string $original, string $originalHash, stri
     fullCoreMaintenanceDigest($current, $heldHash);
     return $original;
 }
+
+/** Compare the actual absent-file response before/after, removing only the router's validated trace ID. */
+function fullCoreMaintenanceAbsentSignature(int $status, string $body): array
+{
+    if ($status === 400) {
+        $value = json_decode($body, true);
+        $keys = is_array($value) ? array_keys($value) : []; sort($keys);
+        if ($keys !== ['error','request_id','status'] || ($value['status'] ?? null) !== 400
+            || ($value['error'] ?? '') !== 'Bad request: expected /api/<module>/<endpoint> or /api/v1/<module>/<resource>'
+            || !is_string($value['request_id'] ?? null) || !preg_match('/^[a-f0-9]{16}$/D', $value['request_id'])) {
+            throw new RuntimeException('Unexpected missing-file API response.');
+        }
+        unset($value['request_id']); ksort($value);
+        $body = json_encode($value, JSON_THROW_ON_ERROR);
+    } elseif ($status !== 404) {
+        throw new RuntimeException('Missing synthetic probe must not execute or redirect.');
+    }
+    return ['status' => $status, 'body_sha256' => hash('sha256', $body)];
+}
