@@ -18,10 +18,33 @@ or service changes were made here. Both preview guards remain uninstalled;
 refresh the restored baseline and coordinate the handoff before installation.
 This does not establish hosted acceptance or a live Thunderhawk round trip.
 
-An additional open time-flow gap is confirmed in Core: normalization retains
-source status/hours/identity but drops the source approval actor and revision
-evidence. Inspect the actual Quanta serializer before extending that contract;
-no approval-equivalence or complete audit provenance is claimed.
+The source approval-evidence gap identified here is addressed by the local
+candidate described below; live acceptance remains open.
+
+## Quanta source approval evidence candidate - October 22, 2026
+
+The actual Quanta approved-entry serializer was captured from preview HEAD
+90ed420b, normalized SHA e460d1f5d55d19b6557f46601dff22be782ef28c6a718441da22485835c07559.
+It reports the source timesheet, approval date, approver email and entry update
+date. Core now retains these fields separately from its own approval, preserves
+subsecond timestamps, and rejects malformed evidence. Entry update time is not
+represented as a timesheet revision or as a stable approver identity.
+
+Migration 170 adds nullable current evidence and append-only observation receipts.
+New or revised imports save evidence atomically with time, scoped to the verified
+source company and connection. Replays preserve the original receipt; changed
+source approval details require review even with unchanged hours, and cannot
+rewrite already-approved or downstream-used Core time. Old imports remain
+explicitly unknown rather than being backfilled from the current source.
+
+Time preview and stored timesheet detail expose the captured fields with a clear
+separation between Quanta and Core approval. Local checks: 22 approval scenarios,
+74 existing integration checks, 37 disposable MariaDB provenance/receipt checks,
+and three rendered-component cases pass. Targeted lint, PHP syntax and the
+complete dashboard production build pass (existing asset/CSS/chunk warnings
+remain). This candidate has not been deployed. Source revocation/delta completeness, a
+stable source approver ID, timesheet revision and return-status exchange remain
+separate open work; full live approval provenance is not claimed.
 
 ## Quanta connection setup verified - October 22, 2026
 

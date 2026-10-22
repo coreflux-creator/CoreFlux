@@ -170,8 +170,10 @@ jobs:
           php tests/jobdiva_source_values_mariadb.php
           php tests/jobdiva_subcontract_parties_mariadb.php
 
-      - name: Verify original Quanta workspace on imported time
-        run: php tests/quanta_time_provenance_mariadb.php
+      - name: Verify original Quanta workspace and source approval evidence
+        run: |
+          php tests/quanta_time_approval_smoke.php
+          php tests/quanta_time_provenance_mariadb.php
 
       - name: Verify PurePay attempts and company isolation
         run: php tests/purepay_delivery_mariadb.php

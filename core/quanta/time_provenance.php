@@ -2,13 +2,15 @@
 /** Original Quanta workspace attribution, retained independently of today's connection. */
 declare(strict_types=1);
 require_once __DIR__.'/workspace.php';
+require_once __DIR__.'/time_approval.php';
 
 /** This table uses imported_at, so the generic created_at insert helper does not apply. */
 function quantaTimeImportInsert(PDO $pdo,int $tenantId,array $data): int
 {
     $columns=['quanta_entry_id','component','worker_id','source_worksite_id','source_worksite_name','source_dimension_values_json',
         'source_workspace_id','source_workspace_binding_hash','source_workspace_verified_by','source_workspace_verified_at','source_workspace_verification',
-        'time_entry_id','timesheet_id','source_hash','source_timesheet_status','imported_by_user_id'];
+        'time_entry_id','timesheet_id','source_hash','source_timesheet_status','imported_by_user_id','source_approval_json','source_approval_hash'];
+    $data += ['source_approval_json'=>null,'source_approval_hash'=>null];
     if($tenantId<=0 || array_diff($columns,array_keys($data)) || array_diff(array_keys($data),$columns)) throw new InvalidArgumentException('A complete scoped Quanta import is required');
     $pdo->prepare('INSERT INTO quanta_time_imports (tenant_id,'.implode(',',$columns).') VALUES (:tenant_id,:'.implode(',:',$columns).')')
         ->execute(['tenant_id'=>$tenantId]+$data);

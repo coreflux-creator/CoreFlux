@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
+import QuantaApprovalEvidence from '../../../dashboard/src/pages/QuantaApprovalEvidence';
 
 /**
  * Timesheet Detail — Batch 2 (2026-02) + inline-edit (2026-02 follow-up).
@@ -94,6 +95,7 @@ export default function TimesheetDetail({ session }) {
         source_worksite_id: existing.source_worksite_id,
         source_worksite_name: existing.source_worksite_name,
         source_dimension_values_json: existing.source_dimension_values_json,
+        source_approval_json: existing.source_approval_json,
         ...savedEntry,
       };
       const nextEntries = prevEntries.some(e => e.id === savedEntry.id)
@@ -319,6 +321,7 @@ export default function TimesheetDetail({ session }) {
               source_worksite_id: existing.source_worksite_id,
               source_worksite_name: existing.source_worksite_name,
               source_dimension_values_json: existing.source_dimension_values_json,
+              source_approval_json: existing.source_approval_json,
               ...r.entry,
             };
             if (idx >= 0) nextEntries[idx] = merged;
@@ -645,6 +648,7 @@ export default function TimesheetDetail({ session }) {
                     style={{ display: 'block', color: 'var(--cf-text-secondary)', fontSize: 11, marginTop: 3 }}>
                     Quanta · {e.source_worksite_name || e.source_worksite_id || 'No worksite'} · {sourceDimensions(e.source_dimension_values_json)}
                   </span>}
+                  {e.quanta_entry_id && <QuantaApprovalEvidence value={e.source_approval_json} />}
                 </td>
                 <td style={{ fontSize: 12 }}>
                   {canEditRows ? (

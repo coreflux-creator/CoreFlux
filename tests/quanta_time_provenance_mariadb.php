@@ -12,7 +12,7 @@ $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$
 $db='coreflux_qorigin_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
 $migrate=static function(string $file)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);};
-foreach(['147_quanta_time_integration.sql','148_quanta_worker_identity.sql','149_quanta_time_source_context.sql','159_quanta_workspace_binding.sql','165_quanta_time_workspace.sql']as$file)$migrate($file);
+foreach(['147_quanta_time_integration.sql','148_quanta_worker_identity.sql','149_quanta_time_source_context.sql','159_quanta_workspace_binding.sql','165_quanta_time_workspace.sql','170_quanta_time_approval_evidence.sql']as$file)$migrate($file);
 $pdo->exec('CREATE TABLE tenants(id BIGINT PRIMARY KEY,parent_id BIGINT NULL,tenant_type VARCHAR(20),name VARCHAR(80),is_active INT)');
 $pdo->exec("INSERT INTO tenants VALUES(1,NULL,'master','Synthetic pilot',1),(2,NULL,'master','Other pilot',1)");
 $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(40),scope_mode VARCHAR(20))');
@@ -102,5 +102,27 @@ $newId=quantaTimeImportInsert($pdo,1,['quanta_entry_id'=>'new-entry','component'
     ...quantaTimeSourceFields($access,7),'time_entry_id'=>99,'timesheet_id'=>1,'source_hash'=>quantaComponentHash($entry,$route,'regular',6.5),'source_timesheet_status'=>'approved','imported_by_user_id'=>7]);
 $new=$pdo->query('SELECT * FROM quanta_time_imports WHERE id='.$newId)->fetch(PDO::FETCH_ASSOC);
 $check($new['source_workspace_id']==='workspace-a' && $new['source_workspace_verification']==='import' && $new['imported_at']!==null,'real import writer persists verified origin using the imported_at schema');
+$check($new['source_approval_json']===null && $new['source_approval_hash']===null,'legacy imports retain unknown approval evidence');
+$evidenceEntry=quantaNormalizeEntry(array_replace($raw,['timesheet_id'=>'sheet-source','approved_at'=>'2026-10-03T10:00:00Z','approved_by_email'=>'reviewer@example.test','updated_at'=>'2026-10-03T11:00:00Z']),$sites,'approved');
+$setEvidence=static function(array $entry)use($pdo,$newId):void {
+    $pdo->prepare('UPDATE quanta_time_imports SET source_approval_json=:source_approval_json,source_approval_hash=:source_approval_hash WHERE id=:id AND tenant_id=1')
+        ->execute(quantaTimeApprovalFields($entry)+['id'=>$newId]);
+};
+$check($fails(fn()=>quantaTimeApprovalRecord($pdo,1,$newId,7,$access)),'approval receipt requires the import transaction');
+$pdo->beginTransaction();$setEvidence($evidenceEntry);quantaTimeApprovalRecord($pdo,1,$newId,7,$access);$pdo->commit();
+$evidenceBefore=$pdo->query('SELECT * FROM quanta_time_approval_evidence')->fetchAll(PDO::FETCH_ASSOC);
+$check(count($evidenceBefore)===1 && json_decode($evidenceBefore[0]['source_approval_json'],true)['approved_by_email']==='reviewer@example.test','source approval evidence persists with its scoped import');
+$check($evidenceBefore[0]['source_workspace_id']==='workspace-a' && $evidenceBefore[0]['source_workspace_binding_hash']===$access['binding_hash'],'receipt binds the observed evidence to the verified source connection');
+$pdo->beginTransaction();quantaTimeApprovalRecord($pdo,1,$newId,7,$access);$pdo->commit();
+$check($evidenceBefore===$pdo->query('SELECT * FROM quanta_time_approval_evidence')->fetchAll(PDO::FETCH_ASSOC),'replayed observation retains the original receipt and actor');
+$pdo->beginTransaction();$check($fails(fn()=>quantaTimeApprovalRecord($pdo,2,$newId,7,$access)),'another company cannot attach evidence to this import');$pdo->rollBack();
+$changedEvidence=$evidenceEntry;$changedEvidence['source_approval']['approved_by_email']='second@example.test';
+$pdo->beginTransaction();$setEvidence($changedEvidence);quantaTimeApprovalRecord($pdo,1,$newId,8,$access);$pdo->rollBack();
+$check($evidenceBefore===$pdo->query('SELECT * FROM quanta_time_approval_evidence')->fetchAll(PDO::FETCH_ASSOC),'failed import rolls back newly observed approval evidence');
+$pdo->beginTransaction();$setEvidence($changedEvidence);quantaTimeApprovalRecord($pdo,1,$newId,8,$access);$pdo->commit();
+$history=$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$check(count($history)===2 && $history[0]===$evidenceBefore[0] && (int)$history[1]['observed_by_user_id']===8,'revised source evidence appends history without replacing the old approval');
+$migrate('170_quanta_time_approval_evidence.sql');
+$check($history===$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'migration replay preserves source approval history');
 unset($GLOBALS['__quanta_transport']);putenv('COREFLUX_INTEGRATION_INSTANCE_ID');setRequestTenantId(null);
 echo "Quanta time provenance MariaDB: {$passed} passed\n";

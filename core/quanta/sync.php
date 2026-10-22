@@ -203,6 +203,7 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
     }
     return $identity + [
         'source_status' => $status,
+        'source_approval' => quantaTimeApprovalNormalize($raw, $status),
         'components' => $components,
         'hours' => round($total, 2),
         'description' => substr(trim((string) ($raw['notes'] ?? $raw['description'] ?? '')), 0, 500),
@@ -377,14 +378,15 @@ function quantaEntryDecision(array $entry, array $route, array $imports, ?string
         if (empty($priorRow['entry_status'])) return ['conflict', 'The original CoreFlux time row was deleted'];
         $currentHash = quantaComponentHash($entry, $route, $component, $hours);
         if ($priorRow['source_hash'] === $currentHash
-            && ($priorRow['source_worksite_id'] ?? null) === $entry['worksite_id']) continue;
+            && ($priorRow['source_worksite_id'] ?? null) === $entry['worksite_id']
+            && quantaTimeApprovalMatches($entry, $priorRow)) continue;
         $legacyContext = ($priorRow['source_worksite_id'] ?? null) === null
             && $priorRow['source_hash'] === quantaLegacyComponentHash($entry, $route, $component, $hours);
         if (!in_array($priorRow['entry_status'], ['draft', 'pending_review', 'rejected'], true)
             || $priorRow['bill_extracted_at'] || $priorRow['ap_extracted_at'] || $priorRow['payroll_extracted_at']) {
             return ['conflict', $legacyContext
                 ? 'Legacy Quanta import lacks a verified worksite snapshot; review before changing approved time'
-                : 'Changed Quanta time has already been approved or used downstream'];
+                : 'Quanta hours or approval evidence changed after Core approval or downstream use; review the original import'];
         }
         if ((int) $priorRow['placement_id'] !== (int) $route['placement_id']
             || (int) $priorRow['person_id'] !== (int) $route['person_id']
@@ -393,7 +395,7 @@ function quantaEntryDecision(array $entry, array $route, array $imports, ?string
         }
         $changed = true;
     }
-    return $changed ? ['update', 'Source hours changed; update unapproved CoreFlux time']
+    return $changed ? ['update', 'Source hours or approval details changed; update unapproved CoreFlux time']
         : ($new ? ['ready', 'Ready for CoreFlux review'] : ['imported', 'Already imported']);
 }
 
@@ -489,7 +491,8 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                 $prior = $imports[$id][$component] ?? null;
                 $hash = quantaComponentHash($entry, $route, $component, $hours);
                 if ($prior && $prior['source_hash'] === $hash
-                    && ($prior['source_worksite_id'] ?? null) === $entry['worksite_id']) continue;
+                    && ($prior['source_worksite_id'] ?? null) === $entry['worksite_id']
+                    && quantaTimeApprovalMatches($entry, $prior)) continue;
                 [$hourType, $category, $billable] = quantaComponentCategory(
                     $component, ($route['engagement_type'] ?? '') === 'internal'
                 );
@@ -524,24 +527,28 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     scopedUpdate('time_entries', $existingId, $payload);
                     scopedUpdate('quanta_time_imports', (int) $prior['id'], [
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
+                        ...quantaTimeApprovalFields($entry),
                         'worker_id' => $entry['worker_id'],
                         ...quantaSourceContext($entry, $worksites),
                         'timesheet_id' => (int) $timesheet['id'], 'imported_by_user_id' => $actorId,
                     ]);
+                    quantaTimeApprovalRecord($pdo, $tenantId, (int)$prior['id'], $actorId, $access);
                     $updated++;
                 } else {
                     $payload['external_id'] = hash('sha256', $id . '|' . $component);
                     $payload['created_by_user_id'] = $actorId;
                     $entryId = scopedInsert('time_entries', $payload);
-                    quantaTimeImportInsert($pdo, $tenantId, [
+                    $importId = quantaTimeImportInsert($pdo, $tenantId, [
                         'quanta_entry_id' => $id, 'component' => $component,
                         'worker_id' => $entry['worker_id'],
                         ...quantaSourceContext($entry, $worksites),
                         ...quantaTimeSourceFields($access, $actorId),
                         'time_entry_id' => $entryId, 'timesheet_id' => (int) $timesheet['id'],
                         'source_hash' => $hash, 'source_timesheet_status' => $entry['source_status'],
+                        ...quantaTimeApprovalFields($entry),
                         'imported_by_user_id' => $actorId,
                     ]);
+                    quantaTimeApprovalRecord($pdo, $tenantId, $importId, $actorId, $access);
                     $inserted++;
                 }
             }
