@@ -1,5 +1,23 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta immutable candidate and combined environment correction - October 22, 2026
+
+Quanta hosted review commit 8f67fc33892a9060c1c35de03bc9b84753896637 captures 27
+source/test files without checking out the branch or changing shared source,
+index, HEAD or protected configuration. All captured runtime hashes match prior
+acceptance. Three pre-existing artifact logs remain excluded. No publish or push
+occurred; evidence is in the Quanta mirror verification/review-commit-20261022.json.
+
+Live and Test both currently carry Quanta's new DISABLE_BACKGROUND_WORKERS=1
+setting, marked not live yet. The candidate would disable Live scheduling,
+webhooks and usage processing if published with it. Live blank / Test 1 is now
+prepared and UNSAVED. A combined confirmation request covers this correction and
+the already prepared PurePay Live full / Test review correction. It does not
+authorize publication or financial execution. Both settings dialogs are preserved
+for the reply; the PurePay release chat has been notified.
+
+
+
 ## Provider release checkpoint and live pilot setup - October 22, 2026
 
 PurePay's actual preview renders the Core input, people and placement review
@@ -14,6 +32,14 @@ files. Its separate temporary Git index leaves the shared HEAD at 9cd71c83 and
 all 35 pending paths intact. The two pre-existing cron files are excluded. This
 branch was not checked out, pushed or published. The release owner was notified.
 Receipts are retained in the PurePay mirror's verification directory.
+
+A subsequent read-only Emergent inspection found Live and Test startup mode both
+set to review with the development-host binding. The currently published source
+predates the guards, but the integration candidate would fail its production
+host check. Live full / Test review is prepared in the settings form and awaits
+user confirmation; it has not been saved. No publication, restart or worker change
+occurred. The coordinating release chat was notified. This configuration correction
+must precede companion publication; past releases did not prove environment separation.
 
 Core's latest production inspection 39857631281 is source-review ready, with
 63 pending migrations and unchanged live accounting gaps. Maintenance/recovery,
