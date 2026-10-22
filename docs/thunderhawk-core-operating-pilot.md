@@ -1,5 +1,35 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## PurePay preview startup candidate verified - October 22, 2026
+
+The hosted PurePay checkout is release 031c7b2. Nineteen Core runtime files still
+match the accepted restored baseline; 34 pending source paths and the staged
+index remain captured. Code access recovered after a temporary editor outage,
+and the preview backend was verified STOPPED without restarting the application.
+
+A host-bound review-startup candidate now passes fourteen full-application checks:
+seven native/held-payroll scenarios and seven startup cases. Actual lifespan
+runs preserve access, provider IDs and financial documents across repeated starts,
+reject incorrect host bindings and required-index failures, and retain normal
+authentication. The default startup path retains its prior operations. Tests ran
+from a temporary candidate outside application source with in-memory storage and
+outbound sockets blocked; zero network attempts occurred.
+
+Review startup holds account bootstrap, external storage setup, data migrations,
+invoice deduplication, backfills and background jobs. It is a startup control,
+not a blanket restriction on authenticated requests. The guarded installer checks
+source, staged index, database binding, supervisor settings and document hashes,
+and leaves the backend stopped on failure. The candidate is local and tested;
+it has not been installed or published. Shared-source coordination is pending
+while the other PurePay chat develops duplicate-bill work. Exact results are in
+PurePay's verification/startup-candidate-acceptance-20261022.json.
+
+Read-only inventory found twelve preview organizations, one sandbox and no
+Thunderhawk. No user setup of Thunderhawk in preview is needed. Provider preview
+installation/browser acceptance, reviewed live connections and the real
+Thunderhawk round trip remain open. Production, native records, permissions and
+financial execution are unchanged.
+
 ## Quanta authenticated portal acceptance - October 22, 2026
 
 The development preview has no Thunderhawk workspace. The user does not need to
