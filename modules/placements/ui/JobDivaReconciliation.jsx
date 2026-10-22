@@ -812,7 +812,7 @@ function KeyValueList({ title, items }) {
       <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 0.8fr) minmax(140px, 1.2fr)', gap: '5px 10px', margin: '7px 0 0', fontSize: 12 }}>
         {items.map(([label, value]) => (
           <React.Fragment key={label}>
-            <dt style={{ color: '#64748b' }}>{label}</dt>
+            <dt style={{ color: '#64748b', overflowWrap: 'anywhere' }}>{label}</dt>
             <dd style={{ margin: 0, color: '#0f172a', overflowWrap: 'anywhere' }}>{displayValue(value)}</dd>
           </React.Fragment>
         ))}
