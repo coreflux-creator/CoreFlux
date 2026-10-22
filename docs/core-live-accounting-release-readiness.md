@@ -3,12 +3,15 @@
 ## Current release checkpoint — October 22, 2026
 
 The updated accounting experience remains absent from production. Core runtime
-`2f624738` is installed in isolated staging and passed all nine
-[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39744695915)
-and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39744970124).
-Its current bundles are `index-CgyXQKgU.js` and `index-DvvEMVfV.js`; both served
-hashes match the installed package. Migration 168 was applied in the preceding
-`6c61f608` staging release; this revision needed no additional migration.
+`e37ceb3a` is installed in isolated staging and passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39748907209)
+and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39749304677)
+at October 22 08:41 UTC. Its current bundles are `index-CoXlHm-B.js` and
+`index-B5u69yI-.js`; all four served asset hashes match the installed package.
+Migration 169 adds encrypted JobDiva person-link review receipts. Migration 168
+was applied in the earlier `6c61f608` staging release. Accounting lifecycle,
+split receipts, 61 credit checks and log-only delivery passed; payroll authority
+remains disabled and production deployment was skipped.
 Production maintenance, ownership-preserving recovery and final backup gates
 described below remain open. Earlier inventory counts and candidate fingerprints
 below describe their linked inspections, not a new production inspection.

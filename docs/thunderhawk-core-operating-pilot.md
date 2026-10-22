@@ -24,8 +24,16 @@ child-directory duplicates. Shared-directory projection is still required work.
 Local validation: 39 disposable MariaDB checks, six rendered-component checks,
 the relevant JobDiva regressions, dashboard build and visual synthetic review
 passed. The live Core tab still showed sign-in when checked at approximately
-08:31 UTC. No real candidate link or provider write was made. Full CI and staging
-acceptance for this candidate are pending below; this is not live pilot proof.
+08:31 UTC. No real candidate link or provider write was made. Runtime `e37ceb3a`
+passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39748907209),
+including the new database review step. Its
+[isolated staging installation and acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39749304677)
+completed at 08:41 UTC: 23 changed files from a 6,777-file package, migration 169
+applied, all four served asset hashes matched, and accounting lifecycle, split
+receipts, 61 credit checks and log-only delivery passed. The runtime bundles are
+`index-CoXlHm-B.js` and `index-B5u69yI-.js`. Payroll authority remained disabled;
+production deployment was skipped. This is the current staged runtime, not live
+Thunderhawk pilot proof. Core, Quanta preview and Emergent sign-ins remain pending.
 
 ## JobDiva field-alignment audit — October 22, 2026 UTC
 
