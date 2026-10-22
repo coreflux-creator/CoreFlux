@@ -1,5 +1,22 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Source guards deployed to staging; PurePay hold released - October 22, 2026
+
+Runtime ae411200940fbc52e400d559eca8e44668b083e1 passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39853929574) and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39854380249) on October 22 at 21:08 UTC. Sixteen changed files were installed and verified; there were no pending migrations. Accounting lifecycle, split receipts, 61 credit checks and log-only delivery passed. Payroll authority remains disabled. Core production was not deployed.
+
+Quanta companion commit 7451c60 captures the installed development endpoint and
+17-case acceptance evidence. This remains unpublished and synthetic-only.
+
+Review and harden Pure//Pay confirmed production release f8a87b9 from source
+9cd71c83e5569e029d2ef55054be5d0d1e6e15cd and workers AVAILABLE. The coordinating
+status chat verified live report counts Open 205 / Paid 150 / All 355, working
+filters and the mixed charge/deduction net without writes. All 35 pending source
+files and guards/configuration were restored; preview remains STOPPED. The hold
+is released. Next, validate the restored guarded preview against this baseline
+before startup. This supersedes the source-hold and staging status below.
+
+
+
 ## Current Quanta source guards implemented and verified - October 22, 2026
 
 Quanta's development endpoint now answers exact entry IDs with fresh request and
