@@ -25,8 +25,19 @@ was skipped. The live operations inventory found nine scheduled Core jobs and
 about 7.71 GB of database data/index allocation. Verified removal of three
 superseded upload packages recovered about 2.06 GB, leaving about 3.24 GB free.
 Cloudways access has been recovered. Daily off-site backups are configured;
-Core's latest listed restore point was October 19 and a fresh application-only
-backup is now being verified. Controlled recovery and writer maintenance remain.
+Core's latest listed restore point was October 19. The first on-demand backup
+ended without a newer restore point; Cloudways reports recent backups failing
+for lack of disk space. A reviewed source-only cleanup (run 39707329532) removed
+eight obsolete upload copies after complete hash checks, leaving about 7 GiB
+free while preserving current/configuration packages and private backups. A new
+Core-only backup is now running. Verify its actual new restore timestamp before
+claiming success. Controlled recovery and writer maintenance remain.
+Core's Cloudways application scheduler is verified empty in both Basic and
+Advanced views; nine SSH-user entries remain active. Maintenance preparation
+now passes 17 checks and a real Apache/PHP rehearsal: 17 blocked requests, no
+handler execution, exact restoration and resumed GET/POST. All nine CI jobs
+passed for 1140eef7 and workflow follow-up d6097362. These are disposable
+rehearsals; no hosted maintenance guard or scheduler pause has been activated.
 The goal is active again; the earlier usage-limited note below is historical.
 The exact migration-plan checkpoint now passes against production at candidate
 `3b117355`: 60 pending migrations, three source exceptions retained, 18 retired

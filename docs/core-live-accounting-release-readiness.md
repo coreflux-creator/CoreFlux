@@ -172,18 +172,66 @@ Cloudways access was recovered through the existing saved sign-in. Server
 `1516771` has daily off-site backups scheduled at 09:23 UTC, one-week retention,
 and local backups disabled; its displayed off-site size was 7 GB. CoreFlux app
 `5829812` at `corefluxapp.com` listed October 19, 2026 09:28:12 UTC as its latest
-restore point. A fresh application-only files-and-database backup was started
-from that app's Backup and Restore page and is being checked for completion.
-A fresh reload still reports `Application Backup` in progress for server
-1516771 and redirects application controls to the server inventory while it runs.
-This is a confirmed running Cloudways operation, not a failed or missing job;
-do not start another backup or infer completion from elapsed time. Evidence is
-saved locally as `core-backup-in-progress.png` (untracked). The application cron
-page is also redirected during this operation, so its scheduler inventory is
-still unverified.
+restore point. The first application-only backup stopped showing as active but
+produced no newer restore point. Cloudways notifications explicitly report
+recent backup failures for insufficient disk space (October 21 at 08:39 UTC)
+and another low-space alert at 19:27 UTC. The absence of an active operation
+was not treated as backup success. Local evidence is
+`core-backup-no-new-restore-point.png` and `core-backup-disk-alert.png`.
+
+Once the application controls unlocked, both Basic and Advanced Cron Job
+Management for app 5829812 showed no jobs. The application scheduler inventory
+is now verified empty; the nine SSH-user entries remain active. This does not
+rule out an external scheduler or prove that existing work has drained.
+Evidence is `core-application-cron-empty.png` (untracked).
+
+The [read-only storage audit](https://github.com/coreflux-creator/CoreFlux/actions/runs/39707023520)
+found 1,971,568,640 bytes free and eight superseded source uploads occupying
+about 5.50 GB. The [verified cleanup](https://github.com/coreflux-creator/CoreFlux/actions/runs/39707329532)
+reclaimed those copies and reported 7.0 GiB free. It checked each completed
+workflow's exact revision/outcome, ownership, canonical paths, all manifest
+file hashes, absence of added files/symlinks, and the archive checksum before
+removal. Four diagnosed old staging failures were included; their failure
+logs were retained locally. Manifests/archive checksums are retained privately
+under `/tmp/core-upload-cleanup-39707329532`. Configuration package 39690256340,
+current reviewed candidate 39703479716 and its full preflight receipt, and
+separately stored deployment/database backups were preserved.
+A new application-only Core backup was started after this verified cleanup;
+Cloudways displays `Application backup in progress`. Do not launch another
+while that operation is active or claim completion without its new restore
+point. The prior failed attempt remains documented above.
+
 No restore, backup-policy change, server-wide backup or production activation
 was performed. A pre-upgrade backup during verified writer maintenance and a
 controlled recovery rehearsal remain required.
+
+### Maintenance preparation and Apache rehearsal
+
+`deploy/full_core_maintenance.php` prepares a temporary web rule and exact
+scheduler changes; it does not install either or authorize production changes.
+Every active cron line requires a reviewed line number, hash and pause/keep
+decision. Entire paused lines become comments, preserving shell syntax,
+environment variables, unrelated jobs, line endings and the original file.
+Changed scheduler bytes, missing reviews, a retained target-root job and a
+changed recovery copy fail. Restoration refuses to overwrite concurrent edits.
+Indirect/relative jobs and alternate scheduler owners still require inventory;
+this pure transformation cannot discover them or stop running workers.
+
+The web rule returns 503 before root/API/dashboard handlers, with inherited
+parent rules and a static message. The original configuration stays in the
+future adapter's private recovery receipt. The [Apache inheritance behavior](https://httpd.apache.org/docs/2.4/mod/mod_rewrite.html#rewriteoptions)
+was checked against actual Apache/PHP, including the repository's nested
+`.htaccess` files: 17 held requests, no PHP handler counter changes, byte-exact
+configuration restoration and resumed GET/POST. The preparation fixture passes
+17 checks. All nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39706922811)
+passed for 1140eef760262615c07aa1e8cc41a68da520b1c0.
+The storage/cleanup workflow follow-up d60973622022c07bccc60802050e36d937c79010
+also passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39707337001).
+
+This is disposable HTTP acceptance, not verified Cloudways writer maintenance.
+The host adapter, Apache/FPM plus front-proxy behavior, active request/worker
+drain, final backup and recovery binding remain unfinished. No real scheduler
+or hosted `.htaccess` was changed by this increment.
 
 ### Reviewed data effects of the pending migrations
 
