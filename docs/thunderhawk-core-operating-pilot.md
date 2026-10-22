@@ -11,7 +11,7 @@ but the newer overview URL is blank on the live bundle. The candidate now
 opens the overview from the main Accounting sidebar.
 
 See [live release readiness](core-live-accounting-release-readiness.md) for
-the read-only production comparisons, 59 missing migration records, actual
+the read-only production comparisons, 60 reviewed pending migrations, actual
 schema gaps, reviewed historical source fingerprints and the configuration
 preservation requirement. Production activation is not yet ready or authorized.
 The private connection gate is now complete: candidate `fa8a1cfc` passed eight
@@ -50,6 +50,19 @@ checks. All nine CI jobs for f0c41bca passed, followed by successful hosted run
 checks, exact configuration restoration and all probes removed. This verifies
 staging web ingress; production scheduler pause and writer drain remain open.
 No production guard or scheduler pause has been activated.
+Native Linux scheduler/file recovery now passes 24 checks in an isolated
+container (all nine CI jobs passed in 39711830944): exact bytes and UID/GID/mode,
+concurrent-edit refusal, private receipts and recovery by a new process after
+an interrupted pause. Production audit 39711314199 found the web files owned
+by a different UID from the deployment login; read-only checks confirmed that
+login cannot act as the file owner. The current adapter refuses that mismatch.
+The production owner handoff, actual worker drain and final snapshot/activation
+binding remain open; no permissions or live schedules were changed.
+The provider development API most recently returned a plain HTTP 404 after
+earlier 502 responses. Emergent still labels its page a static preview while
+resuming, and the source editor is reconnecting with 23 pending paths shown.
+The provider source/publication boundary remains unchanged; no service restart
+or republish was performed.
 The goal is active again; the earlier usage-limited note below is historical.
 The exact migration-plan checkpoint now passes against production at candidate
 `3b117355`: 60 pending migrations, three source exceptions retained, 18 retired

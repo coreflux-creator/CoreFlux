@@ -276,6 +276,56 @@ records `production_changed: false`, `scheduler_changed: false` and
 rehearsal; it does not close production scheduler pause, writer drain, file
 ownership preservation, final snapshot binding or activation.
 
+### Native scheduler and file recovery adapter
+
+`deploy/full_core_maintenance_host.php` implements Linux host primitives under
+an exclusive private operation lock. It saves exact scheduler bytes, the web
+configuration and its UID/GID/mode before changing either. Every active job
+requires its reviewed line hash and pause/keep decision. Recovery validates
+both current states before restoring either, refuses concurrent edits or
+corrupted recovery copies, and supports a new process recovering an interrupted
+operation. An exception does not silently resume writers. This is a library,
+with no production execution entry point and no claim that workers are drained.
+
+The dedicated Docker fixture uses an unprivileged user, a real native crontab,
+and an original web-file group different from the user's primary group. It
+passed **24 checks**, including scope, byte/UID/GID/mode restoration, 0644 and
+0664 modes, empty installed scheduler, private receipts, lock contention,
+concurrent changes, corruption and actual child-process exit/recovery. The
+[CI run](https://github.com/coreflux-creator/CoreFlux/actions/runs/39711830944)
+passed all nine jobs for `d65b12adc4bc23cedc645d75aafb33d6514c17ff`.
+Earlier fixture runs exposed a native crontab client
+truncating a long input filename. The adapter now supplies the verified private
+file on stdin; it never shortens the recovery location or prints job commands.
+Failure diagnostics stay private. Native crontab and file replacement do not
+provide a cross-file compare-and-swap; the adapter checks immediately before
+and after each operation and retains recovery material on failure.
+
+The read-only [production audit](https://github.com/coreflux-creator/CoreFlux/actions/runs/39711314199)
+found `.htaccess` owned by UID 1004/GID 33 with mode 0664 and one link; the
+deployment CLI runs as UID 1003/GID 33. The webroot and live configuration also
+belong to UID 1004. All nine active scheduler lines contain the Core root.
+The [identity check](https://github.com/coreflux-creator/CoreFlux/actions/runs/39711612315)
+confirmed the CLI cannot run a noninteractive identity command as that file
+owner. A later read-only comparison (39711831712) also found that Cloudways'
+existing listed application login is not the file owner. No credentials or
+permissions were changed. The Cloudways Web Rules form offers only 301, 302
+and internal rewrites; its empty form was closed without saving.
+
+The current primitive deliberately refuses a file owned by another UID instead
+of changing ownership during an atomic replacement. Resolve the actual
+production file-owner execution/restore procedure before wiring activation.
+Do not treat group write access, one empty database-connection snapshot, or
+the successful disposable scheduler test as production writer quiescence.
+The nine production schedules are still active. Final candidate/snapshot
+binding, worker drain and explicit cutover authorization remain required.
+The reviewed changed-file list includes root `.htaccess`. The final release
+must keep the maintenance rule installed while replacing runtime files, then
+activate the reviewed candidate routing when reopening. The primitive's
+`restore()` restores the original routing for recovery; it is not a successful
+release activation step. Recovery after database changes must use the matching
+database/files snapshot before restoring ingress or scheduled jobs.
+
 ### Native database recovery rehearsal
 
 `tests/full_core_upgrade_recovery_mariadb.php` creates a fresh disposable MariaDB
