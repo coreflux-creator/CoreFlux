@@ -1,5 +1,36 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## PurePay preview guards installed on restored release - October 22, 2026
+
+Review and harden Pure//Pay restored all 34 pending shared files after packaging
+release da85a1908633d1931da1217729487cd1d8cd43bd and explicitly handed over a
+source-only window, with the backend required to stay stopped. Restoration hashes
+were independently verified. The server has three release changes; the other
+22 previously checked backend runtime files are unchanged. The startup and cron
+guards were rebased onto the exact restored server; 17 real full-application,
+startup and scheduled-operation cases pass with zero outbound network attempts.
+The test also verifies 29 combined integration and release dependency hashes.
+
+The two guards and host-bound review settings are now installed in the development
+preview. The installer defaults to preparing a stopped backend. Its receipt
+confirms prepared_stopped, no service start/stop, no database read/write and no
+publication. Shared pending files, unrelated settings and staged source were
+preserved. Installed server SHA is
+9eeabe7df3da21cc9320a8eb363583934a8ed87113a102f9e9d7eac5dbab0283;
+cron guard SHA is c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9.
+Local PurePay commit 146fe77 and verification/preview-prepared-da85a19-20261022.json
+record this installation. Backups are /tmp/purepay-preview-review-install-xshdrp__.
+
+Publication was still building when the other chat confirmed the installation;
+it retains responsibility for production worker restoration and will release the
+preview start window afterward. The separate activate_prepared_review.py helper
+is prepared and syntax checked but has not run. It verifies source/configuration,
+starts only the bound development backend, compares database document fingerprints
+and requires all review health flags; failures stop the backend for inspection.
+Hosted/browser acceptance and the live Thunderhawk round trip remain open.
+Core's latest test/documentation commit bb1111a5 has also passed all CI jobs
+(run 39845654605); staging remains runtime revision e97fa704.
+
 ## Core approval evidence deployed; Quanta pagination repaired - October 22, 2026
 
 Core revision e97fa704f3a77dada45aa39e6a46ac372764671a passed all CI jobs
