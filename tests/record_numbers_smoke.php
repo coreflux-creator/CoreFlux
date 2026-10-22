@@ -52,11 +52,13 @@ numberCheck(staffingFieldContractRules('time_entries', 'hours')['unit'] === 'hou
 numberCheck(staffingFieldContractRules('placements', 'future_field')['definition_status'] === 'review_required', 'new fields cannot silently become verified');
 numberCheck(!staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['sync_enabled_by_dictionary'], 'dictionary does not enable outbound writes');
 $quantaName = staffingFieldContractRules('people', 'first_name')['remote_contracts']['quanta'];
-numberCheck($quantaName['path'] === 'full_name'
+numberCheck($quantaName['path'] === null
     && $quantaName['mappings'][0]['route'] === '/api/v1/integrations/coreflux/worker-profiles'
+    && $quantaName['mappings'][0]['path'] === 'full_name'
+    && $quantaName['mappings'][1]['direction'] === 'quanta_to_core'
     && str_contains($quantaName['mappings'][0]['transform'], 'join_trimmed_first_and_last_name'), 'reviewed worker contract records the actual composed name path');
 $quantaEmail = staffingFieldContractRules('people', 'email_primary')['remote_contracts']['quanta'];
-numberCheck($quantaEmail['direction'] === 'core_to_quanta'
+numberCheck($quantaEmail['direction'] === 'reviewed_inbound_and_outbound'
     && $quantaEmail['status'] === 'source_verified_hosted_acceptance_pending'
     && !$quantaEmail['sync_enabled_by_dictionary'], 'worker mapping does not claim hosted acceptance or enable delivery');
 numberCheck(staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['status'] === 'unverified', 'existing provider identity is not claimed as a Core ID field');

@@ -8,11 +8,12 @@ function staffingExchangeFieldMappings(): array
     if ($fields !== null) return $fields;
     $fields = [];
     $add = static function (string $key, string $provider, string $route, string $path,
-        string $transform, string $policy, string $version, array $evidence) use (&$fields): void {
+        string $transform, string $policy, string $version, array $evidence, ?string $direction = null) use (&$fields): void {
         $fields[$key][$provider][] = [
             'route' => $route, 'path' => $path, 'transform' => $transform,
             'write_policy' => $policy, 'contract_version' => $version,
             'source_evidence' => $evidence,
+            'direction' => $direction ?? 'core_to_' . $provider,
         ];
     };
     $quantaEvidence = ['core' => 'core/quanta/metadata_delivery.php',
@@ -70,6 +71,17 @@ function staffingExchangeFieldMappings(): array
         $add($key, 'purepayroll', '/api/v1/integrations/coreflux/people/inputs', $path,
             $transform, 'immutable_review_packet; separate_provider_review_creates_inactive_employee; no_activation',
             '2026-10-22.1', ['core' => 'core/integrations/purepay_people_inputs.php', 'provider' => 'PurePay:backend/coreflux_people.py']);
+    }
+    foreach ([
+        'people.first_name'=>['full_name','reviewer_confirms_first_name_from_unsplit_source; printable_utf8_max_100_bytes'],
+        'people.last_name'=>['full_name','reviewer_confirms_last_name_from_unsplit_source; printable_utf8_max_100_bytes'],
+        'people.email_primary'=>['email','lowercase_trimmed_valid_email; conflict_requires_explicit_identity_link'],
+        'people.phone_primary'=>['phone','trimmed_printable_max_40; reject_overlength_not_truncate'],
+        'people.status'=>['status','active_to_active; invited_or_disabled_to_inactive; reject_inconsistent_active_boolean'],
+    ] as $key=>[$path,$transform]) {
+        $add($key,'quanta','/api/v1/workers/{worker_id}',$path,$transform,
+            'reviewed_provisional_person_create_only; existing_core_fields_and_provider_ids_preserved',
+            '2026-10-22.1',['core'=>'core/quanta/worker_intake.php','provider'=>'Quanta:backend/app/routers/v1/workers.py'],'quanta_to_core');
     }
     $inputEvidence = ['core' => 'core/integrations/purepay_payroll_inputs.php',
         'provider' => 'PurePay:backend/coreflux_payroll_inputs.py'];
@@ -162,9 +174,10 @@ function staffingExchangeFieldMappings(): array
 function staffingExchangeRemoteContracts(string $key, array $contracts): array
 {
     foreach (staffingExchangeFieldMappings()[$key] ?? [] as $provider => $mappings) {
+        $directions = array_values(array_unique(array_column($mappings, 'direction')));
         $contracts[$provider] = [
             'path' => count($mappings) === 1 ? $mappings[0]['path'] : null,
-            'direction' => 'core_to_' . $provider,
+            'direction' => count($directions) === 1 ? $directions[0] : 'reviewed_inbound_and_outbound',
             'status' => 'source_verified_hosted_acceptance_pending',
             'mappings' => $mappings,
             'sync_enabled_by_dictionary' => false,

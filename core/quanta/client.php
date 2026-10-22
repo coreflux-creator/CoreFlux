@@ -41,7 +41,7 @@ function quantaApiKey(int $tenantId): string
 function quantaGet(string $apiKey, string $path, array $query = []): array
 {
     if ($apiKey === '') throw new QuantaApiException('Quanta API key required');
-    if (!preg_match('#^/[a-z0-9/_-]+$#', $path)) throw new InvalidArgumentException('Invalid Quanta API path');
+    if (!preg_match('#^/[A-Za-z0-9/_-]+$#', $path)) throw new InvalidArgumentException('Invalid Quanta API path');
     $url = QUANTA_API_BASE . $path;
     if ($query) $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     $headers = ['Authorization: Bearer ' . $apiKey, 'Accept: application/json'];

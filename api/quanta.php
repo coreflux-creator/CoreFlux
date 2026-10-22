@@ -8,6 +8,7 @@ require_once __DIR__ . '/../core/quanta/sync.php';
 require_once __DIR__ . '/../core/quanta/publication.php';
 require_once __DIR__ . '/../core/quanta/workspace.php';
 require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
+require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -236,106 +237,20 @@ try {
         api_ok(['ok' => true]);
     }
 
-    if ($action === 'save_worker_links') {
-        $links = $body['links'] ?? null;
-        if (!is_array($links) || !array_is_list($links) || !$links || count($links) > 100) {
-            throw new InvalidArgumentException('Choose 1 to 100 Quanta worker and CoreFlux person pairs');
-        }
-        $catalog = quantaCatalog(quantaApiKey($tenantId));
-        $workers = array_fill_keys(array_map('strval', array_column($catalog['workers'], 'id')), true);
-        $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-        $pdo = getDB();
-        $owns = cf_tx_begin($pdo);
-        try {
-            foreach ($links as $link) {
-                if (!is_array($link)) throw new InvalidArgumentException('Invalid worker link');
-                $workerId = trim((string) ($link['worker_id'] ?? ''));
-                $personId = (int) ($link['person_id'] ?? 0);
-                if ($workerId === '' || strlen($workerId) > 128 || !isset($workers[$workerId])) {
-                    throw new InvalidArgumentException('Choose a worker from Quanta');
-                }
-                $person = $pdo->prepare('SELECT id FROM people WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1');
-                $person->execute(['t' => $peopleTenant, 'id' => $personId]);
-                if (!$person->fetchColumn()) throw new InvalidArgumentException('Choose a person from the CoreFlux people directory');
-                $existing = $pdo->prepare('SELECT worker_id, person_id FROM quanta_worker_links WHERE tenant_id = :t AND (worker_id = :w OR person_id = :p) FOR UPDATE');
-                $existing->execute(['t' => $tenantId, 'w' => $workerId, 'p' => $personId]);
-                $rows = $existing->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                foreach ($rows as $row) {
-                    if ((string) $row['worker_id'] !== $workerId || (int) $row['person_id'] !== $personId) {
-                        throw new RuntimeException('A Quanta worker or CoreFlux person is already linked elsewhere. Remove that link before changing it.');
-                    }
-                }
-                if (!$rows) {
-                    $pdo->prepare('INSERT INTO quanta_worker_links (tenant_id, worker_id, person_id, linked_by_user_id) VALUES (:t,:w,:p,:u)')
-                        ->execute(['t' => $tenantId, 'w' => $workerId, 'p' => $personId, 'u' => $actorId]);
-                }
-            }
-            cf_tx_commit($pdo, $owns);
-        } catch (Throwable $e) {
-            cf_tx_rollback($pdo, $owns);
-            throw $e;
-        }
-        platformAuditLogWrite($tenantId, $actorId, 'quanta.worker_links.saved', null, ['count' => count($links)], ['source' => 'quanta']);
-        api_ok(['worker_links' => quantaWorkerLinks($tenantId)]);
+    if ($action === 'identity_preview') {
+        rbac_legacy_require($user,'people.view');
+        if(($body['mode']??null)==='create')rbac_legacy_require($user,'people.manage');
+        api_ok(quantaWorkerIntakePreview($tenantId,$actorId,$body));
     }
-
-    if ($action === 'create_worker_person') {
-        rbac_legacy_require($user, 'people.manage');
-        $workerId = trim((string) ($body['worker_id'] ?? ''));
-        $firstName = trim((string) ($body['first_name'] ?? ''));
-        $lastName = trim((string) ($body['last_name'] ?? ''));
-        if ($workerId === '' || strlen($workerId) > 128) throw new InvalidArgumentException('Choose a Quanta worker');
-        $catalog = quantaCatalog(quantaApiKey($tenantId));
-        $worker = null;
-        foreach ($catalog['workers'] as $candidate) {
-            if ((string) ($candidate['id'] ?? '') === $workerId) { $worker = $candidate; break; }
-        }
-        if (!$worker) throw new InvalidArgumentException('This worker is no longer in Quanta');
-        $email = strtolower(trim((string) ($worker['email'] ?? '')));
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new InvalidArgumentException('This Quanta worker needs a valid email before creating a CoreFlux person');
-        }
-        $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-        $pdo = getDB();
-        $owns = cf_tx_begin($pdo);
-        try {
-            $linked = $pdo->prepare('SELECT person_id FROM quanta_worker_links WHERE tenant_id = :t AND worker_id = :w FOR UPDATE');
-            $linked->execute(['t' => $tenantId, 'w' => $workerId]);
-            if ($linked->fetchColumn()) throw new RuntimeException('This worker is already linked. Refresh the directory.');
-            $duplicate = $pdo->prepare('SELECT id FROM people WHERE tenant_id = :t AND LOWER(email_primary) = :e LIMIT 1 FOR UPDATE');
-            $duplicate->execute(['t' => $peopleTenant, 'e' => $email]);
-            if ($duplicate->fetchColumn()) throw new RuntimeException('A CoreFlux person already has this email. Link that person instead.');
-            $sameName = $pdo->prepare(
-                'SELECT id FROM people WHERE tenant_id = :t AND deleted_at IS NULL
-                    AND LOWER(first_name) = LOWER(:f) AND LOWER(last_name) = LOWER(:l) LIMIT 1 FOR UPDATE'
-            );
-            $sameName->execute(['t' => $peopleTenant, 'f' => $firstName, 'l' => $lastName]);
-            if ($sameName->fetchColumn() && empty($body['confirm_distinct_person'])) {
-                throw new RuntimeException('A CoreFlux person already has this name. Review the existing person or confirm they are different people.');
-            }
-            $personId = peopleCreateExternalCandidate($peopleTenant, [
-                'first_name' => $firstName, 'last_name' => $lastName, 'email_primary' => $email,
-                'phone_primary' => (string) ($worker['phone'] ?? ''),
-                'status' => ($worker['active'] ?? false) === true ? 'active' : 'inactive',
-            ], 'quanta', $actorId);
-            $pdo->prepare('INSERT INTO quanta_worker_links (tenant_id, worker_id, person_id, linked_by_user_id) VALUES (:t,:w,:p,:u)')
-                ->execute(['t' => $tenantId, 'w' => $workerId, 'p' => $personId, 'u' => $actorId]);
-            $personNumber = coreRecordNumbersAttach($pdo, $peopleTenant, 'person', [['id'=>$personId]])[0]['person_number'];
-            cf_tx_commit($pdo, $owns);
-        } catch (Throwable $e) {
-            cf_tx_rollback($pdo, $owns);
-            if ($e instanceof PDOException && $e->getCode() === '23000') {
-                throw new RuntimeException('This person or worker was added elsewhere. Refresh the directory and link the existing person.');
-            }
-            throw $e;
-        }
-        platformAuditLogWrite($peopleTenant, $actorId, 'people.created', $personId,
-            ['source' => 'quanta', 'classification' => 'candidate']);
-        platformAuditLogWrite($tenantId, $actorId, 'quanta.worker_link.created_person', $personId,
-            ['worker_id' => $workerId, 'people_tenant_id' => $peopleTenant], ['source' => 'quanta']);
-        api_ok(['person_id' => $personId, 'person_number'=>$personNumber, 'worker_links' => quantaWorkerLinks($tenantId)], 201);
+    if (in_array($action,['save_worker_links','create_worker_person','identity_status'],true)) {
+        rbac_legacy_require($user,'people.view');
+        if(!is_string($body['review_token']??null))throw new InvalidArgumentException('Preview the worker identity before applying it');
+        if($action==='identity_status')api_ok(quantaWorkerIntakeStatus($tenantId,$actorId,$body['review_token']));
+        if(($body['confirm_review']??null)!==true)throw new InvalidArgumentException('Confirm the reviewed worker identity');
+        $mode=$action==='create_worker_person'?'create':'link';
+        if($mode==='create')rbac_legacy_require($user,'people.manage');
+        api_ok(quantaWorkerIntakeApply($tenantId,$actorId,$body['review_token'],$mode));
     }
-
     if ($action === 'delete_worker_link') {
         $workerId = trim((string) ($body['worker_id'] ?? ''));
         if ($workerId === '' || strlen($workerId) > 128) throw new InvalidArgumentException('Quanta worker ID required');

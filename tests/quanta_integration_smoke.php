@@ -291,16 +291,17 @@ $check('imported time preserves the Quanta source context for timesheet review',
     && str_contains((string) file_get_contents($root . '/modules/staffing/api/timesheets.php'), 'qi.source_dimension_values_json')
     && str_contains((string) file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx'), 'sourceDimensions(e.source_dimension_values_json)'));
 $check('page exposes preview, explicit mapping, and selected import', str_contains($ui, 'save_routes')
-    && str_contains($ui, 'save_worker_links') && str_contains($ui, 'onClick={importSelected}') && str_contains($ui, 'Preview time'));
+    && str_contains($ui, 'QuantaIdentityReview') && str_contains($ui, 'onClick={importSelected}') && str_contains($ui, 'Preview time'));
+$intake = (string) file_get_contents($root . '/core/quanta/worker_intake.php');
 $check('new person requires people permission and is linked in one transaction',
-    str_contains($api, "\$action === 'create_worker_person'") && str_contains($api, "'people.manage'")
-    && str_contains($api, 'peopleCreateExternalCandidate') && str_contains($api, 'cf_tx_commit($pdo, $owns)'));
+    str_contains($api, "'create_worker_person'") && str_contains($api, "'people.manage'")
+    && str_contains($api, 'quantaWorkerIntakeApply') && str_contains($intake, 'peopleCreateExternalCandidate') && str_contains($intake, '$pdo->commit()'));
 $check('provisional people do not guess employment type or activate a placement',
     str_contains((string) file_get_contents($root . '/modules/people/lib/people.php'), '"candidate", :status, "unknown"')
     && str_contains($api, 'must be activated before routing time'));
 $check('placement creation from Quanta requires reviewed type and date',
     str_contains((string) file_get_contents($root . '/modules/placements/ui/PlacementCreate.jsx'), "engagement_type: fromQuanta ? '' : 'w2'")
-    && str_contains($ui, 'Create and link') && str_contains($ui, 'Find work to route'));
+    && str_contains((string) file_get_contents($root . '/dashboard/src/pages/QuantaIdentityReview.jsx'), 'Create and link') && str_contains($ui, 'Find work to route'));
 $placementCreateApi = (string) file_get_contents($root . '/modules/placements/api/placements.php');
 $check('placement creation preserves the shared database connection',
     str_contains($placementCreateApi, '$createTransactionPdo = null;')

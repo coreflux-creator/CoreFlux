@@ -1,5 +1,36 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Reviewed Quanta-to-Core intake — October 22, 2026 UTC
+
+The existing worker creation/linking forms now open a server-backed comparison
+before applying anything. The encrypted, expiring review binds the reviewer,
+Core workspace/directory, permanent installation identity, verified Quanta
+connection and exact source/target observations. Changed contacts, a changed Core
+target, key rotation, directory-policy changes and competing links require a
+fresh review. Names are explicitly reviewed; existing Core contact fields and
+JobDiva/provider IDs are not overwritten by linking.
+
+Core migration 168 adds encrypted local intake receipts and original source
+workspace/hash provenance. A provisional person, registry-allocated P number,
+worker link, reviewed observations and receipt commit together. A lost response
+can be recovered from Core without another Quanta request. Replaying a committed
+review never creates another person or restores a link removed later. Source
+email collisions require linking review; same-name people require explicit
+distinct-person review. Disabled/invited Quanta members create inactive Core
+candidates. This flow does not create Quanta access, invitations or placements.
+
+Validation: 37 disposable MariaDB intake assertions, the existing 60 worker-send
+assertions, 51 numbering MariaDB assertions, 243 number/field checks, 74 connector
+smoke checks and all 79 dashboard tests pass. The dashboard build passes with 61
+existing lint warnings. Chrome inspection exercised the actual review component
+with synthetic records, including a lost response and local receipt recovery.
+The field dictionary now has 154 mappings over 117 fields, with explicit per-path
+inbound/outbound direction and limits. No actual Thunderhawk person was created.
+
+This candidate is not yet a hosted Thunderhawk round trip. Quanta's tested worker
+companion remains local pending Emergent sign-in/source save; the authenticated
+portal preview and the PurePay full-app acceptance constraints remain open.
+
 ## Quanta worker onboarding candidate — October 22, 2026 UTC
 
 Core now connects the worker-profile transport to reviewed preview/send/status

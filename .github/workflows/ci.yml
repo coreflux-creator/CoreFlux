@@ -156,6 +156,9 @@ jobs:
       - name: Verify Quanta worker delivery and receipt recovery
         run: php tests/quanta_worker_delivery_mariadb.php
 
+      - name: Verify reviewed Quanta worker intake
+        run: php tests/quanta_worker_intake_mariadb.php
+
       - name: Verify original Quanta workspace on imported time
         run: php tests/quanta_time_provenance_mariadb.php
 
