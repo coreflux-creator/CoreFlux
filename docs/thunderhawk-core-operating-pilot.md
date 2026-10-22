@@ -27,6 +27,18 @@ with synthetic records, including a lost response and local receipt recovery.
 The field dictionary now has 154 mappings over 117 fields, with explicit per-path
 inbound/outbound direction and limits. No actual Thunderhawk person was created.
 
+Core runtime `6c61f608` passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39741177461)
+and [full isolated staging installation and acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39742206226)
+at October 22 07:43 UTC. The installer applied migration 168 and verified 15
+changed files from the 6,770-file package. Both `index-CgyXQKgU.js` and
+`index-DvvEMVfV.js`, and both stylesheets, matched their installed SHA-256 values
+when served. The permanent Core installation identity was preserved. Accounting
+lifecycle, split receipts, all 61 credit-application checks and log-only invoice
+delivery passed. Payroll authority remained disabled and production deployment
+was skipped. This replaces `a034af01` as the staged runtime; earlier checkpoints
+below are historical evidence.
+
 This candidate is not yet a hosted Thunderhawk round trip. Quanta's tested worker
 companion remains local pending Emergent sign-in/source save; the authenticated
 portal preview and the PurePay full-app acceptance constraints remain open.

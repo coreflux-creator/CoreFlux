@@ -1,5 +1,17 @@
 # Live Core accounting release readiness — October 21, 2026
 
+## Current release checkpoint — October 22, 2026
+
+The updated accounting experience remains absent from production. Core runtime
+`6c61f608` is installed in isolated staging and passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39741177461)
+and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39742206226).
+Its current bundles are `index-CgyXQKgU.js` and `index-DvvEMVfV.js`; both served
+hashes match the installed package. Migration 168 is applied only in staging.
+Production maintenance, ownership-preserving recovery and final backup gates
+described below remain open. Earlier inventory counts and candidate fingerprints
+below describe their linked inspections, not a new production inspection.
+
 The user's live invoice screenshot was in **charge d'Affaires**, while the
 authorized operating pilot is **Thunderhawk**. Switching the existing Chrome
 invoice tab to Thunderhawk immediately exposed its clients. The read-only
@@ -18,7 +30,7 @@ from production. Opening the old dashboard does not install that code.
 ## Verified release gap
 
 - Current live frontend: `spa-assets/index-95sB_8ni.js`.
-- Current candidate frontend: `spa-assets/index-BV7etMTV.js`.
+- Candidate frontend at this inspection: `spa-assets/index-BV7etMTV.js`.
 - [Read-only production comparison](https://github.com/coreflux-creator/CoreFlux/actions/runs/39686986781)
   at candidate `e3fdb0a6f3db698357084add71b65fec7d3350b7` found 385 changed
   files and 4,590 new packaged files (including dependencies/tests). There are

@@ -8,7 +8,7 @@ reviewed outbound worker preparation, person links and assignment metadata.
 Those additions are described below and in the pilot plan; they do not mirror
 all fields or approve/correct source time in both systems.
 
-## Reviewed outbound candidate — October 22, 2026
+## Reviewed worker intake — October 22, 2026
 
 The existing inbound worker creation/linking flow now requires a separate
 comparison review. An encrypted review binds the worker and proposed person to
@@ -18,6 +18,8 @@ and link. Receipt recovery does not depend on Quanta being available and cannot
 recreate a later removed link. Contact changes or connection/directory drift
 require a new review. Linking never overwrites existing Core contact fields or
 provider IDs. This candidate still requires hosted pilot acceptance.
+
+## Reviewed outbound candidate — October 22, 2026
 
 The dedicated Core contract verifies Quanta's workspace and capabilities before
 review. Canonical person and placement references include the Core installation
