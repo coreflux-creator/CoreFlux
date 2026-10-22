@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, prepare, deploy, production_preflight, production_source_audit, production_prepare_settings, cleanup_known_uploads]
+        options: [none, inspect, prepare, deploy, maintenance_rehearsal, production_preflight, production_source_audit, production_prepare_settings, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -18,6 +18,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  staging-maintenance-rehearsal:
+    if: inputs.integration_staging == 'maintenance_rehearsal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for this rehearsal revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Package the two staging-only rehearsal files
+        run: |
+          tar -czf core-maintenance-rehearsal.tar.gz -C deploy full_core_maintenance.php rehearse_core_staging_maintenance.php
+          sha256sum core-maintenance-rehearsal.tar.gz > core-maintenance-rehearsal.sha256
+      - name: Upload the private rehearsal package
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: core-maintenance-rehearsal.tar.gz,core-maintenance-rehearsal.sha256
+          target: /tmp/core-maintenance-${{ github.run_id }}
+      - name: Verify Cloudways staging pause and exact restoration
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 5m
+          script: |
+            set -eu
+            umask 077
+            upload='/tmp/core-maintenance-${{ github.run_id }}'
+            test ! -L "$upload"
+            test "$(readlink -f "$upload")" = "$upload"
+            test "$(stat -c %u "$upload")" = "$(id -u)"
+            chmod 700 "$upload"
+            cd "$upload"
+            sha256sum -c core-maintenance-rehearsal.sha256
+            mkdir -m 700 package
+            tar -xzf core-maintenance-rehearsal.tar.gz -C package
+            php -l package/full_core_maintenance.php
+            php -l package/rehearse_core_staging_maintenance.php
+            COREFLUX_ENV=staging php package/rehearse_core_staging_maintenance.php --rehearse-staging-web
+
   production-source-audit:
     if: inputs.integration_staging == 'production_source_audit'
     runs-on: ubuntu-latest
