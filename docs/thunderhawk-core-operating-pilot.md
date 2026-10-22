@@ -22,6 +22,20 @@ inspected in Chrome with synthetic data through review, interrupted response and
 receipt recovery. This is not hosted Thunderhawk acceptance. The field dictionary
 now contains 149 mappings over 116 fields, including five worker-profile paths.
 
+Core runtime `a034af01` passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39737844267).
+The first package omitted a secondary JavaScript bundle; the corrected revision
+includes both runtime bundles and passes recursive asset-manifest validation.
+Quanta companion `fac667a` preserves the tested receipt-lookup candidate locally.
+The same Core revision passed
+[full isolated staging installation and acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39738170438)
+at October 22 07:08 UTC. Both `index-cVk-Wg-U.js` and `index-DAxyVQm_.js` matched
+their installed SHA-256 values when served. No new migration was needed; payroll
+authority stayed disabled. Accounting lifecycle, split receipts, credit
+applications and invoice-delivery checks passed. Production deployment was
+skipped. This replaces `f279ef84` as the staged Core runtime; the commercial
+checkpoint below is retained as earlier evidence.
+
 The next local candidate adds a dedicated worker-profile contract. Core's actual
 PHP transport passes an isolated HTTP round trip for disabled worker preparation,
 canonical person/worker linking, conditional name/phone updates, exact receipt

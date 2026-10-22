@@ -1,10 +1,34 @@
 # Quanta time integration
 
-This document describes the implemented CoreFlux time connector. The October 20
+This document describes the CoreFlux time-import connector. The October 20
 [Thunderhawk operating pilot](thunderhawk-core-operating-pilot.md) expands the
 target to people, assignments, onboarding, portal reporting, and PurePay /
-PurePayroll integration. That target does not make the current connector
-bidirectional; the gaps and rollout sequence are tracked in the pilot plan.
+PurePayroll integration. The current candidate also implements separately gated,
+reviewed outbound worker preparation, person links and assignment metadata.
+Those additions are described below and in the pilot plan; they do not mirror
+all fields or approve/correct source time in both systems.
+
+## Reviewed outbound candidate — October 22, 2026
+
+The dedicated Core contract verifies Quanta's workspace and capabilities before
+review. Canonical person and placement references include the Core installation
+and directory owner. Existing provider IDs are preserved. Metadata and worker
+delivery have separate environment flags, both off by default.
+
+Worker preparation shows the current and proposed contacts before confirmation.
+A new worker is disabled and receives no login identity, credentials, invitation
+or worksite access. Existing linked workers accept conditional name/phone changes;
+email collisions require identity review. Core stores the confirmed provider
+receipt and its local worker link together. Interrupted sends remain held until
+the original scoped receipt is verified; history remains available without a
+working provider preview. Neither a missing receipt nor a new preview permits an
+automatic retry. Native activation and onboarding remain separate in Quanta.
+
+Core's reviewed workflow passes local database, browser and component checks.
+The Quanta worker companion is still local, awaiting Emergent sign-in and source
+save; the earlier assignment portal is saved but its authenticated Thunderhawk
+acceptance remains open. These code and synthetic checks do not establish a live
+Thunderhawk round trip. Consult the pilot document for exact release receipts.
 
 The Quanta connector is intentionally disconnected on deployment. There is no
 scheduled sync, webhook, or automatic tenant link. A CoreFlux tenant admin must
@@ -14,14 +38,14 @@ preview source time, and select the entries to import.
 ## Connection and scope
 
 Use a Quanta key with `timesheets:read`, `workers:read`, and `worksites:read`.
-CoreFlux only calls Quanta's documented GET endpoints on
-`https://helloquanta.app/api/v1`; it does not write to Quanta. The key is
+Time import calls Quanta's documented GET endpoints on
+`https://helloquanta.app/api/v1`; the import itself does not write to Quanta. The key is
 encrypted at rest. The connection screen shows the active CoreFlux workspace
 and requires an explicit confirmation before a key can be saved. Replacing a
-previous key also requires confirming that it belongs to the same Quanta
-workspace, because Quanta's public v1 API does not expose a workspace identity
-endpoint. Disconnecting removes the encrypted key without deleting imported
-CoreFlux time.
+previous key invalidates the workspace verification. The candidate's dedicated
+Core contract exposes workspace identity and version/capabilities; Core requires
+explicit verification before reviewed exchange. Disconnecting revokes that
+binding without deleting imported Core time or historical identity lineage.
 
 ## Review and import
 
