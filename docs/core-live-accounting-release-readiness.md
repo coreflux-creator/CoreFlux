@@ -163,6 +163,10 @@ ledger/source rows. Linux CI also checks journal permissions. This is neither
 a full populated-production-data rehearsal nor a backup restore demonstration.
 There is deliberately no production executor entry point yet: real writer
 quiescence, matching recovery evidence and cutover approval must be wired first.
+Candidate `bb5f9cc9d19fbac9748f3443a6835b2e4dfe4134` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39705330504),
+including 35 MariaDB executor checks on Linux. No hosted runtime was activated
+for this rehearsal-only increment.
 
 Cloudways access was recovered through the existing saved sign-in. Server
 `1516771` has daily off-site backups scheduled at 09:23 UTC, one-week retention,
@@ -170,6 +174,13 @@ and local backups disabled; its displayed off-site size was 7 GB. CoreFlux app
 `5829812` at `corefluxapp.com` listed October 19, 2026 09:28:12 UTC as its latest
 restore point. A fresh application-only files-and-database backup was started
 from that app's Backup and Restore page and is being checked for completion.
+A fresh reload still reports `Application Backup` in progress for server
+1516771 and redirects application controls to the server inventory while it runs.
+This is a confirmed running Cloudways operation, not a failed or missing job;
+do not start another backup or infer completion from elapsed time. Evidence is
+saved locally as `core-backup-in-progress.png` (untracked). The application cron
+page is also redirected during this operation, so its scheduler inventory is
+still unverified.
 No restore, backup-policy change, server-wide backup or production activation
 was performed. A pre-upgrade backup during verified writer maintenance and a
 controlled recovery rehearsal remain required.
