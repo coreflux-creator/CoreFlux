@@ -191,6 +191,7 @@ jobs:
       - name: Verify employer-reviewed onboarding and evidence isolation
         run: |
           php tests/placement_native_schema_mariadb.php
+          php tests/people_document_schema_mariadb.php
           php tests/staffing_onboarding_mariadb.php
 
       - name: PurePayroll approved input delivery fixture
