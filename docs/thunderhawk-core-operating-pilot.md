@@ -2,6 +2,25 @@
 
 ## Complete commercial snapshot candidate — October 22, 2026 UTC
 
+Core runtime `f279ef84` passed all nine CI jobs in run
+[`39728968199`](https://github.com/coreflux-creator/CoreFlux/actions/runs/39728968199).
+The same 6,762-file revision passed full isolated staging installation and
+acceptance in run
+[`39729324857`](https://github.com/coreflux-creator/CoreFlux/actions/runs/39729324857).
+Served bundle `index-CsOKh-iL.js` matched its installed hash; no new migration was
+needed, payroll authority remained disabled, and production deployment was skipped.
+CI first caught a stale three-destination person-mapping assertion; the corrected
+51-check MariaDB fixture verifies all four exact routes and payload paths.
+
+Provider runtime `1f816f4` is saved in Beautiful Kalam 6 development source.
+All three existing files matched their baselines; all five final files matched
+the tested normalized-LF hashes. Source Control shows 34 pending paths. Local
+provenance commit `deab41f` records the save; no remote commit or publication was
+performed. The public preview still returned HTTP 502 at 05:40:35 UTC. The other
+PurePay workstream confirmed that its isolated imports/routes and fake-backed
+tests do not establish safe full-app startup or hosted acceptance. No worker,
+key/scope, integration flag or business record was changed.
+
 The `2026-10-22.2` assignment contract now carries the approved economic graph for
 every effective rate period, separately from current editable configuration.
 Core builds it from scoped SQL rows and frozen approval JSON: pay/bill rates and
