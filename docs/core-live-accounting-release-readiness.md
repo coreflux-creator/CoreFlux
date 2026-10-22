@@ -143,6 +143,37 @@ failed because its SELECT-only account did not allow the GitHub database
 container bridge; that disposable fixture was corrected and all checks passed.
 No production settings were used in CI.
 
+### Upgrade execution rehearsal and recovered hosting access
+
+`deploy/full_core_upgrade_executor.php` now executes an exact reviewed plan on
+explicitly named disposable MariaDB databases only. It parses every pending file
+before execution, preserves quoted comments/semicolons, serializes competing
+executors, rechecks ledger and maintenance state, and stops on the first error.
+Before the first statement of each newly started migration, it records a durable
+incomplete marker. Success replaces only that marker, never earlier history.
+Private flushed/fsynced journals contain statement hashes and status, not SQL
+or row data. A failure or process loss keeps recovery required; changing the
+journal filename cannot bypass the incomplete database record.
+
+The parser fixture covers all 60 reviewed pending files (442 statements) and
+passes 21 checks. Populated MariaDB rehearsals pass 34 local checks, including
+committed DDL before failure, maintenance loss, a child process exiting after
+DDL, stale/replayed plans, concurrent history changes and unchanged existing
+ledger/source rows. Linux CI also checks journal permissions. This is neither
+a full populated-production-data rehearsal nor a backup restore demonstration.
+There is deliberately no production executor entry point yet: real writer
+quiescence, matching recovery evidence and cutover approval must be wired first.
+
+Cloudways access was recovered through the existing saved sign-in. Server
+`1516771` has daily off-site backups scheduled at 09:23 UTC, one-week retention,
+and local backups disabled; its displayed off-site size was 7 GB. CoreFlux app
+`5829812` at `corefluxapp.com` listed October 19, 2026 09:28:12 UTC as its latest
+restore point. A fresh application-only files-and-database backup was started
+from that app's Backup and Restore page and is being checked for completion.
+No restore, backup-policy change, server-wide backup or production activation
+was performed. A pre-upgrade backup during verified writer maintenance and a
+controlled recovery rehearsal remain required.
+
 ### Reviewed data effects of the pending migrations
 
 The refreshed 60-file upgrade includes more than empty-table creation. The data-changing
@@ -235,9 +266,9 @@ removed only completed reproducible packages 39686512795, 39686720751 and
 ownership and manifest identities. This reclaimed about 2.06 GB; the subsequent
 audit reported 3.24 GB free. Configuration preparation 39690256340 and private
 release backups were retained. The historical inspection reports remain saved
-locally. Cloudways is currently signed out in Chrome; the user has been asked
-to sign in for backup/restore verification. No restore or production activation
-has been attempted.
+locally. Cloudways was signed out at that checkpoint; access has since been
+recovered and the backup inspection is recorded above. No restore or production
+activation has been attempted.
 
 Candidate `208f61a32d741c3f40e9480548fa34a79be907eb` passed all eight
 [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39691285740).

@@ -318,6 +318,9 @@ jobs:
       - name: Rehearse private full-Core connection preservation
         run: php tests/full_core_settings_mariadb.php --confirm-disposable-fixture
 
+      - name: Rehearse exact full-Core upgrade failure and process-loss recovery markers
+        run: php tests/full_core_upgrade_executor_mariadb.php --confirm-disposable-fixture
+
       - name: Bootstrap canonical schema and first tenant
         run: |
           cd "$COREFLUX_STANDALONE_WEBROOT"
