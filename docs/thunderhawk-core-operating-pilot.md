@@ -1,5 +1,22 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta preview schema gate - October 22, 2026
+
+A read-only inspection at 16:43 UTC found no indexes in the three Core integration
+collections in the database selected from the preview `.env`. The required unique
+worker identity index is absent. All eight inspected runtime files still match
+the tested candidate, and Supervisor reports the backend running. Confirm the
+running service's database binding and diagnose its startup before repairing the
+schema; process health alone does not establish readiness. The existing write
+boundary rejects exchanges if the required unique index is missing.
+
+The editor disconnected before startup diagnostics returned and subsequently
+reported WebSocket close 1006; an independent GitHub API read also failed to
+connect. The inspection changed no source, schema, credentials or tenant records.
+The finding, its limited scope and the next diagnostic steps are saved in Quanta's
+`verification/preview-schema-20261022.json`. No Thunderhawk preview login is needed.
+Full provider browser acceptance and the reviewed live pilot remain open.
+
 ## Full PurePayroll workflow and Core return proof - October 22, 2026
 
 Seven scenarios now pass through the full restored provider application using

@@ -2,16 +2,19 @@
 
 ## Current release checkpoint — October 22, 2026
 
-The updated accounting experience remains absent from production. Core runtime
-`7d2caa8f` is installed in isolated staging and passed all nine
-[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39760034658)
-and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39760480561)
-at October 22 10:08 UTC. Its current bundles are `index-Cii8YBsS.js` and
-`index-CpPytuwY.js`; all four served asset hashes match the installed 6,784-file
-package. This release adds explicit JobDiva assignment classification to the
-country and rate-basis validation: ambiguous categories cannot create people,
-repair placement identities or change rates, and the review withholds unsupported
-hourly margins. No migrations were pending; migrations 168 and 169 were applied
+The updated accounting experience remains absent from production. The latest
+verified isolated staging runtime is `5e041d16859da48f6514297c0518495772804385`.
+It passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39807003231)
+and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39807627666)
+at October 22 15:49 UTC. Seven files changed and all four served asset hashes
+matched the installed files. This release retains the explicit JobDiva
+classification, country and rate-basis checks, and prevents a zero subcontract
+company ID from creating a false unresolved C2C vendor on a W2 placement.
+Source-owned informational rows can be retired only when the classification
+agrees; reviewed manual terms, owners, settlement parties and snapshots remain
+protected. No live placement was reprojected. No migrations were pending;
+migrations 168 and 169 were applied
 in preceding staging releases. The permanent Core installation identity was
 retained. Accounting lifecycle, split receipts, 61 credit checks and log-only
 delivery passed; payroll authority remains disabled and production deployment
@@ -23,7 +26,8 @@ at October 22 10:23 UTC, using CI-passed inventory candidate `c70ec3bd`, found
 Production still serves `index-95sB_8ni.js`. Thunderhawk is its own master
 directory (workspace 2): 230 nondeleted people, 191 nondeleted placements, and
 all placement-person links stay inside that directory. No production install,
-migration, activation or data write ran; staging remains `7d2caa8f`.
+migration, activation or data write ran. This production inspection predates
+the staging release above; it is not a fresh production inspection.
 Production maintenance, ownership-preserving recovery and final backup gates
 described below remain open. Earlier inventory counts and candidate fingerprints
 below describe their linked inspections, not a new production inspection.
