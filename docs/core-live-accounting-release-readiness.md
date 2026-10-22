@@ -3,11 +3,12 @@
 ## Current release checkpoint — October 22, 2026
 
 The updated accounting experience remains absent from production. Core runtime
-`6c61f608` is installed in isolated staging and passed all nine
-[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39741177461)
-and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39742206226).
+`2f624738` is installed in isolated staging and passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39744695915)
+and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39744970124).
 Its current bundles are `index-CgyXQKgU.js` and `index-DvvEMVfV.js`; both served
-hashes match the installed package. Migration 168 is applied only in staging.
+hashes match the installed package. Migration 168 was applied in the preceding
+`6c61f608` staging release; this revision needed no additional migration.
 Production maintenance, ownership-preserving recovery and final backup gates
 described below remain open. Earlier inventory counts and candidate fingerprints
 below describe their linked inspections, not a new production inspection.

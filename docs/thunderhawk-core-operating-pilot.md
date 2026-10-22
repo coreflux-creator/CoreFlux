@@ -28,15 +28,41 @@ Billing and Salary are checked together to retain separate cycles in the actual
 assignment-contract builder. Existing stored rows are not rewritten by this fix.
 
 Validation: 292 number/field checks, 73 assignment-contract checks, 18 canonical
-projection checks and 47 deep-field resolution checks pass. The existing download
-API includes the inventory without a frontend build or schema change. The staged
-runtime remains `6c61f608` until this metadata candidate is separately deployed.
+projection checks, 36 rate checks and 47 deep-field resolution checks pass. The
+existing download API includes the inventory without a frontend source or schema
+change. Combined runtime `2f624738` passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39744695915)
+and [isolated staging installation and acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39744970124)
+at October 22 08:06 UTC. Five changed files were installed from the 6,771-file
+package; no migration was pending. Both JavaScript bundles and both stylesheets
+matched their served hashes. Accounting lifecycle, split receipts, 61 credit
+checks and log-only delivery passed. Payroll authority remained off and production
+deployment was skipped. This replaces `6c61f608` as the staged runtime.
 
 The live cohort check reached expired sessions in Core, Emergent and the Quanta
 preview. Core's cached dashboard reported a degraded JobDiva connection, but a
 fresh placement read redirected to sign-in; no current source health or real
 placement selection is claimed. Sign-in handoffs remain open. No live record,
 mapping, connection permission, payroll or payment changed during this audit.
+
+### Current PurePay / PurePayroll read-only observations
+
+The existing PurePay tab was paused because its account changed in another tab.
+Reloading its own account-context prompt opened **Thunderhawk Technology Partners**
+with the explicit read-only viewing banner. The Quanta settings page reports a
+connection to `helloquanta.app`, review-and-select mode, hourly catch-up off and
+no prior sync. After the worker-catalogue refresh, it still reports zero Quanta
+workers, linked people, mapped clients, worksites and imported entries, plus 33
+payroll employees not in Quanta and six departments not mapped to worksites.
+Federation workspace ID/shared secret are unset; no access setup was performed.
+
+The native payroll employee list independently reports 33 active employees out
+of 89 total. Its displayed build is `nogit-1021.2151`; this is not proof that the
+saved development companion is installed. These are current UI observations,
+not acceptance of Core's provider API, a complete data export or matching proof.
+No employee was selected for sending, no auto-link ran, and no invite, sync write,
+financial action or API-permission change occurred. Actual person/Start/placement
+and provider IDs still require explicit matching after Core access is restored.
 
 ## Reviewed Quanta-to-Core intake — October 22, 2026 UTC
 
