@@ -1,5 +1,30 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta worker onboarding candidate — October 22, 2026 UTC
+
+The next local candidate adds a dedicated worker-profile contract. Core's actual
+PHP transport passes an isolated HTTP round trip for disabled worker preparation,
+canonical person/worker linking, conditional name/phone updates, exact receipt
+replay, stale-review rejection and tenant/scope isolation. Its separate 19-check
+boundary test rejects provider-ID/access fields and unconfirmed responses.
+
+Quanta preparation requires both worker-write and Core-metadata permissions.
+It creates no login identity, credentials, invitation, worksite grant or active
+membership. Native Team onboarding later attaches the identity to the same worker.
+The native reactivation fix preserves provider IDs and omitted roles/approver,
+checks current administrator authority and identity consistency, and rejects a
+concurrent member change before sending mail. The integrated fixture verifies
+that preparation and later native activation preserve the same Core person link.
+All 98 isolated provider/portal/native/cross-language pytest cases pass.
+
+This candidate is **not yet saved to Emergent or deployed**. The editor went idle
+and the builder session expired; the Google account selector could not be completed
+through browser controls. The user has been asked to finish Emergent sign-in.
+The preceding portal save remains the last verified Quanta source save. Core's
+publication Send action is still disabled: the new transport must be connected
+to its reviewed, durable send/reconciliation flow before pilot delivery. No real
+worker, identity, API permission, invitation or financial record was changed.
+
 ## Quanta staff portal — October 22, 2026 UTC
 
 Quanta candidate `3e87965` adds the `/app/assignments` page and session-scoped
