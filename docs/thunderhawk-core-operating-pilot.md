@@ -1,5 +1,28 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Full PurePayroll workflow and Core return proof - October 22, 2026
+
+Seven scenarios now pass through the full restored provider application using
+real sessions, roles, feature checks, native assignment handlers and native/manual
+payroll calculation. Both captured service namespaces use the same isolated
+in-memory database. Employee preparation creates inactive records; it preserves
+existing provider IDs and grants no access. The actual Core PHP commercial packet
+survives reviewed assignment creation/activation. Concurrent replay, stale reviews,
+revoked sessions, changed permissions/features and company isolation are covered.
+
+The two approved time components reconcile to USD 479.17 in each calculation mode
+without taking the employee's default rate. Actual approval, funding and payment
+functions reject the execution hold. Cancellation leaves a void run and permanent
+release proof. Core's own PHP validators accepted the returned manual/native
+results and cancellation receipt. The source packet, seven-case provider receipt,
+19 matched runtime hashes, five dependency hashes and both sides of the return
+validation are recorded in PurePay's `verification/full-workflow-20261022/`.
+
+This is a synthetic cross-application round trip. No application source was
+changed remotely, startup or workers ran, external call was attempted, live
+Thunderhawk record was transferred, or financial record was posted. Startup/index
+migration, browser acceptance and authorized live pilot release remain open.
+
 ## PurePay restored baseline and Core API composition - October 22, 2026
 
 The restored PurePay server and its new usage dependency were captured read-only
