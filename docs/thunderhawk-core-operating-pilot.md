@@ -1,5 +1,28 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta authenticated portal acceptance - October 22, 2026
+
+The development preview has no Thunderhawk workspace. The user does not need to
+create it or sign into it there. Existing Acme Construction administrator and
+worker sessions now pass eleven browser checks: assignment cards, canonical
+person/placement/client/vendor/company numbers, Quanta setup details, search,
+status filters, personal-view isolation, role-appropriate controls and navigation
+to weekly time. Actual downloaded CSV files match the administrator's four-row
+view, one searched placement and the worker's two active/ended assignments.
+
+One synthetic person link and four clearly labeled assignment metadata records
+were seeded under a fresh test Core instance. Native user, identity, worksite
+membership, key, invitation, rate and time collections match before/after hashes.
+Existing accounts were used without credential resets or new permissions. The
+fixture manifest, eleven-check receipt, CSV reports and screenshots are in
+Quanta's `verification/browser-acceptance-20261022.json` and referenced files.
+These display fixtures prove browser behavior, not Core API delivery or a live
+Thunderhawk round trip. The preview background-worker hold remains enabled.
+
+Quanta release review and the scoped live Thunderhawk connection remain open.
+PurePay startup/browser acceptance and production accounting readiness also
+remain open. No live payroll, payment, financial posting or cutover occurred.
+
 ## Quanta guarded preview startup verified - October 22, 2026
 
 The two-file Quanta startup correction is installed in the development preview.
@@ -25,8 +48,9 @@ and `verification/preview-startup-install-20261022.json`.
 
 This resolves the identified Quanta preview startup/schema gate. The preview still
 contains five test workspaces and no Thunderhawk; the user needs no preview login.
-Browser acceptance, the reviewed live Thunderhawk connection and production
-publication remain open. PurePay's separate startup/browser acceptance remains
+Authenticated Acme browser acceptance is recorded above; the reviewed live
+Thunderhawk connection and production publication remain open. PurePay's
+separate startup/browser acceptance remains
 open as well. No live payroll, payment, posting, invitation or access grant ran.
 
 ## Full PurePayroll workflow and Core return proof - October 22, 2026
