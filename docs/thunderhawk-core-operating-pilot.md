@@ -1,5 +1,36 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## JobDiva field-alignment audit — October 22, 2026 UTC
+
+The shared field dictionary now includes 49 JobDiva adapter mappings across 41
+Core fields, bringing the complete inventory to 203 mappings across 123 fields.
+It distinguishes Start, candidate, job, billing-company and subcontract-company
+identities, maps their canonical graph relationships, and preserves Core business
+numbers separately. Billing/Salary lifecycle, dates, work context, rates, units,
+gross/net discounts, cadence, payment terms and overhead transformations name the
+actual adapter paths and intermediate contract fields. This is metadata for
+review; the dictionary never writes records or enables a connection.
+
+JobDiva mappings explicitly use `adapter_source_verified_live_cohort_pending`.
+They disclose legacy behavior that still conflicts with the target operating
+policy: email-based person adoption and replacement of conflicting mappings;
+country-name truncation; and hour/USD/classification fallbacks. These need
+implementation/review before source assumptions can become trusted downstream
+facts. An imported value alone is not source verification or Core approval.
+The earlier JobDiva graph and source tests are representative synthetic evidence,
+not a complete live field-by-field acceptance record.
+
+Validation: 292 number/field checks, 52 assignment-contract checks, 18 canonical
+projection checks and 47 deep-field resolution checks pass. The existing download
+API includes the inventory without a frontend build or schema change. The staged
+runtime remains `6c61f608` until this metadata candidate is separately deployed.
+
+The live cohort check reached expired sessions in Core, Emergent and the Quanta
+preview. Core's cached dashboard reported a degraded JobDiva connection, but a
+fresh placement read redirected to sign-in; no current source health or real
+placement selection is claimed. Sign-in handoffs remain open. No live record,
+mapping, connection permission, payroll or payment changed during this audit.
+
 ## Reviewed Quanta-to-Core intake — October 22, 2026 UTC
 
 The existing worker creation/linking forms now open a server-backed comparison

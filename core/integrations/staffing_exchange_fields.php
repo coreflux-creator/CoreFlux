@@ -1,12 +1,13 @@
 <?php
 /** Source-backed exchange inventory. Describes payloads; never authorizes or performs a write. */
 declare(strict_types=1);
+require_once __DIR__ . '/../jobdiva/staffing_field_mappings.php';
 
 function staffingExchangeFieldMappings(): array
 {
     static $fields;
     if ($fields !== null) return $fields;
-    $fields = [];
+    $fields = jobdivaStaffingFieldMappings();
     $add = static function (string $key, string $provider, string $route, string $path,
         string $transform, string $policy, string $version, array $evidence, ?string $direction = null) use (&$fields): void {
         $fields[$key][$provider][] = [
@@ -178,7 +179,7 @@ function staffingExchangeRemoteContracts(string $key, array $contracts): array
         $contracts[$provider] = [
             'path' => count($mappings) === 1 ? $mappings[0]['path'] : null,
             'direction' => count($directions) === 1 ? $directions[0] : 'reviewed_inbound_and_outbound',
-            'status' => 'source_verified_hosted_acceptance_pending',
+            'status' => $mappings[0]['verification_status'] ?? 'source_verified_hosted_acceptance_pending',
             'mappings' => $mappings,
             'sync_enabled_by_dictionary' => false,
         ];
@@ -195,6 +196,8 @@ function staffingExchangeWorkflowGaps(): array
         'portal_access_and_onboarding' => 'Assignment metadata does not grant staff access or complete onboarding.',
         'tax_bank_and_identity_documents' => 'Restricted; require dedicated permissioned workflows.',
         'payroll_settlement_and_liability_attribution' => 'Input receipt is not payroll execution, settlement proof or complete liability attribution.',
-        'jobdiva_field_alignment' => 'Connector mappings need separate source-field verification; no inferred mapping from names or numbers.',
+        'jobdiva_field_alignment' => 'Existing adapter paths, precedence and transformations are inventoried. Live Thunderhawk cohort/source observations and tenant overrides still require verification; no sync is enabled by this dictionary.',
+        'jobdiva_identity_review' => 'Legacy person intake can adopt email matches and replace conflicting mappings. This is not the reviewed cross-provider identity policy; candidate/person linking needs explicit review before the live round trip.',
+        'jobdiva_source_defaults' => 'Legacy country truncation and hour/USD/classification fallbacks are disclosed in their mappings. These defaults must not be treated as verified source facts.',
     ];
 }
