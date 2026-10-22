@@ -1,5 +1,39 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta staff portal — October 22, 2026 UTC
+
+Quanta candidate `3e87965` adds the `/app/assignments` page and session-scoped
+assignment list/detail/CSV routes. Workers see their own active and ended
+placements; current administrators can review the workspace, including drafts.
+Canonical P/PL/CL/CO/V numbers, placement dates, worksite access observations and
+admin-only native setup diagnostics remain distinct from access grants or
+onboarding completion. CSV reports refuse more than 5,000 matches instead of
+silently truncating, and escape spreadsheet formulas.
+
+The provider checks current tenant, identity, membership and roles on every
+request. Browser workspace/filter changes discard old replies; an old workspace
+report cannot download after a switch. Eighteen isolated real-session tests,
+the existing 38 Quanta contract tests and seven mounted React/SSR checks pass.
+The actual page was inspected in Chrome with synthetic data and preview-only
+styles. Eight current native/frontend sources were captured before editing;
+the existing server, RBAC and contract matched the previous baseline.
+
+All five runtime files are saved and their hashes verified in clockin-hub-16.
+The running preview exposes all three routes in OpenAPI, returns 200 health and
+401 for unauthenticated list/export, and renders the login page for the browser
+route. Source Control shows 14 entries, including server.py in both staged and
+unstaged groups; the prior staged source and three artifact logs were preserved.
+The user has been asked to sign in to the preview and select Thunderhawk if
+available. No remote commit or production publication, access/key change,
+invitation or financial action was performed. Hosted authenticated acceptance
+is still open.
+
+Onboarding inspection found a concrete next gap: the generic worker API does not
+attach the current global login identity, while native direct-add can overwrite
+provider IDs on an inactive membership and sends email. Core-to-Quanta worker
+onboarding must preserve those IDs and separate profile review from activation
+and invitation. The new portal does not claim to complete that workflow.
+
 ## Complete commercial snapshot candidate — October 22, 2026 UTC
 
 Core runtime `f279ef84` passed all nine CI jobs in run
