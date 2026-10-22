@@ -1,21 +1,28 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
-## Quanta preview schema gate - October 22, 2026
+## Quanta startup diagnosis and tested index correction - October 22, 2026
 
-A read-only inspection at 16:43 UTC found no indexes in the three Core integration
-collections in the database selected from the preview `.env`. The required unique
-worker identity index is absent. All eight inspected runtime files still match
-the tested candidate, and Supervisor reports the backend running. Confirm the
-running service's database binding and diagnose its startup before repairing the
-schema; process health alone does not establish readiness. The existing write
-boundary rejects exchanges if the required unique index is missing.
+The service database binding is verified. All three Core integration collections
+lack indexes because startup fails earlier on an older source-time unique index:
+MongoDB rejects its `$ne: null` partial filter. All eight inspected runtime files
+still match the tested candidate; a running backend is not schema-readiness proof.
+The 93 existing preview time entries all lack both external source-ID fields.
 
-The editor disconnected before startup diagnostics returned and subsequently
-reported WebSocket close 1006; an independent GitHub API read also failed to
-connect. The inspection changed no source, schema, credentials or tenant records.
-The finding, its limited scope and the next diagnostic steps are saved in Quanta's
-`verification/preview-schema-20261022.json`. No Thunderhawk preview login is needed.
-Full provider browser acceptance and the reviewed live pilot remain open.
+The local Quanta correction uses string-type filters matching the TimeEntry
+model. Seven checks passed against real MongoDB in a fresh synthetic database:
+old-filter rejection, repeatable index installation, legacy missing/null rows,
+duplicate insert/update protection, distinct tenant/source tuples and empty-string
+uniqueness. Its 12 synthetic rows are retained as evidence. No application data,
+indexes, provider source, credentials or service settings were changed.
+
+Normal startup also calls demo seeding that resets configured master/demo
+passwords, roles and membership status and rotates demo API/webhook secrets.
+That source was inspected read-only. Startup must preserve existing access before
+the index candidate is saved/restarted. The fix is tested but not installed in
+the preview application database. Exact evidence lives in Quanta's
+`verification/real-mongo-index-acceptance-20261022.json`, `preview-binding-20261022.json`
+and `startup-diagnostic-20261022.json`. The temporary connectivity failure recovered.
+No Thunderhawk preview login is needed; browser and real pilot acceptance remain open.
 
 ## Full PurePayroll workflow and Core return proof - October 22, 2026
 
