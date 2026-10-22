@@ -2,35 +2,34 @@
 
 ## Current release checkpoint — October 22, 2026
 
-The updated accounting experience remains absent from production. The latest
-verified isolated staging runtime is `5e041d16859da48f6514297c0518495772804385`.
-It passed all nine
-[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39807003231)
-and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39807627666)
-at October 22 15:49 UTC. Seven files changed and all four served asset hashes
-matched the installed files. This release retains the explicit JobDiva
-classification, country and rate-basis checks, and prevents a zero subcontract
-company ID from creating a false unresolved C2C vendor on a W2 placement.
-Source-owned informational rows can be retired only when the classification
-agrees; reviewed manual terms, owners, settlement parties and snapshots remain
-protected. No live placement was reprojected. No migrations were pending;
-migrations 168 and 169 were applied
-in preceding staging releases. The permanent Core installation identity was
-retained. Accounting lifecycle, split receipts, 61 credit checks and log-only
-delivery passed; payroll authority remains disabled and production deployment
-was skipped. The light-deployment workflow expression-length problem was fixed
-without running that production workflow.
-A fresh [read-only production inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39762486572)
-at October 22 10:23 UTC, using CI-passed inventory candidate `c70ec3bd`, found
-62 pending migrations, 28 accounting schema gaps and one incompatible key.
-Production still serves `index-95sB_8ni.js`. Thunderhawk is its own master
-directory (workspace 2): 230 nondeleted people, 191 nondeleted placements, and
-all placement-person links stay inside that directory. No production install,
-migration, activation or data write ran. This production inspection predates
-the staging release above; it is not a fresh production inspection.
-Production maintenance, ownership-preserving recovery and final backup gates
-described below remain open. Earlier inventory counts and candidate fingerprints
-below describe their linked inspections, not a new production inspection.
+The updated accounting experience remains absent from production. Core runtime
+ae411200940fbc52e400d559eca8e44668b083e1 passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39853929574)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39854380249)
+on October 22 at 21:08 UTC. Sixteen changed files were installed and verified;
+no migrations were pending. Accounting lifecycle, split receipts, 61 credit
+checks and log-only delivery passed. Source guards are ready and payroll authority
+remains disabled. This staged runtime includes the exact current Quanta source
+checks before approval, settlement and payroll-input delivery. Migration 170 was
+applied by an earlier staging release. No production cutover occurred.
+
+A fresh [read-only production inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39857631281)
+completed October 22 at 21:31 UTC against candidate
+7c4a3c9d4c90a3d93bc7dfd88b7791dd86c546d5 (documentation follows the same runtime).
+It found 410 changed files, 4,655 added packaged files, 63 pending migrations,
+28 accounting schema gaps and one incompatible key. The reviewed migration plan
+keeps 248 applied migrations and three exact deployed historical sources, with
+zero source-history blockers. Production still serves index-95sB_8ni.js; the
+fresh candidate build is index-DnJ_wGxU.js. All seven new outbound/authority flags
+are false in the live CLI configuration. Activation was not performed.
+
+The private candidate and full unmasked receipt remain at
+/tmp/core-integration-39857631281/production-preflight.json. GitHub masks parts of
+the plan hash and some numeric values; do not use masked log values as execution
+identities. The source review is ready, but activation is not authorized. The
+production file-owner execution/recovery procedure, writer maintenance/drain,
+matching final backup, exact candidate/recovery binding and cutover authorization
+remain open. Earlier inventory counts and fingerprints below are historical.
 
 The user's live invoice screenshot was in **charge d'Affaires**, while the
 authorized operating pilot is **Thunderhawk**. Switching the existing Chrome

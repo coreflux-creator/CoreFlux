@@ -1,5 +1,35 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Provider release checkpoint and live pilot setup - October 22, 2026
+
+PurePay's actual preview renders the Core input, people and placement review
+panels in the existing Meridian demo account. Their current empty states load
+without errors; no record, access or execution setting was changed. The complete
+frontend compilation passed from an isolated copy of 448 source files. The
+shared source/index/status and protected configuration remained unchanged.
+
+The hosted review branch codex/coreflux-companion-20261022 points to
+7dbab9b0c0f694c5b3bf24f19c951370c79443f1, with exactly 33 companion source/test
+files. Its separate temporary Git index leaves the shared HEAD at 9cd71c83 and
+all 35 pending paths intact. The two pre-existing cron files are excluded. This
+branch was not checked out, pushed or published. The release owner was notified.
+Receipts are retained in the PurePay mirror's verification directory.
+
+Core's latest production inspection 39857631281 is source-review ready, with
+63 pending migrations and unchanged live accounting gaps. Maintenance/recovery,
+final snapshot binding and cutover authorization remain open. See the current
+accounting release readiness checkpoint for exact evidence.
+
+The user supplied a pilot source row. Its worksite, start, classification and
+bill/pay rates agree with the current pilot; the row does not label the legal
+employer, workers compensation class or an additional INR amount's purpose.
+These remain unresolved and no approval or posting was inferred. Core sign-in
+was restored and this tab returned to Thunderhawk. The entity selector contains
+Thunderhawk (THUN); no entity or other placement field was saved. Actual
+Thunderhawk exchange remains pending; preview acceptance is not live acceptance.
+
+
+
 ## PurePay restored baseline verified and review preview resumed - October 22, 2026
 
 The released 9cd71c83 handoff was independently checked against all 35 preserved
