@@ -1,5 +1,25 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## PurePay restored baseline verified and review preview resumed - October 22, 2026
+
+The released 9cd71c83 handoff was independently checked against all 35 preserved
+files and protected configuration. Seventeen actual full-app workflow/startup/cron
+cases passed with memory-only data and zero network attempts. The guarded preview
+was then restarted; all 20,596 documents across 112 nonempty collections were
+unchanged during startup. Source, staged entries and configuration were preserved.
+Health confirms review mode with background jobs, startup migrations and scheduled
+operations disabled. The other chat was notified. The local PurePay source mirror
+now matches restored server bd01afff and retains the 9cd71c83 receipts.
+
+Core runtime ae411200 is deployed to isolated staging with all nine CI groups and
+staging acceptance passed. Quanta development source 7451c60 remains installed,
+verified and unpublished. Provider publication, reviewed live company/capability
+bindings and Thunderhawk's actual round trip remain open. No production Core
+cutover, real payroll or payment was performed. This supersedes the stopped
+PurePay preview status below.
+
+
+
 ## Source guards deployed to staging; PurePay hold released - October 22, 2026
 
 Runtime ae411200940fbc52e400d559eca8e44668b083e1 passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39853929574) and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39854380249) on October 22 at 21:08 UTC. Sixteen changed files were installed and verified; there were no pending migrations. Accounting lifecycle, split receipts, 61 credit checks and log-only delivery passed. Payroll authority remains disabled. Core production was not deployed.
