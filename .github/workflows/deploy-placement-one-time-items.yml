@@ -119,6 +119,8 @@ jobs:
             }
             $configured = [];
             $ownerIdentity = ['sudo_available'=>is_executable('/usr/bin/sudo'),'can_act_as_web_file_owner'=>false];
+            $ownerAccount=isset($metadata['web_config']['uid']) ? posix_getpwuid($metadata['web_config']['uid']) : false;
+            $ownerIdentity['matches_existing_core_application_user']=($ownerAccount['name']??'')==='kunalverma2';
             if ($ownerIdentity['sudo_available'] && isset($metadata['web_config']['uid'])) {
               $identity = proc_open(['/usr/bin/sudo','-n','-u','#'.$metadata['web_config']['uid'],'/usr/bin/id','-u'],
                 [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$identityPipes);

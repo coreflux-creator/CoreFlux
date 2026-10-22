@@ -42,12 +42,12 @@ final class FullCoreMaintenanceHost
         return $this->cronCommand(['-l']);
     }
 
-    private function cronCommand(array $args): string
+    private function cronCommand(array $args, ?string $inputFile = null): string
     {
         $diagnostic = $this->privateParent . '/scheduler-' . bin2hex(random_bytes(8)) . '.stderr';
         $this->privateWrite($diagnostic, '');
         $process = proc_open(array_merge(['/usr/bin/crontab'], $args),
-            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $diagnostic, 'w']], $pipes,
+            [0 => ['file', $inputFile ?? '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $diagnostic, 'w']], $pipes,
             null, array_merge(getenv(), ['LC_ALL' => 'C']));
         if (!is_resource($process)) throw new RuntimeException('Cannot invoke the current user scheduler.');
         $output = stream_get_contents($pipes[1], 1048577); fclose($pipes[1]);
@@ -135,7 +135,9 @@ final class FullCoreMaintenanceHost
     {
         fullCoreMaintenanceDigest($this->privateRead($path), $nextHash);
         fullCoreMaintenanceDigest($this->crontab(), $expectedHash);
-        $this->cronCommand([$path]);
+        // Some native crontab clients truncate long filename arguments. Pass the verified file
+        // descriptor as stdin; never shorten/move the private recovery file or expose its bytes.
+        $this->cronCommand(['-'], $path);
         fullCoreMaintenanceDigest($this->crontab(), $nextHash);
     }
 
