@@ -2,6 +2,18 @@
 
 ## Authenticated pilot and subcontract-party correction - October 22, 2026
 
+Candidate `5e041d16859da48f6514297c0518495772804385` passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39807003231)
+and [staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39807627666)
+at 15:49 UTC. GitHub's CI listing initially lagged the successful run, so the
+first deployment attempt stopped before installation; the unchanged candidate
+passed on retry. Seven files changed, no migrations were pending, all four
+served assets matched their installed hashes, and accounting lifecycle, split
+receipts, 61 credit checks and log-only delivery passed. Payroll authority stayed
+disabled and production was skipped. The new 29-case disposable subcontract
+fixture and existing 43-case source-value fixture passed. No live placement was
+reprojected. The remaining authenticated provider pilot is still open.
+
 Live Core and Quanta sign-ins are confirmed in Thunderhawk. Core's existing
 Quanta connection passed Check access. Quanta has two administrators and no
 workers; the empty worker lists are real. The existing Core key lacks the new
@@ -44,8 +56,8 @@ Twelve disposable MariaDB checks cover parent/child isolation, dangling and
 deleted relationships, missing schema and read-only execution.
 
 Production still serves `index-95sB_8ni.js`; this inspection found 62 pending
-migrations, 28 accounting schema gaps and one incompatible key. The accepted
-staged runtime remains `7d2caa8f`, not the inventory-only candidate above.
+migrations, 28 accounting schema gaps and one incompatible key. At that inspection the
+staged runtime was `7d2caa8f`; the newer acceptance is recorded above.
 Public Quanta v1.1.0 (31 routes) and PurePay ERP v1.0.0 (19 routes) specifications
 remain unchanged; their absence of Core-specific routes does not establish the
 state of private endpoints or hosted companion code.
