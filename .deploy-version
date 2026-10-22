@@ -3,6 +3,7 @@ This file is rewritten on every Emergent commit. update.php compares its
 contents against the latest entry in coreflux_migrations + the existence
 of recent files to prove the server is on HEAD (not 10 commits behind).
 sentinels:
+- core/migrations/172_storage_registry.sql
 - modules/people/migrations/009_document_vault_alignment.sql
 - modules/placements/migrations/009_graph_source_columns_repair.sql
 - core/migrations/171_staffing_onboarding.sql

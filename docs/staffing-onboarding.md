@@ -39,7 +39,7 @@ confirmation and task review also bind to the current placement setup (legal
 entity, classification, dates, business unit, WC class, worksite and status).
 Changing that setup requires renewed confirmation and review; reconfirming the
 list alone cannot carry an approval from the prior context.
-canonical person/placement numbers remain attached. Conditional case versions
+Canonical person/placement numbers remain attached. Conditional case versions
 prevent stale changes. Each mutation, immutable event and idempotent receipt
 commits atomically. Reusing a retry identifier with another payload or actor
 conflicts. A case contains at most 25 tasks including retired tasks; history is
@@ -47,9 +47,29 @@ retained and the view explicitly flags when only its latest 100 events are shown
 
 `people.onboarding.view`, `.manage` and `.review` currently map to People admin
 authority through the existing RBAC resolver. Reading also requires Placement
-view authority. The API supplies capabilities to the UI. These permissions do
+view and People document-view authority. The API supplies capabilities to the UI. These permissions do
 not grant payroll, banking or worker access. The API does not send invitations,
 messages or files. Migration 171 is additive and replayable.
+
+Native staging acceptance also exposed two historical schema gaps. Placements
+migration 009 repairs missing source-graph, operating-cycle and commercial-rate
+fields using their original definitions. It preserves existing values and leaves
+missing operating-cycle links unresolved rather than reusing IDs from another
+table. People migration 009 aligns the two historical document-table layouts.
+It retains every legacy employee document and its original fields, permits new
+person-vault rows, and never treats an employee ID as a person ID or an opaque
+legacy path as a verified storage object. Legacy rows need reviewed person and
+storage links before they can serve as onboarding evidence.
+
+Core migration 172 registers the existing StorageService schema with the
+canonical runner. Its historical top-level SQL file was never discovered by that
+runner. Existing file identities and records remain unchanged, and release schema
+verification now requires the shared storage registry and signed-URL audit tables.
+
+The database fixture includes two simultaneous requests blocked on the same case
+row; releasing them must produce one revision and the same durable receipt for
+both callers. A current locking receipt read is necessary after acquiring the
+case lock under the database's default repeatable-read isolation.
 
 Portal rollout remains separate: this initial workflow displays that the case is
 not published to Quanta. A future approved projection must use verified worker

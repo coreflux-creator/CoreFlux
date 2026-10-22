@@ -5,6 +5,10 @@ declare(strict_types=1);
 function coreAccountingRequiredSchema(): array
 {
     return [
+        'storage_objects' => ['id', 'tenant_id', 'module', 'entity_type', 'entity_id',
+            's3_key', 'filename', 'mime', 'size_bytes', 'created_by_user_id', 'created_at'],
+        'storage_signed_url_audit' => ['id', 'tenant_id', 'storage_object_id',
+            'actor_user_id', 'ttl_seconds', 'issued_at'],
         'password_resets' => ['id', 'user_id', 'email', 'token_hash', 'expires_at',
             'used_at', 'created_at'],
         'accounting_entities' => ['id', 'tenant_id', 'code', 'base_currency', 'active'],
