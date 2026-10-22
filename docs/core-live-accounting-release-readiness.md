@@ -198,6 +198,14 @@ in Temp because automatic approval review blocked its removal with only
 "blocked by policy" as the reason. It contains source/build files, not a live
 database backup. No alternate deletion path was attempted.
 
+The subsequent allocation-receipt runtime `9337bfff654bbea05503115db78f4a8d63d38cfa`
+passed all eight [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39698994420)
+and [hosted staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39699288911).
+The full package contains 6,734 files. Accounting lifecycle, split receipts,
+credits and log-only delivery passed again; schema/source guards were ready,
+payroll authority was disabled and production was skipped. This is the current
+staged runtime; the production backup, upgrade and activation gates above remain.
+
 The navigation fix passes 30 journal-UI checks, 55 site navigation checks and
 the full dashboard build (61 existing lint warnings). The five tenant-static
 checks pass. Candidate `e3fdb0a6` passed all eight

@@ -19,8 +19,8 @@ CI jobs and 35 settings/HTTP checks, then passed actual production CLI and
 PHP-FPM read-only verification. The settings were preserved privately and the
 temporary probe removed; live configuration and data were not changed.
 Database upgrade, writer maintenance and recovery preparation remain open.
-The package now includes the updated accounting workers. Runtime `208f61a3`
-passed all eight CI jobs and staging acceptance (run 39691594867); production
+The package now includes the updated accounting workers. Runtime `9337bfff`
+passed all eight CI jobs and staging acceptance (run 39699288911); production
 was skipped. The live operations inventory found nine scheduled Core jobs and
 about 7.71 GB of database data/index allocation. Verified removal of three
 superseded upload packages recovered about 2.06 GB, leaving about 3.24 GB free.
@@ -31,7 +31,59 @@ paths restored byte-for-byte and provider workers available after release
 87e2aee. Its remote `/app` write hold is lifted; no integration edits occurred
 during either coordinated release.
 
-## Held payroll draft checkpoint — October 21, 2026
+## Allocated cancellation checkpoint — October 21, 2026
+
+Provider candidate `717c64a` closes allocated cancellation and the native
+archive/restore/reopen gaps described in the earlier checkpoint below. A
+cancelling grant keeps its source reserved until a permanent void record exists
+under the original deterministic run ID. That record survives archive and trash
+expiry, so delayed draft inserts cannot recreate it. Interrupted cancellation
+writes recover without freeing uncertain source. Processing or money-movement
+evidence requires reconciliation before release.
+
+Restoring cancelled history cannot reactivate payroll. Active restore/reopen
+validates the current grant, employee membership and original component earnings
+and source attribution, then refuses a concurrent cancellation or archive. The
+screen explains held/cancelled status and removes unavailable execution controls.
+Core now validates typed allocation receipts and permanent cancellation proof
+before releasing its own time claims. An allocated receipt never frees time;
+response loss, invalid proof or audit failure retains the hold.
+
+All six provider runtime files were saved and read-back verified in Beautiful
+Kalam 6 after the five existing files matched preserved baselines. There are 22
+pending paths. The source preview had gone idle and was resumed through Emergent;
+central server and unrelated cron content were untouched. `CORE-EXCHANGE.md` in
+the provider checkout records the exact hashes; the shared release chat received
+the source boundary update. This is a saved development candidate, not a provider
+production publication or hosted payroll acceptance.
+
+Validation: 205 isolated provider tests and 15 Node checks pass. The tests cover
+delayed inserts/claims/ready/ack writes, concurrent and interrupted cancellation,
+money-evidence refusal, actual native archive/restore/reopen functions, trash
+expiry and missing/duplicate/detached/changed source lines. Actual provider HTTP
+receipts pass Core's PHP validator. Core passes 21 receipt checks, 85 authority
+and 33 input MariaDB assertions, and five tenant checks. The provider's unavailable
+tax adapter remains isolated, so full-app startup and tax accuracy are unverified.
+
+Core runtime `9337bfff654bbea05503115db78f4a8d63d38cfa` passed eight CI jobs
+([run 39698994420](https://github.com/coreflux-creator/CoreFlux/actions/runs/39698994420))
+and full-Core hosted staging acceptance
+([run 39699288911](https://github.com/coreflux-creator/CoreFlux/actions/runs/39699288911)).
+The 6,734-file package passed accounting lifecycle, split receipts, credits and
+log-only delivery checks; payroll authority stayed disabled and production was
+skipped. These accounting checks do not establish the hosted provider round trip.
+
+Next: complete financial-result lineage and the hosted Thunderhawk held-draft
+round trip, then onboarding/access and commercial-term exchange. Native employee
+activation and assignment billing defaults still require review. Core's separate
+live accounting release awaits Cloudways backup/restore verification and the
+remaining migration/activation controls. No real payroll, payment, financial
+posting or production cutover occurred; the integration goal remains active.
+
+## Earlier held payroll draft checkpoint — October 21, 2026
+
+This historical checkpoint is superseded by the allocated-cancellation section
+above where it describes missing lifecycle or allocation-receipt support.
 
 Provider candidate `585a3c1` now creates one recoverable native/manual draft
 from an exact Core source grant. It checks current links, active hourly W-2
