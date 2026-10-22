@@ -77,18 +77,37 @@ as pending, already applied, a reviewed deployed source to retain, or blocked.
 The three historical exceptions require their reviewed Git blobs and a matching
 successful ledger record. No record is rewritten to pretend the candidate SQL ran.
 
-Failed history, missing deployed proof, unknown changes, incompatible dual-ledger
-history and recorded migrations absent from the package block source review.
+Failed history, missing deployed proof, unknown changes, unreviewed dual-ledger
+history and unreviewed recorded migrations absent from the package block source review.
 Legacy-only history requires explicit reconciliation because the automatic
 runner reads the canonical ledger. A saved review becomes invalid if the revision,
 manifest, deployed SQL or either ledger changes. The planner executes no SQL;
 `source_review_ready` is not production approval or migration readiness. Backup,
 writer maintenance, recovery, a guarded executor and cutover approval remain open.
 
-The local fixture passes 32 checks using the three actual reviewed historical
-SQL sources, changed source/ledger scenarios and CRLF preservation. Linux CI also
-checks symlink refusal. The next production preflight will refresh the exact
-pending set, including migration 167, without applying it.
+The first exact [production preflight](https://github.com/coreflux-creator/CoreFlux/actions/runs/39702452549)
+confirmed 60 pending migrations, the same 28 accounting schema gaps and one
+incompatible key. The three historical source exceptions matched. It also
+identified 13 differing dual-ledger versions and 18 recorded paths absent from
+the package. The [read-only provenance audit](https://github.com/coreflux-creator/CoreFlux/actions/runs/39702950574)
+confirmed all 18 paths are already absent from the live source tree. They are
+retired history, not files removed by this release. All 31 recorded checksums
+resolve uniquely to Git versions (47 SQL blobs inspected); the old versions in
+the secondary ledger are preserved alongside the canonical successful history.
+
+`deploy/full_core_migration_history.json` binds each reviewed path, recorded
+checksum, normalized checksum and source Git blob. It allows only these exact
+older/retired records. A changed hash, failed canonical record, differing retired
+legacy record or reappearing retired file still blocks review. Retired SQL is
+neither resurrected nor scheduled; neither ledger is rewritten. The production
+preflight retains its complete receipt privately beside the uploaded candidate,
+so masked GitHub logs are not used as literal migration paths or hashes.
+
+The local fixture passes 41 checks using actual historical sources, older and
+retired ledger scenarios, changed source/ledger scenarios and CRLF preservation.
+Linux CI also checks symlink refusal. Candidate `4e601ac3` passed all eight
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39702461616).
+The reconciled plan is being rechecked against production without applying it.
 
 ### Private connection gate completed
 

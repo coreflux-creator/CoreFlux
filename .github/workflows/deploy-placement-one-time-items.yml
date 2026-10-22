@@ -495,7 +495,9 @@ jobs:
             if [ '${{ inputs.integration_staging }}' = 'production_preflight' ]; then
               unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
               export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
-              php package/deploy/inspect_full_core_production.php --inspect-production
+              test ! -e "$UPLOAD/production-preflight.json"
+              (umask 077; php package/deploy/inspect_full_core_production.php --inspect-production > "$UPLOAD/production-preflight.json")
+              cat "$UPLOAD/production-preflight.json"
               # The inspection has no install or migration path. Retain the private
               # package as the exact candidate for review; no production files change.
               exit 0

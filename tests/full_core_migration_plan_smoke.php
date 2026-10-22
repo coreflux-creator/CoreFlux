@@ -71,6 +71,34 @@ $blocked($make($manifest, $rows, [$pending => hash('sha256', 'SELECT 10;')]), 'l
 $blocked($make($manifest, $rows, [$pending => hash('sha256', 'SELECT 11;')]), 'legacy_history_conflict');
 $blocked($make($manifest, $rows, [$applied => hash('sha256', 'SELECT 3;')]), 'migration_ledgers_disagree');
 $assert($make($manifest, $rows, [$applied => hash('sha256', 'SELECT 2;')])['source_review_ready'], 'matching second-ledger evidence is accepted');
+$history = fullCoreMigrationHistory();
+$priorPath = 'core/migrations/003_mail_service.sql';
+$currentSql = (string) file_get_contents(__DIR__ . '/../' . $priorPath);
+$write($package, $priorPath, $currentSql); $write($live, $priorPath, $currentSql);
+$priorManifest = $manifest; $priorManifest['files'][$priorPath] = hash('sha256', $currentSql);
+$priorRows = $rows; $priorRows[] = ['filename' => basename($priorPath), 'sha256' => corefluxMigrationHash($currentSql), 'last_error' => null];
+$priorLedger = [$priorPath => $history['prior_legacy'][$priorPath]['recorded_sha256']];
+$priorPlan = $make($priorManifest, $priorRows, $priorLedger);
+$priorEntry = array_values(array_filter($priorPlan['ordered_migrations'], static fn($e) => $e['path'] === $priorPath))[0];
+$assert($priorPlan['source_review_ready'] && $priorEntry['action'] === 'keep_applied'
+    && $priorEntry['legacy_history']['action'] === 'preserve_reviewed_prior_version', 'known older ledger version remains history without reapplying successful SQL');
+$blocked($make($priorManifest, $priorRows, [$priorPath => str_repeat('c', 64)]), 'migration_ledgers_disagree');
+$priorRows[count($priorRows)-1]['last_error'] = 'failed';
+$blocked($make($priorManifest, $priorRows, $priorLedger), 'failed_migration_requires_recovery');
+$retiredPath = 'core/migrations/112_people_graph.sql';
+$retiredRows = $rows; $retiredRows[] = ['filename' => basename($retiredPath), 'sha256' => $history['retired'][$retiredPath]['recorded_sha256'], 'last_error' => null];
+$retiredPlan = $make($manifest, $retiredRows);
+$assert($retiredPlan['source_review_ready'] && count($retiredPlan['retired_history']) === 1
+    && count($retiredPlan['ordered_migrations']) === count($plan['ordered_migrations']), 'known retired history is preserved without resurrecting its absent SQL');
+$refuses(fn() => fullCoreMigrationVerifyPlan($plan['plan_sha256'], $manifest, $package, $live, $retiredRows, []), 'retired ledger history remains part of the exact review fingerprint');
+$blocked($make($manifest, $retiredRows, [$retiredPath => str_repeat('d', 64)]), 'recorded_migration_not_packaged');
+$badRetired = $retiredRows; $badRetired[count($badRetired)-1]['sha256'] = str_repeat('d', 64);
+$blocked($make($manifest, $badRetired), 'recorded_migration_not_packaged');
+$badRetired = $retiredRows; $badRetired[count($badRetired)-1]['last_error'] = 'failed';
+$blocked($make($manifest, $badRetired), 'recorded_migration_not_packaged');
+$write($live, $retiredPath, 'SELECT 112;');
+$blocked($make($manifest, $retiredRows), 'recorded_migration_not_packaged');
+unlink($live . '/' . $retiredPath); unset($created[$live . '/' . $retiredPath]);
 $unknown = $rows; $unknown[] = ['filename' => '099_missing.sql', 'sha256' => str_repeat('c', 64), 'last_error' => null];
 $blocked($make($manifest, $unknown), 'recorded_migration_not_packaged');
 $refuses(fn() => $make($manifest, array_merge($rows, [$rows[0]])), 'duplicate ledger identities refuse the plan');

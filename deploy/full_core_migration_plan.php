@@ -16,6 +16,25 @@ function fullCoreMigrationPath(string $path): bool
     return preg_match('~^(core/migrations|modules/[a-zA-Z0-9][a-zA-Z0-9_-]*/migrations)/[a-zA-Z0-9][a-zA-Z0-9_.-]*\.sql$~D', $path) === 1;
 }
 
+/** Exact historical fingerprints reconciled against deployed ledgers and Git objects. */
+function fullCoreMigrationHistory(): array
+{
+    $history = json_decode((string) file_get_contents(__DIR__ . '/full_core_migration_history.json'), true, 512, JSON_THROW_ON_ERROR);
+    if (($history['version'] ?? null) !== 1) throw new RuntimeException('Historical migration review version is invalid.');
+    foreach (['prior_legacy', 'retired'] as $kind) {
+        if (!is_array($history[$kind] ?? null)) throw new RuntimeException('Historical migration review is incomplete.');
+        foreach ($history[$kind] as $path => $record) {
+            if (!is_string($path) || !fullCoreMigrationPath($path)
+                || !preg_match('/^[a-f0-9]{64}$/D', $record['recorded_sha256'] ?? '')
+                || !preg_match('/^[a-f0-9]{64}$/D', $record['normalized_sha256'] ?? '')
+                || !preg_match('/^[a-f0-9]{40}$/D', $record['source_git_blob'] ?? '')) {
+                throw new RuntimeException('Historical migration fingerprint is invalid.');
+            }
+        }
+    }
+    return $history;
+}
+
 function fullCoreMigrationRead(string $root, string $path, bool $optional = false): ?string
 {
     if (!fullCoreMigrationPath($path)) throw new RuntimeException('Invalid canonical migration path.');
@@ -47,6 +66,7 @@ function fullCoreMigrationPlan(array $manifest, string $package, string $live,
         throw new RuntimeException('Verified full-Core candidate manifest required.');
     }
     if (realpath($package) === realpath($live)) throw new RuntimeException('Candidate and deployed roots must differ.');
+    $history = fullCoreMigrationHistory();
     $ledger = [];
     foreach ($ledgerRows as $row) {
         if (!is_array($row) || !is_string($row['filename'] ?? null)
@@ -108,7 +128,8 @@ function fullCoreMigrationPlan(array $manifest, string $package, string $live,
             $reason = 'failed_migration_requires_recovery';
         } elseif ($deployed === null || !corefluxMigrationHashMatches($row['sha256'], $deployed)) {
             $reason = 'deployed_source_does_not_match_successful_history';
-        } elseif (isset($legacyLedger[$path]) && !corefluxMigrationHashMatches($legacyLedger[$path], $deployed)) {
+        } elseif (isset($legacyLedger[$path]) && !corefluxMigrationHashMatches($legacyLedger[$path], $deployed)
+            && !hash_equals($history['prior_legacy'][$path]['recorded_sha256'] ?? '', $legacyLedger[$path])) {
             $reason = 'migration_ledgers_disagree';
         } elseif (corefluxMigrationHashMatches($row['sha256'], $sql)) {
             $entry['action'] = 'keep_applied';
@@ -123,16 +144,32 @@ function fullCoreMigrationPlan(array $manifest, string $package, string $live,
                 $entry['reviewed_git_blob'] = $blob;
             } else $reason = 'unreviewed_applied_source_change';
         }
+        if ($reason === null && $row !== null && isset($legacyLedger[$path])
+            && !corefluxMigrationHashMatches($legacyLedger[$path], $deployed)) {
+            $entry['legacy_history'] = ['action' => 'preserve_reviewed_prior_version',
+                'recorded_sha256' => $legacyLedger[$path],
+                'source_git_blob' => $history['prior_legacy'][$path]['source_git_blob']];
+        }
         if ($reason !== null) $blockers[] = ['path' => $path, 'reason' => $reason];
         $entries[] = $entry;
     }
-    foreach ($ledger as $key => $_) {
-        if (!isset($seen[$key])) $blockers[] = ['ledger_key' => $key, 'reason' => 'recorded_migration_not_packaged'];
+    $retired = [];
+    foreach ($ledger as $key => $row) {
+        if (isset($seen[$key])) continue;
+        $path = str_contains($key, '/') ? $key : 'core/migrations/' . $key;
+        $reviewed = $history['retired'][$path] ?? null;
+        if ($reviewed && !$row['failed'] && hash_equals($reviewed['recorded_sha256'], $row['sha256'])
+            && fullCoreMigrationRead($live, $path, true) === null
+            && (!isset($legacyLedger[$path]) || hash_equals($row['sha256'], $legacyLedger[$path]))) {
+            $retired[] = ['path' => $path, 'ledger_key' => $key, 'recorded_sha256' => $row['sha256'],
+                'source_git_blob' => $reviewed['source_git_blob'], 'action' => 'preserve_retired_history'];
+        } else $blockers[] = ['ledger_key' => $key, 'reason' => 'recorded_migration_not_packaged'];
     }
     $plan = ['version' => 1, 'candidate_commit' => $manifest['commit'],
         'manifest_files_sha256' => hash('sha256', json_encode($manifestFiles, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
         'ledger_sha256' => hash('sha256', json_encode([$ledger, $legacyLedger], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
-        'ordered_migrations' => $entries, 'blockers' => $blockers,
+        'history_review_sha256' => hash('sha256', json_encode($history, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
+        'ordered_migrations' => $entries, 'retired_history' => $retired, 'blockers' => $blockers,
         'source_review_ready' => !$blockers, 'activation_authorized' => false,
         'requirements_before_apply' => [
             'Bind the final candidate and fresh database/source inventory to this plan hash',

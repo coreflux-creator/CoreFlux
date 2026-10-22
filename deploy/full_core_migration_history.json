@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "reviewed_at": "2026-10-21",
+  "source_audit_run": "39702950574",
+  "prior_legacy": {
+    "core/migrations/003_mail_service.sql": {
+      "recorded_sha256": "dc90cea1a5c33e4f75f44a3658c92218b61aa9504ebce9748b9d80beef7729db",
+      "source_git_blob": "0d8db5a7e7ac616f1ee366f26edbdbcbe7a55109",
+      "normalized_sha256": "dc90cea1a5c33e4f75f44a3658c92218b61aa9504ebce9748b9d80beef7729db"
+    },
+    "core/migrations/021_jobdiva_connections.sql": {
+      "recorded_sha256": "02086aae42393c489b797bcd960b7001675d010405f00c1c3937324edbd201c1",
+      "source_git_blob": "a81d06a341f26105ffdc0a70134e505ed465430f",
+      "normalized_sha256": "02086aae42393c489b797bcd960b7001675d010405f00c1c3937324edbd201c1"
+    },
+    "core/migrations/034_register_staffing_module.sql": {
+      "recorded_sha256": "9184f3367d9cd71bf2ac354d469e50aa008904ec80a5a78709b4a40ea8948d7b",
+      "source_git_blob": "eb722536ede5dc9b5df3a1513187918dafb8406c",
+      "normalized_sha256": "9184f3367d9cd71bf2ac354d469e50aa008904ec80a5a78709b4a40ea8948d7b"
+    },
+    "core/migrations/052_qbo_foundation.sql": {
+      "recorded_sha256": "de1dea90d30dc6f60a55fa1ec7cc0a826731970031c3c6143f818cc23ad12ebd",
+      "source_git_blob": "077a3f1b495506374a0d338521ef8d374a94bb17",
+      "normalized_sha256": "de1dea90d30dc6f60a55fa1ec7cc0a826731970031c3c6143f818cc23ad12ebd"
+    },
+    "core/migrations/078_integration_writable_targets.sql": {
+      "recorded_sha256": "abf9e65c7296e6790828ee2c7c19d15dcb3f8e6a922320738c0b3bb503801a2b",
+      "source_git_blob": "f7c1913c083895debabd3324cde39d1692d4fa32",
+      "normalized_sha256": "abf9e65c7296e6790828ee2c7c19d15dcb3f8e6a922320738c0b3bb503801a2b"
+    },
+    "core/migrations/094_ai_classify_idempotency.sql": {
+      "recorded_sha256": "2f0f3abe00886154d0fcd0b422a85a4d3ac9c4b8e431ce569b28f639ad42f0bd",
+      "source_git_blob": "88a39966007dd1853023b2ba1e4918b9617d8f5c",
+      "normalized_sha256": "2f0f3abe00886154d0fcd0b422a85a4d3ac9c4b8e431ce569b28f639ad42f0bd"
+    },
+    "core/migrations/101_accounting_recon_aliases_and_coa_backfill.sql": {
+      "recorded_sha256": "08295320bbb1c5292d6eca7f6a286c238f15831427bfa98aac1ddc65823c513e",
+      "source_git_blob": "3d41eddb4a03fbf8cfd7e75734e0818851a5c0e1",
+      "normalized_sha256": "08295320bbb1c5292d6eca7f6a286c238f15831427bfa98aac1ddc65823c513e"
+    },
+    "modules/accounting/migrations/007_consolidation.sql": {
+      "recorded_sha256": "2689c905659b0bdfd4de04148a2c2ff0d3c9e0199a5a0f76e2a7a19177f47440",
+      "source_git_blob": "c99bf0539e56ef9dd5cdc1aba5afa180e1efe4bc",
+      "normalized_sha256": "2689c905659b0bdfd4de04148a2c2ff0d3c9e0199a5a0f76e2a7a19177f47440"
+    },
+    "modules/ap/migrations/008_vendor_categories_attachments.sql": {
+      "recorded_sha256": "ca29157bce79706c0540e70c812a088cf4ff553c8451d286c24d49e482362952",
+      "source_git_blob": "0b8005225abe3f0d960622eeb1dd5d677db23d32",
+      "normalized_sha256": "ca29157bce79706c0540e70c812a088cf4ff553c8451d286c24d49e482362952"
+    },
+    "modules/payroll/migrations/001_init.sql": {
+      "recorded_sha256": "cf16d09e9570323bf9e6643737c19fcda81a96995ae4c6aca73232589373732c",
+      "source_git_blob": "4d3cd62aeb1b4a369687fb940d2131334963d93a",
+      "normalized_sha256": "cf16d09e9570323bf9e6643737c19fcda81a96995ae4c6aca73232589373732c"
+    },
+    "modules/payroll/migrations/004_gusto_oauth.sql": {
+      "recorded_sha256": "408102c1b0c47b20460cb3d7f94639a3336536ed8b5b5dd89c3c5e24b429e5e6",
+      "source_git_blob": "6c8c641f4e941e4cf494eaadac0fc22d0503d56b",
+      "normalized_sha256": "408102c1b0c47b20460cb3d7f94639a3336536ed8b5b5dd89c3c5e24b429e5e6"
+    },
+    "modules/payroll/migrations/007_accounting_posting.sql": {
+      "recorded_sha256": "9e90b77f0e5d9e9fe02b5e40a63efa35397bf79418c1fd028ace56b93e3061d8",
+      "source_git_blob": "5ee9da19ba255335dcf8625f766ab204f3b73e37",
+      "normalized_sha256": "9e90b77f0e5d9e9fe02b5e40a63efa35397bf79418c1fd028ace56b93e3061d8"
+    },
+    "modules/staffing/migrations/001_timesheets.sql": {
+      "recorded_sha256": "9ab61381497c0af55b2fffbd5340c3bfb5272c38b8e5cad5b35430cae684cdf2",
+      "source_git_blob": "84ddad2aa2bcc3ba0bfa6fd73e95f25eafe96ca9",
+      "normalized_sha256": "9ab61381497c0af55b2fffbd5340c3bfb5272c38b8e5cad5b35430cae684cdf2"
+    }
+  },
+  "retired": {
+    "core/migrations/112_people_graph.sql": {
+      "recorded_sha256": "ae176592f2e6b49f7386d3bd6681b2560f54883ec516b1da1b1fd32128fa4266",
+      "source_git_blob": "973a79c8d867c9dcdc0f68247208bf0f0dfb4cb8",
+      "normalized_sha256": "ae176592f2e6b49f7386d3bd6681b2560f54883ec516b1da1b1fd32128fa4266"
+    },
+    "core/migrations/115_report_builder_saved_reports.sql": {
+      "recorded_sha256": "37d9ee37c919b6a1fe6e37ba2928769c84284bace647f4652bd64f04380ac54a",
+      "source_git_blob": "e522b4425c991302073fa49278a33fadc70ad620",
+      "normalized_sha256": "37d9ee37c919b6a1fe6e37ba2928769c84284bace647f4652bd64f04380ac54a"
+    },
+    "core/migrations/116_people_graph_artifact_roles.sql": {
+      "recorded_sha256": "4cc6cf180fd6848c2bf7f649816db9f43a10b67cc56150287f27f524c72c7521",
+      "source_git_blob": "8d084aabc166c40ea5cffa49d92c3d0fa3a278e4",
+      "normalized_sha256": "4cc6cf180fd6848c2bf7f649816db9f43a10b67cc56150287f27f524c72c7521"
+    },
+    "core/migrations/117_access_reviews.sql": {
+      "recorded_sha256": "5ec6bf4689eaf86c0c8c242877760a929bd78bf6588c7cfe02a3d3654bee66d9",
+      "source_git_blob": "9fae23b7e3a0a409e74279267fe1f89109959e9b",
+      "normalized_sha256": "5ec6bf4689eaf86c0c8c242877760a929bd78bf6588c7cfe02a3d3654bee66d9"
+    },
+    "core/migrations/118_workflow_instances_restartable_subjects.sql": {
+      "recorded_sha256": "537f64d45a296ea67b4aec5ec3448b7394c3612be2d3192fd716128efa3f0118",
+      "source_git_blob": "be36fea7c20e9d05d2f18c18674e1836ae8cdfef",
+      "normalized_sha256": "537f64d45a296ea67b4aec5ec3448b7394c3612be2d3192fd716128efa3f0118"
+    },
+    "core/migrations/119_custom_fields_governance_columns.sql": {
+      "recorded_sha256": "4212ad7378550c5cd60dc1c092d06e013caaf6aa47bcedae1a5df134a8ae7d94",
+      "source_git_blob": "9d3b227c585a375177000f0134066631f5b93097",
+      "normalized_sha256": "4212ad7378550c5cd60dc1c092d06e013caaf6aa47bcedae1a5df134a8ae7d94"
+    },
+    "core/migrations/122_custom_field_layout_overrides.sql": {
+      "recorded_sha256": "c04145d410801672f2a74aee9de6a6abb5a7275a7b06534f3a3460ebd9fde540",
+      "source_git_blob": "3df2026eed2cd491ef1d5d492dfa99f5b75f0198",
+      "normalized_sha256": "c04145d410801672f2a74aee9de6a6abb5a7275a7b06534f3a3460ebd9fde540"
+    },
+    "core/migrations/123_custom_field_role_access.sql": {
+      "recorded_sha256": "968394e37eb34f81f2ca2b94b176dab014a9cb94068900889a630af59d82de34",
+      "source_git_blob": "a6b8d7fccb8ed4bbfb4d7b6604514795e97ed132",
+      "normalized_sha256": "968394e37eb34f81f2ca2b94b176dab014a9cb94068900889a630af59d82de34"
+    },
+    "core/migrations/124_audit_log_enterprise_fields.sql": {
+      "recorded_sha256": "c9481ca0d0f86e0741ed68f2ec729763809ed0f96733b564bd3aaac04a5f8408",
+      "source_git_blob": "9d6a5ab29521599942f26d2c69e1e75a7a4b3bd1",
+      "normalized_sha256": "c9481ca0d0f86e0741ed68f2ec729763809ed0f96733b564bd3aaac04a5f8408"
+    },
+    "modules/accounting/migrations/024_je_workflow_controls.sql": {
+      "recorded_sha256": "c38ad22d51b92dd4c9dd550fe7d19fe85ebec0e3f6b4de35aa92bbd449e00193",
+      "source_git_blob": "d3413b0b0a3d2047bd41707e8bae59b48c7bf7c7",
+      "normalized_sha256": "c38ad22d51b92dd4c9dd550fe7d19fe85ebec0e3f6b4de35aa92bbd449e00193"
+    },
+    "modules/billing/migrations/012_invoice_workflow_controls.sql": {
+      "recorded_sha256": "2be4e5cd3b1a21e5219e53668ff237c7c2fa3da70fbc25cedc489eefa6c54308",
+      "source_git_blob": "573620f3c64c1314760616d621cef6e53f9b091b",
+      "normalized_sha256": "2be4e5cd3b1a21e5219e53668ff237c7c2fa3da70fbc25cedc489eefa6c54308"
+    },
+    "modules/placements/migrations/005_rate_workflow_controls.sql": {
+      "recorded_sha256": "88a0c64a4708f2cb575bff9bb63b15e9c2cc5031c4b0b56d5228cea2d49f3350",
+      "source_git_blob": "d4d4f9142b9726957ad58dc35f6c88215c17c39f",
+      "normalized_sha256": "88a0c64a4708f2cb575bff9bb63b15e9c2cc5031c4b0b56d5228cea2d49f3350"
+    },
+    "modules/time/migrations/010_approved_via_external_email.sql": {
+      "recorded_sha256": "8303f5ed1dba917a160225a0ad0b28da30c3c19d7481ae2cd0167a78d3944463",
+      "source_git_blob": "50c37796c58225004622e7b862488d13fa1d8aca",
+      "normalized_sha256": "8303f5ed1dba917a160225a0ad0b28da30c3c19d7481ae2cd0167a78d3944463"
+    },
+    "modules/treasury/migrations/007_money_movement_workflow_controls.sql": {
+      "recorded_sha256": "669891ac9f6f5ecb9a6d4fb6dc970a3e3641c045ea81e27fd2e25503caad8e5a",
+      "source_git_blob": "64e8b3d96775da02f82eca377140caf5746b3cf1",
+      "normalized_sha256": "669891ac9f6f5ecb9a6d4fb6dc970a3e3641c045ea81e27fd2e25503caad8e5a"
+    },
+    "modules/treasury/migrations/008_treasury_policy.sql": {
+      "recorded_sha256": "e42da4a073a7fde42c15a5303cb10a99a3e5f2dad90cfa5498cd800f02c089f2",
+      "source_git_blob": "098c60ca6d2f2553038b31dfef468db5e2c2023f",
+      "normalized_sha256": "e42da4a073a7fde42c15a5303cb10a99a3e5f2dad90cfa5498cd800f02c089f2"
+    },
+    "modules/treasury/migrations/009_treasury_recommendation_decisions.sql": {
+      "recorded_sha256": "90b47390641d4a2ede451c579775c4ea69f55c69648b077781832c56fd6454a2",
+      "source_git_blob": "4e6d573ea1293d3ddd118dd5eac58592220518e0",
+      "normalized_sha256": "90b47390641d4a2ede451c579775c4ea69f55c69648b077781832c56fd6454a2"
+    },
+    "modules/treasury/migrations/010_treasury_recommendation_handoffs.sql": {
+      "recorded_sha256": "1f8f45409dfe03d666668481734d75a793df7aef408862c2524714163fafdb63",
+      "source_git_blob": "bdf400761c212cde5a7da09b3145318b9e4d14a7",
+      "normalized_sha256": "1f8f45409dfe03d666668481734d75a793df7aef408862c2524714163fafdb63"
+    },
+    "modules/treasury/migrations/011_treasury_recommendation_exceptions.sql": {
+      "recorded_sha256": "afbad1eb7b2b109d25c855b78f7154ea7e40f09e286bf0c22f5ffab31bd66ec8",
+      "source_git_blob": "fe8acd38035b2d0e4e14e44bbafb0d896d903bc1",
+      "normalized_sha256": "afbad1eb7b2b109d25c855b78f7154ea7e40f09e286bf0c22f5ffab31bd66ec8"
+    }
+  }
+}
