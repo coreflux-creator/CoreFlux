@@ -41,7 +41,7 @@ try {
     if (!$readOnly) throw new RuntimeException('Read-only verification failed');
     $flags = [];
     foreach (['COREFLUX_QUANTA_METADATA_DELIVERY', 'COREFLUX_PUREPAY_CORE_LINK_DELIVERY',
-        'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY', 'COREFLUX_PUREPAY_PAYROLL_AUTHORITY', 'COREFLUX_PUREPAY_PEOPLE_DELIVERY'] as $flag) {
+        'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY', 'COREFLUX_PUREPAY_PAYROLL_AUTHORITY', 'COREFLUX_PUREPAY_PEOPLE_DELIVERY', 'COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY'] as $flag) {
         $flags[$flag] = in_array($flag, ['COREFLUX_QUANTA_METADATA_DELIVERY', 'COREFLUX_PUREPAY_CORE_LINK_DELIVERY', 'COREFLUX_PUREPAY_PEOPLE_DELIVERY'], true)
             && defined($flag) ? constant($flag) === true : getenv($flag) === '1';
     }

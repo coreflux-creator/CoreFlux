@@ -59,7 +59,8 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     $quanta=$context['provider']==='quanta' && in_array($context['operation'],$operations[$context['entity_type']]??[],true);
     $purepay=$context['provider']==='purepay' && $context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true);
     $payroll=$context['provider']==='purepayroll' && $context['entity_type']==='person' && in_array($context['operation'],['payroll.inputs','people.inputs'],true);
-    if (!$quanta && !$purepay && !$payroll) {
+    $assignment=$context['provider']==='purepayroll' && $context['entity_type']==='placement' && $context['operation']==='assignments.inputs';
+    if (!$quanta && !$purepay && !$payroll && !$assignment) {
         throw new InvalidArgumentException('This delivery operation is not implemented');
     }
     foreach (['binding_hash','source_hash','remote_hash'] as $key) {
@@ -72,7 +73,7 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
         if (!is_int($context[$key]) || $context[$key] <= 0) throw new InvalidArgumentException('Canonical record owner and identity required');
     }
     $json = integrationDeliveryJson($payload);
-    if (strlen($json) > 65536) throw new InvalidArgumentException('Delivery payload exceeds the review limit');
+    if (strlen($json) > ($assignment?210000:65536)) throw new InvalidArgumentException('Delivery payload exceeds the review limit');
     $review = integrationDeliveryHash(['context'=>$context, 'payload'=>$payload]);
     $subject = integrationDeliveryHash(array_intersect_key($context, array_flip(['provider','connection_ref','entity_type','entity_tenant_id','entity_id'])));
     $params = $context + ['t'=>$tenantId, 'u'=>$actorId, 'review'=>$review, 'dedupe'=>$review,

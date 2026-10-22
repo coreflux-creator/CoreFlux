@@ -11,7 +11,7 @@ function staffingFieldContractTables(): array
         'people', 'companies', 'company_roles', 'company_addresses', 'company_contacts',
         'staffing_clients', 'ap_vendors_index', 'staffing_jobs', 'placements',
         'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_referrals',
-        'placement_corp_details', 'placement_economic_parties', 'placement_economic_obligations',
+        'placement_corp_details', 'placement_economic_parties', 'placement_economic_items', 'placement_economic_obligations',
         'staffing_operating_cycles', 'people_documents', 'placement_documents',
         'people_banking', 'people_tax', 'people_employees', 'people_employment_history',
         'people_compensation', 'people_i9', 'people_tax_federal', 'people_tax_state', 'people_bank_accounts',
@@ -116,7 +116,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
         ]);
     }
     return [
-        'contract_version' => '2026-10-22.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-22.2', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

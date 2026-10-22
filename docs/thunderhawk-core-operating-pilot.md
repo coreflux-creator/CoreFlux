@@ -1,5 +1,63 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Complete commercial snapshot candidate — October 22, 2026 UTC
+
+The `2026-10-22.2` assignment contract now carries the approved economic graph for
+every effective rate period, separately from current editable configuration.
+Core builds it from scoped SQL rows and frozen approval JSON: pay/bill rates and
+units, exact OT/DT products, distinct fee bases and parties, bill adjustments,
+explicit versus inherited overheads, resolved costs, saved model estimates,
+historical cycle identity/cadence, current cycle anchors/offsets, active and void
+one-time items, and placement work context. Null overrides remain distinct from
+zero waivers. Current unset payment terms and raw PWP settings remain distinct
+from their effective inherited values. Unsupported/incomplete sources fail as a
+whole; approved periods must cover the placement without gaps or overlaps.
+
+Core exposes encrypted preview/send/status/history through the dedicated Core
+connection. Every referenced P/PL/CL/CO/V identity must be current and canonical
+in its authorized module directory. Source, connection or company changes block
+stale sending; uncertain attempts reconcile the original provider receipt without
+automatic resending. The commercial review requires placement-financial, people,
+AP and payroll viewing permissions in addition to connection-management access.
+`write:assignment_inputs` is separate from identity-link and payroll-input scopes.
+`COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY` defaults off and is included in deployment,
+web and worker flag inspections. These changes introduce no schema migration.
+
+PurePay retains the complete packet in its immutable inbox and native assignment
+review. Reviewers see approved periods separately from current settings, and see
+previous and proposed packets when revising. Separate native creation/activation
+remains gated by `COREFLUX_ASSIGNMENT_PROVISIONING`; legacy automatic billing,
+catalog pricing and employee base pay cannot consume or rewrite these terms.
+V1 simplified receipts remain readable and are explicitly labeled as incomplete
+commercial coverage. Core verifies the accepted PL identity/revision on readback
+but does not silently adopt a local record link for payroll.
+
+Historical limitation: old approvals retained the end-client company, not its CL
+reference, cycle anchor/offset or override intent. The adapter only maps the
+standard unchanged end-client relation to the current placement client and marks
+its basis `current_placement`. The UI exposes that basis and the absent historic
+fields. It never fabricates historic settings from today's directory.
+
+Validation: 24 pure projection checks, 24 disposable MariaDB source/delivery
+checks, 83 targeted provider tests followed by all 34 commercial tests after final
+validation tightening, the actual 37-assertion PHP-to-provider HTTP exchange,
+9 provider assignment UI checks and 3 Core preview UI checks pass. Existing Core
+connection, links, people, payroll-input and delivery fixtures also pass. The field
+dictionary now contains 144 mappings over 116 source fields, including 100
+commercial mappings checked against the actual PHP output. Both actual review
+components were inspected in Chrome using synthetic data and preview-only CSS.
+The dashboard compiled; a transient Windows bundle-copy failure succeeded on the
+post-build retry. This is source/isolated validation, not hosted acceptance.
+
+The provider preview backend remains deliberately stopped because ordinary
+startup runs migrations and operational workers. Source-save provenance,
+publication and hosted acceptance must be tracked separately. Complete portal
+onboarding/access, primary-party changes, live Thunderhawk acceptance and the
+production accounting release remain open. No live delivery flag, operational
+record, payroll, payment, financial posting or production cutover was changed.
+
+The following sections retain earlier implementation checkpoints.
+
 ## Reviewed W-2 profile intake — October 22, 2026 UTC
 
 The candidate now sends a reviewed Core person and current W-2 placement through

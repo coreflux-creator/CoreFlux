@@ -56,7 +56,7 @@ numberCheck(staffingFieldContractRules('people', 'email_primary')['remote_contra
 numberCheck(staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['status'] === 'unverified', 'existing provider identity is not claimed as a Core ID field');
 numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['purepayroll']['path'] === 'first_name', 'explicit people-review mapping carries a separate first name');
 foreach ([['people', 'ssn_ct'], ['people_employees', 'employee_number'], ['placements', 'future_field'],
-    ['placement_rates', 'bill_rate'], ['time_entries', 'approved_at']] as [$table, $field]) {
+    ['placement_rates', 'future_field'], ['time_entries', 'approved_at']] as [$table, $field]) {
     foreach (staffingFieldContractRules($table, $field)['remote_contracts'] as $remote) {
         numberCheck(empty($remote['mappings']), 'restricted, legacy, unknown and approval fields never acquire an inferred exchange mapping');
     }
@@ -72,8 +72,9 @@ numberCheck($assignmentFields['status'] === 'source_verified_hosted_acceptance_p
 numberCheck($assignmentFields['path'] === 'person'
     && str_contains($assignmentFields['mappings'][0]['transform'], 'typed_reference:person'), 'assignment relationship resolves a typed person, never copies a SQL ID');
 $payRate = staffingFieldContractRules('placement_rates', 'pay_rate')['remote_contracts'];
-numberCheck($payRate['purepayroll']['path'] === 'components[].rate.pay_rate'
+numberCheck(array_column($payRate['purepayroll']['mappings'],'path') === ['components[].rate.pay_rate','terms[].pay_rates.regular']
     && $payRate['quanta']['status'] === 'unverified', 'frozen payroll rate never becomes a Quanta or native employee rate write');
+numberCheck(staffingFieldContractRules('placement_rates','bill_rate')['remote_contracts']['purepayroll']['path']==='terms[].bill_rates.regular', 'approved bill rate has an explicit commercial review mapping');
 numberCheck(isset(staffingExchangeWorkflowGaps()['native_payroll_employee_provisioning']), 'native provisioning remains an explicit unresolved workflow');
 require_once __DIR__ . '/../core/integrations/field_map.php';
 foreach (coreRecordNumberFields() as $field) {

@@ -6,6 +6,7 @@ require_once __DIR__.'/../core/integrations/purepay_links.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_results.php';
 require_once __DIR__.'/../core/integrations/purepay_people_inputs.php';
+require_once __DIR__.'/../core/integrations/purepay_assignment_inputs.php';
 require_once __DIR__.'/../core/sub_tenants.php';
 $ctx=api_require_auth();
 $user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
@@ -36,6 +37,13 @@ function purepayCoreApiPeopleOwners(array $user,int $tenant): array
     return ['people'=>purepayCoreApiRecordOwner($user,$tenant,'person'),
         'placements'=>purepayCoreApiRecordOwner($user,$tenant,'placement')];
 }
+function purepayCoreApiAssignmentOwners(array $user,int $tenant): array
+{
+    foreach(['placements.view','placements.financials.view','people.view','ap.view','payroll.view'] as $permission)rbac_legacy_require($user,$permission);
+    $owners=[];
+    foreach(['placements','people','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenant)??$tenant;
+    return $owners;
+}
 try {
     if($method==='GET' && $action==='status')api_ok(purepayCoreSummary(purepayCoreConnection($pdo,$tenantId)));
     if($method!=='POST')api_error('Method not allowed',405);
@@ -43,7 +51,7 @@ try {
     $audit=static function()use($pdo,$tenantId,$user,$action,$body):void {
         // Action and company only; credentials and employee payloads never enter audit metadata.
         $metadata=['action'=>$action];
-        if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile','payroll_result_refresh','people_input_send','people_input_status'],true))$metadata['delivery_id']=$body['delivery_id'];
+        if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile','payroll_result_refresh','people_input_send','people_input_status','assignment_input_send','assignment_input_status'],true))$metadata['delivery_id']=$body['delivery_id'];
         $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(:t,:u,:e,NULL,:m,:ip,NOW())')
             ->execute(['t'=>$tenantId,'u'=>(int)$user['id'],'e'=>'purepay.core.'.$action,'m'=>json_encode($metadata),'ip'=>$_SERVER['REMOTE_ADDR']??null]);
     };
@@ -82,6 +90,22 @@ try {
                 :purepayCoreLinkReconcile($pdo,$tenantId,$instance,$owner,$body['delivery_id'],$body['review_hash'],$audit);
             break;
         case 'disconnect': purepayCoreDisconnect($pdo,$tenantId,$audit);$result=['connected'=>false];break;
+        case 'assignment_input_preview':
+            if(!is_string($body['placement_number']??null) || (isset($body['previous_revision']) && !is_string($body['previous_revision'])))api_error('Choose a Core placement and an optional accepted predecessor.',422);
+            $owners=purepayCoreApiAssignmentOwners($user,$tenantId);
+            $result=purepayAssignmentInputPreview($pdo,$tenantId,(int)$user['id'],$instance,$owners,strtoupper(trim($body['placement_number'])),$body['previous_revision']??null);break;
+        case 'assignment_input_send':
+        case 'assignment_input_status':
+            if(!is_int($body['delivery_id']??null) || $body['delivery_id']<=0 || !is_string($body['review_hash']??null))api_error('Choose a current placement review.',422);
+            if($action==='assignment_input_send' && ($body['confirmed']??null)!==true)api_error('Confirm the complete commercial snapshot before sending.',422);
+            $owners=purepayCoreApiAssignmentOwners($user,$tenantId);
+            $result=$action==='assignment_input_send'
+                ?purepayAssignmentInputSend($pdo,$tenantId,(int)$user['id'],$instance,$owners,$body['delivery_id'],$body['review_hash'],$audit)
+                :purepayAssignmentInputStatus($pdo,$tenantId,$instance,$owners,$body['delivery_id'],$body['review_hash'],$audit);break;
+        case 'assignment_input_history':
+            if(!is_string($body['placement_number']??null) || (isset($body['before']) && !is_int($body['before'])))api_error('Choose a placement number for history.',422);
+            $owners=purepayCoreApiAssignmentOwners($user,$tenantId);
+            $result=purepayAssignmentInputHistory($pdo,$tenantId,$instance,$owners,strtoupper(trim($body['placement_number'])),$body['before']??null);break;
         case 'people_input_preview':
             if(!is_string($body['person_number']??null) || !is_string($body['placement_number']??null))api_error('Choose a Core person and W-2 placement number.',422);
             $owners=purepayCoreApiPeopleOwners($user,$tenantId);

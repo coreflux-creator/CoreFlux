@@ -89,4 +89,19 @@ $check(purepayPeopleInputReceipt($profilePost(),'org-a',$profile)===$profileRece
 $profileReview=purepayPeopleInputReceipt(purepayCoreGet($key,'/people/inputs/'.$profileReceipt['id']),'org-a',$profile);
 $check($profileReview['packet']===$profile && $profileReview['state']==='ready' && $profileReview['employee_id']===null,'Receiving contacts preserves exact fields without creating a native employee');
 
+require_once __DIR__.'/purepay_assignment_fixture.php';
+require_once __DIR__.'/../core/integrations/purepay_assignment_inputs.php';
+$check(($context['assignment_input_contract_version']??null)===PUREPAY_ASSIGNMENT_INPUT_VERSION
+    && in_array('write:assignment_inputs',$context['capabilities'],true),'PHP discovers full commercial contract and separate write capability');
+$commercial=purepayAssignmentFixtureBuild();
+$commercialPost=static fn():array=>purepayCall($key,'POST',PUREPAY_CORE_PATH.'/assignments/inputs',$commercial,25,integrationDeliveryHash($commercial),purepayCoreApiBase());
+$commercialReceipt=purepayAssignmentInputReceipt($commercialPost(),'org-a',$commercial);
+$check(str_starts_with($commercialReceipt['id'],'cpa_'),'Actual PHP commercial projection accepted by provider with exact content hash');
+$check(purepayAssignmentInputReceipt($commercialPost(),'org-a',$commercial)===$commercialReceipt,'Commercial retry returns identical receipt');
+$commercialRead=purepayAssignmentInputReceipt(purepayCoreGet($key,'/assignments/inputs/'.$commercialReceipt['id']),'org-a',$commercial);
+$check(integrationDeliveryHash($commercialRead['packet'])===integrationDeliveryHash($commercial)
+    && $commercialRead['state']==='needs_mapping' && $commercialRead['assignment_id']===null,'Full graph read back intact; missing identities do not create an assignment');
+try {purepayCall('pk_'.hash('sha256','reader'),'POST',PUREPAY_CORE_PATH.'/assignments/inputs',$commercial,25,integrationDeliveryHash($commercial),purepayCoreApiBase());$rejected=false;}
+catch(PurePayApiException $e){$rejected=$e->httpStatus===403;}
+$check($rejected,'Metadata read access cannot send commercial packets');
 echo json_encode(['passed'=>$passed,'scope'=>'synthetic Core PHP to PurePay ASGI HTTP contract']),"\n";
