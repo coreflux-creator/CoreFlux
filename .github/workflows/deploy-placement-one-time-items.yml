@@ -394,12 +394,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify completed deployment identities before reclaiming their temporary copies
+      - name: Verify completed superseded run identities before reclaiming temporary copies
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           for release in \
+            39303643430:1d52f1558c2468b26e0635b053817306276f2ec3 \
+            39304118567:3f275c73b0520c9ab656954337e55afa7e4cff9b \
+            39313356371:bea5b603f9d5f4c00d7678a4305dc7a3d96d3d5a \
+            39314431084:c2b9d27fbe6bbfcdc103569974bab885d301400f \
+            39316097948:48694b850a1bc01e9eb7a39c0979e072ba383f23 \
+            39317749728:908a7b9d1b21c769f8c725f48de14e211035c616 \
+            39522652801:4481d969885131e97958aff081a0c25d4b4ee64e \
+            39702452549:4e601ac385abeed76f32cf4150f8ebff351f02fc \
             39528812913:8f68486b1aa0bf82732d52aa62875fb8f0b1430a \
             39531315383:96ecd35d5b4e852a92391b730bbfa4aa1576efe0 \
             39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
@@ -412,7 +420,10 @@ jobs:
             run="${release%%:*}"
             expected="${release#*:}"
             actual="$(gh api "repos/${{ github.repository }}/actions/runs/$run" --jq '[.status,.conclusion,.head_sha] | join(" ")')"
-            test "$actual" = "completed success $expected"
+            # Four old staging failures have been diagnosed and superseded; their logs are retained.
+            outcome=success
+            case "$run" in 39303643430|39313356371|39314431084|39316097948) outcome=failure ;; esac
+            test "$actual" = "completed $outcome $expected"
           done
       - name: Remove only verified temporary release copies
         uses: appleboy/ssh-action@v1.2.2
@@ -423,7 +434,19 @@ jobs:
           port: ${{ secrets.CW_SSH_PORT }}
           script: |
             set -eu
+            umask 077
+            receipt="/tmp/core-upload-cleanup-${{ github.run_id }}"
+            test ! -e "$receipt" && test ! -L "$receipt"
+            mkdir -m 700 "$receipt"
             for release in \
+              39303643430:1d52f1558c2468b26e0635b053817306276f2ec3 \
+              39304118567:3f275c73b0520c9ab656954337e55afa7e4cff9b \
+              39313356371:bea5b603f9d5f4c00d7678a4305dc7a3d96d3d5a \
+              39314431084:c2b9d27fbe6bbfcdc103569974bab885d301400f \
+              39316097948:48694b850a1bc01e9eb7a39c0979e072ba383f23 \
+              39317749728:908a7b9d1b21c769f8c725f48de14e211035c616 \
+              39522652801:4481d969885131e97958aff081a0c25d4b4ee64e \
+              39702452549:4e601ac385abeed76f32cf4150f8ebff351f02fc \
               39528812913:8f68486b1aa0bf82732d52aa62875fb8f0b1430a \
               39531315383:96ecd35d5b4e852a92391b730bbfa4aa1576efe0 \
               39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
@@ -442,7 +465,35 @@ jobs:
               test "$(stat -c %u "$upload")" = "$(id -u)"
               test ! -L "$upload/package"
               test "$(readlink -f "$upload/package")" = "$upload/package"
-              php -r '$m=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR); if(($m["product"]??"")!=="full-core-staging" || ($m["commit"]??"")!==$argv[2])exit(1);' "$upload/package/integration-manifest.json" "$expected"
+              export CLEANUP_UPLOAD="$upload" CLEANUP_COMMIT="$expected" CLEANUP_RECEIPT="$receipt/$run"
+              php <<'PHP'
+            <?php
+            $upload = getenv('CLEANUP_UPLOAD'); $package = $upload.'/package';
+            $entries = array_values(array_diff(scandir($upload), ['.','..'])); sort($entries);
+            if ($entries !== ['core-integration-release.sha256','core-integration-release.tar.gz','package']) exit(20);
+            foreach ($entries as $entry) if (is_link($upload.'/'.$entry)) exit(21);
+            $manifest = $package.'/integration-manifest.json';
+            if (is_link($manifest)) exit(22);
+            $m = json_decode(file_get_contents($manifest), true, 512, JSON_THROW_ON_ERROR);
+            if (($m['product']??'') !== 'full-core-staging' || ($m['commit']??'') !== getenv('CLEANUP_COMMIT') || !is_array($m['files']??null)) exit(23);
+            $seen = [];
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+              if ($item->isLink() || $item->getOwner() !== posix_geteuid()) exit(24);
+              if ($item->isDir()) continue;
+              if (!$item->isFile() || $item->getRealPath() !== $item->getPathname()) exit(25);
+              $path = substr($item->getPathname(), strlen($package)+1);
+              if ($path === 'integration-manifest.json') continue;
+              if (!isset($m['files'][$path]) || !hash_equals($m['files'][$path], hash_file('sha256',$item->getPathname()))) exit(26);
+              $seen[$path] = true;
+            }
+            if (array_diff_key($m['files'],$seen)) exit(27);
+            $checksum = file_get_contents($upload.'/core-integration-release.sha256');
+            if (!preg_match('/^([a-f0-9]{64})[ *]+core-integration-release\.tar\.gz\s*$/D', $checksum, $match)
+              || !hash_equals($match[1], hash_file('sha256',$upload.'/core-integration-release.tar.gz'))) exit(28);
+            $receipt = getenv('CLEANUP_RECEIPT');
+            if (!copy($manifest, $receipt.'-manifest.json') || !copy($upload.'/core-integration-release.sha256', $receipt.'-archive.sha256')) exit(29);
+            echo 'Verified source-only upload ', basename($upload), ' (', count($seen), " files)\n";
+            PHP
               du -sh -- "$upload"
               rm -rf -- "$upload"
               printf 'Removed verified temporary upload %s\n' "$run"
