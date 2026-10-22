@@ -102,7 +102,7 @@ $clientMapping = $references['client']['remote_contracts'];
 $check($companyMapping['quanta']['path'] === 'end_client' && $clientMapping['quanta']['path'] === 'client'
     && $companyMapping['purepay']['status'] === 'unverified', 'export distinguishes end-client company from billing client and unsupported provider company');
 $personMappings = $references['person']['remote_contracts'];
-$check(count($personMappings['quanta']['mappings']) === 2 && count($personMappings['purepayroll']['mappings']) === 2
+$check(count($personMappings['quanta']['mappings']) === 2 && count($personMappings['purepayroll']['mappings']) === 3
     && $personMappings['quanta']['path'] === null, 'dictionary export retains multiple identity destinations without inventing one flattened field');
 $pdo->exec("CREATE TABLE people_custom_field_defs (id INT PRIMARY KEY, tenant_id INT, field_key VARCHAR(50), field_label VARCHAR(50), field_type VARCHAR(30), required INT, pii INT, visible_to_roles_json TEXT, deleted_at DATETIME)");
 $pdo->exec("INSERT INTO people_custom_field_defs VALUES (1,1,'badge_code','Badge','text',0,0,NULL,NULL),(2,2,'private_code','Other tenant','text',0,0,NULL,NULL),(3,1,'retired','Archived','text',0,0,NULL,NOW())");

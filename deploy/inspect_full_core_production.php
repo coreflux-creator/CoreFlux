@@ -108,8 +108,8 @@ try {
         WHERE t.name IN ('Thunderhawk', 'charge d\'Affaires') GROUP BY t.id,t.name")->fetchAll(PDO::FETCH_ASSOC);
     $flags = [];
     foreach (['COREFLUX_QUANTA_METADATA_DELIVERY', 'COREFLUX_PUREPAY_CORE_LINK_DELIVERY',
-        'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY', 'COREFLUX_PUREPAY_PAYROLL_AUTHORITY'] as $flag) {
-        $flags[$flag] = in_array($flag, ['COREFLUX_QUANTA_METADATA_DELIVERY', 'COREFLUX_PUREPAY_CORE_LINK_DELIVERY'], true)
+        'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY', 'COREFLUX_PUREPAY_PAYROLL_AUTHORITY', 'COREFLUX_PUREPAY_PEOPLE_DELIVERY'] as $flag) {
+        $flags[$flag] = in_array($flag, ['COREFLUX_QUANTA_METADATA_DELIVERY', 'COREFLUX_PUREPAY_CORE_LINK_DELIVERY', 'COREFLUX_PUREPAY_PEOPLE_DELIVERY'], true)
             && defined($flag) ? constant($flag) === true : getenv($flag) === '1';
     }
     $liveIndex = (string) file_get_contents($root . '/index.html');

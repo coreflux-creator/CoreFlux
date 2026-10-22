@@ -32,8 +32,9 @@ function purepayCoreContextValidate(array $data): array
         || !in_array('read:coreflux',$caps,true)) {
         throw new RuntimeException('PurePay has not provided the required Core organization contract.');
     }
-    $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll','write:payroll_inputs','write:payroll_authority'],$caps)); sort($caps);
+    $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll','write:payroll_inputs','write:payroll_authority','write:people_inputs'],$caps)); sort($caps);
     if(in_array('write:payroll_inputs',$caps,true) && !in_array('read:payroll',$caps,true))throw new RuntimeException('Payroll input access requires payroll read access.');
+    if(in_array('write:people_inputs',$caps,true) && !in_array('read:payroll',$caps,true))throw new RuntimeException('People input access requires employee read access.');
     if(in_array('write:payroll_authority',$caps,true) && (!in_array('read:payroll',$caps,true) || !in_array('write:payroll_inputs',$caps,true)))throw new RuntimeException('Payroll reservation access requires payroll read and input access.');
     $link=$data['link_contract_version']??null;
     if($link!==null && (!is_string($link) || !preg_match('/^[0-9.-]{1,32}$/D',$link)))throw new RuntimeException('Invalid provider link contract.');
@@ -41,10 +42,13 @@ function purepayCoreContextValidate(array $data): array
     if($input!==null && (!is_string($input) || !preg_match('/^[0-9.-]{1,32}$/D',$input)))throw new RuntimeException('Invalid provider payroll input contract.');
     $authority=$data['payroll_authority_contract_version']??null;
     if($authority!==null && (!is_string($authority) || !preg_match('/^[0-9.-]{1,32}$/D',$authority)))throw new RuntimeException('Invalid provider payroll reservation contract.');
+    $people=$data['people_input_contract_version']??null;
+    if($people!==null && (!is_string($people) || !preg_match('/^[0-9.-]{1,32}$/D',$people)))throw new RuntimeException('Invalid provider people input contract.');
     return ['organization'=>['id'=>$org['id'],'name'=>$org['name']], 'capabilities'=>$caps,'link_contract_version'=>$link,
         'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false]
         + ($input===null?[]:['payroll_input_contract_version'=>$input])
-        + ($authority===null?[]:['payroll_authority_contract_version'=>$authority]);
+        + ($authority===null?[]:['payroll_authority_contract_version'=>$authority])
+        + ($people===null?[]:['people_input_contract_version'=>$people]);
 }
 
 /** Never pass provider response text or credentials to the browser or audit trail. */
@@ -128,7 +132,8 @@ function purepayCoreReview(PDO $pdo,int $tenantId,string $instance): array
         'review_hash'=>$hash,'verified'=>is_string($row['binding_hash']) && hash_equals($row['binding_hash'],$hash),
         'contract_version'=>$context['contract_version'],'link_contract_version'=>$context['link_contract_version']]
         + (isset($context['payroll_input_contract_version'])?['payroll_input_contract_version'=>$context['payroll_input_contract_version']]:[])
-        + (isset($context['payroll_authority_contract_version'])?['payroll_authority_contract_version'=>$context['payroll_authority_contract_version']]:[]);
+        + (isset($context['payroll_authority_contract_version'])?['payroll_authority_contract_version'=>$context['payroll_authority_contract_version']]:[])
+        + (isset($context['people_input_contract_version'])?['people_input_contract_version'=>$context['people_input_contract_version']]:[]);
 }
 
 function purepayCoreConfirm(PDO $pdo,int $tenantId,int $actor,string $instance,string $reviewHash,string $organizationId,?callable $audit=null): array

@@ -75,4 +75,18 @@ $check($rejected,'An available receipt cannot unlock Core source');
 try {purepayCall('pk_'.hash('sha256','reader'),'POST',PUREPAY_CORE_PATH.'/payroll/authorities',$authority,25,integrationDeliveryHash($authority),purepayCoreApiBase());$rejected=false;}
 catch(PurePayApiException $e){$rejected=$e->httpStatus===403;}
 $check($rejected,'Payroll read access cannot grant source authority');
+require_once __DIR__.'/../core/integrations/purepay_people_inputs.php';
+$context=purepayCoreContextValidate(purepayCoreGet($key,'/context'));
+$check(($context['people_input_contract_version']??null)===PUREPAY_PEOPLE_INPUT_VERSION
+    && in_array('write:people_inputs',$context['capabilities'],true),'PHP discovers the separate people-review capability');
+$profile=['contract_version'=>PUREPAY_PEOPLE_INPUT_VERSION,'person'=>integrationRecordReference($instance,10,'person','P-9005'),
+    'source_revision'=>str_repeat('d',64),'employment_type'=>'w2','first_name'=>'Zoë / 李','last_name'=>"O’Neil\u{2028}Test",
+    'email'=>'worker/profile@example.test','phone'=>null];
+$profilePost=static fn():array=>purepayCall($key,'POST',PUREPAY_CORE_PATH.'/people/inputs',$profile,25,integrationDeliveryHash($profile),purepayCoreApiBase());
+$profileReceipt=purepayPeopleInputReceipt($profilePost(),'org-a',$profile);
+$check(str_starts_with($profileReceipt['id'],'cpp_'),'Actual PHP and Python agree on Unicode/contact snapshot identity');
+$check(purepayPeopleInputReceipt($profilePost(),'org-a',$profile)===$profileReceipt,'People input retries reuse the exact receipt');
+$profileReview=purepayPeopleInputReceipt(purepayCoreGet($key,'/people/inputs/'.$profileReceipt['id']),'org-a',$profile);
+$check($profileReview['packet']===$profile && $profileReview['state']==='ready' && $profileReview['employee_id']===null,'Receiving contacts preserves exact fields without creating a native employee');
+
 echo json_encode(['passed'=>$passed,'scope'=>'synthetic Core PHP to PurePay ASGI HTTP contract']),"\n";

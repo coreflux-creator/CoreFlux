@@ -54,7 +54,7 @@ numberCheck(!staffingFieldContractRules('people', 'external_id')['remote_contrac
 numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['quanta']['path'] === 'workers.full_name', 'verified Quanta name composition is recorded');
 numberCheck(staffingFieldContractRules('people', 'email_primary')['remote_contracts']['quanta']['direction'] === 'core_to_quanta_preview', 'verified email schema does not claim live delivery');
 numberCheck(staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['status'] === 'unverified', 'existing provider identity is not claimed as a Core ID field');
-numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['purepayroll']['status'] === 'unverified', 'Quanta verification does not imply payroll verification');
+numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['purepayroll']['path'] === 'first_name', 'explicit people-review mapping carries a separate first name');
 foreach ([['people', 'ssn_ct'], ['people_employees', 'employee_number'], ['placements', 'future_field'],
     ['placement_rates', 'bill_rate'], ['time_entries', 'approved_at']] as [$table, $field]) {
     foreach (staffingFieldContractRules($table, $field)['remote_contracts'] as $remote) {

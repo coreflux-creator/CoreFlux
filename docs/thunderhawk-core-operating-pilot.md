@@ -1,16 +1,56 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Reviewed W-2 profile intake — October 22, 2026 UTC
+
+The candidate now sends a reviewed Core person and current W-2 placement through
+`people.inputs`. Only the typed person reference, name, optional email/phone,
+explicit W-2 classification and source revision reach the provider. Core retains
+the originating placement reference in its encrypted review. Source or ownership
+drift blocks sending. A durable receipt proves inbox delivery, not employee
+creation. Status checks verify the original packet and any created native identity;
+lost responses reconcile without resending.
+
+PurePayroll's separate signed-in review can create one inactive native employee
+profile and immutable Core identity link. Deterministic IDs recover interrupted
+employee/link inserts. Existing identities or matching emails require review;
+email is never an automatic identity match. Later retries preserve native edits.
+No invitation, compensation/tax defaults, bank setup or payroll run is created.
+The ordinary activation handler requires explicit pay setup and start date and
+refuses a concurrent setup change for these imported profiles. Complete payroll
+onboarding remains open. Core's existing-record link review must still adopt the
+provider identity before approved time can be sent.
+
+`write:people_inputs` is a separate opt-in key capability. Both new environment
+flags, Core `COREFLUX_PUREPAY_PEOPLE_DELIVERY` and provider
+`COREFLUX_PEOPLE_PROVISIONING`, default OFF. Production/web/cron inspection now
+includes the Core flag. No live key, flag or operational employee was changed.
+
+Validation: 29 new disposable MariaDB checks, 82 targeted provider tests including
+the actual 32-assertion Core PHP HTTP consumer (Unicode, slash and line-separator
+hash agreement), and 19 provider UI/scope checks pass. Existing connection/link,
+input/delivery and numbering fixtures also pass; the record/field smoke count is
+132. The previous Core revision `2f29ad77` passed all nine CI jobs in run
+39715295635. Current candidate validation and deployment remain separately tracked.
+
+This profile slice is saved locally while the provider development API returns
+HTTP 502 and its editor attempts to reconnect. It is not yet saved to that editor,
+published, or accepted in the full provider app. The prior 23 saved provider paths
+remain the remote boundary. Core's live pilot session also remains at sign-in.
+Native commercial assignments, portal onboarding/access, the hosted Thunderhawk
+round trip and the full live accounting release are still unfinished.
+
 ## Field alignment checkpoint
 
-The field dictionary export includes 38 implemented payload mappings across
-31 source fields, with sender/receiver source evidence, transformations,
+The field dictionary export now includes 44 implemented payload mappings across
+35 source fields, with sender/receiver source evidence, transformations,
 immutable or conditional write rules, and source verification separated from
 hosted acceptance. It covers typed person/placement/client/vendor/company
 references, Quanta assignment metadata, PurePay links and PurePayroll
-approved-time/frozen-rate inputs including persisted Quanta origin. It remains
+approved-time/frozen-rate inputs including persisted Quanta origin, and reviewed
+W-2 contact snapshots. It remains
 metadata-only: loading or downloading it cannot activate a sync. Restricted,
 unknown, approval and unsupported fields do not receive inferred mappings.
-Native provisioning, portal access/onboarding, commercial term changes and
+Complete native onboarding, portal access, commercial term changes and
 complete settlement/liability attribution remain open. This is an intermediate
 field-alignment milestone, not completion of the operating pilot.
 

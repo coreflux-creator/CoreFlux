@@ -47,6 +47,18 @@ function staffingExchangeFieldMappings(): array
         'resolve_authorized_directory; typed_reference:person; reviewed_existing_worker_required',
         'immutable_link', '2026-10-20.1', $quantaEvidence);
 
+    foreach ([
+        'people.person_number' => ['person', 'resolve_authorized_directory; typed_reference:person'],
+        'people.first_name' => ['first_name', 'trimmed_printable_text_max_200; at_least_one_name'],
+        'people.last_name' => ['last_name', 'trimmed_printable_text_max_200; at_least_one_name'],
+        'people.email_primary' => ['email', 'trimmed_email_max_254; empty_to_null'],
+        'people.phone_primary' => ['phone', 'trimmed_printable_text_max_40; empty_to_null'],
+        'placements.engagement_type' => ['employment_type', 'w2_only; current_placement_must_belong_to_person'],
+    ] as $key => [$path, $transform]) {
+        $add($key, 'purepayroll', '/api/v1/integrations/coreflux/people/inputs', $path,
+            $transform, 'immutable_review_packet; separate_provider_review_creates_inactive_employee; no_activation',
+            '2026-10-22.1', ['core' => 'core/integrations/purepay_people_inputs.php', 'provider' => 'PurePay:backend/coreflux_people.py']);
+    }
     $inputEvidence = ['core' => 'core/integrations/purepay_payroll_inputs.php',
         'provider' => 'PurePay:backend/coreflux_payroll_inputs.py'];
     foreach ([
@@ -104,7 +116,7 @@ function staffingExchangeRemoteContracts(string $key, array $contracts): array
 function staffingExchangeWorkflowGaps(): array
 {
     return [
-        'native_payroll_employee_provisioning' => 'Not implemented by identity links or input packets; requires a reviewed onboarding workflow.',
+        'native_payroll_employee_provisioning' => 'Reviewed W-2 contact snapshots can create inactive profiles in candidate source; hosted acceptance, payroll setup, activation and complete onboarding remain open.',
         'native_commercial_assignment_updates' => 'Not implemented by metadata exchange; provider assignments can create bills and change terms.',
         'quanta_worker_provisioning' => 'Shared person links require an existing reviewed worker; they do not create or invite one.',
         'portal_access_and_onboarding' => 'Assignment metadata does not grant staff access or complete onboarding.',

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import PurePayrollInputReview from './PurePayrollInputReview';
+import PurePeopleInputReview from './PurePeopleInputReview';
 
 const endpoint = '/api/purepay_core.php?action=';
-const capabilityNames = { 'read:coreflux': 'View records', 'write:coreflux': 'Link existing records', 'read:payroll': 'View employees and payroll', 'write:payroll_inputs': 'Send payroll inputs for review' };
+const capabilityNames = { 'read:coreflux': 'View records', 'write:coreflux': 'Link existing records', 'read:payroll': 'View employees and payroll', 'write:payroll_inputs': 'Send payroll inputs for review', 'write:payroll_authority': 'Reserve reviewed payroll sources', 'write:people_inputs': 'Send people for profile review' };
 const card = { border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, padding: 16, marginBottom: 16 };
 
 export default function PurePayCoreConnection() {
@@ -72,6 +73,7 @@ export default function PurePayCoreConnection() {
       </>}
       {review.verified && <>
         {review.payroll_input_contract_version === '2026-10-21.1' && review.capabilities.includes('read:payroll') && <PurePayrollInputReview key={review.review_hash} canSend={review.capabilities.includes('write:payroll_inputs')} />}
+        {review.people_input_contract_version === '2026-10-22.1' && review.capabilities.includes('read:payroll') && <PurePeopleInputReview key={`people-${review.review_hash}`} canSend={review.capabilities.includes('write:people_inputs')} />}
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           <label>Provider records<select className="input" value={kind} disabled={busy} onChange={e => { setKind(e.target.value); setPage(null); setSeenCursors([]); clearLink(); setHistory(null); }}>
             <option value="placement">Assignments</option><option value="client">Clients</option><option value="vendor">Vendors</option>

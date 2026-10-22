@@ -192,7 +192,7 @@ jobs:
                 $workerPaths = array_merge($workerPaths, $relativeMatches[1]);
               }
               foreach (['COREFLUX_QUANTA_METADATA_DELIVERY','COREFLUX_PUREPAY_CORE_LINK_DELIVERY',
-                'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY','COREFLUX_PUREPAY_PAYROLL_AUTHORITY'] as $flag) {
+                'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY','COREFLUX_PUREPAY_PAYROLL_AUTHORITY','COREFLUX_PUREPAY_PEOPLE_DELIVERY'] as $flag) {
                 if (preg_match('/\b'.preg_quote($flag,'/').'=["\x27]?1\b/', $line)) $enabledFlags[] = $flag;
               }
             }
