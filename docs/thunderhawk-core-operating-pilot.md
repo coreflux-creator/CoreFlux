@@ -1,5 +1,39 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Core approval evidence deployed; Quanta pagination repaired - October 22, 2026
+
+Core revision e97fa704f3a77dada45aa39e6a46ac372764671a passed all CI jobs
+(run 39843459497) and was deployed only to full-Core integration staging
+(run 39844363589). Migration 170 was applied, the schema reported ready,
+and all staging acceptance workflows passed. Payroll authority remains disabled.
+This establishes staging delivery of the approval-evidence work below, not a
+production rollout or a live Thunderhawk round trip.
+
+Quanta's approved-time export could silently stop at a full filtered page or
+an empty bounded scan while later approved entries remained. The repair carries
+a progress cursor for both cases and resumes at the last emitted row when
+approved rows overflow. Four actual full-application HTTP cases pass with the
+candidate and all four fail against the unchanged baseline. Cases cover later
+approved rows, cursor replay, company/worker/worksite/exclusion filters, revoked
+keys and termination. Tests use memory-only data and zero outbound sockets.
+
+The exact accepted source hash 08917f62ca20210d5fe576dfb61dbf178edb8a9bb03e67a921476c9c684543f7
+is now installed in Quanta's development preview. The installed source passes
+the same four cases without a candidate override; the other sixteen checked
+source files, HEAD and staged Git index were preserved. No service command,
+credential change or publication was performed. The reversible backup and
+receipt are in /tmp/quanta-pagination-install-2edjf3np; local evidence is
+Quanta verification/pagination-installed-20261022.json. Source commit 1542937
+records the fix and failing-baseline comparison. Core's connector now has 77
+passing checks, including empty-page continuation, repeated-cursor rejection
+and no partial result if access is revoked after an earlier successful page.
+
+PurePay shared writes remain held for Review and harden Pure//Pay, which is
+publishing da85a190 with Nordic bank recovery and ordinary AP/AR corrections.
+Refresh its restored baseline and receive the coordinated source window before
+installing this integration's preview guards. Source approval revocations,
+timesheet revision identity and live return-status exchange remain open.
+
 ## PurePay scheduler hold verified and release coordination - October 22, 2026
 
 The restored shared PurePay source was independently verified at 9995b676:
@@ -42,7 +76,7 @@ separation between Quanta and Core approval. Local checks: 22 approval scenarios
 74 existing integration checks, 37 disposable MariaDB provenance/receipt checks,
 and three rendered-component cases pass. Targeted lint, PHP syntax and the
 complete dashboard production build pass (existing asset/CSS/chunk warnings
-remain). This candidate has not been deployed. Source revocation/delta completeness, a
+remain). This candidate is now deployed to integration staging as recorded above. Source revocation/delta completeness, a
 stable source approver ID, timesheet revision and return-status exchange remain
 separate open work; full live approval provenance is not claimed.
 

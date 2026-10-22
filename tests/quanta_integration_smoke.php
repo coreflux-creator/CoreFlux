@@ -35,6 +35,35 @@ $check('approved-entry contract rejects old items envelope', $throws(static fn (
 $check('catalog accepts its existing items-only response', quantaListPage(['items' => []], '/workers') === [[], ['items' => [], 'has_more' => false]]);
 unset($GLOBALS['__quanta_transport']);
 
+$pageCursors = [];
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url) use (&$pageCursors): array {
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+    $cursor = $query['cursor'] ?? '';
+    $pageCursors[] = $cursor;
+    $page = match ($cursor) {
+        '' => ['data' => [], 'pagination' => ['has_more' => true, 'next_cursor' => 'scanned-drafts']],
+        'scanned-drafts' => ['data' => [['id' => 'later-approved']], 'pagination' => ['has_more' => true, 'next_cursor' => 'last-scan']],
+        'last-scan' => ['data' => [], 'pagination' => ['has_more' => false, 'next_cursor' => null]],
+        default => throw new RuntimeException('Unexpected fixture cursor'),
+    };
+    return ['status' => 200, 'body' => json_encode($page)];
+};
+$entries = quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH);
+$check('empty filtered pages continue through the source scan', array_column($entries, 'id') === ['later-approved']
+    && $pageCursors === ['', 'scanned-drafts', 'last-scan']);
+$GLOBALS['__quanta_transport'] = static fn (): array => ['status' => 200,
+    'body' => '{"data":[],"pagination":{"has_more":true,"next_cursor":"stalled"}}'];
+$check('empty pages with a repeated cursor fail instead of ending successfully',
+    $throws(static fn () => quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH)));
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url): array {
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+    return isset($query['cursor']) ? ['status' => 403, 'body' => '{"detail":"Key revoked"}']
+        : ['status' => 200, 'body' => '{"data":[{"id":"uncommitted"}],"pagination":{"has_more":true,"next_cursor":"next"}}'];
+};
+$check('access revoked after one page cannot return a partial import set',
+    $throws(static fn () => quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH)));
+unset($GLOBALS['__quanta_transport']);
+
 $GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers): array {
     $path = (string) parse_url($url, PHP_URL_PATH);
     if ($path === '/api/v1/dimensions') {
