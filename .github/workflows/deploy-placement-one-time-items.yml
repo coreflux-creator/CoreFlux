@@ -124,6 +124,28 @@ jobs:
                 if (preg_match('/\b'.preg_quote($flag,'/').'=["\x27]?1\b/', $line)) $enabledFlags[] = $flag;
               }
             }
+            $temporaryPackages = [];
+            foreach (glob('/tmp/core-integration-*', GLOB_ONLYDIR) as $upload) {
+              if (!preg_match('~^/tmp/core-integration-[0-9]+$~D', $upload)
+                || is_link($upload) || realpath($upload) !== $upload
+                || fileowner($upload) !== posix_geteuid()) continue;
+              $manifestPath = $upload.'/package/integration-manifest.json';
+              $manifest = is_file($manifestPath) && !is_link($manifestPath)
+                ? json_decode(file_get_contents($manifestPath), true) : null;
+              $du = proc_open(['du','-sk','--',$upload], [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']], $duPipes);
+              if (!is_resource($du)) exit(10);
+              $duText = stream_get_contents($duPipes[1]); fclose($duPipes[1]); $duExit = proc_close($du);
+              $entries = [];
+              foreach (scandir($upload) as $entry) {
+                if ($entry === '.' || $entry === '..') continue;
+                $p = $upload.'/'.$entry;
+                $entries[] = ['name'=>$entry,'type'=>is_link($p)?'link':(is_dir($p)?'directory':'file')];
+              }
+              $temporaryPackages[] = ['directory'=>basename($upload), 'entries'=>$entries,
+                'allocated_bytes'=>$duExit===0 && preg_match('/^(\d+)\s/', $duText, $duMatch) ? (int)$duMatch[1]*1024 : null,
+                'product'=>$manifest['product']??null,'commit'=>$manifest['commit']??null,
+                'manifest_sha256'=>is_file($manifestPath)?hash_file('sha256',$manifestPath):null];
+            }
             echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
               'paths'=>$metadata, 'environment_configured'=>$configured,
               'database_operations'=>$database,
@@ -133,6 +155,7 @@ jobs:
                 'app_owner_crontab_verified'=>false],
               'backup_tools'=>['mysqldump'=>is_executable('/usr/bin/mysqldump'),'mariadb_dump'=>is_executable('/usr/bin/mariadb-dump'),
                 'private_free_bytes'=>disk_free_space(dirname($root).'/private_html')],
+              'temporary_release_packages'=>$temporaryPackages,
               'cli_uid'=>function_exists('posix_geteuid') ? posix_geteuid() : null,
               'cli_gid'=>function_exists('posix_getegid') ? posix_getegid() : null], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
             PHP
