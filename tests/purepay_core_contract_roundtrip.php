@@ -104,4 +104,15 @@ $check(integrationDeliveryHash($commercialRead['packet'])===integrationDeliveryH
 try {purepayCall('pk_'.hash('sha256','reader'),'POST',PUREPAY_CORE_PATH.'/assignments/inputs',$commercial,25,integrationDeliveryHash($commercial),purepayCoreApiBase());$rejected=false;}
 catch(PurePayApiException $e){$rejected=$e->httpStatus===403;}
 $check($rejected,'Metadata read access cannot send commercial packets');
+require_once __DIR__.'/../core/integrations/purepay_people_setup.php';
+$check(($context['people_setup_contract_version']??null)===PUREPAY_PEOPLE_SETUP_VERSION
+    && in_array('read:people_setup',$context['capabilities'],true),'PHP discovers the explicit setup-read contract');
+$setupLink=['id'=>'cfl_'.integrationDeliveryHash(['org-a',$person]),'provider_id'=>'emp-a'];
+$query=$person;unset($query['entity_type']);$query['provider_id']='emp-a';
+$setup=purepayPeopleSetupReceipt(purepayCoreGet($key,'/people/setup?'.http_build_query($query)),'org-a',$person,$setupLink);
+$check($setup['provider_id']==='emp-a' && $setup['indicators']['employee_status']==='inactive','Actual PHP validates the scoped provider setup observation');
+$check($setup['onboarding_completion']==='not_evaluated' && $setup['payroll_authorization']==='not_evaluated','Setup presence never conveys onboarding completion or payroll approval');
+try {purepayCoreGet('pk_'.hash('sha256','reader'),'/people/setup?'.http_build_query($query));$rejected=false;}
+catch(RuntimeException $e){$rejected=true;}
+$check($rejected,'Existing payroll read keys cannot access the new setup indicators');
 echo json_encode(['passed'=>$passed,'scope'=>'synthetic Core PHP to PurePay ASGI HTTP contract']),"\n";

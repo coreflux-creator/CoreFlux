@@ -6,6 +6,7 @@ $local=getenv('COREFLUX_DELIVERY_LOCAL_FIXTURE')==='1' && in_array('--confirm-di
 if(!$inCi&&!$local)throw new RuntimeException('Explicit disposable fixture configuration required');
 putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));putenv('COREFLUX_DISABLE_DATABASE=1');
 require_once __DIR__.'/../core/integrations/purepay_links.php';
+require_once __DIR__.'/../core/integrations/purepay_people_setup.php';
 require_once __DIR__.'/../core/migrate.php';
 $password=$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
 $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
@@ -42,6 +43,17 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     $response=static fn($body,int $status=200):array=>['status'=>$status,'body'=>json_encode($body)];
     if($method==='GET') {
         if($path==='/context')return $response($context);
+        if($path==='/people/setup') {
+            $ref=integrationRecordReference($query['instance_id'],(int)$query['directory_tenant_id'],'person',$query['number']);
+            $value=['contract_version'=>PUREPAY_PEOPLE_SETUP_VERSION,'organization_id'=>'org-a','person'=>$ref,
+                'provider_id'=>$query['provider_id'],'link_id'=>'cfl_'.integrationDeliveryHash(['org-a',$ref]),
+                'indicators'=>['employee_status'=>'active','invitation_recorded'=>false,'profile_fields_present'=>false,
+                    'tax_election_record'=>'not_recorded','bank_reference_present'=>false],
+                'status_revision'=>str_repeat('a',64),'observed_at'=>gmdate('Y-m-d\TH:i:s\Z'),
+                'onboarding_completion'=>'not_evaluated','payroll_authorization'=>'not_evaluated'];
+            if($interleave){$fn=$interleave;$interleave=null;$fn();}
+            return $response($value);
+        }
         if(str_starts_with($path,'/records/')) {
             [,,$kind,$id]=explode('/',$path);
             if($interleave){$fn=$interleave;$interleave=null;$fn();}
@@ -157,5 +169,19 @@ $older=purepayCoreLinkHistory($pdo,1,$instance,10,'person',$firstId);
 $check(count($older['items'])===count($history['items'])-1 && !in_array($firstId,array_map(static fn($item)=>(int)$item['delivery']['id'],$older['items']),true),'history cursor excludes the preceding page boundary');
 unset($records['person']['emp-8']);
 $check(count(purepayCoreLinkHistory($pdo,1,$instance,10,'person')['items'])===count($history['items']),'history remains available if a provider record is no longer listed');
+$setup=static fn(int $owner=10,string $number='P-1'):array=>purepayPeopleSetupRead($pdo,1,$instance,$owner,$number);
+$check($fails(fn()=>$setup()),'setup indicators need a separately reviewed provider capability');
+$context['capabilities'][]='read:people_setup';$context['people_setup_contract_version']=PUREPAY_PEOPLE_SETUP_VERSION;
+$check($fails(fn()=>$setup()),'new setup access invalidates the previous company confirmation');$connect();
+$count=$posts;$before=$pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$observation=$setup();
+$check($observation['person']['number']==='P-1' && $observation['provider_id']==='emp-1' && $observation['onboarding_completion']==='not_evaluated','setup read follows the exact delivered employee link');
+$check($posts===$count && $pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'setup observation changes no employee and sends no provider write');
+$check($fails(fn()=>$setup(1)),'setup read cannot choose another directory');
+$check($fails(fn()=>$setup(10,'P-6')),'uncertain employee links cannot expose setup');
+$interleave=static function()use($pdo){$pdo->exec("UPDATE people SET last_name='Setup concurrent edit' WHERE id=1");};
+$check($fails(fn()=>$setup()),'Core person change during setup read rejects the observation');
+$interleave=static function()use($pdo){purepayCoreDisconnect($pdo,1);};
+$check($fails(fn()=>$setup()),'revocation during setup read rejects the observation');
 unset($GLOBALS['__purepay_transport']);putenv('COREFLUX_PUREPAY_CORE_LINK_DELIVERY');
 echo "PurePay Core links MariaDB: {$passed} passed\n";

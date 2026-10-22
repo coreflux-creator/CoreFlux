@@ -184,7 +184,9 @@ jobs:
         run: php tests/purepay_core_connection_mariadb.php
 
       - name: Verify reviewed Core record links and response-loss reconciliation
-        run: php tests/purepay_core_links_mariadb.php
+        run: |
+          php tests/purepay_core_links_mariadb.php
+          php tests/purepay_people_setup_receipt.php
 
       - name: PurePayroll approved input delivery fixture
         run: php tests/purepay_payroll_inputs_mariadb.php

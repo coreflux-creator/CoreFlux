@@ -3,9 +3,10 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import PurePayrollInputReview from './PurePayrollInputReview';
 import PurePeopleInputReview from './PurePeopleInputReview';
 import PureAssignmentInputReview from './PureAssignmentInputReview';
+import PurePeopleSetup from './PurePeopleSetup';
 
 const endpoint = '/api/purepay_core.php?action=';
-const capabilityNames = { 'read:coreflux': 'View records', 'write:coreflux': 'Link existing records', 'read:payroll': 'View employees and payroll', 'write:payroll_inputs': 'Send payroll inputs for review', 'write:payroll_authority': 'Reserve reviewed payroll sources', 'write:people_inputs': 'Send people for profile review', 'write:assignment_inputs': 'Send placements for commercial review' };
+const capabilityNames = { 'read:coreflux': 'View records', 'write:coreflux': 'Link existing records', 'read:payroll': 'View employees and payroll', 'read:people_setup': 'View employee setup indicators', 'write:payroll_inputs': 'Send payroll inputs for review', 'write:payroll_authority': 'Reserve reviewed payroll sources', 'write:people_inputs': 'Send people for profile review', 'write:assignment_inputs': 'Send placements for commercial review' };
 const card = { border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, padding: 16, marginBottom: 16 };
 
 export default function PurePayCoreConnection() {
@@ -73,6 +74,7 @@ export default function PurePayCoreConnection() {
         })}>Confirm company</button>
       </>}
       {review.verified && <>
+        {review.people_setup_contract_version === '2026-10-22.1' && review.capabilities.includes('read:people_setup') && <PurePeopleSetup key={`setup-${review.review_hash}`} />}
         {review.payroll_input_contract_version === '2026-10-21.1' && review.capabilities.includes('read:payroll') && <PurePayrollInputReview key={review.review_hash} canSend={review.capabilities.includes('write:payroll_inputs')} />}
         {review.people_input_contract_version === '2026-10-22.1' && review.capabilities.includes('read:payroll') && <PurePeopleInputReview key={`people-${review.review_hash}`} canSend={review.capabilities.includes('write:people_inputs')} />}
         {review.assignment_input_contract_version === '2026-10-22.2' && <PureAssignmentInputReview key={`assignments-${review.review_hash}`} canSend={review.capabilities.includes('write:assignment_inputs')} />}

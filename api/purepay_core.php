@@ -7,6 +7,7 @@ require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_results.php';
 require_once __DIR__.'/../core/integrations/purepay_people_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_assignment_inputs.php';
+require_once __DIR__.'/../core/integrations/purepay_people_setup.php';
 require_once __DIR__.'/../core/sub_tenants.php';
 $ctx=api_require_auth();
 $user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
@@ -71,6 +72,12 @@ try {
             if(!is_string($kind) || (isset($body['cursor'])&&!is_string($body['cursor'])))api_error('Invalid record page',422);
             purepayCoreApiRecordOwner($user,$tenantId,$kind);
             $result=purepayCoreRecords($pdo,$tenantId,$instance,$kind,50,$body['cursor']??null);break;
+        case 'people_setup':
+            if(!is_string($body['person_number']??null))api_error('Choose a confirmed Core person number.',422);
+            $owner=purepayCoreApiRecordOwner($user,$tenantId,'person');
+            rbac_legacy_require($user,'people.docs.view');
+            header('Cache-Control: no-store, private');
+            $result=purepayPeopleSetupRead($pdo,$tenantId,$instance,$owner,strtoupper(trim($body['person_number'])));break;
         case 'link_preview':
             if(!is_string($body['kind']??null) || !is_string($body['number']??null) || !is_string($body['provider_id']??null))api_error('Select a provider record and enter its Core number.',422);
             $owner=purepayCoreApiRecordOwner($user,$tenantId,$body['kind']);
