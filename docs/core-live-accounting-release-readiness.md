@@ -226,6 +226,11 @@ writer maintenance, verified file/database backups and recovery checks before
 requesting the final production-cutover approval. No live records, migrations,
 credentials, payroll, payment or invoice issuance were changed by this work.
 
+The subsequent payroll-result candidate adds Core migration 167 for encrypted
+provider observations. Include it in the reviewed upgrade plan and refresh the
+pending-migration/schema inventory before cutover; the earlier numeric counts
+above describe the prior audited candidate, not this additional table.
+
 Local evidence: `thunderhawk-live-invoice-clients.png` and
 `thunderhawk-live-accounting-overview.png` (untracked). Full read-only reports
 are saved under the local Temp directory as `core-production-preflight-<run>.json`

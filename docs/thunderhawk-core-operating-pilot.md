@@ -31,7 +31,44 @@ paths restored byte-for-byte and provider workers available after release
 87e2aee. Its remote `/app` write hold is lifted; no integration edits occurred
 during either coordinated release.
 
-## Allocated cancellation checkpoint — October 21, 2026
+## Attributed payroll result checkpoint — October 21, 2026
+
+Provider candidate `577222a` adds a read-only result for an exact source authority.
+It retains the full original person/placement references, provider IDs, Core and
+Quanta source IDs, revisions and frozen rates. Wages are reported per component;
+bonuses, reimbursements, withholding, deductions, employer costs, net and funding
+remain employee-level figures. The complete result has a stable content hash and
+a separate observation timestamp. Missing or unbalanced amounts, altered source
+or a concurrent run/grant change refuse the result.
+
+Core validates the exact packet and independently recalculates component cents,
+then checks employee and run totals. Migration 167 adds encrypted immutable
+observations with replay deduplication and audit rollback. The existing input
+history now opens result history and offers an explicit provider refresh. It
+explains draft/void/archived/recorded-paid status without claiming cash delivery.
+The intake receipt no longer states that no later payroll exists. Result reads
+do not release reserved time, execute payroll or post accounting entries.
+
+Both provider files were saved and read-back verified in Beautiful Kalam 6 after
+the existing exchange file matched its baseline. There are 23 pending paths;
+the source boundary chat received their exact hashes. Source save is not provider
+publication. No central server, worker or execution-flag changes were made.
+
+Validation: 224 provider tests (19 new result cases), including actual provider
+HTTP results through Core's PHP parser; 36 Core parser checks; 20 result-storage
+and 33 input MariaDB assertions; five tenant checks and five actual UI component
+renders. The Core dashboard compiled with the existing 61 lint warnings; a
+Windows interruption during the final generated-file copy was resolved by
+rerunning that copy. Full provider startup, tax accuracy, hosted payroll and
+settlement delivery remain unverified. Core CI/staging publication of this
+increment is being verified separately from the earlier staged runtime below.
+
+Next: hosted source-to-held-draft-to-result acceptance and reviewed provider
+publication/connection capability setup; actual employee/tax settlement evidence;
+onboarding/access and commercial-term exchange. The separate live accounting
+backup/upgrade/activation gates remain. The integration goal is active.
+
+## Earlier allocated cancellation checkpoint — October 21, 2026
 
 Provider candidate `717c64a` closes allocated cancellation and the native
 archive/restore/reopen gaps described in the earlier checkpoint below. A

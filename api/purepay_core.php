@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__.'/../core/api_bootstrap.php';
 require_once __DIR__.'/../core/integrations/purepay_links.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
+require_once __DIR__.'/../core/integrations/purepay_payroll_results.php';
 require_once __DIR__.'/../core/sub_tenants.php';
 $ctx=api_require_auth();
 $user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
@@ -36,7 +37,7 @@ try {
     $audit=static function()use($pdo,$tenantId,$user,$action,$body):void {
         // Action and company only; credentials and employee payloads never enter audit metadata.
         $metadata=['action'=>$action];
-        if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile'],true))$metadata['delivery_id']=$body['delivery_id'];
+        if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile','payroll_result_refresh'],true))$metadata['delivery_id']=$body['delivery_id'];
         $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(:t,:u,:e,NULL,:m,:ip,NOW())')
             ->execute(['t'=>$tenantId,'u'=>(int)$user['id'],'e'=>'purepay.core.'.$action,'m'=>json_encode($metadata),'ip'=>$_SERVER['REMOTE_ADDR']??null]);
     };
@@ -91,6 +92,16 @@ try {
             if(!is_string($body['person_number']??null) || (isset($body['before'])&&!is_int($body['before'])))api_error('Choose a person number for input history.',422);
             $owners=purepayCoreApiPayrollOwners($user,$tenantId);
             $result=purepayPayrollInputHistory($pdo,$tenantId,$instance,$owners,strtoupper(trim($body['person_number'])),$body['before']??null);break;
+        case 'payroll_result_history':
+        case 'payroll_result_refresh':
+            if(!is_int($body['delivery_id']??null) || $body['delivery_id']<=0 || !is_string($body['review_hash']??null)
+                || (isset($body['before'])&&!is_int($body['before'])))api_error('Choose an existing payroll input review.',422);
+            $owners=purepayCoreApiPayrollOwners($user,$tenantId);
+            if($action==='payroll_result_refresh') {
+                if(!is_string($body['authority_id']??null))api_error('Choose a source reservation.',422);
+                $result=purepayPayrollResultRefresh($pdo,$tenantId,(int)$user['id'],$instance,$owners,$body['delivery_id'],$body['review_hash'],$body['authority_id'],$audit);
+            } else $result=purepayPayrollResultHistory($pdo,$tenantId,$instance,$owners,$body['delivery_id'],$body['review_hash'],$body['before']??null);
+            break;
         default: api_error('Unknown Core connection action',404);
     }
     api_ok($result);

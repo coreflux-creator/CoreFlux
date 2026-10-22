@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
+import PurePayrollResults from './PurePayrollResults';
 
 export default function PurePayrollInputReview({ canSend = false }) {
   const [person, setPerson] = useState('');
@@ -41,7 +42,7 @@ export default function PurePayrollInputReview({ canSend = false }) {
       <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>Placement</th><th>Provider assignment</th><th>Time / date</th><th>Hours</th><th>Frozen rate</th></tr></thead><tbody>
         {review.packet.components.map(c => <tr key={c.source.time_entry_id}><td>{c.placement.number}</td><td>{c.assignment_id}</td><td>{c.source.time_entry_id} · {c.source.work_date}<br />{c.source.category}</td><td>{c.source.hours}</td><td>{c.rate.currency} {c.rate.pay_rate} / {c.rate.pay_rate_unit} × {c.rate.multiplier}<br />Snapshot {c.rate.snapshot_id}</td></tr>)}
       </tbody></table></div>
-      {review.delivery.state === 'delivered' ? <p role="status">Received for review in PurePayroll. No payroll created. Receipt: {review.delivery.remote_receipt_id}</p>
+      {review.delivery.state === 'delivered' ? <><p role="status">Inputs received for review in PurePayroll. This receipt describes intake only; check payroll results for later run status. Receipt: {review.delivery.remote_receipt_id}</p><PurePayrollResults key={review.delivery.id} delivery={review.delivery} /></>
         : ['sending', 'uncertain'].includes(review.delivery.state) ? <><p role="status">This attempt needs a confirmed receipt. Checking will not resend it.</p><button className="btn" disabled={busy} onClick={() => receipt('reconcile')}>Check input receipt</button></>
           : <><p>These hours remain available to existing payroll processes. Draft application must check current approvals and prevent duplicate use before any payroll is created.</p>
             {!review.delivery_enabled && <p>Payroll input delivery is not enabled for this environment.</p>}
