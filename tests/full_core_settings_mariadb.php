@@ -103,7 +103,9 @@ try {
         $web = json_decode($body, true);
         $check($status === 200 && $web['web_verification'] && $web['database_connected'] && $web['read_only_probe']
             && $web['production_mode'] && !$web['activation_performed'], 'HTTP bootstrap reads private settings and connects with SELECT-only credentials');
-        $check(!in_array(true, $web['outbound_flags_from_web_configuration'], true), 'web verification reports provider delivery disabled');
+        $check(count($web['outbound_flags_from_web_configuration']) === 8
+            && ($web['outbound_flags_from_web_configuration']['COREFLUX_QUANTA_ONBOARDING_DELIVERY'] ?? null) === false
+            && !in_array(true, $web['outbound_flags_from_web_configuration'], true), 'web verification reports all eight provider and authority controls disabled');
         $check(!str_contains($body, $secret) && !str_contains($body, $user) && !str_contains($body, $settings['SMTP_PASS']), 'web response excludes connection identity and secrets');
         rename($receipt['private_directory'] . '/candidate/core/db.local.php', $receipt['private_directory'] . '/candidate/core/db.local.php.saved');
         try {
