@@ -30,6 +30,14 @@ try{
     $create=['action'=>'create','request_id'=>onboardingUuid(),'person_id'=>$personId,'placement_id'=>$placementId];
     $result=qaRequest($path,'POST',$create,$cookies[0]);$case=$result['case'];$id=$case['id'];
     $check($case['readiness']==='requirements_unconfirmed'&&$case['required_count']===0,'HTTP creation cannot mark an empty case complete');
+    $documentRequest=['action'=>'import_document','case_id'=>$id,'receipt_id'=>'cfs_'.str_repeat('a',64),'delivery_id'=>1,'expected_version'=>$case['version']];
+    try{qaRequest('/modules/people/api/onboarding_quanta.php','POST',$documentRequest+['storage_key'=>'people/1/document/1/untrusted.pdf'],$cookies[0]);throw new LogicException('Browser storage identity accepted');}
+    catch(RuntimeException $e){$check(str_contains($e->getMessage(),'HTTP 422'),'document HTTP intake rejects browser-provided storage identities');}
+    // This staging acceptance never enables the document feature or contacts a live provider.
+    if(getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS')!=='1'){
+        try{qaRequest('/modules/people/api/onboarding_quanta.php','POST',$documentRequest,$cookies[0]);throw new LogicException('Disabled document intake accepted');}
+        catch(RuntimeException $e){$check(str_contains($e->getMessage(),'HTTP 409'),'document HTTP intake remains disabled before provider or storage IO');}
+    }
     $retry=qaRequest($path,'POST',$create,$cookies[0]);$check($retry['receipt']['replayed']===true&&$retry['receipt']['case_id']===$id,'HTTP request replay preserves one case and receipt');
     $command=static function(string $action,array $fields=[],int $actor=0)use(&$case,$path,$cookies){$response=qaRequest($path,'POST',['action'=>$action,'request_id'=>onboardingUuid(),'case_id'=>$case['id'],'expected_version'=>$case['version']]+$fields,$cookies[$actor]);$case=$response['case'];return $response;};
     $added=$command('add_task',['title'=>'Synthetic orientation review','instructions'=>'Synthetic acceptance only: record orientation and route to employer review.','assignee'=>'staff','evidence_kind'=>'attestation','required'=>true]);$task=$added['receipt']['task_id'];

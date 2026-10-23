@@ -106,6 +106,8 @@ try{
         $snapshot=quantaOnboardingSnapshot($docScope,$qId,$docHead);
         $fetched=quantaOnboardingDocumentFetch($snapshot['access']['api_key'],$qWorkspace,$snapshot['case'],$snapshot['remote'],$docReceipt,'worker-2',$qInstance);
         $prepared=quantaOnboardingStoreDocument($docScope,$snapshot['case'],$fetched,$docStorage);
+        // The child reads the encrypted credential from MariaDB; do not serialize its binary ciphertext.
+        unset($snapshot['access']['connection']['api_key_ct']);
         $packet=['scope'=>$docScope,'snapshot'=>$snapshot,'receipt'=>$docReceipt,'document'=>$prepared,'version'=>$version,'delivery_id'=>$docDelivery,'storage_root'=>$docRoot];
         $before=$docCounts();$children=[];$observer->beginTransaction();
         $lock=$observer->prepare('SELECT id FROM staffing_onboarding_cases WHERE tenant_id=11 AND id=? FOR UPDATE');$lock->execute([$qId]);$lock->fetchAll();
