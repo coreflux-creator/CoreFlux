@@ -32,6 +32,7 @@ node --test "$output/public_html/dashboard/tests/csvImportAudit.test.mjs" \
 npm run build --prefix "$output/public_html/dashboard"
 composer install --working-dir="$output/public_html" --no-dev --no-interaction \
   --prefer-dist --optimize-autoloader --no-scripts --no-plugins
+php "$output/public_html/tests/storage_s3_package.php"
 
 COREFLUX_ENV=coreaccounting \
 COREFLUX_STANDALONE_WEBROOT="$output/public_html" \

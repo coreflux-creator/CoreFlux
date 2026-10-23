@@ -26,6 +26,12 @@ class S3Driver implements StorageDriver
 
     public function __construct(array $cfg = [])
     {
+        // Direct module APIs do not load Composer as part of API bootstrap.
+        // Load the application's installed SDK lazily without initializing storage.
+        if (!class_exists('\\Aws\\S3\\S3Client')) {
+            $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+            if (is_file($autoload)) require_once $autoload;
+        }
         if (!class_exists('\Aws\S3\S3Client')) {
             throw new \RuntimeException(
                 'S3Driver requires aws/aws-sdk-php. Run `composer install` and ensure ' .
@@ -115,22 +121,26 @@ class S3Driver implements StorageDriver
     public function get_presigned_post(string $key, array $constraints = []): array
     {
         $defaults = [
-            'acl'                  => 'private',
-            'ServerSideEncryption' => 'aws:kms',
+            'acl'                          => 'private',
+            'x-amz-server-side-encryption' => 'aws:kms',
         ];
         if ($this->kmsKeyId !== '') {
-            $defaults['SSEKMSKeyId'] = $this->kmsKeyId;
-            $defaults['x-amz-server-side-encryption']                = 'aws:kms';
             $defaults['x-amz-server-side-encryption-aws-kms-key-id'] = $this->kmsKeyId;
         }
         $defaults['key'] = $key;
+        // PostObjectV4 does not turn form fields into policy conditions. Bind
+        // the exact object, privacy and encryption fields in the signed policy.
+        // https://docs.aws.amazon.com/AmazonS3/latest/developerguide/RESTObjectPOST.html
+        $policy = $constraints['policy'] ?? [];
+        $policy[] = ['bucket' => $this->bucket];
+        foreach ($defaults as $field => $value) $policy[] = [$field => $value];
 
         $postClass = '\Aws\S3\PostObjectV4';
         $post = new $postClass(
             $this->client,
             $this->bucket,
             $defaults,
-            $constraints['policy'] ?? [],
+            $policy,
             $constraints['expires'] ?? '+15 minutes'
         );
 

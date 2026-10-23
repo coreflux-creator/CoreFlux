@@ -14,6 +14,7 @@ $reject(fn()=>peopleDocumentMetadata(['file_name'=>"unsafe\r\nname.pdf"]));
 $values=peopleDocumentMetadata(['doc_type'=>'offer','filename'=>'offer.pdf','signed'=>true,'signed_at'=>'2026-10-22'],true);
 $check($values['signed']===1 && $values['signed_at']==='2026-10-22 00:00:00' && $values['file_name']==='offer.pdf','typed metadata and normalized dates');
 foreach([null,['etag'=>'','size_bytes'=>1],['etag'=>'x','size_bytes'=>0],['etag'=>'x','size_bytes'=>26*1024*1024],['etag'=>'x','size_bytes'=>'5']]as$head)$reject(fn()=>peopleDocumentHead(static fn($key)=>$head,'key'));
+$check(peopleDocumentHead(static fn($key)=>['etag'=>'older-large-file','size_bytes'=>30*1024*1024],'key',null)['size_bytes']===30*1024*1024,'existing large documents remain downloadable without buffering their contents');
 $safe=peopleDocumentPublic(['id'=>1,'file_name'=>'a.pdf','storage_path'=>'private/old','s3_key'=>'private/key','employee_id'=>77,'tenant_id'=>10]);
 $check($safe===['id'=>1,'file_name'=>'a.pdf'],'vault metadata omits legacy paths and employee identity');
 echo "PASS {$n} document input and ownership checks\n";

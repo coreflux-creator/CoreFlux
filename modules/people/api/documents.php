@@ -71,13 +71,13 @@ if ($method === 'GET') {
         rbac_legacy_require($user, 'people.docs.view');
         $row = $findDocument($id);
         $obj = peopleDocumentObject($pdo, $tid, (int)$row['person_id'], (int)$row['storage_object_id']);
-        peopleDocumentHead($head, $obj['s3_key']);
+        peopleDocumentHead($head, $obj['s3_key'], null);
         $signed = StorageService::getInstance()->get_signed_url($obj['s3_key']);
         peopleLogPIIAccess(
             (int) ($user['id'] ?? 0),
             (int) $row['person_id'],
             'document.downloaded',
-            ['document_id' => $id, 'doc_type' => $row['doc_type']]
+            ['document_id' => $id, 'doc_type' => $row['doc_type'], 'people_tenant_id'=>$tid]
         );
         api_ok(['document' => peopleDocumentPublic($row), 'signed_url' => $signed]);
     }

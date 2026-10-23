@@ -133,6 +133,15 @@ try {
         'migration_upgrade_plan' => fullCoreMigrationPlan($manifest, $package, $root, $ledgerRows, $legacyLedger),
         'accounting_schema' => coreAccountingInspectSchema($db),
         'outbound_flags_from_cli_configuration' => $flags,
+        // Configuration presence only. Never print storage names, keys or credentials,
+        // instantiate a driver, create a directory or contact the object store here.
+        'storage_environment' => [
+            'driver' => in_array(strtolower((string)(getenv('STORAGE_DRIVER') ?: 'local')), ['local','s3'], true)
+                ? strtolower((string)(getenv('STORAGE_DRIVER') ?: 'local')) : 'unrecognized',
+            's3_bucket_configured' => trim((string)getenv('STORAGE_S3_BUCKET')) !== '',
+            's3_kms_key_configured' => trim((string)getenv('STORAGE_S3_KMS_KEY_ID')) !== '',
+            'object_access_verified' => false,
+        ],
         'activation_performed' => false,
         'remaining_release_gates' => ['Review migration/data impact and production-only source changes',
             'Confirm web/worker flags, backup and recovery procedure', 'Explicit production cutover authorization'],

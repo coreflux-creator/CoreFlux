@@ -51,10 +51,10 @@ function peopleDocumentObject(PDO $pdo, int $owner, int $person, int $objectId, 
     return $object;
 }
 
-function peopleDocumentHead(callable $head, string $key): array {
+function peopleDocumentHead(callable $head, string $key, ?int $maxBytes=25*1024*1024): array {
     $object=$head($key);
     if (!is_array($object) || !is_string($object['etag']??null) || trim($object['etag'])===''
-        || !is_int($object['size_bytes']??null) || $object['size_bytes']<1 || $object['size_bytes']>25*1024*1024) {
+        || !is_int($object['size_bytes']??null) || $object['size_bytes']<1 || ($maxBytes!==null && $object['size_bytes']>$maxBytes)) {
         throw new PeopleDocumentConflict('The uploaded file is missing, incomplete or exceeds 25 MB.');
     }
     return $object;
@@ -104,7 +104,7 @@ function peopleDocumentRegister(PDO $pdo, array $scope, int $person, array $body
             if (isset($body['storage_key']) && $body['storage_key']!==$key) throw new PeopleDocumentConflict('Storage identifiers disagree.');
         } else {
             $key=peopleDocumentKey($owner,$person,$body['storage_key']??null);
-            $s=$pdo->prepare('SELECT id FROM storage_objects WHERE s3_key=:k FOR UPDATE'); $s->execute(['k'=>$key]);
+            $s=$pdo->prepare('SELECT id FROM storage_objects WHERE tenant_id=:t AND s3_key=:k FOR UPDATE'); $s->execute(['t'=>$owner,'k'=>$key]);
             $objectId=(int)($s->fetchColumn()?:0);
             $object=$objectId ? peopleDocumentObject($pdo,$owner,$person,$objectId,true) : null;
         }

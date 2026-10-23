@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $placementApi = (string) file_get_contents($root . '/modules/placements/api/documents.php');
 $peopleApi = (string) file_get_contents($root . '/modules/people/api/documents.php');
+$peopleStorage = (string) file_get_contents($root . '/modules/people/lib/documents.php');
 $placementUi = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
 $peopleUi = (string) file_get_contents($root . '/modules/people/ui/PersonDetail.jsx');
 $storage = (string) file_get_contents($root . '/core/storage_register.php');
@@ -13,13 +14,16 @@ $checks = [
         str_contains($placementApi, "api_require_fields(\$body, ['storage_key', 'filename'])")
         && str_contains($placementApi, 'registerStorageObject('),
     'people documents register the storage key returned to the browser' =>
-        str_contains($peopleApi, "api_require_fields(\$body, ['storage_key', 'filename'])")
-        && str_contains($peopleApi, 'registerStorageObject('),
+        str_contains($peopleApi, 'peopleDocumentRegister($pdo,$scope,$personId,$body,$head)')
+        && str_contains($peopleStorage, "peopleDocumentKey(\$owner,\$person,\$body['storage_key']??null)")
+        && str_contains($peopleStorage, 'peopleDocumentHead($head,$key)'),
     'document uploads validate the owning tenant and entity path' =>
         str_contains($placementApi, '$requirePlacement($pid)')
         && str_contains($placementApi, '"placements/{$tid}/document/{$pid}/"')
         && str_contains($peopleApi, '$requirePerson($personId)')
-        && str_contains($peopleApi, '"people/{$tid}/document/{$personId}/"'),
+        && str_contains($peopleStorage, '"people/{$owner}/document/{$person}/"'),
+    'person upload exposes the URL field consumed by the browser helper' =>
+        str_contains($peopleApi, "'upload'      => ['url'=>\$post['form_action'], 'fields'=>\$post['fields']]"),
     'storage idempotency lookup is tenant scoped' =>
         str_contains($storage, 'WHERE tenant_id = :t AND s3_key = :k'),
     'placement detail exposes upload and open controls' =>
