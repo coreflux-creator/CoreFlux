@@ -35,8 +35,13 @@ receipt in one Core transaction after file retrieval/storage, with authority
 rechecks and replay/rollback tests. Hosted private S3 configuration/object access,
 provider release/scopes/bindings and the real Thunderhawk round trip remain open.
 The earlier Live/Test setting confirmation and PL-864 employer/branch/WC details
-remain outstanding. Staging is still 56bc0b53 until a later acceptance records
-otherwise. Production remains unchanged. The integration goal remains active.
+remain outstanding. Core runtime 441bc48fb7c65c28d72dc3adb0071bd9a75ad0af passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39884215613)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39884474048).
+Staging includes the reader, with document intake disabled and no vault import
+endpoint. Existing onboarding HTTP, accounting lifecycle, split receipt, credit
+and log-only delivery acceptance passed. Production remains unchanged. The
+integration goal remains active.
 
 
 ## Person document vault fixes staged - October 22, 2026
