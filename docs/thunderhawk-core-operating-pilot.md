@@ -1,3 +1,33 @@
+## PurePay integration installed in guarded preview - October 23, 2026
+
+The accepted setup/webhook candidate d942c386a008455e4c5a80e478e253aceb9efa6d
+is now installed in the existing beautiful-kalam-6 development preview. Fresh
+source inspection and coordination with the release owner preceded the seven
+runtime-file changes. Shared HEAD remains 9cd71c83, its index and unrelated
+pending source are unchanged, and protected environment/supervisor/cron hashes
+match the preflight. The backend was stopped before this operation and now runs
+with the frontend in host-bound review mode. Scheduled operations, background
+jobs and startup migrations remain disabled. All 20,596 documents across 112
+nonempty collections matched exactly before and after startup. The private
+rollback directory is /tmp/purepay-integration-preview-install-vbnlph62.
+
+Chrome acceptance in the existing Meridian demo workspace confirms that the
+Core records permission form defaults all additional scopes off, setup access
+requires payroll read access but remains separately unchecked, and the Quanta
+settings show the signing-secret requirement. No key was created, settings
+saved, or sync action triggered. The demo's pre-existing Quanta connection still
+points to helloquanta.app with automatic workflow/catch-up configured; global
+review mode prevents scheduled processing. Do not mistake this demo setup for
+Thunderhawk's reviewed connection or trigger that automatic sync for testing.
+
+Evidence: verification/integration-preview-{preflight,install,browser}-20261023.json
+and the two browser screenshots in the PurePay companion mirror. Core's compact
+receipt is deploy/purepay-integration-preview-20261023.json. Both provider
+previews are now installed. Authenticated Core exchange, actual Thunderhawk
+placement readiness and the full round trip remain open. Core still shows its
+login page. Live/Test setting corrections and provider publication remain
+unapproved and were not performed. No real payroll, payment or posting ran.
+
 ## Quanta onboarding preview browser acceptance - October 23, 2026
 
 The reviewed Quanta onboarding/document candidate is now installed in the
