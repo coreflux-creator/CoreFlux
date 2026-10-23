@@ -121,15 +121,16 @@ class S3Driver implements StorageDriver
     public function get_presigned_post(string $key, array $constraints = []): array
     {
         $defaults = [
-            'acl'                          => 'private',
             'x-amz-server-side-encryption' => 'aws:kms',
         ];
+        // Omit ACLs: new buckets enforce bucket ownership and reject an explicit
+        // private ACL. Access remains governed by the bucket/IAM policies.
         if ($this->kmsKeyId !== '') {
             $defaults['x-amz-server-side-encryption-aws-kms-key-id'] = $this->kmsKeyId;
         }
         $defaults['key'] = $key;
         // PostObjectV4 does not turn form fields into policy conditions. Bind
-        // the exact object, privacy and encryption fields in the signed policy.
+        // the exact object and encryption fields in the signed policy.
         // https://docs.aws.amazon.com/AmazonS3/latest/developerguide/RESTObjectPOST.html
         $policy = $constraints['policy'] ?? [];
         $policy[] = ['bucket' => $this->bucket];
