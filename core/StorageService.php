@@ -69,6 +69,7 @@ class StorageService
     }
 
     public function driver_name(): string { return $this->driver->driver_name(); }
+    public function location_fingerprint(): string { return $this->driver->location_fingerprint(); }
 
     /** Local upload/download endpoints use this; modules continue through StorageService. */
     public function local_driver(): ?LocalDriver
@@ -112,6 +113,18 @@ class StorageService
     public function get_signed_url(string $key, int $ttlSeconds = 300, array $opts = []): string
     {
         return $this->driver->get_signed_url($key, $ttlSeconds, $opts);
+    }
+
+    /** Write an already-reserved server-side key, refusing any overwrite or scope change. */
+    public function put_reserved(string $module,int $tenantId,string $entityType,$entityId,string $key,string $bytes,array $opts=[]): array
+    {
+        $prefix=$this->sanitize_segment($module).'/'.$tenantId.'/'.$this->sanitize_segment($entityType).'/'.$this->sanitize_segment((string)$entityId).'/';
+        $name=str_starts_with($key,$prefix)?substr($key,strlen($prefix)):'';
+        if($tenantId<=0||$name===''||!preg_match('/^[a-f0-9]{8}-.+$/D',$name)||$this->sanitize_filename(substr($name,9))!==substr($name,9)
+            ||strlen($name)>209)throw new \InvalidArgumentException('StorageService: invalid reserved object identity');
+        // Module callers cannot turn a reserved write into an overwrite or local-file read.
+        $opts['if_not_exists']=true;$opts['source_is_bytes']=true;
+        return ['key'=>$key,'driver'=>$this->driver->driver_name()]+$this->driver->put($key,$bytes,$opts);
     }
 
     public function get_presigned_post(string $key, array $constraints = []): array

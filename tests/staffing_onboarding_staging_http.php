@@ -30,6 +30,8 @@ try{
     $create=['action'=>'create','request_id'=>onboardingUuid(),'person_id'=>$personId,'placement_id'=>$placementId];
     $result=qaRequest($path,'POST',$create,$cookies[0]);$case=$result['case'];$id=$case['id'];
     $check($case['readiness']==='requirements_unconfirmed'&&$case['required_count']===0,'HTTP creation cannot mark an empty case complete');
+    $retained=qaRequest('/modules/people/api/onboarding_quanta.php?case_id='.$id.'&view=document_transfers','GET',null,$cookies[0]);
+    $check($retained['items']===[]&&$retained['has_more']===false,'native HTTP retained-file history works without a provider connection or storage access');
     $documentRequest=['action'=>'import_document','case_id'=>$id,'receipt_id'=>'cfs_'.str_repeat('a',64),'delivery_id'=>1,'expected_version'=>$case['version']];
     try{qaRequest('/modules/people/api/onboarding_quanta.php','POST',$documentRequest+['storage_key'=>'people/1/document/1/untrusted.pdf'],$cookies[0]);throw new LogicException('Browser storage identity accepted');}
     catch(RuntimeException $e){$check(str_contains($e->getMessage(),'HTTP 422'),'document HTTP intake rejects browser-provided storage identities');}

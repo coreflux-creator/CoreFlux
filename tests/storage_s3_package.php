@@ -6,6 +6,12 @@ if (class_exists('Aws\\S3\\S3Client',false)) throw new RuntimeException('SDK mus
 $driver=new \Core\Storage\S3Driver(['bucket'=>'coreflux-synthetic-vault','region'=>'us-east-1',
     'kms_key_id'=>'arn:aws:kms:us-east-1:000000000000:key/00000000-0000-4000-8000-000000000001',
     'access_key_id'=>'SYNTHETICNOTVALID','secret_access_key'=>'synthetic-signing-only-no-cloud-access']);
+$rotated=['bucket'=>'coreflux-synthetic-vault','region'=>'us-east-1',
+    'kms_key_id'=>'arn:aws:kms:us-east-1:000000000000:key/00000000-0000-4000-8000-000000000001',
+    'access_key_id'=>'ROTATEDSYNTHETIC','secret_access_key'=>'synthetic-rotated-signing-only'];
+if((new \Core\Storage\S3Driver($rotated))->location_fingerprint()!==$driver->location_fingerprint()
+    ||(new \Core\Storage\S3Driver(array_replace($rotated,['bucket'=>'other-synthetic-vault'])))->location_fingerprint()===$driver->location_fingerprint()
+    ||(new \Core\Storage\S3Driver(array_replace($rotated,['kms_key_id'=>'synthetic-other-key'])))->location_fingerprint()===$driver->location_fingerprint())throw new RuntimeException('Storage identity must track bucket/encryption configuration, not rotating credentials.');
 $key='people/10/document/100/synthetic.pdf';
 $post=$driver->get_presigned_post($key,['policy'=>[['content-length-range',1,25*1024*1024]]]);
 if (!str_starts_with($post['form_action']??'','https://') || ($post['fields']['key']??null)!==$key

@@ -92,3 +92,21 @@ test('a case switch discards document retry authority and ignores an old respons
   assert.equal(imported, 0); assert.equal(button(tree, 'Check the same request'), undefined);
   assert.equal(button(tree, 'Import document for review'), undefined); tree.unmount();
 });
+
+test('retained transfer history remains available when the provider is unavailable', async () => {
+  const reads = [];
+  apiImpl = { get: async url => { reads.push(url); if (!url.endsWith('&view=document_transfers')) throw new Error('Provider unavailable');
+    return { items: [{ import_id: 'transfer-a', task_id: 'task-a', state: 'stored', updated_at: '2026-10-23' }], has_more: false }; } };
+  const tree = await mount({ canManage: false }); await click(tree, 'Check portal and worker submissions');
+  assert.ok(JSON.stringify(tree.toJSON()).includes('Provider unavailable'));
+  await click(tree, 'Check retained document transfers');
+  assert.equal(reads.length, 2); assert.ok(JSON.stringify(tree.toJSON()).includes('Copy prepared; import pending'));
+  assert.equal(button(tree, 'Import document for review'), undefined); tree.unmount();
+});
+test('retained transfer read is discarded when the case changes', async () => {
+  let finish; apiImpl = { get: () => new Promise(resolve => { finish = resolve; }) };
+  const tree = await mount(); await click(tree, 'Check retained document transfers');
+  await act(async () => { tree.update(React.createElement(mod.exports.default, { value: { ...value, id: 'another-case' }, canManage: true })); });
+  await act(async () => { finish({ items: [{ import_id: 'old', task_id: 'task-a', state: 'stored', updated_at: '2026-10-23' }], has_more: false }); });
+  assert.ok(!JSON.stringify(tree.toJSON()).includes('Copy prepared; import pending')); tree.unmount();
+});

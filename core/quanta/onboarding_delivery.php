@@ -176,6 +176,7 @@ function quantaOnboardingImportVerified(PDO $pdo,array $scope,array $snapshot,ar
     try{
         $case=quantaOnboardingLock($pdo,$scope,$snapshot,$head,false);
         if($prior=onboardingReceipt($pdo,$scope,$rid,$hash,true)){$pdo->commit();return $prior;}
+        if($document!==null&&($document['binding_hash']??null)!==$snapshot['access']['binding_hash'])throw new OnboardingConflict('The prepared document connection changed');
         $publishedTask=quantaOnboardingImportProof($pdo,$scope,$snapshot,$case,$receipt,$deliveryId,$expectedVersion,$document!==null);
         foreach($case['tasks']as&$task)if($task['id']===$receipt['task_id']){
             foreach(['title','instructions','assignee','evidence_kind','required']as$k)if($publishedTask[$k]!==$task[$k])throw new OnboardingConflict('Delivered requirement differs from Core');
@@ -233,5 +234,6 @@ function quantaOnboardingStatus(array $scope,string $caseId,callable $head): arr
         'state'=>$snapshot['remote']['publication']['state'],'core_version'=>$snapshot['remote']['publication']['core_version'],
         'assignment_current'=>$snapshot['remote']['assignment_current']??false,'source_current'=>$snapshot['remote']['publication']['source_revision']===$case['source_revision']]:null,
         'receipts'=>$receipts,'deliveries'=>array_slice($history,0,20),'history_has_more'=>count($history)>20||count($rows)>200,
-        'delivery_enabled'=>quantaOnboardingDeliveryEnabled(),'document_transfer'=>$documents];
+        'delivery_enabled'=>quantaOnboardingDeliveryEnabled(),'document_transfer'=>$documents,
+        'document_transfers'=>quantaOnboardingTransfers($pdo,$scope,$caseId)];
 }

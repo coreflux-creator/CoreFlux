@@ -46,4 +46,6 @@ interface StorageDriver
     public function set_legal_hold(string $key, bool $on): void;
 
     public function driver_name(): string;
+    /** Non-secret fingerprint of the physical namespace/encryption configuration; excludes rotating credentials. */
+    public function location_fingerprint(): string;
 }

@@ -5,13 +5,20 @@ const URL = '/modules/people/api/onboarding_quanta.php';
 export default function OnboardingQuanta({ value, canManage, disabled, onImported, onBusy }) {
   const [status, setStatus] = useState(null), [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [pending, setPending] = useState(null);
+  const [transfers, setTransfers] = useState(null);
   const epoch = useRef(0);
   const invalidate = useCallback(() => { epoch.current++; }, []);
-  useEffect(() => { invalidate(); setStatus(null); setPreview(null); setPending(null); setError(''); setBusy(false); return invalidate; }, [value.id, value.version, invalidate]);
+  useEffect(() => { invalidate(); setStatus(null); setTransfers(null); setPreview(null); setPending(null); setError(''); setBusy(false); return invalidate; }, [value.id, value.version, invalidate]);
   async function load() {
     const token = ++epoch.current; setBusy(true); setError('');
-    try { const data = await api.get(`${URL}?case_id=${value.id}`); if (token === epoch.current) setStatus(data); }
+    try { const data = await api.get(`${URL}?case_id=${value.id}`); if (token === epoch.current) { setStatus(data); setTransfers(data.document_transfers || null); } }
     catch (e) { if (token === epoch.current) { setStatus(null); setError(e.message); } }
+    finally { if (token === epoch.current) setBusy(false); }
+  }
+  async function loadTransfers() {
+    const token = ++epoch.current; setBusy(true); setError('');
+    try { const data = await api.get(`${URL}?case_id=${value.id}&view=document_transfers`); if (token === epoch.current) setTransfers(data); }
+    catch (e) { if (token === epoch.current) { setTransfers(null); setError(e.message); } }
     finally { if (token === epoch.current) setBusy(false); }
   }
   async function send(body) {
@@ -36,8 +43,15 @@ export default function OnboardingQuanta({ value, canManage, disabled, onImporte
     <p>Publish the confirmed requirements to the linked worker. Import worker submissions for employer review. Documents are saved in the person’s vault; importing evidence does not approve a requirement.</p>
     {error && <p role="alert">{error}</p>}
     <button disabled={locked} onClick={load}>Check portal and worker submissions</button>
+    {' '}<button disabled={locked} onClick={loadTransfers}>Check retained document transfers</button>
     {busy && <p role="status">Checking…</p>}
     {pending && !busy && <p>The last response is unconfirmed. <button onClick={() => send(pending)}>Check the same request</button></p>}
+    {transfers && <details open><summary>Document transfer history</summary>
+      <p>Recorded transfer state in Core. A retry verifies the original file before importing it. Retained copies stay private and do not complete a requirement.</p>
+      {!transfers.items.length && <p>No document transfers recorded for this case.</p>}
+      {transfers.items.map(t => <p key={t.import_id}>{value.tasks.find(task => task.id === t.task_id)?.title || 'Earlier requirement'} · {t.updated_at} · {{ reserved: 'Transfer not yet confirmed', stored: 'Copy prepared; import pending', registered: 'Imported for staff review' }[t.state] || 'Needs reconciliation'}</p>)}
+      {transfers.has_more && <p>Showing the latest 100 transfers; earlier records remain retained.</p>}
+    </details>}
     {status && <>
       <p>Workspace: <strong>{status.workspace.name}</strong>. {status.publication ? `${status.publication.state === 'withdrawn' ? 'Withdrawn' : 'Published'} · Core revision ${status.publication.core_version}` : 'No publication found.'}</p>
       {status.publication && (!status.publication.assignment_current || !status.publication.source_current || status.publication.core_version !== value.version) && <p>The portal’s copy differs from the current case. Review and publish the latest requirements.</p>}

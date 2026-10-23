@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/onboarding_contract.php';
 require_once __DIR__.'/../StorageService.php';
+require_once __DIR__.'/onboarding_transfers.php';
 
 const QUANTA_ONBOARDING_DOCUMENT_VERSION='2026-10-23.1';
 const QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES=25*1024*1024;
@@ -28,16 +29,26 @@ function quantaOnboardingDocumentStamp(array $head): array {
     return array_intersect_key($head,array_flip(['etag','version_id','size_bytes','last_modified','mime']));
 }
 
-/** Private physical copy precedes the SQL command. Uncommitted copies remain private for reconciliation. */
-function quantaOnboardingStoreDocument(array $scope,array $case,array $fetched,\Core\StorageService $storage): array {
+/** The durable reservation precedes physical IO; retries verify/reuse exactly that object. */
+function quantaOnboardingStoreDocument(array $scope,array $case,array $fetched,\Core\StorageService $storage,array $reservation): array {
     quantaOnboardingDocumentAuthority($scope);$doc=$fetched['document'];$bytes=$fetched['bytes'];
+    $pdo=getDB();if($pdo->inTransaction())throw new LogicException('Document IO cannot run inside a transaction');
+    $saved=quantaOnboardingTransferGet($pdo,$scope['tenant_id'],$reservation['import_id']);
+    foreach(['case_id','people_tenant_id','person_id','storage_key','receipt_hash','descriptor_hash','binding_hash','storage_identity']as$k)
+        if(!$saved||(string)$saved[$k]!== (string)$reservation[$k])throw new OnboardingConflict('Document transfer reservation changed');
+    if($saved['storage_identity']!==$storage->location_fingerprint()||$saved['case_id']!==$case['id']||(int)$saved['people_tenant_id']!==$case['people_tenant_id']||(int)$saved['person_id']!==$case['person_id']
+        ||$saved['descriptor_hash']!==onboardingHash($doc)||$saved['receipt_hash']!==onboardingHash($fetched['receipt']))throw new OnboardingConflict('Document transfer source changed');
     if(strlen($bytes)!==$doc['size_bytes']||!hash_equals($doc['sha256'],hash('sha256',$bytes)))throw new OnboardingConflict('Document bytes changed before storage');
-    // Keep provider display filenames in metadata; storage paths use bounded ASCII identifiers.
-    $filename=$doc['id'].'.'.strtolower(pathinfo($doc['filename'],PATHINFO_EXTENSION));
-    $object=$storage->put('people',$case['people_tenant_id'],'document',$case['person_id'],$filename,$bytes,
-        ['mime'=>$doc['mime'],'source_is_bytes'=>true,'if_not_exists'=>true,
-         'metadata'=>['core_import'=>'quanta_onboarding','provider_document_id'=>$doc['id'],'sha256'=>$doc['sha256']]]);
-    $key=peopleDocumentKey($case['people_tenant_id'],$case['person_id'],$object['key']);
+    $key=peopleDocumentKey($case['people_tenant_id'],$case['person_id'],$saved['storage_key']);
+    if($storage->head($key)===null){
+        try{$storage->put_reserved('people',$case['people_tenant_id'],'document',$case['person_id'],$key,$bytes,
+            ['mime'=>$doc['mime'],'metadata'=>['core_import'=>'quanta_onboarding','provider_document_id'=>$doc['id'],'sha256'=>$doc['sha256']]]);}
+        catch(Throwable $e){
+            // A lost PUT response or overlapping writer may already have stored the exact object.
+            // Never overwrite it; the bounded verification below determines whether it is usable.
+            if($storage->head($key)===null)throw $e;
+        }
+    }
     $head=peopleDocumentHead(static fn($k)=>$storage->head($k),$key);
     $stored=$storage->read($key,QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES);
     $after=peopleDocumentHead(static fn($k)=>$storage->head($k),$key);
@@ -45,7 +56,10 @@ function quantaOnboardingStoreDocument(array $scope,array $case,array $fetched,\
         ||$head['size_bytes']!==$doc['size_bytes']||($head['mime']??null)!==$doc['mime']
         ||quantaOnboardingDocumentStamp($head)!==quantaOnboardingDocumentStamp($after))throw new OnboardingConflict('The stored document could not be verified');
     quantaOnboardingDocumentAuthority($scope);
-    return ['storage_key'=>$key,'stamp'=>quantaOnboardingDocumentStamp($after),'descriptor_hash'=>onboardingHash($doc)];
+    $prepared=['transfer_id'=>$saved['import_id'],'binding_hash'=>$saved['binding_hash'],'storage_identity'=>$saved['storage_identity'],
+        'storage_key'=>$key,'stamp'=>quantaOnboardingDocumentStamp($after),'descriptor_hash'=>onboardingHash($doc)];
+    quantaOnboardingTransferStored($pdo,$scope,$saved,$prepared);
+    return $prepared;
 }
 
 /** Registration, onboarding evidence and history share the caller's locked SQL transaction. */
@@ -53,6 +67,7 @@ function quantaOnboardingAttachDocument(PDO $pdo,array $scope,array $case,array 
     if(!$pdo->inTransaction())throw new LogicException('Document attachment requires the onboarding transaction');
     quantaOnboardingDocumentAuthority($scope);$doc=quantaOnboardingDocumentMetadata($receipt);
     if(($receipt['kind']??null)!=='document'||($document['descriptor_hash']??null)!==onboardingHash($doc))throw new OnboardingConflict('Prepared document differs from the verified receipt');
+    $transfer=quantaOnboardingTransferLock($pdo,$scope,$case,$receipt,$document);
     $key=peopleDocumentKey($case['people_tenant_id'],$case['person_id'],$document['storage_key']??null);
     $verifiedHead=static function(string $actualKey)use($head,$key,$document,$doc):array{
         if($actualKey!==$key)throw new OnboardingConflict('Prepared storage identity changed');
@@ -62,6 +77,8 @@ function quantaOnboardingAttachDocument(PDO $pdo,array $scope,array $case,array 
     };
     $registered=peopleDocumentRegisterInTransaction($pdo,$scope,$case['person_id'],
         ['doc_type'=>'other','storage_key'=>$key,'filename'=>$doc['filename'],'signed'=>false],$verifiedHead);
+    $pdo->prepare('UPDATE quanta_onboarding_document_transfers SET state="registered",document_id=:d,updated_at=UTC_TIMESTAMP() WHERE tenant_id=:t AND import_id=:i')
+        ->execute(['d'=>$registered['id'],'t'=>$scope['tenant_id'],'i'=>$transfer['import_id']]);
     return onboardingDocument($pdo,$case,$registered['id'],$verifiedHead,true)+[
         'provider_document_id'=>$doc['id'],'sha256'=>$doc['sha256'],'filename'=>$doc['filename']];
 }
@@ -83,12 +100,12 @@ function quantaOnboardingImportDocument(array $scope,string $caseId,string $rece
         $case=quantaOnboardingLock($pdo,$scope,$snapshot,$head,false);
         if($prior=onboardingReceipt($pdo,$scope,$rid,$hash,true)){$pdo->commit();return $prior;}
         quantaOnboardingImportProof($pdo,$scope,$snapshot,$case,$receipt,$deliveryId,$expectedVersion,true);
-        quantaOnboardingDocumentMetadata($receipt);
+        $reservation=quantaOnboardingTransferReserve($pdo,$scope,$case,$receipt,$snapshot['access'],$storage);
         $pdo->commit();
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
     $fetched=quantaOnboardingDocumentFetch($snapshot['access']['api_key'],$workspace,$case,$snapshot['remote'],$receipt,
         $snapshot['worker'],$snapshot['access']['instance_id']);
-    $document=quantaOnboardingStoreDocument($scope,$case,$fetched,$storage);
+    $document=quantaOnboardingStoreDocument($scope,$case,$fetched,$storage,$reservation);
     // Recheck the provider after storage IO; the final SQL command rechecks all local authority under lock.
     $latest=quantaOnboardingSnapshot($scope,$caseId,$head);
     $current=array_values(array_filter($latest['remote']['submissions']??[],static fn($r)=>($r['id']??null)===$receiptId));

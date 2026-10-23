@@ -194,6 +194,7 @@ class LocalDriver implements StorageDriver
     }
 
     public function driver_name(): string { return 'local'; }
+    public function location_fingerprint(): string { return hash('sha256','local:'.(realpath($this->root)?:$this->root)); }
 
     /**
      * Verify a token returned by get_signed_url. Used by /api/storage/local/get.php.

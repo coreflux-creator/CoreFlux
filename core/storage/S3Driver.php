@@ -217,4 +217,5 @@ class S3Driver implements StorageDriver
     }
 
     public function driver_name(): string { return 's3'; }
+    public function location_fingerprint(): string { return hash('sha256',json_encode(['s3',$this->bucket,$this->kmsKeyId],JSON_THROW_ON_ERROR)); }
 }

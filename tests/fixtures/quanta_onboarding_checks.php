@@ -9,7 +9,7 @@ $pdo->exec("INSERT INTO tenants VALUES(10,NULL,'master',1),(11,10,'sub',1)");
 $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(40),scope_mode VARCHAR(20))');
 $pdo->exec("INSERT INTO tenant_module_scope VALUES(11,'placements','isolated')");
 $pdo->exec('CREATE TABLE quanta_connections(id BIGINT PRIMARY KEY,tenant_id BIGINT UNIQUE,status VARCHAR(20),api_key_ct VARBINARY(2048))');
-foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','159_quanta_workspace_binding.sql','148_quanta_worker_identity.sql']as$file)
+foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','159_quanta_workspace_binding.sql','148_quanta_worker_identity.sql','173_quanta_onboarding_document_transfers.sql']as$file)
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../../core/migrations/'.$file))as$sql)$pdo->exec($sql);
 $qScope=['tenant_id'=>11,'people_tenant_id'=>10,'placements_tenant_id'=>11,'actor_user_id'=>90,'permissions'=>['view'=>true,'manage'=>true,'review'=>true]];
 $qHead=static fn($key)=>null;$qInstance='381e452a-5d11-4e2e-9daa-e9427501898a';$qWorkspace='synthetic-quanta';$qKey='synthetic-onboarding-key';

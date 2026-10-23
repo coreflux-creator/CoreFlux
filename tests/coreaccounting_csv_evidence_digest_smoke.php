@@ -22,6 +22,7 @@ final class CsvDigestMemoryDriver implements StorageDriver {
     public function set_retention(string $key, DateTimeInterface $retainUntil, string $mode = 'GOVERNANCE'): void {}
     public function set_legal_hold(string $key, bool $on): void {}
     public function driver_name(): string { return 'memory'; }
+    public function location_fingerprint(): string { return hash('sha256','synthetic-csv-memory'); }
 }
 
 $passed = 0;

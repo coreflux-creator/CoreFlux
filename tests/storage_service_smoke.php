@@ -73,6 +73,16 @@ $literalPath=$driver->abs($put['key']);
 $literal=$svc->put('time',7,'timesheet','2026-W08','literal.txt',$literalPath,['source_is_bytes'=>true,'if_not_exists'=>true]);
 $assert('explicit raw bytes never dereference a matching filesystem path',$svc->read($literal['key'],4096)===$literalPath);
 $driver->delete($literal['key']);
+$reservedKey=$svc->build_key('people',42,'document',991,'reserved.pdf');
+$svc->put_reserved('people',42,'document',991,$reservedKey,$literalPath,['mime'=>'application/pdf','if_not_exists'=>false,'source_is_bytes'=>false]);
+$assert('reserved storage writes force raw bytes',$svc->read($reservedKey,4096)===$literalPath);
+try{$svc->put_reserved('people',42,'document',991,$reservedKey,'overwrite',['if_not_exists'=>false]);$assert('reserved storage is immutable',false);}
+catch(RuntimeException $e){$assert('reserved storage is immutable',true);}
+foreach(['people/43/document/991/12345678-file.pdf','people/42/document/992/12345678-file.pdf','people/42/document/991/12345678-../bad.pdf','people/42/document/991/file.pdf']as$bad){
+    try{$svc->put_reserved('people',42,'document',991,$bad,'unsafe');$assert('reserved storage rejects unowned or noncanonical key',false);}
+    catch(InvalidArgumentException $e){$assert('reserved storage rejects unowned or noncanonical key',true);}
+}
+$driver->delete($reservedKey);
 try {
     $svc->read($put['key'], 3);
     $assert('bounded read rejects oversized object', false);
@@ -130,7 +140,7 @@ $assert("S3Driver class exists",
     class_exists(\Core\Storage\S3Driver::class));
 
 // Cleanup only the two paths created by this test, on every host OS.
-foreach ([$put['key'], $immutableKey] as $key) {
+foreach ([$put['key'], $immutableKey,$reservedKey] as $key) {
     $dir = dirname($driver->abs($key));
     while ($dir !== $tmpRoot && str_starts_with($dir . DIRECTORY_SEPARATOR, $tmpRoot . DIRECTORY_SEPARATOR)) {
         @rmdir($dir);

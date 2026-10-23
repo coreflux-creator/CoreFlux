@@ -14,7 +14,11 @@ $scope=['tenant_id'=>$tenant,'people_tenant_id'=>effectiveTenantIdForModule('peo
         'documents_manage'=>$platform||rbac_legacy_can($user,'people.docs.manage')]];
 $storage=null;$head=static function(string $key)use(&$storage):?array{$storage??=new \Core\StorageService();return $storage->head($key);};
 try{
-    if(api_method()==='GET')api_ok(quantaOnboardingStatus($scope,onboardingId($_GET['case_id']??null),$head));
+    if(api_method()==='GET'){
+        $id=onboardingId($_GET['case_id']??null);
+        if(($_GET['view']??null)==='document_transfers')api_ok(quantaOnboardingTransfers(getDB(),$scope,$id));
+        api_ok(quantaOnboardingStatus($scope,$id,$head));
+    }
     if(api_method()!=='POST')api_error('Method not allowed',405);
     if(!str_starts_with(strtolower($_SERVER['CONTENT_TYPE']??''),'application/json'))api_error('JSON request required',415);
     api_require_legacy_permission($ctx,'people.onboarding.manage');$body=api_json_body();$action=$body['action']??'';
