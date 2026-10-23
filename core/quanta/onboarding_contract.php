@@ -60,9 +60,11 @@ function quantaOnboardingContext(string $key,string $workspace): array {
 }
 
 /** Pure validator for the next Core import step. It cannot change a case or approve evidence. */
-function quantaOnboardingSubmissionValidate(array $case,array $publication,array $receipt,string $workerId,string $instance,string $workspace): array {
+function quantaOnboardingSubmissionValidate(array $case,array $publication,array $receipt,string $workerId,string $instance,string $workspace,bool $allowDocument=false): array {
     $keys=['id','request_id','request_hash','worker_id','identity_id','case_id','core_case_id','core_version','source_revision',
         'projection_hash','task_id','task_version','kind','acknowledged','submitted_at','status'];
+    $kind=$allowDocument&&($receipt['kind']??null)==='document'?'document':'attestation';
+    if($kind==='document')$keys[]='document';
     if(array_diff(array_keys($receipt),$keys))throw new OnboardingConflict('Unsupported Quanta evidence receipt fields');
     foreach($keys as$key)
         if(!array_key_exists($key,$receipt))throw new OnboardingConflict('Incomplete Quanta evidence receipt');
@@ -81,9 +83,9 @@ function quantaOnboardingSubmissionValidate(array $case,array $publication,array
         ||$receipt['case_id']!==$publication['id']||$receipt['core_case_id']!==$case['id']
         ||$receipt['source_revision']!==$case['source_revision']||$receipt['projection_hash']!==$publication['projection_hash']
         ||$receipt['core_version']!==$publication['publication']['core_version']||$receipt['core_version']>$case['version']
-        ||$receipt['kind']!=='attestation'||$receipt['acknowledged']!==true||$receipt['status']!=='awaiting_core_review'
+        ||$receipt['kind']!==$kind||$receipt['acknowledged']!==true||$receipt['status']!=='awaiting_core_review'
         ||$case['source_changed']||$case['confirmed_plan_version']!==$case['plan_version']
-        ||!$task||$task['version']!==$receipt['task_version']||$task['assignee']!=='worker'||$task['evidence_kind']!=='attestation'
+        ||!$task||$task['version']!==$receipt['task_version']||$task['assignee']!=='worker'||$task['evidence_kind']!==$kind
         ||!in_array($task['effective_state'],['requested','rejected','needs_review','expired','evidence_unavailable'],true))throw new OnboardingConflict('Quanta evidence is stale or belongs to a different worker or requirement');
     onboardingId($receipt['request_id']);onboardingId($receipt['task_id']);
     foreach(['request_hash','projection_hash','source_revision']as$key)if(!is_string($receipt[$key])||!preg_match('/^[a-f0-9]{64}$/D',$receipt[$key]))throw new OnboardingConflict('Invalid evidence revision');

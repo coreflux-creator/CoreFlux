@@ -5,6 +5,7 @@ $origin=(string)getenv('COREFLUX_QUANTA_FIXTURE_ORIGIN');
 if(PHP_SAPI!=='cli'||getenv('COREFLUX_QUANTA_CONTRACT_FIXTURE')!=='1'||!preg_match('~^http://127\.0\.0\.1:[1-9][0-9]{0,4}$~D',$origin))throw new RuntimeException('Explicit loopback fixture required');
 putenv('COREFLUX_DISABLE_DATABASE=1');
 require_once __DIR__.'/../core/quanta/onboarding_contract.php';
+require_once __DIR__.'/../core/quanta/onboarding_documents.php';
 $GLOBALS['__quanta_transport']=$GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,$body='')use($origin){
     if(!str_starts_with($url,QUANTA_API_BASE.'/'))throw new RuntimeException('Unexpected fixture route');
     $context=stream_context_create(['http'=>['method'=>$method,'header'=>implode("\r\n",$headers),'content'=>$body,'ignore_errors'=>true,'follow_location'=>0,'timeout'=>10]]);
@@ -12,6 +13,20 @@ $GLOBALS['__quanta_transport']=$GLOBALS['__quanta_core_write_transport']=static 
     if($raw===false)throw new RuntimeException('Fixture request failed');
     preg_match('/^HTTP\/\S+ ([0-9]{3})/',$http_response_header[0]??'',$match);
     return ['status'=>(int)($match[1]??0),'body'=>$raw];
+};
+$GLOBALS['__quanta_document_transport']=static function($method,$url,$headers,$buffer)use($origin){
+    if(!str_starts_with($url,QUANTA_API_BASE.'/'))throw new RuntimeException('Unexpected file fixture route');
+    $context=stream_context_create(['http'=>['method'=>$method,'header'=>implode("\r\n",$headers),'ignore_errors'=>true,'follow_location'=>0,'timeout'=>10]]);
+    $stream=fopen($origin.substr($url,strlen('https://helloquanta.app')),'rb',false,$context);
+    if($stream===false)throw new RuntimeException('Fixture file request failed');
+    try{
+        foreach($http_response_header as$line)if(!$buffer->header($line."\r\n"))throw new RuntimeException('Fixture headers exceed limit');
+        preg_match('/^HTTP\/\S+ ([0-9]{3})/',$http_response_header[0]??'',$match);
+        if((int)($match[1]??0)===200)while(!feof($stream)){
+            $chunk=fread($stream,4096);if($chunk===false||$buffer->body($chunk)!==strlen($chunk))throw new RuntimeException('Fixture bytes exceed limit');
+        }
+        return (int)($match[1]??0);
+    }finally{fclose($stream);}
 };
 try{
     $raw=stream_get_contents(STDIN,250001);if(strlen($raw)>250000)throw new RuntimeException('Fixture too large');
@@ -23,6 +38,12 @@ try{
     }elseif($input['mode']==='validate'){
         $record=quantaGet('ck_fixture_write-a',QUANTA_CORE_CONTRACT_PATH.'/onboarding/'.$input['remote_id']);
         $result=quantaOnboardingSubmissionValidate($input['case'],$record,$record['submissions'][0],'worker-1','381e452a-5d11-4e2e-9daa-e9427501898a','a');
+    }elseif($input['mode']==='document'){
+        putenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS=1');putenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS=1');
+        $record=quantaGet('ck_fixture_write-a',QUANTA_CORE_CONTRACT_PATH.'/onboarding/'.$input['remote_id']);
+        $fetched=quantaOnboardingDocumentFetch('ck_fixture_write-a','a',$input['case'],$record,$record['submissions'][0],
+            'worker-1','381e452a-5d11-4e2e-9daa-e9427501898a');
+        $result=['document'=>$fetched['document'],'size_bytes'=>strlen($fetched['bytes']),'sha256'=>hash('sha256',$fetched['bytes'])];
     }else throw new RuntimeException('Unknown fixture operation');
     echo json_encode(['ok'=>true,'result'=>$result],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
 }catch(Throwable $e){echo json_encode(['ok'=>false,'error'=>$e->getMessage()]);exit(2);}

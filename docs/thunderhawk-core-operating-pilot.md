@@ -1,5 +1,44 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta private document candidate and Core reader - October 23, 2026
+
+Quanta's unpublished hosted review `codex/coreflux-onboarding-documents-20261023`
+is `acee0f1a5592ccb2bb46a965fe50671b393076b9` (parent `7bdfa656c34143a469119178618ddf514c800332`).
+Its full application passed 152 isolated backend checks and the complete frontend
+build, with zero external socket attempts. The shared development checkout and
+configuration were preserved. The local mirror is `7a694de`; acceptance/review
+receipts are retained in its verification directory. No provider publication,
+new API-key grant, invitation, payroll or financial execution occurred.
+
+The candidate adds authenticated worker PDF/PNG/JPEG upload, private GridFS storage,
+conditional submission receipts, and separately scoped Core retrieval. It defaults
+off, with an exact provider-workspace allowlist. Signature checking is not malware
+scanning. Failed writes or concurrent submissions can leave private unreferenced
+objects; reconciliation/cleanup remains open. Worker uploads do not approve tasks.
+
+Core's matching read-only adapter is `core/quanta/onboarding_documents.php`.
+It requires `COREFLUX_QUANTA_ONBOARDING_DOCUMENTS=1` and exact numeric operating
+workspace IDs in `COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS`; neither is enabled.
+It validates worker/case/task/publication identity before private retrieval,
+checks the separate document capability, bounds bytes and headers, rejects
+redirects, and verifies exact size, format, receipt ID and SHA256. Existing
+attestation import still rejects document receipts. There is no UI activation
+or database write in this increment.
+
+Validation: 55 PHP document checks, 23 existing onboarding contract checks, ten
+mounted worker UI checks, and four native PHP-to-Quanta HTTP cases (attestation
+plus three document formats, with scope removal and identity revocation).
+Provider checks use isolated Mongo/GridFS fixtures; no live database is claimed.
+
+Next: compose vault registration, onboarding evidence, history and the import
+receipt in one Core transaction after file retrieval/storage, with authority
+rechecks and replay/rollback tests. Hosted private S3 configuration/object access,
+provider release/scopes/bindings and the real Thunderhawk round trip remain open.
+The earlier Live/Test setting confirmation and PL-864 employer/branch/WC details
+remain outstanding. Staging is still 56bc0b53 until a later acceptance records
+otherwise. Production remains unchanged. The integration goal remains active.
+
+
 ## Person document vault fixes staged - October 22, 2026
 
 Runtime 56bc0b53004055e5d7ae87aa17ce0e99b06ed98b passed all nine
