@@ -1,5 +1,55 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Quanta document vault intake - October 23, 2026
+
+Core runtime `4ae64ebef77506621d0dc94504405d4112fdd37a` implements the
+previously open document-to-vault step. All nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39886695711)
+passed. [Isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39886917779)
+also passed for that exact runtime: 16 native onboarding HTTP checks, accounting
+lifecycle, split receipts, 61 credit checks and log-only delivery. The new route
+rejects browser-supplied storage identity and stays disabled before provider or
+storage IO. Deployed bundle: `index-Cf-okM0C.js`.
+
+The employer selects an authenticated Quanta document receipt. Core rechecks the
+worker, person, placement, workspace binding and delivered requirement before
+retrieval, after physical storage, and under the final database locks. Bounded
+PDF/PNG/JPEG bytes must match receipt size, type and SHA256. The private storage
+write uses a generated person-owned path and refuses overwrite. The original
+Unicode filename is retained as display metadata. Registry entry, person document,
+onboarding evidence, case revision and durable import receipt commit together.
+An identical retry returns the committed document without another file transfer;
+concurrent commits produce one registered document and one history event.
+Imported evidence remains submitted for separate employer review. No signature,
+document classification, worker activation or payroll authority is inferred.
+
+Native MariaDB acceptance passes 53 document-intake checks, including changed
+worker/directory/connection/placement authority, withdrawal, altered stored bytes,
+transaction rollback and overlapping requests. The existing real-storage vault
+suite now passes 30 checks. Local checks pass 55 bounded-transfer checks, 33
+vault-input checks, 33 storage checks and nine mounted portal UI checks. The
+packaged AWS SDK verifies encrypted conditional byte-upload requests with no
+network IO. Three native PHP-to-Quanta HTTP cases pass PDF/PNG/JPEG transfer with
+scope and identity revocation. Dashboard build and all 108 mounted UI checks pass.
+Synthetic UI evidence: `quanta-document-intake-synthetic-20261023.png`.
+
+Document intake remains default-off with exact Core tenant and Quanta workspace
+allowlists, explicit document-management authority and a separately scoped
+provider capability. HTTP intake additionally requires configured private S3
+storage and KMS. Production CLI inspection still reports local storage and no
+bucket/KMS key; web configuration and real object access remain unverified.
+Quanta's hosted document review remains unpublished at
+`acee0f1a5592ccb2bb46a965fe50671b393076b9`; its runtime was not changed here.
+The prior read-only adapter notes below describe the earlier checkpoint.
+
+Physical storage and SQL are not a distributed transaction. Failed, uncertain or
+concurrent attempts can leave private unreferenced objects. Reconciled cleanup,
+malware scanning and an actual provider-to-Core-vault live transfer remain open.
+No production activation, provider publication, new access grant, real payroll,
+payment or financial posting occurred. The existing release-settings confirmation
+is still pending. Core redirected PL-864 to sign-in again; a fresh login was
+requested. Its employing legal entity, business unit and WC class remain unconfirmed.
+
 ## Quanta private document candidate and Core reader - October 23, 2026
 
 Quanta's unpublished hosted review `codex/coreflux-onboarding-documents-20261023`
