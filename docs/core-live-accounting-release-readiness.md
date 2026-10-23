@@ -1,3 +1,44 @@
+## Quanta webhook contract correction - October 23, 2026
+
+The latest unpublished PurePay review is d942c386a008455e4c5a80e478e253aceb9efa6d
+on codex/coreflux-quanta-webhooks-20261023, above setup review
+aca0895ce9c42d376183b2d3435e3ed6582ddeb0. The eight-file review uses a private
+Git index. Shared release 9cd71c83, working source/index, prior review refs and
+protected configuration remain unchanged. No deployment or settings save ran.
+
+The actual Quanta dispatcher uses X-CH headers and signs timestamp + '.' + raw
+canonical JSON with HMAC-SHA256. The old PurePay receiver read different headers
+and accepted unsigned notifications if no secret was configured. The candidate
+requires the signing secret and a matching configured workspace ID; rejects
+missing/invalid/stale signatures, foreign workspaces, mismatched event headers,
+malformed/ambiguous JSON and streamed bodies over 256 KiB before receipt/import
+effects; and preserves review/select and automatic-sync policy. The settings
+screen explains that missing signing configuration blocks notifications. A
+background task is reported as queued, not already synced.
+
+All 39 checks passed against the full hosted app with synthetic in-memory data
+and zero external socket attempts. This includes signed retries in reviewed mode
+without worker/time/payroll writes or another company's receipt changes. The
+complete 448-file frontend compiled without warnings in a private source copy.
+The unchanged sender produced the golden signature fixture. These tests establish
+authentication and reviewed-mode behavior, not live automatic-import delivery or
+exactly-once execution; the existing background sync/catch-up mechanism remains.
+Evidence is in PurePay-current-source/verification/quanta-webhook-*-20261023.*.
+
+A fresh read-only live check still found two Thunderhawk Quanta administrators
+and no workers. PurePayroll remained connected in review/select mode with auto
+catch-up off, no imported workers/time, and 33 employees not in Quanta; the signing
+secret and workspace ID were unset. Those settings were not changed. The Core
+pilot still redirected to login in the accessible Chrome session. The existing
+questions for release settings, pilot employing entity/business unit/WC class,
+Core access and private document storage remain pending. Shared-directory JobDiva
+projection is not a blocker for Thunderhawk's verified tenant-2 directory.
+
+Core's staged runtime remains 9f656c59a256514bb5ddbca6a2b51e17ed085857. Quanta's
+latest unpublished review remains a0ff1371274f35c84a831fd61958b0a9cab4ee92.
+Next: resolve the existing operational prerequisites and demonstrate the actual
+Thunderhawk round trip; do not substitute more unrelated refactoring for it.
+
 ## Quanta upload recovery checkpoint - October 23, 2026
 
 Quanta's current unpublished hosted review is
