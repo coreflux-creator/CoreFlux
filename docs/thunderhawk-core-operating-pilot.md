@@ -1,3 +1,34 @@
+## AWS private storage active in isolated Core pilot - October 23, 2026
+
+The user-approved no-console identity and user-created access key are now in
+use by the isolated Cloudways pilot app 6707602 / muzqvdvqbx. Credentials were
+delivered over SSH to a private 0640 file outside the webroot; no secret was
+printed, committed, downloaded locally or sent through GitHub.
+
+Cloudways PHP-FPM disables putenv. The first environment-based activation was
+rolled back, then the private-configuration adapter was tested and installed
+without changing host security. CI 39985491754 passed all nine jobs for commit
+58b2eda8822c70ed97f8142c79fd875b37653416. The deployment is a narrow patch of
+StorageService and Quanta document readiness over the existing 9f656c59 runtime,
+plus the private host bootstrap; it is not a new full-Core release. Private
+rollback copies and the activation receipt remain on the pilot host.
+
+Fourteen actual S3 checks passed from CLI and PHP-FPM using the active backend:
+encrypted/versioned uploads, bounded reads, reserved-write replay protection,
+signed/expired/anonymous downloads, HTTP/encryption rejection, presigned POST
+and key binding, and version-preserving soft deletion. Registry and module
+document references were zero before activation. All 42 invoice-cache PDFs
+were hashed under PHP-FPM and remained readable with unchanged hashes.
+Temporary web probes were token-protected and removed. Synthetic S3 historical
+versions are retained; no permanent deletion was performed.
+
+Quanta storage readiness now passes, but document intake remains disabled.
+Real browser CORS/portal and tenant/permission document checks, provider release
+gates, pilot placement setup, and the full Thunderhawk/PurePayroll round trip
+remain outstanding. Production and the Arabella pilot were not changed.
+Non-secret evidence: deploy/aws/coreflux-documents-pilot.receipt.json.
+Older setup checkpoints below are historical.
+
 ## AWS pilot storage created - October 23, 2026
 
 The recovered AWS account 041304781980 is active. The user selected the Free

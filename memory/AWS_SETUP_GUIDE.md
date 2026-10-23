@@ -4,11 +4,15 @@ Updated 2026-10-23. The isolated pilot storage stack has been created in AWS
 account `041304781980`, region `us-east-1`. CloudFormation reports
 `CREATE_COMPLETE`; termination protection is enabled. See the
 [deployment receipt](../deploy/aws/coreflux-documents-pilot.receipt.json).
-The approved no-console IAM user `coreflux-documents-pilot` now has only the
-pilot runtime policy. Its user-created access key was delivered to the isolated
-Cloudways pilot, outside the webroot with restricted file permissions. Twelve
-real S3 checks passed from CLI, using synthetic objects. Web-process acceptance
-and application activation remain pending; no live documents were uploaded.
+The approved no-console IAM user `coreflux-documents-pilot` has only the pilot
+runtime policy. Its user-created access key is installed outside the isolated
+Cloudways pilot webroot, in a `0750` directory and `0640` settings file. Core now
+uses S3 through a private configuration constant because Cloudways disables
+`putenv()` in PHP-FPM. That security restriction was preserved. Fourteen real
+S3 checks passed from both CLI and the active web process. All 42 existing
+invoice-cache files remain readable with matching hashes. Quanta storage
+readiness passes; real document intake stays disabled. No production changes
+or live worker-document uploads were made.
 
 The user selected the **Free** account plan. AWS shows $100 in credits and an
 expiry of **2027-04-23**, or earlier when credits are depleted. The account closes
@@ -99,6 +103,13 @@ SDK default credential chain, leave both of those unset. Temporary credentials
 must use the complete standard SDK configuration, including
 `AWS_SESSION_TOKEN` and an actual refresh mechanism; Core's explicit
 `STORAGE_S3_*` pair does not accept a session token.
+
+On this Cloudways pilot, `core/db.local.php` loads the private
+`coreflux-storage-pilot/bootstrap.php`. The reviewed bootstrap defines
+`COREFLUX_STORAGE_CONFIG` with driver and S3 constructor settings; it does not
+use `putenv()` or weaken the host restrictions. `StorageService` and Quanta
+readiness use the same configuration. Do not put credentials in the tracked
+bootstrap template, public files, logs or repository.
 
 Confirm the web PHP process sees the same settings as CLI before testing.
 A successful configuration-presence check does not prove object access.
