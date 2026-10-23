@@ -37,12 +37,69 @@
     "cloudformation_template_valid": true,
     "change_set_reported_deployment_validations_passed": true,
     "five_stack_resources_created": true,
-    "runtime_identity_created": false,
-    "runtime_policy_attached": false,
-    "access_credentials_created": false,
+    "runtime_identity_created": true,
+    "runtime_policy_attached": true,
+    "access_credentials_created": true,
     "host_settings_changed": false,
-    "web_process_storage_acceptance_passed": false,
-    "live_worker_documents_uploaded": false
+    "web_process_storage_acceptance_passed": true,
+    "live_worker_documents_uploaded": false,
+    "cli_storage_acceptance_passed": true,
+    "application_s3_active": false
   },
-  "next_step": "The no-console IAM user coreflux-documents-pilot is prepared in Chrome at Review and create, with only the runtime policy selected. New access awaits user confirmation; no user has been created."
+  "next_step": "Deploy the tested private-configuration loader to the isolated pilot, then enable S3 and verify the active web backend. The first putenv-based application switch was rolled back because Cloudways disables putenv in PHP-FPM; direct CLI/FPM S3 acceptance passed. No production change or live document intake.",
+  "runtime_identity": {
+    "name": "coreflux-documents-pilot",
+    "arn": "arn:aws:iam::041304781980:user/coreflux-documents-pilot",
+    "console_access": false,
+    "attached_policy_arn": "arn:aws:iam::041304781980:policy/coreflux-documents-pilot-RuntimeAccessPolicy-sntfqX9gDpQT",
+    "access_key_created_by_user": true,
+    "credential_delivery_destination": "isolated Cloudways Core pilot muzqvdvqbx",
+    "credential_delivered": true
+  },
+  "acceptance": {
+    "cli": {
+      "passed": true,
+      "checks": {
+        "versioned_upload": true,
+        "exact_kms_encryption": true,
+        "bounded_read_matches": true,
+        "oversized_read_rejected": true,
+        "reserved_overwrite_rejected": true,
+        "signed_download_matches": true,
+        "anonymous_download_denied": true,
+        "missing_encryption_denied": true,
+        "presigned_post_matches": true,
+        "presigned_post_other_key_denied": true,
+        "soft_delete_hides_current_object": true,
+        "soft_delete_preserves_version": true
+      },
+      "synthetic_only": true,
+      "sapi": "cli",
+      "bucket": "coreflux-documents-pilot-documentsbucket-58usklwrp9sz",
+      "key": "people/999/document/storage-probe/cf9205ac-synthetic.txt",
+      "version_id": "AAQHtUvxVroUAJMWMAp72PyvkZEXAHtP"
+    },
+    "web": {
+      "passed": true,
+      "checks": {
+        "versioned_upload": true,
+        "exact_kms_encryption": true,
+        "bounded_read_matches": true,
+        "oversized_read_rejected": true,
+        "reserved_overwrite_rejected": true,
+        "signed_download_matches": true,
+        "anonymous_download_denied": true,
+        "missing_encryption_denied": true,
+        "presigned_post_matches": true,
+        "presigned_post_other_key_denied": true,
+        "soft_delete_hides_current_object": true,
+        "soft_delete_preserves_version": true
+      },
+      "synthetic_only": true,
+      "sapi": "fpm-fcgi",
+      "bucket": "coreflux-documents-pilot-documentsbucket-58usklwrp9sz",
+      "key": "people/999/document/storage-probe/9ede20b6-synthetic.txt",
+      "version_id": "3ljlKMbNWiX7WKlLdYr_FmnksSyY5fWB"
+    }
+  }
 }

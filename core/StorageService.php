@@ -52,9 +52,19 @@ class StorageService
             $this->driver = $driver;
             return;
         }
-        $name = strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
+        // A host-owned private bootstrap may supply settings when PHP-FPM blocks
+        // putenv(). This constant must never be defined from request input.
+        $private = defined('COREFLUX_STORAGE_CONFIG') ? constant('COREFLUX_STORAGE_CONFIG') : null;
+        if (defined('COREFLUX_STORAGE_CONFIG') && (!is_array($private)
+            || array_diff(array_keys($private), ['driver', 's3'])
+            || ($private['driver'] ?? null) !== 's3' || !is_array($private['s3'] ?? null)
+            || !is_string($private['s3']['bucket'] ?? null) || $private['s3']['bucket'] === ''
+            || !is_string($private['s3']['kms_key_id'] ?? null) || $private['s3']['kms_key_id'] === '')) {
+            throw new \RuntimeException('Invalid private storage configuration.');
+        }
+        $name = $private['driver'] ?? strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
         if ($name === 's3') {
-            $this->driver = new S3Driver();
+            $this->driver = new S3Driver($private['s3'] ?? []);
         } elseif (getenv('COREFLUX_ENV') === 'coreaccounting') {
             require_once __DIR__ . '/accounting/private_storage.php';
             if (!defined('DB_PASS') || (string) DB_PASS === '') {

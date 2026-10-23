@@ -4,8 +4,11 @@ Updated 2026-10-23. The isolated pilot storage stack has been created in AWS
 account `041304781980`, region `us-east-1`. CloudFormation reports
 `CREATE_COMPLETE`; termination protection is enabled. See the
 [deployment receipt](../deploy/aws/coreflux-documents-pilot.receipt.json).
-The runtime policy is still unattached. No service identity, access credentials,
-Core storage settings, or live document uploads have been configured.
+The approved no-console IAM user `coreflux-documents-pilot` now has only the
+pilot runtime policy. Its user-created access key was delivered to the isolated
+Cloudways pilot, outside the webroot with restricted file permissions. Twelve
+real S3 checks passed from CLI, using synthetic objects. Web-process acceptance
+and application activation remain pending; no live documents were uploaded.
 
 The user selected the **Free** account plan. AWS shows $100 in credits and an
 expiry of **2027-04-23**, or earlier when credits are depleted. The account closes
