@@ -1,3 +1,29 @@
+## Private storage setup prepared - October 23, 2026
+
+The user answered "no, there isnt'" to the existing AWS account/bucket question.
+Private document storage is confirmed absent; do not repeat that question.
+Provisioning and account access are now the next storage prerequisite.
+
+deploy/aws/private-documents.cloudformation.json prepares an isolated pilot
+bucket, KMS key/alias, bucket policy, and unattached server access policy.
+cfn-lint 1.58.0 passed for us-east-1. No account-level validation, cloud resource
+creation, credentials, host settings, or live document acceptance occurred.
+The existing SDK package smoke could not run in this local checkout because its
+Composer dependencies are not installed; this is not a new runtime failure.
+The previously green staged runtime remains 9f656c59.
+
+memory/AWS_SETUP_GUIDE.md now explains exact configuration, server credential
+delivery, existing local-file inventory/migration, and synthetic acceptance.
+STORAGE_DRIVER is global: pointing existing registry keys at an empty bucket is
+not a safe per-worker enablement. Keep Quanta document intake off until the
+private vault and its web-process access have been verified. The template does
+not grant an identity access, activate a legal retention period, or establish
+malware scanning or production compliance.
+
+Release settings, pilot placement classification, accessible Core session,
+Quanta signing configuration, and the real cross-system round trip remain open.
+The overall integration goal remains blocked and is not complete.
+
 ## Quanta webhook contract correction - October 23, 2026
 
 The latest unpublished PurePay review is d942c386a008455e4c5a80e478e253aceb9efa6d
