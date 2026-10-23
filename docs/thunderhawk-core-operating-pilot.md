@@ -1,5 +1,37 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Person document vault fixes staged - October 22, 2026
+
+Runtime 56bc0b53004055e5d7ae87aa17ce0e99b06ed98b passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39880381963)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39880650289).
+The People vault now binds uploads and registration to the current directory
+owner and exact person. It verifies stored bytes before registration, preserves
+idempotent retries, rejects stale ownership or retired objects, and commits
+document/registry/resume changes together. Metadata edits cannot reassign
+identity or storage. The browser upload response and packaged S3 loading/signing
+contract are repaired, including bucket-owner-enforced compatibility.
+
+CI passed 30 input/ownership checks and 27 MariaDB checks against actual local
+stored files, alongside the existing 60 onboarding and 29 portal-exchange checks.
+The installed AWS SDK passed signing checks without object IO. Staging passed
+14 native onboarding HTTP checks, accounting lifecycle, split receipts, 61 credit
+checks and log-only delivery. This is not hosted S3 or live Thunderhawk acceptance.
+
+The [read-only production storage inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39880275057)
+on d40f7364 reports a local driver and no configured S3 bucket or KMS key in CLI.
+Web configuration and real object access remain unverified. Full Core browser
+document upload requires configured private S3 storage; no local fallback was
+enabled. Quanta worker file upload/transfer is still open. Production was not
+activated, and provider candidates remain unpublished.
+
+The existing Live/Test setting confirmation remains pending; both browser forms
+are preserved unsaved. PL-864 still needs its legal entity, branch/business unit
+and WC class. The user's admin tab displayed a cached workspace, then redirected
+to login when placements loaded. No usable Core session is claimed. These
+release and pilot requirements remain open; the integration goal is active.
+
+
 ## Core-to-Quanta onboarding exchange staged - October 22, 2026
 
 Core runtime ce7d2b3bca55f98a96d893084628ebb06de4ea56 passed all nine

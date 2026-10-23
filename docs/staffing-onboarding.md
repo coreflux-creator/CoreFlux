@@ -26,6 +26,27 @@ change, deletion, inaccessible object or expiry prevents a complete status when
 the case is read. Storage availability failures fail closed. No file contents,
 storage keys or signed URLs are returned by the onboarding endpoint.
 
+The People vault now resolves its current directory owner for every request.
+Upload keys use that owner and the exact person, including shared directories.
+Registration verifies the actual stored object before committing its registry
+row, person-document row and resume pointer together. Repeating identical
+registration returns the existing document; changed metadata, retired objects,
+another person's object and changed directory ownership conflict. Metadata edits
+use an explicit allowlist and cannot change person or storage identity. Removing
+a document retires its reference without physically deleting the file. Legacy
+storage paths are not exposed as trusted document metadata. Existing larger
+documents remain downloadable; the 25 MB limit applies to new registrations.
+
+The S3 driver loads the packaged SDK for direct API requests and signs the actual
+browser form fields, binding the bucket, object key, encryption and upload-size
+conditions. It omits ACL overrides for buckets with bucket-owner-enforced
+ownership. Package checks exercise real SDK signing with synthetic credentials;
+they do not verify bucket permissions, CORS or live object access. Full Core
+requires configured private S3 storage for this browser upload path. A local
+driver in full Core returns an explicit unavailable response; the existing
+standalone-accounting local route is not silently enabled. Quanta worker file
+upload/transfer and hosted object access remain separate acceptance work.
+
 `complete` means the confirmed required tasks currently have valid approvals or
 waivers. It is an observation at the returned timestamp. It neither activates a
 person/placement nor grants portal access, checks payroll setup or authorizes a
