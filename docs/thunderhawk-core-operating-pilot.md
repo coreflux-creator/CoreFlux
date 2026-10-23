@@ -1,3 +1,42 @@
+## Quanta upload recovery checkpoint - October 23, 2026
+
+Quanta's current unpublished hosted review is
+`a0ff1371274f35c84a831fd61958b0a9cab4ee92` on
+`codex/coreflux-onboarding-document-recovery-v2-20261023`, based on the prior
+document review `acee0f1a5592ccb2bb46a965fe50671b393076b9`. Local mirror:
+`31419ecd3ff4902af6086f2e9b4a628c1fe3095b`. Every saved source matches the local
+UTF-8 candidate. The earlier retained recovery ref `6d9844ca` is superseded
+because its frontend transfer had an encoding mismatch.
+
+The full hosted application passed 165 backend checks and frontend compilation
+with zero external socket attempts and no live database. Local checks passed
+164 backend cases, including native Core PHP attestation/document boundaries,
+and 12 mounted portal cases. Shared development HEAD, source, index and protected
+configuration were preserved; no checkout, deployment or permission change.
+Receipts live in Quanta-source/verification/onboarding-document-recovery-v2-*
+20261023.json (acceptance and review).
+
+Each Quanta upload request and physical GridFS attempt is durably recorded before
+IO. Completed copies are verified before reuse; a lost write acknowledgement or
+failed receipt checkpoint can recover the original copy. A lease expiry permits
+a new physical ID without overwriting an interrupted writer. Late/partial writes
+remain private and attributable, with one selected file and one case receipt.
+Missing or altered selected copies cannot be recreated silently. The worker can
+refresh and resume the original request with the same file, and read safe transfer
+history even after upload is disabled or the publication is withdrawn.
+
+This completes the new-upload recovery counterpart to Core's staged reservation
+and atomic vault import. Legacy untracked files and retention/purge policy remain
+open, along with malware scanning and actual provider-to-private-S3 acceptance.
+Core staged runtime remains `9f656c59a256514bb5ddbca6a2b51e17ed085857`; this
+checkpoint changes documentation only. Production is unchanged.
+
+The available Chrome session still redirects PL-864 to Core sign-in after the
+latest user response. Existing questions about release settings, PL-864 legal
+entity/business unit/WC class and the intended private S3 account/bucket remain
+unanswered. The Thunderhawk live round trip remains incomplete. No real payroll,
+payment, financial posting, document purge or production cutover occurred.
+
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
 ## Durable document transfer recovery - October 23, 2026
