@@ -111,3 +111,12 @@ not evidence of production activation. Private document upload/transfer remains
 unimplemented; documents continue through Core's existing vault and staff review.
 Portal projections exclude private document references, storage keys, signed
 URLs, reviewer reasons and case history. Payroll execution remains separate.
+
+Hosted candidate acceptance on October 22 (UTC receipt date October 23) passed
+120 full-application checks with memory-only data and zero network attempts, plus
+a complete Quanta frontend build. Review 7bdfa656c34143a469119178618ddf514c800332
+on codex/coreflux-onboarding-20261023 preserves the shared source, HEAD, index
+and protected configuration. It is unpublished. Core runtime ce7d2b3b is pushed
+and staged; 29 portal database checks pass alongside the 60 native onboarding
+checks. The release reports separately include the default-off onboarding
+publication control after diagnostic follow-up 4e7513a5.

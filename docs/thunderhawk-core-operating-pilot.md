@@ -1,5 +1,66 @@
 # Thunderhawk: Core with Quanta, PurePay, and PurePayroll
 
+## Core-to-Quanta onboarding exchange staged - October 22, 2026
+
+Core runtime ce7d2b3bca55f98a96d893084628ebb06de4ea56 passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39876630812)
+and [isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39876938832).
+The People onboarding screen now reviews and publishes exact requirements,
+recovers uncertain acknowledgements, and imports authenticated Quanta worker
+attestations as submitted evidence for a separate employer decision. Current
+workspace, person, assignment, source and task versions are checked before
+exchange. Replay preserves the original receipt even after employer review.
+Outbound publication defaults off. Private documents remain in Core's vault;
+portal file upload/transfer and hosted object verification are still open.
+
+The database fixture passes the existing 60 onboarding checks plus 29 new portal
+delivery/import checks. Twelve Core UI checks, 23 pure contract checks and the
+actual PHP-to-Quanta HTTP bridge pass. Native staging's 14 HTTP onboarding checks,
+accounting lifecycle, split receipts, 61 credit checks and log-only delivery pass.
+No new migration was needed for this exchange. Payroll authority remains off.
+The local onboarding-exchange-synthetic-20261023.png demonstrates the new screen
+with synthetic records, not live Thunderhawk data.
+
+Quanta's unpublished hosted review is
+7bdfa656c34143a469119178618ddf514c800332 on
+codex/coreflux-onboarding-20261023, above 8f67fc33892a9060c1c35de03bc9b84753896637.
+It captures 17 runtime/test/harness files. Actual full-application startup and
+120 checks passed with memory-only data and zero network attempts; the complete
+frontend compiled successfully. Local API suites pass 91 checks and portal UI
+suites pass 13. Shared source, HEAD, index and protected configuration were
+preserved; this review was not checked out, pushed or published. Receipts are
+saved in Quanta-source/verification/onboarding-acceptance-20261023.json and
+onboarding-review-20261023.json; the matching local mirror is f9fc567.
+
+The ce7d2b3b [read-only production inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/39877910889)
+completed without activation. Production still serves index-95sB_8ni.js; staged
+Core uses index-D2UJYu_-.js. The report found 411 changed files and 4,673 added
+packaged files. Its seven reported outbound/authority controls were false.
+Follow-up 4e7513a58c20bdec839caab94edc10ae3d934c3d adds the omitted onboarding
+control to both CLI and web release reports, with a real HTTP regression check.
+It passed all nine [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39878325180),
+including actual HTTP verification of all eight controls. The fresh
+[production preflight](https://github.com/coreflux-creator/CoreFlux/actions/runs/39878329714)
+also passed: all eight inspected CLI controls are false, migration source
+review is ready, and activation is neither authorized nor performed.
+Production still has 30 accounting schema gaps and the incompatible bank
+uniqueness constraint. The private unmasked inspection receipt is retained
+at /tmp/core-integration-39878329714/production-preflight.json. Masked
+GitHub log fragments must not be used as execution identities. The staged
+business runtime remains ce7d2b3b; 4e7513a5 changes release reporting only.
+
+The live Thunderhawk round trip is not complete. Provider publication, reviewed
+live scopes/company binding, and PL-864's legal entity, branch/business unit and
+WC class still require resolution. A fresh Core check returned to sign-in after
+the user's login reply; the session is not assumed usable. The previously
+prepared Live/Test setting forms remain unsaved pending their existing user
+confirmation. PurePay source/configuration was unchanged this turn; its other
+chat acknowledged the release coordination update. Production maintenance,
+writer drain, backup/recovery and owner coordination remain separate release
+gates. Arabella remains separate. See docs/staffing-onboarding.md.
+
+
+
 ## Core onboarding staged - October 22, 2026
 
 Runtime 209fd027c963fae9de800ad8b310303c01547349 passed all nine CI jobs
