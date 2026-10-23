@@ -41,6 +41,7 @@ function quantaOnboardingStoreDocument(array $scope,array $case,array $fetched,\
     if(strlen($bytes)!==$doc['size_bytes']||!hash_equals($doc['sha256'],hash('sha256',$bytes)))throw new OnboardingConflict('Document bytes changed before storage');
     $key=peopleDocumentKey($case['people_tenant_id'],$case['person_id'],$saved['storage_key']);
     if($storage->head($key)===null){
+        if($saved['state']!=='reserved')throw new OnboardingConflict('The previously verified document is unavailable. Reconcile it before retrying.');
         try{$storage->put_reserved('people',$case['people_tenant_id'],'document',$case['person_id'],$key,$bytes,
             ['mime'=>$doc['mime'],'metadata'=>['core_import'=>'quanta_onboarding','provider_document_id'=>$doc['id'],'sha256'=>$doc['sha256']]]);}
         catch(Throwable $e){

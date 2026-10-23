@@ -109,6 +109,9 @@ try{
     $check($before===$docCounts(),'object mismatch rolls back registration');
     $writes=$docDriver->writes;$reject(fn()=>$docImport($version),'a changed retained object cannot be replaced on retry');
     $check($docDriver->writes===$writes&&$transfer()['state']==='stored','mismatched retained bytes remain attributable and are never overwritten');
+    $docDriver->delete($transfer()['storage_key']);
+    $reject(fn()=>$docImport($version),'a missing previously verified object cannot be recreated by retry');
+    $check($docDriver->writes===$writes,'a missing retained copy requires reconciliation without another write');
     $version=$newDocReceipt();
     $pdo->exec("CREATE TRIGGER fixture_reject_doc_event BEFORE INSERT ON staffing_onboarding_events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic document history failure'");
     try{$docImport($version);throw new LogicException('Document event failure ignored');}catch(PDOException $e){$check(true,'document history failure is surfaced');}
