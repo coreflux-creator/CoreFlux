@@ -1,7 +1,16 @@
 # CoreFlux private document storage setup
 
-Updated 2026-10-23. The user confirmed that private storage has not been set up.
-No AWS resources or credentials have been created by this work.
+Updated 2026-10-23. The isolated pilot storage stack has been created in AWS
+account `041304781980`, region `us-east-1`. CloudFormation reports
+`CREATE_COMPLETE`; termination protection is enabled. See the
+[deployment receipt](../deploy/aws/coreflux-documents-pilot.receipt.json).
+The runtime policy is still unattached. No service identity, access credentials,
+Core storage settings, or live document uploads have been configured.
+
+The user selected the **Free** account plan. AWS shows $100 in credits and an
+expiry of **2027-04-23**, or earlier when credits are depleted. The account closes
+at expiry unless upgraded. This is pilot infrastructure, not a durable production
+retention arrangement. Any paid-plan upgrade requires the user's decision.
 
 The existing Core driver uses AWS S3 with a customer-managed KMS encryption key.
 Use [the CloudFormation template](../deploy/aws/private-documents.cloudformation.json)
@@ -52,6 +61,9 @@ In CloudFormation, select `us-east-1`, upload the JSON template, name the stack
 `coreflux-documents-pilot`, and use `Environment=pilot`. Review the five proposed
 resources and IAM capability acknowledgment before creation. Turn on stack
 termination protection. Record the stack ID and outputs without credentials.
+When using a change set, verify termination protection after execution: the
+console creation flow did not preserve the selected setting, so it was enabled
+and verified separately after this pilot stack completed.
 
 The template creates no IAM user, role, trust relationship, or access key and
 attaches its policy to nobody. After provisioning, bind the output policy to a

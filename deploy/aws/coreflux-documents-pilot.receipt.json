@@ -1,0 +1,48 @@
+{
+  "recorded_at": "2026-10-23",
+  "environment": "pilot",
+  "account_id": "041304781980",
+  "region": "us-east-1",
+  "account_plan": {
+    "selected_by_user": "Free",
+    "credits_usd_at_activation": 100,
+    "expires_on": "2027-04-23",
+    "expires_earlier_when_credits_depleted": true,
+    "paid_upgrade_authorized": false
+  },
+  "source_template": "deploy/aws/private-documents.cloudformation.json",
+  "local_source_template_sha256": "2574f831c0fc8007bcd3f2fa5dcc2277f9a1de36135c8a325996f515d0dcf8c7",
+  "source_commit": "faa511c178572f25e7fcd5a56da487c135084368",
+  "template_bucket": "cf-templates-jkww681z8gl3-us-east-1",
+  "template_object": "2026-10-23T153836.745Z6sy-template.json",
+  "stack_name": "coreflux-documents-pilot",
+  "stack_id": "arn:aws:cloudformation:us-east-1:041304781980:stack/coreflux-documents-pilot/eb2dfe60-cef7-11f1-aeca-12ffeab41f33",
+  "change_set_id": "arn:aws:cloudformation:us-east-1:041304781980:changeSet/coreflux-private-documents-20261023/2cc2ee76-1226-4c7e-ad3f-46ed69180bb3",
+  "stack_status": "CREATE_COMPLETE",
+  "stack_completed_at": "2026-10-23T11:40:39-04:00",
+  "termination_protection": true,
+  "termination_protection_note": "Enabled and verified separately after change-set execution; the create-stack selection was not retained.",
+  "outputs": {
+    "Environment": "pilot",
+    "StorageBucket": "coreflux-documents-pilot-documentsbucket-58usklwrp9sz",
+    "StorageRegion": "us-east-1",
+    "StorageKMSKeyArn": "arn:aws:kms:us-east-1:041304781980:key/da6364d0-e0d5-44bb-8b06-856d66da36bb",
+    "RuntimePolicyArn": "arn:aws:iam::041304781980:policy/coreflux-documents-pilot-RuntimeAccessPolicy-sntfqX9gDpQT"
+  },
+  "browser_origins": [
+    "https://corefluxapp.com",
+    "https://www.corefluxapp.com"
+  ],
+  "verification": {
+    "cloudformation_template_valid": true,
+    "change_set_reported_deployment_validations_passed": true,
+    "five_stack_resources_created": true,
+    "runtime_identity_created": false,
+    "runtime_policy_attached": false,
+    "access_credentials_created": false,
+    "host_settings_changed": false,
+    "web_process_storage_acceptance_passed": false,
+    "live_worker_documents_uploaded": false
+  },
+  "next_step": "The no-console IAM user coreflux-documents-pilot is prepared in Chrome at Review and create, with only the runtime policy selected. New access awaits user confirmation; no user has been created."
+}

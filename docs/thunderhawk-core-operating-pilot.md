@@ -1,3 +1,25 @@
+## AWS pilot storage created - October 23, 2026
+
+The recovered AWS account 041304781980 is active. The user selected the Free
+plan, which shows $100 in credits and expires April 23, 2027 or earlier when
+credits run out. A paid-plan upgrade has not been authorized.
+
+CloudFormation stack coreflux-documents-pilot in us-east-1 completed at
+2026-10-23 11:40:39 -04:00. Its five resources are the private versioned bucket,
+KMS key/alias, restrictive bucket policy, and unattached runtime policy.
+AWS template validation and change-set deployment validations passed.
+Termination protection was enabled separately after execution because the
+change-set creation flow did not preserve the selected setting.
+Non-secret account, stack, bucket, key ARN and policy ARN outputs are recorded in
+deploy/aws/coreflux-documents-pilot.receipt.json.
+
+The Core service identity is prepared at AWS Review and create, with no console
+password and only the pilot runtime policy. Creation awaits action-time user
+confirmation for the new security-sensitive access. No service user or access
+keys have been created. No Core host settings changed; storage acceptance and
+real document exchange remain outstanding. Keep Quanta document intake off.
+The older preparation checkpoint below is historical; storage is now provisioned.
+
 ## Private storage setup prepared - October 23, 2026
 
 The user answered "no, there isnt'" to the existing AWS account/bucket question.
