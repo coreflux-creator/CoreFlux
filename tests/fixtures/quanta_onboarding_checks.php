@@ -30,7 +30,9 @@ $qAssignment=['id'=>quantaCoreRemoteId($qWorkspace,$qPlacement),'tenant_id'=>$qW
 $qRemote=null;$qReceipts=[];$qWrites=0;$qMode='ok';$qDuringRead=null;
 $GLOBALS['__quanta_transport']=static function($method,$url,$headers)use(&$qRemote,&$qReceipts,&$qAssignment,$qContext,$qWorkspace,&$qDuringRead){
     $path=parse_url($url,PHP_URL_PATH);
-    if(str_ends_with($path,'/onboarding-context'))$out=['workspace_id'=>$qWorkspace,'contract_version'=>QUANTA_ONBOARDING_CONTRACT_VERSION,
+    if(str_ends_with($path,'/onboarding-document-context'))$out=['workspace_id'=>$qWorkspace,'contract_version'=>QUANTA_ONBOARDING_DOCUMENT_VERSION,
+        'document_transfer'=>true,'approval_authority'=>false,'max_bytes'=>QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES];
+    elseif(str_ends_with($path,'/onboarding-context'))$out=['workspace_id'=>$qWorkspace,'contract_version'=>QUANTA_ONBOARDING_CONTRACT_VERSION,
         'capabilities'=>['conditional_publication','worker_attestation_receipts','durable_delivery_receipts'],'approval_authority'=>false,'document_transfer'=>false];
     elseif(str_ends_with($path,'/context'))$out=$qContext;
     elseif(str_contains($path,'/assignments/'))$out=$qAssignment;
@@ -103,6 +105,7 @@ $withdraw=$qPreview('withdrawn');$qSend($withdraw);
 $reject(fn()=>quantaOnboardingImport($qScope,$qId,$r2['id'],$qDelivery,$before,$qHead),'withdrawal prevents new evidence import');
 $check(count($qRemote['submissions'])===2,'withdrawal retains submission history');
 $reject(fn()=>quantaOnboardingStatus(array_replace($qScope,['tenant_id'=>12]),$qId,$qHead),'another operating workspace cannot read the case exchange');
+require __DIR__.'/quanta_onboarding_document_checks.php';
 unset($GLOBALS['__quanta_transport'],$GLOBALS['__quanta_core_write_transport']);
 putenv('COREFLUX_QUANTA_ONBOARDING_DELIVERY');putenv('COREFLUX_INTEGRATION_INSTANCE_ID');
 echo 'PASS '.($passed-$beforeChecks)." Quanta onboarding delivery/intake checks\n";

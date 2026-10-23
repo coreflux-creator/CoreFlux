@@ -69,6 +69,15 @@ try{
     try{$register(['doc_type'=>'resume','storage_key'=>$newKey,'filename'=>'atomic.pdf']);throw new LogicException('Expected pointer failure');}
     catch(PDOException $e){$vc((int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn()===$beforeRegistry && (int)$pdo->query('SELECT COUNT(*) FROM people_documents')->fetchColumn()===$beforeDocuments,'pointer failure rolls back registry and document together');}
     finally{$pdo->exec('DROP TRIGGER vault_fail_resume');}
+    try{peopleDocumentRegisterInTransaction($pdo,$scope,100,['doc_type'=>'other','storage_key'=>$newKey,'filename'=>'atomic.pdf'],$head);throw new RuntimeException('Expected explicit outer transaction');}
+    catch(LogicException $e){$vc(true,'composed registration requires an outer transaction');}
+    $pdo->beginTransaction();
+    $composed=peopleDocumentRegisterInTransaction($pdo,$scope,100,['doc_type'=>'resume','storage_key'=>$newKey,'filename'=>'atomic.pdf'],$head);
+    $vc($pdo->inTransaction()&&(int)$pdo->query('SELECT resume_storage_object_id FROM people WHERE id=100')->fetchColumn()===$composed['storage_object_id'],'composed registration leaves commit with its caller');
+    $pdo->rollBack();
+    $vc((int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn()===$beforeRegistry
+        &&(int)$pdo->query('SELECT COUNT(*) FROM people_documents')->fetchColumn()===$beforeDocuments
+        &&$pdo->query('SELECT resume_storage_object_id FROM people WHERE id=100')->fetchColumn()===null,'outer rollback restores registry, document and resume pointer');
     $pdo->exec('UPDATE people SET deleted_at=NOW() WHERE id=100');
     $vr(fn()=>$register(['doc_type'=>'offer','storage_key'=>$newKey,'filename'=>'atomic.pdf']),'retired person cannot receive evidence');
     echo "PASS {$vaultChecks} real-storage person-vault checks\n";

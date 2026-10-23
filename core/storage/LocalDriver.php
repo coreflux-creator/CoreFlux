@@ -43,7 +43,9 @@ class LocalDriver implements StorageDriver
         @mkdir(dirname($abs), getenv('COREFLUX_ENV') === 'coreaccounting' ? 0700 : 0775, true);
         $abs = $this->abs($key);
 
-        if (is_resource($localPathOrStream)) {
+        if (($opts['source_is_bytes'] ?? false) === true) {
+            $bytes = $localPathOrStream;
+        } elseif (is_resource($localPathOrStream)) {
             $bytes = stream_get_contents($localPathOrStream);
         } elseif (is_file($localPathOrStream)) {
             $bytes = file_get_contents($localPathOrStream);

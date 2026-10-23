@@ -85,7 +85,7 @@ class StorageService
      * @param int|string                $entityId
      * @param string                    $filename     original / display filename
      * @param string|resource           $localPathOrStream  file path or stream (or raw bytes for tests)
-     * @param array                     $opts        ['mime', 'metadata', 'tags', 'lock_until' (DateTime), 'lock_mode']
+     * @param array                     $opts        ['mime', 'metadata', 'tags', 'lock_until' (DateTime), 'lock_mode', 'source_is_bytes', 'if_not_exists']
      * @return array {key, version_id, etag, size_bytes, signed_url}
      */
     public function put(

@@ -1,5 +1,5 @@
 <?php
-/** Real installed SDK; signing only with synthetic credentials, never object IO. */
+/** Real installed SDK with synthetic credentials; signing and intercepted writes, never network IO. */
 declare(strict_types=1);
 require_once __DIR__.'/../core/StorageService.php';
 if (class_exists('Aws\\S3\\S3Client',false)) throw new RuntimeException('SDK must not already be loaded by the test.');
@@ -21,4 +21,12 @@ foreach(['key'=>$key,'x-amz-server-side-encryption'=>'aws:kms',
 if(isset($post['fields']['ServerSideEncryption'])||isset($post['fields']['SSEKMSKeyId']))throw new RuntimeException('PUT-only encryption fields must not appear in POST forms.');
 $url=$driver->get_signed_url($key,60,['filename_for_download'=>'synthetic.pdf']);
 if (!str_starts_with($url,'https://') || !str_contains($url,'X-Amz-Signature=')) throw new RuntimeException('Download signing failed.');
-echo "PASS packaged S3 SDK lazy loading, scoped encrypted upload policy and download signing (no object IO)\n";
+$clientProperty=new ReflectionProperty($driver,'client');$client=$clientProperty->getValue($driver);$requests=[];
+$client->getHandlerList()->setHandler(static function($command,$request)use(&$requests){
+    $requests[]=$request;return \GuzzleHttp\Promise\Create::promiseFor(new \Aws\Result(['ETag'=>'synthetic','VersionId'=>'synthetic-version']));
+});
+$driver->put($key,__FILE__,['source_is_bytes'=>true,'if_not_exists'=>true,'mime'=>'application/pdf']);
+if(count($requests)!==1||(string)$requests[0]->getBody()!==__FILE__||$requests[0]->getHeaderLine('If-None-Match')!=='*'
+    ||$requests[0]->getHeaderLine('x-amz-server-side-encryption')!=='aws:kms'
+    ||$requests[0]->hasHeader('x-amz-acl'))throw new RuntimeException('Private conditional byte upload request is invalid.');
+echo "PASS packaged S3 SDK lazy loading, scoped encrypted upload policy, signing and conditional byte upload (no network IO)\n";

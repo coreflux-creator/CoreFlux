@@ -68,7 +68,7 @@ function peopleDocumentMetadata(array $body, bool $create=false): array {
     if ($create) $result+=['doc_type'=>null,'file_name'=>$body['filename']??null,'signed'=>0,'signed_at'=>null,'expires_at'=>null];
     if (!$result) throw new InvalidArgumentException('Choose document metadata to update.');
     if (array_key_exists('doc_type',$result) && !in_array($result['doc_type'],PEOPLE_DOCUMENT_TYPES,true)) throw new InvalidArgumentException('Invalid document type.');
-    if (isset($result['file_name']) && (!is_string($result['file_name']) || trim($result['file_name'])==='' || strlen($result['file_name'])>255 || preg_match('/[\x00-\x1f\x7f]/',$result['file_name']))) throw new InvalidArgumentException('Use a valid document filename.');
+    if (isset($result['file_name']) && (!is_string($result['file_name']) || trim($result['file_name'])==='' || ($filenameLength=preg_match_all('/./us',$result['file_name']))===false || $filenameLength>255 || preg_match('/[\x00-\x1f\x7f]/',$result['file_name']))) throw new InvalidArgumentException('Use a valid document filename.');
     if (array_key_exists('signed',$result)) {
         if (!in_array($result['signed'],[true,false,0,1],true)) throw new InvalidArgumentException('Signed must be a boolean.');
         $result['signed']=(int)$result['signed'];
@@ -88,52 +88,59 @@ function peopleDocumentPublic(array $row): array {
     return array_intersect_key($row,array_flip(['id','person_id','doc_type','storage_object_id','file_name','signed','signed_at','expires_at','uploaded_by_user_id','created_at']));
 }
 
-/** Person lock serializes replay; registry, document and resume pointer commit together. */
+/** Existing HTTP uploads own their transaction; composed commands use the helper below. */
 function peopleDocumentRegister(PDO $pdo, array $scope, int $person, array $body, callable $head): array {
     if ($pdo->inTransaction()) throw new LogicException('Document registration owns its transaction.');
-    $metadata=peopleDocumentMetadata($body,true);
     $pdo->beginTransaction();
     try {
-        $owner=peopleDocumentDirectory($pdo,$scope['tenant_id'],true);
-        if ($owner!==$scope['people_tenant_id']) throw new PeopleDocumentConflict('People directory changed. Reload before uploading.');
-        peopleDocumentPerson($pdo,$owner,$person,true);
-        $objectId=$body['storage_object_id']??null;
-        if ($objectId!==null && (!is_int($objectId) || $objectId<=0)) throw new InvalidArgumentException('Use a valid storage object identifier.');
-        if ($objectId) {
-            $object=peopleDocumentObject($pdo,$owner,$person,$objectId,true); $key=$object['s3_key'];
-            if (isset($body['storage_key']) && $body['storage_key']!==$key) throw new PeopleDocumentConflict('Storage identifiers disagree.');
-        } else {
-            $key=peopleDocumentKey($owner,$person,$body['storage_key']??null);
-            $s=$pdo->prepare('SELECT id FROM storage_objects WHERE tenant_id=:t AND s3_key=:k FOR UPDATE'); $s->execute(['t'=>$owner,'k'=>$key]);
-            $objectId=(int)($s->fetchColumn()?:0);
-            $object=$objectId ? peopleDocumentObject($pdo,$owner,$person,$objectId,true) : null;
-        }
-        $blob=peopleDocumentHead($head,$key);
-        $metadata['file_name']??=$object['filename']??null;
-        if (!$metadata['file_name']) throw new InvalidArgumentException('A document filename is required.');
-        if (!$objectId) {
-            $mime=$blob['mime']??null;
-            if (!is_string($mime) || strlen($mime)>120 || !preg_match('~^[a-z0-9.+-]+/[a-z0-9.+-]+$~iD',$mime)) $mime='application/octet-stream';
-            $s=$pdo->prepare("INSERT INTO storage_objects(tenant_id,module,entity_type,entity_id,s3_key,filename,mime,size_bytes,created_by_user_id,created_at) VALUES(:t,'people','document',:p,:k,:f,:m,:s,:a,NOW())");
-            $s->execute(['t'=>$owner,'p'=>(string)$person,'k'=>$key,'f'=>$metadata['file_name'],'m'=>$mime,'s'=>$blob['size_bytes'],'a'=>$scope['actor_user_id']]);
-            $objectId=(int)$pdo->lastInsertId();
-        }
-        $s=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND storage_object_id=:o FOR UPDATE');
-        $s->execute(['t'=>$owner,'o'=>$objectId]); $existing=$s->fetchAll(PDO::FETCH_ASSOC);
-        if ($existing) {
-            $row=$existing[0];
-            if (count($existing)!==1 || (int)$row['person_id']!==$person || $row['deleted_at']!==null) throw new PeopleDocumentConflict('This file already has another or retired document registration.');
-            foreach ($metadata as $keyName=>$value) if ((string)($row[$keyName]??'')!==(string)($value??'')) throw new PeopleDocumentConflict('This file is already registered with different metadata. Edit the existing document.');
-            $pdo->commit(); return ['id'=>(int)$row['id'],'storage_object_id'=>$objectId,'replayed'=>true];
-        }
-        $s=$pdo->prepare('INSERT INTO people_documents(tenant_id,person_id,doc_type,storage_object_id,file_name,signed,signed_at,expires_at,uploaded_by_user_id) VALUES(:t,:p,:doc_type,:o,:file_name,:signed,:signed_at,:expires_at,:a)');
-        $s->execute(['t'=>$owner,'p'=>$person,'o'=>$objectId,'a'=>$scope['actor_user_id']]+$metadata); $id=(int)$pdo->lastInsertId();
-        if ($metadata['doc_type']==='resume') {
-            $s=$pdo->prepare('UPDATE people SET resume_storage_object_id=:o WHERE tenant_id=:t AND id=:p');
-            $s->execute(['o'=>$objectId,'t'=>$owner,'p'=>$person]);
-        }
-        $pdo->commit(); return ['id'=>$id,'storage_object_id'=>$objectId,'replayed'=>false];
+        $result=peopleDocumentRegisterInTransaction($pdo,$scope,$person,$body,$head);
+        $pdo->commit(); return $result;
     } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+}
+
+/** Caller owns commit/rollback. Fresh directory/person locks and object checks remain mandatory. */
+function peopleDocumentRegisterInTransaction(PDO $pdo, array $scope, int $person, array $body, callable $head): array {
+    if (!$pdo->inTransaction()) throw new LogicException('Document registration requires a transaction.');
+    $metadata=peopleDocumentMetadata($body,true);
+    $owner=peopleDocumentDirectory($pdo,$scope['tenant_id'],true);
+    if ($owner!==$scope['people_tenant_id']) throw new PeopleDocumentConflict('People directory changed. Reload before uploading.');
+    peopleDocumentPerson($pdo,$owner,$person,true);
+    $objectId=$body['storage_object_id']??null;
+    if ($objectId!==null && (!is_int($objectId) || $objectId<=0)) throw new InvalidArgumentException('Use a valid storage object identifier.');
+    if ($objectId) {
+        $object=peopleDocumentObject($pdo,$owner,$person,$objectId,true); $key=$object['s3_key'];
+        if (isset($body['storage_key']) && $body['storage_key']!==$key) throw new PeopleDocumentConflict('Storage identifiers disagree.');
+    } else {
+        $key=peopleDocumentKey($owner,$person,$body['storage_key']??null);
+        $s=$pdo->prepare('SELECT id FROM storage_objects WHERE tenant_id=:t AND s3_key=:k FOR UPDATE'); $s->execute(['t'=>$owner,'k'=>$key]);
+        $objectId=(int)($s->fetchColumn()?:0);
+        $object=$objectId ? peopleDocumentObject($pdo,$owner,$person,$objectId,true) : null;
+    }
+    $blob=peopleDocumentHead($head,$key);
+    $metadata['file_name']??=$object['filename']??null;
+    if (!$metadata['file_name']) throw new InvalidArgumentException('A document filename is required.');
+    if (!$objectId) {
+        $mime=$blob['mime']??null;
+        if (!is_string($mime) || strlen($mime)>120 || !preg_match('~^[a-z0-9.+-]+/[a-z0-9.+-]+$~iD',$mime)) $mime='application/octet-stream';
+        $s=$pdo->prepare("INSERT INTO storage_objects(tenant_id,module,entity_type,entity_id,s3_key,filename,mime,size_bytes,created_by_user_id,created_at) VALUES(:t,'people','document',:p,:k,:f,:m,:s,:a,NOW())");
+        $s->execute(['t'=>$owner,'p'=>(string)$person,'k'=>$key,'f'=>$metadata['file_name'],'m'=>$mime,'s'=>$blob['size_bytes'],'a'=>$scope['actor_user_id']]);
+        $objectId=(int)$pdo->lastInsertId();
+    }
+    $s=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND storage_object_id=:o FOR UPDATE');
+    $s->execute(['t'=>$owner,'o'=>$objectId]); $existing=$s->fetchAll(PDO::FETCH_ASSOC);
+    if ($existing) {
+        $row=$existing[0];
+        if (count($existing)!==1 || (int)$row['person_id']!==$person || $row['deleted_at']!==null) throw new PeopleDocumentConflict('This file already has another or retired document registration.');
+        foreach ($metadata as $keyName=>$value) if ((string)($row[$keyName]??'')!==(string)($value??'')) throw new PeopleDocumentConflict('This file is already registered with different metadata. Edit the existing document.');
+        return ['id'=>(int)$row['id'],'storage_object_id'=>$objectId,'replayed'=>true];
+    }
+    $s=$pdo->prepare('INSERT INTO people_documents(tenant_id,person_id,doc_type,storage_object_id,file_name,signed,signed_at,expires_at,uploaded_by_user_id) VALUES(:t,:p,:doc_type,:o,:file_name,:signed,:signed_at,:expires_at,:a)');
+    $s->execute(['t'=>$owner,'p'=>$person,'o'=>$objectId,'a'=>$scope['actor_user_id']]+$metadata); $id=(int)$pdo->lastInsertId();
+    if ($metadata['doc_type']==='resume') {
+        $s=$pdo->prepare('UPDATE people SET resume_storage_object_id=:o WHERE tenant_id=:t AND id=:p');
+        $s->execute(['o'=>$objectId,'t'=>$owner,'p'=>$person]);
+    }
+    return ['id'=>$id,'storage_object_id'=>$objectId,'replayed'=>false];
 }
 
 function peopleDocumentMutate(PDO $pdo, array $scope, int $id, ?array $body): int {

@@ -10,6 +10,18 @@ require_once __DIR__.'/../core/migrate.php';
 require_once __DIR__.'/../core/rbac/legacy_map.php';
 $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
 $password=$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
+if(($argv[1]??'')==='--document-retry-child'){
+    if(!$ci||($argv[2]??'')!=='coreflux_onboard_ci')throw new RuntimeException('Exact disposable document database required');
+    require_once __DIR__.'/../core/quanta/onboarding_delivery.php';
+    $child=new PDO('mysql:host=127.0.0.1;port=3306;dbname=coreflux_onboard_ci;charset=utf8mb4','root',$password,$options);
+    $GLOBALS['pdo']=$child;
+    $data=json_decode(base64_decode($argv[3],true),true,64,JSON_THROW_ON_ERROR);
+    $root=$data['storage_root'];
+    if(!str_starts_with($root,sys_get_temp_dir().'/cf-quanta-vault-')||realpath($root)!==$root||is_link($root))throw new RuntimeException('Exact document fixture root required');
+    $store=new \Core\StorageService(new \Core\Storage\LocalDriver($root,'synthetic-quanta-vault'));
+    echo onboardingJson(quantaOnboardingImportVerified($child,$data['scope'],$data['snapshot'],$data['receipt'],
+        $data['delivery_id'],$data['version'],static fn($key)=>$store->head($key),$data['document']));exit;
+}
 if(($argv[1]??'')==='--retry-child'){
     if(!$ci||($argv[2]??'')!=='coreflux_onboard_ci')throw new RuntimeException('Exact disposable child database required');
     $child=new PDO('mysql:host=127.0.0.1;port=3306;dbname=coreflux_onboard_ci;charset=utf8mb4','root',$password,$options);

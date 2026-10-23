@@ -11,6 +11,10 @@ foreach(['2026-02-30','2026-10-22 25:00:00','2026-10-22<script>']as$date)$reject
 $reject(fn()=>peopleDocumentMetadata(['signed'=>'false']));
 $reject(fn()=>peopleDocumentMetadata(['doc_type'=>'unrecognized']));
 $reject(fn()=>peopleDocumentMetadata(['file_name'=>"unsafe\r\nname.pdf"]));
+$unicode=str_repeat('入',180).'.pdf';
+$check(peopleDocumentMetadata(['file_name'=>$unicode])['file_name']===$unicode,'Unicode filenames are limited by characters rather than UTF-8 bytes');
+$reject(fn()=>peopleDocumentMetadata(['file_name'=>str_repeat('入',256)]));
+$reject(fn()=>peopleDocumentMetadata(['file_name'=>"broken\xff.pdf"]));
 $values=peopleDocumentMetadata(['doc_type'=>'offer','filename'=>'offer.pdf','signed'=>true,'signed_at'=>'2026-10-22'],true);
 $check($values['signed']===1 && $values['signed_at']==='2026-10-22 00:00:00' && $values['file_name']==='offer.pdf','typed metadata and normalized dates');
 foreach([null,['etag'=>'','size_bytes'=>1],['etag'=>'x','size_bytes'=>0],['etag'=>'x','size_bytes'=>26*1024*1024],['etag'=>'x','size_bytes'=>'5']]as$head)$reject(fn()=>peopleDocumentHead(static fn($key)=>$head,'key'));

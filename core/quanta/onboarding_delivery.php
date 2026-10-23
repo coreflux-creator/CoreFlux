@@ -2,6 +2,7 @@
 /** Reviewed portal publication and authenticated evidence intake. No approval, access or payroll writes. */
 declare(strict_types=1);
 require_once __DIR__.'/onboarding_contract.php';
+require_once __DIR__.'/onboarding_documents.php';
 require_once __DIR__.'/identity.php';
 
 function quantaOnboardingDeliveryEnabled(): bool {
@@ -148,9 +149,25 @@ function quantaOnboardingImportId(string $workspace,string $receiptId): string {
     $h=onboardingHash(['quanta_onboarding',$workspace,$receiptId]);
     return substr($h,0,8).'-'.substr($h,8,4).'-4'.substr($h,13,3).'-8'.substr($h,17,3).'-'.substr($h,20,12);
 }
+/** Validated proof is shared by preflight and the final locked command. */
+function quantaOnboardingImportProof(PDO $pdo,array $scope,array $snapshot,array $case,array $receipt,int $deliveryId,int $expectedVersion,bool $allowDocument=false): array {
+    $workspace=$snapshot['access']['context']['workspace']['id'];
+    if($case['version']!==$expectedVersion)throw new OnboardingConflict('This case changed. Reload before importing evidence.');
+    [$row,$payload]=quantaOnboardingEnvelope($pdo,$scope,$case['id'],$deliveryId);
+    if($row['state']!=='delivered'||!$row['remote_receipt_id']||$row['connection_ref']!==(string)$snapshot['access']['connection']['id']
+        ||$payload['workspace_id']!==$workspace||$payload['expected']['worker_id']!==$snapshot['worker'])throw new OnboardingConflict('A confirmed publication to this worker is required');
+    if(($snapshot['remote']['publication']['state']??null)!=='published')throw new OnboardingConflict('This case has been withdrawn from Quanta');
+    $proof=$payload['expected'];
+    quantaOnboardingSubmissionValidate($case,$proof,$receipt,$snapshot['worker'],$snapshot['access']['instance_id'],$workspace,$allowDocument);
+    $publishedTask=null;foreach($proof['publication']['tasks']as$t)if($t['id']===$receipt['task_id'])$publishedTask=$t;
+    if(!$publishedTask||$publishedTask['version']!==$receipt['task_version'])throw new OnboardingConflict('The receipt does not match the delivered requirement');
+    return $publishedTask;
+}
 /** Provider receipt must be freshly fetched by the adapter, and tied to a delivered encrypted Core envelope. */
-function quantaOnboardingImportVerified(PDO $pdo,array $scope,array $snapshot,array $receipt,int $deliveryId,int $expectedVersion,callable $head): array {
-    onboardingScope($scope,'manage');$workspace=$snapshot['access']['context']['workspace']['id'];
+function quantaOnboardingImportVerified(PDO $pdo,array $scope,array $snapshot,array $receipt,int $deliveryId,int $expectedVersion,callable $head,?array $document=null): array {
+    onboardingScope($scope,'manage');
+    if($document!==null)quantaOnboardingDocumentAuthority($scope);
+    $workspace=$snapshot['access']['context']['workspace']['id'];
     $rid=quantaOnboardingImportId($workspace,(string)($receipt['id']??''));
     // Importing staff is audit context, not the worker's identity or the retry identity.
     $hash=onboardingHash(['workspace'=>$workspace,'case_id'=>$snapshot['case']['id'],'receipt'=>$receipt]);
@@ -159,21 +176,14 @@ function quantaOnboardingImportVerified(PDO $pdo,array $scope,array $snapshot,ar
     try{
         $case=quantaOnboardingLock($pdo,$scope,$snapshot,$head,false);
         if($prior=onboardingReceipt($pdo,$scope,$rid,$hash,true)){$pdo->commit();return $prior;}
-        if($case['version']!==$expectedVersion)throw new OnboardingConflict('This case changed. Reload before importing evidence.');
-        [$row,$payload]=quantaOnboardingEnvelope($pdo,$scope,$case['id'],$deliveryId);
-        if($row['state']!=='delivered'||!$row['remote_receipt_id']||$row['connection_ref']!==(string)$snapshot['access']['connection']['id']
-            ||$payload['workspace_id']!==$workspace||$payload['expected']['worker_id']!==$snapshot['worker'])throw new OnboardingConflict('A confirmed publication to this worker is required');
-        if(($snapshot['remote']['publication']['state']??null)!=='published')throw new OnboardingConflict('This case has been withdrawn from Quanta');
-        $proof=$payload['expected'];
-        quantaOnboardingSubmissionValidate($case,$proof,$receipt,$snapshot['worker'],$snapshot['access']['instance_id'],$workspace);
-        $publishedTask=null;foreach($proof['publication']['tasks']as$t)if($t['id']===$receipt['task_id'])$publishedTask=$t;
-        if(!$publishedTask||$publishedTask['version']!==$receipt['task_version'])throw new OnboardingConflict('The receipt does not match the delivered requirement');
+        $publishedTask=quantaOnboardingImportProof($pdo,$scope,$snapshot,$case,$receipt,$deliveryId,$expectedVersion,$document!==null);
         foreach($case['tasks']as&$task)if($task['id']===$receipt['task_id']){
             foreach(['title','instructions','assignee','evidence_kind','required']as$k)if($publishedTask[$k]!==$task[$k])throw new OnboardingConflict('Delivered requirement differs from Core');
             $task['evidence']=['source'=>'quanta_worker','provider_workspace_id'=>$workspace,'provider_worker_id'=>$receipt['worker_id'],
                 'provider_identity_id'=>$receipt['identity_id'],'provider_receipt_id'=>$receipt['id'],'publication_delivery_id'=>$deliveryId,
                 'projection_hash'=>$receipt['projection_hash'],'source_revision'=>$receipt['source_revision'],'submitted_at'=>$receipt['submitted_at'],
                 'acknowledged'=>true,'imported_by_user_id'=>$scope['actor_user_id'],'imported_at'=>gmdate('Y-m-d\TH:i:s\Z')];
+            if($document!==null)$task['evidence']+=quantaOnboardingAttachDocument($pdo,$scope,$case,$receipt,$document,$head);
             $task['review']=null;$task['state']='submitted';$task['version']++;$evidence=$task['evidence'];
         }unset($task);
         foreach($case['tasks']as&$task)unset($task['effective_state']);unset($task);
@@ -181,6 +191,7 @@ function quantaOnboardingImportVerified(PDO $pdo,array $scope,array $snapshot,ar
         $pdo->prepare('UPDATE staffing_onboarding_cases SET version=:v,tasks_json=:tasks,updated_at=UTC_TIMESTAMP() WHERE tenant_id=:t AND id=:id')
             ->execute(['v'=>$case['version'],'tasks'=>onboardingJson($case['tasks']),'t'=>$scope['tenant_id'],'id'=>$case['id']]);
         $result=['case_id'=>$case['id'],'case_version'=>$case['version'],'task_id'=>$receipt['task_id'],'action'=>'import_quanta','provider_receipt_id'=>$receipt['id']];
+        if(isset($evidence['document_id']))$result['document_id']=$evidence['document_id'];
         $pdo->prepare('INSERT INTO staffing_onboarding_events (tenant_id,case_id,case_version,request_id,request_hash,actor_user_id,action,task_id,details_json,receipt_json) VALUES (:t,:c,:v,:r,:h,:u,"import_quanta",:task,:d,:receipt)')
             ->execute(['t'=>$scope['tenant_id'],'c'=>$case['id'],'v'=>$case['version'],'r'=>$rid,'h'=>$hash,'u'=>$scope['actor_user_id'],
                 'task'=>$receipt['task_id'],'d'=>onboardingJson(['evidence'=>$evidence,'provider_receipt'=>$receipt]),'receipt'=>onboardingJson($result)]);
@@ -208,12 +219,19 @@ function quantaOnboardingStatus(array $scope,string $caseId,callable $head): arr
         $rid=quantaOnboardingImportId($snapshot['access']['context']['workspace']['id'],(string)($r['id']??''));
         $s=$pdo->prepare('SELECT receipt_json FROM staffing_onboarding_events WHERE tenant_id=:t AND case_id=:c AND request_id=:r');
         $s->execute(['t'=>$scope['tenant_id'],'c'=>$caseId,'r'=>$rid]);$imported=(bool)$s->fetchColumn();
+        $doc=($r['kind']??null)==='document'?quantaOnboardingDocumentMetadata($r):null;
         $receipts[]=['id'=>$r['id'],'task_id'=>$r['task_id'],'task_version'=>$r['task_version'],'submitted_at'=>$r['submitted_at'],
+            'kind'=>$r['kind']??'attestation','document'=>$doc?array_intersect_key($doc,array_flip(['filename','mime','size_bytes'])):null,
             'imported'=>$imported,'delivery_id'=>$proofs[$r['projection_hash']]??null];
+    }
+    $documents=false;
+    if(quantaOnboardingDocumentsEnabled($scope['tenant_id'])&&($scope['permissions']['documents_manage']??false)===true&&quantaOnboardingDocumentStorageReady()){
+        try{quantaOnboardingDocumentContext($snapshot['access']['api_key'],$snapshot['access']['context']['workspace']['id']);$documents=true;}
+        catch(QuantaApiException|OnboardingConflict $e){$documents=false;}
     }
     return ['workspace'=>$snapshot['access']['context']['workspace'],'publication'=>$snapshot['remote']?[
         'state'=>$snapshot['remote']['publication']['state'],'core_version'=>$snapshot['remote']['publication']['core_version'],
         'assignment_current'=>$snapshot['remote']['assignment_current']??false,'source_current'=>$snapshot['remote']['publication']['source_revision']===$case['source_revision']]:null,
         'receipts'=>$receipts,'deliveries'=>array_slice($history,0,20),'history_has_more'=>count($history)>20||count($rows)>200,
-        'delivery_enabled'=>quantaOnboardingDeliveryEnabled(),'document_transfer'=>false];
+        'delivery_enabled'=>quantaOnboardingDeliveryEnabled(),'document_transfer'=>$documents];
 }

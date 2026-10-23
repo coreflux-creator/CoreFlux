@@ -1,7 +1,8 @@
 <?php
-/** Private provider file reads. No vault registration, case mutation or approval. */
+/** Private provider file reads and employer-reviewed vault intake. Never grants approval. */
 declare(strict_types=1);
 require_once __DIR__.'/onboarding_contract.php';
+require_once __DIR__.'/../StorageService.php';
 
 const QUANTA_ONBOARDING_DOCUMENT_VERSION='2026-10-23.1';
 const QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES=25*1024*1024;
@@ -9,6 +10,92 @@ const QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES=25*1024*1024;
 function quantaOnboardingDocumentsEnabled(int $tenant): bool {
     $tenants=array_map('trim',explode(',',(string)getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS')));
     return $tenant>0&&getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS')==='1'&&in_array((string)$tenant,$tenants,true);
+}
+
+function quantaOnboardingDocumentAuthority(array $scope): void {
+    onboardingScope($scope,'manage');
+    if(($scope['permissions']['documents_manage']??false)!==true)throw new OnboardingConflict('Document management permission is required');
+    if(!quantaOnboardingDocumentsEnabled($scope['tenant_id']))throw new OnboardingConflict('Document intake has not been enabled for this Core workspace');
+}
+
+/** Full-Core HTTP intake has no development/local-storage fallback. */
+function quantaOnboardingDocumentStorageReady(): bool {
+    return strtolower((string)getenv('STORAGE_DRIVER'))==='s3'
+        &&trim((string)getenv('STORAGE_S3_BUCKET'))!==''&&trim((string)getenv('STORAGE_S3_KMS_KEY_ID'))!=='';
+}
+
+function quantaOnboardingDocumentStamp(array $head): array {
+    return array_intersect_key($head,array_flip(['etag','version_id','size_bytes','last_modified','mime']));
+}
+
+/** Private physical copy precedes the SQL command. Uncommitted copies remain private for reconciliation. */
+function quantaOnboardingStoreDocument(array $scope,array $case,array $fetched,\Core\StorageService $storage): array {
+    quantaOnboardingDocumentAuthority($scope);$doc=$fetched['document'];$bytes=$fetched['bytes'];
+    if(strlen($bytes)!==$doc['size_bytes']||!hash_equals($doc['sha256'],hash('sha256',$bytes)))throw new OnboardingConflict('Document bytes changed before storage');
+    // Keep provider display filenames in metadata; storage paths use bounded ASCII identifiers.
+    $filename=$doc['id'].'.'.strtolower(pathinfo($doc['filename'],PATHINFO_EXTENSION));
+    $object=$storage->put('people',$case['people_tenant_id'],'document',$case['person_id'],$filename,$bytes,
+        ['mime'=>$doc['mime'],'source_is_bytes'=>true,'if_not_exists'=>true,
+         'metadata'=>['core_import'=>'quanta_onboarding','provider_document_id'=>$doc['id'],'sha256'=>$doc['sha256']]]);
+    $key=peopleDocumentKey($case['people_tenant_id'],$case['person_id'],$object['key']);
+    $head=peopleDocumentHead(static fn($k)=>$storage->head($k),$key);
+    $stored=$storage->read($key,QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES);
+    $after=peopleDocumentHead(static fn($k)=>$storage->head($k),$key);
+    if(!is_string($stored)||strlen($stored)!==$doc['size_bytes']||!hash_equals($doc['sha256'],hash('sha256',$stored))
+        ||$head['size_bytes']!==$doc['size_bytes']||($head['mime']??null)!==$doc['mime']
+        ||quantaOnboardingDocumentStamp($head)!==quantaOnboardingDocumentStamp($after))throw new OnboardingConflict('The stored document could not be verified');
+    quantaOnboardingDocumentAuthority($scope);
+    return ['storage_key'=>$key,'stamp'=>quantaOnboardingDocumentStamp($after),'descriptor_hash'=>onboardingHash($doc)];
+}
+
+/** Registration, onboarding evidence and history share the caller's locked SQL transaction. */
+function quantaOnboardingAttachDocument(PDO $pdo,array $scope,array $case,array $receipt,array $document,callable $head): array {
+    if(!$pdo->inTransaction())throw new LogicException('Document attachment requires the onboarding transaction');
+    quantaOnboardingDocumentAuthority($scope);$doc=quantaOnboardingDocumentMetadata($receipt);
+    if(($receipt['kind']??null)!=='document'||($document['descriptor_hash']??null)!==onboardingHash($doc))throw new OnboardingConflict('Prepared document differs from the verified receipt');
+    $key=peopleDocumentKey($case['people_tenant_id'],$case['person_id'],$document['storage_key']??null);
+    $verifiedHead=static function(string $actualKey)use($head,$key,$document,$doc):array{
+        if($actualKey!==$key)throw new OnboardingConflict('Prepared storage identity changed');
+        $blob=peopleDocumentHead($head,$key);
+        if(quantaOnboardingDocumentStamp($blob)!==$document['stamp']||$blob['size_bytes']!==$doc['size_bytes']||($blob['mime']??null)!==$doc['mime'])throw new OnboardingConflict('Stored evidence changed before registration');
+        return $blob;
+    };
+    $registered=peopleDocumentRegisterInTransaction($pdo,$scope,$case['person_id'],
+        ['doc_type'=>'other','storage_key'=>$key,'filename'=>$doc['filename'],'signed'=>false],$verifiedHead);
+    return onboardingDocument($pdo,$case,$registered['id'],$verifiedHead,true)+[
+        'provider_document_id'=>$doc['id'],'sha256'=>$doc['sha256'],'filename'=>$doc['filename']];
+}
+
+/** No browser-supplied file/key/author fields. Fresh provider receipts are the only intake source. */
+function quantaOnboardingImportDocument(array $scope,string $caseId,string $receiptId,int $deliveryId,int $expectedVersion,\Core\StorageService $storage): array {
+    quantaOnboardingDocumentAuthority($scope);
+    if(!preg_match('/^cfs_[a-f0-9]{64}$/D',$receiptId))throw new InvalidArgumentException('Choose a verified worker document');
+    $pdo=getDB();$head=static fn($key)=>$storage->head($key);
+    $snapshot=quantaOnboardingSnapshot($scope,$caseId,$head);
+    $found=array_values(array_filter($snapshot['remote']['submissions']??[],static fn($r)=>($r['id']??null)===$receiptId));
+    if(count($found)!==1||($found[0]['kind']??null)!=='document')throw new OnboardingConflict('Worker document is unavailable');
+    $receipt=$found[0];$workspace=$snapshot['access']['context']['workspace']['id'];
+    $rid=quantaOnboardingImportId($workspace,$receiptId);
+    $hash=onboardingHash(['workspace'=>$workspace,'case_id'=>$caseId,'receipt'=>$receipt]);
+    if($pdo->inTransaction())throw new LogicException('Document intake owns its transaction');
+    $pdo->beginTransaction();
+    try{
+        $case=quantaOnboardingLock($pdo,$scope,$snapshot,$head,false);
+        if($prior=onboardingReceipt($pdo,$scope,$rid,$hash,true)){$pdo->commit();return $prior;}
+        quantaOnboardingImportProof($pdo,$scope,$snapshot,$case,$receipt,$deliveryId,$expectedVersion,true);
+        quantaOnboardingDocumentMetadata($receipt);
+        $pdo->commit();
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+    $fetched=quantaOnboardingDocumentFetch($snapshot['access']['api_key'],$workspace,$case,$snapshot['remote'],$receipt,
+        $snapshot['worker'],$snapshot['access']['instance_id']);
+    $document=quantaOnboardingStoreDocument($scope,$case,$fetched,$storage);
+    // Recheck the provider after storage IO; the final SQL command rechecks all local authority under lock.
+    $latest=quantaOnboardingSnapshot($scope,$caseId,$head);
+    $current=array_values(array_filter($latest['remote']['submissions']??[],static fn($r)=>($r['id']??null)===$receiptId));
+    if($latest['access']['binding_hash']!==$snapshot['access']['binding_hash']||$latest['worker']!==$snapshot['worker']
+        ||($latest['remote']['assignment_current']??null)!==true||count($current)!==1||onboardingHash($current[0])!==onboardingHash($receipt))throw new OnboardingConflict('Provider document or authority changed during intake');
+    quantaOnboardingDocumentContext($latest['access']['api_key'],$workspace);
+    return quantaOnboardingImportVerified($pdo,$scope,$latest,$receipt,$deliveryId,$expectedVersion,$head,$document);
 }
 
 /** Metadata is bound to the authenticated worker receipt, never a caller-supplied URL. */

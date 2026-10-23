@@ -21,7 +21,7 @@ export default function OnboardingQuanta({ value, canManage, disabled, onImporte
       if (token !== epoch.current) return;
       setPending(null);
       if (body.action === 'preview') setPreview(result);
-      else if (body.action === 'import') { setPreview(null); await onImported(); }
+      else if (['import', 'import_document'].includes(body.action)) { setPreview(null); await onImported(); }
       else { setPreview(null); const data = await api.get(`${URL}?case_id=${value.id}`); if (token === epoch.current) setStatus(data); }
     } catch (e) {
       if (token !== epoch.current) return;
@@ -33,7 +33,7 @@ export default function OnboardingQuanta({ value, canManage, disabled, onImporte
   const locked = busy || disabled || Boolean(pending);
   return <section aria-label="Quanta onboarding" style={{ border: '1px solid #dce4ed', borderRadius: 8, padding: 16, marginBottom: 16 }}>
     <h3>Worker portal · Quanta</h3>
-    <p>Publish the confirmed requirements to the linked worker. Worker attestations return here for staff review. Document transfer is not available yet; use the person’s document vault.</p>
+    <p>Publish the confirmed requirements to the linked worker. Import worker submissions for employer review. Documents are saved in the person’s vault; importing evidence does not approve a requirement.</p>
     {error && <p role="alert">{error}</p>}
     <button disabled={locked} onClick={load}>Check portal and worker submissions</button>
     {busy && <p role="status">Checking…</p>}
@@ -52,7 +52,9 @@ export default function OnboardingQuanta({ value, canManage, disabled, onImporte
       <h4>Worker submissions</h4>
       {!status.receipts.length && <p>No worker submissions found.</p>}
       {status.receipts.map(r => <p key={r.id}>{value.tasks.find(t => t.id === r.task_id)?.title || 'Earlier requirement'} · {r.submitted_at} · {r.imported ? 'Imported for staff review' : 'Not imported'}{' '}
-        {!r.imported && canManage && (r.delivery_id ? <button disabled={locked} onClick={() => act('import', { receipt_id: r.id, delivery_id: Number(r.delivery_id), expected_version: value.version })}>Import for review</button> : <span>Confirm the original publication receipt before importing.</span>)}
+        {r.document && <span>{r.document.filename} · {Math.ceil(r.document.size_bytes / 1024)} KB. </span>}
+        {!r.imported && canManage && (r.delivery_id ? (r.kind === 'document' && !status.document_transfer ? <span>Document import needs private storage, workspace setup and document-management access.</span> :
+          <button disabled={locked} onClick={() => act(r.kind === 'document' ? 'import_document' : 'import', { receipt_id: r.id, delivery_id: Number(r.delivery_id), expected_version: value.version })}>{r.kind === 'document' ? 'Import document for review' : 'Import for review'}</button>) : <span>Confirm the original publication receipt before importing.</span>)}
       </p>)}
       <details><summary>Publication history</summary>{status.history_has_more && <p>Showing recent attempts; earlier records remain retained.</p>}
         {status.deliveries.map(d => <p key={d.id}>Publication #{d.id} · {d.state}{' '}{canManage && ['sending', 'uncertain'].includes(d.state) && <button disabled={locked} onClick={() => act('check_receipt', { delivery_id: Number(d.id), review_hash: d.review_hash })}>Check provider receipt</button>}</p>)}

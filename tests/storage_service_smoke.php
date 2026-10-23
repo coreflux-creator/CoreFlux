@@ -69,6 +69,10 @@ $head = $svc->head($put['key']);
 $assert("head returns size",       isset($head['size_bytes']) && $head['size_bytes'] === strlen('PDF-bytes-here'));
 $assert("head returns etag",       !empty($head['etag']));
 $assert('bounded read returns exact bytes', $svc->read($put['key'], 100) === 'PDF-bytes-here');
+$literalPath=$driver->abs($put['key']);
+$literal=$svc->put('time',7,'timesheet','2026-W08','literal.txt',$literalPath,['source_is_bytes'=>true,'if_not_exists'=>true]);
+$assert('explicit raw bytes never dereference a matching filesystem path',$svc->read($literal['key'],4096)===$literalPath);
+$driver->delete($literal['key']);
 try {
     $svc->read($put['key'], 3);
     $assert('bounded read rejects oversized object', false);

@@ -59,3 +59,36 @@ test('case revision change discards a prior portal review', async () => {
   await act(async () => { tree.update(React.createElement(mod.exports.default, { value: { ...value, version: 5 }, canManage: true })); });
   assert.equal(button(tree, 'Confirm publication'), undefined); tree.unmount();
 });
+
+const documentReceipt = { id: 'document-receipt', task_id: 'task-a', delivery_id: 18, imported: false,
+  kind: 'document', submitted_at: '2026-10-23', document: { filename: 'Worker <evidence>.pdf', mime: 'application/pdf', size_bytes: 1025 } };
+test('document intake requires server capability and staff management authority', async () => {
+  for (const [capability, canManage] of [[false, true], [true, false]]) {
+    apiImpl = { get: async () => ({ ...status, document_transfer: capability, receipts: [documentReceipt] }) };
+    const tree = await mount({ canManage }); await click(tree, 'Check portal and worker submissions');
+    assert.equal(button(tree, 'Import document for review'), undefined);
+    assert.equal(button(tree, 'Import for review'), undefined);
+    assert.ok(JSON.stringify(tree.toJSON()).includes('Worker <evidence>.pdf')); tree.unmount();
+  }
+});
+test('document import sends only verified receipt selection and repeats the identical uncertain request', async () => {
+  const posts = []; let imported = 0;
+  apiImpl = { get: async () => ({ ...status, document_transfer: true, receipts: [documentReceipt] }),
+    post: async (_, body) => { posts.push(body); if (posts.length === 1) throw new Error('Lost response'); return { result: { document_id: 99 } }; } };
+  const tree = await mount({ onImported: async () => { imported++; } });
+  await click(tree, 'Check portal and worker submissions'); await click(tree, 'Import document for review');
+  assert.deepEqual(posts[0], { action: 'import_document', case_id: 'case-a', receipt_id: 'document-receipt', delivery_id: 18, expected_version: 4 });
+  assert.equal(button(tree, 'Import document for review').props.disabled, true);
+  await click(tree, 'Check the same request'); assert.deepEqual(posts[0], posts[1]); assert.equal(imported, 1); tree.unmount();
+});
+test('a case switch discards document retry authority and ignores an old response', async () => {
+  let finish; let imported = 0;
+  apiImpl = { get: async () => ({ ...status, document_transfer: true, receipts: [documentReceipt] }),
+    post: () => new Promise(resolve => { finish = resolve; }) };
+  const tree = await mount({ onImported: async () => { imported++; } });
+  await click(tree, 'Check portal and worker submissions'); await click(tree, 'Import document for review');
+  await act(async () => { tree.update(React.createElement(mod.exports.default, { value: { ...value, id: 'case-b' }, canManage: true })); });
+  await act(async () => { finish({ result: { document_id: 99 } }); });
+  assert.equal(imported, 0); assert.equal(button(tree, 'Check the same request'), undefined);
+  assert.equal(button(tree, 'Import document for review'), undefined); tree.unmount();
+});

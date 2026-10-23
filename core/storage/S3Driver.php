@@ -69,12 +69,13 @@ class S3Driver implements StorageDriver
         $params = [
             'Bucket' => $this->bucket,
             'Key'    => $key,
-            'Body'   => is_resource($localPathOrStream)
+            'Body'   => ($opts['source_is_bytes'] ?? false) === true ? $localPathOrStream : (is_resource($localPathOrStream)
                 ? $localPathOrStream
-                : (is_file($localPathOrStream) ? fopen($localPathOrStream, 'rb') : $localPathOrStream),
+                : (is_file($localPathOrStream) ? fopen($localPathOrStream, 'rb') : $localPathOrStream)),
         ];
 
         if (!empty($opts['mime']))     $params['ContentType']      = $opts['mime'];
+        if (!empty($opts['if_not_exists'])) $params['IfNoneMatch'] = '*';
         if (!empty($opts['metadata'])) $params['Metadata']         = $opts['metadata'];
 
         if ($this->kmsKeyId !== '') {
