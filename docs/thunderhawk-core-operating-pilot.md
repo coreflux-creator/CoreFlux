@@ -1,3 +1,29 @@
+## Quanta onboarding preview browser acceptance - October 23, 2026
+
+The reviewed Quanta onboarding/document candidate is now installed in the
+existing clockin-hub-16 development preview. The final unpublished review is
+ef354ff52a3dc389a412152ac7557fcd99765ce9. The guarded restart preserved shared
+HEAD/index, unrelated source, protected settings and existing records across
+ten collections. No provider production publication occurred.
+
+An existing Acme demo worker submitted a synthetic PDF and acknowledgement in
+Chrome. The exact 722-byte PDF checksum, one retained upload and two pending
+receipts were verified through native storage. Reload preserves the receipts;
+staff-only review remains unavailable to the worker. A misleading resubmission
+prompt after intake was disabled was fixed; all twelve existing mounted UI
+checks pass and the corrected screen was verified. Intake was enabled only
+for Acme during the test, then the original environment was restored exactly.
+Background jobs remain disabled. No key, permission, invitation or financial
+record was created by this acceptance. The fixture adds a synthetic onboarding
+case, its two receipts, one upload request and one private file.
+
+This proves the worker-side browser flow in Quanta. It does not establish Core
+API delivery, authenticated retrieval into Core S3 or the actual Thunderhawk
+round trip. Those remain open, along with the PurePayroll preview installation,
+reviewed release settings and actual pilot placement readiness. Core private
+storage activation below remains valid. Evidence is saved in
+deploy/quanta-onboarding-preview-20261023.json and the companion source mirror.
+
 ## AWS private storage active in isolated Core pilot - October 23, 2026
 
 The user-approved no-console identity and user-created access key are now in
