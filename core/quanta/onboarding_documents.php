@@ -21,8 +21,8 @@ function quantaOnboardingDocumentAuthority(array $scope): void {
 
 /** Full-Core HTTP intake has no development/local-storage fallback. */
 function quantaOnboardingDocumentStorageReady(): bool {
-    return strtolower((string)getenv('STORAGE_DRIVER'))==='s3'
-        &&trim((string)getenv('STORAGE_S3_BUCKET'))!==''&&trim((string)getenv('STORAGE_S3_KMS_KEY_ID'))!=='';
+    $status=\Core\StorageService::configuration_status();
+    return $status['driver']==='s3'&&$status['s3_bucket_configured']&&$status['s3_kms_key_configured'];
 }
 
 function quantaOnboardingDocumentStamp(array $head): array {

@@ -117,6 +117,7 @@ try {
     $candidateIndex = (string) file_get_contents($package . '/index.html');
     preg_match('~spa-assets/index-[A-Za-z0-9_-]+\.js~', $liveIndex, $liveBundle);
     preg_match('~spa-assets/index-[A-Za-z0-9_-]+\.js~', $candidateIndex, $candidateBundle);
+    require_once $package . '/core/StorageService.php';
     echo json_encode([
         'mode' => 'read-only-production-inspection', 'candidate_commit' => $manifest['commit'],
         'database_identity_verified' => true, 'live_bundle' => $liveBundle[0] ?? null,
@@ -135,11 +136,7 @@ try {
         'outbound_flags_from_cli_configuration' => $flags,
         // Configuration presence only. Never print storage names, keys or credentials,
         // instantiate a driver, create a directory or contact the object store here.
-        'storage_environment' => [
-            'driver' => in_array(strtolower((string)(getenv('STORAGE_DRIVER') ?: 'local')), ['local','s3'], true)
-                ? strtolower((string)(getenv('STORAGE_DRIVER') ?: 'local')) : 'unrecognized',
-            's3_bucket_configured' => trim((string)getenv('STORAGE_S3_BUCKET')) !== '',
-            's3_kms_key_configured' => trim((string)getenv('STORAGE_S3_KMS_KEY_ID')) !== '',
+        'storage_environment' => \Core\StorageService::configuration_status() + [
             'object_access_verified' => false,
         ],
         'activation_performed' => false,

@@ -52,16 +52,7 @@ class StorageService
             $this->driver = $driver;
             return;
         }
-        // A host-owned private bootstrap may supply settings when PHP-FPM blocks
-        // putenv(). This constant must never be defined from request input.
-        $private = defined('COREFLUX_STORAGE_CONFIG') ? constant('COREFLUX_STORAGE_CONFIG') : null;
-        if (defined('COREFLUX_STORAGE_CONFIG') && (!is_array($private)
-            || array_diff(array_keys($private), ['driver', 's3'])
-            || ($private['driver'] ?? null) !== 's3' || !is_array($private['s3'] ?? null)
-            || !is_string($private['s3']['bucket'] ?? null) || $private['s3']['bucket'] === ''
-            || !is_string($private['s3']['kms_key_id'] ?? null) || $private['s3']['kms_key_id'] === '')) {
-            throw new \RuntimeException('Invalid private storage configuration.');
-        }
+        $private = self::private_configuration();
         $name = $private['driver'] ?? strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
         if ($name === 's3') {
             $this->driver = new S3Driver($private['s3'] ?? []);
@@ -80,6 +71,32 @@ class StorageService
 
     public function driver_name(): string { return $this->driver->driver_name(); }
     public function location_fingerprint(): string { return $this->driver->location_fingerprint(); }
+
+    /** Configuration presence only: does not instantiate an SDK or prove access. */
+    public static function configuration_status(): array
+    {
+        $private = self::private_configuration();
+        $name = $private['driver'] ?? strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
+        return [
+            'driver' => in_array($name, ['local', 's3'], true) ? $name : 'unrecognized',
+            's3_bucket_configured' => trim((string) ($private['s3']['bucket'] ?? getenv('STORAGE_S3_BUCKET'))) !== '',
+            's3_kms_key_configured' => trim((string) ($private['s3']['kms_key_id'] ?? getenv('STORAGE_S3_KMS_KEY_ID'))) !== '',
+        ];
+    }
+
+    private static function private_configuration(): ?array
+    {
+        // Only a host-owned bootstrap may define this; never use request input.
+        if (!defined('COREFLUX_STORAGE_CONFIG')) return null;
+        $private = constant('COREFLUX_STORAGE_CONFIG');
+        if (!is_array($private) || array_diff(array_keys($private), ['driver', 's3'])
+            || ($private['driver'] ?? null) !== 's3' || !is_array($private['s3'] ?? null)
+            || !is_string($private['s3']['bucket'] ?? null) || trim($private['s3']['bucket']) === ''
+            || !is_string($private['s3']['kms_key_id'] ?? null) || trim($private['s3']['kms_key_id']) === '') {
+            throw new \RuntimeException('Invalid private storage configuration.');
+        }
+        return $private;
+    }
 
     /** Local upload/download endpoints use this; modules continue through StorageService. */
     public function local_driver(): ?LocalDriver

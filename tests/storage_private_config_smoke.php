@@ -11,9 +11,12 @@ if (($argv[1] ?? '') === '--child') {
     require __DIR__ . '/../core/StorageService.php';
     try {
         $storage = new \Core\StorageService();
+        require __DIR__ . '/../core/quanta/onboarding_documents.php';
         $args = \Aws\S3\S3Client::$args;
         if ($storage->driver_name() !== 's3' || ($args['region'] ?? null) !== 'us-east-1'
-            || ($args['credentials'] ?? null) !== ['key' => 'synthetic-key', 'secret' => 'synthetic-secret']) {
+            || ($args['credentials'] ?? null) !== ['key' => 'synthetic-key', 'secret' => 'synthetic-secret']
+            || !quantaOnboardingDocumentStorageReady()
+            || \Core\StorageService::configuration_status() !== ['driver'=>'s3', 's3_bucket_configured'=>true, 's3_kms_key_configured'=>true]) {
             throw new RuntimeException('Private driver settings were not applied.');
         }
         echo 'configured';
@@ -31,8 +34,10 @@ $cases = [[$valid, 'configured'], ['invalid', 'rejected'], [null, 'rejected'], [
     [['driver' => 'local', 's3' => []], 'rejected'], [['driver' => 's3', 's3' => 'invalid'], 'rejected'],
     [$valid + ['unexpected' => true], 'rejected']];
 foreach ($cases as [$settings, $expected]) {
+    $environment = getenv();
+    $environment['COREFLUX_DISABLE_DATABASE'] = '1';
     $p = proc_open([PHP_BINARY, '-d', 'disable_functions=putenv', __FILE__, '--child'],
-        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $environment);
     if (!is_resource($p)) throw new RuntimeException('Cannot run host-restriction check.');
     fwrite($pipes[0], json_encode($settings)); fclose($pipes[0]);
     $output = stream_get_contents($pipes[1]); fclose($pipes[1]);
