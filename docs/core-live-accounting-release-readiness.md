@@ -1,5 +1,55 @@
 # Live Core accounting release readiness — October 21, 2026
 
+## Durable document transfer recovery - October 23, 2026
+
+Core runtime `9f656c59a256514bb5ddbca6a2b51e17ed085857` passed all nine
+[CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/39888945027).
+[Isolated staging acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/39889272095)
+also passed for this exact revision, including 17 native onboarding HTTP checks,
+accounting lifecycle, split receipts, 61 credit checks and log-only delivery.
+The retained-file HTTP history read works without provider or storage access.
+Bundle: `index-DE24O-6a.js`.
+
+Migration 173 adds a tenant/case/person/worker-receipt transfer record committed
+before file IO. It reserves one physical key and binds the receipt, descriptor,
+provider connection and storage namespace/encryption configuration. Rotating S3
+credentials does not change storage identity; changing the bucket or KMS key does.
+Retries freshly validate provider authority, then verify and reuse the reserved
+copy. Conditional writes never overwrite a file. A lost object-write response is
+reconciled through exact stored-byte verification. Missing or altered previously
+verified copies are held for reconciliation; retries do not replace them.
+
+The stored-file checkpoint commits separately from business registration.
+Registry/document/case/history/transfer registration still commit together; a
+business rollback leaves the verified copy attributable and reusable. Interrupted
+source fetches and failed file checkpoints keep the original reservation. New
+Core copies can therefore be traced even when the final import fails. This does
+not make physical storage and SQL one distributed transaction.
+
+The People onboarding panel can read retained transfer history directly from
+Core, including when Quanta is unavailable. It shows unconfirmed, prepared and
+registered states without file paths, signed URLs or storage/binding fingerprints.
+The read requires the current case and directory scope. No file is deleted or
+approved by this recovery/history workflow. Retention/purge policy and Quanta's
+own unreferenced GridFS attempts remain separate open work.
+
+Native MariaDB checks now pass 104 document-intake assertions, including committed
+reservations visible to an independent connection before physical writes,
+source-fetch failure, lost PUT acknowledgement, checkpoint interruption, altered
+or missing objects, backend changes, migration replay, tenant/directory isolation
+and concurrent import. All 110 UI checks pass, including provider-independent
+history and stale case-response rejection. Local storage checks pass 39 assertions.
+The packaged S3 SDK checks namespace/encryption identity and conditional encrypted
+writes without network IO. UI proof: `quanta-document-recovery-synthetic-20261023.png`.
+
+Live intake remains disabled. Core S3/KMS configuration and real object access
+are unverified; the user has been asked which existing AWS account/bucket to use
+or whether setup is still required. The existing Core sign-in, release-setting
+confirmation and PL-864 field questions remain pending. No provider candidate,
+protected setting, production release, access grant or financial execution changed.
+The previous checkpoint below remains valid for the initial import implementation;
+its untracked-Core-copy caveat is superseded for the new reserved-write path.
+
 ## Quanta document vault intake - October 23, 2026
 
 Core runtime `4ae64ebef77506621d0dc94504405d4112fdd37a` implements the
