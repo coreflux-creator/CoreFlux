@@ -30,11 +30,11 @@ try{
     $pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,person_id BIGINT,status VARCHAR(30),engagement_type VARCHAR(20),start_date DATE,end_date DATE,accounting_entity_id BIGINT,branch VARCHAR(50),workers_comp_class VARCHAR(30),worksite_state VARCHAR(20),worksite_country VARCHAR(10),deleted_at DATETIME NULL)');
     $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(30),record_id BIGINT,record_number VARCHAR(64))');
     $pdo->exec('CREATE TABLE people_documents(id BIGINT PRIMARY KEY,tenant_id BIGINT,person_id BIGINT,doc_type VARCHAR(30),storage_object_id BIGINT,signed INT,signed_at DATETIME NULL,expires_at DATE NULL,deleted_at DATETIME NULL)');
-    $pdo->exec('CREATE TABLE storage_objects(id BIGINT PRIMARY KEY,tenant_id BIGINT,s3_key VARCHAR(200),module VARCHAR(30),entity_type VARCHAR(30),entity_id VARCHAR(30))');
+    $pdo->exec('CREATE TABLE storage_objects(id BIGINT PRIMARY KEY,tenant_id BIGINT,s3_key VARCHAR(200),module VARCHAR(30),entity_type VARCHAR(30),entity_id VARCHAR(30),soft_deleted_at DATETIME NULL)');
     $pdo->exec("INSERT INTO people VALUES(1,10,'active',NULL),(2,10,'active',NULL),(3,20,'active',NULL)");
     $pdo->exec("INSERT INTO placements VALUES(1,11,1,'active','w2','2026-01-01','2027-01-01',8,'East','8810','NJ','US',NULL),(2,11,2,'active','w2','2026-01-01',NULL,8,'East','8810','NJ','US',NULL),(3,21,3,'active','w2','2026-01-01',NULL,8,'East','8810','NJ','US',NULL)");
     $pdo->exec("INSERT INTO core_record_numbers VALUES(10,'person',1,'P-1'),(10,'person',2,'P-2'),(20,'person',3,'P-3'),(11,'placement',1,'PL-1'),(11,'placement',2,'PL-2'),(21,'placement',3,'PL-3')");
-    $pdo->exec("INSERT INTO storage_objects VALUES(1,10,'people/10/document/1/example.pdf','people','document','1'),(2,10,'people/10/document/2/other.pdf','people','document','2'),(3,20,'people/20/document/3/foreign.pdf','people','document','3')");
+    $pdo->exec("INSERT INTO storage_objects VALUES(1,10,'people/10/document/1/example.pdf','people','document','1',NULL),(2,10,'people/10/document/2/other.pdf','people','document','2',NULL),(3,20,'people/20/document/3/foreign.pdf','people','document','3',NULL)");
     $pdo->exec("INSERT INTO people_documents VALUES(1,10,1,'offer',1,1,NULL,NULL,NULL),(2,10,2,'offer',2,1,NULL,NULL,NULL),(3,20,3,'offer',3,1,NULL,NULL,NULL),(4,10,1,'offer',2,1,NULL,NULL,NULL)");
     $scope=['tenant_id'=>1,'people_tenant_id'=>10,'placements_tenant_id'=>11,'actor_user_id'=>90,'permissions'=>['view'=>true,'manage'=>true,'review'=>true]];
     $blob=['etag'=>'v1','size_bytes'=>50,'version_id'=>'version-1','last_modified'=>'2026-10-22T00:00:00Z'];$duringHead=null;

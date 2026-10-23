@@ -2,6 +2,7 @@
 /** Employer-reviewed cases. Dependencies are explicit so reads and tests cannot send mail or payroll. */
 declare(strict_types=1);
 require_once __DIR__.'/../../../core/record_numbers.php';
+require_once __DIR__.'/documents.php';
 
 class OnboardingConflict extends RuntimeException {}
 
@@ -61,10 +62,12 @@ function onboardingDocument(PDO $pdo,array $case,int $documentId,callable $head,
     $st=$pdo->prepare('SELECT d.id,d.doc_type,d.storage_object_id,d.signed,d.signed_at,d.expires_at,
         s.s3_key,s.module,s.entity_type,s.entity_id FROM people_documents d
         JOIN storage_objects s ON s.tenant_id=d.tenant_id AND s.id=d.storage_object_id
-        WHERE d.tenant_id=:t AND d.person_id=:p AND d.id=:id AND d.deleted_at IS NULL'.($lock?' FOR UPDATE':''));
+        WHERE d.tenant_id=:t AND d.person_id=:p AND d.id=:id AND d.deleted_at IS NULL AND s.soft_deleted_at IS NULL'.($lock?' FOR UPDATE':''));
     $st->execute(['t'=>$case['people_tenant_id'],'p'=>$case['person_id'],'id'=>$documentId]);$doc=$st->fetch(PDO::FETCH_ASSOC);
     if(!$doc||$doc['module']!=='people'||$doc['entity_type']!=='document'||(string)$doc['entity_id']!==(string)$case['person_id']
         ||!str_starts_with($doc['s3_key'],'people/'.$case['people_tenant_id'].'/document/'.$case['person_id'].'/'))throw new OnboardingConflict('Document is unavailable or belongs to another person.');
+    try { peopleDocumentKey((int)$case['people_tenant_id'],(int)$case['person_id'],$doc['s3_key']); }
+    catch (PeopleDocumentConflict $e) { throw new OnboardingConflict('Document storage is not valid for this person.'); }
     $blob=$head($doc['s3_key']);
     if(!is_array($blob)||!is_string($blob['etag']??null)||$blob['etag']===''||!isset($blob['size_bytes'])||(int)$blob['size_bytes']<0)throw new OnboardingConflict('The stored document could not be verified.');
     $stamp=['etag'=>$blob['etag'],'version_id'=>$blob['version_id']??null,'size_bytes'=>(int)$blob['size_bytes'],'last_modified'=>$blob['last_modified']??null];

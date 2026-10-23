@@ -17,9 +17,9 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
-require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/people.php';
 require_once __DIR__ . '/../lib/audit.php';
+require_once __DIR__ . '/../lib/documents.php';
 
 use Core\StorageService;
 
@@ -27,17 +27,22 @@ $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
-$tid = (int) $ctx['tenant_id'];
+$pdo = getDB();
+try {
+$operatingTenant = (int) $ctx['tenant_id'];
+$tid = peopleDocumentDirectory($pdo, $operatingTenant);
+$scope = ['tenant_id'=>$operatingTenant, 'people_tenant_id'=>$tid, 'actor_user_id'=>(int)$user['id']];
 
-$requirePerson = static function (int $personId): array {
-    if ($personId <= 0) api_error('person_id required', 400);
-    $person = scopedFind(
-        'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-        ['id' => $personId]
-    );
-    if (!$person) api_error('Person not found', 404);
-    return $person;
+$requirePerson = static function (int $personId) use ($pdo, $tid): void {
+    peopleDocumentPerson($pdo, $tid, $personId);
 };
+$findDocument = static function (int $id) use ($pdo, $tid, $requirePerson): array {
+    $stmt=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND id=:id AND deleted_at IS NULL');
+    $stmt->execute(['t'=>$tid,'id'=>$id]); $row=$stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || !(int)$row['person_id']) throw new PeopleDocumentConflict('Document is unavailable in this directory.');
+    $requirePerson((int)$row['person_id']); return $row;
+};
+$head = static fn(string $key): ?array => StorageService::getInstance()->head($key);
 
 if ($method === 'GET' && $action === 'upload_url') {
     rbac_legacy_require($user, 'people.docs.manage');
@@ -45,14 +50,18 @@ if ($method === 'GET' && $action === 'upload_url') {
     $docType  = (string) api_query('doc_type', 'other');
     $fileName = (string) api_query('file_name', 'document');
     $requirePerson($personId);
+    peopleDocumentMetadata(['doc_type'=>$docType, 'file_name'=>$fileName]);
+    if (StorageService::getInstance()->driver_name()==='local' && getenv('COREFLUX_ENV')!=='coreaccounting') {
+        api_error('Document uploads require configured private storage for this Core environment.', 503);
+    }
 
     $key = StorageService::getInstance()->build_key(
         'people', $tid, 'document', $personId, $fileName
     );
-    $post = StorageService::getInstance()->get_presigned_post($key);
+    $post = StorageService::getInstance()->get_presigned_post($key, ['policy'=>[['content-length-range',1,25*1024*1024]]]);
     api_ok([
         'storage_key' => $key,
-        'upload'      => $post,
+        'upload'      => ['url'=>$post['form_action'], 'fields'=>$post['fields']],
         'doc_type'    => $docType,
     ]);
 }
@@ -60,32 +69,25 @@ if ($method === 'GET' && $action === 'upload_url') {
 if ($method === 'GET') {
     if ($id = (int) api_query('id', 0)) {
         rbac_legacy_require($user, 'people.docs.view');
-        $row = scopedFind(
-            'SELECT * FROM people_documents
-             WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-            ['id' => $id]
-        );
-        if (!$row) api_error('Not found', 404);
-        // The document table stores storage_object_id; for skinny version we
-        // look up the storage_objects row to get the key, then sign it.
-        $obj = scopedFind(
-            'SELECT s3_key FROM storage_objects WHERE id = :id AND tenant_id = :tenant_id',
-            ['id' => $row['storage_object_id']]
-        );
-        $signed = $obj ? StorageService::getInstance()->get_signed_url($obj['s3_key']) : null;
+        $row = $findDocument($id);
+        $obj = peopleDocumentObject($pdo, $tid, (int)$row['person_id'], (int)$row['storage_object_id']);
+        peopleDocumentHead($head, $obj['s3_key']);
+        $signed = StorageService::getInstance()->get_signed_url($obj['s3_key']);
         peopleLogPIIAccess(
             (int) ($user['id'] ?? 0),
             (int) $row['person_id'],
             'document.downloaded',
             ['document_id' => $id, 'doc_type' => $row['doc_type']]
         );
-        api_ok(['document' => $row, 'signed_url' => $signed]);
+        api_ok(['document' => peopleDocumentPublic($row), 'signed_url' => $signed]);
     }
 
     rbac_legacy_require($user, 'people.docs.view');
     $personId = (int) api_query('person_id', 0);
     $requirePerson($personId);
-    api_ok(['documents' => peopleDocuments($personId)]);
+    $stmt=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND person_id=:p AND deleted_at IS NULL ORDER BY created_at DESC');
+    $stmt->execute(['t'=>$tid,'p'=>$personId]);
+    api_ok(['documents' => array_map('peopleDocumentPublic',$stmt->fetchAll(PDO::FETCH_ASSOC))]);
 }
 
 if ($method === 'POST') {
@@ -93,71 +95,20 @@ if ($method === 'POST') {
     $personId = (int) api_query('person_id', 0);
     $requirePerson($personId);
     $body = api_json_body();
-    api_require_fields($body, ['doc_type']);
-
-    $allowedTypes = ['resume','offer','i9','w4','w9','nda','contract','passport','visa','license','other'];
-    if (!in_array($body['doc_type'], $allowedTypes, true)) {
-        api_error('Invalid doc_type', 422, ['allowed' => $allowedTypes]);
-    }
-    $storageObjectId = (int) ($body['storage_object_id'] ?? 0);
-    if ($storageObjectId <= 0) {
-        api_require_fields($body, ['storage_key', 'filename']);
-        $expectedPrefix = "people/{$tid}/document/{$personId}/";
-        if (!str_starts_with((string) $body['storage_key'], $expectedPrefix)) {
-            api_error('Invalid storage key', 422);
-        }
-        $storageObjectId = registerStorageObject(
-            $tid,
-            'people',
-            'document',
-            $personId,
-            (string) $body['storage_key'],
-            (string) $body['filename'],
-            isset($body['mime']) ? (string) $body['mime'] : null,
-            isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
-            isset($user['id']) ? (int) $user['id'] : null
-        );
-    } else {
-        $ownedObject = scopedFind(
-            'SELECT id FROM storage_objects WHERE tenant_id = :tenant_id AND id = :id',
-            ['id' => $storageObjectId]
-        );
-        if (!$ownedObject) api_error('Storage object not found', 404);
-    }
-
-    $id = scopedInsert('people_documents', [
-        'person_id'           => $personId,
-        'doc_type'            => $body['doc_type'],
-        'storage_object_id'   => $storageObjectId,
-        'file_name'           => $body['file_name'] ?? $body['filename'] ?? null,
-        'signed'              => !empty($body['signed']) ? 1 : 0,
-        'signed_at'           => $body['signed_at']  ?? null,
-        'expires_at'          => $body['expires_at'] ?? null,
-        'uploaded_by_user_id' => $user['id']         ?? null,
-    ]);
-
-    // If this is a resume, denormalize to people.resume_storage_object_id
-    if ($body['doc_type'] === 'resume') {
-        scopedUpdate('people', $personId, [
-            'resume_storage_object_id' => $storageObjectId,
-        ]);
-    }
-
-    peopleAudit('people.document.uploaded', [
-        'person_id' => $personId, 'doc_type' => $body['doc_type'], 'document_id' => $id
-    ], $personId);
-    api_ok(['id' => $id, 'storage_object_id' => $storageObjectId], 201);
+    $result=peopleDocumentRegister($pdo,$scope,$personId,$body,$head);
+    if (!$result['replayed']) peopleAudit('people.document.uploaded', [
+        'person_id'=>$personId, 'people_tenant_id'=>$tid, 'doc_type'=>$body['doc_type'], 'document_id'=>$result['id']
+    ],$personId);
+    api_ok($result,$result['replayed']?200:201);
 }
 
 if ($method === 'PATCH') {
     rbac_legacy_require($user, 'people.docs.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
-    $body = api_json_body();
-    unset($body['id'], $body['tenant_id'], $body['person_id'], $body['storage_object_id']);
-    if (!$body) api_error('No fields to update', 422);
-    $rows = scopedUpdate('people_documents', $id, $body);
-    if ($rows === 0) api_error('Not found or no change', 404);
+    $body=api_json_body();
+    $personId=peopleDocumentMutate($pdo,$scope,$id,$body);
+    peopleAudit('people.document.updated',['document_id'=>$id,'fields'=>array_keys($body),'people_tenant_id'=>$tid],$personId);
     api_ok(['ok' => true]);
 }
 
@@ -165,10 +116,12 @@ if ($method === 'DELETE') {
     rbac_legacy_require($user, 'people.docs.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
-    $rows = scopedUpdate('people_documents', $id, ['deleted_at' => date('Y-m-d H:i:s')]);
-    if ($rows === 0) api_error('Not found', 404);
-    peopleAudit('people.document.deleted', ['document_id' => $id], $id);
+    $personId=peopleDocumentMutate($pdo,$scope,$id,null);
+    peopleAudit('people.document.deleted', ['document_id' => $id,'people_tenant_id'=>$tid], $personId);
     api_ok(['ok' => true]);
 }
 
 api_error('Method not allowed', 405);
+} catch (InvalidArgumentException $e) { api_error($e->getMessage(),422); }
+catch (PeopleDocumentConflict $e) { api_error($e->getMessage(),409); }
+catch (Throwable $e) { error_log('People document request failed: '.$e->getMessage()); api_error('Document storage is unavailable.',503); }

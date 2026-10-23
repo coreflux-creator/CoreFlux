@@ -35,4 +35,5 @@ try{
     $original=$pdo->query('SELECT * FROM people_documents WHERE id=1')->fetch(PDO::FETCH_ASSOC);$repair();
     $check($pdo->query('SELECT * FROM people_documents WHERE id=1')->fetch(PDO::FETCH_ASSOC)===$original,'already canonical vault schema and data remain unchanged');
     echo "PASS document alignment accepts both original schema generations\n";
+    require __DIR__.'/fixtures/people_document_vault_checks.php';
 }finally{$pdo->exec('USE coreaccounting_ci');$pdo->exec('DROP DATABASE '.$fixture);}

@@ -1,0 +1,19 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/../modules/people/lib/documents.php';
+$n=0;
+$check=static function(bool $ok,string $label)use(&$n){if(!$ok)throw new RuntimeException($label);$n++;};
+$reject=static function(callable $run)use($check){try{$run();}catch(InvalidArgumentException|PeopleDocumentConflict $e){$check(true,'invalid input rejected');return;}throw new RuntimeException('Invalid input was accepted');};
+$check(peopleDocumentKey(10,100,'people/10/document/100/file.pdf')==='people/10/document/100/file.pdf','canonical person key');
+foreach(['people/11/document/100/file.pdf','people/10/document/101/file.pdf','people/10/person/100/file.pdf','people/10/document/100/../101/a.pdf','people/10/document/100/','people/10/document/100/a/b.pdf',"people/10/document/100/a\0.pdf",'people/10/document/100/a\\b.pdf']as$key)$reject(fn()=>peopleDocumentKey(10,100,$key));
+foreach(['person_id','storage_object_id','storage_path','employee_id','deleted_at','uploaded_by_user_id','file_name=:evil']as$key)$reject(fn()=>peopleDocumentMetadata([$key=>1]));
+foreach(['2026-02-30','2026-10-22 25:00:00','2026-10-22<script>']as$date)$reject(fn()=>peopleDocumentMetadata(['expires_at'=>$date]));
+$reject(fn()=>peopleDocumentMetadata(['signed'=>'false']));
+$reject(fn()=>peopleDocumentMetadata(['doc_type'=>'unrecognized']));
+$reject(fn()=>peopleDocumentMetadata(['file_name'=>"unsafe\r\nname.pdf"]));
+$values=peopleDocumentMetadata(['doc_type'=>'offer','filename'=>'offer.pdf','signed'=>true,'signed_at'=>'2026-10-22'],true);
+$check($values['signed']===1 && $values['signed_at']==='2026-10-22 00:00:00' && $values['file_name']==='offer.pdf','typed metadata and normalized dates');
+foreach([null,['etag'=>'','size_bytes'=>1],['etag'=>'x','size_bytes'=>0],['etag'=>'x','size_bytes'=>26*1024*1024],['etag'=>'x','size_bytes'=>'5']]as$head)$reject(fn()=>peopleDocumentHead(static fn($key)=>$head,'key'));
+$safe=peopleDocumentPublic(['id'=>1,'file_name'=>'a.pdf','storage_path'=>'private/old','s3_key'=>'private/key','employee_id'=>77,'tenant_id'=>10]);
+$check($safe===['id'=>1,'file_name'=>'a.pdf'],'vault metadata omits legacy paths and employee identity');
+echo "PASS {$n} document input and ownership checks\n";
