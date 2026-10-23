@@ -55,7 +55,7 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     }
     if (!in_array($context['provider'], ['quanta','purepay','purepayroll'], true)) throw new InvalidArgumentException('Unsupported delivery provider');
     // Every operation added here needs a reviewed adapter and fixture before it can be queued.
-    $operations=['person'=>['worker.create','worker.update','person.link','worker.profile.create','worker.profile.update'],'placement'=>['assignment.create','assignment.update']];
+    $operations=['person'=>['worker.create','worker.update','person.link','worker.profile.create','worker.profile.update'],'placement'=>['assignment.create','assignment.update','onboarding.publish']];
     $quanta=$context['provider']==='quanta' && in_array($context['operation'],$operations[$context['entity_type']]??[],true);
     $purepay=$context['provider']==='purepay' && $context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true);
     $payroll=$context['provider']==='purepayroll' && $context['entity_type']==='person' && in_array($context['operation'],['payroll.inputs','people.inputs'],true);
@@ -109,7 +109,7 @@ function integrationDeliveryApprove(PDO $pdo, int $tenantId, int $id, int $actor
  * Caller must verify tenant/organization, capability, source and remote snapshots afresh.
  * An attempt is exclusive. An interrupted sending row requires reconciliation; it never expires into a retry.
  */
-function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $current): array
+function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $current, ?callable $beforeClaim=null): array
 {
     if ($pdo->inTransaction()) throw new LogicException('Delivery claims must commit before provider IO');
     $keys = ['binding_hash','source_hash','remote_hash'];
@@ -130,6 +130,7 @@ function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $curre
     $claim = bin2hex(random_bytes(32));
     $pdo->beginTransaction();
     try {
+        if ($beforeClaim!==null) $beforeClaim();
         $subject=$pdo->prepare('SELECT subject_hash FROM integration_delivery_subjects WHERE tenant_id=:t AND subject_hash=:s FOR UPDATE');
         $subject->execute(['t'=>$tenantId,'s'=>$row['subject_hash']]);
         if (!$subject->fetchColumn()) throw new RuntimeException('Delivery subject is unavailable');

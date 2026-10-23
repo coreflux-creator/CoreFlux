@@ -77,15 +77,15 @@ function onboardingTaskDefinition(array $body): array {
         'assignee'=>$body['assignee'],'evidence_kind'=>$body['evidence_kind'],'required'=>$body['required']];
 }
 /** A failed evidence lookup cannot preserve an approved/completed status. Read never changes history. */
-function onboardingView(PDO $pdo,array $scope,string $id,callable $head): array {
-    $case=onboardingCase($pdo,$scope,$id);$today=gmdate('Y-m-d');$required=0;$satisfied=0;
+function onboardingView(PDO $pdo,array $scope,string $id,callable $head,bool $lock=false): array {
+    $case=onboardingCase($pdo,$scope,$id,$lock);$today=gmdate('Y-m-d');$required=0;$satisfied=0;
     foreach($case['tasks']as&$task){
         $task['effective_state']=$task['state'];
         if($task['state']!=='retired'){
             if(in_array($task['state'],['approved','waived'],true)&&($task['review']['source_revision']??null)!==$case['source_revision'])$task['effective_state']='needs_review';
             $expiry=$task['review']['expires_at']??null;
             if($task['state']!=='waived'&&isset($task['evidence']['document_id'])){
-                try{$doc=onboardingDocument($pdo,$case,$task['evidence']['document_id'],$head);
+                try{$doc=onboardingDocument($pdo,$case,$task['evidence']['document_id'],$head,$lock);
                     if(!hash_equals($task['evidence']['revision'],$doc['revision']))$task['effective_state']='needs_review';
                     if($doc['expires_at']!==null&&($expiry===null||$doc['expires_at']<$expiry))$expiry=$doc['expires_at'];
                 }catch(Throwable $e){$task['effective_state']='evidence_unavailable';}
@@ -97,7 +97,7 @@ function onboardingView(PDO $pdo,array $scope,string $id,callable $head): array 
     $case['source_changed']=$case['confirmed_source_hash']!==$case['source_revision'];
     $case['readiness']=$case['confirmed_plan_version']!==$case['plan_version']||$case['source_changed']||$required===0?'requirements_unconfirmed':($required===$satisfied?'complete':'incomplete');
     $case['required_count']=$required;$case['satisfied_count']=$satisfied;$case['observed_at']=gmdate('Y-m-d\TH:i:s\Z');
-    $case['payroll_authorization']='not_evaluated';$case['portal_delivery']='not_published';
+    $case['payroll_authorization']='not_evaluated';$case['portal_delivery']='not_checked';
     $st=$pdo->prepare('SELECT case_version,actor_user_id,action,task_id,details_json,created_at FROM staffing_onboarding_events WHERE tenant_id=:t AND case_id=:id ORDER BY case_version DESC LIMIT 101');
     $st->execute(['t'=>$scope['tenant_id'],'id'=>$id]);$events=$st->fetchAll(PDO::FETCH_ASSOC);
     $case['history_has_more']=count($events)>100;$case['history']=array_map(static function($e){$e['details']=json_decode($e['details_json'],true,32,JSON_THROW_ON_ERROR);unset($e['details_json']);return $e;},array_slice($events,0,100));

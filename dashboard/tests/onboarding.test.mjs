@@ -26,7 +26,7 @@ test('empty/unconfirmed case cannot advertise completed onboarding or portal pub
   const html = render({ ...value, tasks: [], required_count: 0 });
   assert.ok(html.includes('Requirement list needs confirmation'));
   assert.ok(html.includes('An empty case is not complete'));
-  assert.ok(html.includes('has not been published to Quanta'));
+  assert.ok(html.includes('Check the worker portal below'));
   assert.ok(!html.includes('Confirmed requirements complete'));
   assert.ok(html.includes('disabled="">Confirm this is the full requirement list'));
 });
@@ -34,7 +34,7 @@ test('completed case still separates payroll authority and portal delivery', () 
   const html = render({ ...value, readiness: 'complete', satisfied_count: 1, confirmed_plan_version: 2, source_changed: false });
   assert.ok(html.includes('Confirmed requirements complete'));
   assert.ok(html.includes('Payroll authorization is evaluated separately'));
-  assert.ok(html.includes('has not been published to Quanta'));
+  assert.ok(html.includes('Check the worker portal below'));
 });
 test('read-only capability hides all mutation controls and preserves evidence provenance', () => {
   const v = { ...value, tasks: [{ ...value.tasks[0], state: 'submitted', effective_state: 'needs_review', evidence: { source: 'core_staff', actor_user_id: 90, submitted_at: value.observed_at, document_id: 1 } }] };

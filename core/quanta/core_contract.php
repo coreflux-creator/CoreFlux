@@ -117,6 +117,14 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
         $expected=quantaAssignmentPayloadValidate($expected,false)+['version'=>$version];
         foreach ($body as $field=>$value) if ($field!=='expected_version' && $expected[$field]!==$value) throw new InvalidArgumentException('Assignment confirmation differs from the request');
         $id=quantaCoreRemoteId($workspaceId,$expected['placement']); $path='/assignments/'.$id; $codes=[200]; $method='PATCH';
+    } elseif ($operation==='onboarding.publish') {
+        require_once __DIR__.'/onboarding_contract.php';
+        $publication=$body;unset($publication['expected_version']);
+        $id=quantaOnboardingRemoteId($workspaceId,$publication);$path='/onboarding';$codes=[200,201];
+        if(($expected['id']??null)!==$id||($expected['tenant_id']??null)!==$workspaceId
+            ||($expected['version']??null)!==($body['expected_version']??0)+1
+            ||($expected['projection_hash']??null)!==onboardingHash($publication)
+            ||onboardingHash($expected['publication']??[])!==onboardingHash($publication))throw new InvalidArgumentException('Onboarding confirmation differs from the publication');
     } else { throw new InvalidArgumentException('Unsupported Quanta contract operation'); }
     $url=QUANTA_API_BASE.QUANTA_CORE_CONTRACT_PATH.$path;
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);

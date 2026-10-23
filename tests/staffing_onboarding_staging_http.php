@@ -41,14 +41,14 @@ try{
     try{qaRequest($path,'POST',$stale,$cookies[1]);throw new LogicException('Stale HTTP request accepted');}catch(RuntimeException $e){$check(str_contains($e->getMessage(),'HTTP 409'),'HTTP stale review returns a conflict');}
     $command('review',['task_id'=>$task,'decision'=>'approve','reason'=>'Synthetic evidence reviewed'],1);
     $check($case['readiness']==='complete'&&$case['tasks'][0]['review']['actor_user_id']===(int)$actors[1]['id'],'HTTP reviewer decision completes only the confirmed requirement list');
-    $check($case['payroll_authorization']==='not_evaluated'&&$case['portal_delivery']==='not_published','HTTP completion remains separate from payroll and portal publication');
+    $check($case['payroll_authorization']==='not_evaluated'&&$case['portal_delivery']==='not_checked','HTTP completion remains separate from payroll and portal publication');
     $fetched=qaRequest($path.'?case_id='.$id,'GET',null,$cookies[0]);
     $check($fetched['case']['version']===$case['version']&&count($fetched['case']['history'])===$case['version'],'HTTP read retains one event for every committed revision');
     $command('revise_task',['task_id'=>$task,'title'=>'Synthetic revised orientation','instructions'=>'Synthetic change requires fresh evidence.','assignee'=>'staff','evidence_kind'=>'attestation','required'=>true]);
     $check($case['readiness']==='requirements_unconfirmed'&&$case['tasks'][0]['review']===null,'HTTP requirement revision invalidates prior completion');
     $check(qaOne($pdo,'SELECT status FROM people WHERE tenant_id=:t AND id=:id',['t'=>QA_TENANT,'id'=>$personId])===$baselinePerson
         &&qaOne($pdo,'SELECT status FROM placements WHERE tenant_id=:t AND id=:id',['t'=>QA_TENANT,'id'=>$placementId])===$baselinePlacement,'onboarding HTTP workflow leaves person and placement activation unchanged');
-    echo json_encode(['status'=>'passed','checks'=>$count,'synthetic_tenant'=>QA_TENANT,'case_id'=>$id,'person_id'=>$personId,'placement_id'=>$placementId,'portal_delivery'=>'not_published','payroll_authorization'=>'not_evaluated'],JSON_PRETTY_PRINT),"\n";
+    echo json_encode(['status'=>'passed','checks'=>$count,'synthetic_tenant'=>QA_TENANT,'case_id'=>$id,'person_id'=>$personId,'placement_id'=>$placementId,'portal_delivery'=>'not_checked','payroll_authorization'=>'not_evaluated'],JSON_PRETTY_PRINT),"\n";
 }finally{
     foreach($actors as$actor)$pdo->prepare('UPDATE users SET is_active=0,password_hash=NULL WHERE tenant_id=:t AND id=:id')->execute(['t'=>QA_TENANT,'id'=>$actor['id']]);
     foreach($cookies as$cookie)if(is_file($cookie))unlink($cookie);

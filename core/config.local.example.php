@@ -20,6 +20,7 @@ define('COREFLUX_DATA_KEY', 'REPLACE_ME_WITH_BASE64_32_BYTES');
 // This does not enable worker activation, access, payroll or payments.
 // define('COREFLUX_QUANTA_METADATA_DELIVERY', true);
 // define('COREFLUX_QUANTA_WORKER_DELIVERY', true); // Reviewed inactive preparation/contact updates only.
+// define('COREFLUX_QUANTA_ONBOARDING_DELIVERY', true); // Reviewed portal requirements only; no employer approval.
 
 // OpenAI key — used directly by core/ai_service.php (no Python sidecar).
 // Get one at https://platform.openai.com/api-keys

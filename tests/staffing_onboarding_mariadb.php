@@ -78,7 +78,7 @@ try{
     $blob['etag']='v2';$fails(fn()=>$command('review',['task_id'=>$task,'decision'=>'approve','reason'=>'Reviewed']),'object overwrite after submission prevents approval');
     $command('submit',$submit);$review=$command('review',['task_id'=>$task,'decision'=>'approve','reason'=>'Document reviewed for placement','expires_at'=>gmdate('Y-m-d',time()+86400)]);
     $check($view()['readiness']==='complete','confirmed list with current reviewed evidence becomes complete');
-    $check($view()['payroll_authorization']==='not_evaluated'&&$view()['portal_delivery']==='not_published','completed tasks grant no payroll or portal authority');
+    $check($view()['payroll_authorization']==='not_evaluated'&&$view()['portal_delivery']==='not_checked','completed tasks grant no payroll or portal authority');
     $blob['version_id']='version-2';$check($view()['readiness']==='incomplete'&&$view()['tasks'][0]['effective_state']==='needs_review','changed object version invalidates displayed approval');
     $blob['version_id']='version-1';$blob=null;$check($view()['tasks'][0]['effective_state']==='evidence_unavailable','storage outage fails closed');
     $blob=['etag'=>'v2','size_bytes'=>50,'version_id'=>'version-1','last_modified'=>'2026-10-22T00:00:00Z'];
@@ -135,4 +135,5 @@ try{
     $check((int)$pdo->query("SELECT COUNT(*) FROM people WHERE status='active'")->fetchColumn()===3,'workflow does not activate or alter people');
     $check((int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn()===3,'workflow does not copy or upload documents');
     echo "PASS {$passed} onboarding checks\n";
+    require __DIR__.'/fixtures/quanta_onboarding_checks.php';
 }finally{$pdo->exec('DROP DATABASE '.$db);}

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
+import OnboardingQuanta from './OnboardingQuanta';
 
 const ENDPOINT = '/modules/people/api/onboarding.php';
 const LABELS = { requested: 'Requested', submitted: 'Awaiting review', approved: 'Approved', rejected: 'Needs correction',
@@ -36,7 +37,7 @@ export function OnboardingTask({ task, personId, documents, permissions, busy, c
     <div style={{ ...row, justifyContent: 'space-between' }}><strong>{task.title}</strong><span>{LABELS[task.effective_state] || task.effective_state}</span></div>
     <p>{task.instructions}</p>
     <p>{task.required ? 'Required' : 'Optional'} · {task.assignee === 'worker' ? 'Worker responsibility' : 'Staff responsibility'} · {task.evidence_kind === 'document' ? 'Document evidence' : 'Attestation'}</p>
-    {task.evidence && <p>Recorded by Core staff #{task.evidence.actor_user_id} on {task.evidence.submitted_at}.
+    {task.evidence && <p>{task.evidence.source === 'quanta_worker' ? `Submitted by the linked Quanta worker; imported by staff #${task.evidence.imported_by_user_id}` : `Recorded by Core staff #${task.evidence.actor_user_id}`} on {task.evidence.submitted_at}.
       {task.evidence.document_id && <> Document #{task.evidence.document_id}. <a href={`/modules/people/${personId}/documents`}>Open document vault</a></>}
     </p>}
     {task.review && <p>Review by staff #{task.review.actor_user_id}: {task.review.reason} ({task.review.reviewed_at}){task.review.expires_at ? ` · Valid through ${task.review.expires_at}` : ''}</p>}
@@ -70,7 +71,7 @@ export function OnboardingCaseView({ value, documents = [], permissions = {}, bu
     <header style={card}><h3>{value.person_number} · {value.placement_number}</h3>
       <p role="status"><strong>{value.readiness === 'complete' ? 'Confirmed requirements complete' : value.readiness === 'requirements_unconfirmed' ? 'Requirement list needs confirmation' : 'Requirements outstanding'}</strong> · {value.satisfied_count} of {value.required_count} required tasks satisfied</p>
       <p>Case status checked {value.observed_at}. Payroll authorization is evaluated separately.</p>
-      <p>Portal status: this case has not been published to Quanta.</p>
+      <p>Check the worker portal below for publication and submission status.</p>
       {value.confirmed_by_user_id && <p>Requirement list confirmed by staff #{value.confirmed_by_user_id} on {value.confirmed_at}.</p>}
       {value.source_changed && value.confirmed_plan_version !== null && <p>Placement setup changed since the last confirmation. Review the requirements and evidence again.</p>}
       <p><a href={`/modules/placements/${value.placement_id}/overview`}>Review placement setup</a></p>
@@ -90,6 +91,7 @@ export function OnboardingCaseView({ value, documents = [], permissions = {}, bu
 export default function OnboardingTab({ personId }) {
   const [catalog, setCatalog] = useState(null), [value, setValue] = useState(null), [placementId, setPlacementId] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(null);
+  const [exchangeBusy, setExchangeBusy] = useState(false);
   const epoch = useRef(0);
   const invalidateRequests = useCallback(() => { epoch.current++; }, []);
   const load = useCallback(async (caseId = null) => {
@@ -122,7 +124,7 @@ export default function OnboardingTab({ personId }) {
     if (busy || pending) return;
     send({ action, request_id: crypto.randomUUID(), ...(action === 'create' ? { person_id: Number(personId), placement_id: Number(placementId) } : { case_id: value.id, expected_version: value.version }), ...fields });
   }
-  const disabled = busy || Boolean(pending);
+  const disabled = busy || Boolean(pending) || exchangeBusy;
   return <section data-testid="onboarding-tab"><h2>Onboarding</h2>
     <p>Define the employer’s requirements, record evidence and review each task for this placement.</p>
     {error && <p role="alert" className="error">{error}</p>}
@@ -140,6 +142,7 @@ export default function OnboardingTab({ personId }) {
       </form>}
       {catalog.documents_has_more && <p>Showing the latest 100 documents. Use the document vault for older items.</p>}
       {value && <OnboardingCaseView key={value.id} value={value} documents={catalog.documents} permissions={catalog.permissions} busy={disabled} command={command} />}
+      {value && <OnboardingQuanta key={`quanta:${value.id}`} value={value} canManage={catalog.permissions.manage} disabled={busy || Boolean(pending)} onBusy={setExchangeBusy} onImported={() => load(value.id)} />}
     </>}
   </section>;
 }

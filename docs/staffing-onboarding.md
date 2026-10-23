@@ -71,10 +71,43 @@ row; releasing them must produce one revision and the same durable receipt for
 both callers. A current locking receipt read is necessary after acquiring the
 case lock under the database's default repeatable-read isolation.
 
-Portal rollout remains separate: this initial workflow displays that the case is
-not published to Quanta. A future approved projection must use verified worker
-and assignment links and the durable delivery ledger. Worker submissions must
-carry an authenticated actor, task revision and replay identity, and may only
-move evidence into review. They cannot approve/waive tasks or change employer
-requirements. Document uploads need their own restricted evidence flow; the
-general metadata contract must not carry private document contents or signed URLs.
+The candidate portal exchange is in the same People onboarding screen. Staff
+explicitly check Quanta, review the exact requirement text, then publish or
+withdraw it. The connection must have a verified workspace, typed person and
+assignment links, and the separate `read:core_onboarding` and
+`write:core_onboarding` permissions in addition to the metadata permissions.
+Wildcard metadata access does not silently acquire onboarding access. Outbound
+publication defaults off behind `COREFLUX_QUANTA_ONBOARDING_DELIVERY`.
+
+Each reviewed publication uses the encrypted delivery ledger, a conditional
+provider version and a durable request identity. Core checks current directory
+ownership, connection, worker mapping and source revision under transaction
+locks before claiming the attempt; the provider independently checks the current
+assignment and publication versions. Uncertain results require receipt lookup,
+never a second blind send. A successful receipt records delivery of that exact
+revision, not a claim that Core and Quanta still agree after subsequent edits.
+
+Quanta exposes the explicitly published case to the linked authenticated worker,
+including pre-start draft assignments. Workers may attest only to their own
+worker-assigned attestation tasks. The actor comes from the current identity and
+membership; request fields cannot impersonate another worker or approve evidence.
+The receipt and provider case version commit atomically. Quanta retains at most
+500 receipts per case and refuses further submissions at that boundary rather
+than deleting earlier evidence.
+
+Core fetches a selected receipt itself and matches it to the original confirmed
+encrypted publication, current source revision and task version. Browser input
+contains only receipt/delivery identifiers and the expected Core case version.
+The case update, worker provenance, importing staff identity and replay receipt
+commit together. The task becomes `submitted`, never approved. A retry after
+staff review returns the original import receipt without undoing that review.
+Older publications remain usable as provenance only while their task definition
+and source setup still match; changed or withdrawn requirements require review.
+
+Provider publication and a real Thunderhawk round trip remain outstanding. The
+local candidate includes authenticated API/session tests, a PHP-to-Quanta HTTP
+contract bridge and database/React fixtures. These are synthetic acceptance,
+not evidence of production activation. Private document upload/transfer remains
+unimplemented; documents continue through Core's existing vault and staff review.
+Portal projections exclude private document references, storage keys, signed
+URLs, reviewer reasons and case history. Payroll execution remains separate.
