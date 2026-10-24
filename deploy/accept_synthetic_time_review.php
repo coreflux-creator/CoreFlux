@@ -56,13 +56,13 @@ try {
         if(!RBAC::hasPermission($operator,$permission) || !RBACResolver::can($operator,PILOT_TENANT,$module,$action)) throw new RuntimeException('Existing operator lacks permission');
     }
     setRequestTenantId(PILOT_TENANT);
-    $unchangedRows=static function()use($pdo):array {
+    $unchangedRows=static function()use($pdo,&$phase):array {
         $queries=['time'=>'SELECT * FROM time_entries WHERE tenant_id=999 ORDER BY id',
-            'sheets'=>'SELECT * FROM timesheets WHERE tenant_id=999 ORDER BY id',
+            'sheets'=>'SELECT * FROM staffing_timesheets WHERE tenant_id=999 ORDER BY id',
             'person'=>'SELECT * FROM people WHERE tenant_id=999 AND id=15',
             'placement'=>'SELECT * FROM placements WHERE tenant_id=999 AND id=13',
             'imports'=>'SELECT * FROM quanta_time_imports WHERE tenant_id=999 ORDER BY id'];
-        $hashes=[];foreach($queries as $name=>$sql)$hashes[$name]=integrationDeliveryHash($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC));
+        $hashes=[];foreach($queries as $name=>$sql){$phase='local_snapshot_'.$name;$hashes[$name]=integrationDeliveryHash($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC));}
         return $hashes;
     };
     $phase='local_snapshot';$before=$unchangedRows();
