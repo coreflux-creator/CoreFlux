@@ -176,6 +176,13 @@ jobs:
           php tests/quanta_time_approval_smoke.php
           php tests/quanta_time_current_smoke.php
           php tests/quanta_time_review_smoke.php
+          php -l deploy/accept_synthetic_time_review.php
+          if COREFLUX_ENV=staging php deploy/accept_synthetic_time_review.php --share-demo-pending-review; then
+            echo 'Demo acceptance unexpectedly ran outside the isolated pilot.' >&2
+            exit 1
+          else
+            test "$?" = 2
+          fi
           php tests/quanta_time_provenance_mariadb.php
           php tests/quanta_time_review_mariadb.php
           php tests/quanta_payroll_inputs_mariadb.php
