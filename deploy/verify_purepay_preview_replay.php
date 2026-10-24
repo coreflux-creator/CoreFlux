@@ -6,6 +6,7 @@ if (PHP_SAPI!=='cli' || ($argv[1] ?? '')!=='--verify-native-demo-replay'
     || getenv('COREFLUX_ENV')!=='staging' || realpath(getcwd())!==REPLAY_ROOT) {
     fwrite(STDERR,"Exact isolated staging CLI and demo replay verification required.\n"); exit(2);
 }
+$phase='environment';
 try {
     require_once REPLAY_ROOT.'/core/db.php';
     require_once REPLAY_ROOT.'/deploy/migrate_purepay_preview_origin.php';
@@ -20,15 +21,19 @@ try {
         throw new RuntimeException('Simulation identity changed');
     }
     foreach (['people','placements','ap'] as $module) {
+        $phase='directory_'.$module;
         if (effectiveTenantIdForModule($module,999)!==999) throw new RuntimeException('Directory ownership changed');
     }
+    $phase='company_binding';
     $connection=purepayCoreConnection($pdo,999);
     if (!$connection || (int)$connection['revision']!==3 || $connection['remote_organization_id']!==CONTINUITY_ORG
         || !purepayCoreReview($pdo,999,CONTINUITY_INSTANCE)['verified']) throw new RuntimeException('New company binding is not verified');
+    $phase='saved_deliveries';
     $before=purepayPreviewOriginRows($pdo);
     $ap=$pdo->query('SELECT * FROM purepay_connections ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC);
     $results=[];
     foreach ($before as $row) {
+        $phase='delivery_'.(int)$row['id'];
         $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
         if (($payload['organization_id'] ?? null)!==CONTINUITY_ORG) throw new RuntimeException('Foreign original receipt');
         for ($attempt=0;$attempt<2;$attempt++) {
@@ -65,5 +70,18 @@ try {
         'deliveries'=>$results,'native_lookups'=>10,'original_deliveries_unchanged'=>true,'connection_unchanged'=>true,
         'ap_connection_unchanged'=>true,'provider_record_writes'=>false,'payroll_or_payments_executed'=>false],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n";
 } catch (Throwable $e) {
-    fwrite(STDERR,"Native PurePay demo replay did not verify. No send operation was called.\n"); exit(2);
+    $reason=match($e->getMessage()) {
+        'Simulation identity changed'=>'simulation_identity_changed',
+        'Directory ownership changed'=>'directory_ownership_changed',
+        'New company binding is not verified'=>'company_binding_not_verified',
+        'The person review belongs to different directory owners.'=>'person_directory_owners_mismatch',
+        'This placement review belongs to different directory owners.'=>'placement_directory_owners_mismatch',
+        'Original delivery changed'=>'delivery_summary_changed',
+        'Native employee receipt changed'=>'employee_receipt_changed',
+        'Native assignment receipt changed'=>'assignment_receipt_changed',
+        default=>'native_receipt_check_failed',
+    };
+    fwrite(STDERR,'PUREPAY_NATIVE_REPLAY_FAILURE='.json_encode(['phase'=>$phase,'reason'=>$reason,
+        'exception_class'=>get_class($e),'source_file'=>basename($e->getFile()),'source_line'=>$e->getLine(),
+        'send_called'=>false],JSON_THROW_ON_ERROR)."\n"); exit(2);
 }
