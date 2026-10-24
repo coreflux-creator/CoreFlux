@@ -34,10 +34,10 @@ $assert('payment-run execution rechecks live reservations',
     str_contains($lib, 'AS reserved_amount')
     && str_contains($lib, "amount_due'] - (float) (\$b['reserved_amount']"));
 $allocateFunction = substr($lib, (int) strpos($lib, 'function apAllocatePayment('), 7500);
-$assert('automatic FIFO allocation skips amounts already reserved by other payments',
-    str_contains($allocateFunction, 'reserved.status IN ("draft", "queued", "sent")')
-    && str_contains($allocateFunction, "\$bill['amount_due'] - (float) \$bill['reserved_amount']")
-    && str_contains($allocateFunction, 'if ($available <= 0) continue;'));
+$assert('automatic FIFO uses current reservations and continues until the payment is allocated',
+    str_contains($allocateFunction, 'ORDER BY b.due_date ASC, b.id ASC FOR UPDATE')
+    && str_contains($allocateFunction, 'p.status IN ("draft", "queued", "sent") FOR UPDATE')
+    && str_contains($allocateFunction, 'min($t[\'amount\'], $available, $remaining)'));
 $assert('payment runs are all-or-nothing transactions',
     str_contains($lib, '$ownsTransaction = !$pdo->inTransaction()')
     && str_contains($lib, 'if ($ownsTransaction) $pdo->commit()')

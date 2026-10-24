@@ -1893,37 +1893,29 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         if ($remaining <= 0) throw new \RuntimeException('payment has no unallocated amount');
 
         $targets = [];
-        if (isset($request['auto']) && $request['auto'] === 'fifo') {
+        $autoFifo = ($request['auto'] ?? null) === 'fifo';
+        if ($autoFifo) {
             $entityClause = !empty($pay['entity_id']) ? ' AND b.entity_id = :entity_id' : '';
             $fifoParams = [
                 't' => $pay['tenant_id'],
                 'v' => $pay['vendor_name'],
-                'reservation_tenant_id' => $pay['tenant_id'],
             ];
             if (!empty($pay['entity_id'])) $fifoParams['entity_id'] = (int) $pay['entity_id'];
             $q = $pdo->prepare(
-                'SELECT b.id, b.amount_due,
-                        COALESCE((SELECT SUM(a.amount_applied)
-                                    FROM ap_payment_allocations a
-                                    JOIN ap_payments reserved ON reserved.id = a.payment_id
-                                   WHERE a.bill_id = b.id
-                                     AND reserved.tenant_id = :reservation_tenant_id
-                                     AND reserved.status IN ("draft", "queued", "sent")), 0) AS reserved_amount
+                'SELECT b.id
                    FROM ap_bills b
                  WHERE b.tenant_id = :t AND b.vendor_name = :v
                    AND b.status IN ("approved","partially_paid")
                    AND b.amount_due > 0
                    ' . $entityClause . '
-                 ORDER BY b.due_date ASC, b.id ASC'
+                 ORDER BY b.due_date ASC, b.id ASC FOR UPDATE'
             );
             $q->execute($fifoParams);
             foreach ($q->fetchAll(\PDO::FETCH_ASSOC) as $bill) {
-                if ($remaining <= 0) break;
-                $available = max(0, round((float) $bill['amount_due'] - (float) $bill['reserved_amount'], 2));
-                if ($available <= 0) continue;
-                $apply = min($remaining, $available);
-                $targets[] = ['bill_id' => (int) $bill['id'], 'amount' => round($apply, 2)];
-                $remaining -= $apply;
+                // Select candidates from current rows, then consume the current
+                // reservation balance below. A snapshot-based preallocation can
+                // skip released funds or stop before the next available bill.
+                $targets[] = ['bill_id' => (int) $bill['id'], 'amount' => $remaining];
             }
         } else {
             foreach ((array) ($request['allocations'] ?? []) as $a) {
@@ -1935,12 +1927,13 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         }
         if (empty($targets)) throw new \RuntimeException('no allocations specified');
         $totalRequested = array_sum(array_column($targets, 'amount'));
-        if ($totalRequested - 0.005 > (float) $pay['unallocated_amount']) {
+        if (!$autoFifo && $totalRequested - 0.005 > (float) $pay['unallocated_amount']) {
             throw new \RuntimeException('total allocation exceeds payment unallocated amount');
         }
 
         $applied = [];
         foreach ($targets as $t) {
+            if ($remaining <= 0) break;
             $bill = $pdo->prepare('SELECT * FROM ap_bills WHERE id = :id AND tenant_id = :t FOR UPDATE');
             $bill->execute(['id' => $t['bill_id'], 't' => $pay['tenant_id']]);
             $bRow = $bill->fetch(\PDO::FETCH_ASSOC);
@@ -1960,19 +1953,23 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             }
 
             $available = (float) $bRow['amount_due'];
+            // The bill lock serializes allocators, but a plain SELECT would
+            // still use an older read view in a caller-owned REPEATABLE READ
+            // transaction. Read and lock the current reservations as well.
             $reservedStmt = $pdo->prepare(
-                'SELECT COALESCE(SUM(a.amount_applied), 0)
+                'SELECT a.amount_applied
                    FROM ap_payment_allocations a
                    JOIN ap_payments p ON p.id = a.payment_id
                   WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
-                    AND p.status IN ("draft", "queued", "sent")'
+                    AND p.status IN ("draft", "queued", "sent") FOR UPDATE'
             );
             $reservedStmt->execute([
                 'bill_id' => (int) $bRow['id'],
                 'tenant_id' => (int) $pay['tenant_id'],
             ]);
-            $available = max(0, round($available - (float) $reservedStmt->fetchColumn(), 2));
-            $apply = min($t['amount'], $available);
+            $reserved = array_sum(array_map('floatval', $reservedStmt->fetchAll(PDO::FETCH_COLUMN)));
+            $available = max(0, round($available - $reserved, 2));
+            $apply = min($t['amount'], $available, $remaining);
             if ($apply <= 0) continue;
 
             $pdo->prepare(
@@ -1982,6 +1979,7 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             )->execute([
                 'p' => $paymentId, 'b' => $bRow['id'], 'a' => $apply, 'u' => $actorUserId,
             ]);
+            $remaining = round($remaining - $apply, 2);
 
             $applied[] = [
                 'bill_id'        => (int) $bRow['id'],
@@ -1991,7 +1989,7 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
                 'reserved'       => true,
             ];
         }
-        $newUnalloc = round((float) $pay['unallocated_amount'] - array_sum(array_column($applied, 'amount_applied')), 2);
+        $newUnalloc = $remaining;
         $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE tenant_id = :tenant_id AND id = :id')
             ->execute(['u' => $newUnalloc, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
 
