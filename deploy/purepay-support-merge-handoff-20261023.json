@@ -1617,11 +1617,37 @@
     "publication_approved": false,
     "approval_owner_chat": "Review and harden Pure//Pay",
     "remaining_gates": [
-      "Freeze exact combined source/manifest and bind complete frontend build",
       "Verify effective Live/Test configuration and obtain one combined user approval",
-      "Record current published rollback revision/config and verify intended post-release behavior"
+      "Record current published rollback revision/config and verify intended post-release behavior",
+      "Establish exactly which source/configuration Re-publish packages, or verify an explicit alternative that preserves the protected preview and production data"
     ],
-    "integration_activation_not_cleared": true
+    "integration_activation_not_cleared": true,
+    "source_packaging": {
+      "checked_at": "2026-10-24T03:25:55.656Z",
+      "status": "unverified; blocks publication",
+      "reported_combined_ref": "codex/support-core-reviewed-20261023",
+      "reported_combined_commit": "eb906a3e5406d053bd26836530c302f966d58f43",
+      "reported_manifest": "/app/audit/support-feedback-2026-10-23/combined-release-manifest.json",
+      "issue": "Working preview retains protected modified .emergent/cron files while the immutable candidate retains their published baseline. No verified Re-publish ref selector or packaging exclusion has been established.",
+      "official_sources": [
+        "https://help.emergent.sh/preview-vs-deployed-separate",
+        "https://help.emergent.sh/deployment-types",
+        "https://emergent.sh/glossary/github-integration"
+      ],
+      "documentation_finding": "Re-publish copies mutable preview code/configuration/assets; GitHub save/pull branch controls do not establish publication ref selection.",
+      "protected_preview_files_changed": false,
+      "proposed_alternative": "Read-only investigation of a separately staged release job and Replace with the existing production database; no creation or cutover performed or approved.",
+      "combined_ref_verified": true,
+      "frontend_build": {
+        "status": "passed",
+        "exit": 0,
+        "commit": "eb906a3e5406d053bd26836530c302f966d58f43",
+        "build_file_count": 35,
+        "receipt": "deploy/purepay-combined-frontend-build-20261023.json",
+        "hosted_receipt_sha256": "ced9c5c5e846d2c123c2436eeaf0f70a63df4eeed0495470907e693126565c5d",
+        "manifest_sha256": "a487eaa90f00daf0ad91e822430c1084d48767e95c5f3b886af8cb1e941800ee"
+      }
+    }
   },
   "synthetic_acceptance_state": {
     "core_runtime": "99e16c7ff011a85b88ec09d2bf904477885662bd",

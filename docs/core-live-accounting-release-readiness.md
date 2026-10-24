@@ -1,3 +1,26 @@
+## Combined provider build passed; publication source remains unverified - October 23, 2026
+
+Immutable combined ref codex/support-core-reviewed-20261023 resolves to
+eb906a3e5406d053bd26836530c302f966d58f43. Its complete frontend build passed
+with exit 0 and 35 output files, including the public PNG assets. The hosted
+receipt and ref were read back; the full receipt is saved in
+deploy/purepay-combined-frontend-build-20261023.json.
+
+The working preview retains two protected modified .emergent/cron files while
+that candidate retains their published baseline. No verified Re-publish source-ref
+selector or cron-file packaging exclusion has been established. The immutable Git
+ref and successful build alone do not prove what Emergent will publish.
+
+[Emergent's preview/published documentation](https://help.emergent.sh/preview-vs-deployed-separate)
+describes Re-publish as copying preview code, configuration and assets;
+[publishing types](https://help.emergent.sh/deployment-types) describes a single
+mutable preview. The [GitHub integration guide](https://emergent.sh/glossary/github-integration)
+documents saving/pulling branches, not publication from an immutable ref. Publication
+still requires resolving this source-packaging gate. Protected cron files remain
+unchanged. A separate release job with Replace/keep-existing-database remains an
+alternative to investigate; the release owner is handling its user approval.
+No release job, settings save or production cutover was performed in this check.
+
 ## Coordinated PurePay preview merge verified - October 23, 2026
 
 The support release owner applied candidate 45a4f73 to the shared development
