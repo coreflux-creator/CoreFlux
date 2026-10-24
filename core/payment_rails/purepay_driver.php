@@ -427,7 +427,10 @@ class PurePayRailDriver implements PaymentRailsDriver
                 'purepay_payment_id'=>(string) ($remote['id'] ?? $remote['payment_id'] ?? $link['purepay_payment_id'] ?? ''),
             ]);
             return $this->normalizeStatus($status);
-        } catch (\Throwable $_) {
+        } catch (\Throwable $e) {
+            // An incomplete inventory is not a new provider status. Preserve the
+            // durable attempt, but surface uncertainty instead of its cached label.
+            if ($e instanceof PurePayApiException && $e->errorCode === 'incomplete_collection') return 'unknown';
             return $link ? $this->normalizeStatus((string) $link['status']) : 'unknown';
         }
     }
