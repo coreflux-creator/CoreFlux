@@ -1,3 +1,45 @@
+## PurePay attempts retain native AP reservations - October 24, 2026
+
+Runtime 4af9cd3d8053a1b016773fbdc1c778a516c22958 passed all nine CI jobs
+(40113628654) and isolated staging acceptance (40113882012). Native AP void,
+reallocation and clear now consult the durable provider attempt, including when
+the original request lost its response. Dispatch locks and rechecks the current
+payment and bill allocations before committing the attempt. A cached failure
+label cannot release its reservation. A reconciled failure permits cancellation
+only with the same amount and original current company connection; settlement
+cannot authorize ordinary cancellation, and cleared returns still need a linked
+accounting correction.
+
+The real MariaDB suite passed 108 driver checks, with simulated provider IO,
+plus 19 two-session AP reservation checks and 27 collection checks. The added
+settlement test verifies eligibility for the existing ledger-clear checks; it
+does not post a settlement journal or prove all concurrent webhook lock schedules.
+The installation changed seven files, applied no migrations, retained private
+configuration and passed 61 rollback finance and 17 native onboarding HTTP checks.
+Backup: /home/master/.coreflux-integration-backups/muzqvdvqbx/4af9cd3d8053a1b016773fbdc1c778a516c22958-20261024165917.
+
+Inspection 40114117424 preserved P-15/PL-13, case version 5 / confirmed plan 4,
+TS-2's eight pending hours without an approver and saved Meridian binding revision
+2, but Quanta's preview was asleep (404). Chrome's Wake up servers and Code controls
+resumed that existing environment without source or settings changes. Inspection
+40114375457 then returned HTTP 200 for the expected Acme workspace and onboarding
+context. Chrome again showed assignment version 2, CL-1/CO-449, Acme Northside and
+all three original requirements. Document transfer/intake remain off; private
+storage is ready and the worker still has no login identity.
+
+Evidence: deploy/purepay-ap-reservation-holds-staging-20261024.json and
+core-quanta-after-ap-hold-release-20261024.png. No real payroll/payment, provider
+source/settings change or Core production cutover occurred. PurePay's separate
+release owner still needs its pending admin sign-in, worker restoration and final
+live checks. Its original preview is unavailable after replacement; Core retains
+its saved binding and has not retargeted it during the freeze.
+
+This closes the tested native AP release paths. Cross-system obligation
+reservations, a complete provider payment-read contract for large histories,
+reviewed AP rebinding, independent time review, worker/document intake, held
+payroll exchange, actual Thunderhawk acceptance and separately authorized Core
+production cutover remain open.
+
 ## AP reservation race reproduced, repaired and installed - October 24, 2026
 
 A two-session MariaDB regression reproduced the stale-snapshot defect on
