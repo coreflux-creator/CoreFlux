@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Build a standalone runtime from a committed CoreFlux/CoreOne source snapshot.
+set -euo pipefail
+
+if [[ $# -ne 1 || "$1" != /* ]]; then
+  echo 'Usage: build_coreaccounting_release.sh /absolute/new/output-directory' >&2
+  exit 2
+fi
+for command in git tar php composer node npm realpath sha256sum; do
+  command -v "$command" >/dev/null || { echo "Missing build tool: $command" >&2; exit 2; }
+done
+
+source_root="$(git rev-parse --show-toplevel)"
+commit="$(git -C "$source_root" rev-parse HEAD)"
+parent="$(realpath "$(dirname "$1")")"
+output="$parent/$(basename "$1")"
+if [[ -e "$output" || "$output" == "$source_root" || "$output" == "$source_root/"* ]]; then
+  echo 'Output must be new and outside the source checkout.' >&2
+  exit 2
+fi
+mkdir -m 700 "$output"
+mkdir -m 750 "$output/public_html"
+
+git -C "$source_root" archive --format=tar "$commit" | tar -xf - -C "$output/public_html"
+php "$output/public_html/tests/storage_service_smoke.php"
+php "$output/public_html/tests/coreaccounting_csv_import_gate_smoke.php"
+php "$output/public_html/tests/ap_vendors_csv_update_smoke.php"
+php "$output/public_html/tests/local_storage_upload_surface_smoke.php"
+npm ci --prefix "$output/public_html/dashboard" --no-audit --no-fund
+node --test "$output/public_html/dashboard/tests/csvImportAudit.test.mjs" \
+  "$output/public_html/dashboard/tests/csvAuditAttach.test.mjs"
+npm run build --prefix "$output/public_html/dashboard"
+composer install --working-dir="$output/public_html" --no-dev --no-interaction \
+  --prefer-dist --optimize-autoloader --no-scripts --no-plugins
+php "$output/public_html/tests/storage_s3_package.php"
+
+COREFLUX_ENV=coreaccounting \
+COREFLUX_STANDALONE_WEBROOT="$output/public_html" \
+COREFLUX_PUBLIC_ORIGIN=https://package.coreaccounting.invalid \
+COREFLUX_STANDALONE_DATABASE=package_build \
+php "$output/public_html/deploy/coreaccounting_webroot_finalizer.php" \
+  --confirm-standalone-webroot \
+  --webroot="$output/public_html" --expected-webroot="$output/public_html" \
+  --origin=https://package.coreaccounting.invalid --database=package_build \
+  --private="$output/private_build_only"
+
+COREFLUX_ENV=coreaccounting \
+COREFLUX_STANDALONE_WEBROOT="$output/public_html" \
+COREFLUX_PUBLIC_ORIGIN=https://package.coreaccounting.invalid \
+COREFLUX_STANDALONE_DATABASE=package_build \
+php "$output/public_html/deploy/privatize_coreaccounting_vendor.php" \
+  --confirm-standalone-webroot --package-layout \
+  --webroot="$output/public_html" --expected-webroot="$output/public_html" \
+  --origin=https://package.coreaccounting.invalid --database=package_build \
+  --private="$output/private_runtime"
+
+COREFLUX_ENV=coreaccounting php "$output/public_html/deploy/create_coreaccounting_release_manifest.php" \
+  --confirm-package-build --root="$output/public_html" \
+  --private-root="$output/private_runtime" \
+  --output="$output/manifest.json" --commit="$commit"
+tar -czf "$output/release.tar.gz" -C "$output" public_html private_runtime manifest.json
+sha256sum "$output/release.tar.gz"

@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../accounting/lib/credit_balances.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
@@ -320,7 +321,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     $entries = scopedQuery(
         'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
                 te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
-                te.bill_extracted_at, te.bill_extracted_ref,
+                te.bill_extracted_at, te.bill_extracted_ref, te.dimension_snapshot_hash,
                 p.title AS placement_title, p.end_client_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
@@ -423,7 +424,8 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
         // collapsed.
         $linesByKey = [];
         foreach ($rows as $r) {
-            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type'];
+            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type']
+                . '|' . ($r['_rate_snapshot_id'] ?? '') . '|' . ($r['dimension_snapshot_hash'] ?? '');
             if (!isset($linesByKey[$lk])) {
                 $linesByKey[$lk] = [
                     'placement_id'    => (int) $r['placement_id'],
@@ -730,6 +732,114 @@ function billingComputeTax(array $lines, float $taxPct): array
     return ['lines' => $lines, 'subtotal' => round($sub, 2), 'tax_total' => round($tax, 2), 'total' => round($sub + $tax, 2)];
 }
 
+/** Keep imported invoice amounts consistent with the displayed quantity and rate. */
+function billingValidateImportedInvoiceLineAmounts(array $row, array $amounts): void
+{
+    $rawQuantity = ($row['line_quantity'] ?? '') === '' ? '1' : (string) $row['line_quantity'];
+    $rawPrice = (string) ($row['line_unit_price'] ?? '');
+    if (!preg_match('/^[0-9]+(?:\.[0-9]{1,4})?$/D', $rawQuantity)
+        || (float) $rawQuantity <= 0 || (float) $rawQuantity > 99999999.9999) {
+        throw new InvalidArgumentException('Invoice line quantity must be positive with at most four decimals');
+    }
+    if (!preg_match('/^-?[0-9]+(?:\.[0-9]{1,4})?$/D', $rawPrice)
+        || abs((float) $rawPrice) > 99999999.9999) {
+        throw new InvalidArgumentException('Invoice line unit price is required with at most four decimals');
+    }
+    foreach (['line_subtotal', 'line_tax_amount', 'line_total'] as $moneyField) {
+        $rawMoney = (string) ($row[$moneyField] ?? '');
+        if ($rawMoney !== '' && !preg_match('/^-?[0-9]+(?:\.[0-9]{1,2})?$/D', $rawMoney)) {
+            throw new InvalidArgumentException('Invoice ' . str_replace('_', ' ', $moneyField)
+                . ' must use at most two decimals');
+        }
+    }
+    $subtotal = (float) $amounts['subtotal'];
+    $tax = (float) $amounts['tax'];
+    $total = (float) $amounts['total'];
+    if ($tax < 0 || ($subtotal < 0 && $tax > 0)) {
+        throw new InvalidArgumentException('Invoice CSV discounts cannot carry tax; tax cannot be negative');
+    }
+    if (abs($total) > 9999999999.99) {
+        throw new InvalidArgumentException('Invoice line total exceeds the supported amount');
+    }
+    if ((int) round($subtotal * 100) !== (int) round(
+        (float) $amounts['quantity'] * (float) $amounts['unitPrice'] * 100
+    )) {
+        throw new InvalidArgumentException('Invoice line subtotal must equal quantity times unit price');
+    }
+}
+
+function billingValidateImportedInvoiceGroupAmounts(array $rows, array $lineAmounts): void
+{
+    $cents = 0;
+    foreach ($lineAmounts as $amounts) $cents += (int) round((float) $amounts['total'] * 100);
+    if ($cents <= 0 || $cents > 999999999999) {
+        throw new InvalidArgumentException('Invoice total must be positive and within the supported amount');
+    }
+}
+
+function billingImportedInvoiceItemType(array $row, array $amounts, ?string $catalogType = null): string
+{
+    require_once __DIR__ . '/../../ap/lib/ap.php';
+    $requested = strtolower(trim((string) ($row['line_item_type'] ?? '')));
+    if ($requested === '' && $catalogType !== null) $requested = strtolower(trim($catalogType));
+    if ($requested !== '' && !in_array($requested, AP_LINE_ITEM_TYPES, true)) {
+        throw new InvalidArgumentException('Invoice line item type is not supported');
+    }
+    $isDiscount = (float) $amounts['subtotal'] < 0;
+    if ($isDiscount && $requested !== '' && $requested !== 'discount') {
+        throw new InvalidArgumentException('A negative invoice line must use the discount item type');
+    }
+    if (!$isDiscount && $requested === 'discount') {
+        throw new InvalidArgumentException('A discount invoice line must have a negative subtotal');
+    }
+    return $requested !== '' ? $requested : ($isDiscount ? 'discount' : 'other');
+}
+
+/** Resolve optional product and revenue-account identity before CSV preview or save. */
+function billingImportedInvoiceLineMetadata(PDO $pdo, int $tenantId, array $row, array $amounts): array
+{
+    static $catalogCache = [];
+    static $accountCache = [];
+    $rawItemId = trim((string) ($row['line_catalog_item_id'] ?? ''));
+    $itemId = null;
+    $item = null;
+    if ($rawItemId !== '') {
+        $parsed = filter_var($rawItemId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($parsed === false) throw new InvalidArgumentException('Invoice catalog item ID must be positive');
+        $itemId = (int) $parsed;
+        $key = $tenantId . ':' . $itemId;
+        if (!array_key_exists($key, $catalogCache)) {
+            $stmt = $pdo->prepare('SELECT id, item_type, gl_revenue_account_code
+                FROM billing_items WHERE tenant_id = :t AND id = :id AND active = 1');
+            $stmt->execute(['t' => $tenantId, 'id' => $itemId]);
+            $catalogCache[$key] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        $item = $catalogCache[$key];
+        if (!$item) throw new InvalidArgumentException('Invoice catalog item is not active in this workspace');
+    }
+    $type = billingImportedInvoiceItemType($row, $amounts, $item['item_type'] ?? null);
+    $accountCode = trim((string) ($row['line_gl_revenue_account_code'] ?? ''));
+    if ($accountCode === '') $accountCode = trim((string) ($item['gl_revenue_account_code'] ?? ''));
+    if ($accountCode !== '') {
+        if (strlen($accountCode) > 40) {
+            throw new InvalidArgumentException('Invoice revenue account code is too long');
+        }
+        $key = $tenantId . ':' . $accountCode;
+        if (!array_key_exists($key, $accountCache)) {
+            $stmt = $pdo->prepare('SELECT id FROM accounting_accounts
+                WHERE tenant_id = :t AND code = :code AND account_type = "revenue"
+                    AND active = 1 AND is_postable = 1');
+            $stmt->execute(['t' => $tenantId, 'code' => $accountCode]);
+            $accountCache[$key] = (bool) $stmt->fetchColumn();
+        }
+        if (!$accountCache[$key]) {
+            throw new InvalidArgumentException('Invoice revenue account is not active and postable in this workspace');
+        }
+    }
+    return ['catalog_item_id' => $itemId, 'item_type' => $type,
+        'gl_revenue_account_code' => $accountCode !== '' ? $accountCode : null];
+}
+
 /**
  * Return one internally consistent invoice line. Generated staffing lines use
  * their stored full-precision rate; manual/imported lines preserve the entered
@@ -904,28 +1014,29 @@ function billingTransitionAllowed(string $from, string $to): bool
 
 /**
  * Issue a public view token for an invoice. Returns ['token' => raw, 'url' => string].
- * Tokens default to no expiry (NULL) — invoices can be viewed indefinitely.
+ * New links expire after 90 days unless a shorter or longer period is specified.
  */
 function billingIssueViewToken(int $tenantId, int $invoiceId, ?int $expiresInDays = null): array
 {
+    $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
+    if ($base === '') throw new RuntimeException('Public invoice links are not configured for this environment.');
+    $ttlDays = $expiresInDays ?? 90;
+    if ($ttlDays < 1 || $ttlDays > 365) throw new InvalidArgumentException('Invoice link lifetime must be 1 to 365 days.');
     $raw  = bin2hex(random_bytes(32));
     $hash = hash('sha256', $raw, true);
-    $exp  = $expiresInDays ? date('Y-m-d H:i:s', time() + $expiresInDays * 86400) : null;
 
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'INSERT INTO billing_invoice_tokens
-          (tenant_id, invoice_id, token, token_hash, expires_at)
-         VALUES (:t, :i, :tk, :h, :e)'
+          (tenant_id, invoice_id, token_hash, expires_at)
+         VALUES (:t, :i, :h, DATE_ADD(NOW(), INTERVAL :days DAY))'
     );
     $stmt->bindValue('t',  $tenantId,  \PDO::PARAM_INT);
     $stmt->bindValue('i',  $invoiceId, \PDO::PARAM_INT);
-    $stmt->bindValue('tk', $raw);
     $stmt->bindValue('h',  $hash, \PDO::PARAM_LOB);
-    $stmt->bindValue('e',  $exp);
+    $stmt->bindValue('days', $ttlDays, \PDO::PARAM_INT);
     $stmt->execute();
 
-    $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
     return [
         'token_id' => (int) $pdo->lastInsertId(),
         'token'    => $raw,
@@ -938,10 +1049,39 @@ function billingTokenFindByRaw(string $raw): ?array
     if (!preg_match('/^[a-f0-9]{64}$/', $raw)) return null;
     $pdo = getDB();
     // tenant-leak-allow: token_hash is a 256-bit random secret; row carries tenant_id
-    $stmt = $pdo->prepare('SELECT * FROM billing_invoice_tokens WHERE token_hash = :h LIMIT 1');
+    $stmt = $pdo->prepare('SELECT * FROM billing_invoice_tokens
+                            WHERE token_hash = :h AND revoked_at IS NULL
+                              AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1');
     $stmt->bindValue('h', hash('sha256', $raw, true), \PDO::PARAM_LOB);
     $stmt->execute();
     return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+}
+
+function billingRevokeInvoiceViewTokens(int $tenantId, int $invoiceId, ?int $actorUserId, ?int $keepTokenId = null): int
+{
+    $sql = 'UPDATE billing_invoice_tokens
+               SET revoked_at = NOW(), revoked_by_user_id = :actor
+             WHERE tenant_id = :tenant_id AND invoice_id = :invoice_id AND revoked_at IS NULL';
+    $params = ['actor' => $actorUserId, 'tenant_id' => $tenantId, 'invoice_id' => $invoiceId];
+    if ($keepTokenId !== null) {
+        $sql .= ' AND id <> :keep_token_id';
+        $params['keep_token_id'] = $keepTokenId;
+    }
+    $stmt = getDB()->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->rowCount();
+}
+
+function billingRevokeInvoiceViewToken(int $tenantId, int $invoiceId, int $tokenId, ?int $actorUserId): void
+{
+    getDB()->prepare('UPDATE billing_invoice_tokens
+                        SET revoked_at = NOW(), revoked_by_user_id = :actor
+                      WHERE tenant_id = :tenant_id AND invoice_id = :invoice_id
+                        AND id = :token_id AND revoked_at IS NULL')
+        ->execute([
+            'actor' => $actorUserId, 'tenant_id' => $tenantId,
+            'invoice_id' => $invoiceId, 'token_id' => $tokenId,
+        ]);
 }
 
 /**
@@ -951,8 +1091,105 @@ function billingTokenFindByRaw(string $raw): ?array
  *   $allocations = [['invoice_id' => N, 'amount' => 123.45], ...]
  *   OR ['auto' => 'fifo'] — picks oldest unpaid invoices for that client.
  */
+function billingReleasePayWhenPaidForAllocations(int $tenantId, array $applied, ?int $actorUserId = null): array
+{
+    $results = [];
+    foreach ($applied as $allocation) {
+        if (($allocation['new_status'] ?? null) !== 'paid') continue;
+        try {
+            if (!function_exists('apPwpReleaseForArInvoice')) {
+                @require_once __DIR__ . '/../../ap/lib/pwp.php';
+            }
+            if (function_exists('apPwpReleaseForArInvoice')) {
+                $res = apPwpReleaseForArInvoice($tenantId, (int) $allocation['invoice_id'], $actorUserId);
+                if (!empty($res['released'])) {
+                    $results[] = [
+                        'ar_invoice_id' => (int) $allocation['invoice_id'],
+                        'released' => $res['released'],
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[billingAllocatePayment] PWP release failed for AR invoice ' . $allocation['invoice_id'] . ': ' . $e->getMessage());
+        }
+    }
+    return $results;
+}
+
+function billingLinkBankReceiptJournal(int $tenantId, int $paymentId, int $journalId): void
+{
+    $pdo = getDB();
+    if (!$pdo->inTransaction()) {
+        throw new \RuntimeException('Link the bank receipt in the same transaction as its match.');
+    }
+    $paymentStmt = $pdo->prepare(
+        'SELECT journal_entry_id, bank_account_id, posted_at, external_id, source_system, voided_at
+           FROM billing_payments WHERE tenant_id = :t AND id = :id FOR UPDATE'
+    );
+    $paymentStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
+    $payment = $paymentStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$payment || $payment['voided_at'] !== null
+        || $payment['source_system'] !== 'manual'
+        || !preg_match('/^bank-line:([1-9][0-9]*)(?::|$)/',
+            (string) $payment['external_id'], $bankMatch)) {
+        throw new \RuntimeException('This payment is not an active bank-line receipt.');
+    }
+    $bankStmt = $pdo->prepare(
+        'SELECT match_status, matched_je_id, bank_account_id FROM accounting_bank_statement_lines
+          WHERE tenant_id = :t AND id = :id FOR UPDATE'
+    );
+    $bankStmt->execute(['t' => $tenantId, 'id' => (int) $bankMatch[1]]);
+    $bankLine = $bankStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$bankLine || $bankLine['match_status'] !== 'matched'
+        || (int) $bankLine['matched_je_id'] !== $journalId) {
+        throw new \RuntimeException('The payment does not match this bank journal.');
+    }
+    $journalStmt = $pdo->prepare(
+        'SELECT status, source_ref_type, source_ref_id, posted_at, created_at
+           FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id = :id AND source_module = "billing"'
+    );
+    $journalStmt->execute(['t' => $tenantId, 'id' => $journalId]);
+    $journal = $journalStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$journal || $journal['status'] !== 'posted'
+        || $journal['source_ref_type'] !== 'bank_statement_line'
+        || (int) $journal['source_ref_id'] !== (int) $bankMatch[1]) {
+        throw new \RuntimeException('The bank receipt journal is not posted for this bank line.');
+    }
+    if (($payment['journal_entry_id'] !== null && (int) $payment['journal_entry_id'] !== $journalId)
+        || ($payment['bank_account_id'] !== null
+            && (int) $payment['bank_account_id'] !== (int) $bankLine['bank_account_id'])) {
+        throw new \RuntimeException('This payment is linked to a different bank receipt.');
+    }
+    if ($payment['journal_entry_id'] !== null && $payment['bank_account_id'] !== null
+        && $payment['posted_at'] !== null) {
+        return;
+    }
+    $pdo->prepare(
+        'UPDATE billing_payments
+            SET journal_entry_id = :je, bank_account_id = :bank_account_id,
+                posted_at = COALESCE(posted_at, :posted_at)
+          WHERE tenant_id = :t AND id = :id AND voided_at IS NULL'
+    )->execute([
+        'je' => $journalId,
+        'bank_account_id' => (int) $bankLine['bank_account_id'],
+        'posted_at' => $journal['posted_at'] ?: $journal['created_at'],
+        't' => $tenantId,
+        'id' => $paymentId,
+    ]);
+}
+
 function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array
 {
+    $allocationDate = $request['allocation_date'] ?? null;
+    if ($allocationDate !== null) {
+        $allocationDate = (string) $allocationDate;
+        $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $allocationDate);
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $allocationDate) {
+            throw new \InvalidArgumentException('Enter a valid allocation date.');
+        }
+        $allocationDate .= ' 00:00:00';
+    }
     $pdo = getDB();
     // Nested-safe — billingAllocatePayment is also invoked from inbound
     // payment-import flows (CSV / QBO / Plaid webhooks) which may
@@ -965,20 +1202,35 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
         $payStmt->execute(['id' => $paymentId]);
         $pay = $payStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$pay) throw new \RuntimeException("payment {$paymentId} not found");
+        if ($pay['voided_at'] !== null) throw new \RuntimeException('A corrected receipt cannot be allocated again');
         $remaining = (float) $pay['unallocated_amount'];
         if ($remaining <= 0) throw new \RuntimeException('payment has no unallocated amount');
 
         // Build target list
         $targets = [];
         if (isset($request['auto']) && $request['auto'] === 'fifo') {
+            $postedOnly = !empty($request['require_posted']);
+            $invoiceFilters = 'i.tenant_id = :t AND i.client_name = :c
+                   AND i.status IN ("sent","partially_paid","approved") AND i.amount_due > 0';
+            $invoiceParams = ['t' => $pay['tenant_id'], 'c' => $pay['client_name']];
+            $postedJoin = '';
+            if ($postedOnly) {
+                $postedJoin = ' JOIN accounting_journal_entries je
+                    ON je.tenant_id = i.tenant_id AND je.id = i.journal_entry_id AND je.status = "posted"';
+                $invoiceFilters .= ' AND i.currency = :currency AND i.issue_date <= :receipt_date';
+                $invoiceParams['currency'] = (string) ($request['currency'] ?? $pay['currency']);
+                $invoiceParams['receipt_date'] = (string) ($request['receipt_date'] ?? $pay['received_at']);
+                if (!empty($request['entity_id'])) {
+                    $invoiceFilters .= ' AND (i.entity_id = :entity_id OR i.entity_id IS NULL)';
+                    $invoiceParams['entity_id'] = (int) $request['entity_id'];
+                }
+            }
             $q = $pdo->prepare(
-                'SELECT id, amount_due FROM billing_invoices
-                 WHERE tenant_id = :t AND client_name = :c
-                   AND status IN ("sent","partially_paid","approved")
-                   AND amount_due > 0
-                 ORDER BY due_date ASC, id ASC'
+                'SELECT i.id, i.amount_due FROM billing_invoices i' . $postedJoin . '
+                 WHERE ' . $invoiceFilters . '
+                 ORDER BY i.due_date ASC, i.id ASC'
             );
-            $q->execute(['t' => $pay['tenant_id'], 'c' => $pay['client_name']]);
+            $q->execute($invoiceParams);
             foreach ($q->fetchAll(\PDO::FETCH_ASSOC) as $inv) {
                 if ($remaining <= 0) break;
                 $apply = min($remaining, (float) $inv['amount_due']);
@@ -1013,16 +1265,18 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
 
             $pdo->prepare(
                 'INSERT INTO billing_payment_allocations
-                   (payment_id, invoice_id, amount_applied, applied_by_user_id)
-                 VALUES (:p, :i, :a, :u)'
+                   (payment_id, invoice_id, amount_applied, applied_at, applied_by_user_id)
+                 VALUES (:p, :i, :a, COALESCE(:applied_at, CURRENT_TIMESTAMP), :u)'
             )->execute([
-                'p' => $paymentId, 'i' => $invRow['id'], 'a' => $apply, 'u' => $actorUserId,
+                'p' => $paymentId, 'i' => $invRow['id'], 'a' => $apply,
+                'applied_at' => $allocationDate, 'u' => $actorUserId,
             ]);
+            $allocationId = (int) $pdo->lastInsertId();
 
             $newPaid = round((float) $invRow['amount_paid'] + $apply, 2);
-            $newDue  = round((float) $invRow['total'] - $newPaid, 2);
+            $newDue  = round((float) $invRow['total'] - $newPaid - (float) ($invRow['amount_credited'] ?? 0), 2);
             if ($newDue < 0.005) { $newDue = 0; $newStatus = 'paid'; }
-            elseif ($newPaid > 0) { $newStatus = 'partially_paid'; }
+            elseif ($newPaid > 0 || (float) ($invRow['amount_credited'] ?? 0) > 0) { $newStatus = 'partially_paid'; }
             else { $newStatus = $invRow['status']; }
 
             // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
@@ -1033,6 +1287,7 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
             )->execute(['paid' => $newPaid, 'due' => $newDue, 's' => $newStatus, 'id' => $invRow['id']]);
 
             $applied[] = [
+                'allocation_id' => $allocationId,
                 'invoice_id' => (int) $invRow['id'],
                 'invoice_number' => $invRow['invoice_number'],
                 'amount_applied' => $apply,
@@ -1046,31 +1301,11 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
 
         if ($ownsTxn) $pdo->commit();
 
-        // Pay-When-Paid trigger — runs AFTER commit so the AR invoice's new
-        // status ('paid') is durable before we release any vendor bills.
-        // Best-effort: errors here are logged but never roll back the AR
-        // payment, since the customer's cash is real either way.
         $tenantId = (int) $pay['tenant_id'];
-        $pwpResults = [];
-        foreach ($applied as $a) {
-            if (($a['new_status'] ?? null) !== 'paid') continue;
-            try {
-                if (!function_exists('apPwpReleaseForArInvoice')) {
-                    @require_once __DIR__ . '/../../ap/lib/pwp.php';
-                }
-                if (function_exists('apPwpReleaseForArInvoice')) {
-                    $res = apPwpReleaseForArInvoice($tenantId, (int) $a['invoice_id'], $actorUserId);
-                    if (!empty($res['released'])) {
-                        $pwpResults[] = [
-                            'ar_invoice_id' => (int) $a['invoice_id'],
-                            'released'      => $res['released'],
-                        ];
-                    }
-                }
-            } catch (\Throwable $e) {
-                error_log('[billingAllocatePayment] PWP release failed for AR invoice ' . $a['invoice_id'] . ': ' . $e->getMessage());
-            }
-        }
+        // Callers that own a larger transaction release PWP after their commit.
+        $pwpResults = !empty($request['defer_pwp'])
+            ? []
+            : billingReleasePayWhenPaidForAllocations($tenantId, $applied, $actorUserId);
 
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc, 'pwp' => $pwpResults];
     } catch (\Throwable $e) {
@@ -1079,14 +1314,76 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
     }
 }
 
-/**
- * Compute aging buckets on-read for a given tenant + as_of date.
- * Returns array per client_name.
- */
-function billingComputeAging(int $tenantId, string $asOf): array
+/** The same posted, as-of invoice balances feed aging and customer statements. */
+function billingOpenInvoiceAsOfSource(int $tenantId, string $asOf, ?int $entityId = null, ?string $clientName = null): array
 {
-    $pdo = getDB();
-    $q = $pdo->prepare(
+    $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
+    $clientFilter = $clientName === null ? '' : ' AND i.client_name = :client_name';
+    $credits = accountingCreditAsOfSql(getDB(), 'ar', 'i', $asOf);
+    $sql = 'SELECT i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency,
+                       CASE WHEN i.opening_cutover_id IS NOT NULL AND i.total < 0 THEN i.total
+                       ELSE GREATEST(0, ROUND(i.total - COALESCE(SUM(
+                           CASE WHEN p.received_at <= :payment_as_of
+                                 AND (alloc.application_je_id IS NULL
+                                      OR (application_je.status IN ("posted", "reversed")
+                                          AND application_je.posting_date <= :application_as_of
+                                          AND (application_je.status = "posted"
+                                               OR application_reversal.posting_date > :application_reversed_as_of)))
+                                 AND (alloc.reversed_at IS NULL
+                                      OR (alloc.reversal_je_id IS NOT NULL
+                                          AND allocation_reversal.posting_date > :reversal_as_of)
+                                      OR (alloc.reversal_je_id IS NULL
+                                          AND DATE(alloc.reversed_at) > :legacy_reversal_as_of))
+                                THEN alloc.amount_applied ELSE 0 END
+                       ), 0), 2)) END - ' . $credits . ' AS amount_due
+                  FROM billing_invoices i
+                  JOIN accounting_journal_entries je
+                    ON je.id = i.journal_entry_id
+                   AND je.tenant_id = i.tenant_id
+                   AND je.status IN ("posted", "reversed")
+                   AND je.posting_date <= :posted_as_of
+             LEFT JOIN accounting_journal_entries invoice_reversal
+                    ON invoice_reversal.id = je.reversed_by_je_id
+                   AND invoice_reversal.tenant_id = i.tenant_id
+             LEFT JOIN billing_payment_allocations alloc ON alloc.invoice_id = i.id
+             LEFT JOIN billing_payments p ON p.id = alloc.payment_id AND p.tenant_id = i.tenant_id
+             LEFT JOIN accounting_journal_entries application_je
+                    ON application_je.id = alloc.application_je_id
+                   AND application_je.tenant_id = i.tenant_id
+             LEFT JOIN accounting_journal_entries application_reversal
+                    ON application_reversal.id = application_je.reversed_by_je_id
+                   AND application_reversal.tenant_id = i.tenant_id
+             LEFT JOIN accounting_journal_entries allocation_reversal
+                    ON allocation_reversal.id = alloc.reversal_je_id
+                   AND allocation_reversal.tenant_id = i.tenant_id
+                 WHERE i.tenant_id = :tid' . $entityFilter . $clientFilter . '
+                   AND i.issue_date <= :document_as_of
+                   AND (je.status = "posted" OR invoice_reversal.posting_date > :invoice_reversed_as_of)
+                   AND (i.status <> "void" OR i.voided_at IS NULL OR DATE(i.voided_at) > :void_as_of)
+              GROUP BY i.id, i.invoice_number, i.client_name, i.issue_date, i.due_date, i.total, i.currency, i.opening_cutover_id
+                HAVING amount_due <> 0';
+    $bind = [
+        'tid' => $tenantId,
+        'payment_as_of' => $asOf,
+        'application_as_of' => $asOf,
+        'application_reversed_as_of' => $asOf,
+        'reversal_as_of' => $asOf,
+        'legacy_reversal_as_of' => $asOf,
+        'posted_as_of' => $asOf,
+        'document_as_of' => $asOf,
+        'invoice_reversed_as_of' => $asOf,
+        'void_as_of' => $asOf,
+    ];
+    if ($entityId !== null) $bind['entity_id'] = $entityId;
+    if ($clientName !== null) $bind['client_name'] = $clientName;
+    return [$sql, $bind];
+}
+
+/** Compute aging buckets from the same invoice rows shown on customer statements. */
+function billingComputeAging(int $tenantId, string $asOf, ?int $entityId = null): array
+{
+    [$sourceSql, $bind] = billingOpenInvoiceAsOfSource($tenantId, $asOf, $entityId);
+    $q = getDB()->prepare(
         'SELECT aged.client_name,
                 SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
                 SUM(CASE WHEN aged.due_date <  :a2 AND DATEDIFF(:a3, aged.due_date) BETWEEN 1 AND 30 THEN aged.amount_due ELSE 0 END) AS bucket_1_30,
@@ -1094,35 +1391,10 @@ function billingComputeAging(int $tenantId, string $asOf): array
                 SUM(CASE WHEN aged.due_date <  :a6 AND DATEDIFF(:a7, aged.due_date) BETWEEN 61 AND 90 THEN aged.amount_due ELSE 0 END) AS bucket_61_90,
                 SUM(CASE WHEN aged.due_date <  :a8 AND DATEDIFF(:a9, aged.due_date) > 90 THEN aged.amount_due ELSE 0 END) AS bucket_91_plus,
                 SUM(aged.amount_due) AS total_due
-           FROM (
-                SELECT i.id, i.client_name, i.due_date,
-                       GREATEST(0, ROUND(i.total - COALESCE(SUM(
-                           CASE WHEN p.received_at <= :payment_as_of THEN alloc.amount_applied ELSE 0 END
-                       ), 0), 2)) AS amount_due
-                  FROM billing_invoices i
-                  JOIN accounting_journal_entries je
-                    ON je.id = i.journal_entry_id
-                   AND je.tenant_id = i.tenant_id
-                   AND je.status = "posted"
-                   AND je.posting_date <= :posted_as_of
-             LEFT JOIN billing_payment_allocations alloc ON alloc.invoice_id = i.id
-             LEFT JOIN billing_payments p ON p.id = alloc.payment_id AND p.tenant_id = i.tenant_id
-                 WHERE i.tenant_id = :tid
-                   AND i.issue_date <= :document_as_of
-                   AND (i.status <> "void" OR i.voided_at IS NULL OR DATE(i.voided_at) > :void_as_of)
-              GROUP BY i.id, i.client_name, i.due_date, i.total
-                HAVING amount_due > 0
-           ) aged
+           FROM (' . $sourceSql . ') aged
        GROUP BY aged.client_name
          ORDER BY total_due DESC'
     );
-    $bind = [
-        'tid' => $tenantId,
-        'payment_as_of' => $asOf,
-        'posted_as_of' => $asOf,
-        'document_as_of' => $asOf,
-        'void_as_of' => $asOf,
-    ];
     foreach (['a1','a2','a3','a4','a5','a6','a7','a8','a9'] as $k) $bind[$k] = $asOf;
     $q->execute($bind);
     return $q->fetchAll(\PDO::FETCH_ASSOC);

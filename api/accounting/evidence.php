@@ -32,13 +32,32 @@ if ($method === 'GET' && $action === 'signed_url') {
     $id  = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     $stmt = getDB()->prepare(
-        'SELECT storage_key, label FROM evidence_attachments
+        'SELECT storage_key, label, subject_type, size_bytes, sha256_hash FROM evidence_attachments
           WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
     );
     $stmt->execute(['t' => $tenantId, 'id' => $id]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$row || empty($row['storage_key'])) api_error('not found or no file', 404);
-    $url = \Core\StorageService::getInstance()->get_signed_url($row['storage_key']);
+    if (getenv('COREFLUX_ENV') === 'coreaccounting'
+        && $row['subject_type'] === 'csv_import_run' && !empty($row['sha256_hash'])) {
+        require_once __DIR__ . '/../../core/accounting/csv_import_evidence.php';
+        try {
+            $actualHash = coreAccountingCsvArchiveHash(
+                \Core\StorageService::getInstance(), (string) $row['storage_key'], (int) $row['size_bytes']
+            );
+        } catch (\Throwable $e) {
+            error_log('Import evidence download verification failed: ' . $e->getMessage());
+            api_error('Archived import file could not be verified.', 503);
+        }
+        if (!hash_equals((string) $row['sha256_hash'], $actualHash)) {
+            api_error('Archived import file failed its integrity check.', 409);
+        }
+    }
+    $downloadName = preg_replace('/[^A-Za-z0-9._-]/', '_',
+        basename(str_replace('\\', '/', (string) ($row['label'] ?: 'download')))) ?: 'download';
+    $url = \Core\StorageService::getInstance()->get_signed_url(
+        $row['storage_key'], 300, ['filename_for_download' => $downloadName]
+    );
     api_ok(['signed_url' => $url, 'filename' => $row['label']]);
 }
 
@@ -56,14 +75,56 @@ if ($method === 'POST' && $action === 'supersede') {
     $old   = (int) ($body['old_id'] ?? 0);
     $new   = (int) ($body['new_id'] ?? 0);
     if (!$old || !$new) api_error('old_id + new_id required', 422);
-    api_ok(['ok' => evidenceSupersede($tenantId, $old, $new)]);
+    try {
+        api_ok(['ok' => evidenceSupersede($tenantId, $old, $new)]);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
+    }
 }
 
 if ($method === 'POST') {
     $body  = api_json_body();
+    if (($body['subject_type'] ?? '') === 'csv_import_run') {
+        require_once __DIR__ . '/../../core/StorageService.php';
+        $subjectId = (int) ($body['subject_id'] ?? 0);
+        $documentType = (string) ($body['document_type'] ?? '');
+        $key = (string) ($body['storage_key'] ?? '');
+        if ($subjectId <= 0 || !in_array($documentType, ['csv_source', 'column_map'], true)
+            || !str_starts_with($key, "csv_imports/{$tenantId}/csv_import_run/{$subjectId}/")) {
+            api_error('Invalid import evidence', 422);
+        }
+        $run = getDB()->prepare(
+            'SELECT id FROM csv_import_history
+              WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id LIMIT 1'
+        );
+        $run->execute(['id' => $subjectId, 'tenant_id' => $tenantId, 'user_id' => $userId]);
+        if (!$run->fetchColumn()) api_error('Import run not found for this user', 404);
+        $head = \Core\StorageService::getInstance()->head($key);
+        if ($head === null || (int) ($head['size_bytes'] ?? 0) < 1
+            || (int) ($body['size_bytes'] ?? 0) !== (int) $head['size_bytes']) {
+            api_error('Uploaded import file is missing or has a different size', 422);
+        }
+        if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+            require_once __DIR__ . '/../../core/accounting/csv_import_evidence.php';
+            try {
+                $body['sha256_hash'] = coreAccountingCsvArchiveHash(
+                    \Core\StorageService::getInstance(), $key, (int) $head['size_bytes']
+                );
+            } catch (\InvalidArgumentException $e) {
+                api_error($e->getMessage(), 422);
+            } catch (\Throwable $e) {
+                error_log('Import evidence registration verification failed: ' . $e->getMessage());
+                api_error('Uploaded import file could not be verified.', 503);
+            }
+        }
+    }
     $args  = array_merge($body, ['attached_by_user_id' => $userId]);
     try {
-        api_ok(evidenceAttach($tenantId, $args), 201);
+        $attached = evidenceAttach($tenantId, $args);
+        if (($body['subject_type'] ?? '') === 'csv_import_run' && (int) ($attached['id'] ?? 0) <= 0) {
+            api_error('Import evidence could not be registered', 503);
+        }
+        api_ok($attached, 201);
     } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }
@@ -72,7 +133,11 @@ if ($method === 'POST') {
 if ($method === 'DELETE') {
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
-    api_ok(['ok' => evidenceSoftDelete($tenantId, $id, $userId)]);
+    try {
+        api_ok(['ok' => evidenceSoftDelete($tenantId, $id, $userId)]);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
+    }
 }
 
 api_error('Method not allowed', 405);

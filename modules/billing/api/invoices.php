@@ -8,8 +8,11 @@
  *   POST   /api/billing/invoices?action=from-time-bundle
  *          body: {period_id, placement_ids[], aggregation: 'per_placement'|'per_client'}
  *   PATCH  /api/billing/invoices?id=N          → edit draft (status='draft' only)
+ *   POST   /api/billing/invoices?action=request_approval&id=N → request human review
  *   POST   /api/billing/invoices?action=approve&id=N    → direct or policy-routed approval
  *   POST   /api/billing/invoices?action=send&id=N       → issue token + email
+ *   POST   /api/billing/invoices?action=replace_link&id=N → issue a new manual-share link
+ *   POST   /api/billing/invoices?action=revoke_link&id=N → disable all invoice links
  *   POST   /api/billing/invoices?action=void&id=N       → body: {reason}
  *
  * SPEC: /app/modules/billing/SPEC.md §5.1, §9.
@@ -20,7 +23,11 @@ require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../lib/invoice_drafts.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
+require_once __DIR__ . '/../lib/entity_delivery.php';
+require_once __DIR__ . '/../lib/invoice_delivery.php';
+require_once __DIR__ . '/../lib/entity_scope.php';
 require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 require_once __DIR__ . '/../../ap/lib/pwp.php';  // apPwpAutoLinkForArInvoice() — pay-when-paid auto-link
@@ -45,14 +52,9 @@ function billingInvoiceDefaultRecipient(int $tenantId, array $invoice): array
     }
 
     try {
-        $stmt = getDB()->prepare(
-            'SELECT ar_primary_email
-               FROM billing_client_contacts
-              WHERE tenant_id = :t AND client_name = :client
-              LIMIT 1'
-        );
-        $stmt->execute(['t' => $tenantId, 'client' => (string) ($invoice['client_name'] ?? '')]);
-        $email = trim((string) ($stmt->fetchColumn() ?: ''));
+        $entityId = billingInvoiceDeliveryEntityId($tenantId, $invoice);
+        $contact = $entityId ? billingClientContactForEntity($tenantId, $entityId, (string) ($invoice['client_name'] ?? '')) : null;
+        $email = trim((string) ($contact['ar_primary_email'] ?? ''));
         if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return ['email' => $email, 'source' => 'client contacts'];
         }
@@ -63,81 +65,20 @@ function billingInvoiceDefaultRecipient(int $tenantId, array $invoice): array
     return ['email' => null, 'source' => null];
 }
 
-function billingPrepareDirectInvoiceLines(PDO $pdo, int $tenantId, array $lines, bool $activeOnly = true): array
-{
-    if (!$lines) api_error('lines must be a non-empty array', 422);
-    if (count($lines) > 500) api_error('Invoices are limited to 500 lines', 422);
-    foreach ($lines as $line) {
-        if (!is_array($line)) api_error('Each invoice line must be an object', 422);
-    }
-
-    $catalogIds = array_values(array_unique(array_filter(
-        array_map(static fn(array $line): int => (int) ($line['catalog_item_id'] ?? 0), $lines),
-        static fn(int $id): bool => $id > 0
-    )));
-    $catalogById = [];
-    if ($catalogIds) {
-        $marks = implode(',', array_fill(0, count($catalogIds), '?'));
-        $activeSql = $activeOnly ? ' AND active = 1' : '';
-        $stmt = $pdo->prepare(
-            "SELECT id, name, item_type, description, default_unit, default_unit_price,
-                    gl_revenue_account_code, taxable
-               FROM billing_items WHERE tenant_id = ?{$activeSql} AND id IN ({$marks})"
-        );
-        $stmt->execute(array_merge([$tenantId], $catalogIds));
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) $catalogById[(int) $item['id']] = $item;
-        if (count($catalogById) !== count($catalogIds)) api_error('One or more products or services are unavailable', 422);
-    }
-
-    foreach ($lines as &$line) {
-        $catalogId = (int) ($line['catalog_item_id'] ?? 0);
-        if ($catalogId <= 0) continue;
-        $item = $catalogById[$catalogId];
-        if (trim((string) ($line['description'] ?? '')) === '') $line['description'] = $item['description'] ?: $item['name'];
-        if (empty($line['item_type'])) $line['item_type'] = $item['item_type'];
-        if (empty($line['unit'])) $line['unit'] = $item['default_unit'];
-        if (!array_key_exists('unit_price', $line) || $line['unit_price'] === '') $line['unit_price'] = $item['default_unit_price'] ?? 0;
-        if (empty($line['gl_revenue_account_code'])) $line['gl_revenue_account_code'] = $item['gl_revenue_account_code'];
-        if (!array_key_exists('taxable', $line)) $line['taxable'] = (int) $item['taxable'] === 1;
-    }
-    unset($line);
-    return $lines;
-}
-
-function billingInsertDirectInvoiceLines(PDO $pdo, int $invoiceId, array $lines): void
-{
-    $stmt = $pdo->prepare(
-        'INSERT INTO billing_invoice_lines
-          (invoice_id, line_no, source_type, catalog_item_id, item_type, description, quantity, unit, unit_price,
-           subtotal, tax_rate_pct, tax_amount, total, gl_revenue_account_code)
-         VALUES
-          (:invoice_id, :line_no, "manual", :catalog_item_id, :item_type, :description, :quantity, :unit, :unit_price,
-           :subtotal, :tax_rate_pct, :tax_amount, :total, :gl_rev)'
-    );
-    $lineNo = 1;
-    foreach ($lines as $line) {
-        $stmt->execute([
-            'invoice_id' => $invoiceId,
-            'line_no' => $lineNo++,
-            'catalog_item_id' => !empty($line['catalog_item_id']) ? (int) $line['catalog_item_id'] : null,
-            'item_type' => apNormalizeItemType($line['item_type'] ?? null, 'manual'),
-            'description' => $line['description'] ?? '',
-            'quantity' => $line['quantity'] ?? 0,
-            'unit' => $line['unit'] ?? 'each',
-            'unit_price' => $line['unit_price'] ?? 0,
-            'subtotal' => $line['subtotal'],
-            'tax_rate_pct' => $line['tax_rate_pct'],
-            'tax_amount' => $line['tax_amount'],
-            'total' => $line['total'],
-            'gl_rev' => $line['gl_revenue_account_code'] ?? null,
-        ]);
-    }
-}
-
 if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     rbac_legacy_require($user, 'billing.view');
     $id = (int) $_GET['id'];
-    $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $inv = scopedFind(
+        'SELECT bi.*, je.status AS journal_status,
+                e.code AS entity_code, e.legal_name AS entity_name
+           FROM billing_invoices bi
+           LEFT JOIN accounting_journal_entries je
+             ON je.tenant_id = bi.tenant_id AND je.id = bi.journal_entry_id
+           LEFT JOIN accounting_entities e
+             ON e.tenant_id = bi.tenant_id AND e.id = bi.entity_id
+          WHERE bi.tenant_id = :tenant_id AND bi.id = :id',
+        ['id' => $id]
+    );
     if (!$inv) api_error('Not found', 404);
     $pdo = getDB();
     $linesStmt = $pdo->prepare(
@@ -153,67 +94,111 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
         'SELECT bpa.amount_applied, bpa.applied_at, bp.id AS payment_id, bp.received_at, bp.method, bp.reference, bp.amount AS payment_amount
          FROM billing_payment_allocations bpa
          JOIN billing_payments bp ON bp.id = bpa.payment_id
-         WHERE bpa.invoice_id = :id ORDER BY bpa.applied_at DESC'
+         WHERE bpa.invoice_id = :id AND bpa.reversed_at IS NULL
+           AND bp.tenant_id = :tenant_id AND bp.voided_at IS NULL
+         ORDER BY bpa.applied_at DESC'
     );
-    $allocStmt->execute(['id' => $id]);
+    $allocStmt->execute(['id' => $id, 'tenant_id' => $tid]);
     $allocations = $allocStmt->fetchAll(\PDO::FETCH_ASSOC);
     $tokStmt = $pdo->prepare(
-        'SELECT id, token, issued_at, expires_at, last_viewed_at, view_count
-         FROM billing_invoice_tokens WHERE invoice_id = :id AND tenant_id = :t ORDER BY id DESC LIMIT 1'
+        'SELECT id, issued_at, expires_at, revoked_at, last_viewed_at, view_count,
+                CASE WHEN revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())
+                     THEN 1 ELSE 0 END AS is_active
+         FROM billing_invoice_tokens WHERE invoice_id = :id AND tenant_id = :t
+         ORDER BY is_active DESC, id DESC LIMIT 1'
     );
     $tokStmt->execute(['id' => $id, 't' => $tid]);
     $token = $tokStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if ($token) {
-        $base = defined('APP_URL') ? rtrim(APP_URL, '/') : (getenv('APP_URL') ?: '');
-        $token['url'] = "{$base}/billing/invoice.php?t={$token['token']}";
-        unset($token['token']); // never expose raw token in authed API beyond URL
+    $deliveryStmt = $pdo->prepare(
+        'SELECT id, delivery_status, delivery_recipient, delivery_started_at,
+                delivery_finished_at, delivery_provider_id,
+                TIMESTAMPDIFF(SECOND, delivery_started_at, NOW()) AS age_seconds
+           FROM billing_invoice_tokens
+          WHERE invoice_id = :id AND tenant_id = :t AND delivery_request_id IS NOT NULL
+          ORDER BY id DESC LIMIT 1'
+    );
+    $deliveryStmt->execute(['id' => $id, 't' => $tid]);
+    $delivery = $deliveryStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    $deliveryEntityId = billingInvoiceDeliveryEntityId($tid, $inv);
+    $deliverySender = $deliveryEntityId ? billingEntityMailSender($tid, $deliveryEntityId) : null;
+    if ($deliverySender && !empty($deliverySender['ready']) && getenv('COREFLUX_ENV') === 'coreaccounting') {
+        try {
+            $transport = billingDeliveryTransportReadiness(
+                cf_mail_bootstrap()->default_driver_name(), null, (string) ($deliverySender['from'] ?? '')
+            );
+            if (!$transport['ready']) {
+                $deliverySender['ready'] = false;
+                $deliverySender['reason'] = $transport['reason'];
+                $deliverySender['setup_target'] = 'provider';
+            }
+        } catch (\Throwable $e) {
+            $deliverySender['ready'] = false;
+            $deliverySender['reason'] = 'CoreAccounting email delivery is not configured.';
+            $deliverySender['setup_target'] = 'provider';
+        }
     }
     api_ok([
         'invoice' => $inv,
         'lines' => $lines,
         'allocations' => $allocations,
         'token' => $token,
+        'delivery' => $delivery,
+        'capabilities' => ['can_send' => RBAC::hasPermission($user, 'billing.invoice.send')],
         'default_recipient' => billingInvoiceDefaultRecipient($tid, $inv),
+        'delivery_sender' => $deliverySender,
     ]);
 }
 
 if ($method === 'GET' && $action === '') {
     rbac_legacy_require($user, 'billing.view');
-    $where  = ['tenant_id = :tenant_id'];
+    try {
+        $listEntityId = billingEntityFilterId($tid, isset($_GET['entity_id']) ? (string) $_GET['entity_id'] : null);
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (OutOfBoundsException $e) {
+        api_error($e->getMessage(), 404);
+    }
+    $where  = ['bi.tenant_id = :tenant_id'];
     $params = [];
-    if (!empty($_GET['client_name'])) { $where[] = 'client_name = :cn';   $params['cn'] = $_GET['client_name']; }
-    if (!empty($_GET['status']))      { $where[] = 'status = :st';        $params['st'] = $_GET['status']; }
-    if (!empty($_GET['from']))        { $where[] = 'issue_date >= :df';   $params['df'] = $_GET['from']; }
-    if (!empty($_GET['to']))          { $where[] = 'issue_date <= :dt';   $params['dt'] = $_GET['to']; }
-    if (!empty($_GET['due_before']))  { $where[] = 'due_date < :db';      $params['db'] = $_GET['due_before']; }
+    if (!empty($_GET['client_name'])) { $where[] = 'bi.client_name = :cn';   $params['cn'] = $_GET['client_name']; }
+    if (!empty($_GET['status']))      { $where[] = 'bi.status = :st';        $params['st'] = $_GET['status']; }
+    if (!empty($_GET['from']))        { $where[] = 'bi.issue_date >= :df';   $params['df'] = $_GET['from']; }
+    if (!empty($_GET['to']))          { $where[] = 'bi.issue_date <= :dt';   $params['dt'] = $_GET['to']; }
+    if (!empty($_GET['due_before']))  { $where[] = 'bi.due_date < :db';      $params['db'] = $_GET['due_before']; }
     if (trim((string) ($_GET['q'] ?? '')) !== '') {
         $needle = '%' . trim((string) $_GET['q']) . '%';
-        $where[] = '(invoice_number LIKE :q_invoice OR client_name LIKE :q_client)';
+        $where[] = '(bi.invoice_number LIKE :q_invoice OR bi.client_name LIKE :q_client)';
         $params['q_invoice'] = $needle;
         $params['q_client'] = $needle;
     }
-    // Sprint 6c — respect the header's multi-entity switcher.
-    if (!empty($_GET['entity_id']))   { $where[] = 'entity_id = :eid';    $params['eid'] = (int) $_GET['entity_id']; }
+    if ($listEntityId !== null) { $where[] = 'bi.entity_id = :eid'; $params['eid'] = $listEntityId; }
     $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
     $page    = max(1, (int) ($_GET['page'] ?? 1));
     $offset  = ($page - 1) * $perPage;
 
     $rows = scopedQuery(
-        'SELECT id, invoice_number, client_name, issue_date, due_date, currency,
-                subtotal, tax_total, total, amount_paid, amount_due, status,
-                po_number, bill_to_json, journal_entry_id, sent_at, created_at
-         FROM billing_invoices WHERE ' . implode(' AND ', $where) . '
-         ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+        'SELECT bi.id, bi.entity_id, e.code AS entity_code, e.legal_name AS entity_name,
+                bi.invoice_number, bi.client_name, bi.issue_date, bi.due_date, bi.currency,
+                bi.subtotal, bi.tax_total, bi.total, bi.amount_paid, bi.amount_due, bi.status,
+                bi.po_number, bi.bill_to_json, bi.journal_entry_id, bi.sent_at, bi.created_at,
+                (SELECT je.status FROM accounting_journal_entries je
+                  WHERE je.tenant_id = bi.tenant_id
+                    AND je.id = bi.journal_entry_id) AS journal_status
+         FROM billing_invoices bi
+         LEFT JOIN accounting_entities e ON e.tenant_id = bi.tenant_id AND e.id = bi.entity_id
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY bi.id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
     $contactMap = [];
     try {
         foreach (scopedQuery(
-            'SELECT client_name, ar_primary_email
+            'SELECT entity_id, client_name, ar_primary_email
                FROM billing_client_contacts
-              WHERE tenant_id = :tenant_id AND ar_primary_email IS NOT NULL'
+              WHERE tenant_id = :tenant_id AND entity_id IS NOT NULL AND ar_primary_email IS NOT NULL'
         ) as $contact) {
-            $contactMap[strtolower(trim((string) $contact['client_name']))] = trim((string) $contact['ar_primary_email']);
+            $key = (int) $contact['entity_id'] . ':' . strtolower(trim((string) $contact['client_name']));
+            $contactMap[$key] = trim((string) $contact['ar_primary_email']);
         }
     } catch (\Throwable $e) {
         error_log('[billing invoice list recipients] ' . $e->getMessage());
@@ -223,7 +208,8 @@ if ($method === 'GET' && $action === '') {
             ? (json_decode((string) $invoiceRow['bill_to_json'], true) ?: [])
             : [];
         $billToEmail = trim((string) ($billTo['email'] ?? ''));
-        $contactEmail = $contactMap[strtolower(trim((string) $invoiceRow['client_name']))] ?? '';
+        $contactKey = (int) ($invoiceRow['entity_id'] ?? 0) . ':' . strtolower(trim((string) $invoiceRow['client_name']));
+        $contactEmail = $contactMap[$contactKey] ?? '';
         if ($billToEmail !== '' && filter_var($billToEmail, FILTER_VALIDATE_EMAIL)) {
             $invoiceRow['recipient_email'] = $billToEmail;
             $invoiceRow['recipient_source'] = 'invoice bill-to';
@@ -237,8 +223,9 @@ if ($method === 'GET' && $action === '') {
         unset($invoiceRow['bill_to_json']);
     }
     unset($invoiceRow);
-    $cnt  = scopedQuery('SELECT COUNT(*) AS c FROM billing_invoices WHERE ' . implode(' AND ', $where), $params);
-    api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
+    $cnt  = scopedQuery('SELECT COUNT(*) AS c FROM billing_invoices bi WHERE ' . implode(' AND ', $where), $params);
+    api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0),
+        'entity_id' => $listEntityId, 'page' => $page, 'per_page' => $perPage]);
 }
 
 if ($method === 'POST' && $action === 'suggest-from-placement') {
@@ -269,6 +256,11 @@ if ($method === 'POST' && $action === 'from-time-entries') {
     require_once __DIR__ . '/../../people/lib/companies.php';
     cf_begin_transaction();
     try {
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)$tid, $entryIds);
+        // Build from the locked rows that passed source verification.
+        $drafts = billingBuildDraftFromTimeEntries($tid, $entryIds, $aggregation);
+        if (!$drafts) throw new RuntimeException('No billable entries remain. Refresh the selection.');
         foreach ($drafts as $d) {
             $inv  = $d['invoice'];
             $inv['tenant_id']          = $tid;
@@ -342,6 +334,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                 'source'          => 'time_entries',
                 'aggregation'     => $aggregation,
                 'entry_ids'       => $d['entry_ids'],
+                'quanta_source_check' => $sourceCheck ?: null,
             ], $invId);
 
             $created[] = [
@@ -378,6 +371,9 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
     require_once __DIR__ . '/../../people/lib/companies.php';
     cf_begin_transaction();
     try {
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $bundleIds = array_merge(...array_column($drafts, 'bundle_ids'));
+        quantaTimeAssertLegacyBundles($pdo, (int)$tid, $bundleIds);
         foreach ($drafts as $d) {
             $inv  = $d['invoice'];
             $inv['tenant_id'] = $tid;
@@ -459,99 +455,13 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 if ($method === 'POST' && $action === '') {
     rbac_legacy_require($user, 'billing.invoice.draft');
     $body = api_json_body();
-    api_require_fields($body, ['client_name', 'lines']);
-    if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
-
-    $pdo = getDB();
-    $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines']);
-    $taxStmt = $pdo->prepare('SELECT billing_tax_rate_pct, billing_invoice_terms FROM tenants WHERE id = :id');
-    $taxStmt->execute(['id' => $tid]);
-    $cfg = $taxStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    $taxPct = (float) ($cfg['billing_tax_rate_pct'] ?? 0);
-    if (array_key_exists('tax_rate_pct', $body) && $body['tax_rate_pct'] !== null && $body['tax_rate_pct'] !== '') {
-        if (!is_numeric($body['tax_rate_pct'])) api_error('Tax rate must be numeric', 422);
-        $taxPct = (float) $body['tax_rate_pct'];
-    }
-    if ($taxPct < 0 || $taxPct > 100) api_error('Tax rate must be between 0 and 100', 422);
-    $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['billing_invoice_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
-
-    // Per-client override: if a staffing_clients row exists with a non-null
-    // payment_terms_days, use that instead of the tenant-wide default.
     try {
-        $clientTerms = $pdo->prepare(
-            "SELECT payment_terms_days FROM staffing_clients
-              WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1"
-        );
-        $clientTerms->execute(['t' => $clientCatalogTenantId, 'n' => (string) ($body['client_name'] ?? '')]);
-        $perClient = $clientTerms->fetchColumn();
-        if ($perClient !== false && $perClient !== null && (int) $perClient >= 0) {
-            $netDays = (int) $perClient;
-        }
-    } catch (\Throwable $_) { /* staffing_clients may not exist yet — fall through */ }
-
-    $validDate = static function (string $value): bool {
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
-        return $date !== false && $date->format('Y-m-d') === $value;
-    };
-    $issueDate = trim((string) ($body['issue_date'] ?? date('Y-m-d')));
-    if (!$validDate($issueDate)) api_error('Issue date must use YYYY-MM-DD', 422);
-    $dueDate = trim((string) ($body['due_date'] ?? ''));
-    if ($dueDate === '') $dueDate = date('Y-m-d', strtotime("+{$netDays} days", strtotime($issueDate)));
-    if (!$validDate($dueDate)) api_error('Due date must use YYYY-MM-DD', 422);
-
-    $resolvedInvoiceTerms = $netDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . $netDays;
-    $computed = billingComputeTax($body['lines'], $taxPct);
-    try {
-        $issuingEntity = activeEntityResolveForTenant(
-            $tid,
-            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
-        );
-    } catch (\Throwable $e) {
+        $created = billingCreateDirectInvoiceDraft($tid, $body, $user['id'] ?? null);
+    } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }
-    if (!$issuingEntity) api_error('An active issuing entity is required', 422);
-
-    cf_begin_transaction();
-    try {
-        // Resolve/auto-create the unified companies.id for the billed client.
-        require_once __DIR__ . '/../../people/lib/companies.php';
-        $clientCompanyId = !empty($body['client_company_id']) ? (int) $body['client_company_id'] : null;
-        if (!$clientCompanyId) {
-            $clientCompanyId = companiesUpsertByName($clientCatalogTenantId, (string) $body['client_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['client']);
-            companiesBumpUsage($clientCompanyId);
-        }
-        $invId = scopedInsert('billing_invoices', [
-            'tenant_id'         => $tid,
-            'invoice_number'    => billingNextInvoiceNumber($tid),
-            'client_name'       => (string) $body['client_name'],
-            'client_company_id' => $clientCompanyId,
-            'entity_id'         => (int) $issuingEntity['id'],
-            'bill_to_json'      => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
-            'currency'          => (string) ($body['currency'] ?? 'USD'),
-            'issue_date'        => $issueDate,
-            'due_date'          => $dueDate,
-            'payment_terms'     => $resolvedInvoiceTerms,
-            'po_number'         => $body['po_number'] ?? null,
-            'notes_internal'    => $body['notes_internal'] ?? null,
-            'notes_external'    => $body['notes_external'] ?? null,
-            'subtotal'          => $computed['subtotal'],
-            'tax_total'         => $computed['tax_total'],
-            'total'             => $computed['total'],
-            'amount_due'        => $computed['total'],
-            'aggregation'       => 'per_client',
-            'status'            => 'draft',
-            'created_by_user_id'=> $user['id'] ?? null,
-        ]);
-        billingInsertDirectInvoiceLines($pdo, $invId, $computed['lines']);
-        billingAudit('billing.invoice.created', ['invoice_id' => $invId, 'source' => 'manual'], $invId);
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
-    }
-    api_ok(['id' => $invId], 201);
+    billingAudit('billing.invoice.created', ['invoice_id' => $created['id'], 'source' => 'manual'], $created['id']);
+    api_ok(['id' => $created['id']], 201);
 }
 
 if ($method === 'PATCH') {
@@ -570,7 +480,11 @@ if ($method === 'PATCH') {
         $sourceCheck = $pdo->prepare('SELECT COUNT(*) FROM billing_invoice_lines WHERE invoice_id = :id AND source_type <> "manual"');
         $sourceCheck->execute(['id' => $id]);
         if ((int) $sourceCheck->fetchColumn() > 0) api_error('Time-based invoice lines must be rebuilt from their source', 409);
-        $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines'], false);
+        try {
+            $body['lines'] = billingPrepareDirectInvoiceLines($pdo, $tid, $body['lines'], false);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
         $taxPct = $body['tax_rate_pct'] ?? null;
         if ($taxPct === null || $taxPct === '') {
             $taxStmt = $pdo->prepare('SELECT COALESCE(MAX(tax_rate_pct), 0) FROM billing_invoice_lines WHERE invoice_id = :id');
@@ -579,6 +493,11 @@ if ($method === 'PATCH') {
         }
         if (!is_numeric($taxPct) || (float) $taxPct < 0 || (float) $taxPct > 100) api_error('Tax rate must be between 0 and 100', 422);
         $computed = billingComputeTax($body['lines'], (float) $taxPct);
+        try {
+            billingValidateDirectInvoiceTotal($computed);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
     }
 
     $editable = ['client_name','client_company_id','entity_id','bill_to_json','currency','issue_date','due_date','po_number','notes_internal','notes_external'];
@@ -601,7 +520,73 @@ if ($method === 'PATCH') {
 
     cf_begin_transaction();
     try {
-        $pdo->prepare('UPDATE billing_invoices SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_scope AND id = :id')->execute($binds);
+        $lockedStmt = $pdo->prepare('SELECT * FROM billing_invoices WHERE tenant_id = :t AND id = :id FOR UPDATE');
+        $lockedStmt->execute(['t' => $tid, 'id' => $id]);
+        $locked = $lockedStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$locked || $locked['status'] !== 'draft') {
+            throw new DomainException('Only draft invoices can be edited');
+        }
+        if (billingInvoiceWorkflowPendingInstanceId($tid, $id) > 0) {
+            throw new DomainException('This invoice is awaiting approval. Ask a reviewer to reject it before editing.');
+        }
+        if (array_key_exists('entity_id', $body) || array_key_exists('currency', $body)) {
+            $requestedEntityId = array_key_exists('entity_id', $body)
+                ? $body['entity_id'] : $locked['entity_id'];
+            if ((!is_int($requestedEntityId) && !is_string($requestedEntityId))
+                || !ctype_digit((string) $requestedEntityId) || (int) $requestedEntityId <= 0) {
+                throw new InvalidArgumentException('Choose a valid issuing entity');
+            }
+            $entityStmt = $pdo->prepare(
+                'SELECT base_currency FROM accounting_entities
+                  WHERE tenant_id = :tenant_id AND id = :id AND active = 1'
+            );
+            $entityStmt->execute(['tenant_id' => $tid, 'id' => (int) $requestedEntityId]);
+            $baseCurrency = $entityStmt->fetchColumn();
+            if ($baseCurrency === false) throw new InvalidArgumentException('Issuing entity is not available in this workspace');
+            $requestedCurrency = array_key_exists('currency', $body)
+                ? $body['currency'] : $locked['currency'];
+            if (!is_string($requestedCurrency) || $requestedCurrency !== (string) $baseCurrency) {
+                throw new InvalidArgumentException('Invoice currency must match the issuing entity');
+            }
+        }
+        if (array_key_exists('issue_date', $body) || array_key_exists('due_date', $body)) {
+            $issueDate = array_key_exists('issue_date', $body)
+                ? $body['issue_date'] : $locked['issue_date'];
+            $dueDate = array_key_exists('due_date', $body)
+                ? $body['due_date'] : $locked['due_date'];
+            if (array_key_exists('due_date', $body) && ($dueDate === null || $dueDate === '')) {
+                $terms = (string) ($locked['payment_terms'] ?? 'NET30');
+                $netDays = $terms === 'DUE_ON_RECEIPT'
+                    ? 0 : (preg_match('/^NET([0-9]+)$/D', $terms, $matches) ? (int) $matches[1] : 30);
+                $parsedIssue = is_string($issueDate) ? DateTimeImmutable::createFromFormat('!Y-m-d', $issueDate) : false;
+                if (!$parsedIssue || $parsedIssue->format('Y-m-d') !== $issueDate) {
+                    throw new InvalidArgumentException('Issue date must use YYYY-MM-DD');
+                }
+                $dueDate = $parsedIssue->modify("+{$netDays} days")->format('Y-m-d');
+                $binds['due_date'] = $dueDate;
+            }
+            foreach (['issue_date' => $issueDate, 'due_date' => $dueDate] as $field => $value) {
+                $parsed = is_string($value) ? DateTimeImmutable::createFromFormat('!Y-m-d', $value) : false;
+                if (!$parsed || $parsed->format('Y-m-d') !== $value) {
+                    throw new InvalidArgumentException(ucfirst(str_replace('_', ' ', $field)) . ' must use YYYY-MM-DD');
+                }
+            }
+            if ($dueDate < $issueDate) throw new InvalidArgumentException('Due date cannot precede issue date');
+        }
+        if (array_key_exists('client_name', $body) || array_key_exists('client_company_id', $body)) {
+            $clientName = trim((string) ($body['client_name'] ?? $locked['client_name']));
+            $clientCompanyId = billingResolveDirectInvoiceClientCompanyId(
+                $pdo, $clientCatalogTenantId, $clientName,
+                $body['client_company_id'] ?? null, (int) ($user['id'] ?? 0) ?: null
+            );
+            if (!in_array('client_company_id = :client_company_id', $sets, true)) {
+                $sets[] = 'client_company_id = :client_company_id';
+            }
+            $binds['client_company_id'] = $clientCompanyId;
+            if (array_key_exists('client_name', $body)) $binds['client_name'] = $clientName;
+        }
+        $pdo->prepare('UPDATE billing_invoices SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_scope AND id = :id')
+            ->execute($binds);
         if ($computed) {
             $pdo->prepare('DELETE FROM billing_invoice_lines WHERE invoice_id = :id')->execute(['id' => $id]);
             billingInsertDirectInvoiceLines($pdo, $id, $computed['lines']);
@@ -609,12 +594,73 @@ if ($method === 'PATCH') {
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof InvalidArgumentException) api_error($e->getMessage(), 422);
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
         throw $e;
     }
     $changedFields = array_keys(array_intersect_key($body, array_flip($editable)));
     if ($computed) $changedFields[] = 'lines';
     billingAudit('billing.invoice.updated', ['invoice_id' => $id, 'fields' => $changedFields], $id);
     api_ok(['ok' => true]);
+}
+
+if ($method === 'POST' && $action === 'request_approval') {
+    rbac_legacy_require($user, 'billing.invoice.draft');
+    if (!RBACResolver::can($user, $tid, 'billing', 'write')) {
+        api_error('Billing invoice draft access is required.', 403);
+    }
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('Choose a valid invoice.', 422);
+    $pdo = getDB();
+    $owns = !$pdo->inTransaction();
+    $savepoint = $owns ? null : 'billing_request_' . bin2hex(random_bytes(4));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $rowStmt = $pdo->prepare('SELECT * FROM billing_invoices
+            WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $rowStmt->execute(['tenant_id' => $tid, 'id' => $id]);
+        $invoice = $rowStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$invoice) throw new OutOfBoundsException('Invoice not found.');
+        if ($invoice['status'] !== 'draft') {
+            throw new DomainException('Only a draft invoice can request approval.');
+        }
+        $instanceId = billingInvoiceWorkflowPendingInstanceId($tid, $id);
+        $requested = false;
+        if ($instanceId <= 0) {
+            $prior = billingInvoiceWorkflowLatestAttempt($tid, $id);
+            if ($prior && $prior['status'] !== WORKFLOW_STATUS_REJECTED) {
+                throw new DomainException('This invoice already has a completed approval.');
+            }
+            $routing = billingInvoiceApprovalRouting($tid, $invoice);
+            $blocked = billingInvoiceWorkflowSodBlockedUserIds($invoice, (int) $user['id']);
+            if (empty($routing['infrastructure_available']) || empty($routing['workflow_required'])
+                || !billingInvoiceHasIndependentApprover($tid, (array) $routing['requirements'], $blocked)
+                || billingInvoiceManagedReviewerSnapshot($tid, $blocked) === []) {
+                throw new DomainException('Configure an active, independent invoice reviewer before requesting approval.');
+            }
+            $instanceId = (int) (billingInvoiceWorkflowStart($tid, $id, (int) $user['id']) ?? 0);
+            if ($instanceId <= 0) throw new RuntimeException('Invoice approval could not start.');
+            billingWorkflowAudit($tid, (int) $user['id'], 'billing.invoice.approval_requested', [
+                'invoice_id' => $id, 'workflow_instance_id' => $instanceId, 'source' => 'billing',
+            ], $id);
+            $requested = true;
+        }
+        if ($owns) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        api_ok(['ok' => true, 'approval_requested' => $requested,
+            'workflow_instance_id' => $instanceId], 202);
+    } catch (Throwable $e) {
+        if ($owns && $pdo->inTransaction()) $pdo->rollBack();
+        elseif (!$owns && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+        if ($e instanceof OutOfBoundsException) api_error($e->getMessage(), 404);
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing.invoice.request_approval] ' . $e->getMessage());
+        api_error('Invoice approval could not start. Try again or contact an administrator.', 503);
+    }
 }
 
 if ($method === 'POST' && $action === 'approve') {
@@ -629,7 +675,9 @@ if ($method === 'POST' && $action === 'approve') {
         $workflow = billingInvoiceWorkflowAct($tid, $id, (int) ($user['id'] ?? 0), 'approve');
     } catch (\Throwable $e) {
         $msg = $e->getMessage();
-        $code = str_contains($msg, 'Separation of duties') || str_contains($msg, 'not an approver') ? 403 : 409;
+        $code = str_contains($msg, 'Separation of duties')
+            || str_contains($msg, 'not an approver')
+            || str_contains($msg, 'approval access is required') ? 403 : 409;
         api_error($msg, $code);
     }
     if (empty($workflow['applied'])) {
@@ -659,12 +707,137 @@ if ($method === 'POST' && $action === 'approve') {
     ]);
 }
 
+if ($method === 'POST' && $action === 'replace_link') {
+    rbac_legacy_require($user, 'billing.invoice.send');
+    $id = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $pdo = getDB();
+    try {
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare('SELECT * FROM billing_invoices
+                               WHERE tenant_id = :t AND id = :id FOR UPDATE');
+        $stmt->execute(['t' => $tid, 'id' => $id]);
+        $locked = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$locked || !empty($locked['opening_cutover_id'])
+            || !in_array($locked['status'], ['approved', 'sent', 'partially_paid', 'paid'], true)) {
+            throw new DomainException('Only a posted, approved invoice can have a customer link.');
+        }
+        if (billingDeliveryBlockingAttempt($pdo, $tid, $id)) {
+            throw new DomainException('Review the pending invoice email before replacing its customer link.');
+        }
+        $journalStmt = $pdo->prepare('SELECT entity_id FROM accounting_journal_entries
+                                       WHERE tenant_id = :t AND id = :id AND status = "posted"');
+        $journalStmt->execute(['t' => $tid, 'id' => (int) $locked['journal_entry_id']]);
+        $journalEntityId = $journalStmt->fetchColumn();
+        $entityId = billingInvoiceDeliveryEntityId($tid, $locked);
+        if (!$entityId || (int) $journalEntityId !== $entityId) {
+            throw new DomainException('Invoice legal entity does not match its posted journal.');
+        }
+        $tok = billingIssueViewToken($tid, $id);
+        $oldLinks = billingRevokeInvoiceViewTokens(
+            $tid, $id, (int) ($user['id'] ?? 0) ?: null, $tok['token_id']
+        );
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice link] Replacement failed: ' . $e->getMessage());
+        api_error('Could not create a new invoice link.', 500);
+    }
+    billingAudit('billing.invoice.link_replaced', [
+        'invoice_id' => $id, 'invoice_number' => $locked['invoice_number'],
+        'token_id' => $tok['token_id'], 'prior_links_revoked' => $oldLinks,
+    ], $id);
+    api_ok(['ok' => true, 'token_id' => $tok['token_id'], 'url' => $tok['url'],
+        'expires_in_days' => 90, 'prior_links_revoked' => $oldLinks]);
+}
+
+if ($method === 'POST' && $action === 'revoke_link') {
+    rbac_legacy_require($user, 'billing.invoice.send');
+    $id = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $reason = trim((string) (api_json_body()['reason'] ?? ''));
+    if (strlen($reason) < 3 || strlen($reason) > 500) api_error('Give a short reason (3–500 characters) for disabling the link.', 422);
+    $pdo = getDB();
+    try {
+        $pdo->beginTransaction();
+        billingDeliveryLockInvoice($pdo, $tid, $id);
+        if (billingDeliveryBlockingAttempt($pdo, $tid, $id)) {
+            throw new DomainException('Review the pending invoice email before disabling its customer link.');
+        }
+        $revoked = billingRevokeInvoiceViewTokens($tid, $id, (int) ($user['id'] ?? 0) ?: null);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice link] Revocation failed: ' . $e->getMessage());
+        api_error('Could not disable the invoice link.', 500);
+    }
+    billingAudit('billing.invoice.links_revoked', [
+        'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+        'token_count' => $revoked, 'reason' => $reason,
+    ], $id);
+    api_ok(['ok' => true, 'revoked_count' => $revoked]);
+}
+
+if ($method === 'POST' && $action === 'resolve_send') {
+    rbac_legacy_require($user, 'billing.invoice.send');
+    $id = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $body = api_json_body();
+    $tokenId = (int) ($body['token_id'] ?? 0);
+    $outcome = (string) ($body['outcome'] ?? '');
+    $reason = trim((string) ($body['reason'] ?? ''));
+    $providerId = trim((string) ($body['provider_message_id'] ?? ''));
+    if ($tokenId <= 0 || !in_array($outcome, ['accepted', 'not_accepted'], true)) {
+        api_error('Select a delivery attempt and confirm whether the mail provider accepted it.', 422);
+    }
+    if (strlen($reason) < 10 || strlen($reason) > 500 || strlen($providerId) > 255) {
+        api_error('Record a review reason of 10-500 characters and a provider reference under 256 characters.', 422);
+    }
+    try {
+        $revoked = billingDeliveryResolve($tid, $id, $tokenId, $outcome,
+            $providerId !== '' ? $providerId : null, (int) ($user['id'] ?? 0) ?: null);
+    } catch (\Throwable $e) {
+        if ($e instanceof DomainException || $e instanceof InvalidArgumentException) {
+            api_error($e->getMessage(), 409);
+        }
+        error_log('[billing invoice delivery] Resolution failed: ' . $e->getMessage());
+        api_error('Could not resolve the invoice delivery. Contact an administrator.', 500);
+    }
+    billingAudit('billing.invoice.send_resolved', [
+        'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+        'token_id' => $tokenId, 'outcome' => $outcome, 'reason' => $reason,
+        'provider_message_id' => $providerId !== '' ? $providerId : null,
+        'prior_links_revoked' => $revoked,
+    ], $id);
+    api_ok(['ok' => true, 'outcome' => $outcome, 'prior_links_revoked' => $revoked]);
+}
+
 if ($method === 'POST' && $action === 'send') {
     rbac_legacy_require($user, 'billing.invoice.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    if (!billingTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
+    if (!empty($row['opening_cutover_id'])) api_error('This is an opening receivable, not a new invoice to send.', 409);
+    if (!in_array($row['status'], ['approved', 'sent', 'partially_paid', 'paid'], true)) {
+        api_error("Cannot send from status {$row['status']}", 409);
+    }
+    $postedEntry = !empty($row['journal_entry_id']) ? scopedFind(
+        'SELECT id, entity_id FROM accounting_journal_entries
+          WHERE tenant_id = :tenant_id AND id = :id AND status = "posted"',
+        ['id' => (int) $row['journal_entry_id']]
+    ) : null;
+    if (!$postedEntry) api_error('Post the invoice to the ledger before sending it', 409);
+    $entityId = billingInvoiceDeliveryEntityId($tid, $row);
+    if (!$entityId || (int) $postedEntry['entity_id'] !== $entityId) {
+        api_error('Invoice legal entity does not match its posted journal.', 409);
+    }
+    $sender = billingEntityMailSender($tid, $entityId);
+    if (!$sender['ready']) api_error((string) $sender['reason'], 422);
 
     $beforeNormalization = $row;
     try {
@@ -690,13 +863,38 @@ if ($method === 'POST' && $action === 'send') {
         $to = (string) (billingInvoiceDefaultRecipient($tid, $row)['email'] ?? '');
     }
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
-        api_error('No valid invoice recipient. Add a bill-to email on the invoice or an AR primary email under Billing → Client contacts.', 422);
+        api_error('No valid invoice recipient. Add a bill-to email or an AR contact for this legal entity.', 422);
     }
+    try {
+        $svc = cf_mail_bootstrap();
+    } catch (\Throwable $e) {
+        error_log('[billing invoice delivery] Mail setup failed: ' . $e->getMessage());
+        api_error('Invoice email is not configured. No delivery attempt was started.', 503);
+    }
+    $transport = billingDeliveryTransportReadiness(
+        $svc->default_driver_name(), $to, (string) ($sender['from'] ?? '')
+    );
+    if (!$transport['ready']) api_error($transport['reason'], $transport['http_status']);
 
-    $tok = billingIssueViewToken($tid, $id);
-    $sender = cf_tenant_mail_sender($tid, 'billing');
-    $svc = cf_mail_bootstrap();
-
+    if (!is_bool($body['resend'] ?? false)) api_error('Resend confirmation must be true or false.', 422);
+    try {
+        $requestId = billingDeliveryRequestId((string) ($body['request_id'] ?? ''));
+        $tok = billingDeliveryReserve($tid, $id, $requestId, $to, $body['resend'] ?? false);
+    } catch (\Throwable $e) {
+        if ($e instanceof InvalidArgumentException) api_error($e->getMessage(), 422);
+        if ($e instanceof OutOfBoundsException) api_error('Not found', 404);
+        if ($e instanceof DomainException) api_error($e->getMessage(), 409);
+        error_log('[billing invoice delivery] Reservation failed: ' . $e->getMessage());
+        api_error('Invoice delivery tracking is unavailable. No email was sent.', 503);
+    }
+    if (!empty($tok['replayed'])) {
+        if ($tok['delivery_status'] === 'sent') {
+            api_ok(['ok' => true, 'already_sent' => true, 'token_id' => $tok['token_id'],
+                'email_status' => 'sent', 'url' => null]);
+        }
+        api_error('This delivery request is ' . $tok['delivery_status']
+            . '. Review the latest attempt before trying to send again.', 409);
+    }
     // Generate the invoice PDF and attach it. If the renderer is missing on
     // this host we still send the email (with the view-online link) and log
     // the failure rather than block the customer notification.
@@ -715,8 +913,10 @@ if ($method === 'POST' && $action === 'send') {
 
     $subject = sprintf('Invoice %s — %s due', $row['invoice_number'], number_format((float) $row['amount_due'], 2) . ' ' . $row['currency']);
     $textBody = sprintf(
-        "Hi,\n\nPlease find your invoice %s attached.\n\nAmount due: %s %s\nDue date: %s\n\nView online: %s\n\nThank you.\n",
-        $row['invoice_number'], number_format((float) $row['amount_due'], 2), $row['currency'], $row['due_date'], $tok['url']
+        "Hi,\n\nYour invoice %s is %s.\n\nAmount due: %s %s\nDue date: %s\n\nView online: %s\n\nThank you.\n",
+        $row['invoice_number'],
+        $attachments ? 'attached and available online' : 'available online',
+        number_format((float) $row['amount_due'], 2), $row['currency'], $row['due_date'], $tok['url']
     );
     $htmlBody = sprintf(
         '<div style="font-family:system-ui,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111">' .
@@ -736,37 +936,57 @@ if ($method === 'POST' && $action === 'send') {
     try {
         $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
             'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
-            'idempotency_key' => 'billing-invoice-' . $id,
+            'idempotency_key' => 'billing-tenant-' . $tid . '-invoice-' . $id . '-request-' . $requestId,
+            'outbox_redactions' => [$tok['url'], $tok['token']],
         ]);
     } catch (\Throwable $e) {
         $sendRes = ['status' => 'failed', 'error' => $e->getMessage()];
     }
 
     if (($sendRes['status'] ?? 'failed') !== 'sent') {
-        $mailError = trim((string) ($sendRes['error'] ?? '')) ?: 'The configured mail provider did not accept the message.';
-        billingAudit('billing.invoice.send_failed', [
+        $mailError = trim((string) ($sendRes['error'] ?? '')) ?: 'The mail provider did not confirm acceptance.';
+        try {
+            billingDeliveryMarkUncertain($tid, $id, $tok['token_id'], $requestId, $mailError);
+        } catch (\Throwable $e) {
+            error_log('[billing invoice delivery] Could not mark uncertain attempt: ' . $e->getMessage());
+        }
+        billingAudit('billing.invoice.send_uncertain', [
             'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
-            'to' => $to, 'token_id' => $tok['token_id'],
+            'to' => $to, 'token_id' => $tok['token_id'], 'request_id' => $requestId,
             'email_status' => $sendRes['status'] ?? 'failed',
             'email_error' => $mailError,
             'pdf_attached' => !empty($attachments),
             'pdf_error' => $pdfError,
         ], $id);
-        api_error('Invoice email was not sent: ' . $mailError . ' The invoice remains approved so you can retry.', 502, [
+        api_error('Invoice delivery could not be confirmed. Check the mail provider before another send.', 502, [
             'email_status' => $sendRes['status'] ?? 'failed',
             'invoice_status' => $row['status'],
-            'retryable' => true,
+            'delivery_status' => 'uncertain', 'retryable' => false,
         ]);
     }
 
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE billing_invoices SET status = "sent", sent_at = NOW() WHERE id = :id')->execute(['id' => $id]);
-    billingAudit('billing.invoice.sent', [
+    try {
+        $priorLinksRevoked = billingDeliveryFinalize($tid, $id, $tok['token_id'], $requestId,
+            isset($sendRes['provider_message_id']) ? (string) $sendRes['provider_message_id'] : null,
+            (int) ($user['id'] ?? 0) ?: null);
+    } catch (\Throwable $e) {
+        try {
+            billingDeliveryMarkUncertain($tid, $id, $tok['token_id'], $requestId, $e->getMessage());
+        } catch (\Throwable $markError) {
+            error_log('[billing invoice delivery] Could not mark accepted attempt uncertain: ' . $markError->getMessage());
+        }
+        error_log('[billing invoice delivery] Finalization failed after provider accepted email: ' . $e->getMessage());
+        api_error('The mail provider accepted the invoice, but the ledger did not finish recording delivery. Review this attempt before another send.', 503, [
+            'delivery_status' => 'uncertain', 'retryable' => false,
+        ]);
+    }
+    billingAudit(($body['resend'] ?? false) ? 'billing.invoice.resent' : 'billing.invoice.sent', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'to' => $to, 'token_id' => $tok['token_id'],
         'email_status' => $sendRes['status'] ?? 'unknown',
         'pdf_attached' => !empty($attachments),
         'pdf_error'    => $pdfError,
+        'prior_links_revoked' => $priorLinksRevoked,
     ], $id);
 
     api_ok([
@@ -775,14 +995,16 @@ if ($method === 'POST' && $action === 'send') {
         'email_error'  => $sendRes['error'] ?? null,
         'pdf_attached' => !empty($attachments),
         'pdf_error'    => $pdfError,
+        'prior_links_revoked' => $priorLinksRevoked,
     ]);
 }
 
 if ($method === 'GET' && $action === 'pdf' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'billing.view');
     $id  = (int) $_GET['id'];
-    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $row = scopedFind('SELECT id, invoice_number, opening_cutover_id FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
+    if (!empty($row['opening_cutover_id'])) api_error('The original invoice PDF was not imported with this opening balance.', 409);
 
     try {
         $pdfPath = invoiceRenderPdf($id);
@@ -817,43 +1039,61 @@ if ($method === 'POST' && $action === 'void') {
     $pdo = getDB();
     cf_begin_transaction();
     try {
-        // If no payments allocated, free up consumed bundles back to ready.
+        $locked = $pdo->prepare(
+            'SELECT * FROM billing_invoices WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        );
+        $locked->execute(['t' => $tid, 'id' => $id]);
+        $row = $locked->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] !== 'draft') {
+            throw new \DomainException('Only draft invoices can be voided here. Posted or approved invoices need a coordinated reversal.');
+        }
+        if (billingInvoiceWorkflowPendingInstanceId($tid, $id) > 0) {
+            throw new \DomainException('This invoice is awaiting approval. Ask a reviewer to reject it before voiding.');
+        }
+
         $allocCount = $pdo->prepare('SELECT COUNT(*) FROM billing_payment_allocations WHERE invoice_id = :id');
         $allocCount->execute(['id' => $id]);
         $hasPayments = (int) $allocCount->fetchColumn() > 0;
+        $sourceJe = $pdo->prepare(
+            'SELECT id FROM accounting_journal_entries
+              WHERE tenant_id = :t AND source_module = "billing"
+                AND source_ref_type = "billing_invoice" AND source_ref_id = :id
+              LIMIT 1'
+        );
+        $sourceJe->execute(['t' => $tid, 'id' => $id]);
+        if ($hasPayments || (float) $row['amount_paid'] > 0 || !empty($row['journal_entry_id']) || $sourceJe->fetchColumn()) {
+            throw new \DomainException('This invoice has ledger or payment activity. Reverse that activity through its source workflow before voiding.');
+        }
 
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE time_downstream_feed
+        $pdo->prepare(
+            'UPDATE time_downstream_feed
                  SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
                  WHERE tenant_id = :t AND consumed_by_module = "billing" AND consumed_ref_id = :id'
-            )->execute(['t' => $tid, 'id' => $id]);
-            $pdo->prepare(
-                'UPDATE time_entries
+        )->execute(['t' => $tid, 'id' => $id]);
+        $pdo->prepare(
+            'UPDATE time_entries
                     SET bill_extracted_at = NULL,
                         bill_extracted_ref = NULL,
                         bill_extracted_by_user_id = NULL
                   WHERE tenant_id = :t AND bill_extracted_ref = :id'
-            )->execute(['t' => $tid, 'id' => $id]);
-        }
+        )->execute(['t' => $tid, 'id' => $id]);
 
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
-            'UPDATE billing_invoices SET status = "void", voided_at = NOW(),
+            'UPDATE billing_invoices SET status = "void", amount_due = 0, voided_at = NOW(),
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE placement_economic_obligations
+        $pdo->prepare(
+            'UPDATE placement_economic_obligations
                     SET status = "void"
                   WHERE tenant_id = :tenant_id AND ar_invoice_id = :invoice_id'
-            )->execute(['tenant_id' => $placementsTenantId, 'invoice_id' => $id]);
-        }
+        )->execute(['tenant_id' => $placementsTenantId, 'invoice_id' => $id]);
 
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof \DomainException) api_error($e->getMessage(), 409);
         throw $e;
     }
 
@@ -864,7 +1104,7 @@ if ($method === 'POST' && $action === 'void') {
         'before' => $row,
         'after' => scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row,
     ]);
-    api_ok(['ok' => true, 'bundles_released' => !$hasPayments]);
+    api_ok(['ok' => true, 'bundles_released' => true]);
 }
 
 if ($method === 'POST' && $action === 'post') {
@@ -879,6 +1119,22 @@ if ($method === 'POST' && $action === 'post') {
     if (!$row) api_error('Not found', 404);
     if (!in_array($row['status'], ['approved','sent','partially_paid','paid'], true)) {
         api_error("Cannot post from status {$row['status']}", 409);
+    }
+    if (!empty($row['journal_entry_id'])) {
+        $existingJe = scopedFind(
+            'SELECT id, je_number, status FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => (int) $row['journal_entry_id']]
+        );
+        if (($existingJe['status'] ?? null) !== 'posted') {
+            api_error('This invoice already points to a missing or unposted journal entry. Correct that link before retrying.', 409);
+        }
+        api_ok([
+            'ok' => true,
+            'journal_entry_id' => (int) $existingJe['id'],
+            'je_number' => $existingJe['je_number'],
+            'idempotent_replay' => true,
+        ]);
     }
 
     $beforeNormalization = $row;
@@ -901,31 +1157,19 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
     require_once __DIR__ . '/../../accounting/lib/dimensions.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
+    require_once __DIR__ . '/../../accounting/lib/source_accrual.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
     require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
-    // Accrual-at-approval reclassification gate (2026-02). When the
-    // tenant has `multi_period_split_enabled=1`, revenue + AR Unbilled
-    // were already recognised by `accountingPostBundleAccrual()` at
-    // timesheet/bundle approval time. The invoice post becomes a pure
-    // RECLASSIFICATION (single JE on issue_date):
-    //   Dr  Accounts Receivable (full total)
-    //   Cr  AR Unbilled         (subtotal — clears the accrual)
-    //   Cr  Sales Tax Payable   (tax, if any)
-    // No revenue line — recognition is owned by the bundle accrual.
-    // Tenants with the flag OFF keep the legacy "recognise at invoice"
-    // flow below (event-layer first, then direct post).
+    // Resolve each source's actual posted accrual below. Settings and source
+    // labels alone cannot establish whether revenue was already recognized.
     $settings = accountingSettingsGet($tid);
     $sourceStmt = getDB()->prepare(
-        'SELECT COUNT(*) AS line_count,
-                SUM(source_type IN ("time", "time_entry", "economic_item")) AS accrued_line_count
-           FROM billing_invoice_lines WHERE invoice_id = :id'
+        'SELECT * FROM billing_invoice_lines WHERE invoice_id = :id ORDER BY line_no'
     );
     $sourceStmt->execute(['id' => $id]);
-    $sourceCounts = $sourceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $allLinesWereAccrued = (int) ($sourceCounts['line_count'] ?? 0) > 0
-        && (int) ($sourceCounts['line_count'] ?? 0) === (int) ($sourceCounts['accrued_line_count'] ?? 0);
-    $reclassifyOnly = !empty($settings['multi_period_split_enabled']) && $allLinesWereAccrued;
+    $sourceLines = $sourceStmt->fetchAll(PDO::FETCH_ASSOC);
+    $reclassifyOnly = false;
 
     $subtotal = (float) $row['subtotal'];
     $taxTotal = (float) $row['tax_total'];
@@ -1056,35 +1300,43 @@ if ($method === 'POST' && $action === 'post') {
     // AR Unbilled instead of recognizing revenue a second time. Split the
     // clearing lines by placement so the balance-sheet roll-forward retains
     // the same assignment trail as the original accrual.
-    $reclassLines = [];
-    if ($reclassifyOnly) {
-        accountingEnsureAccrualAccounts($tid, $settings);
-        $arUnbilled = (string) $settings['ar_unbilled_account_code'];
-        $reclassLines[] = [
+    $reclassLines = [
+        [
             'account_code' => '1100',
             'debit' => round($total, 2),
             'credit' => 0,
             'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}",
             'counterparty_company_id' => $party,
             'dims' => $documentDimensions,
-        ];
-        foreach ($placementSubtotals as $placementId => $amount) {
-            $amount = round((float) $amount, 2);
+        ],
+    ];
+    foreach ($sourceLines as $sourceLine) {
+        try {
+            $parts = accountingSourceAccrualParts($tid, $sourceLine, 'ar', $id, $documentEntityId);
+        } catch (\Throwable $e) {
+            api_error('Invoice source accrual could not be verified: ' . $e->getMessage(), 422);
+        }
+        if ($parts) $reclassifyOnly = true;
+        $placementId = (int) ($sourceLine['placement_id'] ?? 0);
+        if (!$parts) $parts = [[
+            'account_code' => $sourceLine['gl_revenue_account_code'] ?: '4000',
+            'amount' => (float) $sourceLine['subtotal'],
+            'dims' => $placementId > 0 ? (array) ($placementContexts[$placementId]['dimensions'] ?? []) : $documentDimensions,
+        ]];
+        foreach ($parts as $part) {
+            $amount = round((float) $part['amount'], 2);
             if (abs($amount) <= 0.005) continue;
-            $placementId = (int) $placementId;
-            $lineDimensions = $placementId > 0
-                ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
-                : $documentDimensions;
             $reclassLines[] = [
-                'account_code' => $arUnbilled,
+                'account_code' => $part['account_code'],
                 'debit' => $amount < 0 ? abs($amount) : 0,
                 'credit' => $amount > 0 ? $amount : 0,
-                'memo' => "Clear AR Unbilled — {$row['invoice_number']}",
+                'memo' => "Invoice source — {$row['invoice_number']}",
                 'counterparty_company_id' => $party,
-                'dims' => $lineDimensions,
+                'dims' => $part['dims'],
             ];
         }
-        if ($taxTotal > 0.005) {
+    }
+    if ($taxTotal > 0.005) {
             $reclassLines[] = [
                 'account_code' => '2100',
                 'debit' => 0,
@@ -1093,11 +1345,10 @@ if ($method === 'POST' && $action === 'post') {
                 'counterparty_company_id' => $party,
                 'dims' => $documentDimensions,
             ];
-        }
     }
     $eventPostingLines = $reclassifyOnly ? $reclassLines : $lines;
 
-    // Sprint 7e — preferred path: emit billing.invoice.sent into the
+    // Preferred path: emit ar.invoice.issued into the
     // posting engine. Falls back to the legacy direct accountingPostJe()
     // call when no rule has been seeded for this tenant.
     $payloadLines = [];
@@ -1111,11 +1362,11 @@ if ($method === 'POST' && $action === 'post') {
             'dims'          => (array) ($l['dims'] ?? []),
         ];
     }
-    $eventResult = null; $eventError = null;
+    $eventResult = null; $eventError = null; $eventErrorStatus = 422;
     try {
         $eventResult = accountingProcessEvent($tid, [
             'entity_id'        => $documentEntityId,
-            'event_type'       => 'billing.invoice.sent',
+            'event_type'       => 'ar.invoice.issued',
             'source_module'    => 'billing',
             'source_record_id' => 'billing_invoice:' . $id,
             'event_date'       => (string) $row['issue_date'],
@@ -1135,9 +1386,11 @@ if ($method === 'POST' && $action === 'post') {
         ], $user['id'] ?? null);
     } catch (\Throwable $e) {
         $eventError = $e->getMessage();
+        if ($e instanceof AccountingEventConflictException) $eventErrorStatus = 409;
     }
 
-    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+    if ($eventResult && ($eventResult['status'] ?? null) === 'posted'
+        && (int) ($eventResult['journal_entry_id'] ?? 0) > 0) {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
             ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
@@ -1162,13 +1415,16 @@ if ($method === 'POST' && $action === 'post') {
         ]);
     }
 
-    // Reclassification branch (accrual-at-approval model). When the
-    // tenant flag is ON, revenue + AR Unbilled were already posted by
-    // the bundle-accrual hook at timesheet approval time, so the
-    // invoice post is a pure AR reclassification — no revenue, no
-    // expense, no multi-period batching. The event layer above receives
-    // this same reclassification shape; this branch is its direct-post
-    // fallback when no event rule is available.
+    if ($eventError !== null) {
+        api_error('Invoice event processing failed: ' . $eventError, $eventErrorStatus);
+    }
+    if (($eventResult['status'] ?? null) !== 'ignored'
+        || ($eventResult['error'] ?? null) !== 'no posting rule matched') {
+        api_error('Invoice event processing failed: ' . ($eventResult['error'] ?? 'missing posted journal'), 422);
+    }
+
+    // The direct fallback uses the same verified source clearing and any
+    // newly recognized manual/one-time charges as the event path.
     if ($reclassifyOnly) {
         $pdo_mp = getDB();
         try {
@@ -1229,7 +1485,7 @@ if ($method === 'POST' && $action === 'post') {
     // the discipline dashboard so we can prove zero fallback fires before
     // hard-erroring this path.
     require_once __DIR__ . '/../../../core/module_emission_discipline.php';
-    moduleEmissionDisciplineLog('billing', 'billing.invoice.sent', [
+    moduleEmissionDisciplineLog('billing', 'ar.invoice.issued', [
         'invoice_id'   => (int) $id,
         'event_error'  => $eventError,
         'event_status' => $eventResult['status'] ?? null,

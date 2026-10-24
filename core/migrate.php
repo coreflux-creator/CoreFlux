@@ -37,6 +37,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/migration_hash.php';
+require_once __DIR__ . '/migration_policy.php';
 
 const COREFLUX_MIGRATIONS_DIR = __DIR__ . '/migrations';
 
@@ -143,6 +145,9 @@ function coreflux_split_sql_statements(string $sql): array {
 }
 
 function coreflux_run_migrations(bool $force = false): array {
+    if (!corefluxMayApplySchemaChanges((string) getenv('COREFLUX_ENV'), PHP_SAPI)) {
+        throw new RuntimeException('CoreAccounting schema changes require the guarded CLI release path.');
+    }
     global $coreflux_migration_status;
     static $ranOnce        = false;
     static $lastFileSetSig = null;
@@ -230,7 +235,7 @@ function coreflux_run_migrations(bool $force = false): array {
             : basename($path);
         $sql  = (string) file_get_contents($path);
         if ($sql === '') continue;
-        $hash = hash('sha256', $sql);
+        $hash = corefluxMigrationHash($sql);
 
         $stmtFind->execute(['f' => $name]);
         $prev = $stmtFind->fetchColumn();
@@ -242,7 +247,7 @@ function coreflux_run_migrations(bool $force = false): array {
         // producing dozens or hundreds of "column already exists"
         // errors (observed in production 2026-02 as "Applied with 450
         // error(s)" after a manual /api/admin/migrate.php call).
-        if ($prev === $hash) {
+        if (corefluxMigrationHashMatches($prev === false ? null : (string) $prev, $sql)) {
             $coreflux_migration_status['skipped_files'][] = $name;
             continue;
         }

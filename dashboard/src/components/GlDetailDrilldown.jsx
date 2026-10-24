@@ -16,7 +16,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { fmtMoney } from '../lib/format';
-import { X, ExternalLink } from 'lucide-react';
+import { X, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import AccountLink from './AccountLink';
 
 export default function GlDetailDrilldown({
@@ -32,11 +32,15 @@ export default function GlDetailDrilldown({
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+
+  useEffect(() => { setPage(1); }, [accountId, accountCode, start, end, entityId]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null);
-    const qs = new URLSearchParams({ start, end });
+    const qs = new URLSearchParams({ start, end, page: String(page), per_page: String(perPage) });
     if (accountId)   qs.set('account_id',   String(accountId));
     if (accountCode) qs.set('account_code', accountCode);
     if (entityId)    qs.set('entity_id',    String(entityId));
@@ -45,8 +49,10 @@ export default function GlDetailDrilldown({
       .catch(e => { if (!cancelled) setError(e.message || 'Failed to load GL detail'); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
-    // Fire-and-forget drill-through audit log. Failures are intentionally
-    // silenced — drill logging must never block the drill itself.
+    return () => { cancelled = true; };
+  }, [accountId, accountCode, start, end, entityId, page, perPage]);
+
+  useEffect(() => {
     if (reportKey) {
       api.post('/api/admin/reports/log_drilldown.php', {
         report_key:   reportKey,
@@ -56,7 +62,6 @@ export default function GlDetailDrilldown({
         label,
       }).catch(() => {});
     }
-    return () => { cancelled = true; };
   }, [accountId, accountCode, start, end, entityId, reportKey, label]);
 
   return (
@@ -183,6 +188,29 @@ export default function GlDetailDrilldown({
                 </table>
               )}
             </div>
+            {data.pagination && <footer style={{ padding: '10px 14px', borderTop: '1px solid #e2e8f0',
+              display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: '#64748b' }}>
+                {data.pagination.total_rows
+                  ? `${(data.pagination.page - 1) * data.pagination.per_page + 1}–${Math.min(data.pagination.page * data.pagination.per_page, data.pagination.total_rows)}`
+                  : '0'} of {data.pagination.total_rows} lines
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>Rows
+                  <select className="input" value={perPage} aria-label="Drill-down rows per page"
+                    onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}>
+                    {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+                <button className="btn btn--ghost btn--sm" type="button" aria-label="Previous drill-down page"
+                  title="Previous page" disabled={loading || data.pagination.page <= 1}
+                  onClick={() => setPage(data.pagination.page - 1)}><ChevronLeft size={16} /></button>
+                <span style={{ fontSize: 12, minWidth: 66, textAlign: 'center' }}>Page {data.pagination.page} of {data.pagination.total_pages}</span>
+                <button className="btn btn--ghost btn--sm" type="button" aria-label="Next drill-down page"
+                  title="Next page" disabled={loading || data.pagination.page >= data.pagination.total_pages}
+                  onClick={() => setPage(data.pagination.page + 1)}><ChevronRight size={16} /></button>
+              </div>
+            </footer>}
           </>
         )}
       </div>

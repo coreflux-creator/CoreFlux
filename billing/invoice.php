@@ -6,6 +6,10 @@
  * Unauthenticated — the token in the URL is the credential. Print-friendly
  * HTML; customer can Cmd/Ctrl+P to save as PDF.
  */
+header('Cache-Control: private, no-store, max-age=0');
+header('Pragma: no-cache');
+header('X-Robots-Tag: noindex, nofollow');
+header('Referrer-Policy: no-referrer');
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/config.php';
 require_once __DIR__ . '/../modules/billing/lib/billing.php';
@@ -13,13 +17,6 @@ require_once __DIR__ . '/../modules/billing/lib/billing.php';
 $raw = (string) ($_GET['t'] ?? '');
 $tok = billingTokenFindByRaw($raw);
 $inv = $lines = $tenantRow = null;
-
-if ($tok) {
-    $now = date('Y-m-d H:i:s');
-    if ($tok['expires_at'] && $tok['expires_at'] < $now) {
-        $tok = null; // expired — present same "not found" page to avoid disclosure
-    }
-}
 
 if ($tok) {
     $pdo = getDB();
@@ -49,6 +46,7 @@ function bv_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
 function bv_money($n, $cur = 'USD'): string {
     return number_format((float) $n, 2) . ' ' . bv_esc($cur);
 }
+if (!$inv) http_response_code(404);
 ?>
 <!DOCTYPE html>
 <html lang="en">

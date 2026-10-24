@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
+require_once __DIR__ . '/placements.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
 {
@@ -103,15 +104,11 @@ function placementEconomicsEnsureVendor(
     if ($existing) {
         $pdo->prepare(
             'UPDATE ap_vendors_index
-                SET vendor_name = :name,
-                    company_id = COALESCE(:company_id, company_id),
-                    vendor_type = :vendor_type,
+                SET company_id = COALESCE(company_id, :company_id),
                     placement_id_last = COALESCE(:placement_id, placement_id_last)
               WHERE tenant_id = :t AND id = :id'
         )->execute([
-            'name' => $displayName,
             'company_id' => $companyId,
-            'vendor_type' => $vendorType,
             'placement_id' => $placementId,
             't' => $tenantId,
             'id' => (int) $existing['id'],
@@ -140,9 +137,10 @@ function placementEconomicsEnsureVendor(
 
     return [
         'id' => $vendorId,
-        'company_id' => $companyId,
-        'vendor_name' => $displayName,
-        'vendor_type' => $vendorType,
+        'company_id' => $existing ? ($existing['company_id'] ?: $companyId) : $companyId,
+        'vendor_name' => $existing ? (string) $existing['vendor_name'] : $displayName,
+        'vendor_type' => $existing ? (string) $existing['vendor_type'] : $vendorType,
+        'requires_1099' => $existing ? (int) $existing['requires_1099'] : ($vendorType === '1099_individual' ? 1 : 0),
         'default_terms' => $existing
             ? (string) ($existing['default_terms'] ?? 'NET30')
             : $normalTerms,
@@ -473,6 +471,7 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
 
 function placementEconomicsReconcile(int $tenantId, int $placementId, array $options = []): array
 {
+    $tenantId = (int) placementsGraphTenantId($tenantId);
     $summary = ['available' => true, 'placement_id' => $placementId, 'written' => 0, 'source_refs' => [], 'errors' => []];
     if ($tenantId <= 0 || $placementId <= 0) return $summary;
 
@@ -1053,6 +1052,7 @@ function placementEconomicsReceivableContract(
 
 function placementEconomicsContext(int $tenantId, int $placementId, bool $reconcile = true): array
 {
+    $tenantId = (int) placementsGraphTenantId($tenantId);
     $reconcileResult = $reconcile ? placementEconomicsReconcile($tenantId, $placementId) : ['available' => true];
     if (empty($reconcileResult['available'])) {
         return ['available' => false, 'parties' => [], 'cycles' => [], 'readiness' => [], 'reconcile' => $reconcileResult];

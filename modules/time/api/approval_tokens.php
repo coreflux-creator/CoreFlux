@@ -163,6 +163,8 @@ if ($method === 'POST' && $action === 'respond') {
                     }
                     $snapshots[(int) $entry['id']] = (int) $snap['id'];
                 }
+                require_once __DIR__.'/../../../core/quanta/time_current.php';
+                quantaTimeAssertCurrent($pdo, (int)$row['tenant_id'], array_keys($snapshots));
                 $approveStmt = $pdo->prepare(
                     "UPDATE time_entries
                      SET status = 'approved',

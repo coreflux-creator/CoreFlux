@@ -30,6 +30,7 @@ $assert = function (string $msg, bool $ok) use (&$pass, &$fail) {
     else     { echo "  ✗ {$msg}\n"; $fail++; }
 };
 $ROOT = realpath(__DIR__ . '/..');
+require_once $ROOT . '/core/integrations/source_values.php';
 $sync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 $lib  = (string) file_get_contents("{$ROOT}/core/integrations/field_map.php");
 
@@ -41,8 +42,9 @@ foreach (['bill_rate', 'bill_rate_unit', 'pay_rate', 'pay_rate_unit',
 }
 
 echo "\njobdivaSyncUpsertPlacementRates — declaration\n";
-$assert('declared with the canonical 4-arg signature',
-    strpos($sync, 'function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool') !== false);
+$assert('writer supports a preflight before placement mutation',
+    strpos($sync, 'bool $validateOnly = false): bool') !== false
+    && strpos($sync, "jobdivaSyncUpsertPlacementRates(\$tid, 0, '', \$jd, true);") !== false);
 $assert('called from the INSERT branch (newly-created placement gets rates)',
     preg_match('/\$placementId = \(int\) \$pdo->lastInsertId\(\);\s*jobdivaSyncUpsertPlacementRates\(\$tid, \$placementId, \$startDate, \$jd\);/', $sync) === 1);
 $assert('called from the UPDATE branch (re-sync refreshes or drafts rates)',
@@ -92,9 +94,11 @@ $assert('cleanup targets old auto-generated bill=pay drafts only',
     && strpos($sync, 'created_by_user_id IS NULL') !== false
     && strpos($sync, 'ABS(pay_rate - bill_rate) < 0.0001') !== false);
 $assert('unit coercion accepts "h" / "USD/Hour" / "Hourly" → hour',
-    strpos($sync, "if (\$s === '' || \$s === 'h' || str_contains(\$s, 'hour')) return 'hour';") !== false);
-$assert('currency is forced to CHAR(3) by extracting ISO-3 substring',
-    strpos($sync, "preg_match('/\\b([A-Z]{3})\\b/'") !== false);
+    integrationSourceRateUnit('h') === 'hour' && integrationSourceRateUnit('USD/Hour') === 'hour'
+    && integrationSourceRateUnit('Hourly') === 'hour' && integrationSourceRateUnit('') === null);
+$assert('currency requires an explicit recognized code',
+    integrationSourceCurrency('USD/Hour') === 'USD' && integrationSourceCurrency('per hour') === null
+    && integrationSourceCurrency('$60/hour') === null && integrationSourceCurrency('US Dollars') === null);
 
 echo "\njobdivaSyncUpsertPlacementRates — UPSERT semantics\n";
 $assert('locates the CURRENT rate row via effective_to IS NULL',

@@ -94,7 +94,7 @@ echo "\n6. End-to-end traceability proof — release path still in place\n";
 $billingLib = (string) file_get_contents("{$ROOT}/modules/billing/lib/billing.php");
 $invoicesApi = (string) file_get_contents("{$ROOT}/modules/billing/api/invoices.php");
 $a('AR cash receipt path (billing.php) still calls apPwpReleaseForArInvoice',
-    str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $a[\'invoice_id\']'));
+    str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $allocation[\'invoice_id\']'));
 $a('AR invoice issuance still calls apPwpAutoLinkForArInvoice',
     str_contains($invoicesApi, 'apPwpAutoLinkForArInvoice($tid, (int) $c[\'id\']'));
 

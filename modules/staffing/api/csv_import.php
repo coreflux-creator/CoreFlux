@@ -24,9 +24,9 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('staffing_clients', [
     'fields' => [
-        // client_id (companies.id) wins over fuzzy name match for
+        // client_id (staffing_clients.id) wins over fuzzy name match for
         // update-existing rows.
-        'client_id'             => ['label' => 'Client ID',             'type' => 'integer'],
+        'client_id'             => ['label' => 'Client ID',             'type' => 'integer', 'reference_type' => 'client', 'aliases' => ['client_number', 'Client Number']],
         'name'                  => ['label' => 'Client name',           'required' => true],
         // external_id + source_system: stable per-row id from the
         // source-of-truth ATS/CRM (JobDiva client id, Bullhorn id,

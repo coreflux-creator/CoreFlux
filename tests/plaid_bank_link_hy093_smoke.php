@@ -13,8 +13,8 @@
  *   `AND (bank_name = :bk          OR :bk   = "")`
  *   `AND (tla.institution_name = :inst OR :inst = "")`
  *
- * Both reformulated to branch the SQL based on whether the institution
- * label is empty so each placeholder is bound exactly once.
+ * Adoption now requires an institution label and binds each placeholder
+ * once. Ambiguous same-bank/last4 candidates are not auto-adopted.
  *
  *   php -d zend.assertions=1 /app/tests/plaid_bank_link_hy093_smoke.php
  */
@@ -40,15 +40,19 @@ $a('api/plaid_bank_link.php — php -l clean',                $rc === 0);
 $a('no `OR :bk = ""`   duplicated placeholder',             strpos($src, 'OR :bk = ""')   === false);
 $a('no `OR :inst = ""` duplicated placeholder',             strpos($src, 'OR :inst = ""') === false);
 
-// ----------------------------------------------------------------- positive: branched SQL pattern
-$a('depository branch builds SQL conditionally on institution',
-    strpos($src, "(\$hasInst ? ' AND bank_name = :bk' : '')") !== false);
-$a('liability branch builds SQL conditionally on institution',
-    strpos($src, "(\$hasInst ? ' AND tla.institution_name = :inst' : '')") !== false);
+// ----------------------------------------------------------------- positive: unambiguous account identity
+$a('depository adoption requires known institution',
+    strpos($src, "if (\$mask && \$instLabel !== '')") !== false
+    && strpos($src, 'AND bank_name = :bk') !== false);
+$a('liability adoption requires known institution',
+    strpos($src, "if (\$mask && \$instLabelRaw !== '')") !== false
+    && strpos($src, 'AND tla.institution_name = :inst') !== false);
 $a('depository execute uses dynamic $params array',
-    (bool) preg_match('/\$stmt->execute\(\$params\);\s*\n\s*\$adoptId/', $src));
+    (bool) preg_match('/\$stmt->execute\(\$params\);\s*\n\s*\$candidates\s*=\s*\$stmt->fetchAll\(PDO::FETCH_COLUMN\)/', $src));
 $a('liability execute uses dynamic $params array',
-    (bool) preg_match('/\$stmt->execute\(\$params\);\s*\n\s*\$adopt\s*=/', $src));
+    (bool) preg_match('/\$stmt->execute\(\$params\);\s*\n\s*\$candidates\s*=\s*\$stmt->fetchAll\(PDO::FETCH_ASSOC\)/', $src));
+$a('both adoption paths require a single candidate',
+    substr_count($src, 'count($candidates) === 1') === 2);
 $a('comments reference HY093 + EMULATE_PREPARES so the fix is self-documenting',
     strpos($src, 'HY093')             !== false
     && strpos($src, 'EMULATE_PREPARES') !== false);

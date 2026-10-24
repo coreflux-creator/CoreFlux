@@ -5,6 +5,7 @@ $root = dirname(__DIR__);
 $ui = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntries.jsx');
 $detail = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntryDetail.jsx');
 $editor = (string) file_get_contents($root . '/modules/accounting/ui/JournalEntryCreate.jsx');
+$journalDimensions = (string) file_get_contents($root . '/modules/accounting/ui/journalDimensions.js');
 $api = (string) file_get_contents($root . '/modules/accounting/api/journal_entries.php');
 $module = (string) file_get_contents($root . '/modules/accounting/ui/AccountingModule.jsx');
 $sidebar = (string) file_get_contents($root . '/dashboard/src/layout/Sidebar.jsx');
@@ -16,12 +17,14 @@ $import = (string) file_get_contents($root . '/modules/accounting/api/import.php
 $intercompanyDialog = (string) file_get_contents($root . '/dashboard/src/components/IntercompanySplitDialog.jsx');
 $deployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
 $deploy = is_file($deployPath) ? (string) file_get_contents($deployPath) : null;
+$voidAuditMigration = (string) file_get_contents($root . '/modules/accounting/migrations/042_journal_void_audit.sql');
+$schemaContract = (string) file_get_contents($root . '/core/accounting/schema_contract.php');
 
 $checks = [
     'journal navigation uses bookmarkable canonical routes' =>
         str_contains($module, "{ to: 'journal-entries', label: 'Entries'")
-        && str_contains($ui, 'navigate(`/modules/accounting/journal-entries/${id}`)')
-        && str_contains($module, 'to="/modules/accounting/journal-entries/new"'),
+        && str_contains($ui, 'navigate(scope.withScope(`/modules/accounting/journal-entries/${id}`))')
+        && str_contains($module, "scopedAccountingPath('/modules/accounting/journal-entries/new', location.search)"),
     'legacy journal route redirects to the canonical list' =>
         str_contains($module, '<Route path="journal"  element={<Navigate to="../journal-entries" replace />} />'),
     'journal list exposes account date and status filters' =>
@@ -54,7 +57,8 @@ $checks = [
         str_contains($editor, 'data-testid="accounting-je-entity"')
         && str_contains($editor, 'data-testid={`accounting-je-line-dimensions-${i}`}')
         && str_contains($editor, 'data-testid={`accounting-je-line-${i}-dimension-${dimension.dim_key}`}')
-        && str_contains($editor, "dimension.dim_key !== 'legal_entity'"),
+        && str_contains($editor, 'visibleJournalDimensions(d?.dimensions || [], session?.product_mode)')
+        && str_contains($journalDimensions, "dimension.dim_key !== 'legal_entity'"),
     'assignment choice inherits canonical dimensions and revalidates at submit' =>
         str_contains($editor, '<PlacementPicker')
         && str_contains($editor, 'applyAssignmentDimensions')
@@ -73,8 +77,10 @@ $checks = [
         && str_contains($import, "'dims' => \$dims"),
     'journal CSV derives assignment dimensions during preview and commit' =>
         str_contains($import, 'function accountingPrepareJeImport')
+        && str_contains($import, 'function accountingReviewJeImport')
         && str_contains($import, 'staffingAssignmentDimensionContext(')
-        && substr_count($import, 'accountingPrepareJeImport($tid,') >= 2
+        && str_contains($import, 'accountingPrepareJeImport($tenantId, $dry)')
+        && substr_count($import, 'accountingReviewJeImport($tid,') >= 2
         && str_contains($import, '$dims = array_replace($dims, $inheritedDimensions'),
     'legal entity is stamped through post edit validation and draft promotion' =>
         str_contains($accounting, 'function accountingStampLegalEntityDimension')
@@ -84,6 +90,22 @@ $checks = [
         str_contains($api, "'accounting.je.edit_draft'")
         && str_contains($api, "'accounting.je.void'")
         && str_contains($api, "'accounting.je.post'"),
+    'generic journal mutations reject source-owned entries' =>
+        str_contains($api, "function accountingRequireManualJournalAction(int \$jeId)")
+        && substr_count($api, 'accountingRequireManualJournalAction($id);') === 6
+        && str_contains($api, "\$entry['source_module'] ?? '') !== 'manual'"),
+    'journal actions appear only for manual entries' =>
+        str_contains($detail, "const canCorrect = isManual && (isPosted || isReversed)")
+        && str_contains($ui, "r.source_module === 'manual' && ['posted', 'reversed'].includes(r.status)")
+        && str_contains($ui, "entry?.source_module === 'manual'"),
+    'journal detail does not duplicate the saved JE number prefix' =>
+        str_contains($detail, '<h2>{entry.je_number} <StatusPill status={entry.status} /></h2>'),
+    'source-owned journals link back to invoices and bank receipts' =>
+        str_contains($api, "'type' => 'billing_invoice'")
+        && str_contains($api, "'type' => 'bank_statement_line'")
+        && str_contains($detail, 'entry.source_document?.type')
+        && str_contains($detail, '?match_status=matched')
+        && str_contains($detail, 'data-testid="accounting-je-source-link"'),
     'manual draft actions cannot bypass AI approval workflows' =>
         str_contains($accounting, 'function accountingDraftRequiresApproval')
         && str_contains($accounting, 'accountingAssertManualDraftLifecycle($existing)')
@@ -99,12 +121,24 @@ $checks = [
         && str_contains($api, "\$action === 'replace'")
         && str_contains($api, "\$action === 'delete'"),
     'journal list exposes direct correction and deletion actions' =>
-        str_contains($ui, 'onCorrect={(id) => navigate(`/modules/accounting/journal-entries/new?replace_id=${id}`)}')
+        str_contains($ui, 'onCorrect={(id) => navigate(scope.withScope(`/modules/accounting/journal-entries/new?replace_id=${id}`))}')
         && str_contains($ui, 'aria-label={`Delete ${r.je_number}`}')
         && str_contains($ui, 'data-testid="accounting-journal-delete-panel"'),
     'deletion is auditable and concurrent mutation is guarded' =>
         str_contains($manifest, "'accounting.je.deleted'")
         && str_contains($accounting, 'if ($delete->rowCount() < 1)'),
+    'deletion reason actor and time persist with the journal transaction' =>
+        str_contains($voidAuditMigration, 'ADD COLUMN void_reason')
+        && str_contains($voidAuditMigration, 'ADD COLUMN voided_at')
+        && str_contains($voidAuditMigration, 'ADD COLUMN voided_by_user_id')
+        && str_contains($accounting, "void_reason = NULLIF(?, ''), voided_at = UTC_TIMESTAMP()")
+        && str_contains($accounting, 'array_merge([$reason, $actorUserId, $tenantId], $deletedIds)')
+        && str_contains($schemaContract, "'void_reason', 'voided_at'")
+        && str_contains($api, "if (\$je['status'] === 'void' && !empty(\$je['voided_by_user_id']))")
+        && str_contains($detail, 'data-testid="accounting-je-deletion-audit"')
+        && str_contains($detail, 'Reason: {entry.void_reason}')
+        && str_contains($detail, 'maxLength={1000}')
+        && str_contains($accounting, 'Deletion reason must be 1000 characters or fewer.'),
     'deleting an entry releases bank lines and source pointers' =>
         str_contains($accounting, "SET match_status = 'unmatched', matched_je_id = NULL")
         && str_contains($accounting, 'function accountingRelinkJournalReferences')
@@ -113,6 +147,8 @@ $checks = [
         str_contains($accounting, 'function accountingReplaceJe')
         && str_contains($accounting, "\$replacement['source_ref_type'] = 'replaces_je'")
         && str_contains($accounting, 'accounting:correction:{$tenantId}:{$jeId}')
+        && str_contains($accounting, 'Correction reason must be 1000 characters or fewer.')
+        && str_contains($editor, 'maxLength={1000}')
         && str_contains($accounting, 'accountingDeleteJe($tenantId, $jeId, $reason, $actorUserId, (int) $posted'),
     'unposted work queues contain drafts rather than reversals or deleted entries' =>
         str_contains($standardReports, "status = 'draft'")
@@ -121,8 +157,8 @@ $checks = [
         str_contains($module, "{ to: 'journal-entries', label: 'Entries'")
         && str_contains($module, "{ to: 'transactions-to-review', label: 'Bank feed'")
         && str_contains($module, "{ to: 'close', label: 'Month-end'")
-        && str_contains($module, '<Navigate to="journal-entries" replace />')
-        && str_contains($sidebar, "to: '/modules/accounting/journal-entries'")
+        && str_contains($module, '<Navigate to="overview" replace />')
+        && str_contains($sidebar, "key: 'accounting', label: 'Accounting', to: '/modules/accounting/overview'")
         && str_contains($module, 'Tools <ChevronDown'),
 ];
 

@@ -28,12 +28,21 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'treasury.view_bank_balances');
     $where = ['tenant_id = :t'];
     $p = ['t' => $tid];
-    foreach (['status' => 'status', 'entity_id' => 'entity_id', 'bank_account_id' => 'bank_account_id'] as $q => $col) {
+    foreach (['entity_id' => 'entity_id', 'bank_account_id' => 'bank_account_id', 'id' => 'id'] as $q => $col) {
         $v = api_query($q);
         if ($v !== null && $v !== '') {
             $where[] = "{$col} = :{$q}";
-            $p[$q] = $q === 'status' ? (string) $v : (int) $v;
+            $p[$q] = (int) $v;
         }
+    }
+    $statusFilter = (string) (api_query('status') ?? '');
+    if ($statusFilter === 'open') {
+        $where[] = "status IN ('draft', 'pending_approval', 'approved', 'scheduled', 'failed')";
+    } elseif ($statusFilter === 'pending') {
+        $where[] = "status IN ('draft', 'pending_approval', 'approved', 'scheduled')";
+    } elseif ($statusFilter !== '') {
+        $where[] = 'status = :status';
+        $p['status'] = $statusFilter;
     }
     $from = api_query('from');
     if ($from !== null && $from !== '') {
@@ -49,6 +58,9 @@ if ($method === 'GET') {
     $offset = max(0, (int) (api_query('offset') ?? 0));
 
     $pdo = getDB();
+    $countStmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_payments WHERE ' . implode(' AND ', $where));
+    $countStmt->execute($p);
+    $total = (int) $countStmt->fetchColumn();
     $stmt = $pdo->prepare(
         'SELECT id, payment_number, entity_id, payee_type, payee_id, payee_name,
                 amount, currency, payment_date, payment_method, bank_account_id,
@@ -60,7 +72,10 @@ if ($method === 'GET') {
           LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($p);
-    api_ok(['rows' => $stmt->fetchAll(\PDO::FETCH_ASSOC), 'limit' => $limit, 'offset' => $offset]);
+    api_ok(['entity_id' => (int) (api_query('entity_id') ?? 0) ?: null,
+        'record_id' => (int) (api_query('id') ?? 0) ?: null,
+        'status_filter' => $statusFilter, 'total' => $total,
+        'rows' => $stmt->fetchAll(\PDO::FETCH_ASSOC), 'limit' => $limit, 'offset' => $offset]);
 }
 
 if ($method === 'POST' && $action === '') {

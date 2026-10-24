@@ -61,7 +61,7 @@ $a("scopedInsert writes external_id + source_system",
 // ----------------------------------------------------------------- Billing payments
 echo "\nmodules/billing/api/payments_csv_import.php\n";
 $bP = (string) file_get_contents($ROOT . '/modules/billing/api/payments_csv_import.php');
-$a("registers external_id field",                 $c($bP, "'external_id'  => ['label' => 'External ID"));
+$a("registers external_id field",                 preg_match("/'external_id'\\s*=>\\s*\\[\\s*'label'\\s*=>\\s*'External ID/", $bP) === 1);
 $a("registers source_system enum field",          $c($bP, "'source_system'=> ['label' => 'Source system',"));
 $a("upsert prefers (src,ext) match",              $c($bP, 'AND source_system = :s AND external_id = :e'));
 $a("scopedUpdate path on match",                  $c($bP, "scopedUpdate('billing_payments'"));

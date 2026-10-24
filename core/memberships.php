@@ -69,6 +69,22 @@ function membershipReadSourceSql(): string {
     )";
 }
 
+/** Active legacy role labels for a workspace, keyed by user id. */
+function membershipRoleLabelsForTenant(int $tenantId, ?\PDO $pdo = null): array {
+    if ($tenantId <= 0) return [];
+    $pdo ??= getDB();
+    if (!$pdo) return [];
+    $stmt = $pdo->prepare(
+        "SELECT user_id, role FROM user_tenants WHERE tenant_id = :tenant_id AND status = 'active'"
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $roles = [];
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $roles[(int) $row['user_id']] = (string) $row['role'];
+    }
+    return $roles;
+}
+
 /**
  * Convenience: count distinct active tenants a user is a member of, across
  * both tables. Used by the master-admin user list to show a "tenants"
@@ -156,6 +172,88 @@ function _membershipPersonaTypeForRole(?string $role): string {
     if ($r === 'owner')                 return 'tenant_admin';
     if ($r === 'consultant')            return 'contractor';
     return 'custom';
+}
+
+/** Change one active workspace role without replacing its linked person or persona metadata. */
+function membershipChangeWorkspaceRole(
+    int $userId,
+    int $tenantId,
+    string $role,
+    int $actorId,
+    ?\PDO $pdo = null
+): bool {
+    $pdo ??= getDB();
+    if (!$pdo || $userId <= 0 || $tenantId <= 0) {
+        throw new \InvalidArgumentException('A user and workspace are required');
+    }
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+        $lock = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $memberships = $pdo->prepare(
+            "SELECT id, persona_type FROM tenant_memberships
+              WHERE user_id = :u AND tenant_id = :t AND status = 'active'" . $lock
+        );
+        $memberships->execute(['u' => $userId, 't' => $tenantId]);
+        $rows = $memberships->fetchAll(\PDO::FETCH_ASSOC);
+        if (count($rows) !== 1) {
+            throw new \DomainException('This user has no single active workspace role. Edit their memberships instead.');
+        }
+        $legacy = $pdo->prepare(
+            "SELECT role FROM user_tenants
+              WHERE user_id = :u AND tenant_id = :t AND status = 'active'" . $lock
+        );
+        $legacy->execute(['u' => $userId, 't' => $tenantId]);
+        $legacyRole = $legacy->fetchColumn();
+        if ($legacyRole === false) {
+            throw new \DomainException('Workspace membership is incomplete. Repair it before editing the role.');
+        }
+
+        $personaType = _membershipPersonaTypeForRole($role);
+        $changed = $rows[0]['persona_type'] !== $personaType || $legacyRole !== $role;
+        if ($changed) {
+            $pdo->prepare(
+                'UPDATE tenant_memberships SET persona_type = :role, updated_at = CURRENT_TIMESTAMP
+                  WHERE id = :id AND tenant_id = :tenant_id'
+            )->execute(['role' => $personaType, 'id' => (int) $rows[0]['id'], 'tenant_id' => $tenantId]);
+            $pdo->prepare(
+                'UPDATE user_tenants SET role = :role, updated_at = CURRENT_TIMESTAMP
+                  WHERE user_id = :u AND tenant_id = :t'
+            )->execute(['role' => $role, 'u' => $userId, 't' => $tenantId]);
+
+            $level = match ($role) {
+                'master_admin', 'tenant_admin', 'admin' => 'admin',
+                'manager' => 'write',
+                default => 'read',
+            };
+            $syntheticRead = $level === 'admin' ? 'admin' : ($level === 'write' ? 'read' : 'none');
+            $levels = array_fill_keys(
+                ['people','placements','time','billing','ap','accounting','payroll','treasury','reports'],
+                $level
+            );
+            $levels['integrations'] = $syntheticRead;
+            $levels['ai'] = $level === 'admin' ? 'admin' : 'none';
+            $levels['staffing'] = 'read';
+
+            $membershipId = (int) $rows[0]['id'];
+            $pdo->prepare('DELETE FROM membership_module_access WHERE membership_id = :m')
+                ->execute(['m' => $membershipId]);
+            $insert = $pdo->prepare(
+                'INSERT INTO membership_module_access
+                    (membership_id, module_key, access_level, granted_by_user_id)
+                 VALUES (:m, :k, :l, :actor)'
+            );
+            foreach ($levels as $module => $access) {
+                $insert->execute(['m' => $membershipId, 'k' => $module, 'l' => $access, 'actor' => $actorId]);
+            }
+        }
+
+        if ($ownsTransaction) $pdo->commit();
+        return $changed;
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
 }
 
 /**

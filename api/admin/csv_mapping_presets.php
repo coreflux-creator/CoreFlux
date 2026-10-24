@@ -4,10 +4,10 @@
  * tenant imports (monthly ADP payroll, weekly Bullhorn placement dump,
  * QuickBooks vendor refresh) into one-click reruns.
  *
- *   GET    /api/admin/csv_mapping_presets?entity=people[&signature=…]  list
- *   POST   /api/admin/csv_mapping_presets                              create
- *   POST   /api/admin/csv_mapping_presets?action=use&id=…              bump used_count
- *   DELETE /api/admin/csv_mapping_presets?id=…                         remove
+ *   GET    /api/admin/csv_mapping_presets.php?entity=people[&signature=…]  list
+ *   POST   /api/admin/csv_mapping_presets.php                              create
+ *   POST   /api/admin/csv_mapping_presets.php?action=use&id=…              bump used_count
+ *   DELETE /api/admin/csv_mapping_presets.php?id=…                         remove
  *
  * Recognition is by `header_signature` = sha256(comma-joined, lowercased,
  * sorted headers). Stable across header reordering and case changes —
@@ -15,6 +15,7 @@
  */
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
+require_once __DIR__ . '/../../core/accounting/csv_import_scope.php';
 
 const CSV_PRESET_ENTITIES = [
     'people', 'ap_vendors', 'staffing_clients', 'placements', 'time',
@@ -42,8 +43,20 @@ if ($method === 'GET') {
     if ($entity !== '' && !in_array($entity, CSV_PRESET_ENTITIES, true)) {
         api_error('Unknown entity: ' . $entity, 400);
     }
+    if ($entity !== '' && !coreAccountingCsvEntityAllowed($entity)) {
+        api_error('Import type is unavailable in CoreAccounting', 422);
+    }
     $where = ['tenant_id = :tenant_id'];
     $params = [];
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        foreach (coreAccountingCsvEntities() as $index => $allowedEntity) {
+            $params['finance_entity_' . $index] = $allowedEntity;
+        }
+        $where[] = 'entity IN (' . implode(',', array_map(
+            static fn(int $index): string => ':finance_entity_' . $index,
+            array_keys(coreAccountingCsvEntities())
+        )) . ')';
+    }
     if ($entity)    { $where[] = 'entity = :e';            $params['e']   = $entity; }
     if ($signature) { $where[] = 'header_signature = :sig'; $params['sig'] = $signature; }
 
@@ -67,8 +80,9 @@ if ($method === 'GET') {
 if ($method === 'POST' && $action === 'use') {
     $id = (int) ($_GET['id'] ?? 0);
     if (!$id) api_error('id required', 400);
-    $preset = scopedFind('SELECT id FROM csv_mapping_presets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $preset = scopedFind('SELECT id, entity FROM csv_mapping_presets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$preset) api_error('Preset not found', 404);
+    if (!coreAccountingCsvEntityAllowed((string) $preset['entity'])) api_error('Preset not found', 404);
     getDB()->prepare(
         'UPDATE csv_mapping_presets
             SET used_count = used_count + 1,
@@ -87,6 +101,7 @@ if ($method === 'POST') {
     $hdrs   = $body['source_headers'] ?? null;
 
     if (!in_array($entity, CSV_PRESET_ENTITIES, true)) api_error('Unknown entity: ' . $entity, 400);
+    if (!coreAccountingCsvEntityAllowed($entity)) api_error('Import type is unavailable in CoreAccounting', 422);
     if ($name === '')                                  api_error('name is required', 400);
     if (!is_array($map))                               api_error('column_map must be an object', 400);
     if (!is_array($hdrs) || !$hdrs)                    api_error('source_headers must be a non-empty array', 400);
@@ -123,8 +138,9 @@ if ($method === 'POST') {
 if ($method === 'DELETE') {
     $id = (int) ($_GET['id'] ?? 0);
     if (!$id) api_error('id required', 400);
-    $existing = scopedFind('SELECT id FROM csv_mapping_presets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $existing = scopedFind('SELECT id, entity FROM csv_mapping_presets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$existing) api_error('Preset not found', 404);
+    if (!coreAccountingCsvEntityAllowed((string) $existing['entity'])) api_error('Preset not found', 404);
     getDB()->prepare('DELETE FROM csv_mapping_presets WHERE id = :id AND tenant_id = :t')
         ->execute(['id' => $id, 't' => $tid]);
     api_ok(['deleted' => true]);

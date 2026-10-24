@@ -78,9 +78,10 @@ function accountingBundleAssignmentRecognitionState(int $tenantId, array $bundle
         $params[$key] = $entryId;
     }
 
+    $engagementExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(te.dimension_snapshot_json, '$.engagement_type')), placement.engagement_type)";
     $stmt = getDB()->prepare(
-        "SELECT COUNT(DISTINCT te.timesheet_id) AS expected_count,
-                COUNT(DISTINCT CASE WHEN event.id IS NOT NULL THEN te.timesheet_id END) AS posted_count
+        "SELECT COUNT(DISTINCT te.id) AS expected_count,
+                COUNT(DISTINCT CASE WHEN event.id IS NOT NULL THEN te.id END) AS posted_count
            FROM time_entries te
            JOIN placements placement
              ON placement.tenant_id = :placements_tenant_id
@@ -90,8 +91,10 @@ function accountingBundleAssignmentRecognitionState(int $tenantId, array $bundle
             AND event.event_type = 'staffing.worker_hours.approved'
             AND event.status = 'posted'
             AND event.source_record_id IN (
-                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', placement.engagement_type),
-                CONCAT(te.timesheet_id, ':', placement.engagement_type)
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr}),
+                CONCAT(te.timesheet_id, ':', {$engagementExpr}),
+                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr},
+                    ':segment:', LEFT(te.dimension_snapshot_hash, 24))
             )
           WHERE te.tenant_id = :time_tenant_id
             AND te.placement_id = :placement_id
@@ -125,7 +128,7 @@ function accountingEnsureAccrualAccounts(int $tenantId, array $settings): void {
     ];
     foreach ($rows as [$code, $name, $type]) {
         $exists = $pdo->prepare(
-            'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND account_code = :c LIMIT 1'
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1'
         );
         $exists->execute(['t' => $tenantId, 'c' => $code]);
         if ($exists->fetch()) continue;
@@ -133,10 +136,11 @@ function accountingEnsureAccrualAccounts(int $tenantId, array $settings): void {
         // — these are pure GL accruals, not customer/vendor scoped.
         try {
             $ins = $pdo->prepare(
-                'INSERT INTO accounting_accounts (tenant_id, account_code, account_name, account_type, is_active, created_at, updated_at)
-                 VALUES (:t, :c, :n, :ty, 1, NOW(), NOW())'
+                'INSERT INTO accounting_accounts (tenant_id, code, name, account_type, normal_side, active, created_at, updated_at)
+                 VALUES (:t, :c, :n, :ty, :side, 1, NOW(), NOW())'
             );
-            $ins->execute(['t' => $tenantId, 'c' => $code, 'n' => $name, 'ty' => $type]);
+            $ins->execute(['t' => $tenantId, 'c' => $code, 'n' => $name, 'ty' => $type,
+                'side' => $type === 'asset' ? 'debit' : 'credit']);
         } catch (\Throwable $e) {
             // Race or schema drift — leave the loud-fail to the JE
             // post itself, which will report "account code X not

@@ -12,8 +12,9 @@
  *     plus their handlers.
  *   - /api/ai/exceptions.php — list / detail / resolve / dismiss / assign.
  *   - dashboard AccountingExceptionQueue.jsx mounted at /admin/ai/exceptions.
- *   - dashboard TransactionRecommendationCard.jsx wired into
- *     TransactionsToReview.jsx with vendor-alias enrichment.
+ *   - dashboard TransactionRecommendationCard.jsx remains a reusable card.
+ *   - The current TransactionsToReview.jsx uses the bank AI API as advisory
+ *     input and requires an explicit accounting decision.
  */
 declare(strict_types=1);
 
@@ -23,12 +24,13 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     else       { echo "  ✗ $msg\n"; $fail++; }
 };
 $c = function (string $hay, string $needle): bool { return strpos($hay, $needle) !== false; };
+$root = dirname(__DIR__);
 
 // ──────────────────────────────────────────────────────────────────────
 // 1) Migration 106 — vendor_aliases table.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Migration 106 ──\n";
-$mig = (string) file_get_contents('/app/core/migrations/106_vendor_aliases.sql');
+$mig = (string) file_get_contents($root . '/core/migrations/106_vendor_aliases.sql');
 $a('migration file exists',                                      $mig !== '');
 $a('CREATE TABLE IF NOT EXISTS vendor_aliases',                  $c($mig, 'CREATE TABLE IF NOT EXISTS vendor_aliases'));
 $a('vendor_aliases keyed by tenant + normalized alias',          $c($mig, 'UNIQUE KEY uq_va_tenant_alias (tenant_id, alias_normalized)'));
@@ -44,7 +46,7 @@ $a('vendor_aliases links the AI run id that proposed it',        $c($mig, 'creat
 // 2) core/ai/vendor_aliases.php — library surface.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/ai/vendor_aliases.php ──\n";
-$lib = (string) file_get_contents('/app/core/ai/vendor_aliases.php');
+$lib = (string) file_get_contents($root . '/core/ai/vendor_aliases.php');
 $a('declares strict_types',                                      $c($lib, 'declare(strict_types=1)'));
 $a('function vendorAliasNormalize(string)',                      $c($lib, 'function vendorAliasNormalize(string $payee): string'));
 $a('function vendorAliasResolve(int, string)',                   $c($lib, 'function vendorAliasResolve(int $tenantId, string $payee): ?array'));
@@ -60,7 +62,7 @@ $a('record refuses to silently override pinned rows on ai_suggestion',
 $a('record validates source enum',                               $c($lib, "['ai_suggestion', 'manual', 'imported']"));
 
 // Pure-function probe: normalize collapses obvious variants.
-require_once '/app/core/ai/vendor_aliases.php';
+require_once $root . '/core/ai/vendor_aliases.php';
 $a('normalize: "ACME Co." == "acme  co"',                        vendorAliasNormalize('ACME Co.') === vendorAliasNormalize('acme  co'));
 $a('normalize: trailing comma stripped',                         vendorAliasNormalize('ACME Co,') === 'ACME CO');
 $a('normalize: empty input yields empty string',                 vendorAliasNormalize('   ') === '');
@@ -69,7 +71,7 @@ $a('normalize: empty input yields empty string',                 vendorAliasNorm
 // 3) Tool registry — 2 new tools wired + handlers present.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── tool_gateway.php registry ──\n";
-$gw = (string) file_get_contents('/app/core/ai/tool_gateway.php');
+$gw = (string) file_get_contents($root . '/core/ai/tool_gateway.php');
 $a('coreflux.resolve_vendor_alias registered',                   $c($gw, "'coreflux.resolve_vendor_alias'"));
 $a('coreflux.record_vendor_alias registered',                    $c($gw, "'coreflux.record_vendor_alias'"));
 $a('resolve_vendor_alias is read-tier risk_level',               $c($gw, "'risk_level'  => 'read'"));
@@ -91,7 +93,7 @@ $a('aiToolInferRiskLevel respects explicit risk_level on tool entry',
 // 4) /api/ai/exceptions.php — full reviewer surface.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── /api/ai/exceptions.php ──\n";
-$api = (string) file_get_contents('/app/api/ai/exceptions.php');
+$api = (string) file_get_contents($root . '/api/ai/exceptions.php');
 $a('endpoint declares strict_types',                             $c($api, 'declare(strict_types=1)'));
 $a('GET defaults to open status',                                $c($api, "(string) (\$_GET['status'] ?? 'open')"));
 $a('GET status whitelist enforced',                              $c($api, "['open','assigned','resolved','dismissed','all']"));
@@ -113,7 +115,7 @@ $a('detail decodes detail_json into structured payload',         $c($api, "json_
 // 5) AccountingExceptionQueue.jsx — UI surface + testids.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── AccountingExceptionQueue.jsx ──\n";
-$queue = (string) file_get_contents('/app/dashboard/src/pages/AccountingExceptionQueue.jsx');
+$queue = (string) file_get_contents($root . '/dashboard/src/pages/AccountingExceptionQueue.jsx');
 $a('file exists',                                                $queue !== '');
 $a('default export AccountingExceptionQueue',                    $c($queue, 'export default function AccountingExceptionQueue()'));
 $a('reads /api/ai/exceptions.php list',                          $c($queue, "/api/ai/exceptions.php?status="));
@@ -167,7 +169,7 @@ $a("template testid 'exception-status-\${status}' present",      $c($queue, 'exc
 // 6) TransactionRecommendationCard.jsx — drop-in card surface.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TransactionRecommendationCard.jsx ──\n";
-$card = (string) file_get_contents('/app/dashboard/src/components/TransactionRecommendationCard.jsx');
+$card = (string) file_get_contents($root . '/dashboard/src/components/TransactionRecommendationCard.jsx');
 $a('file exists',                                                $card !== '');
 $a('default export TransactionRecommendationCard',               $c($card, 'export default function TransactionRecommendationCard('));
 $a('accepts {recommendation, transactionId, onAccept, onEdit, onReject}',
@@ -202,25 +204,36 @@ foreach ([
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// 7) TransactionsToReview.jsx — wire-in of the recommendation card.
+// 7) TransactionsToReview.jsx — current advisory review contract.
 // ──────────────────────────────────────────────────────────────────────
-echo "\n── TransactionsToReview.jsx wire-in ──\n";
-$ttr = (string) file_get_contents('/app/dashboard/src/pages/TransactionsToReview.jsx');
-$a('imports TransactionRecommendationCard',                      $c($ttr, "import TransactionRecommendationCard from '../components/TransactionRecommendationCard'"));
-$a('tracks aliasByLine state',                                   $c($ttr, 'aliasByLine'));
-$a('fires resolve_vendor_alias in parallel after AI suggest',    $c($ttr, "tool: 'coreflux.resolve_vendor_alias'"));
-$a('passes normalized + canonical_vendor into the card',
-    $c($ttr, 'payee_normalized:') && $c($ttr, 'canonical_vendor:'));
-$a('card receives onAccept + onReject from existing handlers',
-    $c($ttr, 'onAccept={async () =>') && $c($ttr, 'onReject={async () =>'));
-$a('proposed_account block passes code + name + type',
-    $c($ttr, "proposed_account:") && $c($ttr, 'code: ai.account_code'));
+echo "\n── TransactionsToReview.jsx advisory review ──\n";
+$ttr = (string) file_get_contents($root . '/dashboard/src/pages/TransactionsToReview.jsx');
+$a('fetches a bank AI category suggestion without posting',
+    $c($ttr, 'bank_ai.php?action=suggest_categorize') && $c($ttr, 'setAiByLine'));
+$a('preselects only income or expense suggestions',
+    $c($ttr, 'DIRECT_CATEGORY_TYPES.has(suggestion.account_type)')
+    && $c($ttr, 'setPickByLine'));
+$a('keeps an explicit, editable account picker',
+    $c($ttr, 'transactions-to-review-coa-${r.id}')
+    && $c($ttr, 'onChange={e => setPickByLine'));
+$a('posts only through the guarded categorize-and-match endpoint',
+    $c($ttr, 'account_transactions.php?action=categorize_and_post')
+    && $c($ttr, 'counterpart_account_id: Number(account.id)')
+    && $c($ttr, 'ai_suggestion_id: suggestionId || null'));
+$a('requires an account before the post action is enabled',
+    $c($ttr, 'disabled={acceptBusy[r.id] || !aiPick}'));
+$a('routes invoice, bill, transfer, and split cases to bank reconciliation',
+    $c($ttr, 'transactions-to-review-open-bank-${r.id}')
+    && $c($ttr, 'Match or split'));
+$a('supports an explicit ignore action without posting',
+    $c($ttr, 'bank_statements.php?action=ignore&line_id=')
+    && $c($ttr, 'transactions-to-review-skip-${r.id}'));
 
 // ──────────────────────────────────────────────────────────────────────
 // 8) AdminModule routing — Exception Queue reachable from sidebar + tile.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── AdminModule.jsx routing ──\n";
-$adm = (string) file_get_contents('/app/dashboard/src/pages/AdminModule.jsx');
+$adm = (string) file_get_contents($root . '/dashboard/src/pages/AdminModule.jsx');
 $a('AdminModule imports AccountingExceptionQueue',               $c($adm, "import AccountingExceptionQueue from './AccountingExceptionQueue'"));
 $a('AdminModule routes /admin/ai/exceptions',                    $c($adm, 'path="/ai/exceptions"'));
 $a('Exception queue surfaced in sidebar nav',                    $c($adm, "to: '/admin/ai/exceptions'"));

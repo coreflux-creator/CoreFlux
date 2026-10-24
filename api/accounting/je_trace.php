@@ -20,14 +20,16 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../core/RBAC.php';
 require_once __DIR__ . '/../../core/event_lineage.php';
 require_once __DIR__ . '/../../core/ai_interpretation.php';
 require_once __DIR__ . '/../../core/evidence_attachments.php';
 
 $ctx      = api_require_auth();
-$tenantId = (int) (currentTenantId() ?? 0);
+$tenantId = (int) $ctx['tenant_id'];
 if (!$tenantId) api_error('No active tenant', 400);
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
+rbac_legacy_require($ctx['user'], 'accounting.je.create');
 
 $jeId = (int) api_query('je_id', 0);
 if (!$jeId) api_error('je_id required', 422);
@@ -38,28 +40,22 @@ $pdo = getDB();
 $jeStmt = $pdo->prepare(
     "SELECT id, je_number, posting_date, total_debit, total_credit, status,
             source_module, source_ref_id, memo
-       FROM journal_entries
+       FROM accounting_journal_entries
       WHERE tenant_id = :t AND id = :id LIMIT 1"
 );
 $jeStmt->execute(['t' => $tenantId, 'id' => $jeId]);
 $je = $jeStmt->fetch(PDO::FETCH_ASSOC);
 if (!$je) api_error('Journal entry not found', 404);
 
-// 2) Source event via subledger link. There may be more than one link if
-// multiple events posted into the same JE (rare); take the primary.
+// 2) Source event recorded by the canonical posting engine.
 $srcEvent = null;
-try {
-    $stmt = $pdo->prepare(
-        "SELECT ae.*
-           FROM accounting_subledger_links sl
-           JOIN accounting_events ae ON ae.id = sl.accounting_event_id AND ae.tenant_id = sl.tenant_id
-          WHERE sl.tenant_id = :t AND sl.journal_entry_id = :je
-          ORDER BY (sl.link_kind = 'primary') DESC, sl.id ASC
-          LIMIT 1"
-    );
-    $stmt->execute(['t' => $tenantId, 'je' => $jeId]);
-    $srcEvent = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-} catch (\Throwable $_) { /* link table optional */ }
+$stmt = $pdo->prepare(
+    'SELECT * FROM accounting_events
+      WHERE tenant_id = :t AND journal_entry_id = :je AND status = "posted"
+      ORDER BY id ASC LIMIT 1'
+);
+$stmt->execute(['t' => $tenantId, 'je' => $jeId]);
+$srcEvent = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
 // 3) Walk lineage up + down from the source event.
 $ancestors   = [];

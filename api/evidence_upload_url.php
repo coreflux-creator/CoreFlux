@@ -61,6 +61,18 @@ if (!in_array($subjectType, $ALLOWED_SUBJECTS, true)) {
 }
 if ($subjectId <= 0)  api_error('subject_id required', 422);
 if ($filename === '') api_error('filename required', 422);
+if ($subjectType === 'csv_import_run') {
+    $run = getDB()->prepare(
+        'SELECT id FROM csv_import_history
+          WHERE id = :id AND tenant_id = :tenant_id AND created_by_user_id = :user_id LIMIT 1'
+    );
+    $run->execute([
+        'id' => $subjectId,
+        'tenant_id' => $tenantId,
+        'user_id' => (int) ($ctx['user']['id'] ?? 0),
+    ]);
+    if (!$run->fetchColumn()) api_error('Import run not found for this user', 404);
+}
 
 // Map subject_type → storage module bucket prefix so files land in a
 // sensible namespace ({module}/{tenant}/{entity_type}/{id}/{file}).

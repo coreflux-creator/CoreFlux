@@ -1,0 +1,43 @@
+{
+  "code_commit": "58b9d732dbb172f2cf310ae9e8ba0c81cbb0bb3e",
+  "ci": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40045657064",
+    "jobs_passed": 9,
+    "run": "40045657064",
+    "conclusion": "success"
+  },
+  "staging": {
+    "private_backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/58b9d732dbb172f2cf310ae9e8ba0c81cbb0bb3e-20261024004009",
+    "migrations_applied": [],
+    "app_id": 6707602,
+    "conclusion": "success",
+    "pending_migrations": [],
+    "payroll_authority_enabled": false,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40045911533",
+    "synthetic_tenant": 999,
+    "database": "muzqvdvqbx",
+    "run": "40045911533",
+    "integration_identity": "retained unchanged",
+    "installed_changed_files": 13
+  },
+  "acceptance": {
+    "split_receipt_and_correction": "passed",
+    "targeted_local_suites_passed": 5,
+    "assignment_contract_local_checks": 84,
+    "invoice_statement_delivery": "log-only passed",
+    "onboarding_native_http_checks": 17,
+    "credit_application_checks": 61,
+    "document_intake": "disabled before provider or storage IO",
+    "accounting_lifecycle": "passed"
+  },
+  "scope": {
+    "authenticated_provider_round_trip_verified": false,
+    "real_payroll_payments_or_postings": false,
+    "production_runtime_changed": false
+  },
+  "limitations": [
+    "This release preserves private local configuration paths; the 14 actual S3 checks belong to the earlier storage activation and were not repeated.",
+    "The division regression uses synthetic source fixtures; live automated branch projection is not claimed.",
+    "The real Thunderhawk cross-application round trip remains outstanding."
+  ]
+}

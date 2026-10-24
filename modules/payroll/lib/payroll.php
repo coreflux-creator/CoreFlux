@@ -193,9 +193,9 @@ function payrollYTDWages(int $employeeId, string $asOfDate): array {
 function payrollBuildComputeContext(int $employeeId, array $period, array $tenantSettings, array $extras = []): ?array {
     $emp = peopleGetEmployee($employeeId);
     if (!$emp) return null;
-    $comp = peopleActiveCompensation($employeeId);
+    $comp = peopleActiveCompensation($employeeId, (string) $period['period_end']);
     if (!$comp) return null;
-    $fed = peopleActiveFederalTax($employeeId);
+    $fed = peopleActiveFederalTax($employeeId, (string) $period['period_end']);
     if (!$fed) return null;
     $profile = payrollGetProfile($employeeId);
     if (!$profile) return null;

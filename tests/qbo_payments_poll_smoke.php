@@ -3,20 +3,20 @@
  * Smoke — QBO Payments polling cron (Step 6 Phase 4).
  *
  * Locks:
- *   - Cron exists at /app/cron/qbo_payments_poll.php.
- *   - Selects only pending statuses (ISSUED/PENDING/CAPTURED/AUTHORIZED).
+ *   - Cron exists alongside this repository's tests directory.
+ *   - Selects pending charges and captured/settled charges missing a posted receipt.
  *   - Routes card/e-check retrieval, refreshes the shadow, and applies
  *     captured transactions to CoreFlux AR exactly once.
  *   - Stamps an error_message on failures so the operator sees them.
  *   - Emits a structured summary line.
  *
  * Live exercise:
- *   - Pre-load three charges (one ISSUED, one CAPTURED-not-yet-settled,
- *     one already SETTLED).
+ *   - Pre-load four charges (one ISSUED, one CAPTURED-not-yet-settled,
+ *     one SETTLED with a posted receipt, one SETTLED without a receipt).
  *   - Stub the QBO transport to return advanced statuses.
- *   - Run the polling loop logic and verify all three rows converge.
+ *   - Run the selection and polling loop logic and verify recovery is selected.
  *
- * Run: php -d zend.assertions=1 /app/tests/qbo_payments_poll_smoke.php
+ * Run: php tests/qbo_payments_poll_smoke.php
  */
 declare(strict_types=1);
 
@@ -31,13 +31,16 @@ echo "\nQBO Payments polling cron smoke (Step 6 Phase 4)\n";
 echo "=================================================\n\n";
 
 // ─────── 1. File shape ───────
-$path = '/app/cron/qbo_payments_poll.php';
+$path = dirname(__DIR__) . '/cron/qbo_payments_poll.php';
 check('cron exists', file_exists($path));
-$src = (string) file_get_contents($path);
+$src = is_file($path) ? (string) file_get_contents($path) : '';
 check('requires qbo/payments_client.php',          str_contains($src, "qbo/payments_client.php"));
-check('selects only pending statuses',
+check('selects pending statuses',
     str_contains($src, "status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED')"));
-check('filters on settled_at IS NULL',             str_contains($src, 'settled_at IS NULL'));
+check('retries captured and settled charges missing posted receipts',
+    str_contains($src, "status IN ('CAPTURED','SETTLED')")
+    && str_contains($src, 'p.id IS NULL OR p.journal_entry_id IS NULL'));
+check('filters pending charges on settled_at IS NULL', str_contains($src, 'settled_at IS NULL'));
 check('joins to qbo_connections (active only)',
     str_contains($src, "qbo_connections cn ON cn.tenant_id = c.tenant_id AND cn.status = 'active'"));
 check('routes card/e-check retrieval per row',     str_contains($src, 'qboFetchPaymentTransaction('));
@@ -81,18 +84,22 @@ $pdo->exec("CREATE TABLE qbo_payment_charges (
 $pdo->exec("CREATE TABLE qbo_audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, action TEXT,
     detail_json TEXT, created_at TEXT)");
+$pdo->exec("CREATE TABLE billing_payments (
+    id INTEGER PRIMARY KEY, tenant_id INT, journal_entry_id INT)");
 
 $pdo->prepare("INSERT INTO qbo_connections (tenant_id, realm_id, status, scope, access_token_ct, refresh_token_ct, environment) VALUES (101, 'R-1', 'active', 'com.intuit.quickbooks.accounting com.intuit.quickbooks.payment', x'00', x'00', 'sandbox')")->execute();
 
-// Three charges: one will advance ISSUED→CAPTURED, one CAPTURED→SETTLED,
-// one already SETTLED (won't be selected). Use recent created_at so the
-// 30-day window catches them.
+// A and B advance; C is fully posted and stays out of the queue; D is an
+// older settled charge whose missing receipt must still be recovered.
 $d2 = date('Y-m-d H:i:s', strtotime('-2 days'));
 $d3 = date('Y-m-d H:i:s', strtotime('-3 days'));
 $d8 = date('Y-m-d H:i:s', strtotime('-8 days'));
+$d40 = date('Y-m-d H:i:s', strtotime('-40 days'));
 $pdo->prepare("INSERT INTO qbo_payment_charges (tenant_id, qbo_charge_id, charge_type, amount_cents, currency, status, created_at) VALUES (101, 'CHG-A', 'card', 1000, 'USD', 'ISSUED', :d)")->execute(['d'=>$d2]);
 $pdo->prepare("INSERT INTO qbo_payment_charges (tenant_id, qbo_charge_id, charge_type, amount_cents, currency, status, created_at, captured_at) VALUES (101, 'CHG-B', 'card', 2500, 'USD', 'CAPTURED', :d, :d)")->execute(['d'=>$d3]);
-$pdo->prepare("INSERT INTO qbo_payment_charges (tenant_id, qbo_charge_id, charge_type, amount_cents, currency, status, created_at, captured_at, settled_at) VALUES (101, 'CHG-C', 'card', 700, 'USD', 'SETTLED', :d, :d, :d)")->execute(['d'=>$d8]);
+$pdo->prepare("INSERT INTO qbo_payment_charges (tenant_id, qbo_charge_id, charge_type, amount_cents, currency, status, coreflux_payment_id, created_at, captured_at, settled_at) VALUES (101, 'CHG-C', 'card', 700, 'USD', 'SETTLED', 7, :d, :d, :d)")->execute(['d'=>$d8]);
+$pdo->prepare("INSERT INTO qbo_payment_charges (tenant_id, qbo_charge_id, charge_type, amount_cents, currency, status, created_at, captured_at, settled_at) VALUES (101, 'CHG-D', 'card', 800, 'USD', 'SETTLED', :d, :d, :d)")->execute(['d'=>$d40]);
+$pdo->exec("INSERT INTO billing_payments (id, tenant_id, journal_entry_id) VALUES (7, 101, 31)");
 
 // Stub the payment client functions the cron calls.
 if (!function_exists('qboAudit')) { function qboAudit(...$args): void {} }
@@ -114,10 +121,11 @@ if (!class_exists('QboApiException')) {
     }
 }
 
-// qboGetCharge stub — returns advanced state for A + B.
+// qboGetCharge stub — returns advanced state for A + B and stable state for D.
 function qboGetCharge(int $tid, string $chargeId): array {
     if ($chargeId === 'CHG-A') return ['id' => 'CHG-A', 'amount' => '10.00', 'currency' => 'USD', 'status' => 'CAPTURED'];
     if ($chargeId === 'CHG-B') return ['id' => 'CHG-B', 'amount' => '25.00', 'currency' => 'USD', 'status' => 'SETTLED'];
+    if ($chargeId === 'CHG-D') return ['id' => 'CHG-D', 'amount' => '8.00', 'currency' => 'USD', 'status' => 'SETTLED'];
     throw new \RuntimeException('charge not found');
 }
 
@@ -140,14 +148,14 @@ function qboRecordChargeShadow(int $tid, array $charge, array $context = []): in
     return 0;
 }
 
-// Now run the cron logic (extract the polling block).
+// Exercise the cron's selection and polling conditions against SQLite.
 $pdo = $GLOBALS['pdo'];
-$tenants = $pdo->query("SELECT DISTINCT c.tenant_id FROM qbo_payment_charges c JOIN qbo_connections cn ON cn.tenant_id = c.tenant_id AND cn.status = 'active' WHERE c.status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED') AND (c.settled_at IS NULL) AND c.created_at >= datetime('now','-30 days')")->fetchAll(\PDO::FETCH_ASSOC);
+$tenants = $pdo->query("SELECT DISTINCT c.tenant_id FROM qbo_payment_charges c JOIN qbo_connections cn ON cn.tenant_id = c.tenant_id AND cn.status = 'active' LEFT JOIN billing_payments p ON p.tenant_id = c.tenant_id AND p.id = c.coreflux_payment_id WHERE (c.status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED') AND c.settled_at IS NULL AND c.created_at >= datetime('now','-30 days')) OR (c.status IN ('CAPTURED','SETTLED') AND (p.id IS NULL OR p.journal_entry_id IS NULL))")->fetchAll(\PDO::FETCH_ASSOC);
 $totals = ['tenants' => 0, 'polled' => 0, 'advanced' => 0, 'errors' => 0];
 foreach ($tenants as $row) {
     $tid = (int) $row['tenant_id'];
     $totals['tenants']++;
-    $stmt = $pdo->prepare("SELECT id, qbo_charge_id, status, charge_type FROM qbo_payment_charges WHERE tenant_id = :t AND status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED') AND (settled_at IS NULL) ORDER BY created_at ASC LIMIT 200");
+    $stmt = $pdo->prepare("SELECT c.id, c.qbo_charge_id, c.status, c.charge_type FROM qbo_payment_charges c LEFT JOIN billing_payments p ON p.tenant_id = c.tenant_id AND p.id = c.coreflux_payment_id WHERE c.tenant_id = :t AND ((c.status IN ('ISSUED','PENDING','CAPTURED','AUTHORIZED') AND c.settled_at IS NULL AND c.created_at >= datetime('now','-30 days')) OR (c.status IN ('CAPTURED','SETTLED') AND (p.id IS NULL OR p.journal_entry_id IS NULL))) ORDER BY c.created_at ASC LIMIT 200");
     $stmt->execute(['t' => $tid]);
     foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $c) {
         $totals['polled']++;
@@ -163,7 +171,7 @@ foreach ($tenants as $row) {
 }
 
 check('tenants iterated = 1',                $totals['tenants'] === 1);
-check('polled 2 pending charges (skipped SETTLED)',  $totals['polled'] === 2);
+check('polled 2 pending and 1 unposted settled charge', $totals['polled'] === 3);
 check('advanced 2 charges',                  $totals['advanced'] === 2);
 check('no errors',                            $totals['errors'] === 0);
 
@@ -175,7 +183,9 @@ check('CHG-B advanced CAPTURED → SETTLED',    $b['status'] === 'SETTLED');
 check('CHG-B settled_at stamped',             !empty($b['settled_at']));
 check('CHG-B captured_at preserved',          !empty($b['captured_at']));
 $c = $pdo->query("SELECT status FROM qbo_payment_charges WHERE qbo_charge_id='CHG-C'")->fetch(\PDO::FETCH_ASSOC);
-check('CHG-C (already SETTLED) untouched',    $c['status'] === 'SETTLED');
+check('CHG-C (already posted) untouched',      $c['status'] === 'SETTLED');
+$d = $pdo->query("SELECT status, settled_at FROM qbo_payment_charges WHERE qbo_charge_id='CHG-D'")->fetch(\PDO::FETCH_ASSOC);
+check('CHG-D (old unposted settled) retried', $d['status'] === 'SETTLED' && !empty($d['settled_at']));
 
 echo "\nqbo_payments_poll smoke: {$passes} ✓ / " . count($failures) . " ✗\n";
 foreach ($failures as $msg) echo "  FAIL: {$msg}\n";

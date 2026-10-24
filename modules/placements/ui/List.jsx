@@ -364,7 +364,7 @@ export default function List() {
                         {p.first_name ? `${p.first_name} ${p.last_name}` : `Person ${p.person_id}`}
                       </Link>
                       <span className="entity-secondary">
-                        <IdBadge id={p.id} prefix="PL" />{' '}
+                        <IdBadge id={p.id} number={p.placement_number} prefix="PL" />{' '}
                         <IdBadge id={p.person_id} prefix="P" />
                       </span>
                     </span>

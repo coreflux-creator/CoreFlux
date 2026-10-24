@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
+import JobDivaPersonReview from './JobDivaPersonReview';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, Database, GitBranch, Link2,
   PlugZap, RefreshCw, ShieldCheck, Sparkles, Wrench, X, XCircle,
@@ -514,6 +515,8 @@ export default function JobDivaSettings() {
       {error   && <p data-testid="jobdiva-settings-error" className="error">Error: {error.message}</p>}
       {msg     && <p data-testid="jobdiva-settings-msg"  style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 10, borderRadius: 8, color: '#065f46', fontSize: 13 }}>{msg}</p>}
       {err     && <p data-testid="jobdiva-settings-err"  style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: 10, borderRadius: 8, color: '#7f1d1d', fontSize: 13 }}>{err}</p>}
+
+      {data?.connected && <JobDivaPersonReview key={data.tenant_id} workspaceId={data.tenant_id} />}
 
       <JobDivaMappingAlignmentCard
         data={alignment}

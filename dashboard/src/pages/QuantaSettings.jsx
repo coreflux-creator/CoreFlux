@@ -1,7 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ArrowRight, BriefcaseBusiness, Check, Clock3, KeyRound, Link2, RefreshCw, Save, Unplug, UserRoundPlus } from 'lucide-react';
-import { api, useApi } from '../lib/api';
+import { api, getPinnedTenantId, useApi } from '../lib/api';
+import QuantaIdentityReview from './QuantaIdentityReview';
+import QuantaPublicationPanel from './QuantaPublicationPanel';
+import QuantaWorkspacePanel from './QuantaWorkspacePanel';
+import QuantaMetadataPanel from './QuantaMetadataPanel';
+import QuantaApprovalEvidence from './QuantaApprovalEvidence';
+import QuantaTimeReview from './QuantaTimeReview';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -16,7 +22,7 @@ function Notice({ error, children }) {
 }
 
 function Status({ status }) {
-  const tone = { ready: ['Ready', '#e0f2fe', '#075985'], update: ['Updated source', '#fef3c7', '#92400e'], imported: ['Imported', '#dcfce7', '#166534'], conflict: ['Needs mapping or review', '#fee2e2', '#991b1b'] }[status] || [status, '#f1f5f9', '#334155'];
+  const tone = { ready: ['Ready', '#e0f2fe', '#075985'], update: ['Updated source', '#fef3c7', '#92400e'], verify_source: ['Confirm original company', '#fef3c7', '#92400e'], imported: ['Imported', '#dcfce7', '#166534'], conflict: ['Needs mapping or review', '#fee2e2', '#991b1b'] }[status] || [status, '#f1f5f9', '#334155'];
   return <span style={{ display: 'inline-block', padding: '3px 7px', borderRadius: 4, background: tone[1], color: tone[2], fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{tone[0]}</span>;
 }
 
@@ -34,7 +40,7 @@ function normalizedName(value) {
 }
 
 function placementName(placement) {
-  return `PL-${placement.id} · ${placement.person_name || 'Unnamed person'} · ${placement.title || 'Placement'}${placement.end_client_name ? ` · ${placement.end_client_name}` : ''}`;
+  return `${placement.placement_number || 'Placement number unavailable'} · ${placement.person_name || 'Unnamed person'} · ${placement.title || 'Placement'}${placement.end_client_name ? ` · ${placement.end_client_name}` : ''}`;
 }
 
 function dimensionLabel(values, dimensions = []) {
@@ -72,9 +78,14 @@ export default function QuantaSettings() {
   const [preview, setPreview] = useState(null);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState([]);
+  const [confirmSource, setConfirmSource] = useState(false);
+  useEffect(() => setConfirmSource(false), [preview, selected]);
   const [linkDrafts, setLinkDrafts] = useState({});
   const [personSearch, setPersonSearch] = useState({});
   const [createDraft, setCreateDraft] = useState(null);
+  const [identityReview, setIdentityReview] = useState(null);
+  const identityScope = `${status.data?.workspace?.id}:${status.data?.connection_revision}`;
+  const identityScopeRef = useRef(identityScope); identityScopeRef.current = identityScope;
   const [routeDrafts, setRouteDrafts] = useState({});
   const [routeStartDrafts, setRouteStartDrafts] = useState({});
   const [routeEdit, setRouteEdit] = useState(null);
@@ -87,7 +98,12 @@ export default function QuantaSettings() {
     try { await work(); } catch (e) { setError(e.message || 'Quanta request failed'); }
     finally { setBusy(''); }
   };
-  const loadCatalog = async () => setCatalog(await api.get(`${endpoint}catalog`, { timeoutMs: 60000 }));
+  const loadCatalog = async () => {
+    const workspaceId = status.data?.workspace?.id;
+    const data = await api.get(`${endpoint}catalog`, { timeoutMs: 60000, headers: { 'X-CoreFlux-Tenant-Id': String(workspaceId) } });
+    if (identityScopeRef.current !== identityScope || (getPinnedTenantId() && String(getPinnedTenantId()) !== String(workspaceId))) throw new Error('The workspace changed. Refresh its workers.');
+    setCatalog(data);
+  };
   const loadTimeAccess = async () => {
     const access = await api.get(`${endpoint}time_access`, { timeoutMs: 60000 });
     setTimeAccess(access);
@@ -95,6 +111,7 @@ export default function QuantaSettings() {
   };
   useEffect(() => {
     setCatalog(null); setPreview(null); setRouteCandidates(null); setTimeAccess(null);
+    setIdentityReview(null); setCreateDraft(null); setLinkDrafts({}); setPersonSearch({});
     if (!connected) return;
     let active = true;
     api.get(`${endpoint}catalog`, { timeoutMs: 60000 })
@@ -104,7 +121,7 @@ export default function QuantaSettings() {
       .then(data => { if (active) setTimeAccess(data); })
       .catch(e => { if (active) setTimeAccess({ available: false, error: e.message || 'Could not check time-entry access' }); });
     return () => { active = false; };
-  }, [connected, status.data?.workspace?.id]);
+  }, [connected, status.data?.workspace?.id, status.data?.connection_revision]);
 
   const workers = useMemo(() => new Map((catalog?.workers || []).map(w => [String(w.id), w])), [catalog]);
   const sites = useMemo(() => new Map((catalog?.worksites || []).map(s => [String(s.id), s])), [catalog]);
@@ -138,7 +155,7 @@ export default function QuantaSettings() {
   const personOptions = (workerId, choice) => {
     const query = String(personSearch[workerId] || '').trim().toLowerCase();
     const matches = people.filter(person => !linkedWorkers.has(Number(person.id))
-      && (!query || `p-${person.id} ${person.name} ${person.email_primary || ''}`.toLowerCase().includes(query))).slice(0, 40);
+      && (!query || `${person.person_number || ''} ${person.name} ${person.email_primary || ''}`.toLowerCase().includes(query))).slice(0, 40);
     if (choice && !matches.some(person => String(person.id) === choice)) {
       const chosen = people.find(person => String(person.id) === choice);
       if (chosen) matches.unshift(chosen);
@@ -173,28 +190,17 @@ export default function QuantaSettings() {
     return matches.length === 1 ? String(matches[0].id) : '';
   };
 
-  const saveWorkerLinks = () => run('worker-links', async () => {
+  const saveWorkerLinks = () => {
     const links = unlinkedWorkers.map(worker => ({ worker_id: String(worker.id), person_id: Number(linkDrafts[String(worker.id)] ?? suggestedPeople.get(String(worker.id)) ?? 0) }))
       .filter(link => link.person_id > 0);
-    if (!links.length) throw new Error('Choose at least one CoreFlux person');
-    const personIds = links.map(link => link.person_id);
-    if (new Set(personIds).size !== personIds.length) throw new Error('Each CoreFlux person can be linked to only one Quanta worker');
-    for (let index = 0; index < links.length; index += 100) {
-      const result = await api.post(`${endpoint}save_worker_links`, { links: links.slice(index, index + 100) }, { timeoutMs: 120000 });
-      setCatalog(prev => ({ ...prev, worker_links: result.worker_links }));
-    }
-    setLinkDrafts({}); setPreview(null); setSelected([]);
-    setNotice(`${links.length} worker identit${links.length === 1 ? 'y' : 'ies'} linked. Preview source time again before routing.`);
-  });
+    if (!links.length || links.length > 100) { setError('Choose 1 to 100 worker identities for this review.'); return; }
+    if (new Set(links.map(link => link.person_id)).size !== links.length) { setError('Each Core person can be linked to only one worker.'); return; }
+    setIdentityReview({ mode: 'link', links });
+  };
 
-  const createPerson = () => run('create-person', async () => {
-    if (!createDraft) throw new Error('Choose a Quanta worker');
-    const result = await api.post(`${endpoint}create_worker_person`, createDraft, { timeoutMs: 120000 });
-    await loadCatalog();
-    setCreateDraft(null); setPreview(null);
-    setNotice(`P-${result.person_id} created and linked. Review a placement before routing hours.`);
-  });
-
+  const createPerson = () => {
+    if (createDraft) setIdentityReview({ mode: 'create', ...createDraft });
+  };
   const findRoutes = () => run('route-candidates', async () => {
     const result = await api.get(`${endpoint}route_candidates&changed_since=${encodeURIComponent(since)}`, { timeoutMs: 120000 });
     setRouteCandidates(result);
@@ -234,8 +240,11 @@ export default function QuantaSettings() {
 
   const importSelected = () => run('import', async () => {
     if (!selected.length) throw new Error('Select ready entries first');
-    const result = await api.post(`${endpoint}import`, { changed_since: since, source_status: sourceStatus, entry_ids: selected }, { timeoutMs: 120000 });
-    setNotice(`${result.inserted} time row${result.inserted === 1 ? '' : 's'} imported, ${result.updated} updated. ${result.timesheets.length} weekly timesheet${result.timesheets.length === 1 ? '' : 's'} ready for review.`);
+    const sourceReviews = Object.fromEntries((preview?.rows || []).filter(row => selected.includes(row.id) && row.status === 'verify_source').map(row => [row.id, row.source_review_hash]));
+    if (Object.keys(sourceReviews).length && !confirmSource) throw new Error('Confirm the original Quanta company for the selected historical time');
+    const result = await api.post(`${endpoint}import`, { changed_since: since, source_status: sourceStatus, entry_ids: selected,
+      source_reviews: sourceReviews, confirm_original_workspace_id: confirmSource ? preview?.source_workspace?.id : null }, { timeoutMs: 120000 });
+    setNotice(`${result.inserted} time rows imported, ${result.updated} updated, ${result.source_verified || 0} historical source associations confirmed. ${result.timesheets.length} weekly timesheets ready for review.`);
     const data = await api.post(`${endpoint}preview`, { changed_since: since, source_status: sourceStatus, offset }, { timeoutMs: 120000 });
     setPreview(data); setSelected([]);
   });
@@ -253,7 +262,8 @@ export default function QuantaSettings() {
     setNotice('Placement route updated. Preview Quanta time again before importing.');
   });
 
-  const selectable = (preview?.rows || []).filter(row => ['ready', 'update'].includes(row.status)).map(row => row.id);
+  const selectable = (preview?.rows || []).filter(row => ['ready', 'update', 'verify_source'].includes(row.status)).map(row => row.id);
+  const needsSourceConfirmation = (preview?.rows || []).some(row => selected.includes(row.id) && row.status === 'verify_source');
   const allSelected = selectable.length > 0 && selectable.every(id => selected.includes(id));
   const selectAll = () => setSelected(allSelected ? [] : selectable);
 
@@ -290,6 +300,14 @@ export default function QuantaSettings() {
     </div>
 
     {connected && <>
+      <QuantaWorkspacePanel key={`workspace-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspace={status.data?.workspace} />
+      {catalog && <QuantaPublicationPanel key={`workers-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspaceId={status.data?.workspace?.id} people={people} />}
+      {identityReview && <QuantaIdentityReview key={`intake-${identityScope}`} request={identityReview} workspaceId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision}
+        onClose={() => setIdentityReview(null)} onComplete={result => {
+          setIdentityReview(null); setCreateDraft(null); setLinkDrafts({}); setPreview(null); setSelected([]);
+          run('refresh-identities', async () => { await loadCatalog(); setNotice(`Recorded in Core: ${result.people.map(person => person.person_number).join(', ')}. Review placement routing next.`); });
+        }} />}
+      {catalog && <QuantaMetadataPanel key={`metadata-${status.data?.workspace?.id}-${status.data?.connection_revision}`} people={people} placements={catalog.metadata_placements || placements} worksites={catalog.worksites || []} />}
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'start' }}>
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Worker identities</h2>
@@ -310,10 +328,10 @@ export default function QuantaSettings() {
                 const creating = createDraft?.worker_id === workerId;
                 return <React.Fragment key={workerId}><tr><td style={cell}><strong>{workerName(worker)}</strong><div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>{worker.email || workerId}</div>{worker.active === false && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Inactive in Quanta</div>}</td>
                   <td style={cell}><div style={{ display: 'grid', gap: 5, maxWidth: 460 }}><input type="search" aria-label={`Search people for ${workerName(worker)}`} placeholder="Search people" value={personSearch[workerId] || ''} onChange={e => setPersonSearch(prev => ({ ...prev, [workerId]: e.target.value }))} style={{ ...field, width: '100%' }} /><select aria-label={`CoreFlux person for ${workerName(worker)}`} value={choice} onChange={e => setLinkDrafts(prev => ({ ...prev, [workerId]: e.target.value }))} style={{ ...field, width: '100%' }}>
-                    <option value="">Choose a person</option>{personOptions(workerId, choice).map(person => <option key={person.id} value={person.id}>P-{person.id} · {person.name} · {person.email_primary || 'No email'}{person.connecteam_user_id ? ' · Connecteam linked' : ''}</option>)}
+                    <option value="">Choose a person</option>{personOptions(workerId, choice).map(person => <option key={person.id} value={person.id}>{person.person_number || 'Person number unavailable'} · {person.name} · {person.email_primary || 'No email'}{person.connecteam_user_id ? ' · Connecteam linked' : ''}</option>)}
                   </select></div></td><td style={cell}><div style={{ display: 'grid', gap: 7 }}>
                     {suggestion && <span style={{ color: '#075985' }}>Exact email suggested</span>}
-                    {!suggestion && nameMatches.map(person => <button key={person.id} className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setLinkDrafts(prev => ({ ...prev, [workerId]: String(person.id) }))}>Review P-{person.id} · {person.name}</button>)}
+                    {!suggestion && nameMatches.map(person => <button key={person.id} className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setLinkDrafts(prev => ({ ...prev, [workerId]: String(person.id) }))}>Review {person.person_number || 'Person number unavailable'} · {person.name}</button>)}
                     {!suggestion && nameMatches.length === 0 && <span style={{ color: 'var(--cf-text-secondary)' }}>No exact match</span>}
                     <button className="btn btn-secondary" type="button" disabled={!!busy || !worker.email} onClick={() => setCreateDraft(creating ? null : { worker_id: workerId, ...suggestedName(worker), confirm_distinct_person: false })}><UserRoundPlus size={14} /> {creating ? 'Cancel' : 'Create person'}</button>
                   </div></td></tr>
@@ -321,7 +339,7 @@ export default function QuantaSettings() {
                     <label style={{ display: 'grid', gap: 4 }}>First name<input aria-label={`First name for ${workerName(worker)}`} value={createDraft.first_name} onChange={e => setCreateDraft(prev => ({ ...prev, first_name: e.target.value }))} style={field} /></label>
                     <label style={{ display: 'grid', gap: 4 }}>Last name<input aria-label={`Last name for ${workerName(worker)}`} value={createDraft.last_name} onChange={e => setCreateDraft(prev => ({ ...prev, last_name: e.target.value }))} style={field} /></label>
                     <div style={{ fontSize: 13 }}><div>Quanta email</div><strong>{worker.email}</strong></div>
-                    <button className="btn btn-primary" type="button" disabled={!!busy || !createDraft.first_name.trim() || !createDraft.last_name.trim() || (nameMatches.length > 0 && !createDraft.confirm_distinct_person)} onClick={createPerson}><UserRoundPlus size={14} /> Create and link</button>
+                    <button className="btn btn-primary" type="button" disabled={!!busy || !createDraft.first_name.trim() || !createDraft.last_name.trim() || (nameMatches.length > 0 && !createDraft.confirm_distinct_person)} onClick={createPerson}><UserRoundPlus size={14} /> Review creation</button>
                   </div>
                   {nameMatches.length > 0 && <label style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={!!createDraft.confirm_distinct_person} onChange={e => setCreateDraft(prev => ({ ...prev, confirm_distinct_person: e.target.checked }))} /> This is a different person from the same-name CoreFlux record.</label>}
                   <div style={{ color: 'var(--cf-text-secondary)', fontSize: 12, marginTop: 8 }}>Creates a provisional CoreFlux person. Employment type, placement dates, and rates stay for review; no invitation is sent.</div>
@@ -330,11 +348,11 @@ export default function QuantaSettings() {
               })}
             </tbody></table>
           </div>}
-          {unlinkedWorkers.length > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}><button className="btn btn-primary" type="button" disabled={!!busy || !unlinkedWorkers.some(worker => Number(linkDrafts[String(worker.id)] ?? suggestedPeople.get(String(worker.id)) ?? 0) > 0)} onClick={saveWorkerLinks}><Link2 size={15} /> Save chosen links</button><span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>Suggestions are not linked until saved.</span></div>}
+          {unlinkedWorkers.length > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}><button className="btn btn-primary" type="button" disabled={!!busy || !unlinkedWorkers.some(worker => Number(linkDrafts[String(worker.id)] ?? suggestedPeople.get(String(worker.id)) ?? 0) > 0)} onClick={saveWorkerLinks}><Link2 size={15} /> Review chosen links</button><span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>Suggestions are not linked until reviewed and applied.</span></div>}
           {catalog.workers.length === 0 && <div style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>No Quanta workers yet. Add or invite workers in Quanta before mapping time.</div>}
           {workerLinks.length > 0 && <div style={{ overflowX: 'auto', marginTop: 16 }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}><thead><tr>{['Quanta worker', 'CoreFlux person', 'Placements', 'Routes', ''].map(label => <th key={label} style={head}>{label}</th>)}</tr></thead><tbody>{workerLinks.map(link => <tr key={link.worker_id}>
-            <td style={cell}>{workerName(workers.get(String(link.worker_id)))}</td><td style={cell}>{link.person_name ? `P-${link.person_id} · ${link.person_name}` : `P-${link.person_id} · Person unavailable`}</td>
-            <td style={cell}>{placements.filter(p => Number(p.person_id) === Number(link.person_id)).length}{placements.filter(p => Number(p.person_id) === Number(link.person_id) && !['active', 'ended'].includes(p.status)).slice(0, 3).map(p => <div key={p.id}><Link to={`/modules/placements/${p.id}`} style={{ fontSize: 12 }}>Finish PL-{p.id} · {p.status}</Link></div>)}</td><td style={cell}>{activeRoutes.filter(route => String(route.worker_id) === String(link.worker_id)).length}</td>
+            <td style={cell}>{workerName(workers.get(String(link.worker_id)))}</td><td style={cell}>{link.person_number || 'Person number unavailable'} · {link.person_name || 'Person unavailable'}</td>
+            <td style={cell}>{placements.filter(p => Number(p.person_id) === Number(link.person_id)).length}{placements.filter(p => Number(p.person_id) === Number(link.person_id) && !['active', 'ended'].includes(p.status)).slice(0, 3).map(p => <div key={p.id}><Link to={`/modules/placements/${p.id}`} style={{ fontSize: 12 }}>Finish {p.placement_number || 'placement'} · {p.status}</Link></div>)}</td><td style={cell}>{activeRoutes.filter(route => String(route.worker_id) === String(link.worker_id)).length}</td>
             <td style={cell}><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Link className="btn btn-secondary" to={`/modules/placements/new?person_id=${link.person_id}&from=quanta`}><BriefcaseBusiness size={14} /> Create placement</Link><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => { if (window.confirm('Unlink this worker? Routes and imported time must be cleared first.')) run('unlink-worker', async () => { const result = await api.post(`${endpoint}delete_worker_link`, { worker_id: link.worker_id }); setCatalog(prev => ({ ...prev, worker_links: result.worker_links })); setPreview(null); setNotice('Worker identity unlinked.'); }); }}>Unlink</button></div></td>
           </tr>)}</tbody></table></div>}
         </div>}
@@ -353,7 +371,7 @@ export default function QuantaSettings() {
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Placement routing</h2><span style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>Find worker, worksite, and dimension combinations in Quanta time. Draft entries can guide mapping, but cannot be imported.</span></div>
           <button className="btn btn-secondary" type="button" disabled={!!busy} onClick={findRoutes}><RefreshCw size={15} /> Find work to route</button>
         </div>
-        {searchParams.get('placement_created') && <Notice>Placement PL-{searchParams.get('placement_created')} was created as a draft. <Link to={`/modules/placements/${searchParams.get('placement_created')}`}>Complete and activate it</Link> before routing time.</Notice>}
+        {searchParams.get('placement_created') && <Notice>{placements.find(p => String(p.id) === searchParams.get('placement_created'))?.placement_number || 'Placement'} was created as a draft. <Link to={`/modules/placements/${searchParams.get('placement_created')}`}>Complete and activate it</Link> before routing time.</Notice>}
         {routeCandidates && <div style={{ marginTop: 12, color: 'var(--cf-text-secondary)', fontSize: 13 }}>{routeCandidates.source_entries} source entries, {routeCandidates.rows.length} distinct work contexts{routeCandidates.skipped > 0 ? `, ${routeCandidates.skipped} without usable identity or date` : ''}.</div>}
         {needsRoute.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
           {needsRoute.map(row => {
@@ -386,24 +404,28 @@ export default function QuantaSettings() {
           <button className="btn btn-primary" type="button" disabled={!!busy || !timeAccess?.available} onClick={() => showPreview(0)}><Clock3 size={15} /> Preview time</button>
         </div>
         {preview && <>
+          <p style={{ fontSize: 13 }}>Verified Quanta company: <strong>{preview.source_workspace?.name}</strong> · {preview.source_workspace?.id}</p>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '18px 0 12px', fontSize: 14 }}>
-            <span><strong>{preview.total}</strong> source entries</span><span><strong>{preview.counts.ready}</strong> ready</span><span><strong>{preview.counts.update}</strong> changed</span><span><strong>{preview.counts.imported}</strong> imported</span><span><strong>{preview.counts.conflict}</strong> need review</span>
+            <span><strong>{preview.total}</strong> source entries</span><span><strong>{preview.counts.ready}</strong> ready</span><span><strong>{preview.counts.update}</strong> changed</span><span><strong>{preview.counts.imported}</strong> imported</span><span><strong>{preview.counts.verify_source || 0}</strong> need company confirmation</span><span><strong>{preview.counts.conflict}</strong> need review</span>
           </div>
           <div style={{ overflowX: 'auto', border: '1px solid var(--cf-border)', borderRadius: 5 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 880 }}>
               <thead><tr><th style={head}><input type="checkbox" aria-label="Select all ready entries on this page" checked={allSelected} onChange={selectAll} /></th>{['Date', 'Worker', 'Worksite', 'Hours', 'Placement', 'Status', 'Detail'].map(h => <th key={h} style={head}>{h}</th>)}</tr></thead>
               <tbody>{preview.rows.map((row, index) => <tr key={`${row.id}-${index}`}>
-                <td style={cell}><input type="checkbox" aria-label={`Select Quanta entry ${row.id}`} disabled={!['ready', 'update'].includes(row.status)} checked={selected.includes(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></td>
+                <td style={cell}><input type="checkbox" aria-label={`Select Quanta entry ${row.id}`} disabled={!!busy || !['ready', 'update', 'verify_source'].includes(row.status)} checked={selected.includes(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></td>
                 <td style={cell}>{row.work_date || '—'}</td><td style={cell}>{workerName(workers.get(String(row.worker_id)))}</td><td style={cell}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(row.dimension_values, dimensions)}</div></td>
-                <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `PL-${row.placement_id} · ${row.person_name}` : '—'}</td>
-                <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}</td>
+                <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `${row.placement_number || 'Placement number unavailable'} · ${row.person_name}` : '—'}</td>
+                <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}<QuantaApprovalEvidence value={row.source_approval} />
+                  {row.status === 'imported' && <QuantaTimeReview entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
+                </td>
               </tr>)}</tbody>
             </table>
           </div>
           {preview.total === 0 && <div style={{ padding: 16, color: 'var(--cf-text-secondary)' }}>No approved Quanta entries changed in this window. Draft timesheets stay in Quanta until reviewed and approved there.</div>}
+          {needsSourceConfirmation && <label style={{ display: 'flex', gap: 8, marginTop: 14, fontSize: 13 }}><input type="checkbox" checked={confirmSource} disabled={!!busy} onChange={e => setConfirmSource(e.target.checked)} />I confirm the selected historical time originally came from {preview.source_workspace?.name} ({preview.source_workspace?.id}). Associate this company with those matching records; retain their hours and approval.</label>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
             <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" type="button" disabled={!!busy || offset === 0} onClick={() => showPreview(Math.max(0, offset - 200))}><ArrowLeft size={15} /> Previous</button><button className="btn btn-secondary" type="button" disabled={!!busy || offset + 200 >= preview.total} onClick={() => showPreview(offset + 200)}>Next <ArrowRight size={15} /></button></div>
-            <button className="btn btn-primary" type="button" disabled={!!busy || !selected.length} onClick={importSelected}><Check size={15} /> Import {selected.length} selected</button>
+            <button className="btn btn-primary" type="button" disabled={!!busy || !selected.length || (needsSourceConfirmation && !confirmSource)} onClick={importSelected}><Check size={15} /> {needsSourceConfirmation ? 'Apply' : 'Import'} {selected.length} selected</button>
           </div>
         </>}
       </div>
@@ -411,7 +433,7 @@ export default function QuantaSettings() {
         <h2 style={{ fontSize: 18, margin: '0 0 10px' }}>Placement routes</h2>
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}><thead><tr>{['Worker', 'Worksite / dimensions', 'Placement', 'Effective', ''].map(h => <th key={h} style={head}>{h}</th>)}</tr></thead><tbody>{activeRoutes.map(route => <tr key={route.id}>
           <td style={cell}>{workerName(workers.get(String(route.worker_id)))}</td><td style={cell}>{sites.get(String(route.worksite_id))?.name || route.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(route.dimension_values_json, dimensions)}</div></td>
-          <td style={cell}>{routeEdit?.id === route.id ? <select aria-label="Route placement" style={{ ...field, minWidth: 210 }} value={routeEdit.placement_id} onChange={e => setRouteEdit(prev => ({ ...prev, placement_id: e.target.value }))}>{placements.filter(p => Number(p.person_id) === linkedPeople.get(String(route.worker_id))).map(p => <option key={p.id} value={p.id}>{placementName(p)}</option>)}</select> : placementName({ id: route.placement_id, person_name: route.person_name, title: route.title, end_client_name: route.end_client_name })}</td>
+          <td style={cell}>{routeEdit?.id === route.id ? <select aria-label="Route placement" style={{ ...field, minWidth: 210 }} value={routeEdit.placement_id} onChange={e => setRouteEdit(prev => ({ ...prev, placement_id: e.target.value }))}>{placements.filter(p => Number(p.person_id) === linkedPeople.get(String(route.worker_id))).map(p => <option key={p.id} value={p.id}>{placementName(p)}</option>)}</select> : placementName(route)}</td>
           <td style={cell}>{routeEdit?.id === route.id ? <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}><input aria-label="Route start" type="date" style={field} value={routeEdit.effective_from} onChange={e => setRouteEdit(prev => ({ ...prev, effective_from: e.target.value }))} /><input aria-label="Route end" type="date" style={field} value={routeEdit.effective_to} onChange={e => setRouteEdit(prev => ({ ...prev, effective_to: e.target.value }))} /></div> : <>{route.effective_from}{route.effective_to ? ` to ${route.effective_to}` : ' onward'}</>}</td>
           <td style={cell}><div style={{ display: 'flex', gap: 5 }}>{routeEdit?.id === route.id ? <><button className="btn btn-primary" type="button" disabled={!!busy} onClick={saveEditedRoute}><Save size={14} /> Save</button><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setRouteEdit(null)}>Cancel</button></> : <><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => setRouteEdit({ id: route.id, placement_id: String(route.placement_id), effective_from: route.effective_from, effective_to: route.effective_to || '' })}>Edit</button><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => { if (window.confirm('Remove this route? Imported time will remain in CoreFlux.')) run('delete-route', async () => { const result = await api.post(`${endpoint}delete_route`, { id: route.id }); setCatalog(prev => ({ ...prev, routes: result.routes })); setPreview(null); }); }}>Remove</button></>}</div></td>
         </tr>)}</tbody></table></div>

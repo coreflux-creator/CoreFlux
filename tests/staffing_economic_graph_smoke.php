@@ -140,7 +140,9 @@ $assert('AR invoice creation consumes and snapshots placement client terms',
     && str_contains($settlementCreate, "'payment_terms'     => \$receivable['payment_terms']")
     && !str_contains($settlementCreate, "strtotime('+30 days')")
     && substr_count($billing, 'placementEconomicsReceivableContract') >= 2
-    && str_contains($billingApi, "'payment_terms'     => \$resolvedInvoiceTerms"));
+    && substr_count($billing, "'payment_terms' => \$receivable['payment_terms']") >= 2
+    && str_contains($billingApi, "\$inv  = \$d['invoice']")
+    && str_contains($billingApi, "scopedInsert('billing_invoices', \$inv)"));
 $assert('time settlement prefers purpose-specific cycles',
     str_contains($settlement, 'placement.billing_operating_cycle_id')
     && str_contains($settlement, 'placement.ap_operating_cycle_id')

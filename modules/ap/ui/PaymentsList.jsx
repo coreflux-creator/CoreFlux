@@ -6,7 +6,7 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import VendorTypeahead from './VendorTypeahead';
-import { ChevronLeft, ChevronRight, Landmark, Search, Send } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, CircleX, Landmark, RotateCcw, Search, Send } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 const METHOD_LABELS = {
@@ -15,9 +15,13 @@ const METHOD_LABELS = {
 };
 const RAIL_LABELS = { plaid_transfer: 'Online bank payment', nacha: 'Bank payment file', mercury: 'Mercury', purepay: 'Pure//Pay' };
 
-export default function PaymentsList() {
+export default function PaymentsList({ session }) {
   const location = useLocation();
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   const { activeEntityId, activeEntity } = useActiveEntity();
+  const currentUserId = Number(session?.user?.id);
+  const createdByCurrentUser = (payment) => currentUserId > 0
+    && Number(payment.created_by_user_id) === currentUserId;
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -33,10 +37,12 @@ export default function PaymentsList() {
   const total = Number(data?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const createdRun = location.state?.paymentRun || null;
-  const plaidEnabled = !!data?.plaid_enabled;
-  const plaidTransferLinked = !!data?.plaid_transfer_linked;
-  const mercuryConnected = !!data?.mercury_connected;
-  const purepayConnected = !!data?.purepay_connected;
+  const plaidEnabled = !standaloneAccounting && !!data?.plaid_enabled;
+  const plaidTransferLinked = !standaloneAccounting && !!data?.plaid_transfer_linked;
+  const mercuryConnected = !standaloneAccounting && !!data?.mercury_connected;
+  const purepayConnected = !standaloneAccounting && !!data?.purepay_connected;
+  const canVoidPayment = !!data?.can_void_payment;
+  const canCorrectManualPayment = !!data?.can_correct_manual_payment;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
   const [batching, setBatching]   = useState(false);
@@ -44,6 +50,8 @@ export default function PaymentsList() {
   const [batchInfo, setBatchInfo] = useState(null);
   const [bulkResult, setBulkResult] = useState(null);
   const [releaseRow, setReleaseRow] = useState({});
+  const [paymentAction, setPaymentAction] = useState(null);
+  const [paymentActionResult, setPaymentActionResult] = useState(null);
 
   const sel = useBulkSelection(rows.map(r => r.id));
   const autoSelectedRunRef = useRef('');
@@ -137,12 +145,14 @@ export default function PaymentsList() {
   const isOriginatable = (p) =>
     ['ach','plaid'].includes(p.method) &&
     Number(p.unallocated_amount) <= 0.005 &&
+    (!['draft', 'queued'].includes(p.status) || !createdByCurrentUser(p)) &&
     (['draft','queued'].includes(p.status) || (p.status === 'sent' && !p.rail_external_ref));
 
-  const eligibleSelected = rows.filter(p => sel.has(p.id) && isOriginatable(p)
+  const eligibleSelected = rows.filter(p => !standaloneAccounting && sel.has(p.id) && isOriginatable(p)
     && (defaultRail !== 'purepay' || String(p.currency || 'USD').toUpperCase() === 'USD'));
   const releasableSelected = rows.filter(p => (
-    sel.has(p.id) && ['draft', 'queued'].includes(p.status) && Number(p.unallocated_amount) <= 0.005
+    sel.has(p.id) && ['draft', 'queued'].includes(p.status)
+    && Number(p.unallocated_amount) <= 0.005 && !createdByCurrentUser(p)
   ));
   const mercurySelected = rows.filter(p => (
     sel.has(p.id) && p.method === 'mercury' && p.status === 'sent' && !p.rail_external_ref
@@ -263,7 +273,9 @@ export default function PaymentsList() {
         <div>
           <h3 style={{ margin: 0, fontSize: 16 }}>Vendor payments</h3>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-            {plaidEnabled
+            {standaloneAccounting
+              ? <span data-testid="ap-manual-payment-notice">Record payments made outside CoreAccounting, then match them in bank reconciliation. CoreAccounting does not send money.</span>
+              : plaidEnabled
               ? (plaidTransferLinked
                   ? <><span className="badge badge--success">Online payments ready</span> — approved payments can be sent from CoreFlux.</>
                   : (
@@ -272,7 +284,7 @@ export default function PaymentsList() {
                           Payment account needed
                         </span>
                         {' '}
-                        <Link to="/admin/integrations/plaid" data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
+                        <Link to={session?.product_mode === 'coreaccounting' ? '/modules/treasury/overview' : '/admin/integrations/plaid'} data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
                           Connect payment account →
                         </Link>
                       </span>
@@ -289,7 +301,7 @@ export default function PaymentsList() {
         <div style={{ display: 'flex', gap: 8 }}>
           <Link to="csv_import" className="btn" data-testid="ap-payments-import-csv">Import CSV</Link>
           <a className="btn" href={`/api/v1/ap/payments-csv-export${activeEntityId ? `?entity_id=${activeEntityId}` : ''}`} data-testid="ap-payments-export-all-csv">Export all (CSV)</a>
-          <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
+          <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Prepare payment</button>
         </div>
       </div>
 
@@ -327,9 +339,9 @@ export default function PaymentsList() {
           <button className="btn btn--primary" onClick={releaseSelected} disabled={batching || !releasableSelected.length} data-testid="ap-payments-release-selected">
             <Send size={15} aria-hidden="true" /> Release ({releasableSelected.length})
           </button>
-          <button className="btn btn--primary" onClick={() => originateBatch()} disabled={batching || apSettings.loading || (defaultRail === 'purepay' && !purepayConnected) || !eligibleSelected.length} data-testid="ap-payments-originate-selected">
+          {!standaloneAccounting && <button className="btn btn--primary" onClick={() => originateBatch()} disabled={batching || apSettings.loading || (defaultRail === 'purepay' && !purepayConnected) || !eligibleSelected.length} data-testid="ap-payments-originate-selected">
             <Landmark size={15} aria-hidden="true" /> {defaultRail === 'purepay' ? 'Pay via Pure//Pay' : 'Prepare bank batch'} ({eligibleSelected.length})
-          </button>
+          </button>}
           {purepayConnected && defaultRail !== 'purepay' && (
             <button className="btn btn--ghost" onClick={() => originateBatch('purepay')} disabled={batching || !purepaySelected.length} data-testid="ap-payments-purepay-selected">
               <Landmark size={15} aria-hidden="true" /> Pay via Pure//Pay ({purepaySelected.length})
@@ -367,10 +379,18 @@ export default function PaymentsList() {
           {!!batchInfo.failed_items?.length && <> · {batchInfo.failed_items.length} failed: {batchInfo.failed_items.map(item => `#${item.payment_id}: ${item.error}`).join('; ')}</>}
         </p>
       )}
+      {paymentActionResult && (
+        <p className="success" data-testid="ap-payment-action-result">
+          {paymentActionResult.mode === 'correct' ? 'Manual payment corrected.' : 'Payment voided.'}
+          {paymentActionResult.result?.reversal_je_id && <>{' '}<Link to={`/modules/accounting/journal-entries/${paymentActionResult.result.reversal_je_id}`}>View reversal journal</Link>.</>}
+          {paymentActionResult.result?.bank_line_id && ' The bank line is ready for a new match.'}
+        </p>
+      )}
 
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
 
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Vendor payments" tabIndex={0}>
       <table className="data-table" data-testid="ap-payments-table">
         <thead>
           <tr>
@@ -416,7 +436,16 @@ export default function PaymentsList() {
                   : '—'}
               </td>
               <td>
-                {['draft', 'queued'].includes(p.status) && (
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                {['draft', 'queued'].includes(p.status) && createdByCurrentUser(p)
+                  && Number(p.unallocated_amount) <= 0.005 && (
+                    <span className="muted" data-testid={`ap-payment-needs-reviewer-${p.id}`}
+                      title="A different authorized user must release this payment">
+                      Needs another approver
+                    </span>
+                  )}
+                {['draft', 'queued'].includes(p.status) && !(createdByCurrentUser(p)
+                  && Number(p.unallocated_amount) <= 0.005) && (
                   <button
                     className="btn btn--ghost"
                     onClick={() => releasePayment(p)}
@@ -486,11 +515,42 @@ export default function PaymentsList() {
                 )}
                 {purepayRow[p.id]?.error && <div className="error" data-testid={`ap-send-via-purepay-error-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>{purepayRow[p.id].error}</div>}
                 {purepayRow[p.id]?.ok && <div className="success" data-testid={`ap-send-via-purepay-ok-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>Submitted via Pure//Pay ({purepayRow[p.id].ref})</div>}
+                {canCorrectManualPayment && p.status === 'cleared'
+                  && !p.disbursement_rail && !p.rail_external_ref && !p.plaid_transfer_id && (
+                    <button className="btn btn--ghost" type="button"
+                      onClick={() => setPaymentAction({ payment: p, mode: 'correct' })}
+                      title="Review a linked correction of this manual payment"
+                      data-testid={`ap-payment-correct-${p.id}`}>
+                      <RotateCcw size={14} aria-hidden="true" /> Correct
+                    </button>
+                  )}
+                {canVoidPayment && ['draft', 'queued', 'sent', 'failed'].includes(p.status) && (
+                  <button className="btn btn--ghost" type="button"
+                    onClick={() => setPaymentAction({ payment: p, mode: 'void' })}
+                    title="Void this payment and release its bill reservation"
+                    data-testid={`ap-payment-void-${p.id}`}>
+                    <CircleX size={14} aria-hidden="true" /> Void
+                  </button>
+                )}
+                {p.journal_entry_id && (
+                  <Link to={`/modules/accounting/journal-entries/${p.journal_entry_id}`} className="btn btn--ghost"
+                    title="View the original payment journal" data-testid={`ap-payment-journal-${p.id}`}>
+                    <BookOpen size={14} aria-hidden="true" /> Journal
+                  </Link>
+                )}
+                {p.reversal_journal_entry_id && (
+                  <Link to={`/modules/accounting/journal-entries/${p.reversal_journal_entry_id}`} className="btn btn--ghost"
+                    title="View the reversing journal" data-testid={`ap-payment-reversal-${p.id}`}>
+                    <RotateCcw size={14} aria-hidden="true" /> Reversal
+                  </Link>
+                )}
+                </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
 
       {total > 0 && (
         <footer className="operational-footer" data-testid="ap-payments-pagination">
@@ -507,8 +567,18 @@ export default function PaymentsList() {
         </footer>
       )}
 
-      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} entityId={activeEntityId} />}
+      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} standaloneAccounting={standaloneAccounting} entityId={activeEntityId} />}
       {showAllocate && <AllocateModal payment={showAllocate} onClose={() => setShowAllocate(null)} onDone={() => { setShowAllocate(null); reload(); }} />}
+      {paymentAction && <PaymentActionModal
+        payment={paymentAction.payment}
+        mode={paymentAction.mode}
+        onClose={() => setPaymentAction(null)}
+        onDone={(result) => {
+          setPaymentActionResult({ mode: paymentAction.mode, result });
+          setPaymentAction(null);
+          reload();
+        }}
+      />}
     </section>
   );
 }
@@ -519,7 +589,7 @@ const bulkBar = {
   marginBottom: 12, flexWrap: 'wrap',
 };
 
-function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, entityId = null }) {
+function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, standaloneAccounting, entityId = null }) {
   const [form, setForm] = useState({
     vendor_name: '', pay_date: new Date().toISOString().slice(0, 10), method: 'ach',
     amount: '', reference: '', currency: 'USD', auto_allocate: true, notes: '',
@@ -537,7 +607,7 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, 
   return (
     <div data-testid="ap-record-payment-modal" style={modalOverlay} onClick={(e) => e.target === e.currentTarget && !busy && onClose?.()}>
       <div style={modalBox}>
-        <header style={modalHeader}><h3 style={{ margin: 0 }}>Record payment</h3></header>
+        <header style={modalHeader}><h3 style={{ margin: 0 }}>Prepare payment</h3></header>
         <div style={{ padding: 20, display: 'grid', gap: 12 }}>
           <Field label="Vendor">
             <VendorTypeahead
@@ -559,8 +629,8 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, 
               <option value="check">Check</option>
               <option value="card">Card</option>
               <option value="cash">Cash</option>
-              <option value="plaid" disabled={!plaidEnabled}>Online bank payment{plaidEnabled ? '' : ' (not connected)'}</option>
-              <option value="mercury" disabled={!mercuryEnabled}>Mercury{mercuryEnabled ? '' : ' (not connected)'}</option>
+              {!standaloneAccounting && <option value="plaid" disabled={!plaidEnabled}>Online bank payment{plaidEnabled ? '' : ' (not connected)'}</option>}
+              {!standaloneAccounting && <option value="mercury" disabled={!mercuryEnabled}>Mercury{mercuryEnabled ? '' : ' (not connected)'}</option>}
               <option value="other">Other</option>
             </select>
           </Field>
@@ -583,7 +653,7 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled, 
         </div>
         <footer style={modalFooter}>
           <button className="btn btn--ghost" onClick={onClose} data-testid="ap-pay-cancel">Cancel</button>
-          <button className="btn btn--primary" onClick={submit} disabled={busy || !vendor?.id || !form.amount} data-testid="ap-pay-save">{busy ? 'Saving…' : 'Record payment'}</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy || !vendor?.id || !form.amount} data-testid="ap-pay-save">{busy ? 'Saving…' : 'Save draft'}</button>
         </footer>
       </div>
     </div>
@@ -689,6 +759,79 @@ function AllocateModal({ payment, onClose, onDone }) {
             disabled={busy || (mode === 'manual' && (manualAllocations.length === 0 || manualTotal - Number(payment.unallocated_amount) > 0.005))}
             data-testid="ap-alloc-confirm"
           >{busy ? 'Allocating…' : 'Allocate'}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function PaymentActionModal({ payment, mode, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const isCorrection = mode === 'correct';
+  const check = useApi(
+    isCorrection ? `/modules/ap/api/payments.php?action=correction_check&id=${payment.id}` : null,
+    { enabled: isCorrection },
+  );
+  const review = check.data?.review;
+  const canEnterReason = !isCorrection || check.data?.available;
+
+  const submit = async () => {
+    setBusy(true); setError(null);
+    try {
+      const action = isCorrection ? 'correct_cleared' : 'void';
+      const result = await api.post(`/modules/ap/api/payments.php?action=${action}&id=${payment.id}`, { reason: reason.trim() });
+      onDone?.(result);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={modalOverlay} data-testid="ap-payment-action-modal"
+      onClick={(event) => event.target === event.currentTarget && !busy && onClose?.()}>
+      <div style={{ ...modalBox, borderRadius: 8 }} role="dialog" aria-modal="true" aria-labelledby="ap-payment-action-title">
+        <header style={modalHeader}>
+          <h3 id="ap-payment-action-title" style={{ margin: 0 }}>
+            {isCorrection ? 'Correct cleared payment' : 'Void payment'} #{payment.id}
+          </h3>
+          <p style={{ margin: '6px 0 0', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+            {payment.vendor_name} · {Number(payment.amount).toFixed(2)} {payment.currency}
+          </p>
+        </header>
+        <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+          {isCorrection ? <>
+            {check.loading && <p className="muted">Checking the journal, bills and bank reconciliation…</p>}
+            {check.error && <p className="error">Could not review this payment: {check.error.message}</p>}
+            {check.data && !check.data.available && <p className="error">{check.data.reason}</p>}
+            {review && <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <div>Original journal #{review.original_je_id}</div>
+              <div>{review.bill_ids.length} bill{review.bill_ids.length === 1 ? '' : 's'} will reopen</div>
+              <div>{review.bank_line_id ? `Bank line #${review.bank_line_id} will become unmatched` : 'No bank line is matched'}</div>
+            </div>}
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              This reverses the accounting record; it does not recall money from a bank or payment provider.
+            </p>
+          </> : <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            This cancels an unposted payment and releases its bill reservation. A payout already sent to a provider must be cancelled there first.
+          </p>}
+          {canEnterReason && <Field label="Reason">
+            <textarea className="input" rows={3} maxLength={500} value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="What needs to be corrected?" data-testid="ap-payment-action-reason" />
+          </Field>}
+          {error && <p className="error" data-testid="ap-payment-action-error">{error.message}</p>}
+        </div>
+        <footer style={modalFooter}>
+          <button className="btn btn--ghost" type="button" onClick={onClose} disabled={busy}>{canEnterReason ? 'Cancel' : 'Close'}</button>
+          {canEnterReason && <button className="btn btn--primary" type="button" onClick={submit}
+            disabled={busy || !reason.trim()}
+            data-testid="ap-payment-action-confirm">
+            {busy ? 'Saving…' : isCorrection ? 'Correct payment' : 'Void payment'}
+          </button>}
         </footer>
       </div>
     </div>

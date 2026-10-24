@@ -19,6 +19,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../../core/tx_helpers.php';
+
 /**
  * Parse + insert CSV rows. The CSV is expected to have a header row.
  * If $headerMap is null we auto-detect by header name keywords.
@@ -27,98 +29,185 @@ declare(strict_types=1);
  */
 function bankRecImportCsv(int $tenantId, int $bankAccountId, string $csvBody, ?array $headerMap, ?int $userId): array
 {
-    $rows = [];
-    $fh   = fopen('php://memory', 'r+');
-    fwrite($fh, $csvBody);
-    rewind($fh);
-    $header = fgetcsv($fh);
-    if (!$header) throw new RuntimeException('CSV is empty or unreadable');
-
-    // Resolve column indexes
-    $dateCol  = bankRecResolveCol($header, $headerMap['date_col']   ?? null, ['date','posted','transaction_date']);
-    $descCol  = bankRecResolveCol($header, $headerMap['desc_col']   ?? null, ['description','memo','payee','narrative']);
-    $amtCol   = bankRecResolveCol($header, $headerMap['amount_col'] ?? null, ['amount','value','debit_credit']);
-    $fitidCol = bankRecResolveCol($header, $headerMap['fitid_col']  ?? null, ['fitid','transaction_id','txn_id','reference']);
-
-    if ($dateCol === null || $descCol === null || $amtCol === null) {
-        throw new RuntimeException('CSV must have date, description, and amount columns');
-    }
+    $rows = bankRecParseCsvRows($csvBody, $headerMap, $bankAccountId);
 
     $pdo  = getDB();
-    $now  = date('Y-m-d H:i:s');
+    $ownsTransaction = !$pdo->inTransaction();
+    try {
+        if ($ownsTransaction) $pdo->beginTransaction();
 
-    // Create a parent import row first
-    $importId = scopedInsert('accounting_bank_statement_imports', [
-        'bank_account_id'    => $bankAccountId,
-        'source'             => 'csv',
-        'created_by_user_id' => $userId,
-    ]);
-
-    $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
-    $stmt = $pdo->prepare(
-        'INSERT IGNORE INTO accounting_bank_statement_lines
-            (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
-         VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
-    );
-    while (($r = fgetcsv($fh)) !== false) {
-        if (!isset($r[$dateCol], $r[$descCol], $r[$amtCol])) continue;
-        $date  = trim((string) $r[$dateCol]);
-        $desc  = trim((string) $r[$descCol]);
-        $amt   = (float) preg_replace('/[^0-9.\-]/', '', (string) $r[$amtCol]);
-        if ($date === '' || $desc === '') continue;
-        // Normalize to YYYY-MM-DD
-        $ts = strtotime($date);
-        if ($ts === false) continue;
-        $iso = date('Y-m-d', $ts);
-        $fit = $fitidCol !== null && isset($r[$fitidCol]) ? trim((string) $r[$fitidCol]) : null;
-        if ($fit === '' || $fit === null) {
-            // Synthesize a stable FITID so de-dup still works
-            $fit = sha1($bankAccountId . '|' . $iso . '|' . $desc . '|' . $amt);
-        }
-        $stmt->execute([
-            't'     => $tenantId,
-            'b'     => $bankAccountId,
-            'i'     => $importId,
-            'd'     => $iso,
-            'desc'  => substr($desc, 0, 255),
-            'amt'   => $amt,
-            'ref'   => null,
-            'fitid' => substr($fit, 0, 120),
+        $importId = scopedInsert('accounting_bank_statement_imports', [
+            'bank_account_id'    => $bankAccountId,
+            'source'             => 'csv',
+            'created_by_user_id' => $userId,
         ]);
-        if ($stmt->rowCount() === 1) {
-            $inserted++;
-            if ($minDate === null || $iso < $minDate) $minDate = $iso;
-            if ($maxDate === null || $iso > $maxDate) $maxDate = $iso;
-        } else {
-            $duplicates++;
+
+        $inserted = 0; $duplicates = 0; $minDate = null; $maxDate = null;
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_bank_statement_lines
+                (tenant_id, bank_account_id, import_id, posted_date, description, amount, bank_reference, fitid)
+             VALUES (:t, :b, :i, :d, :desc, :amt, :ref, :fitid)'
+        );
+        $existing = $pdo->prepare(
+            'SELECT posted_date, description, amount FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tenant_id AND bank_account_id = :bank_account_id AND fitid = :fitid'
+        );
+        foreach ($rows as $row) {
+            try {
+                $stmt->execute([
+                    't' => $tenantId, 'b' => $bankAccountId, 'i' => $importId,
+                    'd' => $row['date'], 'desc' => $row['description'],
+                    'amt' => $row['amount'], 'ref' => null, 'fitid' => $row['fitid'],
+                ]);
+                $inserted++;
+                if ($minDate === null || $row['date'] < $minDate) $minDate = $row['date'];
+                if ($maxDate === null || $row['date'] > $maxDate) $maxDate = $row['date'];
+            } catch (PDOException $e) {
+                if ((int) ($e->errorInfo[1] ?? 0) !== 1062) throw $e;
+                $existing->execute([
+                    'tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId, 'fitid' => $row['fitid'],
+                ]);
+                $prior = $existing->fetch(PDO::FETCH_ASSOC);
+                if (!$prior || (string) $prior['posted_date'] !== $row['date']
+                    || (string) $prior['description'] !== $row['description']
+                    || round((float) $prior['amount'], 2) !== $row['amount']) {
+                    throw new RuntimeException("CSV record {$row['record']} reuses a transaction ID with different details");
+                }
+                $duplicates++;
+            }
         }
+
+        scopedUpdate('accounting_bank_statement_imports', $importId, [
+            'statement_from' => $minDate,
+            'statement_to'   => $maxDate,
+            'line_count'     => $inserted,
+        ]);
+        if ($ownsTransaction) $pdo->commit();
+
+        return [
+            'import_id'  => $importId,
+            'inserted'   => $inserted,
+            'duplicates' => $duplicates,
+            'date_from'  => $minDate,
+            'date_to'    => $maxDate,
+        ];
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
     }
-    fclose($fh);
+}
 
-    scopedUpdate('accounting_bank_statement_imports', $importId, [
-        'statement_from' => $minDate,
-        'statement_to'   => $maxDate,
-        'line_count'     => $inserted,
-    ]);
+function bankRecParseCsvRows(string $csvBody, ?array $headerMap, int $bankAccountId): array
+{
+    if (strlen($csvBody) > 10000000) throw new RuntimeException('CSV is too large (10 MB maximum)');
+    $fh = fopen('php://temp', 'w+');
+    if (!$fh) throw new RuntimeException('Could not open CSV for reading');
+    try {
+        fwrite($fh, $csvBody);
+        rewind($fh);
+        $header = fgetcsv($fh, 0, ',', '"', '');
+        if (!$header) throw new RuntimeException('CSV is empty or unreadable');
+        $header = array_map(static fn($cell): string => trim((string) $cell), $header);
+        $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0]);
 
-    return [
-        'import_id'  => $importId,
-        'inserted'   => $inserted,
-        'duplicates' => $duplicates,
-        'date_from'  => $minDate,
-        'date_to'    => $maxDate,
-    ];
+        $dateCol = bankRecResolveCol($header, $headerMap['date_col'] ?? null, ['date', 'posted', 'transaction_date']);
+        $descCol = bankRecResolveCol($header, $headerMap['desc_col'] ?? null, ['description', 'memo', 'payee', 'narrative']);
+        $amtCol = bankRecResolveCol($header, $headerMap['amount_col'] ?? null, ['amount', 'value', 'debit_credit']);
+        $fitidCol = bankRecResolveCol($header, $headerMap['fitid_col'] ?? null, ['fitid', 'transaction_id', 'txn_id', 'reference']);
+        if ($dateCol === null || $descCol === null || $amtCol === null) {
+            throw new RuntimeException('CSV needs date, description, and amount columns');
+        }
+        if (count(array_unique([$dateCol, $descCol, $amtCol])) !== 3) {
+            throw new RuntimeException('Date, description, and amount must map to different columns');
+        }
+        if ($headerMap && array_key_exists('fitid_col', $headerMap) && $fitidCol === null) {
+            throw new RuntimeException('Transaction ID column was not found in the CSV header');
+        }
+        if ($fitidCol !== null && in_array($fitidCol, [$dateCol, $descCol, $amtCol], true)) {
+            throw new RuntimeException('Transaction ID must map to a separate CSV column');
+        }
+
+        $rows = []; $errors = []; $record = 1; $identicalRows = [];
+        while (($cells = fgetcsv($fh, 0, ',', '"', '')) !== false) {
+            $record++;
+            if (count($cells) === 1 && trim((string) $cells[0]) === '') continue;
+            if (count($rows) + count($errors) >= 20000) {
+                throw new RuntimeException('CSV has more than 20,000 transactions; split it into smaller files');
+            }
+            $date = bankRecParseCsvDate((string) ($cells[$dateCol] ?? ''));
+            $description = trim((string) ($cells[$descCol] ?? ''));
+            $amount = bankRecParseCsvAmount((string) ($cells[$amtCol] ?? ''));
+            $issue = $date === null ? 'invalid date' : ($description === '' ? 'missing description'
+                : ($amount === null ? 'invalid amount' : null));
+            if ($issue !== null) {
+                $errors[] = "record {$record}: {$issue}";
+                continue;
+            }
+            $description = substr($description, 0, 255);
+            $fitid = $fitidCol !== null ? trim((string) ($cells[$fitidCol] ?? '')) : '';
+            if ($fitid === '') {
+                $signature = $bankAccountId . '|' . $date . '|' . $description . '|' . number_format($amount, 2, '.', '');
+                $identicalRows[$signature] = ($identicalRows[$signature] ?? 0) + 1;
+                $fitid = sha1($signature . '|' . $identicalRows[$signature]);
+            }
+            if (strlen($fitid) > 120) {
+                $errors[] = "record {$record}: transaction ID is longer than 120 characters";
+                continue;
+            }
+            $rows[] = [
+                'record' => $record, 'date' => $date, 'description' => $description,
+                'amount' => $amount, 'fitid' => $fitid,
+            ];
+        }
+        if ($errors) {
+            throw new RuntimeException('CSV has ' . count($errors) . ' invalid record(s): ' . implode('; ', array_slice($errors, 0, 5)));
+        }
+        if (!$rows) throw new RuntimeException('CSV has no transactions');
+        return $rows;
+    } finally {
+        fclose($fh);
+    }
+}
+
+function bankRecParseCsvDate(string $value): ?string
+{
+    $value = trim($value);
+    if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $value, $parts)
+        || preg_match('/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/', $value, $parts)) {
+        [$year, $month, $day] = [(int) $parts[1], (int) $parts[2], (int) $parts[3]];
+    } elseif (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $value, $parts)) {
+        [$year, $month, $day] = [(int) $parts[3], (int) $parts[1], (int) $parts[2]];
+    } else {
+        return null;
+    }
+    return checkdate($month, $day, $year) ? sprintf('%04d-%02d-%02d', $year, $month, $day) : null;
+}
+
+function bankRecParseCsvAmount(string $value): ?float
+{
+    $value = trim($value);
+    $parenthesized = str_starts_with($value, '(') && str_ends_with($value, ')');
+    if ($parenthesized) $value = substr($value, 1, -1);
+    $value = preg_replace('/[,\s$]/', '', $value);
+    if (!preg_match('/^[+-]?\d+(?:\.\d{1,2})?$/', $value)) return null;
+    if ($parenthesized && ($value[0] === '-' || $value[0] === '+')) return null;
+    $amount = (float) $value * ($parenthesized ? -1 : 1);
+    return is_finite($amount) && abs($amount) < 1000000000000 && $amount != 0.0
+        ? round($amount, 2) : null;
 }
 
 function bankRecResolveCol(array $header, $explicit, array $keywords): ?int
 {
-    if (is_int($explicit))    return $explicit;
+    if (is_int($explicit)) return $explicit >= 0 && $explicit < count($header) ? $explicit : null;
     if (is_string($explicit)) {
-        $i = array_search($explicit, $header, true);
-        if ($i !== false) return (int) $i;
+        foreach ($header as $i => $name) {
+            if (strcasecmp(trim($explicit), trim((string) $name)) === 0) return (int) $i;
+        }
+        return null;
     }
     foreach ($header as $i => $h) {
         $hLow = strtolower(trim((string) $h));
+        $hLow = preg_replace('/[^a-z0-9]+/', '_', $hLow);
         foreach ($keywords as $k) {
             if ($hLow === $k || str_contains($hLow, $k)) return (int) $i;
         }
@@ -163,59 +252,93 @@ function bankRecMarkLineMatched(int $tenantId, int $lineId, int $jeId, ?int $use
 
 function bankRecMatchLine(int $tenantId, int $lineId, int $jeId, ?int $userId): array
 {
-    $line = scopedFind(
-        'SELECT bl.id, bl.amount, bl.match_status, bl.matched_je_id,
-                ba.gl_account_code, ba.entity_id AS bank_entity_id,
-                COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
-           FROM accounting_bank_statement_lines bl
-           JOIN accounting_bank_accounts ba
-             ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
-          WHERE bl.tenant_id = :tenant_id AND bl.id = :id',
-        ['id' => $lineId]
-    );
-    if (!$line) throw new RuntimeException('Line not found');
-    if (($line['match_status'] ?? '') === 'matched' && (int) ($line['matched_je_id'] ?? 0) === $jeId) {
-        return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
-    }
-    if (($line['match_status'] ?? '') !== 'unmatched') {
-        throw new RuntimeException('This bank line is already resolved');
-    }
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        $journal = scopedFind(
+            'SELECT id, status FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
+            ['id' => $jeId]
+        );
+        if (!$journal) throw new RuntimeException('JE not found');
+        if (($journal['status'] ?? '') !== 'posted') throw new RuntimeException('Only a posted journal entry can be matched');
 
-    $je = scopedFind(
-        'SELECT je.id, je.status, je.entity_id, je.currency,
-                ROUND(COALESCE(SUM(CASE WHEN account.code = :bank_code
-                     THEN line.debit - line.credit ELSE 0 END), 0), 2) AS bank_movement
-           FROM accounting_journal_entries je
-           LEFT JOIN accounting_journal_entry_lines line ON line.je_id = je.id
-           LEFT JOIN accounting_accounts account
-             ON account.tenant_id = je.tenant_id AND account.id = line.account_id
-          WHERE je.tenant_id = :tenant_id AND je.id = :id
-          GROUP BY je.id, je.status, je.entity_id, je.currency',
-        ['id' => $jeId, 'bank_code' => (string) $line['gl_account_code']]
-    );
-    if (!$je) throw new RuntimeException('JE not found');
-    if (($je['status'] ?? '') !== 'posted') throw new RuntimeException('Only a posted journal entry can be matched');
-    if (!empty($line['bank_entity_id']) && !empty($je['entity_id'])
-        && (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
-        throw new RuntimeException('The journal entry belongs to a different entity');
-    }
-    if (strcasecmp((string) ($line['bank_currency'] ?: 'USD'), (string) ($je['currency'] ?: 'USD')) !== 0) {
-        throw new RuntimeException('The journal entry uses a different currency');
-    }
-    if (abs((float) $je['bank_movement'] - (float) $line['amount']) > 0.005) {
-        throw new RuntimeException('The journal entry does not contain the matching cash movement for this bank account and amount');
-    }
-    $used = scopedFind(
-        'SELECT id FROM accounting_bank_statement_lines
-          WHERE tenant_id = :tenant_id AND matched_je_id = :je_id
-            AND match_status = "matched" AND id <> :line_id
-          LIMIT 1',
-        ['je_id' => $jeId, 'line_id' => $lineId]
-    );
-    if ($used) throw new RuntimeException('That journal entry is already matched to another bank line');
+        $line = scopedFind(
+            'SELECT bl.id, bl.amount, bl.match_status, bl.matched_je_id,
+                    ba.gl_account_code, ba.entity_id AS bank_entity_id,
+                    COALESCE(NULLIF(ba.currency, ""), "USD") AS bank_currency
+               FROM accounting_bank_statement_lines bl
+               JOIN accounting_bank_accounts ba
+                 ON ba.tenant_id = bl.tenant_id AND ba.id = bl.bank_account_id
+              WHERE bl.tenant_id = :tenant_id AND bl.id = :id FOR UPDATE',
+            ['id' => $lineId]
+        );
+        if (!$line) throw new RuntimeException('Line not found');
+        $isReplay = ($line['match_status'] ?? '') === 'matched'
+            && (int) ($line['matched_je_id'] ?? 0) === $jeId;
+        if (!$isReplay && ($line['match_status'] ?? '') !== 'unmatched') {
+            throw new RuntimeException('This bank line is already resolved');
+        }
 
-    bankRecMarkLineMatched($tenantId, $lineId, $jeId, $userId);
-    return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => false];
+        $je = scopedFind(
+            'SELECT je.id, je.status, je.entity_id, je.currency,
+                    ROUND(COALESCE(SUM(CASE WHEN account.code = :bank_code
+                         THEN line.debit - line.credit ELSE 0 END), 0), 2) AS bank_movement
+               FROM accounting_journal_entries je
+               LEFT JOIN accounting_journal_entry_lines line ON line.je_id = je.id
+               LEFT JOIN accounting_accounts account
+                 ON account.tenant_id = je.tenant_id AND account.id = line.account_id
+              WHERE je.tenant_id = :tenant_id AND je.id = :id
+              GROUP BY je.id, je.status, je.entity_id, je.currency',
+            ['id' => $jeId, 'bank_code' => (string) $line['gl_account_code']]
+        );
+        if (!$je) throw new RuntimeException('JE not found');
+        if (empty($line['bank_entity_id']) || empty($je['entity_id'])
+            || (int) $line['bank_entity_id'] !== (int) $je['entity_id']) {
+            throw new RuntimeException('The journal entry and bank account must belong to the same legal entity');
+        }
+        if (strcasecmp((string) ($line['bank_currency'] ?: 'USD'), (string) ($je['currency'] ?: 'USD')) !== 0) {
+            throw new RuntimeException('The journal entry uses a different currency');
+        }
+        if (abs((float) $je['bank_movement'] - (float) $line['amount']) > 0.005) {
+            throw new RuntimeException('The journal entry does not contain the matching cash movement for this bank account and amount');
+        }
+        if ($isReplay) {
+            cf_tx_commit($pdo, $ownsTransaction);
+            return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => true];
+        }
+        $used = scopedFind(
+            'SELECT id FROM accounting_bank_statement_lines
+              WHERE tenant_id = :tenant_id AND matched_je_id = :je_id
+                AND match_status = "matched" AND id <> :line_id
+              LIMIT 1',
+            ['je_id' => $jeId, 'line_id' => $lineId]
+        );
+        if ($used) throw new RuntimeException('That journal entry is already matched to another bank line');
+
+        bankRecMarkLineMatched($tenantId, $lineId, $jeId, $userId);
+        cf_tx_commit($pdo, $ownsTransaction);
+        return ['ok' => true, 'line_id' => $lineId, 'je_id' => $jeId, 'idempotent_replay' => false];
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
+    }
+}
+
+function bankRecUnmatchBlocker(array $line, bool $hasTreasuryLineage): ?string
+{
+    $lineId = (int) ($line['id'] ?? 0);
+    $createdFromLine = ($line['source_module'] ?? '') === 'treasury_feed'
+        || ((string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
+            && (int) ($line['source_ref_id'] ?? 0) === $lineId) || $hasTreasuryLineage;
+    if ($createdFromLine) {
+        return 'This bank line created a posted ledger entry. Correct the source transaction to keep the books in sync.';
+    }
+    if (($line['source_module'] ?? '') === 'billing'
+        && ($line['source_ref_type'] ?? '') === 'processor_payout') {
+        return 'This bank line settled captured processor payments. Correct the processor payout first.';
+    }
+    return null;
 }
 
 function bankRecUnmatchLine(int $tenantId, int $lineId): array
@@ -234,9 +357,8 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
         return ['ok' => true, 'line_id' => $lineId, 'idempotent_replay' => true];
     }
 
-    $journalWasCreatedFromLine = (string) ($line['source_ref_type'] ?? '') === 'bank_statement_line'
-        && (int) ($line['source_ref_id'] ?? 0) === $lineId;
-    if (!$journalWasCreatedFromLine && !empty($line['matched_je_id'])) {
+    $hasTreasuryLineage = false;
+    if (!empty($line['matched_je_id'])) {
         try {
             $lineage = scopedFind(
                 'SELECT id FROM accounting_subledger_links
@@ -250,17 +372,13 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
                     'bank_split' => 'bank_line:split:' . $lineId,
                 ]
             );
-            $journalWasCreatedFromLine = (bool) $lineage;
+            $hasTreasuryLineage = (bool) $lineage;
         } catch (Throwable $_) {
             // Older tenants may not have the optional lineage table.
         }
     }
-    if ($journalWasCreatedFromLine) {
-        throw new RuntimeException(
-            'This bank line created its ledger entry and cannot be detached from it. '
-            . 'Reverse or correct the posted transaction instead.'
-        );
-    }
+    $blocker = bankRecUnmatchBlocker($line, $hasTreasuryLineage);
+    if ($blocker !== null) throw new RuntimeException($blocker);
 
     scopedUpdate('accounting_bank_statement_lines', $lineId, [
         'match_status'      => 'unmatched',
@@ -274,12 +392,16 @@ function bankRecUnmatchLine(int $tenantId, int $lineId): array
 /**
  * Bring historical Treasury bookings back into line with bank reconciliation.
  * Only explicit journal lineage is considered; amount/date similarity is never
- * enough to change a statement line's status.
+ * enough to change a statement line's status. Invalid or ambiguous lineage is
+ * left open for review, never silently treated as a reconciled cash movement.
  */
-function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
+function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId, ?int $onlyLineId = null): array
 {
     $pdo = getDB();
     $found = [];
+    $lineFilter = $onlyLineId === null ? '' : ' AND bl.id = :line_id';
+    $params = ['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId];
+    if ($onlyLineId !== null) $params['line_id'] = $onlyLineId;
 
     $queries = [
         // A line may already hold a journal id while its status remained stale.
@@ -288,10 +410,10 @@ function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
            JOIN accounting_journal_entries je
              ON je.tenant_id = bl.tenant_id AND je.id = bl.matched_je_id AND je.status = "posted"
           WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
-            AND bl.match_status = "unmatched"',
+            AND bl.match_status = "unmatched"' . $lineFilter,
 
         // Treasury direct-post journals carry the statement line as source.
-        'SELECT bl.id AS line_id, MAX(je.id) AS je_id
+        'SELECT bl.id AS line_id, je.id AS je_id
            FROM accounting_bank_statement_lines bl
            JOIN accounting_journal_entries je
              ON je.tenant_id = bl.tenant_id
@@ -300,46 +422,83 @@ function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
             AND je.source_ref_type = "bank_statement_line"
             AND CAST(je.source_ref_id AS CHAR) = CAST(bl.id AS CHAR)
           WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
-            AND bl.match_status = "unmatched"
-          GROUP BY bl.id',
+            AND bl.match_status = "unmatched"' . $lineFilter,
     ];
 
     foreach ($queries as $sql) {
         $stmt = $pdo->prepare($sql);
-        $stmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId]);
+        $stmt->execute($params);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if ((int) ($row['je_id'] ?? 0) > 0) $found[(int) $row['line_id']] = (int) $row['je_id'];
+            if ((int) ($row['je_id'] ?? 0) > 0) {
+                $found[(int) $row['line_id']][(int) $row['je_id']] = (int) $row['je_id'];
+            }
         }
     }
 
     // Event-routed Treasury postings are connected through subledger links.
     try {
         $stmt = $pdo->prepare(
-            'SELECT bl.id AS line_id, MAX(sl.journal_entry_id) AS je_id
+            'SELECT bl.id AS line_id, sl.journal_entry_id AS je_id
                FROM accounting_bank_statement_lines bl
                JOIN accounting_subledger_links sl
                  ON sl.tenant_id = bl.tenant_id
                 AND sl.source_module = "treasury_feed"
+                AND sl.link_kind = "primary"
                 AND sl.source_record_id IN (CONCAT("bank_line:", bl.id), CONCAT("bank_line:split:", bl.id))
                JOIN accounting_journal_entries je
                  ON je.tenant_id = sl.tenant_id AND je.id = sl.journal_entry_id AND je.status = "posted"
               WHERE bl.tenant_id = :tenant_id AND bl.bank_account_id = :bank_account_id
-                AND bl.match_status = "unmatched"
-              GROUP BY bl.id'
+                AND bl.match_status = "unmatched"' . $lineFilter
         );
-        $stmt->execute(['tenant_id' => $tenantId, 'bank_account_id' => $bankAccountId]);
+        $stmt->execute($params);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if ((int) ($row['je_id'] ?? 0) > 0) $found[(int) $row['line_id']] = (int) $row['je_id'];
+            if ((int) ($row['je_id'] ?? 0) > 0) {
+                $found[(int) $row['line_id']][(int) $row['je_id']] = (int) $row['je_id'];
+            }
         }
     } catch (Throwable $_) {
         // Older tenants may not have the optional subledger link table yet.
     }
 
-    foreach ($found as $lineId => $jeId) {
-        bankRecMarkLineMatched($tenantId, $lineId, $jeId, null);
+    $repaired = [];
+    $conflicts = [];
+    foreach ($found as $lineId => $jeIds) {
+        $jeIds = array_values($jeIds);
+        if (count($jeIds) !== 1) {
+            $conflicts[$lineId] = [
+                'message' => 'Several posted journals claim this bank line. Review their source records before reconciling.',
+                'journal_ids' => $jeIds,
+            ];
+            continue;
+        }
+        try {
+            bankRecMatchLine($tenantId, $lineId, $jeIds[0], null);
+            $repaired[] = $lineId;
+        } catch (PDOException $e) {
+            throw $e;
+        } catch (RuntimeException $e) {
+            $conflicts[$lineId] = [
+                'message' => 'The linked posted journal cannot reconcile this bank line: ' . $e->getMessage(),
+                'journal_ids' => $jeIds,
+            ];
+        }
     }
 
-    return ['repaired' => count($found), 'line_ids' => array_keys($found)];
+    return ['repaired' => count($repaired), 'line_ids' => $repaired, 'conflicts' => $conflicts];
+}
+
+function bankRecGuardPostedLineage(int $tenantId, int $lineId): void
+{
+    $line = scopedFind(
+        'SELECT bank_account_id FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $lineId]
+    );
+    if (!$line) throw new RuntimeException('Bank line not found');
+    $result = bankRecRepairPostedMatches($tenantId, (int) $line['bank_account_id'], $lineId);
+    if (isset($result['conflicts'][$lineId])) {
+        throw new RuntimeException($result['conflicts'][$lineId]['message']);
+    }
 }
 
 /**
@@ -348,6 +507,8 @@ function bankRecRepairPostedMatches(int $tenantId, int $bankAccountId): array
  */
 function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): array
 {
+    $repair = bankRecRepairPostedMatches($tenantId, $bankAccountId);
+    $conflicts = $repair['conflicts'];
     $rules = scopedQuery(
         'SELECT * FROM accounting_bank_rules
          WHERE tenant_id = :tenant_id AND status = "active"
@@ -355,7 +516,8 @@ function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): arr
          ORDER BY is_approved DESC, id',
         ['b' => $bankAccountId]
     );
-    if (empty($rules)) return ['rules_evaluated' => 0, 'auto_applied' => 0, 'suggested' => 0];
+    if (empty($rules)) return ['rules_evaluated' => 0, 'auto_applied' => 0, 'suggested' => 0,
+        'lines_evaluated' => 0, 'lineage_conflict_count' => count($conflicts)];
 
     $lines = scopedQuery(
         'SELECT * FROM accounting_bank_statement_lines
@@ -364,9 +526,11 @@ function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): arr
         ['b' => $bankAccountId]
     );
 
-    $autoApplied = 0; $suggested = 0;
+    $autoApplied = 0; $suggested = 0; $evaluated = 0;
     $now = date('Y-m-d H:i:s');
     foreach ($lines as $l) {
+        if (isset($conflicts[(int) $l['id']])) continue;
+        $evaluated++;
         foreach ($rules as $r) {
             if (!bankRecLineMatchesRule($l, $r)) continue;
 
@@ -405,7 +569,8 @@ function bankRecApplyRules(int $tenantId, int $bankAccountId, ?int $userId): arr
         'rules_evaluated' => count($rules),
         'auto_applied'    => $autoApplied,
         'suggested'       => $suggested,
-        'lines_evaluated' => count($lines),
+        'lines_evaluated' => $evaluated,
+        'lineage_conflict_count' => count($conflicts),
     ];
 }
 
@@ -464,6 +629,7 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
          JOIN accounting_bank_accounts ba
            ON ba.tenant_id = l.tenant_id AND ba.id = :bank_account_id
           AND ba.gl_account_code = a.code
+          AND ba.entity_id IS NOT NULL AND je.entity_id = ba.entity_id
          WHERE l.tenant_id = :tenant_id
            AND je.status = "posted"
            ' . $bankSideSql . '
@@ -484,9 +650,8 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
 }
 
 /**
- * Find open invoices whose remaining balance exactly matches an incoming
- * bank line. Exact cents are intentionally required for the automatic badge;
- * ambiguous and partial receipts remain available through manual workflows.
+ * Find open invoices for an incoming bank line. Exact-balance candidates can
+ * use the direct receipt action; referenced partial balances require review.
  */
 function bankRecInvoiceMatchCandidates(
     int $tenantId,
@@ -496,6 +661,18 @@ function bankRecInvoiceMatchCandidates(
 ): array {
     $rows = bankRecAttachInvoiceSuggestions($tenantId, $bankAccountId, [$bankLine], $limit);
     return $rows[0]['invoice_matches'] ?? [];
+}
+
+/** Candidate invoice numbers must occupy a whole token in the bank narrative. */
+function bankRecInvoiceReferenceTokens(string $description): array {
+    preg_match_all('/[A-Za-z0-9]+(?:[-_.\/][A-Za-z0-9]+)*/', $description, $matches);
+    $tokens = [];
+    foreach ($matches[0] ?? [] as $token) {
+        if (strlen($token) < 6 || !preg_match('/[0-9]/', $token)) continue;
+        $tokens[strtoupper($token)] = true;
+        if (count($tokens) >= 20) break;
+    }
+    return array_keys($tokens);
 }
 
 /**
@@ -515,11 +692,15 @@ function bankRecAttachInvoiceSuggestions(
     unset($line);
 
     $amountKeys = [];
+    $referenceKeys = [];
+    $lineReferences = [];
     $latestPosted = null;
-    foreach ($bankLines as $line) {
+    foreach ($bankLines as $index => $line) {
         $amount = round((float) ($line['amount'] ?? 0), 2);
         if ($amount <= 0) continue;
         $amountKeys[(string) (int) round($amount * 100)] = $amount;
+        $lineReferences[$index] = bankRecInvoiceReferenceTokens((string) ($line['description'] ?? ''));
+        foreach ($lineReferences[$index] as $reference) $referenceKeys[$reference] = true;
         $date = (string) ($line['posted_date'] ?? '');
         if ($date !== '' && ($latestPosted === null || $date > $latestPosted)) $latestPosted = $date;
     }
@@ -527,7 +708,7 @@ function bankRecAttachInvoiceSuggestions(
 
     try {
         $bank = scopedFind(
-            'SELECT entity_id FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id',
+            'SELECT entity_id, currency FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id',
             ['id' => $bankAccountId]
         );
         if (!$bank) return $bankLines;
@@ -540,11 +721,23 @@ function bankRecAttachInvoiceSuggestions(
             $amountParams[] = ':' . $key;
             $params[$key] = number_format($amount, 2, '.', '');
         }
+        $referenceParams = [];
+        foreach (array_keys($referenceKeys) as $index => $reference) {
+            $key = 'invoice_reference_' . $index;
+            $referenceParams[] = ':' . $key;
+            $params[$key] = $reference;
+        }
+        $candidateSql = 'ROUND(bi.amount_due, 2) IN (' . implode(',', $amountParams) . ')';
+        if ($referenceParams) {
+            $candidateSql = '(' . $candidateSql
+                . ' OR bi.invoice_number IN (' . implode(',', $referenceParams) . '))';
+        }
         $entitySql = '';
         if (!empty($bank['entity_id'])) {
             $entitySql = ' AND (bi.entity_id = :bank_entity_id OR bi.entity_id IS NULL)';
             $params['bank_entity_id'] = (int) $bank['entity_id'];
         }
+        $params['bank_currency'] = strtoupper((string) ($bank['currency'] ?: 'USD'));
 
         $invoices = scopedQuery(
             'SELECT bi.id, bi.invoice_number, bi.client_name, bi.client_company_id, bi.entity_id,
@@ -556,28 +749,44 @@ function bankRecAttachInvoiceSuggestions(
               WHERE bi.tenant_id = :tenant_id
                 AND bi.status IN ("draft", "approved", "sent", "partially_paid")
                 AND bi.amount_due > 0
-                AND ROUND(bi.amount_due, 2) IN (' . implode(',', $amountParams) . ')
+                AND bi.currency = :bank_currency
+                AND ' . $candidateSql . '
                 AND bi.issue_date <= :latest_posted' . $entitySql . '
               ORDER BY bi.due_date ASC, bi.id ASC',
             $params
         );
 
         $byAmount = [];
+        $byReference = [];
         foreach ($invoices as $invoice) {
             $key = (string) (int) round((float) $invoice['amount_due'] * 100);
             $byAmount[$key][] = $invoice;
+            $byReference[strtoupper((string) $invoice['invoice_number'])][] = $invoice;
         }
 
-        foreach ($bankLines as &$line) {
+        foreach ($bankLines as $index => &$line) {
             $amount = round((float) ($line['amount'] ?? 0), 2);
             if ($amount <= 0) continue;
             $key = (string) (int) round($amount * 100);
             $matches = [];
-            foreach ($byAmount[$key] ?? [] as $invoice) {
+            $candidates = [];
+            foreach ($byAmount[$key] ?? [] as $invoice) $candidates[(int) $invoice['id']] = $invoice;
+            foreach ($lineReferences[$index] ?? [] as $reference) {
+                foreach ($byReference[$reference] ?? [] as $invoice) {
+                    $candidates[(int) $invoice['id']] = $invoice;
+                }
+            }
+            foreach ($candidates as $invoice) {
+                if ((string) $invoice['issue_date'] > (string) ($line['posted_date'] ?? '')) continue;
+                $due = round((float) $invoice['amount_due'], 2);
+                if ($due + 0.005 < $amount) continue;
                 $description = strtolower((string) ($line['description'] ?? ''));
                 $invoiceNumber = strtolower((string) $invoice['invoice_number']);
                 $clientName = strtolower((string) $invoice['client_name']);
-                $numberMatch = $invoiceNumber !== '' && str_contains($description, $invoiceNumber);
+                $numberMatch = in_array(strtoupper((string) $invoice['invoice_number']),
+                    $lineReferences[$index] ?? [], true);
+                $exactBalance = abs($due - $amount) < 0.005;
+                if (!$exactBalance && !$numberMatch) continue;
                 $clientTokens = array_values(array_filter(
                     preg_split('/[^a-z0-9]+/i', $clientName) ?: [],
                     static fn(string $token): bool => strlen($token) >= 4
@@ -588,19 +797,26 @@ function bankRecAttachInvoiceSuggestions(
                 ));
                 $clientMatch = $clientTokens && $tokenHits >= min(2, count($clientTokens));
 
-                $canApply = in_array($invoice['status'], ['approved', 'sent', 'partially_paid'], true)
+                $posted = in_array($invoice['status'], ['approved', 'sent', 'partially_paid'], true)
                     && ($invoice['journal_status'] ?? null) === 'posted';
-                $score = $canApply ? 0.86 : 0.72;
+                $canApply = $posted && $exactBalance;
+                $canApplyPartial = $posted && !$exactBalance && $numberMatch
+                    && !empty($bank['entity_id']);
+                $score = $posted ? 0.86 : 0.72;
                 if ($clientMatch) $score += 0.08;
                 if ($numberMatch) $score += 0.06;
                 $score = min(1.0, $score);
-                $reason = 'Exact invoice balance of ' . number_format($amount, 2) . ' ' . $invoice['currency'];
-                if ($numberMatch) $reason .= '; invoice number appears in the bank description';
+                $reason = $exactBalance
+                    ? 'Exact invoice balance of ' . number_format($amount, 2) . ' ' . $invoice['currency']
+                    : 'Possible partial receipt of ' . number_format($amount, 2) . ' ' . $invoice['currency'];
+                if ($numberMatch) $reason .= '; exact invoice number appears in the bank description';
                 elseif ($clientMatch) $reason .= '; customer name appears in the bank description';
-                if (!$canApply) {
+                if (!$posted) {
                     $reason .= $invoice['status'] === 'draft'
                         ? '; finalize and post the draft before applying payment'
                         : '; post the invoice before applying payment';
+                } elseif ($canApplyPartial) {
+                    $reason .= '; review the amount in Apply receipt';
                 }
 
                 $matches[] = [
@@ -615,6 +831,8 @@ function bankRecAttachInvoiceSuggestions(
                     'due_date' => (string) $invoice['due_date'],
                     'journal_entry_id' => !empty($invoice['journal_entry_id']) ? (int) $invoice['journal_entry_id'] : null,
                     'can_apply_payment' => $canApply,
+                    'can_apply_partial' => $canApplyPartial,
+                    'exact_balance' => $exactBalance,
                     'label' => 'Invoice ' . $invoice['invoice_number'] . ' - ' . $invoice['client_name'],
                     'score' => $score,
                     'reasoning' => $reason,

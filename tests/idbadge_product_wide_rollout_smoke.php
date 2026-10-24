@@ -92,7 +92,7 @@ $listPages = [
     'people/Directory (LIVE — /modules/people/directory)'
         => [$root . '/modules/people/ui/Directory.jsx', 'prefix="P"'],
     'people/DirectoryModule (companies/clients/vendors)'
-        => [$root . '/modules/people/ui/DirectoryModule.jsx', 'prefix="C"'],
+        => [$root . '/modules/people/ui/DirectoryModule.jsx', 'prefix="CO"'],
     'ap/VendorsList'
         => [$root . '/modules/ap/ui/VendorsList.jsx', 'prefix="V"'],
     'ap/BillsList'
@@ -118,16 +118,16 @@ foreach ($listPages as $name => [$path, $prefix]) {
 
 echo "\n4. Company detail header surfaces C-{id} badge\n";
 $dirSrc = (string) file_get_contents($root . '/modules/people/ui/DirectoryModule.jsx');
-$a('DirectoryModule detail header renders C-prefixed badge next to name',
-    preg_match('/<IdBadge id=\{c\.id\}\s+prefix="C"/', $dirSrc) === 1);
+$a('DirectoryModule detail header renders persisted CO-prefixed badge next to name',
+    str_contains($dirSrc, '<IdBadge id={c.id} number={c.company_number} prefix="CO"'));
 
 echo "\n5. Column-header bumps consistent\n";
 $colSpanFiles = [
     $root . '/modules/people/ui/Directory.jsx'       => 'colSpan={8}',
     $root . '/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
     $root . '/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
-    $root . '/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={10}',
-    $root . '/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={8}',
+    $root . '/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={showEntityColumn ? 11 : 10}',
+    $root . '/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={9}',
     $root . '/modules/people/ui/DirectoryModule.jsx' => 'colSpan={10}',
 ];
 foreach ($colSpanFiles as $path => $needle) {

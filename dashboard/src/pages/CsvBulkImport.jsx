@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
-import { attachCsvToImportRun } from '../lib/csvAuditAttach';
+import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit, rememberCsvImportRun, forgetCsvImportRun } from '../lib/csvImportAudit';
+import CsvImportRecoveryNotice from '../components/CsvImportRecoveryNotice';
 
 /**
  * Tenant Onboarding — Bulk CSV Import Wizard.
@@ -32,6 +33,10 @@ const ENTITY_ORDER = [
   'placements', 'time', 'ap_bills', 'billing_invoices',
   'ap_payments', 'billing_payments',
 ];
+const FINANCE_ENTITY_ORDER = [
+  'ap_vendors', 'accounting_accounts', 'billing_items',
+  'ap_bills', 'billing_invoices', 'ap_payments', 'billing_payments',
+];
 
 const ENTITY_CONFIG = {
   people: {
@@ -45,7 +50,8 @@ const ENTITY_CONFIG = {
     label: 'Vendors',
     endpoint: '/modules/ap/api/csv_import.php',
     exportHref: '/modules/ap/api/csv_export.php',
-    signature: ['Vendor name','Vendor type'],
+    signature: ['Vendor ID','Vendor name','Vendor type'],
+    supportsUpdate: true,
   },
   staffing_clients: {
     label: 'Clients',
@@ -157,11 +163,12 @@ function firstCsvRecord(csv) {
   return csv;
 }
 
-function detectEntity(headers) {
+function detectEntity(headers, candidates = ENTITY_ORDER) {
   const normalized = new Set(headers.map(value => String(value || '').trim().toLowerCase()));
   let best = null;
   let bestScore = 0;
-  for (const [key, cfg] of Object.entries(ENTITY_CONFIG)) {
+  for (const key of candidates) {
+    const cfg = ENTITY_CONFIG[key];
     const score = cfg.signature.filter(s => normalized.has(s.toLowerCase())).length;
     if (score > bestScore) { best = key; bestScore = score; }
   }
@@ -178,13 +185,14 @@ function readFile(f) {
   });
 }
 
-export default function CsvBulkImport() {
+export default function CsvBulkImport({ financeOnly = false }) {
+  const visibleEntityOrder = financeOnly ? FINANCE_ENTITY_ORDER : ENTITY_ORDER;
   const fileRef = useRef(null);
-  // files: { fileName, entity, csv, preview, committed, error, columnMap, presetName }
+  // files: { fileName, sourceFile, entity, csv, preview, committed, error, audit, columnMap, presetName }
   const [files, setFiles] = useState([]);
   const [skipInvalid, setSkipInvalid] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
-  const [exportEntity, setExportEntity] = useState('placements');
+  const [exportEntity, setExportEntity] = useState(financeOnly ? 'accounting_accounts' : 'placements');
   const [busy, setBusy] = useState(false);
 
   // Compute the same header signature the backend uses (sha256 of
@@ -200,10 +208,10 @@ export default function CsvBulkImport() {
   const tryApplyPreset = async (entity, headers) => {
     try {
       const sig = await signatureFor(headers);
-      const res = await api.get(`/api/admin/csv_mapping_presets?entity=${entity}&signature=${sig}`);
+      const res = await api.get(`/api/admin/csv_mapping_presets.php?entity=${entity}&signature=${sig}`);
       const match = (res?.rows || [])[0];
       if (match) {
-        await api.post(`/api/admin/csv_mapping_presets?action=use&id=${match.id}`).catch(() => null);
+        await api.post(`/api/admin/csv_mapping_presets.php?action=use&id=${match.id}`).catch(() => null);
         return { columnMap: match.column_map || {}, presetName: match.name };
       }
     } catch { /* presets are a nicety; never block the flow */ }
@@ -218,16 +226,16 @@ export default function CsvBulkImport() {
       try {
         const csv = await readFile(f);
         const headers = parseCsvRow(firstCsvRecord(csv).replace(/^\uFEFF/, ''));
-        const entity = detectEntity(headers);
+        const entity = detectEntity(headers, visibleEntityOrder);
         let columnMap = null, presetName = null;
         if (entity) {
           const applied = await tryApplyPreset(entity, headers);
           columnMap = applied.columnMap;
           presetName = applied.presetName;
         }
-        next.push({ fileName: f.name, entity, csv, preview: null, committed: null, error: null, columnMap, presetName });
+        next.push({ fileName: f.name, sourceFile: f, entity, csv, preview: null, committed: null, error: null, audit: null, columnMap, presetName });
       } catch (err) {
-        next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err, columnMap: null, presetName: null });
+        next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err, audit: null, columnMap: null, presetName: null });
       }
     }
     setFiles(prev => [...prev, ...next]);
@@ -235,7 +243,7 @@ export default function CsvBulkImport() {
   };
 
   const setEntity = (idx, entity) => {
-    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, entity, preview: null, committed: null, columnMap: null, presetName: null } : f));
+    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, entity, preview: null, committed: null, audit: null, columnMap: null, presetName: null } : f));
   };
 
   const removeFile = (idx) => {
@@ -253,7 +261,8 @@ export default function CsvBulkImport() {
         try {
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
-          const res = await api.post(`${cfg.endpoint}?action=dry_run`, body);
+          const shouldUpdate = updateExisting && cfg.supportsUpdate;
+          const res = await api.post(`${cfg.endpoint}?action=dry_run${shouldUpdate ? '&update_existing=1' : ''}`, body);
           next[i] = { ...f, preview: res, error: null };
         } catch (err) {
           next[i] = { ...f, preview: null, error: err };
@@ -267,55 +276,110 @@ export default function CsvBulkImport() {
     setBusy(true);
     try {
       // Commit in FK-respecting order.
-      const ordered = ENTITY_ORDER
+      const ordered = visibleEntityOrder
         .flatMap(entity => files
           .map((f, idx) => ({ f, idx }))
-          .filter(({ f }) => f.entity === entity && f.csv && !f.committed)
+          .filter(({ f }) => f.entity === entity && f.csv && !f.committed && (!f.audit?.id || f.audit.state === 'source_missing'))
         );
       const next = [...files];
       for (const { f, idx } of ordered) {
         const cfg = ENTITY_CONFIG[f.entity];
         const shouldUpdate = updateExisting && cfg.supportsUpdate;
+        const auditInput = {
+          csv: f.csv, sourceFile: f.sourceFile, fileName: f.fileName, entity: f.entity,
+          columnMap: JSON.stringify(f.columnMap), skipInvalid, updateExisting: shouldUpdate,
+        };
+        if (f.audit?.state === 'source_missing' && Object.keys(auditInput).some(key => auditInput[key] !== f.audit.input?.[key])) {
+          next[idx] = { ...f, error: new Error('The file or import options changed. Select the file again to start a new import run.') };
+          setFiles([...next]);
+          continue;
+        }
         const path = `${cfg.endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}${shouldUpdate ? '&update_existing=1' : ''}`;
         const startedAt = Date.now();
+        let runId = f.audit?.state === 'source_missing' ? f.audit.id : null;
+        let sourceArchived = false;
         try {
+          if (!runId) {
+            runId = await reserveCsvImportAudit({
+              entity: f.entity, fileName: f.fileName, csvText: f.csv, sourceFile: f.sourceFile, preview: f.preview,
+              skipInvalid, updateExisting: shouldUpdate, columnMap: f.columnMap,
+            });
+          }
+          if (financeOnly) rememberCsvImportRun({ id: runId, entity: f.entity });
+          next[idx] = { ...f, audit: { id: runId, state: 'processing', input: auditInput } };
+          setFiles([...next]);
+          if (financeOnly) {
+            await archiveCsvImportAudit({
+              runId, csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+              entity: f.entity, columnMap: f.columnMap,
+            });
+          }
+          sourceArchived = true;
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
+          if (financeOnly) body.import_run_id = runId;
           const res = await api.post(path, body);
-          next[idx] = { ...f, committed: res, error: null };
-          // Audit-write each successful commit to the import history,
-          // then attach the original CSV bytes for full auditor download.
+          next[idx] = { ...next[idx], committed: res, error: null };
           try {
-            const hist = await api.post('/api/admin/csv_import_history.php', {
-              entity:          f.entity,
-              file_name:       f.fileName || null,
-              bytes_processed: f.csv.length,
-              rows_total:      (res?.imported_count || 0) + (res?.skipped_count || 0),
-              rows_imported:   res?.imported_count || 0,
-              rows_skipped:    res?.skipped_count  || 0,
-              errors:          res?.errors        || {},
-              skip_invalid:    skipInvalid,
-              update_existing: shouldUpdate,
-              ai_used:         false,
-              preset_id:       null,
-              column_map:      f.columnMap || null,
-              duration_ms:     Date.now() - startedAt,
+            const receipt = await finalizeCsvImportAudit({
+              runId, result: res, startedAt,
+              postCommitSource: financeOnly ? null : {
+                csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+                entity: f.entity, columnMap: f.columnMap,
+              },
             });
-            if (hist?.id) {
-              await attachCsvToImportRun({
-                importRunId: hist.id,
-                csvText:     f.csv,
-                fileName:    f.fileName,
-                entity:      f.entity,
-                columnMap:   f.columnMap || null,
-              });
-            }
-          } catch { /* non-fatal */ }
+            next[idx] = { ...next[idx], audit: { id: receipt.id, state: receipt.sourceAttached ? 'logged' : 'source_missing_after_commit', input: auditInput } };
+            if (financeOnly) forgetCsvImportRun(runId);
+          } catch (auditError) {
+            next[idx] = { ...next[idx], audit: { id: runId, state: 'unconfirmed', input: auditInput, message: auditError.message } };
+          }
         } catch (err) {
-          next[idx] = { ...f, committed: null, error: err };
+          let recovered = null;
+          let recoveryError = null;
+          if (financeOnly && runId && sourceArchived) {
+            try { recovered = await recoverCsvImportAudit({ runId }); }
+            catch (error) { recoveryError = error; }
+          }
+          if (recovered) forgetCsvImportRun(runId);
+          next[idx] = recovered ? {
+            ...next[idx], committed: recovered.result, error: null,
+            audit: { id: recovered.id, state: 'logged', input: auditInput },
+          } : {
+            ...next[idx], committed: null,
+            audit: runId ? { id: runId, state: sourceArchived ? 'unconfirmed' : 'source_missing', input: auditInput, message: recoveryError?.message || err.message } : next[idx].audit,
+            error: runId && !sourceArchived ? null : runId
+              ? new Error(`Import outcome unconfirmed. Check Import History and source records before retrying. ${err.message}`)
+              : err,
+          };
         }
         setFiles([...next]); // surface progress as each file completes
       }
+    } finally { setBusy(false); }
+  };
+
+  const retryAudit = async (idx) => {
+    const f = files[idx];
+    if ((!f?.committed && !financeOnly) || !f?.audit?.id || busy) return;
+    setBusy(true);
+    try {
+      const receipt = !f.committed
+        ? await recoverCsvImportAudit({ runId: f.audit.id })
+        : await finalizeCsvImportAudit({
+          runId: f.audit.id, result: f.committed, startedAt: Date.now(),
+          postCommitSource: financeOnly ? null : {
+            csvText: f.csv, sourceFile: f.sourceFile, fileName: f.fileName,
+            entity: f.entity, columnMap: f.columnMap,
+          },
+        });
+      if (financeOnly) forgetCsvImportRun(f.audit.id);
+      setFiles(prev => prev.map((row, i) => i === idx
+        ? { ...row, committed: row.committed || receipt.result, error: null,
+          audit: { id: receipt.id, state: (receipt.result || receipt.sourceAttached) ? 'logged' : 'source_missing_after_commit', input: f.audit.input } }
+        : row));
+    } catch (err) {
+      setFiles(prev => prev.map((row, i) => i === idx
+        ? { ...row, audit: { id: f.audit.id, state: 'unconfirmed', input: f.audit.input, message: err.message } }
+        : row));
     } finally { setBusy(false); }
   };
 
@@ -327,7 +391,7 @@ export default function CsvBulkImport() {
   };
 
   const hasAny       = files.length > 0;
-  const allDetected  = files.every(f => f.entity);
+  const allDetected  = files.every(f => f.entity && visibleEntityOrder.includes(f.entity));
   const validationFinished = hasAny && files.every(f => f.preview || f.error);
   const validationSucceeded = validationFinished && files.every(f => f.preview && !f.error);
   const totalRows    = files.reduce((sum, f) => sum + (f.preview?.row_count || 0), 0);
@@ -347,10 +411,12 @@ export default function CsvBulkImport() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
-          <Link to="/data/import-history" className="btn btn--ghost" data-testid="csv-bulk-history-link">Import history</Link>
-          <Link to="/" className="btn btn--ghost" data-testid="csv-bulk-back">← Dashboard</Link>
+          <Link to={financeOnly ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--ghost" data-testid="csv-bulk-history-link">Import history</Link>
+          <Link to={financeOnly ? '/modules/accounting/overview' : '/'} className="btn btn--ghost" data-testid="csv-bulk-back">← Overview</Link>
         </div>
       </header>
+
+      {financeOnly && <CsvImportRecoveryNotice />}
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
         <div className="csv-roundtrip-toolbar" data-testid="csv-bulk-current-data-export">
@@ -361,7 +427,7 @@ export default function CsvBulkImport() {
             aria-label="Data to export"
             data-testid="csv-bulk-export-entity"
           >
-            {ENTITY_ORDER.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
+            {visibleEntityOrder.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
           </select>
           <a
             className="btn btn--primary"
@@ -378,10 +444,10 @@ export default function CsvBulkImport() {
             full working dataset before importing their real books. */}
         <details style={{ marginBottom: 'var(--cf-space-4)' }} data-testid="csv-bulk-sample-pack">
           <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-            New to CoreFlux? Download our sample CSV pack →
+            {financeOnly ? 'Sample accounting CSVs' : 'New to CoreFlux? Download our sample CSV pack'}
           </summary>
           <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {ENTITY_ORDER.map(k => (
+            {visibleEntityOrder.map(k => (
               <a
                 key={k}
                 className="btn btn--ghost"
@@ -394,9 +460,9 @@ export default function CsvBulkImport() {
             ))}
           </div>
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-            All samples are FK-coherent — emails, vendor names and placement IDs
-            line up across files so you can load them in order and see the
-            full platform populated in 30 seconds.
+            {financeOnly
+              ? 'Check each file before import. Financial documents retain their approval and posting controls.'
+              : 'All samples are FK-coherent — emails, vendor names and placement IDs line up across files so you can load them in order.'}
           </p>
         </details>
 
@@ -429,7 +495,10 @@ export default function CsvBulkImport() {
                   <input
                     type="checkbox"
                     checked={updateExisting}
-                    onChange={e => setUpdateExisting(e.target.checked)}
+                    onChange={e => {
+                      setUpdateExisting(e.target.checked);
+                      setFiles(prev => prev.map(f => ({ ...f, preview: null })));
+                    }}
                     data-testid="csv-bulk-update-existing"
                   />
                   Update matching editable records
@@ -446,8 +515,9 @@ export default function CsvBulkImport() {
 
         {!hasAny && (
           <p className="empty" data-testid="csv-bulk-empty">
-            No files selected yet. Pick multiple CSV files above — one per entity
-            (people.csv, vendors.csv, clients.csv, etc.).
+            {financeOnly
+              ? 'No files selected yet. Choose one or more accounting CSV files.'
+              : 'No files selected yet. Pick multiple CSV files above — one per entity (people.csv, vendors.csv, clients.csv, etc.).'}
           </p>
         )}
 
@@ -489,20 +559,28 @@ export default function CsvBulkImport() {
                       style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--cf-border, #e5e7eb)' }}
                     >
                       <option value="">— pick entity —</option>
-                      {ENTITY_ORDER.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
+                      {visibleEntityOrder.map(k => <option key={k} value={k}>{ENTITY_CONFIG[k].label}</option>)}
                     </select>
                   </td>
                   <td>
                     {f.committed
-                      ? <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count} imported</span>
+                      ? <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count} {f.committed.recovered_counts_are_rows ? 'rows ' : ''}imported</span>
                       : f.preview
                           ? `${f.preview.row_count} (${f.preview.error_count} errors)`
                           : '—'}
                   </td>
                   <td>
                     {f.error && <span style={{ color: '#c0392b' }}>Error: {f.error.message}</span>}
-                    {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>Imported</span>}
-                    {!f.error && !f.committed && f.preview && (
+                    {!f.error && f.committed && <span style={{ color: 'var(--cf-green, #047857)' }}>{f.committed.imported_count > 0 ? 'Imported' : 'No rows imported'}</span>}
+                    {f.audit?.state === 'logged' && <span data-testid={`csv-bulk-row-${idx}-audit-logged`}> · History #{f.audit.id}</span>}
+                    {f.committed?.recovered_from_receipt && <span> · Recovered from server receipt</span>}
+                    {f.audit?.state === 'processing' && <span data-testid={`csv-bulk-row-${idx}-audit-processing`}> · {f.committed ? 'Verifying server receipt…' : 'Importing…'}</span>}
+                    {f.audit?.state === 'source_missing' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · No records imported: source CSV not archived. Retry Import all. {f.audit.message}</span>}
+                    {f.audit?.state === 'source_missing_after_commit' && <span className="error" data-testid={`csv-bulk-row-${idx}-source-missing`}> · Source CSV not archived; keep the original file.</span>}
+                    {f.audit?.state === 'source_missing_after_commit' && f.committed && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-source-retry`}>Retry source archive</button>}
+                    {f.audit?.state === 'unconfirmed' && <span className="error" data-testid={`csv-bulk-row-${idx}-audit-unconfirmed`}> · Run #{f.audit.id} needs review. Do not import again. {f.audit.message}</span>}
+                    {f.audit?.state === 'unconfirmed' && (f.committed || financeOnly) && <button className="btn" disabled={busy} onClick={() => retryAudit(idx)} data-testid={`csv-bulk-row-${idx}-audit-retry`}>{f.committed ? 'Retry history only' : 'Check server outcome'}</button>}
+                    {!f.error && !f.audit?.id && !f.committed && f.preview && (
                       f.preview.error_count > 0
                         ? <span style={{ color: '#a16207' }}>⚠ {f.preview.error_count} rows have errors</span>
                         : <span style={{ color: 'var(--cf-green, #047857)' }}>Ready to import</span>
@@ -525,14 +603,14 @@ export default function CsvBulkImport() {
               {files.filter(f => f.committed).map((f, i) => (
                 <li key={i}>
                   <strong>{ENTITY_CONFIG[f.entity].label}</strong> ({f.fileName}):{' '}
-                  {f.committed.imported_count} imported, {f.committed.skipped_count} skipped
+                  {f.committed.imported_count} {f.committed.recovered_counts_are_rows ? 'rows ' : ''}imported, {f.committed.skipped_count} {f.committed.recovered_counts_are_rows ? 'rows ' : ''}skipped
                 </li>
               ))}
             </ul>
             <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-              Every imported file above has been logged to the audit trail (who, when, file, rows, errors).
+              History status is shown beside each file. Resolve any unconfirmed run before importing that file again.
             </p>
-            <Link to="/data/import-history" className="btn btn--primary" data-testid="csv-bulk-summary-view-history">View import history</Link>
+            <Link to={financeOnly ? '/modules/accounting/import-history' : '/data/import-history'} className="btn btn--primary" data-testid="csv-bulk-summary-view-history">View import history</Link>
           </div>
         )}
       </div>

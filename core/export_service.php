@@ -122,7 +122,8 @@ function exportTemplateRenderDatasetToStream(
     ?int $actorUserId = null,
     ?int $targetId = null,
     array $auditMeta = [],
-    ?array $template = null
+    ?array $template = null,
+    ?iterable $rowsOverride = null
 ): array {
     $dataset = exportDatasetGet($datasetKey);
     if (!$dataset) throw new ExportServiceException("Unknown dataset: {$datasetKey}");
@@ -130,9 +131,16 @@ function exportTemplateRenderDatasetToStream(
     $actorUser = exportDatasetActorUserFromOptions($options);
     if ($actorUser !== null && !isset($options['actor_user'])) $options['actor_user'] = $actorUser;
     exportTemplateAssertMappingsVisibleForUser($template, $datasetKey, $tenantId, $actorUser);
-    $rows = exportDatasetFetchRows($tenantId, $datasetKey, $options);
+    $rows = $rowsOverride ?? exportDatasetFetchRows($tenantId, $datasetKey, $options);
+    $rowCount = 0;
+    $countedRows = (static function () use ($rows, &$rowCount): Generator {
+        foreach ($rows as $row) {
+            $rowCount++;
+            yield $row;
+        }
+    })();
     try {
-        exportTemplateRenderToStream($templateId, $rows, $stream, $tenantId);
+        exportTemplateRenderToStream($templateId, $countedRows, $stream, $tenantId);
     } catch (ExportTemplateException $e) {
         throw new ExportServiceException($e->getMessage(), 0, $e);
     }
@@ -143,7 +151,7 @@ function exportTemplateRenderDatasetToStream(
         'template_id' => $templateId,
         'template_name' => (string) ($template['name'] ?? ''),
         'format' => 'csv',
-        'rows' => count($rows),
+        'rows' => $rowCount,
     ], $auditMeta), $options);
     exportDatasetAudit($tenantId, $actorUserId, $event, $targetId, $meta);
 
@@ -151,7 +159,7 @@ function exportTemplateRenderDatasetToStream(
         'dataset' => $datasetKey,
         'template_id' => $templateId,
         'template_name' => (string) ($template['name'] ?? ''),
-        'rows' => count($rows),
+        'rows' => $rowCount,
         'generated_at' => $meta['generated_at'] ?? null,
         'filter_params' => $meta['filter_params'] ?? [],
     ];

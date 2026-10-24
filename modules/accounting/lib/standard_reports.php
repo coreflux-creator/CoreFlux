@@ -36,7 +36,11 @@ function reportCashFlowClassification(array $account): array
     }
 
     if ($type === 'asset') {
-        if (in_array($name, ['ar', 'a/r'], true)
+        if ($code === '1010' && $name === 'clearing accounts') {
+            return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
+        }
+        if (($code === '1100' && !empty($account['is_system_account']))
+            || in_array($name, ['ar', 'a/r'], true)
             || str_contains($text, 'accounts receivable')
             || str_contains($text, 'trade receivable')) {
             return ['tag' => 'operating_wc_ar', 'source' => 'inferred'];
@@ -55,12 +59,17 @@ function reportCashFlowClassification(array $account): array
     }
 
     if ($type === 'liability') {
-        if (in_array($name, ['ap', 'a/p'], true)
+        if ($code === '2300' && !empty($account['is_system_account'])) {
+            return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
+        }
+        if (($code === '2000' && !empty($account['is_system_account']))
+            || in_array($name, ['ap', 'a/p'], true)
             || str_contains($text, 'accounts payable')
             || str_contains($text, 'trade payable')) {
             return ['tag' => 'operating_wc_ap', 'source' => 'inferred'];
         }
-        if (str_contains($text, 'accrued') || str_contains($text, 'payroll tax') || str_contains($text, 'sales tax payable')) {
+        if (str_contains($text, 'accrued') || str_contains($text, 'payroll')
+            || str_contains($text, 'deduction payable') || str_contains($text, 'sales tax payable')) {
             return ['tag' => 'operating_wc_other', 'source' => 'inferred'];
         }
         if (preg_match('/\b(loan|note|debt) payable\b/', $text)
@@ -95,13 +104,14 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
 
     $stmt = $pdo->prepare(
         'SELECT a.code, a.name, a.account_type, a.normal_side,
-                COALESCE(SUM(l.debit),0)  AS debit,
-                COALESCE(SUM(l.credit),0) AS credit
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.debit ELSE 0 END),0)  AS debit,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.credit ELSE 0 END),0) AS credit
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
-         WHERE a.tenant_id = :t_a AND a.account_type IN ("revenue","expense")
-           AND (je.id IS NULL OR (' . implode(' AND ', $where) . '))
+           AND ' . implode(' AND ', $where) . '
+         WHERE a.tenant_id = :t_a AND a.account_type IN
+            ("revenue","contra_revenue","expense","cost_of_goods_sold","other_income","other_expense")
          GROUP BY a.id
          ORDER BY a.account_type DESC, a.code'
     );
@@ -112,10 +122,11 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
     $revTotal = 0.0; $expTotal = 0.0;
     foreach ($rows as $r) {
         $d = (float) $r['debit']; $c = (float) $r['credit'];
-        // Period activity for the account (signed by normal side).
-        $bal = $r['normal_side'] === 'debit' ? round($d - $c, 2) : round($c - $d, 2);
+        // Report contribution, including contra-revenue as a reduction of revenue.
+        $isRevenue = in_array($r['account_type'], ['revenue', 'contra_revenue', 'other_income'], true);
+        $bal = $isRevenue ? round($c - $d, 2) : round($d - $c, 2);
         $r['amount'] = $bal;
-        if ($r['account_type'] === 'revenue') { $revenue[] = $r; $revTotal += $bal; }
+        if ($isRevenue)                       { $revenue[] = $r; $revTotal += $bal; }
         else                                  { $expense[] = $r; $expTotal += $bal; }
     }
     return [
@@ -128,11 +139,55 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
     ];
 }
 
+/** Fiscal-year profit still in P&L accounts, before the close journal moves it to equity. */
+function reportCurrentFiscalUnclosedEarnings(int $tenantId, string $asOf, ?int $entityId): float
+{
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $asOf);
+    if (!$date || $date->format('Y-m-d') !== $asOf) {
+        throw new InvalidArgumentException('as_of must be a real YYYY-MM-DD date');
+    }
+    $asOfYear = (int) $date->format('Y');
+    $asOfMonth = (int) $date->format('n');
+    $whereEntity = $entityId ? ' AND je.entity_id = :e' : '';
+    $params = [
+        't' => $tenantId, 'floor' => sprintf('%04d-01-01', $asOfYear - 1), 'as_of' => $asOf,
+    ];
+    if ($entityId) $params['e'] = $entityId;
+    $stmt = getDB()->prepare(
+        'SELECT je.entity_id, e.fiscal_year_start_month,
+                YEAR(je.posting_date) AS posting_year, MONTH(je.posting_date) AS posting_month,
+                a.account_type, a.normal_side,
+                SUM(l.debit) AS debit, SUM(l.credit) AS credit
+           FROM accounting_journal_entries je
+           JOIN accounting_entities e ON e.id = je.entity_id AND e.tenant_id = je.tenant_id
+           JOIN accounting_journal_entry_lines l ON l.je_id = je.id AND l.tenant_id = je.tenant_id
+           JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = je.tenant_id
+          WHERE je.tenant_id = :t AND je.status IN ("posted", "reversed")
+            AND je.posting_date >= :floor AND je.posting_date <= :as_of
+            AND a.account_type IN
+                ("revenue","contra_revenue","expense","cost_of_goods_sold","other_income","other_expense")' . $whereEntity . '
+       GROUP BY je.entity_id, e.fiscal_year_start_month, posting_year, posting_month,
+                a.account_type, a.normal_side'
+    );
+    $stmt->execute($params);
+    $net = 0.0;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $startMonth = (int) ($row['fiscal_year_start_month'] ?? 1);
+        if ($startMonth < 1 || $startMonth > 12) {
+            throw new RuntimeException('Legal entity has an invalid fiscal-year start month');
+        }
+        $startYear = $asOfMonth >= $startMonth ? $asOfYear : $asOfYear - 1;
+        if ((int) $row['posting_year'] * 12 + (int) $row['posting_month']
+            < $startYear * 12 + $startMonth) continue;
+        $net += (float) $row['credit'] - (float) $row['debit'];
+    }
+    return round($net, 2);
+}
+
 /**
- * Balance Sheet — assets / liabilities / equity (+ implied YTD net income).
- * Same posted-ledger-history rule. Equity bucket gets a synthetic "Current period
- * net income" line so the sheet balances when retained earnings haven't
- * been swept yet.
+ * Balance Sheet — assets / liabilities / equity (+ unclosed earnings).
+ * Equity shows prior and current fiscal-year earnings separately until a
+ * close journal moves those balances into retained earnings.
  */
 function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
 {
@@ -143,13 +198,13 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
 
     $stmt = $pdo->prepare(
         'SELECT a.code, a.name, a.account_type, a.normal_side,
-                COALESCE(SUM(l.debit),0)  AS debit,
-                COALESCE(SUM(l.credit),0) AS credit
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.debit ELSE 0 END),0)  AS debit,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.credit ELSE 0 END),0) AS credit
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
+           AND ' . implode(' AND ', $where) . '
          WHERE a.tenant_id = :t_a
-           AND (je.id IS NULL OR (' . implode(' AND ', $where) . '))
          GROUP BY a.id
          ORDER BY a.account_type, a.code'
     );
@@ -167,21 +222,34 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
             case 'asset':     $assets[]      = $r; $aTot += $bal; break;
             case 'liability': $liabilities[] = $r; $lTot += $bal; break;
             case 'equity':    $equity[]      = $r; $eTot += $bal; break;
-            case 'revenue':   $revAcc += $bal;                    break;
-            case 'expense':   $expAcc += $bal;                    break;
+            case 'revenue':
+            case 'contra_revenue':
+            case 'other_income': $revAcc += round($c - $d, 2); break;
+            case 'expense':
+            case 'cost_of_goods_sold':
+            case 'other_expense': $expAcc += round($d - $c, 2); break;
         }
     }
     $netIncome = round($revAcc - $expAcc, 2);
-    if (abs($netIncome) > 0.005) {
-        // Synthetic line so the sheet balances when retained earnings haven't
-        // been closed yet. Front-end can call this out as "current period".
+    $currentEarnings = reportCurrentFiscalUnclosedEarnings($tenantId, $asOf, $entityId);
+    $priorEarnings = round($netIncome - $currentEarnings, 2);
+    if (abs($priorEarnings) > 0.005) {
         $equity[] = [
-            'code' => '3999', 'name' => 'Current period net income (to be closed)',
+            'code' => '3998', 'name' => 'Prior-year earnings (not closed)',
             'account_type' => 'equity', 'normal_side' => 'credit',
-            'debit' => 0, 'credit' => $netIncome, 'amount' => $netIncome,
+            'debit' => 0, 'credit' => $priorEarnings, 'amount' => $priorEarnings,
             'synthetic' => true,
         ];
-        $eTot += $netIncome;
+        $eTot += $priorEarnings;
+    }
+    if (abs($currentEarnings) > 0.005) {
+        $equity[] = [
+            'code' => '3999', 'name' => 'Current fiscal-year earnings (not closed)',
+            'account_type' => 'equity', 'normal_side' => 'credit',
+            'debit' => 0, 'credit' => $currentEarnings, 'amount' => $currentEarnings,
+            'synthetic' => true,
+        ];
+        $eTot += $currentEarnings;
     }
     return [
         'as_of'              => $asOf,
@@ -251,7 +319,7 @@ function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $e
     // accounts receive a transparent inferred classification so the report
     // works before an administrator customizes the COA.
     $tagStmt = $pdo->prepare(
-        'SELECT a.code, a.name, a.account_type, a.cash_flow_tag,
+        'SELECT a.code, a.name, a.account_type, a.cash_flow_tag, a.is_system_account,
                 CASE WHEN EXISTS (
                     SELECT 1 FROM accounting_bank_accounts ba
                      WHERE ba.tenant_id = a.tenant_id

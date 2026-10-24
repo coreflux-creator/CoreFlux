@@ -25,7 +25,7 @@ $assert(str_contains($api, "institution_balance"), 'institution balance is retur
 $assert(str_contains($api, "ledger_balance"), 'ledger balance is returned');
 $assert(str_contains($api, "'difference'"), 'bank-to-ledger difference is returned');
 $assert(str_contains($api, "'pagination'"), 'pagination metadata is returned');
-$assert(str_contains($api, 'This transaction is already resolved. Unmatch it before posting a different category.'),
+$assert(str_contains($api, 'This transaction is already resolved. Correct its source posting or restore it before recategorizing.'),
     'repeat categorization is rejected instead of replaying an old posting');
 
 $assert(str_contains($ui, 'treasury-account-balances'), 'register renders balance comparison');

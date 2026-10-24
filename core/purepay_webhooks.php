@@ -59,24 +59,79 @@ function purepayWebhookRecord(int $tenantId, string $eventId, ?string $eventType
     return $row && (int) $row['verified'] === 1 && $row['processed_at'] === null;
 }
 
-function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType, array $payload): array
+/** An event name alone is not evidence of failure or settlement. */
+function purepayWebhookPaymentEvidence(string $eventType, array $data): array
 {
+    $expected = ['payment.settled'=>'settled', 'payment.failed'=>'failed'][$eventType] ?? null;
+    if ($expected === null) return ['ok'=>false,'reason'=>'event_type'];
+    $statusSeen = false;
+    foreach (['pay_status', 'status'] as $field) {
+        if (!array_key_exists($field, $data)) continue;
+        $statusSeen = true;
+        if (!is_string($data[$field]) || $data[$field] !== $expected) {
+            return ['ok'=>false,'reason'=>'payment_status_conflict'];
+        }
+    }
+    if (!$statusSeen) return ['ok'=>false,'reason'=>'payment_status_missing'];
+    if (!empty($data['qbo_billpayment_id']) || !empty($data['mercury_request_id'])) {
+        return ['ok'=>false,'reason'=>'payment_delivery_unconfirmed'];
+    }
+    if ($expected === 'settled' && ($data['ok'] ?? null) === false) {
+        return ['ok'=>false,'reason'=>'payment_status_conflict'];
+    }
+    foreach (['bill_id', 'payable_id', 'payment_id'] as $field) {
+        if (!array_key_exists($field, $data)) continue;
+        if (!is_string($data[$field]) || $data[$field] === '' || strlen($data[$field]) > 200
+            || preg_match('/[\x00-\x20\x7f]/', $data[$field])) {
+            return ['ok'=>false,'reason'=>'provider_identity_invalid'];
+        }
+    }
+    $billId = $data['bill_id'] ?? $data['payable_id'] ?? '';
+    $paymentId = $data['payment_id'] ?? '';
+    if ($billId === '' || $paymentId === '') return ['ok'=>false,'reason'=>'provider_identity_missing'];
+    if (isset($data['bill_id'], $data['payable_id']) && $data['bill_id'] !== $data['payable_id']) {
+        return ['ok'=>false,'reason'=>'provider_identity_conflict'];
+    }
+    return ['ok'=>true, 'status'=>$expected, 'bill_id'=>$billId, 'payment_id'=>$paymentId];
+}
+
+function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType, array $payload, string $verifiedConnectionFingerprint): array
+{
+    if (!in_array($eventType,['payment.settled','payment.failed'],true)) return ['outcome'=>'ignored','reason'=>'event_type'];
     $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
-    $billId = (string) ($data['bill_id'] ?? $data['payable_id'] ?? '');
-    $paymentId = (string) ($data['payment_id'] ?? '');
-    $remoteStatus = $eventType === 'payment.settled' ? 'settled' : 'failed';
+    $evidence = purepayWebhookPaymentEvidence($eventType, $data);
+    if (!$evidence['ok']) return ['outcome'=>'needs_review','reason'=>$evidence['reason']];
+    $billId = $evidence['bill_id'];
+    $paymentId = $evidence['payment_id'];
+    $remoteStatus = $evidence['status'];
     $pdo = getDB();
+    $ownsTransaction=!$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+    // Lock in the same connection -> attempt order as the originating request.
+    $connection=$pdo->prepare('SELECT api_key_ct,status FROM purepay_connections WHERE tenant_id=:t FOR UPDATE');
+    $connection->execute(['t'=>$tenantId]);$currentConnection=$connection->fetch(PDO::FETCH_ASSOC);
+    if (!$currentConnection || $currentConnection['status']!=='active') return ['outcome'=>'needs_review','reason'=>'connection_inactive'];
+    $connectionFingerprint=purepayConnectionFingerprint($tenantId,(string)decryptField($currentConnection['api_key_ct']));
+    if (!hash_equals($connectionFingerprint,$verifiedConnectionFingerprint)) return ['outcome'=>'needs_review','reason'=>'connection_changed'];
     $where = [];
     $params = ['t'=>$tenantId];
     if ($paymentId !== '') { $where[] = 'purepay_payment_id=:p'; $params['p']=$paymentId; }
     if ($billId !== '') { $where[] = 'purepay_bill_id=:b'; $params['b']=$billId; }
     if (!$where) return ['outcome'=>'ignored','reason'=>'no_bill_or_payment_id'];
     $stmt = $pdo->prepare(
-        'SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND (' . implode(' OR ', $where) . ') ORDER BY id DESC LIMIT 1'
+        'SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND (' . implode(' OR ', $where) . ') ORDER BY id DESC LIMIT 2 FOR UPDATE'
     );
     $stmt->execute($params);
     $link = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$link) return ['outcome'=>'unmatched','bill_id'=>$billId ?: null,'payment_id'=>$paymentId ?: null];
+    if ($stmt->fetch(PDO::FETCH_ASSOC)) return ['outcome'=>'needs_review','reason'=>'ambiguous_provider_identity'];
+    if (!hash_equals($connectionFingerprint,(string)($link['connection_fingerprint']??''))) return ['outcome'=>'needs_review','reason'=>'unverified_organization'];
+    if (($billId!=='' && !empty($link['purepay_bill_id']) && $billId!==$link['purepay_bill_id'])
+        || ($paymentId!=='' && !empty($link['purepay_payment_id']) && $paymentId!==$link['purepay_payment_id'])) {
+        return ['outcome'=>'needs_review','reason'=>'provider_identity_conflict'];
+    }
+    if ($link['status']==='settled_failed_review' || in_array($link['status'],['returned','reversed'],true)) return ['outcome'=>'needs_review','reason'=>'terminal_result_requires_review'];
     if (in_array(strtolower((string) $link['status']), ['settled', 'paid', 'completed', 'cleared'], true)
         && $remoteStatus === 'failed') {
         $remoteStatus = 'settled_failed_review';
@@ -107,6 +162,12 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
         } catch (\Throwable $_) {}
     }
     return ['outcome'=>'updated','source_ref'=>$link['source_ref'],'status'=>$remoteStatus];
+    } catch (\Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    } finally {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->commit();
+    }
 }
 
 function purepayApplyPaymentStatus(int $tenantId, int $corePaymentId, string $remoteStatus, \PDO $pdo): void
@@ -148,4 +209,11 @@ function purepayWebhookMarkProcessed(int $tenantId, string $eventId, ?string $er
         'UPDATE purepay_webhook_events SET processed_at=CASE WHEN :ok=1 THEN NOW() ELSE NULL END, processing_error=:e
           WHERE tenant_id=:t AND event_id=:id'
     )->execute(['ok'=>$error === null ? 1 : 0,'e'=>$error ? substr($error,0,500) : null,'t'=>$tenantId,'id'=>$eventId]);
+}
+
+function purepayWebhookRecordOutcome(int $tenantId, string $eventId, array $outcome): void
+{
+    $needsReview = in_array($outcome['outcome'] ?? '', ['needs_review', 'unmatched'], true);
+    purepayWebhookMarkProcessed($tenantId, $eventId, $needsReview
+        ? (string) ($outcome['reason'] ?? 'unmatched_payment') : null);
 }

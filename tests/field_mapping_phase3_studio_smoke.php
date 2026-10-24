@@ -11,9 +11,8 @@
  *      to the new studio route.
  *   4. JobDiva company sync now calls applyAll with `{self}` context.
  *   5. JobDiva contact sync now calls applyAll with `{self}` context.
- *   6. JobDiva person sync (sync_placements.php) calls applyAll on
- *      BOTH the "found existing person" and "auto-created person"
- *      branches with `{self}` context.
+ *   6. JobDiva person sync preserves existing contacts and applies
+ *      field mappings only when creating a new person.
  */
 declare(strict_types=1);
 
@@ -23,11 +22,12 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$ui  = (string) file_get_contents('/app/dashboard/src/pages/FieldMappingStudio.jsx');
-$adm = (string) file_get_contents('/app/dashboard/src/pages/AdminModule.jsx');
-$leg = (string) file_get_contents('/app/dashboard/src/pages/IntegrationFieldMapAdmin.jsx');
-$sync = (string) file_get_contents('/app/core/jobdiva/sync.php');
-$splp = (string) file_get_contents('/app/core/jobdiva/sync_placements.php');
+$root=dirname(__DIR__);
+$ui  = (string) file_get_contents($root.'/dashboard/src/pages/FieldMappingStudio.jsx');
+$adm = (string) file_get_contents($root.'/dashboard/src/pages/AdminModule.jsx');
+$leg = (string) file_get_contents($root.'/dashboard/src/pages/IntegrationFieldMapAdmin.jsx');
+$sync = (string) file_get_contents($root.'/core/jobdiva/sync.php');
+$splp = (string) file_get_contents($root.'/core/jobdiva/sync_placements.php');
 
 echo "\n1. FieldMappingStudio.jsx — testids + panes\n";
 $a('section root testid',                str_contains($ui, 'data-testid="field-mapping-studio"'));
@@ -95,16 +95,17 @@ echo "\n5. JobDiva contact sync wires applyAll\n";
 $a('contact sync calls applyAll with {self => $internalId}',
     str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'contact', \$jd, ['self' => \$internalId]);"));
 
-echo "\n6. JobDiva person sync wires applyAll on both branches\n";
-$a('person sync (found-existing branch) calls applyAll',
-    str_contains($splp, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'person', \$jd, ['self' => \$existingId]);"));
+echo "\n6. JobDiva person intake preserves existing records\n";
+$a('email collision cannot overwrite existing person fields',
+    !str_contains($splp, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'person', \$jd, ['self' => \$existingId]);")
+    && str_contains($splp, 'review the candidate/person link before syncing again'));
 $a('person sync (auto-create branch) calls applyAll',
     str_contains($splp, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'person', \$jd, ['self' => \$newId]);"));
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/core/jobdiva/sync.php',
-    '/app/core/jobdiva/sync_placements.php',
+    $root.'/core/jobdiva/sync.php',
+    $root.'/core/jobdiva/sync_placements.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

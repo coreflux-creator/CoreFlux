@@ -34,27 +34,15 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
         if (!$beforeBill) throw new \RuntimeException("AP bill {$billId} not found");
 
         if (in_array($action, ['approve', 'skip'], true) && $userId) {
-            // Mark this approver's row as approved (first pending one they own for this bill).
-            $upd = $pdo->prepare(
-                "UPDATE ap_bill_approvals
-                    SET state = 'approved', decision_at = NOW()
-                  WHERE tenant_id = :t AND bill_id = :b AND approver_user_id = :u AND state = 'pending'
-                  LIMIT 1"
-            );
-            $upd->execute(['t' => $tenantId, 'b' => $billId, 'u' => $userId]);
+            apRecordWorkflowDecision($pdo, $tenantId, $billId, $userId, $action, 'approved', $comment);
             if ($instanceStatus === 'pending') {
                 apSyncPendingWorkflowStepApprovers($pdo, $tenantId, $billId);
             }
         }
 
         if ($action === 'reject' && $userId) {
-            $upd = $pdo->prepare(
-                "UPDATE ap_bill_approvals
-                    SET state = 'rejected', decision_at = NOW()
-                  WHERE tenant_id = :t AND bill_id = :b AND approver_user_id = :u AND state = 'pending'
-                  LIMIT 1"
-            );
-            $upd->execute(['t' => $tenantId, 'b' => $billId, 'u' => $userId]);
+            apRecordWorkflowDecision($pdo, $tenantId, $billId, $userId, $action, 'rejected', $comment);
+            apSupersedePendingApprovalSteps($pdo, $tenantId, $billId);
             // Reject is final — move the bill to disputed.
             $pdo->prepare(
                 "UPDATE ap_bills SET status = 'disputed', updated_at = NOW()
@@ -76,6 +64,7 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
 
         // If the workflow instance as a whole just flipped to approved, mark the bill.
         if ($instanceStatus === 'approved') {
+            apSupersedePendingApprovalSteps($pdo, $tenantId, $billId);
             $upd = $pdo->prepare(
                 "UPDATE ap_bills
                     SET status = 'approved',
@@ -106,6 +95,44 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
         }
 }
 
+/** Persist the exact action step, including an in-flight reviewer omitted by the former unique key. */
+function apRecordWorkflowDecision(\PDO $pdo, int $tenantId, int $billId, int $userId,
+    string $action, string $state, ?string $comment): void {
+    $step = $pdo->prepare(
+        "SELECT a.step_no FROM workflow_step_actions a
+          JOIN workflow_instances wi ON wi.id = a.instance_id AND wi.tenant_id = a.tenant_id
+         WHERE wi.tenant_id = :t AND wi.subject_type = 'ap_bill' AND wi.subject_id = :b
+           AND a.actor_user_id = :u AND a.action = :action
+         ORDER BY a.id DESC LIMIT 1"
+    );
+    $step->execute(['t' => $tenantId, 'b' => $billId, 'u' => $userId, 'action' => $action]);
+    $stepNo = (int) $step->fetchColumn();
+    if ($stepNo <= 0) throw new \RuntimeException('AP workflow decision has no recorded action step');
+
+    $pdo->prepare(
+        "INSERT INTO ap_bill_approvals
+            (tenant_id, bill_id, approver_user_id, step_no, state, decision_at, decision_note, created_at)
+         VALUES (:t, :b, :u, :s, :state, NOW(), :note, NOW())
+         ON DUPLICATE KEY UPDATE state = VALUES(state), decision_at = VALUES(decision_at),
+                                 decision_note = VALUES(decision_note)"
+    )->execute([
+        't' => $tenantId, 'b' => $billId, 'u' => $userId, 's' => $stepNo,
+        'state' => $state, 'note' => $comment === null ? null : mb_substr($comment, 0, 500),
+    ]);
+}
+
+/** A completed workflow must not leave other reviewers with an actionable legacy step. */
+function apSupersedePendingApprovalSteps(\PDO $pdo, int $tenantId, int $billId, ?int $beforeStep = null): void {
+    $sql = "UPDATE ap_bill_approvals SET state = 'superseded'
+             WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'";
+    $params = ['t' => $tenantId, 'b' => $billId];
+    if ($beforeStep !== null) {
+        $sql .= ' AND step_no < :step_no';
+        $params['step_no'] = $beforeStep;
+    }
+    $pdo->prepare($sql)->execute($params);
+}
+
 /** @internal */
 function apSyncBillRow(int $tenantId, int $billId): ?array {
     $pdo = getDB();
@@ -134,12 +161,7 @@ function apSyncPendingWorkflowStepApprovers(\PDO $pdo, int $tenantId, int $billI
 
     $stepNo = (int) ($row['current_step'] ?? 0);
     if ($stepNo <= 0) return;
-    $existing = $pdo->prepare(
-        "SELECT COUNT(*) FROM ap_bill_approvals
-          WHERE tenant_id = :t AND bill_id = :b AND step_no = :s AND state = 'pending'"
-    );
-    $existing->execute(['t' => $tenantId, 'b' => $billId, 's' => $stepNo]);
-    if ((int) $existing->fetchColumn() > 0) return;
+    apSupersedePendingApprovalSteps($pdo, $tenantId, $billId, $stepNo);
 
     $approverIds = array_values(array_unique(array_filter(array_map(
         'intval',
@@ -150,13 +172,10 @@ function apSyncPendingWorkflowStepApprovers(\PDO $pdo, int $tenantId, int $billI
     $insert = $pdo->prepare(
         "INSERT INTO ap_bill_approvals
             (tenant_id, bill_id, approver_user_id, step_no, state, created_at)
-         VALUES (:t, :b, :u, :s, 'pending', NOW())"
+         VALUES (:t, :b, :u, :s, 'pending', NOW())
+         ON DUPLICATE KEY UPDATE id = id"
     );
     foreach ($approverIds as $uid) {
-        try {
-            $insert->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid, 's' => $stepNo]);
-        } catch (\PDOException $e) {
-            if ((string) $e->getCode() !== '23000') throw $e;
-        }
+        $insert->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid, 's' => $stepNo]);
     }
 }

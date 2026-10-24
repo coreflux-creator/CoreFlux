@@ -26,12 +26,15 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/migration_policy.php';
 require_once __DIR__ . '/tenant_scope.php';
+require_once __DIR__ . '/accounting/standalone_boundary.php';
 require_once __DIR__ . '/auditor.php';
 // Membership read-fallback shim — exposes membershipReadSourceSql() so any
 // API endpoint can swap a direct `FROM tenant_memberships` for the UNIONed
 // subquery that also surfaces un-backfilled legacy `user_tenants` rows.
 require_once __DIR__ . '/memberships.php';
+require_once __DIR__ . '/RBAC.php';
 // RBAC B2 resolver — new tenant_memberships grid. Loaded alongside the
 // legacy /core/RBAC.php (different class name on purpose; see header in
 // /core/rbac/permissions.php). Safe to require at bootstrap so $ctx can
@@ -40,6 +43,16 @@ require_once __DIR__ . '/rbac/permissions.php';
 // RBAC B4 bridge — legacy permission string → (module, action) translator.
 // Exposes rbac_legacy_can() / rbac_legacy_require() for the sweep.
 require_once __DIR__ . '/rbac/legacy_map.php';
+
+// Direct module endpoints must be rejected before session and auto-migration work.
+// The central /api router sets its module scope later and is checked by api_require_auth().
+$directModule = coreAccountingRequestModule($_SERVER['SCRIPT_FILENAME'] ?? null, null);
+if (!coreAccountingAllowsModuleRequest($_SERVER['SCRIPT_FILENAME'] ?? null, $directModule, (string) getenv('COREFLUX_ENV'))) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(404);
+    echo '{"error":"Not found","status":404}';
+    exit;
+}
 
 // ---------------------------------------------------------------------------
 // Session + headers
@@ -71,8 +84,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 // non-fatal — they get surfaced via /api/migrate.php for admin review,
 // but never 500 the user-facing endpoint.
 // ---------------------------------------------------------------------------
-require_once __DIR__ . '/migrate.php';
-try { coreflux_run_migrations(); } catch (\Throwable $_) { /* non-fatal */ }
+if (corefluxMayApplySchemaChanges((string) getenv('COREFLUX_ENV'), PHP_SAPI)) {
+    require_once __DIR__ . '/migrate.php';
+    try { coreflux_run_migrations(); } catch (\Throwable $_) { /* non-fatal */ }
+}
 
 // ---------------------------------------------------------------------------
 // Response helpers
@@ -136,6 +151,11 @@ function api_require_fields(array $data, array $required): void {
  * Emits 401 if not authenticated, 400 if no tenant selected.
  */
 function api_require_auth(bool $requireTenant = true): array {
+    $moduleKey = coreAccountingRequestModule($_SERVER['SCRIPT_FILENAME'] ?? null, currentModuleKey());
+    if (!coreAccountingAllowsModuleRequest($_SERVER['SCRIPT_FILENAME'] ?? null, $moduleKey, (string) getenv('COREFLUX_ENV'))) {
+        api_error('Not found', 404);
+    }
+
     // Accept JWT bearer first (mobile / API clients), fall back to session cookie (web SPA).
     if (!isAuthenticated()) {
         require_once __DIR__ . '/jwt.php';
@@ -452,6 +472,13 @@ function api_require_cfo(): array {
 set_exception_handler(function (Throwable $e) {
     error_log('[api] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
 
+    if ($e instanceof AccountingSetupRequired) {
+        api_error($e->getMessage(), 409, [
+            'kind' => 'accounting_setup_required',
+            'setup_path' => '/modules/accounting/entities',
+        ]);
+    }
+
     // Recognise "table doesn't exist" — happens when a module's migration
     // hasn't been run yet on the target database. Helps the operator spot
     // it instantly instead of a generic 500.
@@ -610,6 +637,9 @@ require_once __DIR__ . '/tx_helpers.php';
  * @param string $colRef A column reference like "te.person_id" or "person_id".
  */
 function cf_self_heal_known_column(string $colRef): bool {
+    if (!corefluxMayApplySchemaChanges((string) getenv('COREFLUX_ENV'), PHP_SAPI)) {
+        return false;
+    }
     // Recipes: [table => [column => DDL fragment]]
     // Audited list of known schema-drift columns. Each fragment is the
     // bare `ADD COLUMN ...` clause — `cf_self_heal_known_column` prepends

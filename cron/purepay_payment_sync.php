@@ -31,7 +31,7 @@ foreach ($rows as $row) {
         ? 'purepay:bill:' . $row['purepay_bill_id']
         : 'purepay:payment:' . $row['purepay_payment_id'];
     try {
-        $status = $driver->getStatus($ref);
+        $status = $driver->getStatusForTenant((int)$row['tenant_id'],$ref);
         if ((int) ($row['core_payment_id'] ?? 0) > 0) {
             purepayApplyPaymentStatus((int) $row['tenant_id'], (int) $row['core_payment_id'], $status, $pdo);
         }

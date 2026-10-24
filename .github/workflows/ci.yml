@@ -2,13 +2,30 @@ name: CoreFlux CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, codex/coreaccounting-native]
   pull_request:
     branches: [main, master, develop]
   schedule:
     - cron: '17 6 * * *'
 
 jobs:
+  maintenance-http:
+    name: Full-Core maintenance Apache rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Verify web pause and exact restoration against real Apache/PHP
+        run: |
+          php -l deploy/rehearse_core_staging_maintenance.php
+          bash tests/full_core_maintenance_apache.sh
+      - name: Rehearse native scheduler pause and process-loss recovery in an isolated container
+        run: bash tests/full_core_maintenance_host_linux.sh
+
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).
   # Same test code path; --lane=NAME filters by scripts/ci_lane_classifier.sh.
@@ -89,26 +106,28 @@ jobs:
     name: Live business graph simulation
 
     services:
-      mysql:
-        image: mysql:8.0
+      mariadb:
+        image: mariadb:10.11
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: coreflux_sim
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: coreaccounting_ci
         ports: ['3306:3306']
         options: >-
-          --health-cmd="mysqladmin ping --silent"
+          --health-cmd="mariadb-admin ping --silent"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
 
     env:
+      COREFLUX_ENV: staging
+      COREFLUX_ACCOUNTING_DB_CONFIG_PATH: /tmp/coreaccounting-ci-db.php
       SIM_TENANT_ID: 999
       SIM_MODE: 1
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_USER: root
       DB_PASS: root
-      DB_NAME: coreflux_sim
+      DB_NAME: coreaccounting_ci
 
     steps:
       - uses: actions/checkout@v4
@@ -119,8 +138,485 @@ jobs:
           php-version: '8.2'
           extensions: mbstring, pdo_mysql, curl, json, openssl
 
-      - name: Build production business graph + seed sim tenant
-        run: php scripts/ci_seed_sim_tenant.php
+      - name: Install private CI database config
+        run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
+
+      - name: Bootstrap canonical business graph and seed sim tenant
+        run: |
+          php deploy/bootstrap_coreaccounting.php --confirm-empty-staging --database=coreaccounting_ci
+          php deploy/bootstrap_coreaccounting.php --verify-schema
+          php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
+
+      - name: Verify stable staffing numbers and replayable migrations
+        run: php tests/record_numbers_mariadb.php
+
+      - name: Verify durable integration deliveries
+        run: php tests/integration_delivery_mariadb.php
+
+      - name: Verify Quanta worker delivery and receipt recovery
+        run: php tests/quanta_worker_delivery_mariadb.php
+
+      - name: Verify reviewed Quanta worker intake
+        run: php tests/quanta_worker_intake_mariadb.php
+
+      - name: Verify reviewed JobDiva person links
+        run: php tests/jobdiva_person_review_mariadb.php
+
+      - name: Verify source classification, countries and rate bases before JobDiva writes
+        run: |
+          php tests/staffing_directory_inventory_mariadb.php
+          php tests/jobdiva_classification_smoke.php
+          php tests/jobdiva_source_values_smoke.php
+          php tests/jobdiva_source_values_mariadb.php
+          php tests/jobdiva_subcontract_parties_mariadb.php
+
+      - name: Verify original Quanta workspace and source approval evidence
+        run: |
+          php tests/quanta_time_schema_mariadb.php
+          php tests/quanta_time_approval_smoke.php
+          php tests/quanta_time_current_smoke.php
+          php tests/quanta_time_review_smoke.php
+          php tests/quanta_time_provenance_mariadb.php
+          php tests/quanta_time_review_mariadb.php
+          php tests/quanta_payroll_inputs_mariadb.php
+
+      - name: Verify PurePay attempts and company isolation
+        run: |
+          php tests/purepay_collection_completeness_smoke.php
+          php tests/purepay_delivery_mariadb.php
+
+      - name: Verify AP reservations across concurrent transaction snapshots
+        run: php tests/ap_payment_reservations_mariadb.php
+
+      - name: Verify dedicated PurePay Core connection and organization review
+        run: |
+          php tests/purepay_core_connection_mariadb.php
+          php tests/purepay_preview_continuity_smoke.php
+          php tests/purepay_core_endpoint_smoke.php
+          php tests/purepay_preview_origin_smoke.php
+          php tests/purepay_preview_origin_mariadb.php
+          php tests/purepay_people_scope_smoke.php
+
+      - name: Verify reviewed Core record links and response-loss reconciliation
+        run: |
+          php tests/purepay_core_links_mariadb.php
+          php tests/purepay_people_setup_receipt.php
+
+      - name: Verify employer-reviewed onboarding and evidence isolation
+        run: |
+          php tests/placement_native_schema_mariadb.php
+          php tests/people_document_schema_mariadb.php
+          php tests/staffing_onboarding_mariadb.php
+
+      - name: PurePayroll approved input delivery fixture
+        run: php tests/purepay_payroll_inputs_mariadb.php
+      - name: Verify scoped person intake and inactive employee receipt recovery
+        run: php tests/purepay_people_inputs_mariadb.php
+      - name: Verify complete commercial projection and scoped placement receipt recovery
+        run: |
+          php tests/purepay_assignment_fixture.php
+          php tests/purepay_assignment_inputs_mariadb.php
+
+      - name: Core payroll source reservation and database fences
+        run: php tests/purepay_payroll_authority_mariadb.php
+
+      - name: Core payroll allocation and permanent cancellation receipts
+        run: php tests/purepay_payroll_allocation_receipt.php
+      - name: Core payroll result provenance and encrypted observation history
+        run: |
+          php tests/purepay_payroll_result_receipt.php
+          php tests/purepay_payroll_results_mariadb.php
 
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
+
+      - name: Replay partial settlements without duplicate postings
+        run: php sim/runner.php --scenario=partial_settlement_lifecycle --tenant=999
+
+      - name: Verify approved staffing dimensions post to separate journals
+        run: php tests/staffing_posting_live.php
+
+      - name: Verify submitted staffing week approves and posts
+        run: php tests/staffing_approval_live.php
+
+      - name: Verify time CSV through invoice delivery and bank collection
+        run: |
+          php -S 127.0.0.1:8765 -t . tests/ci_business_api_router.php > /tmp/coreflux-business-api.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          php tests/csv_to_invoice_live.php || { tail -100 /tmp/coreflux-business-api.log; exit 1; }
+        env:
+          SIM_API_BASE: http://127.0.0.1:8765
+          COREFLUX_STAGING_PUBLIC_ORIGIN: https://phpstack-1516771-6707602.cloudwaysapps.com
+          MAIL_DRIVER: log
+          MAIL_LOG_PATH: /tmp/coreflux-ci-mail.log
+          CF_PDF_RENDERER_BIN: /bin/false
+
+      - name: Verify bank match reversal and correction
+        run: php tests/cash_reversal_live.php
+
+  coreaccounting-clean-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: CoreAccounting standalone empty-database install
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: coreaccounting_ci
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mariadb-admin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      COREFLUX_ENV: coreaccounting
+      COREFLUX_ACCOUNTING_DB_CONFIG_PATH: /tmp/coreaccounting-ci-db.php
+      COREFLUX_STANDALONE_DATABASE: coreaccounting_ci
+      COREFLUX_PUBLIC_ORIGIN: https://staging.corefluxapp.com
+      DB_HOST: 127.0.0.1
+      DB_NAME: coreaccounting_ci
+      DB_USER: root
+      DB_PASS: root
+      COREFLUX_INITIAL_TENANT_NAME: CoreAccounting CI
+      COREFLUX_INITIAL_ADMIN_NAME: CI Administrator
+      COREFLUX_INITIAL_ADMIN_EMAIL: ci-admin@coreaccounting.invalid
+      COREFLUX_INITIAL_ADMIN_PASSWORD: ci-only-disposable-password-2026
+      COREFLUX_INITIAL_ENTITY_LEGAL_NAME: CoreAccounting CI LLC
+      COREFLUX_INITIAL_ENTITY_COUNTRY: US
+      COREFLUX_INITIAL_ENTITY_BASE_CURRENCY: USD
+      COREFLUX_INITIAL_ENTITY_TYPE: llc
+      COREFLUX_INITIAL_ACCOUNTING_BASIS: accrual
+      COREFLUX_INITIAL_FISCAL_YEAR_START_MONTH: 1
+      COREFLUX_INITIAL_FISCAL_YEAR: 2026
+      SIM_TENANT_ID: 999
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl
+          tools: composer:v2
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install private CI database config
+        run: install -m 600 tests/fixtures/coreaccounting_ci_db.php "$COREFLUX_ACCOUNTING_DB_CONFIG_PATH"
+
+      - name: Build and extract the committed standalone runtime
+        run: |
+          package="$RUNNER_TEMP/coreaccounting-install-package"
+          extracted="$RUNNER_TEMP/coreaccounting-install-extracted"
+          bash scripts/build_coreaccounting_release.sh "$package"
+          mkdir "$extracted"
+          tar -xzf "$package/release.tar.gz" -C "$extracted"
+          commit="$(git rev-parse HEAD)"
+          manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
+          COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
+          php deploy/verify_coreaccounting_release.php \
+            --confirm-read-only-package --root="$extracted/public_html" \
+            --private-root="$extracted/private_runtime" \
+            --manifest="$extracted/manifest.json" --commit="$commit" \
+            --manifest-sha256="$manifest_sha"
+          target="$RUNNER_TEMP/coreaccounting-clean-app"
+          mkdir -p "$target/public_html" "$target/private"
+          touch "$target/public_html/cloudways-placeholder.txt"
+          install -m 600 /dev/null "$target/private/mail.jsonl"
+          args=(--package="$extracted" --webroot="$target/public_html" \
+            --private-runtime="$target/private/private_runtime" \
+            --backup-root="$target/private/backup" \
+            --db-config="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+            --mail-log="$target/private/mail.jsonl" \
+            --origin="$COREFLUX_PUBLIC_ORIGIN" --database="$COREFLUX_STANDALONE_DATABASE" \
+            --commit="$commit" --manifest-sha256="$manifest_sha")
+          preflight="$(COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --inspect "${args[@]}")"
+          fingerprint="$(printf '%s' "$preflight" | php -r \
+            '$result=json_decode(stream_get_contents(STDIN),true); if (($result["status"]??null)!=="ready_for_empty_install" || ($result["existing_tables"]??null)!==0) exit(1); echo $result["webroot_sha256"]??"";')"
+          test -n "$fingerprint"
+          printf 'changed after inspection' > "$target/public_html/cloudways-placeholder.txt"
+          if COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --confirm-empty-install \
+              --webroot-sha256="$fingerprint" "${args[@]}"; then
+            echo 'Installer accepted a stale webroot fingerprint' >&2
+            exit 1
+          fi
+          test ! -e "$target/private/private_runtime"
+          test -f "$target/public_html/cloudways-placeholder.txt"
+          preflight="$(COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --inspect "${args[@]}")"
+          fingerprint="$(printf '%s' "$preflight" | php -r \
+            '$result=json_decode(stream_get_contents(STDIN),true); echo $result["webroot_sha256"]??"";')"
+          COREFLUX_STANDALONE_WEBROOT="$target/public_html" \
+            php deploy/install_coreaccounting_clean_app.php --confirm-empty-install \
+              --webroot-sha256="$fingerprint" "${args[@]}"
+          test -f "$target/private/backup/original/cloudways-placeholder.txt"
+          test -f "$target/private/private_runtime/vendor/autoload.php"
+          test -f "$target/public_html/spa.php"
+          echo "COREFLUX_STANDALONE_WEBROOT=$target/public_html" >> "$GITHUB_ENV"
+          echo "COREFLUX_ACCOUNTING_PRIVATE_VENDOR_AUTOLOAD=$target/private/private_runtime/vendor/autoload.php" >> "$GITHUB_ENV"
+          echo "MAIL_DRIVER=log" >> "$GITHUB_ENV"
+          echo "MAIL_LOG_PATH=$target/private/mail.jsonl" >> "$GITHUB_ENV"
+
+      - name: Web request must leave the fresh database empty
+        run: |
+          php -S 127.0.0.1:8765 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --retry 5 --retry-connrefused --retry-delay 1 --silent --output "$RUNNER_TEMP/coreaccounting-web-response.json" \
+            http://127.0.0.1:8765/modules/accounting/api/reports.php
+          inspection="$(php "$COREFLUX_STANDALONE_WEBROOT/deploy/bootstrap_coreaccounting.php" --inspect)"
+          printf '%s\n' "$inspection"
+          printf '%s' "$inspection" | php -r '$result = json_decode(stream_get_contents(STDIN), true); if (($result["database"] ?? null) !== "coreaccounting_ci" || ($result["existing_tables"] ?? -1) !== 0) exit(1);'
+
+      - name: Rehearse private full-Core connection preservation
+        run: php tests/full_core_settings_mariadb.php --confirm-disposable-fixture
+
+      - name: Rehearse exact full-Core upgrade failure and process-loss recovery markers
+        run: php tests/full_core_upgrade_executor_mariadb.php --confirm-disposable-fixture
+
+      - name: Restore a native MariaDB backup after committed partial upgrade changes
+        env:
+          COREFLUX_RECOVERY_MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
+        run: php tests/full_core_upgrade_recovery_mariadb.php --confirm-disposable-fixture
+
+      - name: Bootstrap canonical schema and first tenant
+        run: |
+          cd "$COREFLUX_STANDALONE_WEBROOT"
+          php deploy/bootstrap_coreaccounting.php --inspect
+          php deploy/bootstrap_coreaccounting.php --confirm-empty-standalone --database=coreaccounting_ci
+          php deploy/bootstrap_coreaccounting.php --verify-schema
+          php deploy/provision_coreaccounting_tenant.php --confirm-first-tenant --database=coreaccounting_ci
+          php deploy/audit_coreaccounting_migrations.php --database=coreaccounting_ci
+          COREFLUX_ENV=staging php scripts/ci_seed_sim_tenant.php --tenant-only --require-new
+
+      - name: Verify midyear opening balances and credits with rollback
+        run: |
+          COREFLUX_ENV=staging \
+          COREFLUX_DB_CONFIG_PATH="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+          php tests/accounting_opening_midyear_mariadb.php --confirm-disposable-fixture
+          COREFLUX_ENV=staging \
+          COREFLUX_DB_CONFIG_PATH="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+          php tests/accounting_credit_applications_mariadb.php --confirm-disposable-fixture
+
+      - name: Refuse the clean installer after the database is populated
+        run: |
+          package="$RUNNER_TEMP/coreaccounting-install-extracted"
+          target="$RUNNER_TEMP/coreaccounting-clean-app"
+          mkdir "$target/private/recheck"
+          commit="$(git rev-parse HEAD)"
+          manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
+          if php deploy/install_coreaccounting_clean_app.php --inspect \
+            --package="$package" --webroot="$target/public_html" \
+            --private-runtime="$target/private/recheck/private_runtime" \
+            --backup-root="$target/private/recheck/backup" \
+            --db-config="$COREFLUX_ACCOUNTING_DB_CONFIG_PATH" \
+            --mail-log="$target/private/mail.jsonl" \
+            --origin="$COREFLUX_PUBLIC_ORIGIN" --database="$COREFLUX_STANDALONE_DATABASE" \
+            --commit="$commit" --manifest-sha256="$manifest_sha"; then
+            echo 'Clean installer accepted a populated database' >&2
+            exit 1
+          fi
+          test ! -e "$target/private/recheck/private_runtime"
+          test ! -e "$target/private/recheck/backup"
+
+      - name: Exercise legacy password reset schema migration
+        run: php tests/coreaccounting_password_reset_migration_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise tenant-scoped vendor rename and AP reference integrity
+        run: php tests/ap_vendor_identity_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise saved vendor classification on new AP bills
+        run: php tests/ap_manual_bill_vendor_1099_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise approved-time AP bills with mixed locked rates
+        run: php tests/ap_generated_time_bill_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise multi-reviewer AP approval projection
+        run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise exact-reference partial bank invoice suggestions
+        run: php tests/bank_invoice_reference_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise second-entity bank ownership and cash-ledger audit
+        run: php tests/accounting_bank_mapping_integrity_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise shared cash code in two legal entities
+        run: php tests/accounting_shared_bank_code_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise Plaid bank currencies and legal-entity mapping
+        run: php tests/plaid_bank_currency_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise invoice-issued rule-label migration and legacy seed alias
+        run: php tests/invoice_issued_rule_label_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise independent direct invoice approval without a policy
+        run: php tests/billing_invoice_direct_approval_sod_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise durable invoice delivery attempts on a synthetic posted item
+        run: php tests/billing_delivery_attempt_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise log-only invoice send over authenticated HTTP
+        run: |
+          export MAIL_DRIVER=log
+          export MAIL_LOG_PATH="$RUNNER_TEMP/coreaccounting-invoice-mail.jsonl"
+          export COREFLUX_ACCOUNTING_FROM_EMAIL=qa@coreaccounting.invalid
+          export COREFLUX_ACCOUNTING_HTTP_FIXTURE_URL=http://127.0.0.1:8767
+          php -S 127.0.0.1:8767 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-invoice-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8767/login.html; then break; fi
+            sleep 1
+          done
+          php tests/billing_delivery_log_only_http_check.php --confirm-disposable-fixture
+
+      - name: Exercise journal deletion audit and balance restoration
+        run: php tests/accounting_journal_void_audit_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise draft-only account visibility across reports
+        run: php tests/accounting_draft_report_visibility_db_check.php --confirm-disposable-fixture
+
+      - name: Rehearse pending migrations on populated Accounting tables
+        run: php tests/coreaccounting_populated_upgrade_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise log-only password reset and replay
+        run: |
+          export MAIL_DRIVER=log
+          export MAIL_LOG_PATH="$RUNNER_TEMP/coreaccounting-reset-mail.jsonl"
+          php -S 127.0.0.1:8766 -t "$COREFLUX_STANDALONE_WEBROOT" > "$RUNNER_TEMP/coreaccounting-reset-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            if curl --silent --output /dev/null http://127.0.0.1:8766/forgot_password.php; then break; fi
+            sleep 1
+          done
+          request="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
+            http://127.0.0.1:8766/forgot_password.php)"
+          printf '%s' "$request" | grep -q 'If that email is registered'
+          php tests/coreaccounting_password_reset_http_check.php --check-request
+          php tests/coreaccounting_password_reset_http_check.php --setup
+          response="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
+            --data-urlencode 'token=ci-synthetic-reset-token-2026' \
+            --data-urlencode 'password=ci-synthetic-reset-password-2026' \
+            --data-urlencode 'confirm=ci-synthetic-reset-password-2026' \
+            http://127.0.0.1:8766/reset_password.php)"
+          printf '%s' "$response" | grep -q 'Your password has been reset successfully'
+          test -s "$MAIL_LOG_PATH"
+          replay="$(curl --fail --silent --show-error --request POST \
+            --data-urlencode 'email=ci-admin@coreaccounting.invalid' \
+            --data-urlencode 'token=ci-synthetic-reset-token-2026' \
+            --data-urlencode 'password=ci-synthetic-reset-password-2026' \
+            --data-urlencode 'confirm=ci-synthetic-reset-password-2026' \
+            http://127.0.0.1:8766/reset_password.php)"
+          printf '%s' "$replay" | grep -q 'Invalid or expired reset link'
+          php tests/coreaccounting_password_reset_http_check.php --verify
+
+      - name: Replay invoice, bill, payment and bank scenarios
+        run: |
+          cd "$COREFLUX_STANDALONE_WEBROOT"
+          for pass in 1 2; do
+            php sim/runner.php --scenario=ar_invoice_happy_path --seed=42 --tenant=999
+            php sim/runner.php --scenario=ap_bill_happy_path --seed=42 --tenant=999
+            php sim/runner.php --scenario=ap_payment_canonical_lifecycle --seed=42 --tenant=999
+            php sim/runner.php --scenario=treasury_bank_feed_categorize --seed=42 --tenant=999
+            php sim/check_accounting_snapshot.php --tenant=999 --entity-code=SIM
+          done
+          php sim/check_invoice_event_alias.php --tenant=999 --confirm-disposable-fixture
+
+  coreaccounting-release-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: CoreAccounting standalone release package
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Set up PHP and Composer
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl, dom, gd, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Check package manifest and private Composer layout
+        run: |
+          php tests/coreaccounting_release_manifest_smoke.php
+          php tests/coreaccounting_clean_installer_smoke.php
+          php tests/coreaccounting_code_upgrade_inspection_smoke.php
+          php tests/coreaccounting_private_vendor_smoke.php
+
+      - name: Verify finance CSV source, receipt and unstarted-run recovery
+        run: |
+          php tests/coreaccounting_csv_import_surface_smoke.php
+          php tests/coreaccounting_csv_server_receipt_smoke.php
+          php tests/coreaccounting_csv_abandon_smoke.php
+
+      - name: Run dashboard unit tests
+        run: |
+          npm ci --prefix dashboard --no-audit --no-fund
+          node --test dashboard/tests/*.test.mjs
+
+      - name: Build and independently verify extracted package
+        run: |
+          package="$RUNNER_TEMP/coreaccounting-release"
+          extracted="$RUNNER_TEMP/coreaccounting-extracted"
+          bash scripts/build_coreaccounting_release.sh "$package"
+          mkdir "$extracted"
+          tar -xzf "$package/release.tar.gz" -C "$extracted"
+          test -f "$extracted/public_html/vendor/autoload.php"
+          test "$(find "$extracted/public_html/vendor" -type f | wc -l)" -eq 1
+          test -f "$extracted/private_runtime/vendor/autoload.php"
+          test -f "$extracted/private_runtime/vendor/dompdf/dompdf/src/Dompdf.php"
+          bundle_js="$(sed -nE 's/.*src="\/spa-assets\/(index-[A-Za-z0-9_-]+\.js)".*/\1/p' "$extracted/public_html/dashboard/dist/index.html" | head -1)"
+          test -n "$bundle_js"
+          test -f "$extracted/public_html/spa-assets/$bundle_js"
+          grep -Fq 'Choose a cash ledger account' "$extracted/public_html/spa-assets/$bundle_js"
+          if grep -Fq 'Choose unused asset account' "$extracted/public_html/spa-assets/$bundle_js"; then
+            echo 'Stale bank setup bundle was packaged' >&2
+            exit 1
+          fi
+          test ! -e "$extracted/public_html/composer.json"
+          test ! -e "$extracted/private_build_only"
+          php -r 'require $argv[1]; if (!class_exists("Dompdf\\Dompdf")) exit(1);' \
+            "$extracted/public_html/vendor/autoload.php"
+          commit="$(git rev-parse HEAD)"
+          manifest_sha="$(sha256sum "$package/manifest.json" | cut -d' ' -f1)"
+          COREFLUX_ENV=coreaccounting \
+          COREFLUX_STANDALONE_WEBROOT="$extracted/public_html" \
+          php "$extracted/public_html/deploy/verify_coreaccounting_release.php" \
+            --confirm-read-only-package --root="$extracted/public_html" \
+            --private-root="$extracted/private_runtime" \
+            --manifest="$extracted/manifest.json" --commit="$commit" \
+            --manifest-sha256="$manifest_sha"
+
+      - name: Retain verified package for isolated QA installation
+        uses: actions/upload-artifact@v4
+        with:
+          name: coreaccounting-release-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/coreaccounting-release/release.tar.gz
+            ${{ runner.temp }}/coreaccounting-release/manifest.json
+          if-no-files-found: error
+          retention-days: 7

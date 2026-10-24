@@ -10,6 +10,8 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 /**
  * Allowed values for the placements.remote_policy ENUM. The MySQL column is
@@ -92,6 +94,7 @@ function placementGet(int $id): ?array
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
     $row = scopedFind($sql, ['id' => $id]);
     if (!$row) return null;
+    $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'placement', [$row])[0];
     return placementHydratePersonFields($row);
 }
 
@@ -154,7 +157,8 @@ function placementsList(array $filters = []): array
                   OR CAST(p.due_date AS CHAR) LIKE :q_due
                   OR CAST(p.end_date AS CHAR) LIKE :q_end
                   OR p.worksite_state LIKE :q_state
-                  OR p.worksite_country LIKE :q_country)';
+                  OR p.worksite_country LIKE :q_country OR ' . coreRecordNumberSearchSql('placement', 'p', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $filters['q']));
         $like = '%' . trim((string) $filters['q']) . '%';
         foreach (['q_id','q_title','q_job_title','q_person_id','q_first','q_last','q_person','q_email','q_client','q_external','q_status','q_type','q_start','q_due','q_end','q_state','q_country'] as $key) {
             $params[$key] = $like;
@@ -299,6 +303,7 @@ function placementsList(array $filters = []): array
         unset($row['current_economics_snapshot_json']);
     }
     unset($row);
+    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'placement', $rows);
     return ['rows' => $rows, 'total' => $total, 'summary' => $summary, 'page' => $page, 'per_page' => $perPage];
 }
 
@@ -518,27 +523,6 @@ function placementsComputeMargin(array $rate, array $chain): array
  */
 function placementsAudit(string $event, array $meta = [], ?int $targetId = null): void
 {
-    $pdo = getDB();
-    if (!$pdo) {
-        error_log("[placements.audit] {$event} target={$targetId} meta=" . json_encode($meta));
-        return;
-    }
-    try {
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id'     => currentTenantId(),
-            'actor_user_id' => $_SESSION['user']['id'] ?? null,
-            'event'         => $event,
-            'target_id'     => $targetId,
-            'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
-    } catch (\Throwable $e) {
-        error_log("[placements.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
-    }
+    platformAuditLogWrite(currentTenantId(), $_SESSION['user']['id'] ?? null,
+        $event, $targetId, $meta, ['source' => 'placements']);
 }

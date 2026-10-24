@@ -13,6 +13,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { api } from '../../../dashboard/src/lib/api';
+import { displayJobDivaMoney } from './jobdivaMoney.mjs';
 
 const ENDPOINT = '/modules/placements/api/jobdiva_reconciliation.php';
 const outcomeTone = {
@@ -379,10 +380,10 @@ export default function JobDivaReconciliation() {
                           </td>
                           <td>
                             <div>
-                              Bill {displayMoney(row.source?.bill_rate)} / Pay {displayMoney(row.source?.pay_rate)}
+                              Bill {displayMoney(row.source?.bill_rate, row)} / Pay {displayMoney(row.source?.pay_rate, row, 'pay')}
                             </div>
                             <small style={{ color: '#64748b' }}>
-                              Invoice {displayMoney(row.contract?.economics?.invoice_rate)} / Margin {displayMoney(row.contract?.economics?.gross_margin)}
+                              Invoice {displayMoney(row.contract?.economics?.invoice_rate, row)} / Margin {displayMoney(row.contract?.economics?.gross_margin, row)}
                               {' / '}
                               {row.economics?.vendor || 'no vendor evidence'}
                               {row.economics?.paid_when_paid ? ' / paid when paid' : ''}
@@ -705,6 +706,15 @@ export default function JobDivaReconciliation() {
 
 function StoredAssignmentDetails({ row }) {
   const contract = row.contract || {};
+  const classification = contract.classification_review || {};
+  const classificationPairs = [
+    ['Review status', classification.status === 'resolved' ? 'Resolved' : 'Needs review'],
+    ['Evidence source', classification.source?.replace(/_/g, ' ')],
+    ['Verified classification', classification.engagement_type],
+    ...(classification.observations || []).map((observation, index) => [
+      `${index + 1}. ${observation.path || observation.key}`, observation.value,
+    ]),
+  ];
   const sourcePairs = [
     ['Candidate ID', row.source?.candidate_id],
     ['Candidate', row.source?.candidate_name],
@@ -719,8 +729,8 @@ function StoredAssignmentDetails({ row }) {
     ['End', row.source?.end_date],
   ];
   const economicsPairs = [
-    ['Bill rate', displayMoney(row.source?.bill_rate)],
-    ['Pay rate', displayMoney(row.source?.pay_rate)],
+    ['Bill rate', displayMoney(row.source?.bill_rate, row)],
+    ['Pay rate', displayMoney(row.source?.pay_rate, row, 'pay')],
     ['Vendor / contractor company', row.economics?.vendor],
     ['Referrer', row.economics?.referrer],
     ['Commission evidence', row.economics?.commission],
@@ -744,6 +754,7 @@ function StoredAssignmentDetails({ row }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
       <KeyValueList title="Assignment projection" items={sourcePairs} />
+      <KeyValueList title="Assignment classification evidence" items={classificationPairs} />
       <KeyValueList title="Economic projection evidence" items={economicsPairs} />
       <KeyValueList title="Current CoreFlux graph" items={currentGraphPairs} />
       <div style={{ gridColumn: '1 / -1' }}>
@@ -801,7 +812,7 @@ function KeyValueList({ title, items }) {
       <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 0.8fr) minmax(140px, 1.2fr)', gap: '5px 10px', margin: '7px 0 0', fontSize: 12 }}>
         {items.map(([label, value]) => (
           <React.Fragment key={label}>
-            <dt style={{ color: '#64748b' }}>{label}</dt>
+            <dt style={{ color: '#64748b', overflowWrap: 'anywhere' }}>{label}</dt>
             <dd style={{ margin: 0, color: '#0f172a', overflowWrap: 'anywhere' }}>{displayValue(value)}</dd>
           </React.Fragment>
         ))}
@@ -862,8 +873,7 @@ function displayValue(value) {
   return String(value);
 }
 
-function displayMoney(value) {
-  if (value === null || value === undefined || value === '') return '-';
-  const number = Number(value);
-  return Number.isFinite(number) ? `USD ${number.toFixed(2)}` : String(value);
+function displayMoney(value, row, side = 'bill') {
+  const basis = row?.contract?.economics;
+  return displayJobDivaMoney(value, basis?.currency, basis?.[`${side}_rate_unit`]);
 }

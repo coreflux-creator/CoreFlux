@@ -24,28 +24,31 @@ $asOf       = (string) ($_GET['as_of'] ?? date('Y-m-d'));
 $disposition= (($_GET['disposition'] ?? 'inline') === 'attachment') ? 'attachment' : 'inline';
 if ($clientName === '') api_error('client_name required', 422);
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-MM-DD', 422);
+try {
+    $entity = billingStatementEntity($tid, api_query('entity_id'));
+} catch (InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (OutOfBoundsException $e) {
+    api_error($e->getMessage(), 404);
+}
+$entityId = (int) $entity['id'];
 
-$invoices = billingStatementOpenInvoices($tid, $clientName, $asOf);
+$invoices = billingStatementOpenInvoices($tid, $clientName, $asOf, $entityId);
 if (empty($invoices)) api_error("Nothing outstanding for \"{$clientName}\".", 409);
 $buckets  = billingStatementBucket($invoices);
-$tenant   = scopedFind('SELECT name FROM tenants WHERE id = :tenant_id', []) ?: ['name' => 'CoreFlux'];
-$email    = billingStatementRenderEmail((string) $tenant['name'], $clientName, $invoices, $buckets, $asOf, null, $tid);
+$email    = billingStatementRenderEmail((string) $entity['legal_name'], $clientName, $invoices, $buckets, $asOf, null, $tid);
 
 $page  = '<!doctype html><html><head><meta charset="utf-8"><title>Statement — '
        . htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8') . '</title>'
        . '<style>body{margin:0;background:#fff}</style></head><body>'
        . $email['html'] . '</body></html>';
 
-$tmpDir = sys_get_temp_dir() . '/cf-pdf-stmt';
-if (!is_dir($tmpDir)) @mkdir($tmpDir, 0755, true);
 $slug   = preg_replace('/[^a-z0-9]+/', '-', strtolower($clientName)) ?: 'client';
-$outPath= "{$tmpDir}/stmt-{$tid}-{$slug}-{$asOf}-" . bin2hex(random_bytes(4)) . '.pdf';
-try { cf_render_html_to_pdf($page, $outPath, ['orientation' => 'portrait']); }
-catch (\Throwable $e) { api_error('PDF renderer unavailable: ' . $e->getMessage(), 503); }
-
-header('Content-Type: application/pdf');
-header('Content-Length: ' . (string) filesize($outPath));
-header('Content-Disposition: ' . $disposition . '; filename="statement-' . $slug . '-' . $asOf . '.pdf"');
-readfile($outPath);
-@unlink($outPath);
+try {
+    cf_stream_html_pdf($page, 'statement-' . $entityId . '-' . $slug . '-' . $asOf . '.pdf',
+        ['orientation' => 'portrait'], $disposition);
+} catch (\Throwable $e) {
+    error_log('[billing.statement_pdf] PDF render failed: ' . $e->getMessage());
+    api_error('PDF renderer unavailable', 503);
+}
 exit;

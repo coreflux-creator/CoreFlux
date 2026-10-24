@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import PurePayCoreConnection from './PurePayCoreConnection';
 
 export default function PurePaySettings() {
   const status = useApi('/api/purepay_connection.php?action=status');
@@ -33,6 +34,8 @@ export default function PurePaySettings() {
 
       {message && <p data-testid={`purepay-message-${message.kind}`} className={message.kind === 'error' ? 'error' : 'success'}>{message.text}</p>}
       {status.error && <p className="error">{status.error.message}</p>}
+
+      <PurePayCoreConnection />
 
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>

@@ -66,8 +66,23 @@ require_once $libPath;
 $a('invoiceRenderPdf() defined',               function_exists('invoiceRenderPdf'));
 $a('invoiceBuildPdfHtml() defined',            function_exists('invoiceBuildPdfHtml'));
 $a('invoiceBuildPdfHtmlFinal() defined',       function_exists('invoiceBuildPdfHtmlFinal'));
-$a('cache busts on updated_at + amount_due',   str_contains($libSrc, "updated_at") && str_contains($libSrc, 'amount_due'));
-$a('cache dir is tenant-scoped',               str_contains($libSrc, "COREFLUX_INVOICE_PDF_STORAGE_ROOT . '/' . \$tenantId"));
+$a('PDF rate retains four-decimal precision', invoiceFormatMeasure('1.0050') === '1.005'
+    && invoiceFormatMeasure('-0.0100') === '-0.01'
+    && invoiceFormatMeasure('1.0000') === '1.00'
+    && invoiceFormatMeasure('1000.1234') === '1,000.1234');
+$a('draft PDF is not presented as an issued payable', invoicePdfStatusPresentation('draft')
+    === ['DRAFT - NOT ISSUED', 'Planned due date', 'Draft total']
+    && invoicePdfStatusPresentation('approved')
+    === ['APPROVED - NOT SENT', 'Planned due date', 'Approved total']
+    && invoicePdfStatusPresentation('sent') === ['', 'Due date', 'Total due']
+    && invoicePdfStatusPresentation('void')
+    === ['VOID - NOT PAYABLE', 'Due date', 'Voided balance']);
+$a('cache busts on invoice state and template changes', str_contains($libSrc, "updated_at")
+    && str_contains($libSrc, "\$inv['status']") && str_contains($libSrc, 'amount_due')
+    && str_contains($libSrc, "hash_file('sha1', __FILE__)"));
+$a('cache dir is tenant-scoped',               str_contains($libSrc, "\$storageRoot . '/' . \$tenantId"));
+$a('standalone uses private storage',          str_contains($libSrc, 'coreAccountingPrivateStorageRoot(dirname(__DIR__, 3))'));
+$a('standalone archives old cache',            str_contains($libSrc, 'invoiceArchiveLegacyPdfCache($invoiceId, $tenantId,'));
 $a('uses cf_render_html_to_pdf()',             str_contains($libSrc, 'cf_render_html_to_pdf('));
 $a('letter paper default',                     str_contains($libSrc, "'paper' => 'letter'"));
 
@@ -80,6 +95,7 @@ $a('attachments persisted to outbox JSON',     str_contains($mailSrc, "'attachme
 echo "\nmodules/billing/api/invoices.php (wiring)\n";
 $apiPath = __DIR__ . '/../modules/billing/api/invoices.php';
 $apiSrc  = (string) file_get_contents($apiPath);
+$deliverySrc = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_delivery.php');
 $a('invoices.php parses',                      (int) shell_exec('php -l ' . escapeshellarg($apiPath) . ' >/dev/null 2>&1; echo $?') === 0);
 $a('requires invoice_pdf library',             str_contains($apiSrc, "require_once __DIR__ . '/../lib/invoice_pdf.php'"));
 
@@ -91,8 +107,11 @@ $a('send passes $attachments to MailService',  preg_match('/\$svc->send\([^;]*?\
 $a('send tolerates renderer-missing host',     str_contains($apiSrc, '$pdfError') && str_contains($apiSrc, '} catch (\Throwable $e)'));
 $a('send audit logs pdf_attached + pdf_error', str_contains($apiSrc, "'pdf_attached'") && str_contains($apiSrc, "'pdf_error'"));
 $a('send response exposes pdf_attached',       str_contains($apiSrc, "'pdf_attached' =>"));
-$a('send still issues view token',             str_contains($apiSrc, 'billingIssueViewToken($tid, $id)'));
-$a('send transitions invoice to "sent"',       str_contains($apiSrc, 'status = "sent", sent_at = NOW()'));
+$a('send reserves a customer view token',      str_contains($apiSrc, 'billingDeliveryReserve($tid, $id, $requestId')
+    && str_contains($deliverySrc, 'billingIssueViewToken($tenantId, $invoiceId)'));
+$a('first send marks approved invoice sent without regressing later states',
+   str_contains($deliverySrc, 'CASE WHEN status = "approved" THEN "sent" ELSE status END')
+   && str_contains($deliverySrc, 'sent_at = COALESCE(sent_at, NOW())'));
 
 // --- GET ?action=pdf must stream a PDF file -----------------------------
 $a("GET has action='pdf' branch",              str_contains($apiSrc, "\$method === 'GET' && \$action === 'pdf'"));

@@ -81,8 +81,9 @@ class MailService
      *   ['outbox_id' => int|null, 'status' => 'sent'|'failed',
      *    'provider_message_id' => string|null, 'error' => string|null].
      *
-     * @param array $opts ['from' => string, 'reply_to' => string, 'driver' => string,
-     *                     'connection_id' => int, 'attachments' => array<int>]
+     * @param array $opts ['from' => string, 'reply_to' => string, 'cc' => string[], 'driver' => string,
+     *                     'connection_id' => int, 'attachments' => array<int>,
+     *                     'outbox_redactions' => string[]]
      */
     public function send(
         int    $tenantId,
@@ -113,6 +114,16 @@ class MailService
                 throw new \InvalidArgumentException("MailService::send invalid recipient: {$addr}");
             }
         }
+        $cc = array_values(array_unique(array_filter(array_map(
+            fn($x) => is_string($x) ? trim($x) : '',
+            (array) ($opts['cc'] ?? [])
+        ))));
+        foreach ($cc as $addr) {
+            if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) {
+                throw new \InvalidArgumentException("MailService::send invalid cc: {$addr}");
+            }
+        }
+        $cc = array_values(array_diff($cc, $to));
         if ($subject === '') {
             throw new \InvalidArgumentException('MailService::send subject required');
         }
@@ -128,6 +139,7 @@ class MailService
             'from_name'     => $opts['from_name'] ?? null,
             'reply_to'      => $opts['reply_to']  ?? null,
             'to'            => $to,
+            'cc'            => $cc,
             'subject'       => $subject,
             'body_text'     => $bodyText,
             'body_html'     => $bodyHtml,
@@ -140,17 +152,25 @@ class MailService
 
         $outboxId = null;
         if (is_callable($this->outboxWriter)) {
+            $storedText = $bodyText;
+            $storedHtml = $bodyHtml;
+            foreach ((array) ($opts['outbox_redactions'] ?? []) as $secret) {
+                if (!is_string($secret) || $secret === '') continue;
+                $storedText = str_replace($secret, '[redacted]', $storedText);
+                if ($storedHtml !== null) $storedHtml = str_replace($secret, '[redacted]', $storedHtml);
+            }
             $outboxId = (int) call_user_func($this->outboxWriter, [
                 'tenant_id'           => $tenantId,
                 'module'              => $module,
                 'purpose'             => $purpose,
                 'connection_id'       => $opts['connection_id'] ?? null,
                 'to_addresses_json'   => json_encode($to),
+                'cc_addresses_json'   => json_encode($cc),
                 'from_address'        => $opts['from'] ?? null,
                 'reply_to'            => $opts['reply_to'] ?? null,
                 'subject'             => $subject,
-                'body_text'           => $bodyText,
-                'body_html'           => $bodyHtml,
+                'body_text'           => $storedText,
+                'body_html'           => $storedHtml,
                 'attachments_json'    => json_encode(array_values($attachments)),
                 'status'              => $result['status'] ?? 'failed',
                 'provider_message_id' => $result['provider_message_id'] ?? null,

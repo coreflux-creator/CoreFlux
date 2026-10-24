@@ -35,10 +35,17 @@ $a('detail_for_placement action wired',
     str_contains($api, "'GET' && \$action === 'detail_for_placement'"));
 
 // detail action surface
+$detailStart = strpos($api, "if (\$method === 'GET' && \$action === 'detail')");
+$nextAction = strpos($api, "if (\$method === 'GET' && \$action === 'list_for_placement')", $detailStart === false ? 0 : $detailStart);
+$detailSource = $detailStart !== false && $nextAction !== false && $nextAction > $detailStart
+    ? substr($api, $detailStart, $nextAction - $detailStart) : '';
 $a('detail joins people for worker name',
     preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,800}LEFT JOIN people p ON p\\.id = t\\.person_id/", $api) === 1);
 $a('detail returns entries joined to placements',
-    preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,1400}LEFT JOIN placements pl ON pl\\.id = te\\.placement_id/", $api) === 1);
+    str_contains($detailSource, 'LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid'));
+$a('detail retains captured source approval with tenant-scoped source identity',
+    str_contains($detailSource, 'qi.source_approval_json')
+    && str_contains($detailSource, 'qi.time_entry_id = te.id AND qi.tenant_id = te.tenant_id'));
 $a('detail filters out superseded entries',
     preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,1900}te\\.status != 'superseded'/", $api) === 1);
 $a('detail 404s when timesheet not found',

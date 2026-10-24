@@ -93,10 +93,10 @@ check('preserves Intuit troubleshooting correlation IDs',
     && str_contains($src, "\$ex->raw['intuit_tid']")
     && str_contains($src, "'intuit_tid' => \$intuitTid"));
 check('shadow upsert is idempotent (selects then UPDATE/INSERT)',
-    str_contains($src, 'SELECT id FROM qbo_payment_charges')
+    str_contains($src, 'SELECT id, status, amount_cents, currency, coreflux_invoice_id, context_token')
     && str_contains($src, 'INSERT INTO qbo_payment_charges'));
 check('shadow upsert resolves concurrent insert races',
-    str_contains($src, '$raced = $sel->fetch') && str_contains($src, 'return $updateExisting'));
+    str_contains($src, '$raced = $sel->fetch') && str_contains($src, '$id = $updateExisting($raced)'));
 
 // ─────── 3. Operator endpoint ───────
 echo "\n── /api/admin/qbo/payments_charge.php ──\n";
@@ -131,6 +131,22 @@ check('shared capture helper inserts billing_payments with source=qbo',
     str_contains($src, "INSERT INTO billing_payments") && str_contains($src, "'qbo'"));
 check('shared capture helper calls billingAllocatePayment',
     str_contains($src, 'billingAllocatePayment('));
+check('capture posts through the shared ledger before returning paid',
+    str_contains($src, 'accountingPostJe(')
+    && str_contains($src, "'account_code' => '1010'")
+    && str_contains($src, "'account_code' => '1100'")
+    && str_contains($src, 'journal_entry_id = :je'));
+check('capture and allocation share a database transaction',
+    str_contains($src, '$pdo->beginTransaction()')
+    && str_contains($src, "'defer_pwp' => true")
+    && str_contains($src, '$pdo->rollBack()'));
+$poll = (string) file_get_contents($root . '/cron/qbo_payments_poll.php');
+check('settled charges missing a posted receipt are retried',
+    str_contains($poll, "c.status IN ('CAPTURED','SETTLED')")
+    && str_contains($poll, 'p.journal_entry_id IS NULL'));
+$movement = (string) file_get_contents($root . '/modules/billing/lib/money_movement.php');
+check('processor clearing is not counted as bank cash in',
+    str_contains($movement, 'p.bank_account_id IS NOT NULL AND p.journal_entry_id IS NOT NULL'));
 check('shared capture helper audits billing.qbo_payments.captured',
     str_contains($src, "billingAudit('billing.qbo_payments.captured'"));
 check('emits audit billing.qbo_payments.charge_failed on error',
@@ -218,19 +234,26 @@ $pdo->exec("CREATE TABLE qbo_audit_log (
     detail_json TEXT, created_at TEXT)");
 $pdo->exec("CREATE TABLE billing_invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, invoice_number TEXT,
-    client_name TEXT, currency TEXT, status TEXT, amount_due NUMERIC,
-    amount_paid NUMERIC DEFAULT 0)");
+    client_name TEXT, client_company_id INT, entity_id INT, issue_date TEXT,
+    journal_entry_id INT, currency TEXT, status TEXT, amount_due NUMERIC,
+    amount_paid NUMERIC DEFAULT 0, total NUMERIC DEFAULT 0)");
 $pdo->exec("CREATE TABLE billing_payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, client_name TEXT,
     received_at TEXT, method TEXT, reference TEXT, external_id TEXT,
     source_system TEXT, amount NUMERIC, currency TEXT,
     unallocated_amount NUMERIC, notes TEXT, created_by_user_id INT,
-    created_at TEXT,
+    created_at TEXT, journal_entry_id INT, posted_at TEXT, voided_at TEXT,
     UNIQUE (tenant_id, source_system, external_id))");
 $pdo->exec("CREATE TABLE billing_payment_allocations (
     id INTEGER PRIMARY KEY AUTOINCREMENT, payment_id INT, invoice_id INT,
-    amount_applied NUMERIC, created_at TEXT,
+    amount_applied NUMERIC, reversed_at TEXT, created_at TEXT,
     UNIQUE (payment_id, invoice_id))");
+$pdo->exec("CREATE TABLE accounting_journal_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, status TEXT,
+    entity_id INT, source_module TEXT, source_ref_type TEXT, source_ref_id INT)");
+$pdo->exec("CREATE TABLE accounting_subledger_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, source_module TEXT,
+    source_record_id TEXT, journal_entry_id INT, link_kind TEXT)");
 
 // Pre-load a tenant with the payment scope granted.
 $pdo->prepare("INSERT INTO qbo_connections (tenant_id, realm_id, status, environment, access_token_ct, refresh_token_ct, scope) VALUES (101, 'R-1', 'active', 'sandbox', x'00', x'00', 'com.intuit.quickbooks.accounting com.intuit.quickbooks.payment')")->execute();
@@ -291,12 +314,34 @@ if (!function_exists('billingAllocatePayment')) {
             )->execute(['a' => $amount, 'i' => $invoiceId]);
             $applied[] = ['invoice_id' => $invoiceId, 'amount' => $amount];
         }
-        return ['applied' => $applied];
+        return ['applied' => $applied, 'unallocated_remaining' => 0];
     }
 }
 if (!function_exists('billingAudit')) {
     function billingAudit(string $event, array $meta = [], ?int $targetId = null): void {
         $GLOBALS['__billing_audit'][] = compact('event', 'meta', 'targetId');
+    }
+}
+if (!function_exists('billingReleasePayWhenPaidForAllocations')) {
+    function billingReleasePayWhenPaidForAllocations(int $tenantId, array $allocations, ?int $actorUserId = null): array {
+        return [];
+    }
+}
+if (!function_exists('accountingDefaultEntity')) {
+    function accountingDefaultEntity(int $tenantId): array { return ['id' => 1]; }
+}
+if (!function_exists('accountingPostJe')) {
+    function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bool $post = true): array {
+        if (!empty($GLOBALS['__fail_qbo_je'])) throw new \RuntimeException('injected posting failure');
+        $GLOBALS['pdo']->prepare(
+            'INSERT INTO accounting_journal_entries
+                (tenant_id, status, entity_id, source_module, source_ref_type, source_ref_id)
+             VALUES (:t, :s, :entity_id, :m, :rt, :ri)'
+        )->execute(['t' => $tenantId, 's' => $post ? 'posted' : 'draft',
+            'entity_id' => $je['entity_id'], 'm' => $je['source_module'],
+            'rt' => $je['source_ref_type'], 'ri' => $je['source_ref_id']]);
+        $id = (int) $GLOBALS['pdo']->lastInsertId();
+        return ['je_id' => $id, 'je_number' => 'TEST-' . $id, 'idempotent_replay' => false];
     }
 }
 
@@ -320,6 +365,7 @@ $clientSrc = preg_replace(
     "/require_once __DIR__ \\. '\\/client\\.php';/", '', $clientSrc
 );
 $clientSrc = preg_replace('/^\s*<\?php/', '', $clientSrc);
+$clientSrc = str_replace(['FOR UPDATE', 'NOW()'], ['', 'CURRENT_TIMESTAMP'], $clientSrc);
 eval($clientSrc);
 
 // ─────── (a) Scope gate ───────
@@ -456,10 +502,15 @@ check('unique key prevents duplicate rows',  $rowCount === 1);
 // operator refresh, or the poller must create and allocate exactly one
 // CoreFlux payment.
 echo "\n── captured payment application ──\n";
+$pdo->exec("INSERT INTO accounting_journal_entries
+    (id, tenant_id, status, entity_id, source_module, source_ref_type, source_ref_id)
+    VALUES (3, 101, 'posted', 1, 'billing', 'billing_invoice', 7)");
 $pdo->prepare(
     "INSERT INTO billing_invoices
-        (id, tenant_id, invoice_number, client_name, currency, status, amount_due, amount_paid)
-     VALUES (7, 101, 'INV-001', 'Acme Co', 'USD', 'sent', 125.50, 0)"
+        (id, tenant_id, invoice_number, client_name, entity_id, issue_date,
+         journal_entry_id, currency, status, amount_due, amount_paid, total)
+     VALUES (7, 101, 'INV-001', 'Acme Co', 1, '2025-01-01',
+             3, 'USD', 'sent', 125.50, 0, 125.50)"
 )->execute();
 $application = qboApplyCapturedPayment(101, $settled, [
     'coreflux_invoice_id' => 7,
@@ -475,6 +526,8 @@ check('payment row records card method',
     (string) $pdo->query("SELECT method FROM billing_payments WHERE id={$paymentId}")->fetchColumn() === 'card');
 check('shadow links the resulting CoreFlux payment',
     (int) $pdo->query("SELECT coreflux_payment_id FROM qbo_payment_charges WHERE qbo_charge_id='CHG-AAA'")->fetchColumn() === $paymentId);
+check('processor receipt has a posted journal',
+    (int) $pdo->query("SELECT journal_entry_id FROM billing_payments WHERE id={$paymentId}")->fetchColumn() > 0);
 check('invoice is paid by the shared allocator',
     (string) $pdo->query("SELECT status FROM billing_invoices WHERE id=7")->fetchColumn() === 'paid');
 check('exactly one allocation was created',
@@ -491,8 +544,85 @@ check('captured replay does not duplicate payment rows',
     (int) $pdo->query("SELECT COUNT(*) FROM billing_payments WHERE external_id='CHG-AAA'")->fetchColumn() === 1);
 check('captured replay does not duplicate allocations',
     (int) $pdo->query("SELECT COUNT(*) FROM billing_payment_allocations WHERE payment_id={$paymentId}")->fetchColumn() === 1);
+check('captured replay does not duplicate journals',
+    (int) $pdo->query("SELECT COUNT(*) FROM accounting_journal_entries WHERE source_ref_type='billing_payment'")->fetchColumn() === 1);
 check('capture application emitted billing audit event',
     ($GLOBALS['__billing_audit'][0]['event'] ?? null) === 'billing.qbo_payments.captured');
+
+echo "\n── failed post and retry ──\n";
+$pdo->exec("INSERT INTO accounting_journal_entries
+    (id, tenant_id, status, entity_id, source_module, source_ref_type, source_ref_id)
+    VALUES (90, 101, 'posted', 1, 'billing', 'billing_invoice', 8)");
+$pdo->exec("INSERT INTO billing_invoices
+    (id, tenant_id, invoice_number, client_name, entity_id, issue_date,
+     journal_entry_id, currency, status, amount_due, amount_paid, total)
+    VALUES (8, 101, 'INV-008', 'Acme Co', 1, '2025-01-01',
+            90, 'USD', 'sent', 50, 0, 50)");
+$failedCharge = ['id' => 'CHG-FAIL', 'amount' => '20.00', 'currency' => 'USD', 'status' => 'CAPTURED'];
+qboRecordChargeShadow(101, $failedCharge, ['coreflux_invoice_id' => 8]);
+$GLOBALS['__fail_qbo_je'] = true;
+$failed = false;
+try { qboApplyCapturedPayment(101, $failedCharge); }
+catch (\RuntimeException $e) { $failed = str_contains($e->getMessage(), 'injected posting failure'); }
+unset($GLOBALS['__fail_qbo_je']);
+check('posting failure is surfaced', $failed);
+check('posting failure leaves no payment',
+    (int) $pdo->query("SELECT COUNT(*) FROM billing_payments WHERE external_id='CHG-FAIL'")->fetchColumn() === 0);
+check('posting failure restores invoice balance',
+    (float) $pdo->query('SELECT amount_due FROM billing_invoices WHERE id=8')->fetchColumn() === 50.0);
+check('shadow keeps an actionable posting error',
+    str_contains((string) $pdo->query("SELECT error_message FROM qbo_payment_charges WHERE qbo_charge_id='CHG-FAIL'")->fetchColumn(), 'posting_error:'));
+$recovered = qboApplyCapturedPayment(101, $failedCharge);
+check('same captured charge posts successfully on retry',
+    $recovered['applied'] === true && (int) ($recovered['journal_entry_id'] ?? 0) > 0);
+
+echo "\n── closed invoice and legacy repair ──\n";
+$closedCharge = ['id' => 'CHG-CLOSED', 'amount' => '5.00', 'currency' => 'USD', 'status' => 'CAPTURED'];
+qboRecordChargeShadow(101, $closedCharge, ['coreflux_invoice_id' => 7]);
+$closed = false;
+try { qboApplyCapturedPayment(101, $closedCharge); }
+catch (\RuntimeException $e) { $closed = str_contains($e->getMessage(), 'cannot absorb'); }
+check('captured charge on paid invoice waits for review', $closed);
+check('closed invoice creates no unposted receipt',
+    (int) $pdo->query("SELECT COUNT(*) FROM billing_payments WHERE external_id='CHG-CLOSED'")->fetchColumn() === 0);
+$staleCharge = ['id' => 'CHG-STALE', 'amount' => '5.00', 'currency' => 'USD', 'status' => 'REFUNDED'];
+qboRecordChargeShadow(101, $staleCharge, ['coreflux_invoice_id' => 8]);
+$stalePayload = $staleCharge;
+$stalePayload['status'] = 'CAPTURED';
+qboRecordChargeShadow(101, $stalePayload, ['coreflux_invoice_id' => 8]);
+check('stale capture cannot regress persisted refund status',
+    (string) $pdo->query("SELECT status FROM qbo_payment_charges WHERE qbo_charge_id='CHG-STALE'")->fetchColumn() === 'REFUNDED');
+$staleRejected = false;
+try { qboApplyCapturedPayment(101, $stalePayload); }
+catch (\RuntimeException $e) { $staleRejected = str_contains($e->getMessage(), 'no longer captured'); }
+check('stale capture response cannot resurrect a refunded shadow', $staleRejected);
+check('refunded shadow creates no receipt',
+    (int) $pdo->query("SELECT COUNT(*) FROM billing_payments WHERE external_id='CHG-STALE'")->fetchColumn() === 0);
+
+$pdo->exec("INSERT INTO accounting_journal_entries
+    (id, tenant_id, status, entity_id, source_module, source_ref_type, source_ref_id)
+    VALUES (100, 101, 'posted', 1, 'billing', 'billing_invoice', 9)");
+$pdo->exec("INSERT INTO billing_invoices
+    (id, tenant_id, invoice_number, client_name, entity_id, issue_date,
+     journal_entry_id, currency, status, amount_due, amount_paid, total)
+    VALUES (9, 101, 'INV-009', 'Acme Co', 1, '2025-01-01',
+            100, 'USD', 'paid', 0, 30, 30)");
+$legacyCharge = ['id' => 'CHG-LEGACY', 'amount' => '30.00', 'currency' => 'USD', 'status' => 'SETTLED'];
+qboRecordChargeShadow(101, $legacyCharge, ['coreflux_invoice_id' => 9]);
+$pdo->exec("INSERT INTO billing_payments
+    (tenant_id, client_name, received_at, method, reference, external_id,
+     source_system, amount, currency, unallocated_amount)
+    VALUES (101, 'Acme Co', '2025-01-02', 'card', 'legacy', 'CHG-LEGACY',
+            'qbo', 30, 'USD', 0)");
+$legacyPaymentId = (int) $pdo->lastInsertId();
+$pdo->prepare('INSERT INTO billing_payment_allocations (payment_id, invoice_id, amount_applied)
+    VALUES (:p, 9, 30)')->execute(['p' => $legacyPaymentId]);
+$legacy = qboApplyCapturedPayment(101, $legacyCharge);
+check('full legacy allocation gains its missing journal',
+    $legacy['applied'] === true && (int) $legacy['journal_entry_id'] > 0);
+check('legacy repair reuses its original payment and allocation',
+    (int) $legacy['payment_id'] === $legacyPaymentId
+    && (int) $pdo->query("SELECT COUNT(*) FROM billing_payment_allocations WHERE payment_id={$legacyPaymentId}")->fetchColumn() === 1);
 
 // ─────── (d) Error envelope ───────
 echo "\n── error envelope parsing ──\n";

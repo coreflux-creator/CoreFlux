@@ -62,6 +62,8 @@ exportDatasetAudit($activeTenantId, $userId ?: null, 'staffing.clients.exported'
 ], $datasetOptions));
 
 (new CsvExportService([
+    'client_number' => 'Client number',
+    'company_number' => 'Company number',
     'name'                  => 'Client name',
     'legal_name'            => 'Legal name',
     'industry'              => 'Industry',

@@ -29,6 +29,7 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/assignment_contract.php';
 require_once __DIR__ . '/contract_projection.php';
+require_once __DIR__ . '/classification_mapping.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
@@ -300,6 +301,16 @@ function jobdivaPluckNestedField(array $item, array $candidates, array $nestOrde
         if ($v !== '') return $v;
     }
     return '';
+}
+
+/** Tenant field mappings run before this default; explicit branch values precede division. */
+function jobdivaPlacementBranchDefault(array $payload, array $contract): string
+{
+    $branch = jobdivaPluckFieldDeep($payload, [
+        'branch', 'branchName', 'branch_name', 'office', 'officeName',
+        'businessUnit', 'business_unit',
+    ]);
+    return $branch !== '' ? $branch : (string) ($contract['job_division'] ?? '');
 }
 
 /**
@@ -2185,7 +2196,7 @@ function jobdivaSyncAssignmentContractsBatch(
         // while JobDiva responds.
         $subcontractCompanyIds = [];
         foreach ($items as $payload) {
-            $companyExternalId = trim((string) ($payload['_jd_contract']['corporation_id'] ?? ''));
+            $companyExternalId = jobdivaAssignmentSubcontractCompanyId($payload);
             if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
         }
         foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
@@ -2573,7 +2584,7 @@ function jobdivaSyncReviewAssignmentContractsBatch(
 
         $subcontractCompanyIds = [];
         foreach ($items as $payload) {
-            $companyExternalId = trim((string) ($payload['_jd_contract']['corporation_id'] ?? ''));
+            $companyExternalId = jobdivaAssignmentSubcontractCompanyId($payload);
             if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
         }
         foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
@@ -4094,6 +4105,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             }
         }
 
+        if ($enriched) $enriched = jobdivaClassificationPayloadForTenant($tenantId, $enriched);
         $contractProjection = $enriched
             ? jobdivaContractProjectionBuild($enriched, $currentGraph, $startId)
             : jobdivaContractProjectionBuild([], $currentGraph, $startId);
@@ -4127,24 +4139,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             'end_client_name',
             static fn() => jobdivaEndClientNameFromPayload($enriched)
         ) : '';
-        $engagementRaw = $enriched ? (string) $mapped(
-            'engagement_type',
-            static fn() => jobdivaPluckFieldDeep($enriched, [
-                'engagementType', 'engagement_type', 'workerType', 'worker_type',
-                'classification', 'employmentType', 'employment type',
-                'employmentCategory', 'employment_category', 'EMPLOYMENT_CATEGORY',
-                'positionType', 'position_type', 'position type',
-            ])
-        ) : '';
-        $engagement = $enriched
-            ? jobdivaNormalisePlacementEngagementType(
-                $engagementRaw,
-                jobdivaInferPlacementEngagementTypeFromPayload($enriched, '')
-            )
-            : '';
-        if (!empty($contractProjection['placement']['engagement_type'])) {
-            $engagement = (string) $contractProjection['placement']['engagement_type'];
-        }
+        $engagement = (string) ($contractProjection['placement']['engagement_type'] ?? '');
         $endDateRaw = $enriched ? jobdivaPluckFieldDeep($enriched, [
             'endDate', 'end_date', 'end date', 'enddate',
         ]) : '';
@@ -4405,7 +4400,7 @@ function jobdivaApplyStoredAssignmentProjection(
     // transaction. This can call JobDiva and must not hold placement locks.
     foreach (array_keys($selected) as $startId) {
         $contract = $rowsByStart[$startId]['contract']['source_contract'] ?? [];
-        $companyExternalId = trim((string) ($contract['corporation_id'] ?? ''));
+        $companyExternalId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contract]);
         if ($companyExternalId !== '') {
             jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId);
         }
@@ -4618,53 +4613,8 @@ function jobdivaResolveOrAutoCreateEndClient(
 
 function jobdivaNormalisePlacementEngagementType(string $raw, ?string $fallback = null): string
 {
-    $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'];
-    $fallback = in_array((string) $fallback, $allowed, true)
-        ? (string) $fallback
-        : ($fallback === '' ? '' : 'w2');
-    $s = strtolower(trim($raw));
-    if ($s === '') return $fallback;
-
-    $s = str_replace(['_', '-', '/', '\\'], ' ', $s);
-    $s = preg_replace('/\s+/', ' ', $s) ?: $s;
-
-    if ($s === 'ref' || str_contains($s, 'referral')) {
-        return 'referral';
-    }
-    if ($s === 'internal') {
-        return 'internal';
-    }
-    if (str_contains($s, 'temp to perm')
-        || str_contains($s, 'contract to hire')
-        || preg_match('/\bcth\b/', $s)) {
-        return 'temp_to_perm';
-    }
-    if (str_contains($s, 'direct hire')
-        || str_contains($s, 'direct placement')
-        || preg_match('/\bperm(?:anent)?\b/', $s)) {
-        return 'direct_hire';
-    }
-    if (str_contains($s, '1099')
-        || str_contains($s, 'independent contractor')
-        || preg_match('/\bic\b/', $s)) {
-        return '1099';
-    }
-    if (str_contains($s, 'c2c')
-        || str_contains($s, 'corp to corp')
-        || str_contains($s, 'crop to crop')
-        || str_contains($s, 'corp 2 corp')
-        || str_contains($s, 'corporation to corporation')
-        || str_contains($s, 'inc to inc')) {
-        return 'c2c';
-    }
-    if (str_contains($s, 'w2')
-        || str_contains($s, 'w 2')
-        || str_contains($s, 'employee')
-        || str_contains($s, 'payroll')) {
-        return 'w2';
-    }
-
-    return $fallback;
+    // Legacy fallback argument retained for callers; it cannot establish source evidence.
+    return jobdivaClassificationValue($raw) ?? '';
 }
 
 function jobdivaPlacementScalarHasC2CSignal(string $key, mixed $value): bool
@@ -4724,34 +4674,8 @@ function jobdivaPlacementScalarHasTypedC2CSignal(string $key, mixed $value): boo
 
 function jobdivaPlacementPayloadHasC2CProof(array $payload): bool
 {
-    $scan = static function (array $node, string $prefix = '') use (&$scan): bool {
-        foreach ($node as $key => $value) {
-            $path = $prefix === '' ? (string) $key : $prefix . '.' . (string) $key;
-            if (is_array($value)) {
-                if ($scan($value, $path)) return true;
-                continue;
-            }
-            if (jobdivaPlacementScalarHasC2CSignal($path, $value)
-                || jobdivaPlacementScalarHasTypedC2CSignal($path, $value)) return true;
-        }
-        return false;
-    };
-
-    foreach ([
-        '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-    ] as $root) {
-        if (isset($payload[$root]) && is_array($payload[$root]) && $scan($payload[$root], (string) $root)) {
-            return true;
-        }
-    }
-
-    foreach ($payload as $key => $value) {
-        if (is_array($value)) continue;
-        if (jobdivaPlacementScalarHasC2CSignal((string) $key, $value)
-            || jobdivaPlacementScalarHasTypedC2CSignal((string) $key, $value)) return true;
-    }
-
-    return false;
+    $review = jobdivaClassificationFromPayload($payload);
+    return $review['status'] === 'resolved' && $review['engagement_type'] === 'c2c';
 }
 
 function jobdivaPlacementPayloadC2CFlagState(array $payload): ?bool
@@ -4790,94 +4714,7 @@ function jobdivaPlacementPayloadC2CFlagState(array $payload): ?bool
 
 function jobdivaInferPlacementEngagementTypeFromPayload(array $payload, ?string $fallback = null): string
 {
-    $allowed = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'];
-    $fallback = in_array((string) $fallback, $allowed, true)
-        ? (string) $fallback
-        : ($fallback === '' ? '' : 'w2');
-
-    $contractEngagement = jobdivaNormalisePlacementEngagementType(
-        (string) ($payload['_jd_contract']['engagement_type'] ?? ''),
-        ''
-    );
-    if ($contractEngagement !== '') return $contractEngagement;
-
-    $classify = static function (string $key, mixed $value): ?string {
-        if (!is_scalar($value) && $value !== null) return null;
-        $keyNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
-        $valueRaw = trim((string) $value);
-        $keyValue = trim($key . ' ' . $valueRaw);
-
-        if (jobdivaPlacementScalarHasC2CSignal($key, $value)
-            || jobdivaPlacementScalarHasTypedC2CSignal($key, $value)) return 'c2c';
-
-        $typedKey = str_contains($keyNorm, 'engagementtype')
-            || str_contains($keyNorm, 'workertype')
-            || str_contains($keyNorm, 'classification')
-            || str_contains($keyNorm, 'employmenttype')
-            || str_contains($keyNorm, 'employmentcategory')
-            || str_contains($keyNorm, 'employeetype')
-            || str_contains($keyNorm, 'positiontype')
-            || str_contains($keyNorm, 'taxtype')
-            || str_contains($keyNorm, 'payrolltype')
-            || str_contains($keyNorm, 'contracttype')
-            || str_contains($keyNorm, 'jobtype')
-            || str_contains($keyNorm, 'hiretype');
-        if ($typedKey) {
-            $type = jobdivaNormalisePlacementEngagementType($valueRaw, '');
-            if ($type !== '') return $type;
-            $type = jobdivaNormalisePlacementEngagementType($keyValue, '');
-            if ($type !== '') return $type;
-        }
-
-        // Do not classify from arbitrary scalar values. Company/legal names
-        // like "Acme Staffing LLC" or chain labels like "prime vendor" are
-        // business-entity evidence, not worker-classification evidence.
-        return null;
-    };
-
-    $walk = static function (array $node, string $prefix = '') use (&$walk, $classify): ?string {
-        foreach ($node as $key => $value) {
-            $path = $prefix === '' ? (string) $key : $prefix . '.' . (string) $key;
-            if (is_array($value)) {
-                $hit = $walk($value, $path);
-                if ($hit !== null) return $hit;
-                continue;
-            }
-            $hit = $classify($path, $value);
-            if ($hit !== null) return $hit;
-        }
-        return null;
-    };
-
-    $scanNested = static function (array $roots) use ($payload, $walk): ?string {
-        foreach ($roots as $root) {
-            if (!isset($payload[$root]) || !is_array($payload[$root])) continue;
-            $hit = $walk($payload[$root], (string) $root);
-            if ($hit !== null) return $hit;
-        }
-        return null;
-    };
-
-    // Only the Start/Assignment owns the worker classification. A Job can be
-    // open to several engagement types and a candidate can have preferences;
-    // neither is the economic contract represented by this placement.
-    $hit = $scanNested([
-        '_jd_contract', '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',
-    ]);
-    if ($hit !== null) return $hit;
-
-    foreach ($payload as $key => $value) {
-        if (is_array($value)) continue;
-        $hit = $classify((string) $key, $value);
-        if ($hit !== null) return $hit;
-    }
-
-    // JobDiva's documented searchStart response always carries the C2C flag.
-    // An explicit null/false flag means this Start is not corp-to-corp. When
-    // no stronger 1099/direct-hire classification exists, it is W2.
-    if (jobdivaPlacementPayloadC2CFlagState($payload) === false) return 'w2';
-
-    return $fallback;
+    return jobdivaClassificationFromPayload($payload)['engagement_type'] ?? '';
 }
 
 function jobdivaBoolishTrue(mixed $raw): bool
@@ -5224,7 +5061,7 @@ function jobdivaSyncResolveSubcontractCompany(
     string $externalId,
     ?int $userId = null
 ): ?array {
-    $externalId = trim($externalId);
+    $externalId = jobdivaAssignmentCompanyId($externalId);
     if ($tid <= 0 || $externalId === '') return null;
 
     $placeholder = null;
@@ -5381,7 +5218,7 @@ function jobdivaSyncUpsertPlacementCorpDetails(
     $contract = isset($jd['_jd_contract']) && is_array($jd['_jd_contract'])
         ? $jd['_jd_contract']
         : [];
-    $corpExternalId = trim((string) ($contract['corporation_id'] ?? ''));
+    $corpExternalId = jobdivaAssignmentCompanyId($contract['corporation_id'] ?? null);
     $resolvedCompany = $corpExternalId !== ''
         ? jobdivaSyncResolveSubcontractCompany($tid, $corpExternalId, $userId)
         : null;
@@ -5467,7 +5304,8 @@ function jobdivaSyncUpsertPlacementCorpDetails(
     ];
 
     if ($fields['corp_country'] !== '') {
-        $fields['corp_country'] = strtoupper(substr($fields['corp_country'], 0, 2));
+        $fields['corp_country'] = integrationSourceCountry($fields['corp_country']);
+        if ($fields['corp_country'] === null) throw new \RuntimeException('JobDiva corporation country needs review.');
     }
 
     $clean = [];
@@ -5936,43 +5774,67 @@ function jobdivaSyncUpsertSourceAllocationParties(
         }
     }
 
-    $subcontractCompanyId = trim((string) ($contract['corporation_id'] ?? ''));
-    if ($subcontractCompanyId !== '') {
+    $classification = jobdivaClassificationFromPayload($jd);
+    // Missing/conflicting source evidence cannot remove an existing review item.
+    if ($classification['status'] === 'resolved'
+        && ($classification['engagement_type'] !== 'c2c' || array_key_exists('corporation_id', $contract))) {
         try {
             $resolved = getDB()->prepare(
-                'SELECT company_id FROM placement_corp_details
-                  WHERE tenant_id = :t AND placement_id = :p LIMIT 1'
+                'SELECT p.engagement_type, pcd.company_id
+                   FROM placements p
+                   LEFT JOIN placement_corp_details pcd
+                     ON pcd.tenant_id = p.tenant_id AND pcd.placement_id = p.id
+                  WHERE p.tenant_id = :t AND p.id = :p AND p.deleted_at IS NULL LIMIT 1'
             );
             $resolved->execute(['t' => $tid, 'p' => $placementId]);
-            $resolvedCompanyId = (int) $resolved->fetchColumn();
-            if ($resolvedCompanyId <= 0) {
-                placementEconomicsUpsertParty($tid, $placementId, [
-                    'source_ref' => 'jobdiva:unresolved:subcontract_company:' . $subcontractCompanyId,
-                    'source_type' => 'integration',
-                    'role' => 'unresolved_c2c_vendor',
-                    'display_name' => 'JobDiva subcontract company #' . $subcontractCompanyId . ' (name unresolved)',
-                    'money_flow' => 'informational',
-                    'settlement_channel' => 'none',
-                    'fee_basis' => 'pay_rate',
-                    'effective_from' => $startDate !== '' ? $startDate : null,
-                    'effective_to' => $endDate,
-                    'source_system' => 'jobdiva',
-                    'source_external_id' => $subcontractCompanyId,
-                    'source_managed' => 1,
+            $placement = $resolved->fetch(\PDO::FETCH_ASSOC);
+            // A Core-owned classification override also needs a reviewed resolution.
+            if ($placement && $placement['engagement_type'] === $classification['engagement_type']) {
+                $subcontractCompanyId = jobdivaAssignmentSubcontractCompanyId($jd);
+                $needsUnresolved = $subcontractCompanyId !== '' && (int) ($placement['company_id'] ?? 0) <= 0;
+                $sourceRef = 'jobdiva:unresolved:subcontract_company:' . $subcontractCompanyId;
+                // Retire only the integration's informational review rows. Keep
+                // manual overrides, settlement parties and frozen financial history.
+                $owned = 'source_type = "integration" AND COALESCE(source_system, "") = "jobdiva"
+                    AND source_managed = 1 AND role = "unresolved_c2c_vendor"
+                    AND money_flow = "informational" AND settlement_channel = "none"
+                    AND company_id IS NULL AND ap_vendor_id IS NULL
+                    AND payment_terms_overridden = 0 AND pwp_overridden = 0 AND cycle_overridden = 0';
+                $protected = getDB()->prepare(
+                    'SELECT id FROM placement_economic_parties
+                      WHERE tenant_id = :t AND placement_id = :p AND source_ref = :ref
+                        AND NOT (' . $owned . ') LIMIT 1'
+                );
+                $protected->execute(['t' => $tid, 'p' => $placementId, 'ref' => $sourceRef]);
+                if ($needsUnresolved && !$protected->fetchColumn()) {
+                    placementEconomicsUpsertParty($tid, $placementId, [
+                        'source_ref' => $sourceRef,
+                        'source_type' => 'integration',
+                        'role' => 'unresolved_c2c_vendor',
+                        'display_name' => 'JobDiva subcontract company #' . $subcontractCompanyId . ' (name unresolved)',
+                        'money_flow' => 'informational',
+                        'settlement_channel' => 'none',
+                        'fee_basis' => 'pay_rate',
+                        'effective_from' => $startDate !== '' ? $startDate : null,
+                        'effective_to' => $endDate,
+                        'source_system' => 'jobdiva',
+                        'source_external_id' => $subcontractCompanyId,
+                        'source_managed' => 1,
+                    ]);
+                }
+                getDB()->prepare(
+                    'UPDATE placement_economic_parties SET active = 0
+                      WHERE tenant_id = :t AND placement_id = :p
+                        AND ' . $owned . '
+                        AND source_ref LIKE "jobdiva:unresolved:subcontract_company:%"
+                        AND (:retire_all = 1 OR source_ref <> :keep_ref)'
+                )->execute([
+                    't' => $tid,
+                    'p' => $placementId,
+                    'retire_all' => $needsUnresolved ? 0 : 1,
+                    'keep_ref' => $sourceRef,
                 ]);
             }
-            getDB()->prepare(
-                'UPDATE placement_economic_parties SET active = 0
-                  WHERE tenant_id = :t AND placement_id = :p
-                    AND source_type = "integration" AND source_system = "jobdiva"
-                    AND source_ref LIKE "jobdiva:unresolved:subcontract_company:%"
-                    AND (:resolved > 0 OR source_external_id <> :external_id)'
-            )->execute([
-                't' => $tid,
-                'p' => $placementId,
-                'resolved' => $resolvedCompanyId,
-                'external_id' => $subcontractCompanyId,
-            ]);
         } catch (\Throwable $e) {
             error_log('[jobdiva source participants] subcontract-company evidence failed: ' . $e->getMessage());
         }
@@ -6021,10 +5883,7 @@ function jobdivaSyncUpsertPlacementReferral(
 ): int {
     if ($tid <= 0 || $placementId <= 0) return 0;
     $contract = jobdivaContractProjectionContract($jd);
-    $engagement = jobdivaNormalisePlacementEngagementType(
-        (string) ($contract['engagement_type'] ?? ''),
-        jobdivaInferPlacementEngagementTypeFromPayload($jd, '')
-    );
+    $engagement = jobdivaClassificationRequire($jd);
     $isReferralEngagement = $engagement === 'referral';
 
     $feePct = jobdivaParsePercent(jobdivaPluckFieldDeep($jd, [
@@ -6411,7 +6270,26 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         );
     }
     $canonicalExternalId = 'jd:' . $extId;
+    $jd = jobdivaClassificationPayloadForTenant($tid, $jd);
+    $engagement = jobdivaClassificationRequire($jd);
     $assignmentContract = jobdivaContractProjectionContract($jd);
+    // Validate before identity repair or any placement mutation.
+    jobdivaSyncUpsertPlacementRates($tid, 0, '', $jd, true);
+    $worksiteCountryRaw = (string) ($assignmentContract['worksite_country'] ?? '');
+    if ($worksiteCountryRaw === '') {
+        $worksiteCountryRaw = (string) tenantIntegrationFieldMapPluckInternal(
+            $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
+            static fn() => jobdivaPluckFieldDeep($jd, ['worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country'])
+        );
+    }
+    $worksiteCountry = integrationSourceCountry($worksiteCountryRaw);
+    if ($worksiteCountryRaw !== '' && $worksiteCountry === null) {
+        throw new \RuntimeException('JobDiva placement needs review: worksite country is not recognized.');
+    }
+    $corpCountryRaw = jobdivaSyncCorpPluck($tid, $jd, 'corp_country', ['corp country', 'corpCountry', 'corp_country', 'vendor country', 'vendorCountry', 'supplier country', 'payee country']);
+    if ($corpCountryRaw !== '' && integrationSourceCountry($corpCountryRaw) === null) {
+        throw new \RuntimeException('JobDiva placement needs review: corporation country is not recognized.');
+    }
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
     // Look up by external_id first (placements has a `external_id` column).
     // A 2026-06 field-map regression briefly allowed tenant mappings to
@@ -6640,43 +6518,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // who map e.g. JobDiva's `engagementType` -> CoreFlux `engagement_type`
     // may have free-text upstream values that need normalising.
     // -----------------------------------------------------------------
-    $engagementRaw = (string) tenantIntegrationFieldMapPluckInternal(
-        $tid, 'jobdiva', 'placement', 'engagement_type', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'engagementType', 'engagement_type', 'workerType',
-            'worker_type', 'classification', 'employmentType', 'employment type',
-            'employmentCategory', 'employment_category', 'EMPLOYMENT_CATEGORY', 'employment category',
-            'positionType', 'position_type', 'position type',
-            'employeeType', 'employee_type', 'employee type',
-            'taxType', 'tax_type', 'tax type',
-            'payrollType', 'payroll_type', 'payroll type',
-            'contractType', 'contract_type', 'contract type',
-            'jobType', 'job_type', 'job type',
-            'hireType', 'hire_type', 'hire type',
-            'c2c', 'corp to corp', 'corp-to-corp', 'crop to crop',
-            'corporation to corporation', 'isC2c', 'is_c2c',
-        ])
-    );
-    $sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
-    $mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, '');
-    $hasMappedEngagement = function_exists('tenantIntegrationFieldMapHasInternal')
-        && tenantIntegrationFieldMapHasInternal($tid, 'jobdiva', 'placement', 'engagement_type');
-    // Strong JobDiva assignment evidence (1099/C2C/direct-hire/etc.) beats
-    // a generic mapped W2 value. This prevents one broad tenant mapping from
-    // flattening every placement to W2 while still honoring explicit non-W2
-    // field-map choices.
-    if ($sourceEngagement !== '' && ($mappedEngagement === '' || $mappedEngagement === 'w2')) {
-        $engagement = $sourceEngagement;
-    } elseif ($hasMappedEngagement && $mappedEngagement !== '') {
-        $engagement = $mappedEngagement;
-    } elseif ($sourceEngagement !== '') {
-        $engagement = $sourceEngagement;
-    } else {
-        $engagement = $mappedEngagement !== '' ? $mappedEngagement : 'w2';
-    }
-    if ($engagement === 'c2c' && !jobdivaPlacementPayloadHasC2CProof($jd)) {
-        $engagement = 'w2';
-    }
+    // Classification was resolved from reviewed source evidence before any write.
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
@@ -6687,29 +6529,11 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     if (!empty($assignmentContract['worksite_state'])) {
         $worksiteState = (string) $assignmentContract['worksite_state'];
     }
-    $worksiteCountry = (string) tenantIntegrationFieldMapPluckInternal(
-        $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country',
-        ])
-    );
-    if (!empty($assignmentContract['worksite_country'])) {
-        $worksiteCountry = (string) $assignmentContract['worksite_country'];
-    }
-    // worksite_country is CHAR(2) — coerce to ISO-2 if user mapped a name.
-    if (strlen($worksiteCountry) > 2) {
-        $worksiteCountry = strtoupper(substr($worksiteCountry, 0, 2));
-    } else {
-        $worksiteCountry = strtoupper($worksiteCountry);
-    }
-    if ($worksiteCountry === '') $worksiteCountry = null;
+    // Country was normalized and validated before the first placement write.
 
     $branch = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'branch', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'branch', 'branchName', 'branch_name', 'office', 'officeName',
-            'businessUnit', 'business_unit',
-        ])
+        static fn() => jobdivaPlacementBranchDefault($jd, $assignmentContract)
     );
     $serviceLine = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'service_line', $jd,
@@ -7075,8 +6899,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'due_date' => $dueDate !== null,
             'status' => $statusRaw !== ''
                 || ($endDateNorm !== null && $endDateNorm < date('Y-m-d')),
-            'engagement_type' => $sourceEngagement !== ''
-                || ($hasMappedEngagement && $mappedEngagement !== ''),
+            'engagement_type' => $engagement !== '',
             'worksite_state' => trim($worksiteState) !== '',
             'worksite_country' => $worksiteCountry !== null,
             'remote_policy' => trim($remoteRaw) !== '' && $remote !== null,
@@ -7360,15 +7183,14 @@ function jobdivaCanonicalContractPositiveRate(array $jd, array $fields): float
     return 0.0;
 }
 
-function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool
+function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd, bool $validateOnly = false): bool
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     $sourceContract = jobdivaContractProjectionContract($jd);
-    $engagement = jobdivaNormalisePlacementEngagementType(
-        (string) ($sourceContract['engagement_type'] ?? ''),
-        jobdivaInferPlacementEngagementTypeFromPayload($jd, '')
-    );
+    $jd = jobdivaClassificationPayloadForTenant($tid, $jd);
+    $sourceContract = jobdivaContractProjectionContract($jd);
+    $engagement = jobdivaClassificationRequire($jd);
     $isReferralEngagement = $engagement === 'referral';
     $sourceC2cOverheadEnabled = null;
     if (array_key_exists('c2c_flag', $sourceContract)) {
@@ -7462,44 +7284,23 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         // source payout in pay_rate would fabricate worker labor and count the
         // same vendor obligation twice in margin and downstream settlement.
         $payRate = 0.0;
-    } elseif ($payRate <= 0) {
-        jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
-        return false;
     }
 
-    // Coerce 'h' / 'hourly' / 'USD/Hour' / etc. to the ENUM values.
-    // Per-rate units may differ (e.g. day rate + hourly OT) but the
-    // ENUM is `hour|day|week|month|project` per the schema.
-    $coerceUnit = static function (string $raw): string {
-        $s = strtolower(trim($raw));
-        if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
-        if (str_contains($s, 'day'))     return 'day';
-        if (str_contains($s, 'week'))    return 'week';
-        if (str_contains($s, 'month'))   return 'month';
-        if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
-        return 'hour';
-    };
-    $billRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
+    $billRateUnitRaw = tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'bill_rate_unit', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'final bill rate unit', 'finalBillRateUnit', 'final_bill_rate_unit',
             'bill rate currency/unit', 'billRateCurrencyUnit', 'bill_rate_currency_unit',
             'billRateUnit', 'bill_rate_unit', 'BILLRATEUNIT',
         ])
-    ));
-    if (!empty($sourceContract['bill_rate_unit'])) {
-        $billRateUnit = $coerceUnit((string) $sourceContract['bill_rate_unit']);
-    }
-    $payRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
+    );
+    $payRateUnitRaw = tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'pay_rate_unit', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [
             'pay rate currency/unit', 'payRateCurrencyUnit', 'pay_rate_currency_unit',
             'payRateUnit', 'pay_rate_unit', 'PAYRATEUNIT', 'hourly unit',
         ])
-    ));
-    if (!empty($sourceContract['pay_rate_unit'])) {
-        $payRateUnit = $coerceUnit((string) $sourceContract['pay_rate_unit']);
-    }
+    );
 
     // Currency: extract from "USD/Hour" style strings if needed.
     $currencyRaw = (string) tenantIntegrationFieldMapPluckInternal(
@@ -7510,19 +7311,22 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'pay rate currency/unit', 'hourly currency',
         ])
     );
-    if ($currencyRaw === '') $currencyRaw = 'USD';
-    if (preg_match('/\b([A-Z]{3})\b/', strtoupper($currencyRaw), $m)) {
-        $currency = $m[1];
-    } else {
-        $currency = strtoupper(substr($currencyRaw, 0, 3));
+    $basis = integrationSourceRateBasis($sourceContract !== [] ? $sourceContract : [
+        'bill_rate_raw' => $billRateRaw, 'pay_rate_raw' => $payRateRaw,
+        'bill_rate_unit' => $billRateUnitRaw, 'pay_rate_unit' => $payRateUnitRaw, 'currency' => $currencyRaw,
+    ]);
+    if ($basis['errors'] !== []) throw new \RuntimeException('JobDiva rate needs review: ' . implode(' ', $basis['errors']));
+    $billRateUnit = $basis['bill_rate_unit'];
+    $payRateUnit = $basis['pay_rate_unit'];
+    $currency = $basis['currency'];
+    if ($billRateUnit !== 'hour' || $payRateUnit !== 'hour') {
+        throw new \RuntimeException('JobDiva rate needs review: automatic economics require verified hourly bill/pay rates; other bases need a reviewed conversion.');
     }
-    if (strlen($currency) !== 3) $currency = 'USD';
-    if (!empty($sourceContract['currency'])) {
-        $contractCurrency = strtoupper(trim((string) $sourceContract['currency']));
-        if (preg_match('/\b([A-Z]{3})\b/', $contractCurrency, $contractCurrencyMatch)) {
-            $currency = $contractCurrencyMatch[1];
-        }
+    if (!$isReferralEngagement && $payRate <= 0) {
+        if (!$validateOnly) jobdivaSyncRemoveUnsourcedAutoDraftRate($tid, $placementId, $billRate);
+        return false;
     }
+    if ($validateOnly) return true;
 
     $otRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'ot_multiplier', $jd,

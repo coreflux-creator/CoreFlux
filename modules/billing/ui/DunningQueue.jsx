@@ -118,6 +118,7 @@ export default function DunningQueue() {
                   {r.paused_until ? <span style={{ color: '#a16207' }}>Paused until {r.paused_until}</span>
                     : blocked === 'do_not_contact' ? <span style={{ color: '#64748b' }}>Do-not-contact</span>
                     : blocked === 'no_contact' ? <span style={{ color: '#a16207' }}>No recipient</span>
+                    : blocked === 'sender_not_ready' ? <span style={{ color: '#a16207' }} title={r.sender_reason}>Sender setup needed</span>
                     : blocked === 'cadence' ? <span style={{ color: '#64748b' }}>Within cadence</span>
                     : nextStage ? <span style={{ color: '#16a34a' }}>Ready</span>
                     : <span style={{ color: '#64748b' }}>Up to date</span>}

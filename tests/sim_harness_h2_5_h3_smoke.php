@@ -107,16 +107,19 @@ $a('uses shivammathur/setup-php',          str_contains($wf, 'shivammathur/setup
 $a('runs smoke suite',                     str_contains($wf, 'ci_smoke_all.sh'));
 $a('runs sim scenarios',                   str_contains($wf, 'ci_sim_scenarios.sh'));
 $a('nightly job runs full sim',            str_contains($wf, 'ci_sim_full.sh'));
-$a('nightly provisions MySQL service',     str_contains($wf, 'mysql:8.0'));
+$a('live simulation provisions the hosted MariaDB major version',
+    str_contains($wf, 'mariadb:10.11'));
 
 echo "\nDeterminism — same seed → identical normalized output\n";
 $cmd = 'bash ' . escapeshellarg(__DIR__ . '/../scripts/ci_sim_scenarios.sh') . ' 2>&1';
+$scenarioCount = count(glob(__DIR__ . '/../sim/scenarios/*.json') ?: []);
+$a('simulation scenarios are present', $scenarioCount > 0);
 $bashProbe = (string) shell_exec('bash --version 2>&1');
 if (stripos($bashProbe, 'not recognized') !== false || stripos($bashProbe, 'not found') !== false) {
     $a('all scenarios pass dry-run',       str_contains($wf, 'ci_sim_scenarios.sh'));
 } else {
     $out = (string) shell_exec($cmd);
-    $a('all scenarios pass dry-run',       (bool) preg_match('/5 passed, 0 failed/', $out));
+    $a('all scenarios pass dry-run',       str_contains($out, "$scenarioCount passed, 0 failed"));
 }
 
 echo "\nRun-from-web — POST /api/admin/simulation_runs.php?action=run\n";

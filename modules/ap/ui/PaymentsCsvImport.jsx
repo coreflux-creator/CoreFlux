@@ -8,7 +8,7 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * (done via the Payment Detail UI). Powered by Core\CsvImportService
  * via /api/ap/payments_csv_import.php.
  */
-export default function PaymentsCsvImport() {
+export default function PaymentsCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/ap/api/payments_csv_import.php"
@@ -17,6 +17,7 @@ export default function PaymentsCsvImport() {
       backLabel="← Payments"
       testidPrefix="ap-payments-csv-import"
       presetEntity="ap_payments"
+      standaloneAccounting={standaloneAccounting}
       previewColumns={[
         { key: 'vendor_name', label: 'Vendor' },
         { key: 'pay_date',    label: 'Pay date' },

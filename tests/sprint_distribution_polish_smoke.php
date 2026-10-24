@@ -123,20 +123,25 @@ $a('public view renders branded banner + content',       str_contains($view, 'da
 
 /* ──────────────────────  B2: PDF endpoints  ────────────────────── */
 echo "\nB2) PDF endpoints (money movement + statement + close packet)\n";
+$pdfRenderer = $read(__DIR__ . '/../core/pdf_renderer.php');
+$a('shared PDF helper renders the document',             str_contains($pdfRenderer, 'cf_render_html_to_pdf($html, $outPath, $opts)'));
+$a('shared PDF helper emits application/pdf',            str_contains($pdfRenderer, "header('Content-Type: application/pdf')"));
 foreach ([
     __DIR__ . '/../modules/billing/api/money_movement_pdf.php',
     __DIR__ . '/../modules/billing/api/statement_pdf.php',
 ] as $p) {
     $a("parses: " . basename($p),                         $parses($p));
     $src = $read($p);
-    $a("uses cf_render_html_to_pdf: " . basename($p),     str_contains($src, 'cf_render_html_to_pdf('));
-    $a("emits application/pdf: " . basename($p),          str_contains($src, "header('Content-Type: application/pdf')"));
+    $a("uses shared PDF response: " . basename($p),      str_contains($src, 'cf_stream_html_pdf(')
+                                                         && str_contains($src, "require_once __DIR__ . '/../../../core/pdf_renderer.php'"));
     $a("inline disposition by default: " . basename($p),  str_contains($src, "'inline'"));
 }
 
 $cp = $read(__DIR__ . '/../modules/accounting/api/close_packet.php');
-$a('close_packet adds ?format=pdf branch',               str_contains($cp, "(api_query('format') ?? '') === 'pdf'"));
-$a('close_packet PDF uses cf_render_html_to_pdf',        str_contains($cp, 'cf_render_html_to_pdf($page'));
+$a('close_packet adds ?format=pdf branch',               str_contains($cp, "\$format === 'pdf'")
+    && str_contains($cp, 'accountingLoadRecordedClosePacket'));
+$a('close_packet PDF uses shared response',              str_contains($cp, 'cf_stream_html_pdf($html,')
+                                                         && str_contains($cp, "require_once __DIR__ . '/../../../core/pdf_renderer.php'"));
 
 /* ──────────────────────  C1: Unified digest scheduler  ────────────────────── */
 echo "\nC1) unified digest scheduler\n";
@@ -195,13 +200,19 @@ $a('batch API parses',                                   $parses($apiPath));
 $a('iterates aging rows past-due > 0.005',               str_contains($api, '$past <= 0.005'));
 $a('skips when no AR contact',                           str_contains($api, "'reason' => 'no AR contact on file'"));
 $a('skips when no open invoices',                        str_contains($api, "'reason' => 'no open invoices at as_of'"));
-$a('uses same idempotency key as singular send',         str_contains($api, "\"statement-{\$tid}-{\$slug}-\" . date('Y-m-d')"));
+$a('uses same entity-aware idempotency key as singular send', str_contains($api, 'billingStatementIdempotencyKey($tid, $entityId, $client, date('));
+$a('batch statement rows are entity-scoped',             str_contains($api, 'billingComputeAging($tid, $asOf, $entityId)')
+    && str_contains($api, 'billingStatementOpenInvoices($tid, $client, $asOf, $entityId)'));
+$a('batch preview checks statement and aging agree',     str_contains($api, 'Statement balance differs from AR aging'));
 $a('dry-run returns would_send rows',                    str_contains($api, "'status' => 'would_send'"));
+$a('dry-run report is identified even with no recipients', str_contains($api, "'preview' => \$dryRun")
+    && str_contains($read(__DIR__ . '/../modules/billing/ui/AgingTable.jsx'), 'report.preview === true'));
 $a('write audited as batch_sent',                        str_contains($api, "'billing.statement.batch_sent'"));
 
 $ui = $read(__DIR__ . '/../modules/billing/ui/AgingTable.jsx');
 $a('Aging UI: batch preview button',                     str_contains($ui, 'data-testid="billing-aging-batch-preview"'));
 $a('Aging UI: batch send button in modal',               str_contains($ui, 'data-testid="billing-aging-batch-send"'));
+$a('Aging UI: no send command for empty preview',       str_contains($ui, 'isPreview && !alreadySent && report.sent > 0'));
 $a('Aging UI: batch modal rows table',                   str_contains($ui, 'data-testid="billing-aging-batch-rows"'));
 $a('Aging UI: per-row statement PDF link',               str_contains($ui, 'data-testid="billing-aging-statement-pdf"'));
 

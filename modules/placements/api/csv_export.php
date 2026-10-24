@@ -196,7 +196,10 @@ exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, expor
     'rows' => count($rows),
 ], $datasetOptions));
 
+$rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'placement', $rows, 'placement_id');
+
 (new CsvExportService([
+    'placement_number' => 'Placement number',
     'placement_id'      => 'Placement ID',
     'person_id'         => 'Person ID',
     'person_email'      => 'Person email',

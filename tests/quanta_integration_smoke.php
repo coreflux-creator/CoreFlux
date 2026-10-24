@@ -35,6 +35,35 @@ $check('approved-entry contract rejects old items envelope', $throws(static fn (
 $check('catalog accepts its existing items-only response', quantaListPage(['items' => []], '/workers') === [[], ['items' => [], 'has_more' => false]]);
 unset($GLOBALS['__quanta_transport']);
 
+$pageCursors = [];
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url) use (&$pageCursors): array {
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+    $cursor = $query['cursor'] ?? '';
+    $pageCursors[] = $cursor;
+    $page = match ($cursor) {
+        '' => ['data' => [], 'pagination' => ['has_more' => true, 'next_cursor' => 'scanned-drafts']],
+        'scanned-drafts' => ['data' => [['id' => 'later-approved']], 'pagination' => ['has_more' => true, 'next_cursor' => 'last-scan']],
+        'last-scan' => ['data' => [], 'pagination' => ['has_more' => false, 'next_cursor' => null]],
+        default => throw new RuntimeException('Unexpected fixture cursor'),
+    };
+    return ['status' => 200, 'body' => json_encode($page)];
+};
+$entries = quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH);
+$check('empty filtered pages continue through the source scan', array_column($entries, 'id') === ['later-approved']
+    && $pageCursors === ['', 'scanned-drafts', 'last-scan']);
+$GLOBALS['__quanta_transport'] = static fn (): array => ['status' => 200,
+    'body' => '{"data":[],"pagination":{"has_more":true,"next_cursor":"stalled"}}'];
+$check('empty pages with a repeated cursor fail instead of ending successfully',
+    $throws(static fn () => quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH)));
+$GLOBALS['__quanta_transport'] = static function (string $method, string $url): array {
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+    return isset($query['cursor']) ? ['status' => 403, 'body' => '{"detail":"Key revoked"}']
+        : ['status' => 200, 'body' => '{"data":[{"id":"uncommitted"}],"pagination":{"has_more":true,"next_cursor":"next"}}'];
+};
+$check('access revoked after one page cannot return a partial import set',
+    $throws(static fn () => quantaListAll('fixture-key', QUANTA_APPROVED_ENTRIES_PATH)));
+unset($GLOBALS['__quanta_transport']);
+
 $GLOBALS['__quanta_transport'] = static function (string $method, string $url, array $headers): array {
     $path = (string) parse_url($url, PHP_URL_PATH);
     if ($path === '/api/v1/dimensions') {
@@ -291,16 +320,17 @@ $check('imported time preserves the Quanta source context for timesheet review',
     && str_contains((string) file_get_contents($root . '/modules/staffing/api/timesheets.php'), 'qi.source_dimension_values_json')
     && str_contains((string) file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx'), 'sourceDimensions(e.source_dimension_values_json)'));
 $check('page exposes preview, explicit mapping, and selected import', str_contains($ui, 'save_routes')
-    && str_contains($ui, 'save_worker_links') && str_contains($ui, 'Import {selected.length} selected') && str_contains($ui, 'Preview time'));
+    && str_contains($ui, 'QuantaIdentityReview') && str_contains($ui, 'onClick={importSelected}') && str_contains($ui, 'Preview time'));
+$intake = (string) file_get_contents($root . '/core/quanta/worker_intake.php');
 $check('new person requires people permission and is linked in one transaction',
-    str_contains($api, "\$action === 'create_worker_person'") && str_contains($api, "'people.manage'")
-    && str_contains($api, 'peopleCreateExternalCandidate') && str_contains($api, 'cf_tx_commit($pdo, $owns)'));
+    str_contains($api, "'create_worker_person'") && str_contains($api, "'people.manage'")
+    && str_contains($api, 'quantaWorkerIntakeApply') && str_contains($intake, 'peopleCreateExternalCandidate') && str_contains($intake, '$pdo->commit()'));
 $check('provisional people do not guess employment type or activate a placement',
     str_contains((string) file_get_contents($root . '/modules/people/lib/people.php'), '"candidate", :status, "unknown"')
     && str_contains($api, 'must be activated before routing time'));
 $check('placement creation from Quanta requires reviewed type and date',
     str_contains((string) file_get_contents($root . '/modules/placements/ui/PlacementCreate.jsx'), "engagement_type: fromQuanta ? '' : 'w2'")
-    && str_contains($ui, 'Create and link') && str_contains($ui, 'Find work to route'));
+    && str_contains((string) file_get_contents($root . '/dashboard/src/pages/QuantaIdentityReview.jsx'), 'Create and link') && str_contains($ui, 'Find work to route'));
 $placementCreateApi = (string) file_get_contents($root . '/modules/placements/api/placements.php');
 $check('placement creation preserves the shared database connection',
     str_contains($placementCreateApi, '$createTransactionPdo = null;')

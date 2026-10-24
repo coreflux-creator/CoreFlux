@@ -102,10 +102,12 @@ if (empty($jsFile) || empty($cssFile)) {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" href="/assets/brand/coreflux-mark.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CoreFlux Dashboard</title>
+    <?php if (getenv('COREFLUX_ENV') !== 'coreaccounting'): ?>
     <link rel="manifest" href="/spa-assets/manifest.webmanifest" />
+    <?php endif; ?>
     <meta name="theme-color" content="#0f172a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />

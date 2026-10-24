@@ -40,7 +40,8 @@ assert(fieldHash('') === null);
 echo "[ok] null/empty safe\n";
 
 // 4. Tampered ciphertext detected
-$bad = substr($blob, 0, -1) . 'x';
+$bad = $blob;
+$bad[12] = chr(ord($bad[12]) ^ 0x01);
 $caught = false;
 try { decryptField($bad); } catch (RuntimeException $e) { $caught = true; }
 assert($caught, 'tampered ciphertext must fail decryption');

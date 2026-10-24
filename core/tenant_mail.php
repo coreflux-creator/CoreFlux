@@ -44,6 +44,7 @@ if (!function_exists('cf_mail_purpose_registry')) {
             ['key' => 'membership_invite',   'module' => 'admin',     'label' => 'Member Invites',  'description' => 'Admin invitations and tenant membership acceptance links.'],
             ['key' => 'timesheets',    'module' => 'staffing', 'label' => 'Timesheets',     'description' => 'Timesheet approver notifications.'],
             ['key' => 'ap',            'module' => 'ap',       'label' => 'AP',             'description' => 'Bill approval requests sent to approvers.'],
+            ['key' => 'billing',       'module' => 'billing',  'label' => 'Billing',        'description' => 'Customer invoices, statements, and payment reminders.'],
             ['key' => 'vendor_portal', 'module' => 'ap',       'label' => 'Vendor Portal',  'description' => 'Magic-link invites to the vendor self-serve portal.'],
             ['key' => 'cfo',           'module' => 'cfo',      'label' => 'CFO',            'description' => 'CFO digests and ad-hoc reports.'],
             ['key' => 'payments',      'module' => 'treasury', 'label' => 'Payments',       'description' => 'Mercury payment lifecycle notifications.'],
@@ -63,8 +64,13 @@ if (!function_exists('cf_mail_purpose_lookup')) {
 if (!function_exists('cf_tenant_mail_sender')) {
     function cf_tenant_mail_sender(int $tenantId, string $purpose = 'core'): array
     {
-        $platformFrom = getenv('RESEND_FROM_EMAIL') ?: (defined('RESEND_FROM_EMAIL') ? constant('RESEND_FROM_EMAIL') : (defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : null));
-        $platformName = getenv('RESEND_FROM_NAME')  ?: (defined('RESEND_FROM_NAME')  ? constant('RESEND_FROM_NAME')  : (defined('SMTP_FROM_NAME')  ? SMTP_FROM_NAME  : null));
+        if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+            $platformFrom = trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL')) ?: null;
+            $platformName = trim(coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_NAME')) ?: null;
+        } else {
+            $platformFrom = getenv('RESEND_FROM_EMAIL') ?: (defined('RESEND_FROM_EMAIL') ? constant('RESEND_FROM_EMAIL') : (defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : null));
+            $platformName = getenv('RESEND_FROM_NAME')  ?: (defined('RESEND_FROM_NAME')  ? constant('RESEND_FROM_NAME')  : (defined('SMTP_FROM_NAME')  ? SMTP_FROM_NAME  : null));
+        }
 
         $fromName = $platformName;
         $replyTo  = null;

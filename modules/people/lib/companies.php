@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../../../core/audit.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
 
 const COMPANY_ROLES = ['client','customer','vendor','msp','prime_vendor','sub_vendor','referrer','partner'];
 
@@ -23,6 +24,7 @@ function companiesGet(int $id): ?array
 {
     $row = scopedFind('SELECT * FROM companies WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL', ['id' => $id]);
     if (!$row) return null;
+    $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'company', [$row])[0];
     unset($row['ein_full_ct']);
     if (!empty($row['tags_json'])) {
         $row['tags'] = json_decode($row['tags_json'], true) ?: [];
@@ -72,7 +74,8 @@ function companiesList(array $filters = []): array
 
     if (!empty($filters['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
-        $where[]      = '(c.name LIKE :q OR c.legal_name LIKE :q2)';
+        $where[]      = '(c.name LIKE :q OR c.legal_name LIKE :q2 OR ' . coreRecordNumberSearchSql('company', 'c', 'qnumber') . ')';
+        $params['qnumber'] = preg_replace('/^C-/', 'CO-', strtoupper(trim((string) $filters['q'])));
         $params['q']  = '%' . str_replace(['%','_'], ['\\%','\\_'], $filters['q']) . '%';
         $params['q2'] = $params['q'];
     }
@@ -128,6 +131,7 @@ function companiesList(array $filters = []): array
          ORDER BY ' . $sortExpr . ' ' . $sortDir . ', c.id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
+    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'company', $rows);
     foreach ($rows as &$r) $r['roles'] = $r['roles_csv'] ? explode(',', $r['roles_csv']) : [];
     unset($r);
 
@@ -162,6 +166,11 @@ function companiesUpsertByName(int $tenantId, string $name, array $extra = [], a
         'msa_signed_at','notes','created_by_user_id',
     ];
     $patch = array_intersect_key($extra, array_flip($writable));
+    // Client bridges may supply an explicit blank billing country. Treat it
+    // as absent: preserve an existing country or the new-company US default.
+    if (array_key_exists('country', $patch) && trim((string) $patch['country']) === '') {
+        unset($patch['country']);
+    }
 
     if (!$id) {
         $insert = array_merge([
@@ -359,6 +368,7 @@ function companiesMerge(int $tenantId, int $survivorId, int $victimId, ?int $act
              WHERE s.id = :s'
         )->execute(['v' => $victimId, 's' => $survivorId]);
 
+        coreRecordNumbersMerge($pdo, $tenantId, 'company', $survivorId, $victimId, $actorUserId);
         // Soft-delete victim.
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE companies SET deleted_at = NOW() WHERE id = :v')->execute(['v' => $victimId]);

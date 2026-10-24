@@ -21,6 +21,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/custom_fields.php';
 require_once __DIR__ . '/sub_tenants.php';
+require_once __DIR__ . '/record_numbers.php';
 
 function exportDatasetRegistry(): array {
     static $registry = null;
@@ -120,6 +121,7 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'bill_id'          => ['label' => 'Bill ID',          'sample' => '412'],
                 'bill_number'      => ['label' => 'Bill #',           'sample' => 'INV-00412'],
+                'entity_code'      => ['label' => 'Entity code',      'sample' => 'MAIN'],
                 'internal_ref'     => ['label' => 'Internal ref',     'sample' => 'AP-2026-00412'],
                 'vendor_name'      => ['label' => 'Vendor name',      'sample' => 'Acme Corp'],
                 'vendor_type'      => ['label' => 'Vendor type',      'sample' => 'w9_business'],
@@ -155,6 +157,8 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'vendor_id'             => ['label' => 'Vendor ID',          'sample' => '58'],
                 'vendor_name'           => ['label' => 'Vendor name',        'sample' => 'Acme Corp'],
+                'external_id'           => ['label' => 'External ID (audit / integration)', 'sample' => 'ERP-58'],
+                'source_system'         => ['label' => 'Source system',      'sample' => 'manual'],
                 'vendor_type'           => ['label' => 'Vendor type',        'sample' => 'w9_business'],
                 'vendor_category'       => ['label' => 'Vendor category',    'sample' => 'service_provider'],
                 'default_terms'         => ['label' => 'Default terms',      'sample' => 'NET30'],
@@ -247,7 +251,6 @@ function exportDatasetRegistry(): array {
                 'source_ref_type'     => ['label' => 'Source ref type',   'sample' => 'bill'],
                 'source_ref_id'       => ['label' => 'Source ref ID',     'sample' => '412'],
                 'status'              => ['label' => 'Posting status',    'sample' => 'posted'],
-                'approval_state'      => ['label' => 'Approval state',    'sample' => 'approved'],
                 'currency'            => ['label' => 'Currency',          'sample' => 'USD'],
                 'total_debit'         => ['label' => 'Total debit',       'sample' => '1080.00', 'field_type' => 'currency'],
                 'total_credit'        => ['label' => 'Total credit',      'sample' => '1080.00', 'field_type' => 'currency'],
@@ -358,6 +361,7 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'invoice_id'      => ['label' => 'Invoice ID',       'sample' => '1204'],
                 'invoice_number'  => ['label' => 'Invoice #',        'sample' => 'INV-1204'],
+                'entity_code'     => ['label' => 'Entity code',      'sample' => 'MAIN'],
                 'client_name'     => ['label' => 'Client name',      'sample' => 'Acme Corp'],
                 'currency'        => ['label' => 'Currency',         'sample' => 'USD'],
                 'issue_date'      => ['label' => 'Issue date',       'sample' => '2026-02-14'],
@@ -396,6 +400,13 @@ function exportDatasetRegistry(): array {
                 'amount'             => ['label' => 'Amount',         'sample' => '500.00', 'field_type' => 'number'],
                 'currency'           => ['label' => 'Currency',       'sample' => 'USD'],
                 'unallocated_amount' => ['label' => 'Unallocated',    'sample' => '0.00', 'field_type' => 'number'],
+                'receipt_state'      => ['label' => 'Receipt state',  'sample' => 'posted'],
+                'bank_account_id'    => ['label' => 'Bank account ID', 'sample' => '1'],
+                'journal_entry_id'   => ['label' => 'Receipt journal ID', 'sample' => '501'],
+                'posted_at'          => ['label' => 'Posted at',      'sample' => '2026-02-14 11:00:00'],
+                'voided_at'          => ['label' => 'Corrected at',   'sample' => '2026-02-15 11:00:00'],
+                'void_reason'        => ['label' => 'Correction reason', 'sample' => 'Applied to wrong invoice'],
+                'void_je_id'         => ['label' => 'Reversal journal ID', 'sample' => '502'],
                 'notes'              => ['label' => 'Notes',          'sample' => 'Partial payment'],
             ],
         ],
@@ -562,6 +573,14 @@ function exportDatasetRegistry(): array {
         ],
     ];
 
+    foreach (['people_directory' => 'person', 'placements_directory' => 'placement', 'staffing_clients' => 'client', 'ap_vendors' => 'vendor'] as $dataset => $type) {
+        $definition = coreRecordNumberDefinition($type);
+        $registry[$dataset]['fields'][$definition['field']] = ['label' => ucfirst($type) . ' number', 'sample' => $definition['prefix'] . '42'];
+    }
+    foreach (['staffing_clients', 'ap_vendors'] as $dataset) {
+        $registry[$dataset]['fields']['company_number'] = ['label' => 'Company number', 'sample' => 'CO-42'];
+    }
+    $registry['placements_directory']['fields']['person_number'] = ['label' => 'Person number', 'sample' => 'P-42'];
     return $registry;
 }
 
@@ -801,7 +820,24 @@ function exportDatasetFetchApBills(int $tenantId, array $opts): array {
         }
         $where[] = 'id IN (' . implode(',', $placeholders) . ')';
     }
-    if (!empty($opts['status'])) {
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
+    if (($opts['status'] ?? '') === 'needs_action') {
+        $where[] = "status IN ('inbox', 'pending_review', 'pending_approval', 'approved', 'partially_paid', 'disputed')";
+    } elseif (($opts['status'] ?? '') === 'ready_to_pay') {
+        $where[] = "status IN ('approved', 'partially_paid')";
+        $where[] = '(amount_due - COALESCE((
+            SELECT SUM(ready_alloc.amount_applied)
+              FROM ap_payment_allocations ready_alloc
+              JOIN ap_payments ready_payment ON ready_payment.id = ready_alloc.payment_id
+             WHERE ready_alloc.bill_id = ap_bills.id
+               AND ready_payment.status IN ("draft", "queued", "sent")
+        ), 0)) > 0.005';
+    } elseif (($opts['status'] ?? '') === 'needs_review') {
+        $where[] = "status IN ('inbox', 'pending_review', 'disputed')";
+    } elseif (!empty($opts['status'])) {
         $where[] = 'status = :status';
         $params['status'] = (string) $opts['status'];
     }
@@ -820,6 +856,8 @@ function exportDatasetFetchApBills(int $tenantId, array $opts): array {
 
     $stmt = $pdo->prepare(
         'SELECT id AS bill_id, bill_number, internal_ref, vendor_name, vendor_type,
+                (SELECT e.code FROM accounting_entities e
+                  WHERE e.id = ap_bills.entity_id AND e.tenant_id = ap_bills.tenant_id) AS entity_code,
                 received_at, bill_date, due_date, period_start, period_end, currency,
                 subtotal, tax_total, total, amount_paid, amount_due, status, source,
                 po_number, placement_id, journal_entry_id, notes_internal
@@ -847,7 +885,8 @@ function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id AS vendor_id, vendor_name, vendor_type, vendor_category,
+        'SELECT id AS vendor_id, company_id, vendor_name, external_id, source_system,
+                vendor_type, vendor_category,
                 default_terms, remit_to_email, remit_to_phone, payment_method,
                 tax_id_last4, payment_account_last4, requires_1099, last_bill_at
            FROM ap_vendors_index
@@ -856,7 +895,8 @@ function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
           LIMIT ' . $limit
     );
     $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $tenantId, 'vendor', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [], 'vendor_id');
+    return coreRecordNumbersAttachRelated($pdo, $tenantId, 'company', $rows, 'company_id');
 }
 
 function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
@@ -931,6 +971,7 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
 function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (array_key_exists('active', $opts) && $opts['active'] !== '' && $opts['active'] !== null) {
@@ -955,8 +996,8 @@ function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts)
            LEFT JOIN accounting_accounts parent
              ON parent.tenant_id = a.tenant_id AND parent.id = a.parent_account_id
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY a.code
-          LIMIT ' . $limit
+          ORDER BY a.code, a.id
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -965,6 +1006,7 @@ function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts)
 function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['je.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     $joinLine = '';
@@ -1001,10 +1043,6 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
         $where[] = 'je.status <> :exclude_status';
         $params['exclude_status'] = (string) $opts['exclude_status'];
     }
-    if (!empty($opts['approval_state'])) {
-        $where[] = 'je.approval_state = :approval_state';
-        $params['approval_state'] = (string) $opts['approval_state'];
-    }
     if (!empty($opts['from'])) {
         $where[] = 'je.posting_date >= :from_date';
         $params['from_date'] = (string) $opts['from'];
@@ -1035,13 +1073,13 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
     $stmt = $pdo->prepare(
         'SELECT DISTINCT je.id AS journal_entry_id, je.je_number, je.posting_date,
                 je.entity_id, je.period_id, je.source_module, je.source_ref_type,
-                je.source_ref_id, je.status, je.approval_state, je.currency,
+                je.source_ref_id, je.status, je.currency,
                 je.total_debit, je.total_credit, je.memo, je.posted_at,
                 je.posted_by_user_id, je.created_by_user_id, je.created_at, je.updated_at
            FROM accounting_journal_entries je ' . $joinLine . '
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY je.posting_date DESC, je.id DESC
-          LIMIT ' . $limit
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1050,12 +1088,23 @@ function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts):
 function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['je.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
-    $status = (string) ($opts['status'] ?? 'posted');
-    if ($status !== '' && $status !== 'all') {
-        $where[] = 'je.status = :status';
-        $params['status'] = $status;
+    if (!empty($opts['statuses'])) {
+        $statusKeys = [];
+        foreach (array_values((array) $opts['statuses']) as $index => $value) {
+            $key = 'status' . $index;
+            $statusKeys[] = ':' . $key;
+            $params[$key] = (string) $value;
+        }
+        $where[] = 'je.status IN (' . implode(',', $statusKeys) . ')';
+    } else {
+        $status = (string) ($opts['status'] ?? 'posted');
+        if ($status !== '' && $status !== 'all') {
+            $where[] = 'je.status = :status';
+            $params['status'] = $status;
+        }
     }
     if (!empty($opts['from'])) {
         $where[] = 'je.posting_date >= :from_date';
@@ -1096,8 +1145,8 @@ function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array
            JOIN accounting_journal_entries je ON je.id = l.je_id
            JOIN accounting_accounts a ON a.id = l.account_id
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY je.posting_date DESC, je.id DESC, l.line_no
-          LIMIT ' . $limit
+          ORDER BY je.posting_date DESC, je.id DESC, l.line_no, l.id
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1106,6 +1155,7 @@ function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array
 function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['entity_id'])) {
@@ -1131,8 +1181,8 @@ function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array 
                 reopened_by_user_id, reopen_reason
            FROM accounting_periods
           WHERE ' . implode(' AND ', $where) . '
-          ORDER BY start_date DESC, period_number DESC
-          LIMIT ' . $limit
+          ORDER BY start_date DESC, period_number DESC, id DESC
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1141,6 +1191,7 @@ function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array 
 function exportDatasetFetchAccountingBankStatementLines(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $offset = max(0, (int) ($opts['offset'] ?? 0));
     $where = ['bsl.tenant_id = :tenant_id'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['bank_account_id'])) {
@@ -1175,7 +1226,7 @@ function exportDatasetFetchAccountingBankStatementLines(int $tenantId, array $op
              ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY bsl.posted_date DESC, bsl.id DESC
-          LIMIT ' . $limit
+          LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1202,9 +1253,21 @@ function exportDatasetFetchBillingInvoices(int $tenantId, array $opts): array {
         $where[] = 'client_name = :client_name';
         $params['client_name'] = (string) $opts['client_name'];
     }
+    if (!empty($opts['q'])) {
+        $where[] = '(invoice_number LIKE :q_invoice OR client_name LIKE :q_client)';
+        $needle = '%' . trim((string) $opts['q']) . '%';
+        $params['q_invoice'] = $needle;
+        $params['q_client'] = $needle;
+    }
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
 
     $stmt = $pdo->prepare(
         'SELECT id AS invoice_id, invoice_number, client_name, currency, issue_date, due_date,
+                (SELECT e.code FROM accounting_entities e
+                  WHERE e.id = billing_invoices.entity_id AND e.tenant_id = billing_invoices.tenant_id) AS entity_code,
                 period_start, period_end, subtotal, tax_total, total, amount_paid, amount_due,
                 status, po_number, aggregation, notes_external
            FROM billing_invoices
@@ -1240,7 +1303,13 @@ function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
 
     $stmt = $pdo->prepare(
         'SELECT id AS payment_id, client_name, received_at, method, reference,
-                external_id, source_system, amount, currency, unallocated_amount, notes
+                external_id, source_system, amount, currency, unallocated_amount,
+                CASE WHEN voided_at IS NOT NULL THEN "corrected"
+                     WHEN journal_entry_id IS NOT NULL
+                       OR (source_system = "manual" AND external_id LIKE "bank-line:%") THEN "posted"
+                     ELSE "pending" END AS receipt_state,
+                bank_account_id, journal_entry_id, posted_at,
+                voided_at, void_reason, void_je_id, notes
            FROM billing_payments
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY received_at DESC, id DESC
@@ -1353,7 +1422,7 @@ function exportDatasetFetchStaffingClients(int $tenantId, array $opts): array {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT c.id AS client_id,
+        'SELECT c.id AS client_id, c.company_id,
                 c.name,
                 c.legal_name,
                 c.external_id,
@@ -1387,7 +1456,8 @@ function exportDatasetFetchStaffingClients(int $tenantId, array $opts): array {
           LIMIT ' . $limit
     );
     $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $tenantId, 'client', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [], 'client_id');
+    return coreRecordNumbersAttachRelated($pdo, $tenantId, 'company', $rows, 'company_id');
 }
 
 function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
@@ -1420,6 +1490,7 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     );
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $tenantId, 'person', $rows, 'person_id');
 
     $defs = [];
     try {
@@ -1543,6 +1614,8 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
     );
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $rows = coreRecordNumbersAttach($pdo, $placementsTenantId, 'placement', $rows, 'placement_id');
+    $rows = coreRecordNumbersAttachRelated($pdo, $peopleTenantId, 'person', $rows, 'person_id');
     return exportDatasetAttachCustomFieldValues(
         $rows,
         $placementsTenantId,

@@ -1,9 +1,31 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Section, Card } from '../components/UIComponents';
-import { Bell, Moon, Globe, Lock, Mail, ChevronRight, PlugZap, Calculator } from 'lucide-react';
+import { Bell, Moon, Globe, Lock, Mail, ChevronRight, PlugZap, Calculator, Users, ScrollText } from 'lucide-react';
 
 const SettingsPage = ({ session }) => {
+  if (session?.product_mode === 'coreaccounting') {
+    const links = [
+      { to: '/settings/mail', label: 'Email delivery', Icon: Mail },
+      { to: '/admin/users', label: 'Users', Icon: Users },
+      { to: '/admin/audit-log', label: 'Audit log', Icon: ScrollText },
+    ];
+    return (
+      <section style={{ maxWidth: 680 }} data-testid="coreaccounting-settings">
+        <h1 style={{ fontSize: 'var(--cf-text-2xl)', marginBottom: 'var(--cf-space-5)' }}>Settings</h1>
+        <nav aria-label="CoreAccounting settings">
+          {links.map(({ to, label, Icon }) => (
+            <Link key={to} to={to} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 0', borderBottom: '1px solid var(--cf-border)', color: 'var(--cf-text)', textDecoration: 'none' }}>
+              <Icon size={18} aria-hidden="true" />
+              <span style={{ flex: 1 }}>{label}</span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </Link>
+          ))}
+        </nav>
+      </section>
+    );
+  }
+
   return (
     <>
       <div style={{ marginBottom: 'var(--cf-space-6)' }}>

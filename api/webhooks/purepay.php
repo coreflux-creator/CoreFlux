@@ -40,9 +40,9 @@ $rollup = null;
 if ($fresh) {
     try {
         $rollup = in_array($eventType, ['payment.settled', 'payment.failed'], true)
-            ? purepayWebhookProcess($tenantId, $eventId, $eventType, $payload)
+            ? purepayWebhookProcess($tenantId, $eventId, $eventType, $payload, purepayConnectionFingerprint($tenantId,(string)$conn['api_key']))
             : ['outcome' => 'ignored', 'reason' => 'event_type'];
-        purepayWebhookMarkProcessed($tenantId, $eventId);
+        purepayWebhookRecordOutcome($tenantId, $eventId, $rollup);
     } catch (\Throwable $e) {
         purepayWebhookMarkProcessed($tenantId, $eventId, $e->getMessage());
         api_error('Webhook processing failed', 503);

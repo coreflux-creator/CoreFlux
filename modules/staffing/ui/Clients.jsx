@@ -1,3 +1,4 @@
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
@@ -278,6 +279,7 @@ export default function Clients() {
                           style={{ border:0, padding:0, background:'none', color:'var(--cf-accent)', cursor:'pointer', font:'inherit', fontWeight:600, textAlign:'left' }}>
                     {r.name}
                   </button>
+                  <div><IdBadge id={r.id} number={r.client_number} prefix="CL" />{' '}<IdBadge id={r.company_id} number={r.company_number} prefix="CO" /></div>
                   {r.legal_name ? <div style={{ fontSize:'0.75em', color:'var(--cf-text-muted)' }}>{r.legal_name}</div> : null}
                 </td>
                 <td>{r.industry || '—'}</td>
@@ -327,7 +329,7 @@ function ClientDrawer({ drawer, setDrawer, closeDrawer, save, softDelete, savePe
         <header style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
           <div>
             <h3 style={{ margin: 0 }}>{drawer.mode === 'new' ? 'New Client' : c.name}</h3>
-            {drawer.mode === 'edit' && <div style={{ fontSize:'0.8em', color:'var(--cf-text-muted)' }}>ID #{c.id}</div>}
+            {drawer.mode === 'edit' && <div style={{ fontSize:'0.8em', color:'var(--cf-text-muted)' }}><IdBadge id={c.id} number={c.client_number} prefix="CL" />{' '}<IdBadge id={c.company_id} number={c.company_number} prefix="CO" /></div>}
           </div>
           <button type="button" onClick={closeDrawer} style={{ background:'none', border:'none', fontSize:'1.5em', cursor:'pointer', color:'var(--cf-text-muted)' }} data-testid="staffing-client-drawer-close">×</button>
         </header>

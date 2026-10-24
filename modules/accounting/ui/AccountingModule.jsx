@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, NavLink, Link, useLocation } from 'react-route
 import {
   AlertTriangle, BarChart3, BookOpen, Building2, Calendar, CheckSquare,
   ChevronDown, FileText, GitBranch, Landmark, Layers, ListChecks, Network,
-  Plus, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
+  LayoutGrid, Plus, Receipt, Repeat, Scale, Settings, Sparkles, TrendingUp, Upload, Wallet, Wrench,
 } from 'lucide-react';
 import ChartOfAccounts from './ChartOfAccounts';
 import AccountDetail from './AccountDetail';
@@ -18,12 +18,17 @@ import BankReconciliation from './BankReconciliation';
 import RecurringJournalEntries from './RecurringJournalEntries';
 import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
+import OpeningBalances from './OpeningBalances';
+import CreditApplications from './CreditApplications';
 import AccountsCsvImport from './AccountsCsvImport';
+import CsvBulkImport from '../../../dashboard/src/pages/CsvBulkImport';
+import CsvImportHistory from '../../../dashboard/src/pages/CsvImportHistory';
 import IntercompanyMappings from './IntercompanyMappings';
 import XTenantIntercompany from './XTenantIntercompany';
 import EliminationWorksheet from './EliminationWorksheet';
 import Consolidation from './Consolidation';
 import Periods from './Periods';
+import LegalEntities from './LegalEntities';
 import DimensionsAdmin from './DimensionsAdmin';
 import PeriodCloseWorkflow from './PeriodCloseWorkflow';
 import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview';
@@ -34,6 +39,7 @@ import TaxMappings from './TaxMappings';
 import TaxExport from './TaxExport';
 import DimensionalPnL from './DimensionalPnL';
 import LayerSandboxModule from './layer/LayerSandboxModule';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 
 // LayerFi sandbox embed (per-tenant embedded accounting evaluation).
 // Production-safe default: HIDDEN unless VITE_ENABLE_LAYER_SANDBOX is
@@ -45,7 +51,9 @@ const LAYER_SANDBOX_ENABLED =
   String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
 const PRIMARY_NAV = [
+  { to: 'overview', label: 'Overview', Icon: LayoutGrid },
   { to: 'journal-entries', label: 'Entries', Icon: FileText },
+  { to: '/modules/billing/invoices', label: 'Invoices', Icon: Receipt },
   { to: 'transactions-to-review', label: 'Bank feed', Icon: ListChecks },
   { to: 'bank-rec', label: 'Reconcile', Icon: Scale },
   { to: 'reports', label: 'Reports', Icon: BarChart3 },
@@ -57,8 +65,10 @@ const MORE_NAV = [
   {
     label: 'Workspace',
     items: [
-      { to: 'bookkeeping', label: 'Accounting overview', Icon: BookOpen },
+      { to: 'imports', label: 'CSV imports', Icon: Upload, standaloneOnly: true },
       { to: 'import', label: 'Import journal entries', Icon: Upload },
+      { to: 'opening-balances', label: 'Opening balances', Icon: Wallet },
+      { to: 'opening-credits', label: 'Apply opening credits', Icon: Wallet },
       { to: 'periods', label: 'Accounting periods', Icon: Calendar },
       { to: 'dimensions', label: 'Dimensions', Icon: Settings },
     ],
@@ -85,6 +95,7 @@ const MORE_NAV = [
   {
     label: 'Configuration',
     items: [
+      { to: 'entities', label: 'Legal entities', Icon: Building2 },
       { to: 'tax-mappings', label: 'Tax mappings', Icon: Settings },
       { to: 'tax-export', label: 'Tax export', Icon: FileText },
     ],
@@ -104,6 +115,7 @@ const MORE_NAV = [
  * Accounting Module — Phase 0 + 1 + 2 UI
  */
 export default function AccountingModule({ session }) {
+  const location = useLocation();
   return (
     <div data-testid="accounting-module">
       <header className="module-workspace-header">
@@ -112,23 +124,24 @@ export default function AccountingModule({ session }) {
             <span className="workspace-eyebrow">Financial controls</span>
             <h1>Accounting</h1>
           </div>
-          <Link className="btn btn--primary" to="/modules/accounting/journal-entries/new" data-testid="accounting-new-entry-global">
+          <Link className="btn btn--primary" to={scopedAccountingPath('/modules/accounting/journal-entries/new', location.search)} data-testid="accounting-new-entry-global">
             <Plus size={16} aria-hidden="true" />New journal entry
           </Link>
         </div>
         <p>Keep the books, review activity, and close with confidence.</p>
-        <AccountingNav />
+        <AccountingNav standaloneAccounting={session?.product_mode === 'coreaccounting'} />
       </header>
       <Routes>
-        <Route index           element={<Navigate to="journal-entries" replace />} />
-        <Route path="bookkeeping" element={<BookkeepingOverview />} />
-        <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
+        <Route index element={<Navigate to="overview" replace />} />
+        <Route path="overview" element={<BookkeepingOverview standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
+        <Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />
+        <Route path="books-health" element={<Navigate to="/modules/accounting/overview" replace />} />
         <Route path="transactions-to-review" element={<TransactionsToReview />} />
         <Route path="transactions_to_review" element={<Navigate to="../transactions-to-review" replace />} />
         <Route path="missing-dimensions" element={<MissingDimensions />} />
         <Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
-        <Route path="accounts/import" element={<AccountsCsvImport />} />
+        <Route path="accounts/import" element={<AccountsCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="accounts/detail" element={<AccountDetail session={session} />} />
         <Route path="accounts/:id" element={<AccountDetail session={session} />} />
         <Route path="journal"  element={<Navigate to="../journal-entries" replace />} />
@@ -150,11 +163,16 @@ export default function AccountingModule({ session }) {
         <Route path="tax-mappings" element={<TaxMappings />} />
         <Route path="tax-export" element={<TaxExport />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
+        <Route path="imports" element={session?.product_mode === 'coreaccounting' ? <CsvBulkImport financeOnly /> : <Navigate to="/data/bulk-import" replace />} />
+        <Route path="import-history" element={session?.product_mode === 'coreaccounting' ? <CsvImportHistory financeOnly /> : <Navigate to="/data/import-history" replace />} />
+        <Route path="opening-balances" element={<OpeningBalances />} />
+        <Route path="opening-credits" element={<CreditApplications />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
         <Route path="xtenant-ic"   element={<XTenantIntercompany session={session} />} />
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />
         <Route path="consolidation" element={<Consolidation session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />
+        <Route path="entities" element={<LegalEntities />} />
         <Route path="dimensions" element={<DimensionsAdmin session={session} />} />
         <Route path="close"      element={<PeriodCloseWorkflow session={session} />} />
         {LAYER_SANDBOX_ENABLED && (
@@ -163,18 +181,24 @@ export default function AccountingModule({ session }) {
         {LAYER_SANDBOX_ENABLED && (
           <Route path="layer-integration" element={<LayerSandboxModule session={session} view="settings" />} />
         )}
+        <Route path="*" element={<Navigate to="/modules/accounting/overview" replace />} />
       </Routes>
     </div>
   );
 }
 
-function AccountingNav() {
+function AccountingNav({ standaloneAccounting = false }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const menuRef = useRef(null);
   const location = useLocation();
   const reportRoutes = ['trial', 'pnl', 'balance', 'cash-flow', 'gl-detail', 'dim-pnl'];
   const reportActive = reportRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
-  const moreRoutes = MORE_NAV.flatMap(group => group.items.map(item => item.to))
+  const visibleMoreNav = MORE_NAV.map(group => ({
+    ...group,
+    items: group.items.filter(item => (standaloneAccounting || !item.standaloneOnly)
+      && (!standaloneAccounting || item.to !== 'ai-agents')),
+  }));
+  const moreRoutes = visibleMoreNav.flatMap(group => group.items.map(item => item.to))
     .filter(route => !reportRoutes.includes(route));
   const moreActive = moreRoutes.some(route => location.pathname.includes(`/accounting/${route}`));
 
@@ -194,6 +218,7 @@ function AccountingNav() {
             key={item.to}
             item={item}
             active={item.to === 'reports' && reportActive}
+            search={location.search}
           />
         ))}
       </div>
@@ -210,11 +235,11 @@ function AccountingNav() {
         </button>
         {moreOpen && (
           <div className="accounting-nav__menu" data-testid="accounting-more-menu">
-            {MORE_NAV.map(group => (
+            {visibleMoreNav.map(group => (
               <section className="accounting-nav__group" key={group.label}>
                 <h3>{group.label}</h3>
                 {group.items.map(item => (
-                  <AccountingNavLink key={item.to} item={item} menu onSelect={() => setMoreOpen(false)} />
+                  <AccountingNavLink key={item.to} item={item} menu search={location.search} onSelect={() => setMoreOpen(false)} />
                 ))}
               </section>
             ))}
@@ -225,11 +250,18 @@ function AccountingNav() {
   );
 }
 
-function AccountingNavLink({ item, menu = false, onSelect, active = false }) {
+function scopedAccountingPath(path, search) {
+  const requested = new URLSearchParams(search).get('entity_id');
+  if (requested === 'all') return addEntityScope(path, null, true);
+  if (requested && /^[1-9][0-9]*$/.test(requested)) return addEntityScope(path, requested);
+  return path;
+}
+
+function AccountingNavLink({ item, menu = false, onSelect, active = false, search = '' }) {
   const { to, label, Icon } = item;
   return (
     <NavLink
-      to={to}
+      to={scopedAccountingPath(to, search)}
       data-testid={`accounting-tab-${to}`}
       className={({ isActive }) => `${menu ? 'accounting-nav__menu-link' : 'accounting-nav__link'}${isActive || active ? ' is-active' : ''}`}
       onClick={onSelect}

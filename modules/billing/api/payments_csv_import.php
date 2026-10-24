@@ -9,8 +9,8 @@
  *   POST /api/billing/payments_csv_import?action=commit (+ ?skip_invalid=1)
  *   POST /api/billing/payments_csv_import?action=ai_suggest_map
  *
- * Invoice allocations stay out of scope — done via the Payment Detail UI
- * where the user can match against open invoices.
+ * Imported receipts remain pending until the user posts them against open
+ * invoices and a bank account from Payments received.
  *
  * Built on Core\CsvImportService primitive per HARD_RULES (2026-02-XX).
  */
@@ -36,10 +36,26 @@ CsvImportService::registerSchema('billing_payments', [
         // receipt id, lockbox file id, etc.). When supplied, becomes
         // the upsert key so re-uploading the same export does not
         // double-credit the client.
-        'external_id'  => ['label' => 'External ID (audit / integration)'],
+        'external_id'  => [
+            'label' => 'External ID (audit / integration)',
+            'validate' => static function (string $value): ?string {
+                return str_starts_with($value, 'bank-line:') || str_starts_with($value, 'manual-receipt:')
+                    ? 'this ID format is reserved for bank matches and on-screen payments'
+                    : null;
+            },
+        ],
         'source_system'=> ['label' => 'Source system',
                           'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
-        'amount'      => ['label' => 'Amount',      'required' => true, 'type' => 'number'],
+        'amount'      => ['label' => 'Amount',      'required' => true, 'type' => 'number',
+                          'validate' => static function (string $value): ?string {
+                              if (!preg_match('/^\d+(?:\.\d{1,2})?$/D', $value)
+                                  || !is_finite((float) $value)
+                                  || (float) $value < 0.01
+                                  || (float) $value > 999999999999.99) {
+                                  return 'enter a positive amount in cents';
+                              }
+                              return null;
+                          }],
         'currency'    => ['label' => 'Currency'],
         'notes'       => ['label' => 'Notes'],
     ],
@@ -121,6 +137,8 @@ if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'billing.payments.record');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('billing_payments', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
     $columnMap      = CsvImportService::readRequestColumnMap();
@@ -136,12 +154,13 @@ if ($method === 'POST' && $action === 'commit') {
         $sourceSystem = $sourceSystemInput !== '' ? $sourceSystemInput : 'manual';
         $paymentId = isset($row['payment_id']) && $row['payment_id'] !== '' ? (int) $row['payment_id'] : 0;
         $pdo = getDB();
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_customer_payment');
         try {
             $existing = null;
             if ($paymentId > 0) {
                 $existing = scopedFind(
-                    'SELECT id, amount, unallocated_amount, external_id, source_system
+                    'SELECT id, amount, unallocated_amount, external_id, source_system,
+                            voided_at, journal_entry_id, posted_at, bank_account_id
                        FROM billing_payments
                       WHERE tenant_id = :tenant_id AND id = :id
                       FOR UPDATE',
@@ -152,7 +171,8 @@ if ($method === 'POST' && $action === 'commit') {
                 }
             } elseif ($externalId !== null) {
                 $existing = scopedFind(
-                    'SELECT id, amount, unallocated_amount, external_id, source_system
+                    'SELECT id, amount, unallocated_amount, external_id, source_system,
+                            voided_at, journal_entry_id, posted_at, bank_account_id
                        FROM billing_payments
                       WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e
                       FOR UPDATE',
@@ -161,6 +181,13 @@ if ($method === 'POST' && $action === 'commit') {
             }
 
             if ($existing) {
+                if ($existing['voided_at'] !== null) {
+                    throw new RuntimeException('Corrected receipts cannot be updated by CSV');
+                }
+                if ($existing['journal_entry_id'] !== null || $existing['posted_at'] !== null
+                    || $existing['bank_account_id'] !== null) {
+                    throw new RuntimeException('Posted or bank-linked receipts cannot be updated by CSV');
+                }
                 if (!$updateExisting) {
                     throw new RuntimeException('Receipt #' . $existing['id'] . ' already exists; enable Update matching editable records to change it');
                 }
@@ -183,8 +210,8 @@ if ($method === 'POST' && $action === 'commit') {
                     'unallocated_amount' => $amount,
                     'notes'              => $row['notes']     ?? null,
                 ]);
+                coreAccountingCsvCommitUnit($pdo, 'csv_customer_payment', $ownsUnit);
                 $updated++;
-                $pdo->commit();
                 return (int) $existing['id'];
             }
 
@@ -201,11 +228,11 @@ if ($method === 'POST' && $action === 'commit') {
                 'notes'              => $row['notes']     ?? null,
                 'created_by_user_id' => $user['id']       ?? null,
             ]);
+            coreAccountingCsvCommitUnit($pdo, 'csv_customer_payment', $ownsUnit);
             $created++;
-            $pdo->commit();
             return $id;
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_customer_payment', $ownsUnit);
             throw $e;
         }
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
@@ -214,7 +241,7 @@ if ($method === 'POST' && $action === 'commit') {
     $result['updated_count'] = $updated;
     $result['update_existing'] = $updateExisting;
 
-    api_ok($result);
+    api_ok(coreAccountingRecordCsvImportOutcome($result, (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|sample|inspect|dry_run|commit|ai_suggest_map', 400);

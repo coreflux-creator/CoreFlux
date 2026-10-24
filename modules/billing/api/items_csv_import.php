@@ -142,6 +142,8 @@ if ($method === 'POST' && $action === 'commit') {
     $requireManage();
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('billing_items', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
@@ -149,13 +151,13 @@ if ($method === 'POST' && $action === 'commit') {
     $preview = CsvImportService::dryRun('billing_items', $csv, $columnMap);
     $validateReferences($preview);
     if (!$skipInvalid && $preview['error_count'] > 0) {
-        api_ok([
+        api_ok(coreAccountingRecordCsvImportOutcome([
             'imported_count' => 0,
             'skipped_count' => $preview['row_count'],
             'errors' => $preview['errors'],
             'ids' => [],
             'message' => 'Validation errors present; import was not committed.',
-        ]);
+        ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
 
     $invalidRows = array_fill_keys(array_keys($preview['errors']), true);
@@ -246,7 +248,7 @@ if ($method === 'POST' && $action === 'commit') {
         'errors' => count($result['errors']),
         'update_existing' => $updateExisting,
     ]);
-    api_ok($result);
+    api_ok(coreAccountingRecordCsvImportOutcome($result, (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|sample|inspect|ai_suggest_map|dry_run|commit', 400);

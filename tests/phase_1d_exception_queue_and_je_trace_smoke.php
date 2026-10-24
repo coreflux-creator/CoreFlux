@@ -67,8 +67,11 @@ $a('POST ?action=assign (requires user_id)',   str_contains($api, 'user_id requi
 
 echo "\nJE Trace API\n";
 $jt = $read(__DIR__ . '/../api/accounting/je_trace.php');
+$a('je_trace reads canonical journal entries', str_contains($jt, 'FROM accounting_journal_entries'));
 $a('je_trace requires lineage + interp libs',  str_contains($jt, "event_lineage.php") && str_contains($jt, "ai_interpretation.php"));
-$a('walks via accounting_subledger_links',     str_contains($jt, 'accounting_subledger_links sl'));
+$a('walks from the posted canonical event', str_contains($jt, 'FROM accounting_events')
+    && str_contains($jt, 'journal_entry_id = :je')
+    && str_contains($jt, "rbac_legacy_require(\$ctx['user'], 'accounting.je.create')"));
 $a('returns ancestors + descendants + interps', str_contains($jt, "'ancestors'") && str_contains($jt, "'descendants'") && str_contains($jt, "'interpretations'"));
 $a('joins ai_interpretations on event_id IN(...)', str_contains($jt, 'event_id IN ({$placeholders})') || str_contains($jt, 'event_id IN ('));
 

@@ -179,7 +179,7 @@ function closeRunRefreshProgress(int $tenantId, int $runId): array
 }
 
 /**
- * Build the close-packet HTML for the run's period, persist it in
+ * Save the close-packet HTML for the run's period, persist it in
  * accounting_close_packets AND create a first-class artifact_objects
  * row of type `accounting_close_packet` so it shows up in the
  * Artifacts admin.  Idempotent: re-running returns the existing
@@ -196,27 +196,28 @@ function closeRunBuildPacket(int $tenantId, int $runId, ?int $actorUserId = null
     }
 
     $periodId = (int) $run['period_id'];
-    $html = accountingBuildClosePacketHtml($tenantId, $periodId);
-
-    $pdo = getDB();
-    // Persist the legacy packet row (existing close-packet table).
-    $pdo->prepare(
-        'INSERT INTO accounting_close_packets
-            (tenant_id, period_id, file_format, summary_json,
-             built_by_user_id, built_at)
-         VALUES (:t, :p, "html", :sj, :u, NOW())'
-    )->execute([
-        't'  => $tenantId, 'p' => $periodId,
-        'sj' => json_encode([
-            'run_id'       => $runId,
-            'built_by'     => $actorUserId,
-            'task_total'   => (int) $run['total_tasks'],
-            'task_done'    => (int) $run['completed_tasks'],
-            'html_length'  => strlen($html),
-        ], JSON_UNESCAPED_SLASHES),
-        'u'  => $actorUserId,
+    $periodStmt = getDB()->prepare('SELECT status, close_cycle FROM accounting_periods
+        WHERE tenant_id = :t AND id = :p');
+    $periodStmt->execute(['t' => $tenantId, 'p' => $periodId]);
+    $period = $periodStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$period || !in_array($period['status'], ['closed', 'locked'], true)) {
+        throw new \RuntimeException('Close the accounting period before building its packet');
+    }
+    if (!empty($run['packet_id'])) {
+        $existing = accountingLoadRecordedClosePacket($tenantId, $periodId, (int) $run['packet_id']);
+        if ($existing && (int) $existing['close_cycle'] === (int) $period['close_cycle']) {
+            return ['run_id' => $runId, 'packet_id' => (int) $run['packet_id'],
+                'artifact_id' => $run['packet_artifact_id'], 'status' => $run['status'],
+                'content_sha256' => $existing['content_sha256']];
+        }
+    }
+    $record = accountingRecordClosePacket($tenantId, $periodId, $actorUserId, [
+        'run_id' => $runId,
+        'task_total' => (int) $run['total_tasks'],
+        'task_done' => (int) $run['completed_tasks'],
     ]);
-    $packetId = (int) $pdo->lastInsertId();
+    $packetId = (int) $record['id'];
+    $pdo = getDB();
 
     // Spec §2A — create a first-class artifact_objects row so the
     // packet shows up in the global artifact list with lifecycle +
@@ -231,7 +232,8 @@ function closeRunBuildPacket(int $tenantId, int $runId, ?int $actorUserId = null
             'payload'            => [
                 'run_id'      => $runId,
                 'period_id'   => $periodId,
-                'html_length' => strlen($html),
+                'html_length' => $record['length'],
+                'content_sha256' => $record['content_sha256'],
                 'task_total'  => (int) $run['total_tasks'],
                 'task_done'   => (int) $run['completed_tasks'],
             ],
@@ -262,6 +264,7 @@ function closeRunBuildPacket(int $tenantId, int $runId, ?int $actorUserId = null
         'packet_id'   => $packetId,
         'artifact_id' => $artifactId,
         'status'      => 'packet_built',
+        'content_sha256' => $record['content_sha256'],
     ];
 }
 
@@ -277,6 +280,17 @@ function closeRunLock(int $tenantId, int $runId, ?int $actorUserId = null): arra
     if ($run['status'] === 'locked') return $run;        // idempotent
     if ($run['status'] !== 'packet_built') {
         throw new \RuntimeException("cannot lock run {$runId} from status '{$run['status']}' — build the packet first");
+    }
+    $periodStmt = getDB()->prepare('SELECT status, close_cycle FROM accounting_periods
+        WHERE tenant_id = :t AND id = :p');
+    $periodStmt->execute(['t' => $tenantId, 'p' => (int) $run['period_id']]);
+    $period = $periodStmt->fetch(\PDO::FETCH_ASSOC);
+    $packet = !empty($run['packet_id'])
+        ? accountingLoadRecordedClosePacket($tenantId, (int) $run['period_id'], (int) $run['packet_id'])
+        : null;
+    if (!$period || $period['status'] !== 'locked' || !$packet
+        || (int) $packet['close_cycle'] !== (int) $period['close_cycle']) {
+        throw new \RuntimeException("cannot lock run {$runId} until the period is locked with a current close packet");
     }
     getDB()->prepare(
         'UPDATE accounting_close_runs

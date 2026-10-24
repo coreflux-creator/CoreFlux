@@ -297,7 +297,7 @@ export default function Directory() {
                       data-testid={`people-row-select-${p.id}`}
                     />
                   </td>
-                  <td><IdBadge id={p.id} prefix="P" /></td>
+                  <td><IdBadge id={p.id} number={p.person_number} prefix="P" /></td>
                   <td>
                     <Link to={`../${p.id}`} data-testid={`people-row-link-${p.id}`}>
                       {p.preferred_name || p.first_name} {p.last_name}
