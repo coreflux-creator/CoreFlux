@@ -60,6 +60,12 @@ $report['synthetic_records'] = ['person' => $person, 'placement' => $placement];
 $report['onboarding_cases'] = $pdo->query('SELECT id,version,plan_version,confirmed_plan_version
     FROM staffing_onboarding_cases WHERE tenant_id=999 AND people_tenant_id=999
     AND placements_tenant_id=999 AND person_id=15 AND placement_id=13 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$report['synthetic_time'] = $pdo->query('SELECT t.id,t.hours,t.status,t.approved_by_user_id,i.timesheet_id,i.quanta_entry_id
+    FROM time_entries t JOIN quanta_time_imports i ON i.tenant_id=t.tenant_id AND i.time_entry_id=t.id
+    WHERE t.tenant_id=999 AND t.person_id=15 AND t.placement_id=13 ORDER BY t.id')->fetchAll(PDO::FETCH_ASSOC);
+// Inspect saved binding only; never wake or contact the separately managed PurePay preview.
+$report['saved_purepay_binding'] = $pdo->query('SELECT id,status,revision,remote_organization_id
+    FROM purepay_core_connections WHERE tenant_id=999')->fetch(PDO::FETCH_ASSOC);
 
 // Report only bounded capability/status values. Never print access arrays, keys or exception text.
 $probe = static function(callable $read): array {
