@@ -59,4 +59,8 @@ $GLOBALS['__quanta_transport']=static fn()=>['status'=>200,'body'=>json_encode([
 $fails(fn()=>$fetch(),'fresh capability must match the exact workspace');
 unset($GLOBALS['__quanta_transport'],$GLOBALS['__quanta_document_transport']);
 putenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS');putenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS');
+require_once __DIR__.'/fixtures/staffing_dictionary_checks.php';
+staffingDictionaryAssertPayload('quanta_onboarding_submission','quanta',
+    quantaOnboardingSubmissionValidate($case,$record,$receipt,$worker,$instance,$workspace,true),'submissions[]');
+$check(true,'dictionary covers validated document descriptors without exporting file bytes or storage keys');
 echo "PASS $passed Quanta private document checks\n";

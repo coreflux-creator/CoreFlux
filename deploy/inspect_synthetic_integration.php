@@ -48,6 +48,23 @@ $report = [
     'private_document_storage_ready' => quantaOnboardingDocumentStorageReady(),
 ];
 
+// Schema-only field coverage. No workflow payload, record value or credential is read.
+require_once PILOT_ROOT.'/core/integrations/staffing_field_contract.php';
+$dictionary = staffingFieldContractInventory($pdo, PILOT_TENANT);
+$workflowCounts = [];
+$unverifiedContainers = [];
+foreach ($dictionary['fields'] as $field) {
+    if ($field['kind'] !== 'workflow_payload_field') continue;
+    $workflowCounts[$field['workflow']] = ($workflowCounts[$field['workflow']] ?? 0) + 1;
+    if ($field['core_schema_status'] !== 'verified_container_present') $unverifiedContainers[$field['storage_container']] = true;
+}
+$report['field_dictionary'] = [
+    'contract_version'=>$dictionary['contract_version'], 'metadata_only'=>true,
+    'activates_sync'=>$dictionary['activates_sync'], 'field_count'=>count($dictionary['fields']),
+    'workflow_fields'=>$workflowCounts, 'unverified_workflow_containers'=>array_keys($unverifiedContainers),
+];
+unset($dictionary);
+
 $person = $pdo->query("SELECT id,status FROM people WHERE tenant_id=999 AND id=15
     AND email_primary='core-integration-20261023@example.com' AND deleted_at IS NULL")->fetch(PDO::FETCH_ASSOC);
 $placement = $pdo->query("SELECT id,person_id,status FROM placements WHERE tenant_id=999 AND id=13
