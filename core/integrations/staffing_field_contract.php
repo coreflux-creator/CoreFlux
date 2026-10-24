@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../record_numbers.php';
 require_once __DIR__ . '/staffing_exchange_fields.php';
+require_once __DIR__ . '/staffing_workflow_fields.php';
 
 function staffingFieldContractTables(): array
 {
-    return [
+    return array_merge([
         'people', 'companies', 'company_roles', 'company_addresses', 'company_contacts',
         'staffing_clients', 'ap_vendors_index', 'staffing_jobs', 'placements',
         'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_referrals',
@@ -18,12 +19,13 @@ function staffingFieldContractTables(): array
         'time_entries', 'time_periods', 'time_downstream_feed', 'staffing_timesheets', 'quanta_time_imports',
         'payroll_runs', 'payroll_line_items', 'ap_bills', 'ap_payments', 'billing_invoices',
         'billing_payments', 'external_entity_mappings',
-    ];
+    ], staffingWorkflowFieldTables());
 }
 
 function staffingFieldContractRules(string $table, string $field): array
 {
     $key = $table . '.' . $field;
+    $workflow = in_array($table, staffingWorkflowFieldTables(), true);
     $definitions = [
         'placements.person_id' => ['Canonical person assigned to this placement.', 'reference:person'],
         'placements.engagement_type' => ['Explicit assignment classification. JobDiva SALARY category takes priority; a reviewed source mapping may fill missing evidence. Conflicts require review. Cost profiles, negative flags and missing values never imply W2, C2C or 1099.', 'verified-enum'],
@@ -44,7 +46,8 @@ function staffingFieldContractRules(string $table, string $field): array
         'people_employees.employee_number' => ['Legacy employment number; separate from the canonical person number.', 'source_reference'],
     ];
     $restricted = preg_match('/(?:ssn|tax_id|bank|routing|account_number|password|credential|token|secret|dob|birth|_ct$)/i', $field)
-        || in_array($table, ['people_banking', 'people_tax', 'people_bank_accounts', 'people_tax_federal', 'people_tax_state', 'people_i9'], true);
+        || in_array($table, ['people_banking', 'people_tax', 'people_bank_accounts', 'people_tax_federal', 'people_tax_state', 'people_i9'], true)
+        || ($workflow && (str_ends_with($field, '_json') || in_array($field, ['storage_key','storage_identity'], true)));
     $system = in_array($field, ['id', 'tenant_id', 'created_at', 'updated_at', 'deleted_at', 'created_by_user_id', 'updated_by_user_id'], true);
     $source = in_array($field, ['external_id', 'source_system', 'source_ref_id', 'jobdiva_job_id', 'connecteam_user_id'], true);
     $approval = preg_match('/(?:approved|approval|superseded|posted|paid|locked|correction)/i', $field);
@@ -70,9 +73,9 @@ function staffingFieldContractRules(string $table, string $field): array
         'definition' => $definition,
         'definition_status' => $definition !== null ? 'reviewed_core_definition' : 'review_required',
         'unit' => $unit,
-        'owner' => $system ? 'core' : ($source ? 'source_connector' : 'review_required'),
-        'disposition' => $restricted ? 'restricted' : ($system ? 'system_owned' : ($source ? 'source_reference' : 'review_required')),
-        'write_policy' => ($restricted || $system || $source || $approval) ? 'specialized_workflow_only' : 'verified_mapping_and_owner_required',
+        'owner' => $workflow ? 'specialized_workflow' : ($system ? 'core' : ($source ? 'source_connector' : 'review_required')),
+        'disposition' => $restricted ? 'restricted' : ($workflow ? 'specialized_workflow' : ($system ? 'system_owned' : ($source ? 'source_reference' : 'review_required'))),
+        'write_policy' => ($workflow || $restricted || $system || $source || $approval) ? 'specialized_workflow_only' : 'verified_mapping_and_owner_required',
         'missing_value_policy' => 'preserve_existing',
         'null_policy' => 'explicit_clear_requires_field_permission_and_nullable_destination',
         'conflict_policy' => 'queue_for_review; no last-writer-wins',
@@ -94,10 +97,12 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     $stmt->execute($tables);
     $fields = [];
     $found = [];
+    $columns = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $column) {
         $table = $column['TABLE_NAME'];
         $field = $column['COLUMN_NAME'];
         $found[$table] = true;
+        $columns[$table.'.'.$field] = true;
         $fields[] = array_merge([
             'key' => $table . '.' . $field, 'core_path' => $table . '.' . $field,
             'type' => $column['COLUMN_TYPE'], 'nullable' => $column['IS_NULLABLE'] === 'YES',
@@ -118,8 +123,9 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
             'write_policy' => 'assigned_by_core; imports_may_lookup_but_never_assign',
         ]);
     }
+    $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-10-22.6', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-24.1', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

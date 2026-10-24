@@ -94,6 +94,20 @@ $check($pdo->query("SELECT column_mappings_json FROM export_templates WHERE scop
 $inventory = staffingFieldContractInventory($pdo, 1);
 $check($inventory['activates_sync'] === false && count($inventory['fields']) >= 20, 'actual schema inventoried without enabling sync');
 $check(in_array('time_entries', $inventory['unverified_tables'], true), 'missing tables explicitly reported');
+$workflowFields=array_values(array_filter($inventory['fields'],static fn($field)=>$field['kind']==='workflow_payload_field'));
+$check(count($workflowFields)>100 && count(array_filter($workflowFields,static fn($field)=>$field['core_schema_status']!=='container_unverified'))===0,
+    'missing workflow storage columns never appear as verified payload schemas');
+$apply('core/migrations/171_staffing_onboarding.sql');
+$pdo->exec("INSERT INTO staffing_onboarding_cases(id,tenant_id,people_tenant_id,person_id,placements_tenant_id,placement_id,tasks_json,created_by_user_id) VALUES('metadata-only',1,1,1,1,1,'PRIVATE_RECORD_SENTINEL',1)");
+$workflowInventory=staffingFieldContractInventory($pdo,1);
+$workflowByKey=array_column($workflowInventory['fields'],null,'key');
+$check($workflowByKey['quanta_onboarding_submission.id']['core_schema_status']==='verified_container_present'
+    && $workflowByKey['purepayroll_result.run_id']['core_schema_status']==='container_unverified',
+    'workflow export distinguishes installed evidence storage from missing payroll storage');
+$check($workflowByKey['staffing_onboarding_cases.tasks_json']['disposition']==='restricted'
+    && $workflowByKey['staffing_onboarding_cases.plan_version']['write_policy']==='specialized_workflow_only'
+    && !str_contains(json_encode($workflowInventory),'PRIVATE_RECORD_SENTINEL'),
+    'dictionary reads schema only and keeps raw workflow evidence and revisions out of generic mappings');
 $references = array_column(array_filter($inventory['fields'], static fn ($field) => $field['kind'] === 'business_reference'), null, 'entity_type');
 $check(count($references) === 5 && $references['person']['owner'] === 'core'
     && $references['person']['write_policy'] === 'assigned_by_core; imports_may_lookup_but_never_assign', 'exchange metadata retains canonical number ownership');

@@ -20,6 +20,9 @@ $packet=['contract_version'=>'2026-10-21.1','instance_id'=>$instance,'time_tenan
 $hash=integrationDeliveryHash($packet);
 $body=['contract_version'=>'2026-10-21.1','organization_id'=>'org-a','id'=>'cpa_'.str_repeat('a',64),'input_id'=>'cpi_'.integrationDeliveryHash(['org-a',$hash]),'instance_id'=>$instance,'time_tenant_id'=>1,'content_hash'=>$hash,'components'=>1,'source_time_reserved'=>true];
 $r=payrollResultFixture($body,$packet);
+require_once __DIR__.'/fixtures/staffing_dictionary_checks.php';
+staffingDictionaryAssertPayload('purepayroll_result','purepayroll',purepayPayrollResultValidate($r,$body,$packet));
+$check(true,'dictionary covers every validated payroll result leaf including authority, source, rate and monetary totals');
 $check(purepayPayrollResultComponent($c)===27612,'independent exact OT calculation is 276.12');
 $half=$c;$half['rate']['pay_rate']='0.0100';$half['rate']['multiplier']='1.00';$half['source']['hours']='0.50';
 $check(purepayPayrollResultComponent($half)===1,'half cent rounds up');
