@@ -37,7 +37,10 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
             : array_slice($vendors,(int)($query['skip']??0),(int)($query['limit']??200));
         return ['status'=>200,'body'=>json_encode(['vendors'=>$rows])];
     }
-    if($method==='GET' && str_starts_with($path,'/api/v1/vendors/'))return ['status'=>200,'body'=>json_encode(['vendor'=>$vendor])];
+    if($method==='GET' && str_starts_with($path,'/api/v1/vendors/')){
+        foreach($vendors as $row)if($row['id']===basename($path))return ['status'=>200,'body'=>json_encode(['vendor'=>$row])];
+        return ['status'=>404,'body'=>'{"detail":"Vendor not found"}'];
+    }
     if($method==='POST' && $path==='/api/v1/vendors'){
         $new=['id'=>'created-vendor','display_name'=>$body['display_name'],'email'=>$body['email']];$vendors[]=$new;
         if($mode==='vendor_timeout'){ $e=new PurePayApiException('Synthetic lost vendor response');$e->outcomeUncertain=true;throw $e; }
@@ -100,8 +103,9 @@ foreach(['payment_list_capped','payment_list_incomplete'] as $i=>$listMode){
 }
 $mode='vendor_repeated_page';$blocked=array_replace($item,['external_ref'=>'ap_payment:122','recipient_ref'=>'vendor:repeated-page']);$before=$postCount();
 $check($fails(fn()=>$send($blocked)) && $postCount()===$before,'unverifiable vendor pagination blocks vendor, bill and payment creation');
-$mode='ok';$vendors=array_merge(array_map(static fn($i)=>['id'=>'other-vendor-'.$i,'display_name'=>'Unrelated','email'=>'other@example.test'],range(1,200)),[$vendor]);
-$lateVendor=array_replace($item,['external_ref'=>'ap_payment:123','recipient_ref'=>'vendor:late-page']);$before=$postCount();
+$mode='ok';$laterVendor=['id'=>'vendor-late-page','display_name'=>'Later Vendor','email'=>'late@example.test'];
+$vendors=array_merge(array_map(static fn($i)=>['id'=>'other-vendor-'.$i,'display_name'=>'Unrelated','email'=>'other@example.test'],range(1,200)),[$laterVendor,$vendor]);
+$lateVendor=array_replace($item,['external_ref'=>'ap_payment:123','recipient_ref'=>'vendor:late-page','recipient_name'=>'Later Vendor','recipient_email'=>'late@example.test']);$before=$postCount();
 $check($send($lateVendor)['items'][0]['status']==='submitted' && $postCount()===$before+2,'vendor on the second page is linked without another vendor creation');
 $vendors=[$vendor];
 $mode='bill_timeout';$lostBill=array_replace($item,['external_ref'=>'ap_payment:102']);
