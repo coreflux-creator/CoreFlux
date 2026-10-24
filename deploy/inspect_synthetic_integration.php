@@ -143,4 +143,32 @@ if ($operator && ($membership['status'] ?? null) === 'active') {
         ];
     }
 }
+// Count actual independent reviewers without exposing other users or granting access.
+$candidates = $pdo->query('SELECT u.id,u.role,u.is_global_admin FROM users u
+    WHERE u.is_active=1 AND (u.tenant_id=999 OR EXISTS (
+        SELECT 1 FROM tenant_memberships m WHERE m.user_id=u.id AND m.tenant_id=999 AND m.status="active"
+    )) ORDER BY u.id LIMIT 501')->fetchAll(PDO::FETCH_ASSOC);
+if (count($candidates) > 500) {
+    throw new RuntimeException('Reviewer inspection exceeds the bounded simulation cohort');
+}
+$eligible = [];
+foreach ($candidates as $candidate) {
+    $candidate['global_role'] = $candidate['role'];
+    $candidate['role'] = RBACResolver::personaTypeOf((int)$candidate['id'], PILOT_TENANT);
+    if (RBAC::hasPermission($candidate, 'time.approve')
+        && RBACResolver::can($candidate, PILOT_TENANT, 'time', 'admin')) {
+        $eligible[] = (int)$candidate['id'];
+    }
+}
+$report['time_review_gate'] = ['eligible_in_both_permission_models'=>count($eligible), 'entries'=>[]];
+foreach ($pdo->query('SELECT id,status,created_by_user_id FROM time_entries
+    WHERE tenant_id=999 AND person_id=15 AND placement_id=13 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $entry) {
+    $creator = (int)$entry['created_by_user_id'];
+    $report['time_review_gate']['entries'][] = [
+        'entry_id'=>(int)$entry['id'], 'status'=>$entry['status'],
+        'independent_eligible_reviewers'=>count(array_filter($eligible, static fn(int $id): bool => $id !== $creator)),
+        'existing_operator_is_creator'=>$creator === 4,
+    ];
+}
+
 echo 'CORE_PILOT_READINESS='.json_encode($report, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n";
