@@ -82,6 +82,42 @@ if ($report['quanta_binding']['available']) {
     $report['quanta_document_transfer'] = $probe(static function() use ($access): void {
         quantaOnboardingDocumentContext($access['api_key'], PILOT_QUANTA_WORKSPACE);
     });
+    // A disabled capability is different from a missing permission or a mismatched contract.
+    try {
+        $context = quantaGet($access['api_key'], QUANTA_CORE_CONTRACT_PATH.'/onboarding-document-context');
+        $report['quanta_document_context'] = [
+            'http_status' => 200,
+            'workspace_matches' => ($context['workspace_id'] ?? null) === PILOT_QUANTA_WORKSPACE,
+            'contract_matches' => ($context['contract_version'] ?? null) === QUANTA_ONBOARDING_DOCUMENT_VERSION,
+            'transfer_enabled' => ($context['document_transfer'] ?? null) === true,
+            'approval_stays_in_core' => ($context['approval_authority'] ?? null) === false,
+            'size_limit_matches' => ($context['max_bytes'] ?? null) === QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES,
+        ];
+    } catch (QuantaApiException $e) {
+        $report['quanta_document_context'] = ['http_status' => $e->httpStatus];
+    } catch (Throwable $e) {
+        $report['quanta_document_context'] = ['reason' => 'context_read_failed'];
+    }
 }
 $access = null;
+
+// Resolve the existing simulation operator through both permission models, without a login or grant.
+require_once PILOT_ROOT.'/core/RBAC.php';
+require_once PILOT_ROOT.'/core/rbac/permissions.php';
+require_once PILOT_ROOT.'/core/rbac/legacy_map.php';
+$operator = $pdo->query("SELECT id,role FROM users WHERE id=4 AND email='stage-admin@coreflux.test'")->fetch(PDO::FETCH_ASSOC);
+$membership = RBACResolver::activeMembership(4, PILOT_TENANT);
+$report['existing_operator'] = ['found' => (bool)$operator, 'active_membership' => ($membership['status'] ?? null) === 'active'];
+if ($operator && ($membership['status'] ?? null) === 'active') {
+    $operator['global_role'] = $operator['role'];
+    $operator['role'] = RBACResolver::personaTypeOf(4, PILOT_TENANT);
+    foreach (['people.onboarding.view', 'people.onboarding.manage', 'people.onboarding.review',
+        'placements.view', 'people.docs.view', 'integrations.quanta.manage'] as $permission) {
+        [$module, $action] = RbacLegacyMap::resolve($permission);
+        $report['existing_operator']['permissions'][$permission] = [
+            'legacy' => RBAC::hasPermission($operator, $permission),
+            'membership' => RBACResolver::can($operator, PILOT_TENANT, $module, $action),
+        ];
+    }
+}
 echo 'CORE_PILOT_READINESS='.json_encode($report, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n";
