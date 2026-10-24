@@ -1,3 +1,39 @@
+## Onboarding and payroll-result field inventory installed - October 24, 2026
+
+Runtime 37ee60b78d95aaabecc9a935e00446267c021e13 closes a dictionary omission:
+the newer onboarding, document-transfer and payroll-result storage was absent
+from the shared field review. The inventory now includes those physical schemas
+and 150 logical exchange fields: 24 onboarding-publication fields, 22 worker or
+document receipt fields and 104 payroll-result fields. Each description records
+its actual envelope path, storage container, owner, type, direction, source
+implementation and workflow restrictions. Raw evidence containers remain
+restricted. Metadata export neither decrypts records nor enables sync or approval.
+
+CI 40115064411 passed all nine jobs, including 54 real MariaDB number/dictionary
+checks, 25 onboarding-contract checks, 56 document checks and 37 payroll-result
+receipt checks. The dictionary paths are compared with native generated and
+validated messages. Actual migration tests distinguish missing storage columns
+from installed containers and verify that private record values are not exported.
+
+Staging deployment 40115288043 installed nine changed files with no pending or
+applied migrations. Full native acceptance passed, including 61 rollback finance
+and 17 onboarding HTTP checks. Backup:
+/home/master/.coreflux-integration-backups/muzqvdvqbx/37ee60b78d95aaabecc9a935e00446267c021e13-20261024171721.
+Read-only inspection 40115522185 reports dictionary version 2026-10-24.1 with
+1,193 fields and no unverified workflow storage containers. One per-workflow
+count was masked by GitHub; the receipt preserves that observation as null and
+records the independent source count separately. P-15/PL-13, case version 5 /
+confirmed plan 4, TS-2's eight pending hours and Meridian binding revision 2 are
+unchanged. Acme's workspace and onboarding context return HTTP 200.
+
+Use Integration field map > Download field dictionary in the pilot. Evidence:
+deploy/staffing-workflow-dictionary-staging-20261024.json. Complete live
+Thunderhawk field/custom-field acceptance remains open, as do independent time
+review, worker/document intake and the held payroll round trip. PurePay's preview
+restoration remains with the separate release owner; its source/settings freeze
+is unchanged. No provider settings, real financial transaction or Core production
+cutover was changed by this increment.
+
 ## PurePay attempts retain native AP reservations - October 24, 2026
 
 Runtime 4af9cd3d8053a1b016773fbdc1c778a516c22958 passed all nine CI jobs
