@@ -172,6 +172,7 @@ jobs:
 
       - name: Verify original Quanta workspace and source approval evidence
         run: |
+          php tests/quanta_time_schema_mariadb.php
           php tests/quanta_time_approval_smoke.php
           php tests/quanta_time_current_smoke.php
           php tests/quanta_time_provenance_mariadb.php
