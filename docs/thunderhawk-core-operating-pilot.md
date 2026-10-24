@@ -1,3 +1,19 @@
+## Quanta preview credential connected to isolated Core - October 23, 2026
+
+Cloudways sign-in is restored. The existing user-created Acme preview key was
+verified from Core, transferred over host-verified SSH, and stored with Core's
+existing AES-256-GCM field encryption in simulation tenant 999. The private
+staging configuration now selects the reviewed Quanta preview URL. No key was
+written to chat, repository, workflow logs or an unencrypted credential file.
+
+Both CLI and the actual PHP web process resolved Acme Construction workspace
+0598d4ef-3075-4289-9714-c93f904aa85d and verified approved-time access. The temporary
+web probe required its token (anonymous 404), returned 200 and was removed.
+Document intake and payroll authority remain off. The new connection is not yet
+workspace-confirmed; no remote record was written. PurePay key creation remains
+pending. This is authenticated demo connectivity, not Thunderhawk round-trip
+acceptance. Receipt: `deploy/quanta-preview-connection-20261023.json`.
+
 ## Quanta key creation corrected; preview routing staged - October 23, 2026
 
 Quanta's preview returned HTTP 500 because its API-key persistence model omitted
