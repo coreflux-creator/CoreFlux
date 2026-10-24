@@ -1,3 +1,37 @@
+## AP reservation race reproduced, repaired and installed - October 24, 2026
+
+A two-session MariaDB regression reproduced the stale-snapshot defect on
+2e2aa4d7 (CI 40111636444): an older transaction could lock the current bill but
+read an outdated reservation total after another payment had claimed its balance.
+The correction reads current locked reservations. Automatic FIFO chooses current
+bill candidates and consumes their available capacity in order, continuing to the
+next bill when a competing request claims the earlier one.
+
+Runtime 77967e7e817156419475aa557b4d04f684bcd29b passed all nine CI jobs
+(40111748074). Its 19 native database checks cover draft/queued/sent claims with
+explicit and FIFO allocation, partial and released reservations, repeated targets,
+caller transactions, tenant/entity isolation and unchanged bill balances. These
+use two actual database sessions and the native allocation service; no provider
+IO or browser workflow is claimed. Existing local source smoke checks also passed
+(28 AP workflow, 60 payment-run and 3 release-scope checks).
+
+Staging deployment 40111958306 installed five changed files, with no pending or
+applied migrations, and passed full native acceptance, including 61 rollback
+finance checks and 17 onboarding HTTP checks. Private backup:
+/home/master/.coreflux-integration-backups/muzqvdvqbx/77967e7e817156419475aa557b4d04f684bcd29b-20261024163436.
+Read-only inspection 40112263532 confirms the active P-15/PL-13 records, onboarding
+case version 5 / confirmed plan 4, eight pending hours with no approver, saved
+Meridian binding revision 2 and expected Acme HTTP 200 context are preserved.
+Document transfer/intake remain off; private storage is ready. No provider source,
+settings or Core production changed. Evidence:
+deploy/ap-payment-reservations-staging-20261024.json.
+
+This closes the demonstrated Core allocation snapshot race, not the entire
+provider payment lifecycle. Next verify that an interrupted provider request cannot
+release its bill reservation through voiding or reallocation before reconciliation.
+Provider payment-list completeness, reviewed AP rebinding, payroll/document return,
+actual Thunderhawk acceptance and separate Core production cutover remain open.
+
 ## Complete AP collection checks installed in Core pilot - October 24, 2026
 
 Runtime 9c0ac698948f050c324e84fa892eac366867ce36 passed all nine CI jobs
