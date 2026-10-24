@@ -1,3 +1,39 @@
+## Acme worksite and native onboarding publication verified - October 24, 2026
+
+The approved simulation now shows P-15 / PL-13 assigned to Quanta's active
+Acme Northside worksite. The native Worksites assignment preserved the existing
+worker and did not create a login, invitation, role or approval grant.
+
+Core created and confirmed a synthetic three-task onboarding requirement list
+through its installed native services using the existing simulation operator's
+real legacy and membership permissions. Case 480d78b8-8de0-4e80-a5dd-0c7fe98ec42c
+is version 5, plan version 4, with three required and zero satisfied tasks.
+Core delivery 10 published it to Acme's actual preview API; provider case
+cfo_5b1a321d6a94717b873ac0606d70d876c5b240a4aa1ec5d4f7cc7213008e476c
+is version 1. Every native command replay returned its original receipt; delivery
+replay did likewise, and a fresh comparison returned unchanged. Chrome then
+visibly showed all three requirements beneath P-15 / PL-13.
+
+The read-only capability check confirms the workspace, document contract, size
+limit and existing document-read permissions match. Quanta's Acme document-transfer
+switch is off. Core document intake is also off; private S3/KMS configuration is
+ready. P-15 has no worker sign-in identity. Worker submission and actual document
+intake remain unverified. No worker identity, invitation, permission grant, evidence
+approval, time approval, payroll or financial result was created by this test.
+
+Acceptance runner ce40c9ef9183e243ab415ffa42eeccbb408185d7 passed all nine CI jobs
+(40108546563), then hosted acceptance 40108754174. It used a process-local
+publication switch and restored it; persistent settings and installed runtime
+99e16c7ff011a85b88ec09d2bf904477885662bd remain unchanged. This establishes native
+service publication plus browser verification, not Core browser-action coverage.
+
+Evidence: deploy/synthetic-integration-readiness-20261024.json,
+deploy/synthetic-onboarding-acceptance-20261024.json,
+core-quanta-worksite-aligned-20261024.png and
+core-quanta-onboarding-published-20261024.png.
+The second-reviewer choice for TS-2, actual Thunderhawk employer/WC alignment,
+worker/document intake, payroll round trip and production release remain open.
+
 ## Combined provider build passed; publication source remains unverified - October 23, 2026
 
 Immutable combined ref codex/support-core-reviewed-20261023 resolves to

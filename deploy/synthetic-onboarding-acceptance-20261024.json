@@ -1,0 +1,144 @@
+{
+  "recorded_on": "2026-10-24",
+  "run_id": 40108754174,
+  "run_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40108754174",
+  "source_commit": "ce40c9ef9183e243ab415ffa42eeccbb408185d7",
+  "installed_runtime_unchanged": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+  "result": {
+    "checked_at": "2026-10-24T15:50:46+00:00",
+    "tenant_id": 999,
+    "fixture": "pilot:core-quanta-purepay:20261023",
+    "mode": "synthetic_onboarding_publication",
+    "application_deployed": false,
+    "persistent_configuration_changed": false,
+    "permissions_changed": false,
+    "login_or_invitation_created": false,
+    "worker_submissions_created": false,
+    "evidence_approved": false,
+    "time_approved": false,
+    "payroll_or_financial_writes": false,
+    "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+    "commands": [
+      {
+        "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+        "case_version": 1,
+        "task_id": null,
+        "action": "create",
+        "replayed": false,
+        "replay_verified": true
+      },
+      {
+        "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+        "case_version": 2,
+        "task_id": "34002a90-6c88-4df8-a266-0f38885256a4",
+        "action": "add_task",
+        "replayed": false,
+        "replay_verified": true
+      },
+      {
+        "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+        "case_version": 3,
+        "task_id": "0998a264-6b69-4fab-a41e-59329bc547e7",
+        "action": "add_task",
+        "replayed": false,
+        "replay_verified": true
+      },
+      {
+        "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+        "case_version": 4,
+        "task_id": "95d87325-0294-463f-b586-25186a8b6ff2",
+        "action": "add_task",
+        "replayed": false,
+        "replay_verified": true
+      },
+      {
+        "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+        "case_version": 5,
+        "task_id": null,
+        "action": "confirm_plan",
+        "replayed": false,
+        "replay_verified": true
+      }
+    ],
+    "delivery": {
+      "id": 10,
+      "state": "delivered",
+      "remote_id": "cfo_5b1a321d6a94717b873ac0606d70d876c5b240a4aa1ec5d4f7cc7213008e476c",
+      "remote_receipt_id": "cfd_ea5dcc012b0c2f136e7bd8813a944fa05f2ea91073beb4057a9c549e16c2563f"
+    },
+    "delivery_replay_verified": true,
+    "remote": {
+      "id": "cfo_5b1a321d6a94717b873ac0606d70d876c5b240a4aa1ec5d4f7cc7213008e476c",
+      "projection_hash": "d2972bfd39c48f80d861975ddf405f2f23dd937aa65ecd560d1ebce8b0a16616",
+      "version": 1,
+      "assignment_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+      "worker_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c"
+    },
+    "required_count": 3,
+    "satisfied_count": 0,
+    "readiness": "incomplete",
+    "fresh_comparison": "unchanged",
+    "passed": true,
+    "publication_flag_restored": true,
+    "document_intake_enabled_after": false
+  },
+  "validation": {
+    "ci_run": 40108546563,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40108546563",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "browser": {
+    "url": "https://clockin-hub-16.preview.emergentagent.com/app/assignments",
+    "verified_person_number": "P-15",
+    "verified_placement_number": "PL-13",
+    "requirements_visible": 3,
+    "all_requirements_need_action": true,
+    "document_transfer_message": "Document transfer is not available here yet. Contact the employer to provide this evidence.",
+    "screenshot": "core-quanta-onboarding-published-20261024.png"
+  },
+  "limitations": [
+    "Service-level native publication followed by browser verification; not browser-action coverage of Core publication.",
+    "P-15 has no worker sign-in identity; no identity was created or linked.",
+    "Quanta Acme document transfer and Core document intake remain disabled.",
+    "Core eight-hour time entry still requires an independent reviewer; no payroll input/draft/result acceptance was performed.",
+    "Actual Thunderhawk records and production releases remain outside this acceptance."
+  ]
+}
