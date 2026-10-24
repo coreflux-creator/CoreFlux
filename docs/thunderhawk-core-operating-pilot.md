@@ -1,3 +1,31 @@
+## Existing Core worker portal access installed in Quanta preview - October 24, 2026
+
+An active imported Quanta worker could not receive a login through the native
+add-person flow: it rejected the existing profile as a duplicate. Source candidate
+79332871db81acf99ac2d7637870d8dbe061605c adds an explicitly targeted administrator
+action on the assignment setup panel. The review shows the worker, Core person
+number and email. It attaches login access to that existing worker while retaining
+provider IDs, roles, worksite and placement links. It rejects changed targets,
+profile edits, elevated roles, disabled workers and already-linked identities.
+Mail delivery failure is reported separately from the access change.
+
+Local validation passed 50 backend and 11 UI cases. Hosted full-app acceptance
+passed 112 cases with zero network attempts and an isolated database; the complete
+frontend build succeeded. Four runtime files were installed in the named Quanta
+development preview. Health returned 200; all 12 inventoried collections, protected
+configuration, shared HEAD/index and unrelated source were unchanged. Background
+workers and document transfer remain disabled. Backup:
+/tmp/quanta-onboarding-preview-install-ur7r4fzr.
+
+Chrome visibly showed P-15 / PL-13 and the new review action. The review was
+cancelled; no login, invitation, access grant or email was created. A test mailbox
+and approval to enable worker access are pending. Independent Core time review,
+worker/document submission, PurePay preview restoration, the payroll round trip
+and actual Thunderhawk acceptance remain open. No publication or production
+cutover occurred. Evidence: deploy/quanta-worker-portal-access-staging-20261024.json,
+deploy/quanta-worker-portal-access-20261024.patch and
+quanta-worker-portal-access-review-20261024.png.
+
 ## Onboarding and payroll-result field inventory installed - October 24, 2026
 
 Runtime 37ee60b78d95aaabecc9a935e00446267c021e13 closes a dictionary omission:
