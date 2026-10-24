@@ -1,3 +1,27 @@
+## Quanta key creation corrected; preview routing staged - October 23, 2026
+
+Quanta's preview returned HTTP 500 because its API-key persistence model omitted
+three separately selected onboarding scopes already supported by the UI and API.
+Unpublished review 4f7bca6c277876ff62e99389a4f736ee0a11ea5b corrects that model.
+All 111 full-application checks passed; existing records/configuration/shared
+HEAD and index were preserved. The user retried Create successfully. Its one-time
+credential is retained privately pending transfer to isolated Core.
+
+Core runtime 163a08e524454fc5d6b4c1bc390fb572e0540d17 now supports the exact
+reviewed Quanta preview origin only in staging. All nine CI jobs (40049443874)
+and full staging acceptance (40049649900) passed. Ten packaged files changed,
+no migrations were pending, and the permanent integration identity was retained.
+The setting itself is not yet configured and no provider key is installed.
+Document intake and payroll authority remain disabled. The receipt is
+`deploy/quanta-preview-endpoint-staging-20261023.json`.
+
+PurePay's stopped review backend was resumed after verifying source/configuration;
+all 20,596 records across 112 nonempty collections were unchanged. Its review
+mode keeps background jobs, migrations and scheduled operations off. The existing
+Meridian demo key form remains prepared but unsubmitted. Cloudways sign-in expired
+and Google sign-in stalled; user completion is pending. Neither provider candidate
+was published and the actual Thunderhawk round trip remains outstanding.
+
 ## Division alignment staged and verified - October 23, 2026
 
 Runtime 58b9d732dbb172f2cf310ae9e8ba0c81cbb0bb3e passed all nine CI jobs
