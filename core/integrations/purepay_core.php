@@ -12,6 +12,18 @@ const PUREPAY_CORE_PATH = '/integrations/coreflux';
 
 function purepayCoreApiBase(): string
 {
+    // Private PHP configuration also works when the web host disables putenv().
+    // Keep this preview destination separate from the AP payment rail.
+    $preview=defined('COREFLUX_PUREPAY_PREVIEW_API_BASE')
+        ? constant('COREFLUX_PUREPAY_PREVIEW_API_BASE')
+        : getenv('COREFLUX_PUREPAY_PREVIEW_API_BASE');
+    if(defined('COREFLUX_PUREPAY_PREVIEW_API_BASE') || ($preview!==false && $preview!=='')) {
+        if(!is_string($preview) || !defined('COREFLUX_STAGING') || COREFLUX_STAGING!==true
+            || $preview!=='https://beautiful-kalam-6.preview.emergentagent.com/api/v1') {
+            throw new RuntimeException('PurePay preview access requires the reviewed isolated staging destination.');
+        }
+        return $preview;
+    }
     $base=rtrim(trim((string)(getenv('PUREPAY_CORE_API_BASE') ?: purepayApiBase())),'/');
     $url=parse_url($base);
     if(!$url || ($url['scheme']??'')!=='https' || empty($url['host'])
