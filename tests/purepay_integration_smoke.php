@@ -10,7 +10,7 @@ $check('API key ciphertext sized to 1024',str_contains($migration,'api_key_ct   
 $check('durable source ref is tenant-unique',str_contains($migration,'uq_pppl_source (tenant_id, source_ref)'));
 $driver=$read('core/payment_rails/purepay_driver.php');
 $check('durable claim distinguishes new operation',str_contains($driver,'$row[\'__fresh\'] = $fresh'));
-$check('retry fence reconciles remote payments before POST pay',str_contains($driver,'$paymentsBefore = purepayCollection'));
+$check('retry fence requires complete remote payments before POST pay',str_contains($driver,"\$paymentsBefore = purepayCompleteCollection(\$apiKey, 'payments')"));
 $check('bill create uses stable provider idempotency key',str_contains($driver,"purepayIdempotencyKey(\$tenantId, 'bill', \$sourceRef)"));
 $check('wallet payment uses stable provider idempotency key',str_contains($driver,"purepayIdempotencyKey(\$tenantId, 'pay', \$sourceRef)"));
 $check('driver rejects non-USD payouts',str_contains($driver,'only USD payouts are supported'));

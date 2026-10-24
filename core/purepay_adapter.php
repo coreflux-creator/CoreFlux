@@ -26,10 +26,13 @@ function purepayApiBase(): string
  * Test seam: $GLOBALS['__purepay_transport'] receives
  * (method, url, headers, bodyJson) and returns {status, body}.
  */
-function purepayCall(string $apiKey, string $method, string $path, array $body = [], int $timeoutSec = 25, ?string $idempotencyKey = null, ?string $apiBase = null): array
+function purepayCall(string $apiKey, string $method, string $path, array $body = [], int $timeoutSec = 25, ?string $idempotencyKey = null, ?string $apiBase = null, ?string $collection = null): array
 {
     if ($apiKey === '' || preg_match('/[\r\n]/',$apiKey)) throw new PurePayApiException('Pure//Pay: valid API key required');
     $method = strtoupper($method);
+    if ($collection !== null && ($method !== 'GET' || !in_array($collection, ['vendors','bills','payments'], true))) {
+        throw new InvalidArgumentException('Collection response validation requires a supported read');
+    }
     // A server-configured integration can use its preview without moving the AP rail.
     $url = ($apiBase ?? purepayApiBase()) . '/' . ltrim($path, '/');
     $headers = [
@@ -76,7 +79,10 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
         $rawBody = (string) $raw;
     }
 
-    if ($status === 204 && trim($rawBody) === '') return [];
+    if ($status === 204 && trim($rawBody) === '') {
+        if ($collection !== null) purepayIncompleteCollection($collection);
+        return [];
+    }
     $data = json_decode($rawBody, true);
     if (!is_array($data)) {
         $e = new PurePayApiException("Pure//Pay returned invalid JSON (HTTP {$status})");
@@ -95,6 +101,14 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
         $e->raw = $data;
         $e->outcomeUncertain = $method !== 'GET' && !in_array($status,[400,401,403,404,422],true);
         throw $e;
+    }
+    if ($collection !== null) {
+        // Associative decoding alone conflates {} and [], including nested values.
+        // Only an actual JSON list or the exact legacy list wrapper proves a page.
+        $shape = json_decode($rawBody);
+        if (!is_array($shape)
+            && !($shape instanceof \stdClass && array_keys(get_object_vars($shape)) === [$collection]
+                && is_array($shape->{$collection}))) purepayIncompleteCollection($collection);
     }
     return $data;
 }
@@ -179,3 +193,60 @@ function purepayGetPayment(string $apiKey, string $paymentId): array
     return purepayCall($apiKey, 'GET', '/payments/' . rawurlencode($paymentId));
 }
 function purepayGetWallet(string $apiKey): array { return purepayCall($apiKey, 'GET', '/wallet'); }
+
+function purepayIncompleteCollection(string $resource): never
+{
+    $e = new PurePayApiException('Pure//Pay '.$resource.' list could not be verified complete. Reconcile provider records before retrying.');
+    $e->errorCode = 'incomplete_collection';
+    throw $e;
+}
+
+/**
+ * Read the complete supported collection before making an absence-based decision.
+ * The inspected v1 vendor/bill endpoints support limit/skip (default 200); the
+ * payment endpoint silently caps its unpaged response at 1000. Never interpret
+ * that cap, an unknown pagination envelope, or repeated pages as an empty match.
+ * A complete list is an observation, not a reservation against concurrent payment.
+ */
+function purepayCompleteCollection(string $apiKey, string $resource, ?string $status = null): array
+{
+    if (!in_array($resource, ['vendors', 'bills', 'payments'], true) || ($status !== null && $resource !== 'bills')) {
+        throw new InvalidArgumentException('Choose a supported Pure//Pay collection');
+    }
+    $refuse = static fn() => purepayIncompleteCollection($resource);
+    $pageSize = 200;
+    $maxRows = 10000;
+    $all = [];
+    $seen = [];
+    $idAlias = ['vendors'=>'vendor_id', 'bills'=>'bill_id', 'payments'=>'payment_id'][$resource];
+    for ($skip = 0; $skip <= $maxRows; $skip += $pageSize) {
+        $query = $resource === 'payments' ? [] : ['limit'=>$pageSize, 'skip'=>$skip];
+        if ($status !== null && $status !== '') $query['status'] = $status;
+        $path = '/'.$resource.($query ? '?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986) : '');
+        $response = purepayCall($apiKey, 'GET', $path, collection: $resource);
+        // v1 publishes bare arrays. Preserve the exact legacy resource wrapper,
+        // but require a new contract review for metadata/cursors we cannot honor.
+        if (array_is_list($response)) $rows = $response;
+        elseif (array_keys($response) === [$resource] && is_array($response[$resource]) && array_is_list($response[$resource])) $rows = $response[$resource];
+        else $refuse();
+        $count = count($rows);
+        if (($resource === 'payments' && $count >= 1000)
+            || ($resource !== 'payments' && $count > $pageSize)
+            || count($all) + $count > $maxRows) $refuse();
+        foreach ($rows as $row) {
+            if (!is_array($row)) $refuse();
+            $id = $row['id'] ?? $row[$idAlias] ?? null;
+            if (!is_string($id) || trim($id) === '' || strlen($id) > 255 || preg_match('/[\x00-\x1f\x7f]/', $id)
+                || (isset($row['id'], $row[$idAlias]) && $row['id'] !== $row[$idAlias]) || isset($seen[$id])) $refuse();
+            if ($resource === 'payments') {
+                $bill = $row['bill_id'] ?? $row['payable_id'] ?? null;
+                if (!is_string($bill) || trim($bill) === '' || strlen($bill) > 255 || preg_match('/[\x00-\x1f\x7f]/', $bill)
+                    || (isset($row['bill_id'], $row['payable_id']) && $row['bill_id'] !== $row['payable_id'])) $refuse();
+            }
+            $seen[$id] = true;
+            $all[] = $row;
+        }
+        if ($resource === 'payments' || $count < $pageSize) return $all;
+    }
+    $refuse();
+}

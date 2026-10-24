@@ -167,7 +167,7 @@ class PurePayRailDriver implements PaymentRailsDriver
 
         // Check existing payments before this first attempt. The durable Core
         // claim, not provider cache behavior, prevents another payment POST.
-        $paymentsBefore = purepayCollection(purepayListPayments($apiKey), ['payments']);
+        $paymentsBefore = purepayCompleteCollection($apiKey, 'payments');
         $alreadyPaid = $this->findPayment($paymentsBefore, '', $billId);
         if ($alreadyPaid) {
             $paymentId = (string) ($alreadyPaid['id'] ?? $alreadyPaid['payment_id'] ?? '');
@@ -197,7 +197,7 @@ class PurePayRailDriver implements PaymentRailsDriver
         // to the list when the POST response omits its payment id.
         $remotePayment = $paymentId !== ''
             ? purepayResource(purepayGetPayment($apiKey, $paymentId), ['payment'])
-            : $this->findPayment(purepayCollection(purepayListPayments($apiKey), ['payments']), '', $billId);
+            : $this->findPayment(purepayCompleteCollection($apiKey, 'payments'), '', $billId);
         if ($remotePayment) {
             $actualId=(string)($remotePayment['id']??$remotePayment['payment_id']??'');
             $actualBill=(string)($remotePayment['bill_id']??$remotePayment['payable_id']??'');
@@ -244,7 +244,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             $this->assertVendorIdentity($remote, $vendorId, $name, $email);
             return ['id' => $vendorId];
         }
-        $vendors = purepayCollection(purepayListVendors($apiKey), ['vendors']);
+        $vendors = purepayCompleteCollection($apiKey, 'vendors');
         $matches=[];
         foreach ($vendors as $candidate) {
             if (!is_array($candidate)) continue;
@@ -413,7 +413,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             $remote = $paymentId !== ''
                 ? purepayResource(purepayGetPayment((string) $conn['api_key'], $paymentId), ['payment'])
                 : $this->findPayment(
-                    purepayCollection(purepayListPayments((string) $conn['api_key']), ['payments']),
+                    purepayCompleteCollection((string) $conn['api_key'], 'payments'),
                     '', (string) ($link['purepay_bill_id'] ?? '')
                 );
             if (!$remote) return $this->normalizeStatus((string) $link['status']);

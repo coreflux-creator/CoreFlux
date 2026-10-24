@@ -179,7 +179,9 @@ jobs:
           php tests/quanta_payroll_inputs_mariadb.php
 
       - name: Verify PurePay attempts and company isolation
-        run: php tests/purepay_delivery_mariadb.php
+        run: |
+          php tests/purepay_collection_completeness_smoke.php
+          php tests/purepay_delivery_mariadb.php
 
       - name: Verify dedicated PurePay Core connection and organization review
         run: php tests/purepay_core_connection_mariadb.php

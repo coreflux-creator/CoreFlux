@@ -30,7 +30,13 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     $path=parse_url($url,PHP_URL_PATH);$body=$json===null?[]:json_decode($json,true);$calls[]=[$method,$path,$body,$headers];
     if($method==='POST')$check(!$pdo->inTransaction(),'each provider mutation follows a committed durable claim');
     if($interleave!==null){$callback=$interleave;$interleave=null;$callback($method,$path);}
-    if($method==='GET' && $path==='/api/v1/vendors')return ['status'=>200,'body'=>json_encode(['vendors'=>$vendors])];
+    if($method==='GET' && $path==='/api/v1/vendors'){
+        parse_str(parse_url($url,PHP_URL_QUERY)??'', $query);
+        $rows=$mode==='vendor_repeated_page'
+            ? array_map(static fn($i)=>['id'=>'unrelated-vendor-'.$i],range(1,200))
+            : array_slice($vendors,(int)($query['skip']??0),(int)($query['limit']??200));
+        return ['status'=>200,'body'=>json_encode(['vendors'=>$rows])];
+    }
     if($method==='GET' && str_starts_with($path,'/api/v1/vendors/'))return ['status'=>200,'body'=>json_encode(['vendor'=>$vendor])];
     if($method==='POST' && $path==='/api/v1/vendors'){
         $new=['id'=>'created-vendor','display_name'=>$body['display_name'],'email'=>$body['email']];$vendors[]=$new;
@@ -43,7 +49,11 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         return ['status'=>200,'body'=>json_encode(['bill'=>$bills[$id]])];
     }
     if($method==='GET' && str_starts_with($path,'/api/v1/bills/'))return ['status'=>200,'body'=>json_encode(['bill'=>$bills[basename($path)]])];
-    if($method==='GET' && $path==='/api/v1/payments')return ['status'=>200,'body'=>json_encode(['payments'=>array_values($payments)])];
+    if($method==='GET' && $path==='/api/v1/payments'){
+        if($mode==='payment_list_capped')return ['status'=>200,'body'=>json_encode(array_map(static fn($i)=>['id'=>'unrelated-payment-'.$i,'payable_id'=>'unrelated-bill-'.$i],range(1,1000)))];
+        if($mode==='payment_list_incomplete')return ['status'=>200,'body'=>'{"payments":[],"has_more":true}'];
+        return ['status'=>200,'body'=>json_encode(['payments'=>array_values($payments)])];
+    }
     if($method==='POST' && preg_match('~/bills/([^/]+)/pay$~',$path,$m)){
         $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing'];
         if($mode==='payment_timeout'){ $e=new PurePayApiException('Synthetic lost payment response');$e->outcomeUncertain=true;throw $e; }
@@ -78,6 +88,22 @@ foreach([['amount_cents'=>13000],['recipient_email'=>'changed@example.test'],['i
     $check($fails(fn()=>$send(array_replace($item,$change))) && $link($item['external_ref'])===$original,'changed request cannot alter the original payment or its status');
 }
 $check($fails(fn()=>$send($item,array_replace($opts,['effective_date'=>'2026-10-22']))) && $link($item['external_ref'])===$original,'effective-date drift is part of request identity');
+$payCount=static function()use(&$calls){return count(array_filter($calls,static fn($c)=>$c[0]==='POST' && str_ends_with($c[1],'/pay')));};
+foreach(['payment_list_capped','payment_list_incomplete'] as $i=>$listMode){
+    $mode=$listMode;$blocked=array_replace($item,['external_ref'=>'ap_payment:'.(120+$i)]);$before=$payCount();
+    $check($fails(fn()=>$send($blocked)) && $payCount()===$before && $link($blocked['external_ref'])['status']==='needs_review',
+        $listMode.' blocks payout and retains its durable reconciliation hold');
+    $before=count($calls);
+    $check($fails(fn()=>$send($blocked)) && count($calls)===$before,'incomplete-list retry cannot repeat any provider write');
+    $check($driver->getStatusForTenant(1,'purepay:bill:'.$link($blocked['external_ref'])['purepay_bill_id'])==='unknown'
+        && $link($blocked['external_ref'])['status']==='needs_review','incomplete status poll cannot erase the hold');
+}
+$mode='vendor_repeated_page';$blocked=array_replace($item,['external_ref'=>'ap_payment:122','recipient_ref'=>'vendor:repeated-page']);$before=$postCount();
+$check($fails(fn()=>$send($blocked)) && $postCount()===$before,'unverifiable vendor pagination blocks vendor, bill and payment creation');
+$mode='ok';$vendors=array_merge(array_map(static fn($i)=>['id'=>'other-vendor-'.$i,'display_name'=>'Unrelated','email'=>'other@example.test'],range(1,200)),[$vendor]);
+$lateVendor=array_replace($item,['external_ref'=>'ap_payment:123','recipient_ref'=>'vendor:late-page']);$before=$postCount();
+$check($send($lateVendor)['items'][0]['status']==='submitted' && $postCount()===$before+2,'vendor on the second page is linked without another vendor creation');
+$vendors=[$vendor];
 $mode='bill_timeout';$lostBill=array_replace($item,['external_ref'=>'ap_payment:102']);
 $check($fails(fn()=>$send($lostBill)) && $link($lostBill['external_ref'])['status']==='needs_review','bill write with a lost response stays on hold');
 $before=count($calls);$check($fails(fn()=>$send($lostBill)) && count($calls)===$before,'lost bill response cannot repeat vendor, bill or payment IO');
