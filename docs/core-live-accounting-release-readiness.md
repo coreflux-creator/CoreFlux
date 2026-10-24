@@ -1,3 +1,31 @@
+## Coordinated PurePay preview merge verified - October 23, 2026
+
+The support release owner applied candidate 45a4f73 to the shared development
+preview, preserving 34 Core companion files and intentionally merging server.py
+and assignments.py. The saved receipt and both regression receipts were read back:
+17 workflow/startup cases and 20 API/setup cases passed with zero network attempts
+and no real database. Both suites bind to merged server SHA 3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed;
+the workflow suite binds to assignments SHA faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225.
+All five protected configurations, HEAD/index and every non-session business
+collection were preserved. Record counts stayed 20,606. The original session hash
+difference remains unresolved at field level because its baseline was collection-only;
+a subsequent interval showed one last_seen update and no added/removed sessions.
+Review health still holds background jobs, startup migrations and scheduled operations.
+
+The companion may be included in the combined review candidate with provisioning,
+payroll drafts and native assignment automation disabled. This is not approval to
+publish or enable the integration. Emergent still shows Live startup mode review;
+Live full / Test review is a required but unapproved correction. The PurePay support
+chat owns the single combined publication/configuration approval after binding the
+complete frontend build and rollback plan to an immutable combined source manifest.
+Core production accounting cutover is separate. The synthetic eight hours and pending
+second-reviewer choice are unchanged; no cross-system writes resumed after the handoff.
+
+Receipt and combined expected source hashes:
+deploy/purepay-support-merge-handoff-20261023.json. The older d942c386-only restoration
+manifest is superseded for future preview source checks; do not revert the accepted
+support merge merely to satisfy that older hash set.
+
 ## Authenticated demo person, assignment and approved-time exchange - October 23, 2026
 
 The user confirmed pairing isolated Core simulation tenant 999 with Quanta Acme

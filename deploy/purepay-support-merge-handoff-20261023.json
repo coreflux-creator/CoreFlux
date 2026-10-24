@@ -1,0 +1,1636 @@
+{
+  "verified_at": "2026-10-24T03:19:37.958Z",
+  "basis": "Read the saved hosted source-apply receipt and both isolated full-app regression receipts through Chrome; this is receipt verification, not a second complete source audit.",
+  "source_apply_receipt": {
+    "path": "/app/audit/support-feedback-2026-10-23/source-apply-v4-receipt.json",
+    "sha256": "abad3085613004ad291f5f21d0755e2279c7293cdc3dfe73c8e5a0968166731a",
+    "data": {
+      "candidate": "45a4f73c05175d5d1f3954681418a15479bcade0",
+      "checked_at": "2026-10-24T03:13:20.559636+00:00",
+      "source_files_applied": 63,
+      "published": false,
+      "supervisor_restarts": false,
+      "backend_autoreload_verified": true,
+      "head_and_index_unchanged": true,
+      "protected_settings_unchanged": true,
+      "non_session_collections_unchanged": true,
+      "documents_before": 20606,
+      "documents_after": 20606,
+      "original_session_delta": {
+        "status": "unresolved at field level",
+        "before_count": 1717,
+        "after_count": 1717,
+        "reason": "Pre-apply collection hashes cannot identify changed records or fields. Existing authentication writes last_seen, but that does not prove the original delta."
+      },
+      "subsequent_session_delta": {
+        "interval": "after application baseline through Core regression completion",
+        "added": 0,
+        "removed": 0,
+        "changed_fields": {
+          "last_seen": 1
+        }
+      },
+      "core_overlap": {
+        "backend/assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+        "backend/server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed"
+      },
+      "other_core_files_preserved": 34,
+      "health": {
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      },
+      "core_regression": {
+        "workflow": {
+          "passed": 17,
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "real_database_used": false,
+          "receipt": "/app/audit/support-feedback-2026-10-23/core-regression/workflow-acceptance-result.json"
+        },
+        "api-setup": {
+          "passed": 20,
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "real_database_used": false,
+          "receipt": "/app/audit/support-feedback-2026-10-23/core-regression/api-setup-acceptance-result.json"
+        }
+      },
+      "before": {
+        "head": "9cd71c83e5569e029d2ef55054be5d0d1e6e15cd",
+        "index_sha256": "aacc788b09747783138a21fab2488d6bf6c8716151fcb164441980db52b9401a",
+        "protected": {
+          "backend/.env": "2c785373e660599f2aa4c43357f432922d5a467f4270d78acd3e213c4ffcf05d",
+          "frontend/.env": "ff5b4a29b33e91195f85ddb0b7c4aabcb2d941fa7d2bacd7a8adf271ce77281e",
+          "/etc/supervisor/conf.d/supervisord.conf": "f14e07062ce6f01da556920b5910eba4a0d1b0a1359197747990692ff413d0e7",
+          ".emergent/cron/webhook-crons": "2bb12b28190dad0dfbd938a627970bc0934a55db290e9f88fc6376e59f14e1b8",
+          ".emergent/cron/applied.hash": "c60be94a6056bc351dbf33e3d371f96bf437e8eb9d3b95809820756939d60f28"
+        },
+        "core_source": {
+          "backend/assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+          "backend/assignments.py": "f370a812759e3a26d654bda4b1d1f19b1bfb18486bf48abd0b4bda8323303af3",
+          "backend/coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+          "backend/coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+          "backend/coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+          "backend/coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+          "backend/coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+          "backend/coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+          "backend/coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+          "backend/coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+          "backend/coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+          "backend/coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+          "backend/coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+          "backend/cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+          "backend/discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+          "backend/due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+          "backend/integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+          "backend/native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+          "backend/payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+          "backend/payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+          "backend/payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+          "backend/quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+          "backend/quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+          "backend/quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+          "backend/server.py": "bd01afff17b1dc1b006ee95872eeb3f990cc301f7e274cd4f04d50850eb7ff78",
+          "frontend/src/components/Assignments.jsx": "357d33e752f7098bd1f984cdfcab709c2cb2de9954605f3ddb056461f4cf911b",
+          "frontend/src/components/CoreAssignments.jsx": "219967bd4ff12181296959570d33caf9c05e894ca1c8d28365393c883059f3cb",
+          "frontend/src/components/CoreCommercialTerms.jsx": "7dc70ee7b8f233f92f12fd5747d131f398cd92fd9057570b940fdbbdb3ea8241",
+          "frontend/src/components/DeveloperSettings.jsx": "f7bea2d13cc681ece88ca680cee6e38b676217421f1015d7b1ba029614635683",
+          "frontend/src/components/coreApiKeyScopes.js": "292115533633f340b48a4fb767201cf7507896acb6fdc6313ea860c6dd54c56d",
+          "frontend/src/components/payroll/CorePayrollDraft.jsx": "2eed14763660880495916f85761802721c4a26a6eba0f78a322c5f5a3a932a34",
+          "frontend/src/components/payroll/CorePayrollInputs.jsx": "b442c6937d74c9358df58a749d3bbfe15bd1f295e6ab6e5e1901d72717614f6d",
+          "frontend/src/components/payroll/CorePeople.jsx": "10c54da9174d11932c7e0fc44bae70b662b394d02c6268c78f5409c5d388b0f2",
+          "frontend/src/pages/ApiDocs.jsx": "3c7d4b475f9dffeb457a50d2fe74390c258f9e256c5089c7943382b3e1ee923a",
+          "frontend/src/pages/PayrollRuns.jsx": "3bdff596d8e33d7912e13a433b66127e818740df4628b89cf5a1fc766c90d645",
+          "frontend/src/pages/Quanta.jsx": "fbc949f3dd82189768823d73b03e7872bef95a2e4687cae63e217177603d5093"
+        },
+        "health": {
+          "startup_mode": "review",
+          "background_jobs": false,
+          "startup_migrations": false,
+          "scheduled_operations": false
+        },
+        "database": {
+          "admin_audit": {
+            "count": 173,
+            "sha256": "6893afb566d61b9b809da3c234d2c7ac056be2aec665653e51373741b0ed0323"
+          },
+          "agent_actions": {
+            "count": 22,
+            "sha256": "57bc0abf6ef78f19b4119bffbe3cf7956633f92b782fa8d6a213a9b80df0549e"
+          },
+          "agent_context": {
+            "count": 9,
+            "sha256": "b884e580e8e78f5791410458966f09fa56b76cafd5f95352b050dc8720364c82"
+          },
+          "agent_messages": {
+            "count": 106,
+            "sha256": "f1e23e3579eece8860b2917b9c28600c578d8fad159cdef870e9c6a7fe8b4ea0"
+          },
+          "agent_playbooks": {
+            "count": 1,
+            "sha256": "ad746d643a5363d58a3d2245dee7a6cba3d04f6294ee2e9e48462c89040f48cf"
+          },
+          "agent_runs": {
+            "count": 13,
+            "sha256": "49bcc6eacee73587ab8c2a82513366775ec616bdee408bedfef7fd7991eb1670"
+          },
+          "agent_sessions": {
+            "count": 43,
+            "sha256": "669a95938167577ca617848a46571dea27d7e3c871eecf97578f7cf0c55d0209"
+          },
+          "agent_settings": {
+            "count": 2,
+            "sha256": "9564372fcc0e3b7b68079cc03d354992beb50cf8cc1a1de1dc8228d93f7743a6"
+          },
+          "ai_usage": {
+            "count": 3,
+            "sha256": "f7885667dd128441b4a3cdacb9cc456bcace47091794ee6f9748a60e831d0048"
+          },
+          "ap_batches": {
+            "count": 6,
+            "sha256": "a1c1e1d29dae9f23cbe0d20b5e8a5ee968679d381d16a305665f0252d8b3f62b"
+          },
+          "ap_due_digests": {
+            "count": 5,
+            "sha256": "60d42b8ad962469f3b42bdcf9cad04d2849605fd8489613167d5e255e81c02b0"
+          },
+          "api_keys": {
+            "count": 1,
+            "sha256": "003a06db383db4c8f622414b380ee9c0811c168cdea127e5dae2cd49c4b18fc0"
+          },
+          "approvals": {
+            "count": 62,
+            "sha256": "54c4ee8dcd31d4ee49d0607b1241a27f1b44b41cd319993212f55ecc2a317209"
+          },
+          "ar_bank_links": {
+            "count": 1,
+            "sha256": "62845e8e9b62042423b8d09113a43b339a42ff4cb92056350a1a478df2963ba5"
+          },
+          "ar_bank_transactions": {
+            "count": 48,
+            "sha256": "7e2581875dbd57fe882defc035467b0cba0fa96fc081bf7dd2b6ee4dc23965f4"
+          },
+          "ar_reminder_runs": {
+            "count": 12,
+            "sha256": "43dc956536f814124b3e179efd9841eb8f01bf6c1d829a0990648f14645f0b4c"
+          },
+          "assignment_exclusions": {
+            "count": 3,
+            "sha256": "9421f5f5cfa244cc7bbf25314b5c66eb0550af97d7be49b846bd621789947448"
+          },
+          "assignments": {
+            "count": 5,
+            "sha256": "8504a1257530b7dadb6fba2bb2051dcdacb7370a2e46c6df87a9cdfc4a07b320"
+          },
+          "automatch_runs": {
+            "count": 30,
+            "sha256": "e5b65cfb22584246780dfdb9d251855d09878b324d0c3a2a313aab23effe29b5"
+          },
+          "batches": {
+            "count": 25,
+            "sha256": "90621bd76718010664b3aa3cbae7449a07d2b3525f57206ce9637901c15a5b72"
+          },
+          "billing_invoices": {
+            "count": 10,
+            "sha256": "251e6b906478c7de9aee6f209a7d0ee229a696a83bf0407ca6ebcd434b997946"
+          },
+          "cin7_pushes": {
+            "count": 6,
+            "sha256": "49eea331a9d85bbb69e7e246b6f67d04c773e39844b69ac7a850a76d06bab4fc"
+          },
+          "cin7_sync_log": {
+            "count": 226,
+            "sha256": "fd07814708f8b145048ce337a6c2e9b3eb5c6b06779adbbf55271869da04cc59"
+          },
+          "coding_rules": {
+            "count": 4,
+            "sha256": "72bfa67afed3845dfb56a7e9400738549781a819db41b3ec5632da936523758d"
+          },
+          "collections": {
+            "count": 24,
+            "sha256": "d19314ec0113ab882b03ae43040460d9dcc3daacc6c28fc268cf953ed4dc449b"
+          },
+          "consents": {
+            "count": 11,
+            "sha256": "7fbc75a3f83e9d531712471043165954ed1e5eb7db691773fc135ce92bad8746"
+          },
+          "coreflux_assignment_inputs": {
+            "count": 1,
+            "sha256": "f70eb3e10b6c156dbafc25e087510fa6113c612a3040972c195a4b132dfd7958"
+          },
+          "coreflux_people_inputs": {
+            "count": 1,
+            "sha256": "ea5c41508281b3cd6d4d8e8f5f940ba04cd0bdbc426b7d083f5a296d2525b81d"
+          },
+          "coreflux_record_links": {
+            "count": 3,
+            "sha256": "5408cf488d775a22de0ba9111c348007573037b80671a0dbe31f6e26806bbeef"
+          },
+          "credit_memos": {
+            "count": 6,
+            "sha256": "1b375a3ae1eff5f63c4827e970926929c494419f28cb4dc4404d1b4d2c1a41f0"
+          },
+          "cron_runs": {
+            "count": 7,
+            "sha256": "705d524503e70a83640d9468f207d165f128709c0c99694182f22c9cd08322a5"
+          },
+          "ct_routes": {
+            "count": 1,
+            "sha256": "edca81702d46dc2547c9b8b6bdf8ff8861871839612c0f92567e0e0987fc692c"
+          },
+          "ct_schedule_proposals": {
+            "count": 3,
+            "sha256": "fc4734694b21075534a75e0256eea57ddf4376412185f7a4a93c7ec74e2f4f67"
+          },
+          "ct_schedule_settings": {
+            "count": 1,
+            "sha256": "78d5260935811208e395df148c7e6be6418c19c1c44ce9ad504c3987e84868bc"
+          },
+          "customers": {
+            "count": 16,
+            "sha256": "29d3f20d247471305ebae2ccee9694440b419430d3b767b280adb4fc4479751b"
+          },
+          "debit_notices": {
+            "count": 10,
+            "sha256": "36873c0c3c640019cab4fabdc632bac751011b8276d95b016f9e487a7f99e7b3"
+          },
+          "email_change_tokens": {
+            "count": 2,
+            "sha256": "fee3eb9cdf0fd5a51ddd82025bdb7359ec2250294898abff1e7276e6cd7c0a6c"
+          },
+          "email_log": {
+            "count": 538,
+            "sha256": "6c0647568e4c697a30096bff1794273451f6baadc0ba71f828aefd495b28be9a"
+          },
+          "employees": {
+            "count": 60,
+            "sha256": "dcb8632174cadd85db9c22f1f26dbab935f1cf7ff4d43fbd62f98a283d8801e9"
+          },
+          "entity_transfers": {
+            "count": 2,
+            "sha256": "a05138c8a6462a78961539aca9e485dc392f0866694ce6ae8d3980ebb63842e6"
+          },
+          "events": {
+            "count": 5060,
+            "sha256": "cfbe567ccaab24bf2e096747625aa8585acc6fb7cc2139c3e9ac5388ddd3740c"
+          },
+          "exceptions": {
+            "count": 100,
+            "sha256": "63cd7e7ce3d8ec84f1f76d3d7f808e958252f2fc5f2346bf84f4eade54fd7b74"
+          },
+          "expense_claims": {
+            "count": 8,
+            "sha256": "21e7643a225d1cb82dd45477fdac576cb9424a349ef69080653c757090d83af4"
+          },
+          "firm_clients": {
+            "count": 12,
+            "sha256": "ecd102b346abeab7dcd6ab814bc5dcb18fd0ab19c2f6d4983dbbc9f25ec197e8"
+          },
+          "firm_link_invites": {
+            "count": 3,
+            "sha256": "f9b8e44d976596acf8b2fcc341441b491434f356327ea91272895c695df92ad4"
+          },
+          "gusto_connections": {
+            "count": 1,
+            "sha256": "a06762c6ec427a77725dd01a5e1f30d692af5e7c0792a5c6245c810449efad03"
+          },
+          "gusto_web_syncs": {
+            "count": 12,
+            "sha256": "2bd0fa2fd977b1e75189fbf8e38116134ad7bf2b0f6b5311dc836502e175d227"
+          },
+          "hours_entries": {
+            "count": 16,
+            "sha256": "bf73ab11b1c1077f9f2034dfdb65c9870a45a559a67565c3156bc15afb01b58b"
+          },
+          "hours_imports": {
+            "count": 8,
+            "sha256": "b6a04dadec492b9d99f0d738d1db46f9360c5cb7936fcc61cc6ae23a03183e34"
+          },
+          "import_mappings": {
+            "count": 2,
+            "sha256": "57a66becd8e29ff9e9acc14257592dcf0f2278c13ff18398aa321b2f11ec640f"
+          },
+          "inflight_digests": {
+            "count": 25,
+            "sha256": "31bf1c571be6a71d2baf16bd0f70b73203125e0570198c41e0bf2a9eccb8b953"
+          },
+          "invoices": {
+            "count": 84,
+            "sha256": "cb76dd19b6b6544b9f4548cc864bb75c173320b1837986304f1ea55facb6ae80"
+          },
+          "items": {
+            "count": 56,
+            "sha256": "fdb0ac8eb29b11dee346b73ba687b0bb395a535ee78bdb1b6ec38a599c8988f0"
+          },
+          "legacy_uploads": {
+            "count": 3,
+            "sha256": "934d1738b52c98af856715d9c2647705219d16c8475503be74dff70fe05ea08b"
+          },
+          "login_attempts": {
+            "count": 5,
+            "sha256": "ee218d20f6b961943988a570b554e3876446d18804c4ede9b792fcb9f815cdf6"
+          },
+          "login_events": {
+            "count": 1737,
+            "sha256": "119044cd53bd9864d6d893feec4fe9f4bcf4fd0c34e6c5c01083e79b774b364b"
+          },
+          "mercury_connections": {
+            "count": 6,
+            "sha256": "c6f93318a72fd3a4ca5ca92bb6c4072e1317d1a2ad2506c91850a37b165f19db"
+          },
+          "merge_log": {
+            "count": 13,
+            "sha256": "dee99e68de7331a341195d127938571656807cdf82ec81a8c66a9375e5f02e91"
+          },
+          "migrations": {
+            "count": 1,
+            "sha256": "dbe947779e7a06cdcbd9452428f341263c95822856faa73719f270d1dd9fe803"
+          },
+          "notifications": {
+            "count": 627,
+            "sha256": "9811804a9b2efd91d43be80c6c3b020c04788a5b94712d6464e96cf6f443fa83"
+          },
+          "organizations": {
+            "count": 12,
+            "sha256": "29acaaaa3dec8eb7fbf62a6a58e0f4d9b3cfba7d0693967e20a07297b9adb3d8"
+          },
+          "password_reset_tokens": {
+            "count": 10,
+            "sha256": "22c9309c30e0a5293f74eec3440c93a28f2d4bcafad36a726990e56ce0fbd5ff"
+          },
+          "pay_runs": {
+            "count": 89,
+            "sha256": "f1639ec5c149bc3ded5803736778051e948266f94bb397591d946de72d6018cc"
+          },
+          "pay_runs_trash": {
+            "count": 24,
+            "sha256": "d3bb0cee9498a3e587ccc321c0e2441a89d7fb36662b6bc67e47252e0c31c094"
+          },
+          "payables": {
+            "count": 1485,
+            "sha256": "45548ae7e5b90c7d71e1ac5ed103fb76cb4911c43231b008cde1b9758162c1f8"
+          },
+          "payee_statements": {
+            "count": 7,
+            "sha256": "e594b1dd3fbadd9f89f81ccfa5b22e3465eec9e0e1db1961c5146102d88f9779"
+          },
+          "payer_groups": {
+            "count": 2,
+            "sha256": "754d2985b063291b3f63e7651f6fd29643e707b70d5ef2b8bc44d720852d9f94"
+          },
+          "payer_statements": {
+            "count": 4,
+            "sha256": "c4fe58304b39829de696a32ac4875314b1e1f02e525410ee74ef503a710856da"
+          },
+          "payments": {
+            "count": 1360,
+            "sha256": "33956a3ca166b0522129a0aed198eee989f2ec4d4f6e41be8e97c0f9197d054a"
+          },
+          "payroll_check_debits": {
+            "count": 18,
+            "sha256": "a930e6a5825c96fb22431fbfeeaab5c7f796c44b63293735b30ca0d8fece0ef4"
+          },
+          "payroll_exceptions": {
+            "count": 58,
+            "sha256": "7cb0eca20de391582704aa3fb2b92f59e3e52e15bd45aa15315c9d8e8a4be876"
+          },
+          "payroll_pto": {
+            "count": 33,
+            "sha256": "a9547ff7c15eb910591e1b9b112909b3d2fcb54d57c552564675fa6dd7ca6e70"
+          },
+          "payroll_pto_requests": {
+            "count": 10,
+            "sha256": "d8d46c4c56e448e8a01ad0363bb30afbcb93c28dc6356055c3baa6d5586549a8"
+          },
+          "payroll_tax_docs": {
+            "count": 2,
+            "sha256": "8d66dc1c2673721bcb2cc8e1ac4feae7602bb3615be816bce74a511ca0777333"
+          },
+          "payroll_tax_filings": {
+            "count": 3,
+            "sha256": "a5302934b244593d8d4e9b101c33976424c0ef42580af2fcbf90732a7bd6698a"
+          },
+          "payroll_tax_liabilities": {
+            "count": 23,
+            "sha256": "42c63dfd0813e7253f76d8675ffbcb7fba5b7389736cc166bd711860f61033ae"
+          },
+          "payroll_tax_remittances": {
+            "count": 19,
+            "sha256": "4e69d0bd4871a73eb8fb6150faf9d029d524e08b90c1ed70f2f3cee5885188e4"
+          },
+          "plaid_transactions": {
+            "count": 63,
+            "sha256": "15d683054dba7cd2ad4a8743f456812248f6b3bac423b89ff8a604e57066aeec"
+          },
+          "platform_fees": {
+            "count": 29,
+            "sha256": "4fcf3d6a6c1e952c7f987cc9ee234d8c3f8d9a589ee2d21b51b25fc15e8b43b1"
+          },
+          "platform_settings": {
+            "count": 10,
+            "sha256": "f5b2ebf61bff1aaa6318f85b30d99ddf3e6c039b808cfc3774464582da43d4cb"
+          },
+          "portal_tokens": {
+            "count": 65,
+            "sha256": "a5d3dfcbfa9d37b7be326c6e588268376b035bbb6709fdf2dc8f7910a6a103c1"
+          },
+          "pwp_batch_tokens": {
+            "count": 10,
+            "sha256": "1aeb7539233d84cbbe7c29bb5a9db5713d2aa7506c4436f2baf5940fdeb8ecaa"
+          },
+          "pwp_releases": {
+            "count": 30,
+            "sha256": "0309770f9c9f03c5a9b8255a0e0ef54c29cb7669f8b7efcb16d611cf1f8326cf"
+          },
+          "qbo_connections": {
+            "count": 1,
+            "sha256": "bb8fb7e16b275ec026a8259ba51a78d081a57442142ed4ab59c495a48812e78a"
+          },
+          "qbo_oauth_states": {
+            "count": 1,
+            "sha256": "228f57219c3355cb683f773030ead1f3fa52a179bbd76e1e265beab659c3aeb7"
+          },
+          "quanta_connections": {
+            "count": 1,
+            "sha256": "b9f18cc991a53247718d855776d02c68a1c5509b39a48272f696cfb158c6e887"
+          },
+          "quotes": {
+            "count": 6,
+            "sha256": "c275a4e5150c7b2f9a596c670198494df4ab7ece78e5755812dc743a5cae769f"
+          },
+          "ramp_connections": {
+            "count": 1,
+            "sha256": "97dc18019301422c30d95629f4ac3835442f51e9e849b40720b44f7904ca5c04"
+          },
+          "ramp_inbox": {
+            "count": 2,
+            "sha256": "1dd2a0c55c3a027222335fccf96358dc06f252057875c29c263d9d6c1dea9561"
+          },
+          "ramp_oauth_states": {
+            "count": 1,
+            "sha256": "7a2aef3c76355ff7bb6a79a2468a98c1472d0af4f0ff3aae76581016667d0ec8"
+          },
+          "recurring_invoices": {
+            "count": 1,
+            "sha256": "5e9871d0f532750aec3cabff67bb638837ec7e52ea3c89f9c044fd2f4de8fd6b"
+          },
+          "recurring_rules": {
+            "count": 1,
+            "sha256": "35a2b44ad8eb814915e66fa313062a98936cd5c94306303595998eb17835d504"
+          },
+          "revenue_link_rules": {
+            "count": 16,
+            "sha256": "36f665cdeffddea65168d82d45bed36d1307cf56fcdaa465921421bedb085c6a"
+          },
+          "roles": {
+            "count": 98,
+            "sha256": "961ab192c733eb8acca8f56b1181f8d6eb29918dacef3dd1438cb2e2c9addf65"
+          },
+          "rpa_connections": {
+            "count": 4,
+            "sha256": "0cc0156166dd36af5b5fdc733490c3cca12b9022d57961ba6a26fbf6c9243a3e"
+          },
+          "rpa_jobs": {
+            "count": 97,
+            "sha256": "816450bd56a05c8dc584ba08396e31d1e2dd7dcae60ab942f35c43ecfad9c9b2"
+          },
+          "sessions": {
+            "count": 1717,
+            "sha256": "dbdbadc1789f8cad6c403b6ae2ffb322231c4463d718882e2c84ba9b12f82106"
+          },
+          "signup_verify_tokens": {
+            "count": 22,
+            "sha256": "59b7fd892cfeb453b9d8f0adf6cdec46cff6a724e151e4bf9de1b25d34cf1307"
+          },
+          "system_flags": {
+            "count": 5,
+            "sha256": "f81160febf0a9955382fd578bce6f619e454e43ab3cdf84af31ca6fd54d22eb6"
+          },
+          "system_status": {
+            "count": 2,
+            "sha256": "e2685a61ffc138512e8bcf5b57ec94a1ea28df021d175258c94aa5a94b48114c"
+          },
+          "tax_table_verification_log": {
+            "count": 11,
+            "sha256": "97588901aaa07c6d69fd2ca27ce3a7210f9c86478cb673c39157d364832e27cb"
+          },
+          "tax_table_verifications": {
+            "count": 2,
+            "sha256": "df7d22e549e20683311b5da0edcacdb4d4fba6064dd109b899755dfc67b0c4ca"
+          },
+          "time_entries": {
+            "count": 31,
+            "sha256": "836918b55f74557a65d8562a208b8ff74d58530715d410d0308931fe507e8ece"
+          },
+          "twilio_voice_codes": {
+            "count": 61,
+            "sha256": "6561077895f88f4bd1e29d18f6e1684436400d35e0b0b15ca4003ff518d9838e"
+          },
+          "user_security": {
+            "count": 2,
+            "sha256": "c01826e402d60396f7236b4f6f4121c8439eedb392ebbeefacd9a3cfc154513e"
+          },
+          "users": {
+            "count": 28,
+            "sha256": "e8215fedbabb1ef297cd0c43952b09f8235ea008c2b45160ab0c69c333482202"
+          },
+          "vendor_accounts": {
+            "count": 8,
+            "sha256": "06fc9cd79244ade03d550171e556f786cfda0be71f5769b9811a37715b06d995"
+          },
+          "vendor_documents": {
+            "count": 5,
+            "sha256": "b7cc2f9700dcf99b1539de99eba9f41acb8ff81ea0f5a8743b09380af6652f18"
+          },
+          "vendor_messages": {
+            "count": 8,
+            "sha256": "fa7947c25824c63535bf0a0862346a19fd5ba670c245fd1da8f4ab34ea396ffb"
+          },
+          "vendor_reset_tokens": {
+            "count": 2,
+            "sha256": "f2328a97fde773b33001bf01b2df2549edaadba17bc2d40368b37d051591b525"
+          },
+          "vendor_signup_codes": {
+            "count": 16,
+            "sha256": "1be2cfa0196f039b54ea4a6a6d052b1acc3726f8e673ea37492dbdf418d7246b"
+          },
+          "vendors": {
+            "count": 166,
+            "sha256": "a1a6b2873bae3be759bfa5dd0588f143c08ce3211937bf2cdaf93e2f9b2b3ec2"
+          },
+          "wallet_fundings": {
+            "count": 29,
+            "sha256": "b85abde6938e3be73d797594e887c4fab85a7d000c0fe8a4deaa1525697af32e"
+          },
+          "wallet_sweeps": {
+            "count": 6,
+            "sha256": "f90d009c912fe08bcdced6b5696f0b7efb8dee09e3bfa68a3a6d3709605d4191"
+          },
+          "webhook_events": {
+            "count": 4,
+            "sha256": "c4661554fff16c34754b8907e77604e4e3fe8873073bd98560c873e358ae66ac"
+          },
+          "webhook_inbox": {
+            "count": 5604,
+            "sha256": "efde0df739c35fd4e9818950e7e43d5dfca929d58ccfef7d89770db681e3370a"
+          }
+        }
+      },
+      "after": {
+        "head": "9cd71c83e5569e029d2ef55054be5d0d1e6e15cd",
+        "index_sha256": "aacc788b09747783138a21fab2488d6bf6c8716151fcb164441980db52b9401a",
+        "protected": {
+          "backend/.env": "2c785373e660599f2aa4c43357f432922d5a467f4270d78acd3e213c4ffcf05d",
+          "frontend/.env": "ff5b4a29b33e91195f85ddb0b7c4aabcb2d941fa7d2bacd7a8adf271ce77281e",
+          "/etc/supervisor/conf.d/supervisord.conf": "f14e07062ce6f01da556920b5910eba4a0d1b0a1359197747990692ff413d0e7",
+          ".emergent/cron/webhook-crons": "2bb12b28190dad0dfbd938a627970bc0934a55db290e9f88fc6376e59f14e1b8",
+          ".emergent/cron/applied.hash": "c60be94a6056bc351dbf33e3d371f96bf437e8eb9d3b95809820756939d60f28"
+        },
+        "core_source": {
+          "backend/assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+          "backend/assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+          "backend/coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+          "backend/coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+          "backend/coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+          "backend/coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+          "backend/coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+          "backend/coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+          "backend/coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+          "backend/coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+          "backend/coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+          "backend/coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+          "backend/coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+          "backend/cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+          "backend/discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+          "backend/due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+          "backend/integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+          "backend/native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+          "backend/payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+          "backend/payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+          "backend/payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+          "backend/quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+          "backend/quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+          "backend/quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+          "backend/server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed",
+          "frontend/src/components/Assignments.jsx": "357d33e752f7098bd1f984cdfcab709c2cb2de9954605f3ddb056461f4cf911b",
+          "frontend/src/components/CoreAssignments.jsx": "219967bd4ff12181296959570d33caf9c05e894ca1c8d28365393c883059f3cb",
+          "frontend/src/components/CoreCommercialTerms.jsx": "7dc70ee7b8f233f92f12fd5747d131f398cd92fd9057570b940fdbbdb3ea8241",
+          "frontend/src/components/DeveloperSettings.jsx": "f7bea2d13cc681ece88ca680cee6e38b676217421f1015d7b1ba029614635683",
+          "frontend/src/components/coreApiKeyScopes.js": "292115533633f340b48a4fb767201cf7507896acb6fdc6313ea860c6dd54c56d",
+          "frontend/src/components/payroll/CorePayrollDraft.jsx": "2eed14763660880495916f85761802721c4a26a6eba0f78a322c5f5a3a932a34",
+          "frontend/src/components/payroll/CorePayrollInputs.jsx": "b442c6937d74c9358df58a749d3bbfe15bd1f295e6ab6e5e1901d72717614f6d",
+          "frontend/src/components/payroll/CorePeople.jsx": "10c54da9174d11932c7e0fc44bae70b662b394d02c6268c78f5409c5d388b0f2",
+          "frontend/src/pages/ApiDocs.jsx": "3c7d4b475f9dffeb457a50d2fe74390c258f9e256c5089c7943382b3e1ee923a",
+          "frontend/src/pages/PayrollRuns.jsx": "3bdff596d8e33d7912e13a433b66127e818740df4628b89cf5a1fc766c90d645",
+          "frontend/src/pages/Quanta.jsx": "fbc949f3dd82189768823d73b03e7872bef95a2e4687cae63e217177603d5093"
+        },
+        "health": {
+          "startup_mode": "review",
+          "background_jobs": false,
+          "startup_migrations": false,
+          "scheduled_operations": false
+        },
+        "database": {
+          "admin_audit": {
+            "count": 173,
+            "sha256": "6893afb566d61b9b809da3c234d2c7ac056be2aec665653e51373741b0ed0323"
+          },
+          "agent_actions": {
+            "count": 22,
+            "sha256": "57bc0abf6ef78f19b4119bffbe3cf7956633f92b782fa8d6a213a9b80df0549e"
+          },
+          "agent_context": {
+            "count": 9,
+            "sha256": "b884e580e8e78f5791410458966f09fa56b76cafd5f95352b050dc8720364c82"
+          },
+          "agent_messages": {
+            "count": 106,
+            "sha256": "f1e23e3579eece8860b2917b9c28600c578d8fad159cdef870e9c6a7fe8b4ea0"
+          },
+          "agent_playbooks": {
+            "count": 1,
+            "sha256": "ad746d643a5363d58a3d2245dee7a6cba3d04f6294ee2e9e48462c89040f48cf"
+          },
+          "agent_runs": {
+            "count": 13,
+            "sha256": "49bcc6eacee73587ab8c2a82513366775ec616bdee408bedfef7fd7991eb1670"
+          },
+          "agent_sessions": {
+            "count": 43,
+            "sha256": "669a95938167577ca617848a46571dea27d7e3c871eecf97578f7cf0c55d0209"
+          },
+          "agent_settings": {
+            "count": 2,
+            "sha256": "9564372fcc0e3b7b68079cc03d354992beb50cf8cc1a1de1dc8228d93f7743a6"
+          },
+          "ai_usage": {
+            "count": 3,
+            "sha256": "f7885667dd128441b4a3cdacb9cc456bcace47091794ee6f9748a60e831d0048"
+          },
+          "ap_batches": {
+            "count": 6,
+            "sha256": "a1c1e1d29dae9f23cbe0d20b5e8a5ee968679d381d16a305665f0252d8b3f62b"
+          },
+          "ap_due_digests": {
+            "count": 5,
+            "sha256": "60d42b8ad962469f3b42bdcf9cad04d2849605fd8489613167d5e255e81c02b0"
+          },
+          "api_keys": {
+            "count": 1,
+            "sha256": "003a06db383db4c8f622414b380ee9c0811c168cdea127e5dae2cd49c4b18fc0"
+          },
+          "approvals": {
+            "count": 62,
+            "sha256": "54c4ee8dcd31d4ee49d0607b1241a27f1b44b41cd319993212f55ecc2a317209"
+          },
+          "ar_bank_links": {
+            "count": 1,
+            "sha256": "62845e8e9b62042423b8d09113a43b339a42ff4cb92056350a1a478df2963ba5"
+          },
+          "ar_bank_transactions": {
+            "count": 48,
+            "sha256": "7e2581875dbd57fe882defc035467b0cba0fa96fc081bf7dd2b6ee4dc23965f4"
+          },
+          "ar_reminder_runs": {
+            "count": 12,
+            "sha256": "43dc956536f814124b3e179efd9841eb8f01bf6c1d829a0990648f14645f0b4c"
+          },
+          "assignment_exclusions": {
+            "count": 3,
+            "sha256": "9421f5f5cfa244cc7bbf25314b5c66eb0550af97d7be49b846bd621789947448"
+          },
+          "assignments": {
+            "count": 5,
+            "sha256": "8504a1257530b7dadb6fba2bb2051dcdacb7370a2e46c6df87a9cdfc4a07b320"
+          },
+          "automatch_runs": {
+            "count": 30,
+            "sha256": "e5b65cfb22584246780dfdb9d251855d09878b324d0c3a2a313aab23effe29b5"
+          },
+          "batches": {
+            "count": 25,
+            "sha256": "90621bd76718010664b3aa3cbae7449a07d2b3525f57206ce9637901c15a5b72"
+          },
+          "billing_invoices": {
+            "count": 10,
+            "sha256": "251e6b906478c7de9aee6f209a7d0ee229a696a83bf0407ca6ebcd434b997946"
+          },
+          "cin7_pushes": {
+            "count": 6,
+            "sha256": "49eea331a9d85bbb69e7e246b6f67d04c773e39844b69ac7a850a76d06bab4fc"
+          },
+          "cin7_sync_log": {
+            "count": 226,
+            "sha256": "fd07814708f8b145048ce337a6c2e9b3eb5c6b06779adbbf55271869da04cc59"
+          },
+          "coding_rules": {
+            "count": 4,
+            "sha256": "72bfa67afed3845dfb56a7e9400738549781a819db41b3ec5632da936523758d"
+          },
+          "collections": {
+            "count": 24,
+            "sha256": "d19314ec0113ab882b03ae43040460d9dcc3daacc6c28fc268cf953ed4dc449b"
+          },
+          "consents": {
+            "count": 11,
+            "sha256": "7fbc75a3f83e9d531712471043165954ed1e5eb7db691773fc135ce92bad8746"
+          },
+          "coreflux_assignment_inputs": {
+            "count": 1,
+            "sha256": "f70eb3e10b6c156dbafc25e087510fa6113c612a3040972c195a4b132dfd7958"
+          },
+          "coreflux_people_inputs": {
+            "count": 1,
+            "sha256": "ea5c41508281b3cd6d4d8e8f5f940ba04cd0bdbc426b7d083f5a296d2525b81d"
+          },
+          "coreflux_record_links": {
+            "count": 3,
+            "sha256": "5408cf488d775a22de0ba9111c348007573037b80671a0dbe31f6e26806bbeef"
+          },
+          "credit_memos": {
+            "count": 6,
+            "sha256": "1b375a3ae1eff5f63c4827e970926929c494419f28cb4dc4404d1b4d2c1a41f0"
+          },
+          "cron_runs": {
+            "count": 7,
+            "sha256": "705d524503e70a83640d9468f207d165f128709c0c99694182f22c9cd08322a5"
+          },
+          "ct_routes": {
+            "count": 1,
+            "sha256": "edca81702d46dc2547c9b8b6bdf8ff8861871839612c0f92567e0e0987fc692c"
+          },
+          "ct_schedule_proposals": {
+            "count": 3,
+            "sha256": "fc4734694b21075534a75e0256eea57ddf4376412185f7a4a93c7ec74e2f4f67"
+          },
+          "ct_schedule_settings": {
+            "count": 1,
+            "sha256": "78d5260935811208e395df148c7e6be6418c19c1c44ce9ad504c3987e84868bc"
+          },
+          "customers": {
+            "count": 16,
+            "sha256": "29d3f20d247471305ebae2ccee9694440b419430d3b767b280adb4fc4479751b"
+          },
+          "debit_notices": {
+            "count": 10,
+            "sha256": "36873c0c3c640019cab4fabdc632bac751011b8276d95b016f9e487a7f99e7b3"
+          },
+          "email_change_tokens": {
+            "count": 2,
+            "sha256": "fee3eb9cdf0fd5a51ddd82025bdb7359ec2250294898abff1e7276e6cd7c0a6c"
+          },
+          "email_log": {
+            "count": 538,
+            "sha256": "6c0647568e4c697a30096bff1794273451f6baadc0ba71f828aefd495b28be9a"
+          },
+          "employees": {
+            "count": 60,
+            "sha256": "dcb8632174cadd85db9c22f1f26dbab935f1cf7ff4d43fbd62f98a283d8801e9"
+          },
+          "entity_transfers": {
+            "count": 2,
+            "sha256": "a05138c8a6462a78961539aca9e485dc392f0866694ce6ae8d3980ebb63842e6"
+          },
+          "events": {
+            "count": 5060,
+            "sha256": "cfbe567ccaab24bf2e096747625aa8585acc6fb7cc2139c3e9ac5388ddd3740c"
+          },
+          "exceptions": {
+            "count": 100,
+            "sha256": "63cd7e7ce3d8ec84f1f76d3d7f808e958252f2fc5f2346bf84f4eade54fd7b74"
+          },
+          "expense_claims": {
+            "count": 8,
+            "sha256": "21e7643a225d1cb82dd45477fdac576cb9424a349ef69080653c757090d83af4"
+          },
+          "firm_clients": {
+            "count": 12,
+            "sha256": "ecd102b346abeab7dcd6ab814bc5dcb18fd0ab19c2f6d4983dbbc9f25ec197e8"
+          },
+          "firm_link_invites": {
+            "count": 3,
+            "sha256": "f9b8e44d976596acf8b2fcc341441b491434f356327ea91272895c695df92ad4"
+          },
+          "gusto_connections": {
+            "count": 1,
+            "sha256": "a06762c6ec427a77725dd01a5e1f30d692af5e7c0792a5c6245c810449efad03"
+          },
+          "gusto_web_syncs": {
+            "count": 12,
+            "sha256": "2bd0fa2fd977b1e75189fbf8e38116134ad7bf2b0f6b5311dc836502e175d227"
+          },
+          "hours_entries": {
+            "count": 16,
+            "sha256": "bf73ab11b1c1077f9f2034dfdb65c9870a45a559a67565c3156bc15afb01b58b"
+          },
+          "hours_imports": {
+            "count": 8,
+            "sha256": "b6a04dadec492b9d99f0d738d1db46f9360c5cb7936fcc61cc6ae23a03183e34"
+          },
+          "import_mappings": {
+            "count": 2,
+            "sha256": "57a66becd8e29ff9e9acc14257592dcf0f2278c13ff18398aa321b2f11ec640f"
+          },
+          "inflight_digests": {
+            "count": 25,
+            "sha256": "31bf1c571be6a71d2baf16bd0f70b73203125e0570198c41e0bf2a9eccb8b953"
+          },
+          "invoices": {
+            "count": 84,
+            "sha256": "cb76dd19b6b6544b9f4548cc864bb75c173320b1837986304f1ea55facb6ae80"
+          },
+          "items": {
+            "count": 56,
+            "sha256": "fdb0ac8eb29b11dee346b73ba687b0bb395a535ee78bdb1b6ec38a599c8988f0"
+          },
+          "legacy_uploads": {
+            "count": 3,
+            "sha256": "934d1738b52c98af856715d9c2647705219d16c8475503be74dff70fe05ea08b"
+          },
+          "login_attempts": {
+            "count": 5,
+            "sha256": "ee218d20f6b961943988a570b554e3876446d18804c4ede9b792fcb9f815cdf6"
+          },
+          "login_events": {
+            "count": 1737,
+            "sha256": "119044cd53bd9864d6d893feec4fe9f4bcf4fd0c34e6c5c01083e79b774b364b"
+          },
+          "mercury_connections": {
+            "count": 6,
+            "sha256": "c6f93318a72fd3a4ca5ca92bb6c4072e1317d1a2ad2506c91850a37b165f19db"
+          },
+          "merge_log": {
+            "count": 13,
+            "sha256": "dee99e68de7331a341195d127938571656807cdf82ec81a8c66a9375e5f02e91"
+          },
+          "migrations": {
+            "count": 1,
+            "sha256": "dbe947779e7a06cdcbd9452428f341263c95822856faa73719f270d1dd9fe803"
+          },
+          "notifications": {
+            "count": 627,
+            "sha256": "9811804a9b2efd91d43be80c6c3b020c04788a5b94712d6464e96cf6f443fa83"
+          },
+          "organizations": {
+            "count": 12,
+            "sha256": "29acaaaa3dec8eb7fbf62a6a58e0f4d9b3cfba7d0693967e20a07297b9adb3d8"
+          },
+          "password_reset_tokens": {
+            "count": 10,
+            "sha256": "22c9309c30e0a5293f74eec3440c93a28f2d4bcafad36a726990e56ce0fbd5ff"
+          },
+          "pay_runs": {
+            "count": 89,
+            "sha256": "f1639ec5c149bc3ded5803736778051e948266f94bb397591d946de72d6018cc"
+          },
+          "pay_runs_trash": {
+            "count": 24,
+            "sha256": "d3bb0cee9498a3e587ccc321c0e2441a89d7fb36662b6bc67e47252e0c31c094"
+          },
+          "payables": {
+            "count": 1485,
+            "sha256": "45548ae7e5b90c7d71e1ac5ed103fb76cb4911c43231b008cde1b9758162c1f8"
+          },
+          "payee_statements": {
+            "count": 7,
+            "sha256": "e594b1dd3fbadd9f89f81ccfa5b22e3465eec9e0e1db1961c5146102d88f9779"
+          },
+          "payer_groups": {
+            "count": 2,
+            "sha256": "754d2985b063291b3f63e7651f6fd29643e707b70d5ef2b8bc44d720852d9f94"
+          },
+          "payer_statements": {
+            "count": 4,
+            "sha256": "c4fe58304b39829de696a32ac4875314b1e1f02e525410ee74ef503a710856da"
+          },
+          "payments": {
+            "count": 1360,
+            "sha256": "33956a3ca166b0522129a0aed198eee989f2ec4d4f6e41be8e97c0f9197d054a"
+          },
+          "payroll_check_debits": {
+            "count": 18,
+            "sha256": "a930e6a5825c96fb22431fbfeeaab5c7f796c44b63293735b30ca0d8fece0ef4"
+          },
+          "payroll_exceptions": {
+            "count": 58,
+            "sha256": "7cb0eca20de391582704aa3fb2b92f59e3e52e15bd45aa15315c9d8e8a4be876"
+          },
+          "payroll_pto": {
+            "count": 33,
+            "sha256": "a9547ff7c15eb910591e1b9b112909b3d2fcb54d57c552564675fa6dd7ca6e70"
+          },
+          "payroll_pto_requests": {
+            "count": 10,
+            "sha256": "d8d46c4c56e448e8a01ad0363bb30afbcb93c28dc6356055c3baa6d5586549a8"
+          },
+          "payroll_tax_docs": {
+            "count": 2,
+            "sha256": "8d66dc1c2673721bcb2cc8e1ac4feae7602bb3615be816bce74a511ca0777333"
+          },
+          "payroll_tax_filings": {
+            "count": 3,
+            "sha256": "a5302934b244593d8d4e9b101c33976424c0ef42580af2fcbf90732a7bd6698a"
+          },
+          "payroll_tax_liabilities": {
+            "count": 23,
+            "sha256": "42c63dfd0813e7253f76d8675ffbcb7fba5b7389736cc166bd711860f61033ae"
+          },
+          "payroll_tax_remittances": {
+            "count": 19,
+            "sha256": "4e69d0bd4871a73eb8fb6150faf9d029d524e08b90c1ed70f2f3cee5885188e4"
+          },
+          "plaid_transactions": {
+            "count": 63,
+            "sha256": "15d683054dba7cd2ad4a8743f456812248f6b3bac423b89ff8a604e57066aeec"
+          },
+          "platform_fees": {
+            "count": 29,
+            "sha256": "4fcf3d6a6c1e952c7f987cc9ee234d8c3f8d9a589ee2d21b51b25fc15e8b43b1"
+          },
+          "platform_settings": {
+            "count": 10,
+            "sha256": "f5b2ebf61bff1aaa6318f85b30d99ddf3e6c039b808cfc3774464582da43d4cb"
+          },
+          "portal_tokens": {
+            "count": 65,
+            "sha256": "a5d3dfcbfa9d37b7be326c6e588268376b035bbb6709fdf2dc8f7910a6a103c1"
+          },
+          "pwp_batch_tokens": {
+            "count": 10,
+            "sha256": "1aeb7539233d84cbbe7c29bb5a9db5713d2aa7506c4436f2baf5940fdeb8ecaa"
+          },
+          "pwp_releases": {
+            "count": 30,
+            "sha256": "0309770f9c9f03c5a9b8255a0e0ef54c29cb7669f8b7efcb16d611cf1f8326cf"
+          },
+          "qbo_connections": {
+            "count": 1,
+            "sha256": "bb8fb7e16b275ec026a8259ba51a78d081a57442142ed4ab59c495a48812e78a"
+          },
+          "qbo_oauth_states": {
+            "count": 1,
+            "sha256": "228f57219c3355cb683f773030ead1f3fa52a179bbd76e1e265beab659c3aeb7"
+          },
+          "quanta_connections": {
+            "count": 1,
+            "sha256": "b9f18cc991a53247718d855776d02c68a1c5509b39a48272f696cfb158c6e887"
+          },
+          "quotes": {
+            "count": 6,
+            "sha256": "c275a4e5150c7b2f9a596c670198494df4ab7ece78e5755812dc743a5cae769f"
+          },
+          "ramp_connections": {
+            "count": 1,
+            "sha256": "97dc18019301422c30d95629f4ac3835442f51e9e849b40720b44f7904ca5c04"
+          },
+          "ramp_inbox": {
+            "count": 2,
+            "sha256": "1dd2a0c55c3a027222335fccf96358dc06f252057875c29c263d9d6c1dea9561"
+          },
+          "ramp_oauth_states": {
+            "count": 1,
+            "sha256": "7a2aef3c76355ff7bb6a79a2468a98c1472d0af4f0ff3aae76581016667d0ec8"
+          },
+          "recurring_invoices": {
+            "count": 1,
+            "sha256": "5e9871d0f532750aec3cabff67bb638837ec7e52ea3c89f9c044fd2f4de8fd6b"
+          },
+          "recurring_rules": {
+            "count": 1,
+            "sha256": "35a2b44ad8eb814915e66fa313062a98936cd5c94306303595998eb17835d504"
+          },
+          "revenue_link_rules": {
+            "count": 16,
+            "sha256": "36f665cdeffddea65168d82d45bed36d1307cf56fcdaa465921421bedb085c6a"
+          },
+          "roles": {
+            "count": 98,
+            "sha256": "961ab192c733eb8acca8f56b1181f8d6eb29918dacef3dd1438cb2e2c9addf65"
+          },
+          "rpa_connections": {
+            "count": 4,
+            "sha256": "0cc0156166dd36af5b5fdc733490c3cca12b9022d57961ba6a26fbf6c9243a3e"
+          },
+          "rpa_jobs": {
+            "count": 97,
+            "sha256": "816450bd56a05c8dc584ba08396e31d1e2dd7dcae60ab942f35c43ecfad9c9b2"
+          },
+          "sessions": {
+            "count": 1717,
+            "sha256": "d95b11f6bc730612ade130d62b04ede0a5e0c5081123e53e5ccdf56a6e21809e"
+          },
+          "signup_verify_tokens": {
+            "count": 22,
+            "sha256": "59b7fd892cfeb453b9d8f0adf6cdec46cff6a724e151e4bf9de1b25d34cf1307"
+          },
+          "system_flags": {
+            "count": 5,
+            "sha256": "f81160febf0a9955382fd578bce6f619e454e43ab3cdf84af31ca6fd54d22eb6"
+          },
+          "system_status": {
+            "count": 2,
+            "sha256": "e2685a61ffc138512e8bcf5b57ec94a1ea28df021d175258c94aa5a94b48114c"
+          },
+          "tax_table_verification_log": {
+            "count": 11,
+            "sha256": "97588901aaa07c6d69fd2ca27ce3a7210f9c86478cb673c39157d364832e27cb"
+          },
+          "tax_table_verifications": {
+            "count": 2,
+            "sha256": "df7d22e549e20683311b5da0edcacdb4d4fba6064dd109b899755dfc67b0c4ca"
+          },
+          "time_entries": {
+            "count": 31,
+            "sha256": "836918b55f74557a65d8562a208b8ff74d58530715d410d0308931fe507e8ece"
+          },
+          "twilio_voice_codes": {
+            "count": 61,
+            "sha256": "6561077895f88f4bd1e29d18f6e1684436400d35e0b0b15ca4003ff518d9838e"
+          },
+          "user_security": {
+            "count": 2,
+            "sha256": "c01826e402d60396f7236b4f6f4121c8439eedb392ebbeefacd9a3cfc154513e"
+          },
+          "users": {
+            "count": 28,
+            "sha256": "e8215fedbabb1ef297cd0c43952b09f8235ea008c2b45160ab0c69c333482202"
+          },
+          "vendor_accounts": {
+            "count": 8,
+            "sha256": "06fc9cd79244ade03d550171e556f786cfda0be71f5769b9811a37715b06d995"
+          },
+          "vendor_documents": {
+            "count": 5,
+            "sha256": "b7cc2f9700dcf99b1539de99eba9f41acb8ff81ea0f5a8743b09380af6652f18"
+          },
+          "vendor_messages": {
+            "count": 8,
+            "sha256": "fa7947c25824c63535bf0a0862346a19fd5ba670c245fd1da8f4ab34ea396ffb"
+          },
+          "vendor_reset_tokens": {
+            "count": 2,
+            "sha256": "f2328a97fde773b33001bf01b2df2549edaadba17bc2d40368b37d051591b525"
+          },
+          "vendor_signup_codes": {
+            "count": 16,
+            "sha256": "1be2cfa0196f039b54ea4a6a6d052b1acc3726f8e673ea37492dbdf418d7246b"
+          },
+          "vendors": {
+            "count": 166,
+            "sha256": "a1a6b2873bae3be759bfa5dd0588f143c08ce3211937bf2cdaf93e2f9b2b3ec2"
+          },
+          "wallet_fundings": {
+            "count": 29,
+            "sha256": "b85abde6938e3be73d797594e887c4fab85a7d000c0fe8a4deaa1525697af32e"
+          },
+          "wallet_sweeps": {
+            "count": 6,
+            "sha256": "f90d009c912fe08bcdced6b5696f0b7efb8dee09e3bfa68a3a6d3709605d4191"
+          },
+          "webhook_events": {
+            "count": 4,
+            "sha256": "c4661554fff16c34754b8907e77604e4e3fe8873073bd98560c873e358ae66ac"
+          },
+          "webhook_inbox": {
+            "count": 5604,
+            "sha256": "efde0df739c35fd4e9818950e7e43d5dfca929d58ccfef7d89770db681e3370a"
+          }
+        }
+      },
+      "backup": "/app/audit/support-feedback-2026-10-23/source-backup-v4.zip"
+    }
+  },
+  "workflow_receipt": {
+    "path": "/app/audit/support-feedback-2026-10-23/core-regression/workflow-acceptance-result.json",
+    "sha256": "ed21121bdf7533b610aea218b32e1ebe87c0d29405b2d221197b580e9880928f",
+    "data": {
+      "runtime_hashes": {
+        "ap_workflow.py": "4b1f4fc66f51fe655213945c925a60d172419f4e2812ce31bd0ec2be02993538",
+        "assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+        "assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+        "bill_identity.py": "62b948baf5bef62759a1d5a69064440ad1f2afdba48c420902e39acc89911ba7",
+        "bill_snapshot.py": "815edc41d55f446cfe2f5fddcc890a573b1b192a045b89d34f075179ed685318",
+        "coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+        "coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+        "coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+        "coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+        "coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+        "coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+        "coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+        "coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+        "coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+        "coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+        "coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+        "cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+        "discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+        "due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+        "employee_billing.py": "03e09b3b679caf0d7f102778221d964300cf00ce7766103e940422fc8f427ee5",
+        "integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+        "labor_costs.py": "8fd37d373e7edd546ba6dccd7489978a97b89454ed3f20c4dd8c5ab81534f2f4",
+        "moov_client.py": "e1b83542e3339b148cace6635ea2ce6f3190b2fcf5b401aea2709d73246451e4",
+        "native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+        "payment_trace.py": "a43b46221e3b213beed6f078469a42de5a964aad851205003aec22cd207f68f0",
+        "payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+        "payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+        "payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+        "pwp_basis.py": "651f137f992d8dcb50b357af3b4f87325ec2b026162c59f5bb766b0d94dc978d",
+        "qbo_query_pages.py": "c035a01ce90cca0f091277a5af4acaa129b73a0fb02fd46de7e1f383c83e8e8c",
+        "qbo_receipt_evidence.py": "a71368cd7faf2118507b20d9ae2d8a011302c7ce629cec7a452b0887063c25d1",
+        "qbo_sync_control.py": "a229ea00f44fd5051ea259468255580e22023b93cb6ad254692cfdce7d7d1dbe",
+        "qbo_sync_progress.py": "96a4ca0a0ed72820b83cd5eddb4742099cb27b605df5f3a67d4d31533a2f8dab",
+        "quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+        "quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+        "quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+        "revenue_link_review.py": "ceecffde481a103a5e73770ce4afe4846c033005634ec0c97ee333ff98f70799",
+        "revenue_match.py": "5051a81401be9964380b268ee48fe5581b5d38e26b2168b7a49f5964eb1969d8",
+        "server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed",
+        "terms_impact.py": "64a7a7a0c699000fa3b8f61ac5f796c7844b89b8c1e55a13994b0464ee0effa0",
+        "vendor_bill_tools.py": "8aa26430a443bcad1a79e70c0349612210adaeaab9f72e2c19729c154dd46d20",
+        "vendor_destination.py": "bf3e3c06b24fcec1fae9dfc03d8d6b878c09c85c8619ff4b5ac2bfb597116030"
+      },
+      "dependency_hashes": {
+        "ap_workflow.py": "4b1f4fc66f51fe655213945c925a60d172419f4e2812ce31bd0ec2be02993538",
+        "assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+        "assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+        "bill_identity.py": "62b948baf5bef62759a1d5a69064440ad1f2afdba48c420902e39acc89911ba7",
+        "bill_snapshot.py": "815edc41d55f446cfe2f5fddcc890a573b1b192a045b89d34f075179ed685318",
+        "coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+        "coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+        "coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+        "coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+        "coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+        "coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+        "coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+        "coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+        "coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+        "coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+        "coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+        "cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+        "discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+        "due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+        "employee_billing.py": "03e09b3b679caf0d7f102778221d964300cf00ce7766103e940422fc8f427ee5",
+        "integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+        "labor_costs.py": "8fd37d373e7edd546ba6dccd7489978a97b89454ed3f20c4dd8c5ab81534f2f4",
+        "moov_client.py": "e1b83542e3339b148cace6635ea2ce6f3190b2fcf5b401aea2709d73246451e4",
+        "native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+        "payment_trace.py": "a43b46221e3b213beed6f078469a42de5a964aad851205003aec22cd207f68f0",
+        "payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+        "payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+        "payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+        "pwp_basis.py": "651f137f992d8dcb50b357af3b4f87325ec2b026162c59f5bb766b0d94dc978d",
+        "qbo_query_pages.py": "c035a01ce90cca0f091277a5af4acaa129b73a0fb02fd46de7e1f383c83e8e8c",
+        "qbo_receipt_evidence.py": "a71368cd7faf2118507b20d9ae2d8a011302c7ce629cec7a452b0887063c25d1",
+        "qbo_sync_control.py": "a229ea00f44fd5051ea259468255580e22023b93cb6ad254692cfdce7d7d1dbe",
+        "qbo_sync_progress.py": "96a4ca0a0ed72820b83cd5eddb4742099cb27b605df5f3a67d4d31533a2f8dab",
+        "quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+        "quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+        "quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+        "revenue_link_review.py": "ceecffde481a103a5e73770ce4afe4846c033005634ec0c97ee333ff98f70799",
+        "revenue_match.py": "5051a81401be9964380b268ee48fe5581b5d38e26b2168b7a49f5964eb1969d8",
+        "server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed",
+        "terms_impact.py": "64a7a7a0c699000fa3b8f61ac5f796c7844b89b8c1e55a13994b0464ee0effa0",
+        "vendor_bill_tools.py": "8aa26430a443bcad1a79e70c0349612210adaeaab9f72e2c19729c154dd46d20",
+        "vendor_destination.py": "bf3e3c06b24fcec1fae9dfc03d8d6b878c09c85c8619ff4b5ac2bfb597116030"
+      },
+      "pytest_exit": 0,
+      "tests": [
+        {
+          "test": "test_full_app_workflow.py::test_real_session_review_creates_only_an_inactive_profile",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_full_app_workflow.py::test_actual_assignment_review_retains_commercial_graph_and_provider_ids",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_full_app_workflow.py::test_stale_assignment_review_requires_refresh",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_full_app_workflow.py::test_real_native_draft_and_result_reconcile_and_remain_held[MANUAL]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_full_app_workflow.py::test_real_native_draft_and_result_reconcile_and_remain_held[PURE_NATIVE]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_full_app_workflow.py::test_stale_draft_review_and_permanent_cancellation",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_full_app_workflow.py::test_live_permissions_and_feature_changes_are_rechecked",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_repeated_real_lifespan_preserves_access_and_financial_records",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/pwp-auto-batch]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/ap-due-digest]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_full_mode_cron_keeps_authentication_and_duplicate_handling",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[agent-env-other-preview]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[production-host]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_invalid_mode_fails_before_database_or_storage",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_required_index_failure_aborts_review_startup",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_startup_mode.py::test_default_full_startup_keeps_existing_operations",
+          "phase": "call",
+          "outcome": "passed"
+        }
+      ],
+      "network_attempts": 0,
+      "full_application": true,
+      "lifespan_started": true,
+      "real_database_used": false,
+      "candidate_hashes": {},
+      "feature_gate_fixture": false,
+      "real_session_authentication": true,
+      "workflow": true,
+      "live_workspace_acceptance": false,
+      "report_directory": "/tmp/purepay-core-full-app-_93nlsir"
+    }
+  },
+  "api_setup_receipt": {
+    "path": "/app/audit/support-feedback-2026-10-23/core-regression/api-setup-acceptance-result.json",
+    "sha256": "fe15af884f392692f414a7d389e00a9e893217bcb577f673334975d0f8d62d8f",
+    "data": {
+      "runtime_hashes": {
+        "ap_workflow.py": "4b1f4fc66f51fe655213945c925a60d172419f4e2812ce31bd0ec2be02993538",
+        "assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+        "assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+        "bill_identity.py": "62b948baf5bef62759a1d5a69064440ad1f2afdba48c420902e39acc89911ba7",
+        "bill_snapshot.py": "815edc41d55f446cfe2f5fddcc890a573b1b192a045b89d34f075179ed685318",
+        "coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+        "coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+        "coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+        "coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+        "coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+        "coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+        "coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+        "coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+        "coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+        "coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+        "coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+        "cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+        "discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+        "due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+        "employee_billing.py": "03e09b3b679caf0d7f102778221d964300cf00ce7766103e940422fc8f427ee5",
+        "integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+        "labor_costs.py": "8fd37d373e7edd546ba6dccd7489978a97b89454ed3f20c4dd8c5ab81534f2f4",
+        "moov_client.py": "e1b83542e3339b148cace6635ea2ce6f3190b2fcf5b401aea2709d73246451e4",
+        "native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+        "payment_trace.py": "a43b46221e3b213beed6f078469a42de5a964aad851205003aec22cd207f68f0",
+        "payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+        "payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+        "payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+        "pwp_basis.py": "651f137f992d8dcb50b357af3b4f87325ec2b026162c59f5bb766b0d94dc978d",
+        "qbo_query_pages.py": "c035a01ce90cca0f091277a5af4acaa129b73a0fb02fd46de7e1f383c83e8e8c",
+        "qbo_receipt_evidence.py": "a71368cd7faf2118507b20d9ae2d8a011302c7ce629cec7a452b0887063c25d1",
+        "qbo_sync_control.py": "a229ea00f44fd5051ea259468255580e22023b93cb6ad254692cfdce7d7d1dbe",
+        "qbo_sync_progress.py": "96a4ca0a0ed72820b83cd5eddb4742099cb27b605df5f3a67d4d31533a2f8dab",
+        "quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+        "quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+        "quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+        "revenue_link_review.py": "ceecffde481a103a5e73770ce4afe4846c033005634ec0c97ee333ff98f70799",
+        "revenue_match.py": "5051a81401be9964380b268ee48fe5581b5d38e26b2168b7a49f5964eb1969d8",
+        "server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed",
+        "terms_impact.py": "64a7a7a0c699000fa3b8f61ac5f796c7844b89b8c1e55a13994b0464ee0effa0",
+        "vendor_bill_tools.py": "8aa26430a443bcad1a79e70c0349612210adaeaab9f72e2c19729c154dd46d20",
+        "vendor_destination.py": "bf3e3c06b24fcec1fae9dfc03d8d6b878c09c85c8619ff4b5ac2bfb597116030"
+      },
+      "dependency_hashes": {
+        "ap_workflow.py": "4b1f4fc66f51fe655213945c925a60d172419f4e2812ce31bd0ec2be02993538",
+        "assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+        "assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+        "bill_identity.py": "62b948baf5bef62759a1d5a69064440ad1f2afdba48c420902e39acc89911ba7",
+        "bill_snapshot.py": "815edc41d55f446cfe2f5fddcc890a573b1b192a045b89d34f075179ed685318",
+        "coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+        "coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+        "coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+        "coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+        "coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+        "coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+        "coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+        "coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+        "coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+        "coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+        "coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+        "cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+        "discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+        "due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+        "employee_billing.py": "03e09b3b679caf0d7f102778221d964300cf00ce7766103e940422fc8f427ee5",
+        "integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+        "labor_costs.py": "8fd37d373e7edd546ba6dccd7489978a97b89454ed3f20c4dd8c5ab81534f2f4",
+        "moov_client.py": "e1b83542e3339b148cace6635ea2ce6f3190b2fcf5b401aea2709d73246451e4",
+        "native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+        "payment_trace.py": "a43b46221e3b213beed6f078469a42de5a964aad851205003aec22cd207f68f0",
+        "payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+        "payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+        "payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+        "pwp_basis.py": "651f137f992d8dcb50b357af3b4f87325ec2b026162c59f5bb766b0d94dc978d",
+        "qbo_query_pages.py": "c035a01ce90cca0f091277a5af4acaa129b73a0fb02fd46de7e1f383c83e8e8c",
+        "qbo_receipt_evidence.py": "a71368cd7faf2118507b20d9ae2d8a011302c7ce629cec7a452b0887063c25d1",
+        "qbo_sync_control.py": "a229ea00f44fd5051ea259468255580e22023b93cb6ad254692cfdce7d7d1dbe",
+        "qbo_sync_progress.py": "96a4ca0a0ed72820b83cd5eddb4742099cb27b605df5f3a67d4d31533a2f8dab",
+        "quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+        "quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+        "quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+        "revenue_link_review.py": "ceecffde481a103a5e73770ce4afe4846c033005634ec0c97ee333ff98f70799",
+        "revenue_match.py": "5051a81401be9964380b268ee48fe5581b5d38e26b2168b7a49f5964eb1969d8",
+        "server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed",
+        "terms_impact.py": "64a7a7a0c699000fa3b8f61ac5f796c7844b89b8c1e55a13994b0464ee0effa0",
+        "vendor_bill_tools.py": "8aa26430a443bcad1a79e70c0349612210adaeaab9f72e2c19729c154dd46d20",
+        "vendor_destination.py": "bf3e3c06b24fcec1fae9dfc03d8d6b878c09c85c8619ff4b5ac2bfb597116030"
+      },
+      "pytest_exit": 0,
+      "tests": [
+        {
+          "test": "test_coreflux_exchange.py::test_auth_and_legacy_boundaries",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_payroll_scope_feature_and_company_boundaries",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_payroll_snapshot_preserves_source_lineage_without_claiming_cash_delivery",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_complete_cursor_pagination_and_cross_company_cursor_refusal",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_immutable_links_replay_concurrency_and_native_data_preservation",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_lost_binding_response_reconciles_without_another_record",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_typed_identity_and_restricted_fields",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_invalid_service_key_permissions_are_rejected[core-scopes0]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_invalid_service_key_permissions_are_rejected[core-scopes1]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_invalid_service_key_permissions_are_rejected[write-scopes2]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_invalid_service_key_permissions_are_rejected[unknown-scopes3]",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_ambiguous_native_identity_does_not_bind",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_review_version_rejects_changed_and_recreated_records",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_resolve_receipt_survives_profile_changes_and_checks_both_identities",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_exchange.py::test_contract_is_discoverable_without_exposing_execution_routes",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_people_setup.py::test_separate_access_tenant_feature_and_exact_link_are_required",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_people_setup.py::test_safe_observation_preserves_native_indicators_and_never_writes",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_people_setup.py::test_duplicate_native_identity_and_corrupt_reverse_link_fail_closed",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_people_setup.py::test_presence_is_not_verification_and_legacy_secrets_do_not_count_as_bank_reference",
+          "phase": "call",
+          "outcome": "passed"
+        },
+        {
+          "test": "test_coreflux_people_setup.py::test_capability_is_explicit_and_requires_employee_access",
+          "phase": "call",
+          "outcome": "passed"
+        }
+      ],
+      "network_attempts": 0,
+      "full_application": true,
+      "lifespan_started": false,
+      "real_database_used": false,
+      "candidate_hashes": {},
+      "feature_gate_fixture": true,
+      "real_session_authentication": false,
+      "workflow": false,
+      "live_workspace_acceptance": false,
+      "report_directory": "/tmp/purepay-core-full-app-2m8dip2x"
+    }
+  },
+  "combined_expected_runtime_files": {
+    "backend/assignment_import.py": "b48f1df73e629dc3f542905bbaf7a0637c88a860caa8109cad7cb701ec1f03a0",
+    "backend/assignments.py": "faa0dc31b7d82b12730b639d3b4452959d557ff73757449876bee0b1247f1225",
+    "backend/coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+    "backend/coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+    "backend/coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+    "backend/coreflux_payroll_authority.py": "3fa435325b5154eafd9f25221d430fd90505ba2a28ff7bcc65e94d6192a6a7b0",
+    "backend/coreflux_payroll_drafts.py": "5b688d1c548365932da8b430b6ad1c62dc1e3ee6ff0d43fcc4e0b7708cfb2db4",
+    "backend/coreflux_payroll_earnings.py": "138340a411814e84267d4903440bfff46c4488921434d96cb8293ddd6305e64e",
+    "backend/coreflux_payroll_inputs.py": "fbfef1a18e0b13d32bf8ebedeaa60c1a21ba9a86a13547378e66a0f461b6036c",
+    "backend/coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+    "backend/coreflux_payroll_results.py": "ea78a99f171bb0d6c41910435feaa8fa50db20439af0d52fa6056cfdf300f796",
+    "backend/coreflux_people.py": "69ceec05bcd730213e4eacfeb62e8c5e4add496e1c663396f8fa05801ff0fbe7",
+    "backend/coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+    "backend/cron_auth.py": "c2d6a42ed377851b71584444f8a78f31f2e7e55ef3e8d62222c9f28a2f08ddf9",
+    "backend/discount_accounts.py": "693a5857cab1ed6dfecd2258b09aa5e388fc910b60e0fdcc65e342566fba73e4",
+    "backend/due_terms.py": "bff6ffc9a3f547247faea797ee1900e81182fc647f7f847305ab6dafa54d4128",
+    "backend/integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+    "backend/native_payroll.py": "d624d690766c53846f9bf1b706462e7db74cd24261f6f60ae14d8d453bf856b3",
+    "backend/payroll.py": "992d81adf28780f1ebbd2e9b8d20da8e74f8315f162a4d59eba75d08742b4b5d",
+    "backend/payroll_time_claims.py": "d87977ab0e2b156fa50c63346fa2047336d8576e6af945f53ee909af4e37fa0a",
+    "backend/payroll_time_identity.py": "262a54bc2415e72c0abab698cc19c65dad418ade5dfd4c29a0b90839ee2ed488",
+    "backend/quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+    "backend/quanta_payroll.py": "72d7fc4a143746a8b964a04881eb8073680510066a82d7ce61b22406177d1d1b",
+    "backend/quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+    "backend/server.py": "3dbeb40421a667e2563ff13e5f67b5774a6ebfbb7a75b1d63907a131fbd18bed",
+    "frontend/src/components/Assignments.jsx": "357d33e752f7098bd1f984cdfcab709c2cb2de9954605f3ddb056461f4cf911b",
+    "frontend/src/components/CoreAssignments.jsx": "219967bd4ff12181296959570d33caf9c05e894ca1c8d28365393c883059f3cb",
+    "frontend/src/components/CoreCommercialTerms.jsx": "7dc70ee7b8f233f92f12fd5747d131f398cd92fd9057570b940fdbbdb3ea8241",
+    "frontend/src/components/DeveloperSettings.jsx": "f7bea2d13cc681ece88ca680cee6e38b676217421f1015d7b1ba029614635683",
+    "frontend/src/components/coreApiKeyScopes.js": "292115533633f340b48a4fb767201cf7507896acb6fdc6313ea860c6dd54c56d",
+    "frontend/src/components/payroll/CorePayrollDraft.jsx": "2eed14763660880495916f85761802721c4a26a6eba0f78a322c5f5a3a932a34",
+    "frontend/src/components/payroll/CorePayrollInputs.jsx": "b442c6937d74c9358df58a749d3bbfe15bd1f295e6ab6e5e1901d72717614f6d",
+    "frontend/src/components/payroll/CorePeople.jsx": "10c54da9174d11932c7e0fc44bae70b662b394d02c6268c78f5409c5d388b0f2",
+    "frontend/src/pages/ApiDocs.jsx": "3c7d4b475f9dffeb457a50d2fe74390c258f9e256c5089c7943382b3e1ee923a",
+    "frontend/src/pages/PayrollRuns.jsx": "3bdff596d8e33d7912e13a433b66127e818740df4628b89cf5a1fc766c90d645",
+    "frontend/src/pages/Quanta.jsx": "fbc949f3dd82189768823d73b03e7872bef95a2e4687cae63e217177603d5093",
+    "backend/ap_workflow.py": "4b1f4fc66f51fe655213945c925a60d172419f4e2812ce31bd0ec2be02993538",
+    "backend/bill_identity.py": "62b948baf5bef62759a1d5a69064440ad1f2afdba48c420902e39acc89911ba7",
+    "backend/bill_snapshot.py": "815edc41d55f446cfe2f5fddcc890a573b1b192a045b89d34f075179ed685318",
+    "backend/employee_billing.py": "03e09b3b679caf0d7f102778221d964300cf00ce7766103e940422fc8f427ee5",
+    "backend/labor_costs.py": "8fd37d373e7edd546ba6dccd7489978a97b89454ed3f20c4dd8c5ab81534f2f4",
+    "backend/moov_client.py": "e1b83542e3339b148cace6635ea2ce6f3190b2fcf5b401aea2709d73246451e4",
+    "backend/payment_trace.py": "a43b46221e3b213beed6f078469a42de5a964aad851205003aec22cd207f68f0",
+    "backend/pwp_basis.py": "651f137f992d8dcb50b357af3b4f87325ec2b026162c59f5bb766b0d94dc978d",
+    "backend/qbo_query_pages.py": "c035a01ce90cca0f091277a5af4acaa129b73a0fb02fd46de7e1f383c83e8e8c",
+    "backend/qbo_receipt_evidence.py": "a71368cd7faf2118507b20d9ae2d8a011302c7ce629cec7a452b0887063c25d1",
+    "backend/qbo_sync_control.py": "a229ea00f44fd5051ea259468255580e22023b93cb6ad254692cfdce7d7d1dbe",
+    "backend/qbo_sync_progress.py": "96a4ca0a0ed72820b83cd5eddb4742099cb27b605df5f3a67d4d31533a2f8dab",
+    "backend/revenue_link_review.py": "ceecffde481a103a5e73770ce4afe4846c033005634ec0c97ee333ff98f70799",
+    "backend/revenue_match.py": "5051a81401be9964380b268ee48fe5581b5d38e26b2168b7a49f5964eb1969d8",
+    "backend/terms_impact.py": "64a7a7a0c699000fa3b8f61ac5f796c7844b89b8c1e55a13994b0464ee0effa0",
+    "backend/tests/test_ap_dedicated_funding.py": "ea9443083f93b21e9ec2edb9c011c6c469ea17470b721988102446511ec377dd",
+    "backend/tests/test_ap_send_back_reapproval.py": "1270befd60f703fc4233241041b03071cf8265a0ad5186356d86e3882e6643bd",
+    "backend/tests/test_payment_trace.py": "b4c3b61fc3a493ddc9b9355ad2bb001dffc99db7663085e53446f9909e254877",
+    "backend/tests/test_qbo_receipt_evidence.py": "0f8326cf11e7e884e97f75be55c98efebb3f4eef84a7166697a9a8d59b55eca8",
+    "backend/tests/test_qbo_sync_control.py": "597a919febed41c234c8b0613264254a3f687ff8f6cc3101d526f4b67f55e4de",
+    "backend/tests/test_revenue_link_review.py": "eee389d1015fa3a24891c1549c0503320c6bb6cd0461e24b4b6740e9b77321bc",
+    "backend/tests/test_support_batch_approval.py": "a932293af64e0823f09a4df89b5255b227a352d25a2a7dda52a735ac43a65be6",
+    "backend/tests/test_support_bill_concurrency.py": "2326515afd7454918845ef81bd320ba62f934386a92fa8f287e5d2072d19e563",
+    "backend/tests/test_support_cost_terms.py": "d3fd16c186f28b39a68ca2ea2afb36a56c2e2dd3864b64517faea64dd575f747",
+    "backend/tests/test_support_payment_safety.py": "22ccacc3f01faa3e687f896c75df164eeccfb823d9e438b7b7ccfdb3fac35c29",
+    "backend/tests/test_support_progress.py": "8e639aec4648ef66f8ab186ade2d4432f33290a10aabf3d3efdbc6916f4eac56",
+    "backend/tests/test_support_sync_pages.py": "a1baff7de6027bc35f4dd89212ce7ad18adcda47bc061317d618d877fafe5f11",
+    "backend/tests/test_terms_impact_review.py": "8e8b647372d0599834ca11183fed6f042f7343097dbc19043387a2e04c39d537",
+    "backend/tests/test_vendor_bill_tools.py": "33196ba968edbd21e4689679ddf669f52b2d5247c050612e07577db3fa61c834",
+    "backend/tests/test_vendor_destination.py": "aa8d0e104dfb357288efed1eeb453b25a268033ba50cc90d7f7fbb4821ab930e",
+    "backend/vendor_bill_tools.py": "8aa26430a443bcad1a79e70c0349612210adaeaab9f72e2c19729c154dd46d20",
+    "backend/vendor_destination.py": "bf3e3c06b24fcec1fae9dfc03d8d6b878c09c85c8619ff4b5ac2bfb597116030",
+    "docs/support-api-coverage.md": "549192426f4d31d0fb5122dd8aba6898d437066607182f2846cffa216595aaae",
+    "docs/support-feedback-2026-10-23.md": "5e3ba5dc6a7fd76d844905e8435f28d3bb1408d4001412a3ea1fc9716ff4a03a",
+    "frontend/src/components/AssignmentDialogs.jsx": "e54618cc7bbc14f1cefc2bf7908b80591abe66b7c0bc8c70982c28d53ec455d4",
+    "frontend/src/components/BillDocuments.jsx": "77aa0649028d0512e602b4176303a7e4dfb393dfe8565dd3776d6fd1f96768ab",
+    "frontend/src/components/BulkTermsDialog.jsx": "b8e05a77806ad871f602360906bae461e4eaba64b670970336c266605ed18d0c",
+    "frontend/src/components/Layout.jsx": "01b5b4a59714c4f6defd9f39d467bad252474483dc1d029dd5af0b45fe09308f",
+    "frontend/src/components/PaymentFunding.jsx": "2d7c45f249dd0a8a8f6e056ab840f9e4840ec8c2186b4687f5f948c62c45ecb5",
+    "frontend/src/components/PaymentLegs.jsx": "fd5d569a8c59f8207c581ebd7f3b41049a00971d6cf58921795ee9fb3a6ee402",
+    "frontend/src/components/PaymentTrace.jsx": "79ca07a7047e7c6fd14b6cc4319d3853b802efcd74f1935acf60a6ca4f6be341",
+    "frontend/src/components/QuickBooksReceipts.jsx": "c6fb06bbe30a1e9efe2295bb47e651a8fd4b6e9dafa10c3863783b83ce6f491b",
+    "frontend/src/components/QuickBooksSyncProgress.jsx": "cad53ca55a1d8a5d3d2ebf0091afd356d869093a7b527a8987dd7b0b8d6763e1",
+    "frontend/src/components/RelatedTermsReview.jsx": "458c5a745b8188ee3a9716b3a83b7e1ea00a352ce9df98153f936ac8adb5af9d",
+    "frontend/src/components/RevenueLinkReview.jsx": "a375ddb0a011dff2c9dda350eac8180c2f6bb346e3246f92c72b5cb23fed8afa",
+    "frontend/src/components/SplitLinkDialog.jsx": "aedb565f333062273cffa0e6b6196f4d8264862a4f187fa9f50d1053c0783101",
+    "frontend/src/components/VendorDestination.jsx": "bfe390136dc25a56c9d57d2b3004aab436c0ce871a4ef3ee2c2ce9a05fd5e74f",
+    "frontend/src/components/VendorTermsReview.jsx": "5da3e087186fb126f1a39907aa2a8c5c32fcb1cb2aae0d57fc0598e7ee2cfa8a",
+    "frontend/src/components/WorkflowActions.jsx": "1f8dc2989e201920012fa697194c71e4257bc1b443fbac31bc9e6862a86c657b",
+    "frontend/src/pages/ApprovalPage.jsx": "bfa91d3007c5fb71440e3d45165ee44b4a4493c11fb3950646b5ab8f8eb730d4",
+    "frontend/src/pages/CashReceipts.jsx": "e79298d3e373e443f98ec289422c12b858ab118e1053585a64ace684b74f6dfe",
+    "frontend/src/pages/InvoiceDetail.jsx": "4e3364a8ef55023d133f2350fa29f6fc49ce661766008110f2a6ba853f50f71f",
+    "frontend/src/pages/PayableApprovalPage.jsx": "3a998f593689594558c8372e37ee49d86f11da245467844c003c3bf929509f32",
+    "frontend/src/pages/PayableDetail.jsx": "de3fc8b72a087ce918e34706289456169a66f589716bc974d5fe5e4ae4f8ec51",
+    "frontend/src/pages/Payments.jsx": "a3c0ac527a57e650aa2e96640c27bb046f6b3d61b2a9da12fae1d777da6847a2",
+    "frontend/src/pages/PayrollMargin.jsx": "0426802e8e0ea89b5e60efffc84b65e936314337574c152780db0cb133a64c8f",
+    "frontend/src/pages/RevenueLinks.jsx": "036dcacc8f90d6213090776f18a940d2abb5ee9b5137a7b60e897ab5a5d1e122",
+    "frontend/src/pages/Settings.jsx": "de2a841dd680800d055d0fad15455f287bb35422336e11dcfa10d9198bbfb957",
+    "frontend/src/pages/TermsSettings.jsx": "819ea9e02fea7c3f1459deefcc386e0cdf4f09db78abf99a880b5da436ce90d4",
+    "frontend/src/pages/VendorDetail.jsx": "07e4ba300f1a770babbc5ad9b7b6e713944a2e4829460628681059e4d3e19ffa",
+    "frontend/src/supportFeedback.test.jsx": "ccf6a0555300c9685815caea99d300d95214187e4d13c49315508e88802c758b"
+  },
+  "publication_clearance": {
+    "companion_source": "Eligible for the combined review candidate with execution/provisioning controls off; no known additional companion code blocker after the merged regression checks.",
+    "effective_live_flags_must_remain_off": [
+      "COREFLUX_PEOPLE_PROVISIONING",
+      "COREFLUX_ASSIGNMENT_PROVISIONING",
+      "COREFLUX_PAYROLL_DRAFTS"
+    ],
+    "native_assignment_automation": false,
+    "required_startup_correction": {
+      "live": "full",
+      "test": "review",
+      "test_host": "agent-env-b72adfe8-90bf-42be-a8d0-38528e050f4f"
+    },
+    "settings_save_approved": false,
+    "publication_approved": false,
+    "approval_owner_chat": "Review and harden Pure//Pay",
+    "remaining_gates": [
+      "Freeze exact combined source/manifest and bind complete frontend build",
+      "Verify effective Live/Test configuration and obtain one combined user approval",
+      "Record current published rollback revision/config and verify intended post-release behavior"
+    ],
+    "integration_activation_not_cleared": true
+  },
+  "synthetic_acceptance_state": {
+    "core_runtime": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+    "person": "P-15",
+    "placement": "PL-13",
+    "client": "CL-1",
+    "core_hours": 8,
+    "core_status": "pending_review",
+    "second_reviewer_choice_pending": true,
+    "payroll_input_packet_created": false
+  }
+}
