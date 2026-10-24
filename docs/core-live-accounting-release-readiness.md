@@ -1,3 +1,20 @@
+## Division alignment staged and verified - October 23, 2026
+
+Runtime 58b9d732dbb172f2cf310ae9e8ba0c81cbb0bb3e passed all nine CI jobs
+(40045657064) and full isolated staging installation/acceptance (40045911533).
+Thirteen packaged files changed, no migrations were pending, and the permanent
+Core integration identity was retained unchanged. Private local settings are
+excluded from package replacement; the prior S3 acceptance is not being claimed
+as a new test. The private file/database backup is recorded in
+`deploy/thunderhawk-division-staging-20261023.json`.
+
+Native onboarding passed all 17 HTTP checks; accounting lifecycle, split receipt
+and correction, 61 credit checks, and log-only invoice/statement delivery passed.
+Document intake remains disabled before provider/storage IO and payroll authority
+remains false. This stages the branch-division correction described below; live
+Core runtime and the actual provider round trip remain unchanged/unverified.
+The user-directed remaining sync alignment continues independently of employer/WC.
+
 ## Fresh production inspection and source alignment - October 23, 2026
 
 Read-only run 40044783352 succeeded for b247f8ee2171b0b36e56c153ee3abf90f3768e43.
