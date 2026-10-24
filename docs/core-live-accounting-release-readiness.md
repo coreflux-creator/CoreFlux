@@ -1,3 +1,52 @@
+## Authenticated demo person, assignment and approved-time exchange - October 23, 2026
+
+The user confirmed pairing isolated Core simulation tenant 999 with Quanta Acme
+Construction and PurePay Meridian Holdings LLC. Both company bindings are verified.
+Core's encrypted connections now deliver synthetic P-15, PL-13, CL-1 and CO-449
+references through the real preview APIs. Quanta has the worker and active assignment
+at revision 2; a fresh comparison reports unchanged. PurePay has the received
+person/assignment packets, an inactive record-only employee, a draft native
+assignment, and reviewed person/client/placement links recorded in Core. The native
+assignment displays the approved $60/hour bill and $30/hour pay terms. Replays
+return the original worker, assignment and link receipts without duplicates.
+
+Quanta's native admin submission and approval handlers approved the synthetic
+480-minute October 19 entry. Core imported one eight-hour entry into TS-2 and retained
+the original workspace, worker, entry, timesheet and approval evidence. Replaying
+that import inserted zero rows and reported the existing entry. Core correctly
+blocks the importer from approving their own entry and blocks payroll export while
+it remains pending review. The simulation currently has one reviewer; the user's
+choice of a non-login synthetic second reviewer is pending. No payroll input packet,
+payroll run, payment, accounting posting or provider publication was created.
+
+The real import exposed a migration-order defect: core migration 147 ran before
+time module 001 created its legacy source enum. New module migration 012 appends
+Quanta while preserving existing enum members, defaults, nullability, collation and
+comments. Placement audit writes now use the column-aware platform writer rather
+than naming the absent legacy request_id column. Runtime
+99e16c7ff011a85b88ec09d2bf904477885662bd passed all nine CI jobs
+([40055629231](https://github.com/coreflux-creator/CoreFlux/actions/runs/40055629231)),
+including 14 new MariaDB regressions, and full isolated staging acceptance
+([40055807786](https://github.com/coreflux-creator/CoreFlux/actions/runs/40055807786)).
+The new migration is applied and the original approved entry now imports successfully.
+
+PurePay's preview host restarted during acceptance. The guarded restoration checked
+all reviewed source and protected settings, kept all 20,599 existing documents
+unchanged during startup, and confirmed review mode with background jobs, startup
+migrations and scheduled operations disabled. A provider receipt lookup established
+that the interrupted native-profile action had not run before it was retried.
+Native provisioning and Quanta approval were service-handler tests using existing
+scoped demo owners; they do not establish browser-action coverage. No invitation or
+real worker login was created. Persistent provisioning and financial authority
+flags remain off; only the isolated test processes enabled their needed operations.
+
+Evidence: deploy/synthetic-integration-acceptance-20261023.json,
+deploy/quanta-time-import-staging-20261023.json, core-purepay-native-person-20261023.png,
+core-purepay-native-assignment-20261023.png and core-quanta-active-assignment-20261023.png.
+This is demo acceptance; the Thunderhawk round trip, document intake, reviewed payroll
+input/draft/result handoff, employer/WC alignment and production cutover remain open.
+Arabella and production are unchanged.
+
 ## Quanta preview credential connected to isolated Core - October 23, 2026
 
 Cloudways sign-in is restored. The existing user-created Acme preview key was

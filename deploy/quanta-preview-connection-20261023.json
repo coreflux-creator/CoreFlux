@@ -75,8 +75,17 @@
     "credential_in_chat_or_repository": false,
     "real_thunderhawk_round_trip": false,
     "production_runtime_changed": false,
-    "provider_writes": false,
-    "workspace_confirmation_pending": true,
-    "purepay_key_creation_pending": true
+    "provider_writes": true,
+    "workspace_confirmation_pending": false,
+    "purepay_key_creation_pending": false,
+    "provider_record_scope": "User-approved synthetic demo records only"
+  },
+  "current_state": {
+    "checked_at": "2026-10-24T03:01:20.052Z",
+    "core_runtime": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+    "organization_binding_confirmed": true,
+    "quanta_workspace_binding_confirmed": true,
+    "synthetic_acceptance_receipt": "deploy/synthetic-integration-acceptance-20261023.json",
+    "workspace_binding_confirmed": true
   }
 }
