@@ -1,3 +1,52 @@
+## Thunderhawk source alignment resumed - October 23, 2026
+
+The user directed: "follow the rest of the sync alignment". Continue independent
+alignment work; do not infer the missing employer or WC class or repeatedly ask
+the same question. Core's authenticated session was restored and the operational
+workspace was verified as Thunderhawk (tenant 2, its own people directory).
+
+PL-864 / P-358 retains actual JobDiva Start 57862243, job 27926305 and candidate
+18424007240614. Only its branch was saved as Jen/Saurabh, matching the displayed
+exact assignment JOB division (ID 285519). It is currently a Core field override;
+this was not an automatic mapping change. The other visible placement details
+were unchanged. Employer and WC class remain explicit setup exceptions. A job
+company label does not establish the employer and WC code 0 supplies no class.
+The private local browser screenshot is intentionally excluded from this repo.
+
+A concrete adapter gap was corrected in the review branch: the exact Start's
+unambiguous JOB.DIVISIONNAME / JOB.DIVISION label is now a default branch fallback.
+Explicit branch fields and tenant mappings take precedence; existing Core field
+overrides remain protected. Numeric IDs, placeholders, conflicting labels and
+unrelated Starts cannot supply that dimension. The field dictionary records the
+same precedence and keeps division separate from legal employer and WC class.
+This change is not yet deployed. Five targeted suites passed, including 84
+assignment-contract checks. Local pure/source checks report the absent MySQL
+extension; they do not constitute database-backed acceptance.
+
+The existing JobDiva credential was refreshed using Test connection. Status is
+Connected, with the ping at 20:26:09 and the token valid through October 24 at
+20:26:09. No new credential or scope was created. Alignment health reports 67
+linked rows needing attention across seven blocker types: source/job/client
+links, draft/approved rates and lifecycle differences. Read-only lifecycle
+preview would mark twelve placements ended; it was not applied. General Repair
+alignment includes lifecycle and People retirement, so it was not blindly run.
+Live Quanta still shows zero linked workers/routes. PurePay remains connected in
+read-only monitoring; the new staffing controls are in the candidate/previews.
+
+Read-only production preflight 40044783352 passed for b247f8ee. Production still
+serves index-95sB_8ni.js and has 30 accounting schema gaps plus the incompatible
+bank uniqueness constraint. The plan has 68 pending migrations, retains three
+historical migration sources, and has no source-review blockers. All eight
+inspected CLI delivery/authority flags are false. Production storage remains
+local; the separately verified S3 configuration is only in the isolated pilot.
+See deploy/core-production-preflight-20261023.json. This inspection predates the
+new division patch and is not a release execution identity.
+
+Remaining: reviewed provider publication/settings and authenticated exchange,
+production maintenance/backup/recovery/cutover gates, and the actual Thunderhawk
+round trip. No real payroll, payments or financial postings ran. Arabella stays
+separate. Earlier sign-in/blocker statements below are historical.
+
 ## PurePay integration installed in guarded preview - October 23, 2026
 
 The accepted setup/webhook candidate d942c386a008455e4c5a80e478e253aceb9efa6d

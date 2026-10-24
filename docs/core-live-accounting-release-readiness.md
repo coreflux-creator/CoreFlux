@@ -1,3 +1,26 @@
+## Fresh production inspection and source alignment - October 23, 2026
+
+Read-only run 40044783352 succeeded for b247f8ee2171b0b36e56c153ee3abf90f3768e43.
+The deployed bundle remains index-95sB_8ni.js. Candidate packaging changes 413
+files and adds 4,689 (including dependencies); 99 production-source paths differ
+from both comparison base and candidate. The reviewed migration plan remains
+source-review-ready: 68 pending, 248 retained applied, three deployed historical
+sources retained, no plan blockers. Production still has 30 accounting schema
+gaps and the incompatible bank-account uniqueness constraint. All eight CLI
+outbound/authority flags are false; production storage is still local.
+
+Compact non-secret receipt: deploy/core-production-preflight-20261023.json.
+Use the private unmasked /tmp/core-integration-40044783352/production-preflight.json
+for any later exact comparison. Masked GitHub values are not execution identities.
+No activation occurred. This inspection predates the subsequent JobDiva division
+fallback patch and does not replace final candidate binding, verified writer
+pause/drain, matching backup/recovery or explicit cutover authorization.
+
+Core sign-in is now restored. PL-864's source-backed branch was saved separately
+as a Core override; employer/WC remain unresolved while the rest of the sync
+alignment continues per the user's instruction. The complete current checkpoint
+is at the top of docs/thunderhawk-core-operating-pilot.md.
+
 ## Quanta webhook contract correction - October 23, 2026
 
 The latest unpublished PurePay review is d942c386a008455e4c5a80e478e253aceb9efa6d

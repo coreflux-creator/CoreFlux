@@ -186,6 +186,22 @@ function jobdivaAssignmentContractSectionRows(array $records, string $section): 
     return $rows;
 }
 
+/** A division label is a reporting dimension, never a legal employer or WC class. */
+function jobdivaAssignmentContractJobDivision(array $sourceRows): string
+{
+    $labels = [];
+    foreach (jobdivaAssignmentContractSectionRows($sourceRows, 'JOB') as $job) {
+        foreach (['DIVISIONNAME', 'DIVISION'] as $key) {
+            $value = jobdivaAssignmentContractShallowPick($job, [$key]);
+            if (!is_string($value)) continue;
+            $label = trim($value);
+            if (in_array(strtolower($label), ['', 'null', '-', '--', 'n/a'], true) || is_numeric($label)) continue;
+            $labels[strtolower($label)] = $label;
+        }
+    }
+    return count($labels) === 1 ? (string) reset($labels) : '';
+}
+
 function jobdivaAssignmentContractAmount(mixed $raw): ?float
 {
     if ($raw === null) return null;
@@ -674,6 +690,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'branch' => trim((string) ($billingPick([
             'Branch', 'Branch Name', 'Office', 'Office Name', 'Business Unit', 'businessUnit',
         ]) ?? $pick(['Branch', 'Branch Name', 'Office', 'Office Name', 'Business Unit', 'businessUnit']) ?? '')),
+        'job_division' => jobdivaAssignmentContractJobDivision($sourceRows),
         'service_line' => trim((string) ($billingPick([
             'Service Line', 'serviceLine', 'Business Line', 'businessLine',
         ]) ?? $pick(['Service Line', 'serviceLine', 'Business Line', 'businessLine']) ?? '')),

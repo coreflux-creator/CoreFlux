@@ -55,6 +55,51 @@ $assert('Billing and Salary retain separate canonical frequencies in the assignm
     ($cadenceContract['client_bill_cycle'] ?? '') === 'semimonthly'
     && ($cadenceContract['vendor_pay_cycle'] ?? '') === 'biweekly');
 
+$divisionRows = [[
+    'Start ID' => 'division-fixture',
+    'JOB' => [['DIVISIONNAME' => '  Eastern Delivery  ', 'DIVISION' => 'Eastern Delivery', 'DIVISIONID' => '285000']],
+    'BILLING' => [['Branch' => 'Contract Branch']],
+]];
+$divisionContract = jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture');
+$assert('exact assignment Job division is retained separately from the explicit branch',
+    ($divisionContract['job_division'] ?? '') === 'Eastern Delivery'
+    && ($divisionContract['branch'] ?? '') === 'Contract Branch');
+unset($divisionRows[0]['BILLING']);
+$divisionContract = jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture');
+$assert('division fallback does not fabricate employer, WC or an explicit contract branch',
+    ($divisionContract['job_division'] ?? '') === 'Eastern Delivery'
+    && ($divisionContract['branch'] ?? '') === ''
+    && ($divisionContract['workers_comp_class'] ?? '') === ''
+    && empty($divisionContract['accounting_entity_id']));
+$assert('placement branch default uses the exact division when explicit branch is absent',
+    jobdivaPlacementBranchDefault(['_jd_contract' => $divisionContract], $divisionContract) === 'Eastern Delivery');
+$assert('explicit branch remains ahead of the division fallback',
+    jobdivaPlacementBranchDefault(['branch' => 'Existing Branch'], $divisionContract) === 'Existing Branch');
+$GLOBALS['CF_FIELD_MAP_CACHE']['1|jobdiva|placement'] = [
+    'branch' => ['external_field' => 'customOffice', 'transform' => 'none'],
+];
+$assert('configured tenant branch mapping wins over division fallback',
+    tenantIntegrationFieldMapPluckInternal(1, 'jobdiva', 'placement', 'branch', ['customOffice' => 'Mapped Branch'],
+        static fn() => jobdivaPlacementBranchDefault([], $divisionContract)) === 'Mapped Branch');
+tenantIntegrationFieldMapFlushCache();
+$divisionRows[] = ['Start ID' => 'other-start', 'JOB' => [['DIVISIONNAME' => 'Other Division']]];
+$assert('unrelated Start division cannot contaminate the selected assignment',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === 'Eastern Delivery');
+$assert('fallback job context without a matched assignment cannot establish the division',
+    (jobdivaAssignmentContractBuild([], ['JOB' => [['DIVISIONNAME' => 'Unverified Division']]], 'missing-start')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'][0]['DIVISION'] = 'Conflicting Division';
+$assert('conflicting labels remain unresolved',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'] = [['DIVISIONID' => '285000', 'DIVISION' => '285000']];
+$assert('numeric division identifiers are not used as branch labels',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'] = [['DIVISIONNAME' => '-', 'DIVISION' => null]];
+$assert('division placeholders do not supply a branch',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'] = [['DIVISION' => 'Eastern Delivery']];
+$assert('legacy Division label works without Division Name',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === 'Eastern Delivery');
+
 $w2Rows = [[
     'Start ID' => '56830791',
     'Employment Category' => 'Hourly Employee',

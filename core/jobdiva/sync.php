@@ -303,6 +303,16 @@ function jobdivaPluckNestedField(array $item, array $candidates, array $nestOrde
     return '';
 }
 
+/** Tenant field mappings run before this default; explicit branch values precede division. */
+function jobdivaPlacementBranchDefault(array $payload, array $contract): string
+{
+    $branch = jobdivaPluckFieldDeep($payload, [
+        'branch', 'branchName', 'branch_name', 'office', 'officeName',
+        'businessUnit', 'business_unit',
+    ]);
+    return $branch !== '' ? $branch : (string) ($contract['job_division'] ?? '');
+}
+
 /**
  * Resolve the client contact attached to a JobDiva assignment.
  *
@@ -6523,10 +6533,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $branch = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'branch', $jd,
-        static fn() => jobdivaPluckFieldDeep($jd, [
-            'branch', 'branchName', 'branch_name', 'office', 'officeName',
-            'businessUnit', 'business_unit',
-        ])
+        static fn() => jobdivaPlacementBranchDefault($jd, $assignmentContract)
     );
     $serviceLine = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'service_line', $jd,

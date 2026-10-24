@@ -174,3 +174,5 @@ decision. Do not delete entries — only append.*
 
 | 2026-10-23 | Use AWS Free for the isolated private-document pilot; no Paid upgrade is authorized. Account expiry is April 23, 2027 or earlier if credits are exhausted. | User: "Select Free for the pilot". |
 | 2026-10-23 | Create the no-console Core pilot identity with list, read, upload, tagging and soft-delete rights only in the new pilot bucket and use of its encryption key. Deliver its user-created key only to the isolated Core pilot on Cloudways. Production storage activation remains separate. | User: "Create the limited Core identity"; then "Created; the result page is open" in reply to the isolated Cloudways credential handoff. |
+
+| 2026-10-23 | Continue the remaining Thunderhawk sync alignment while PL-864's employing legal entity and WC class remain explicit unresolved setup fields; do not infer these from job-company or division labels. | User answered the employer/WC question: "follow the rest of the sync alignment". |

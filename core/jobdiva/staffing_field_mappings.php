@@ -10,7 +10,7 @@ function jobdivaStaffingFieldMappings(): array
         $fields[$key]['jobdiva'][] = array_merge([
             'route' => $route, 'path' => $path, 'direction' => 'jobdiva_to_core',
             'transform' => $transform, 'write_policy' => $policy,
-            'contract_version' => 'core-adapter-2026-10-22.1',
+            'contract_version' => 'core-adapter-2026-10-23.1',
             'verification_status' => 'adapter_source_verified_live_cohort_pending',
             'source_evidence' => ['core' => $implementation,
                 'contract' => 'core/jobdiva/assignment_contract.php'],
@@ -94,6 +94,12 @@ function jobdivaStaffingFieldMappings(): array
     }
     $assignment('placements.workers_comp_class', 'SALARY[].WC Class', 'workers_comp_class',
         'Preserve the class identifier as text; do not interpret it as a workers-compensation percentage.');
+    $assignment('placements.branch', 'JOB[].DIVISIONNAME', 'job_division',
+        'Use an unambiguous division label from the exact Start detail only as the default branch fallback. Explicit Branch/Office/Business Unit values and tenant mappings take precedence; Core field overrides remain protected.',
+        ['additional_source_paths' => ['JOB[].DIVISION'],
+            'missing_value_policy' => 'Missing, numeric-only or conflicting division labels do not supply a branch. DIVISIONID is retained only in source evidence, never copied as a Core identity.',
+            'write_policy' => 'branch_default_only_after_explicit_branch_and_tenant_mapping; preserve_Core_overrides',
+            'known_limitations' => ['Job division does not establish an employing legal entity or workers compensation class.']]);
     $assignment('placements.remote_policy', 'BILLING[].WORKING_LOCATION', 'remote_policy',
         'Recognized onsite/on-site/on_site, hybrid, remote/work_from_home/wfh values become Core enums; unknown values yield null.');
     foreach (['BILL_RATE' => 'bill_rate', 'Bill_Rate_in_Beeline' => 'bill_rate_in_vms'] as $path => $normalized) {
