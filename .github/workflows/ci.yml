@@ -187,7 +187,9 @@ jobs:
         run: php tests/ap_payment_reservations_mariadb.php
 
       - name: Verify dedicated PurePay Core connection and organization review
-        run: php tests/purepay_core_connection_mariadb.php
+        run: |
+          php tests/purepay_core_connection_mariadb.php
+          php tests/purepay_preview_continuity_smoke.php
 
       - name: Verify reviewed Core record links and response-loss reconciliation
         run: |
