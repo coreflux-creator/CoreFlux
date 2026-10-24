@@ -35,7 +35,7 @@ try {
     $row=purepayCoreConnection($pdo,999);
     $pdo->prepare('UPDATE purepay_core_connections SET binding_hash=? WHERE id=1')
         ->execute([purepayCoreHash($row,$key,CONTINUITY_INSTANCE,$context)]);
-    $pdo->prepare('INSERT INTO purepay_connections(tenant_id,api_key_ct,key_scope,status) VALUES(999,?,"read_only","active")')->execute([encryptField('separate-ap-fixture')]);
+    $pdo->prepare('INSERT INTO purepay_connections(tenant_id,api_key_ct,api_key_last4,key_scope,status) VALUES(999,?,"ture","read_only","active")')->execute([encryptField('separate-ap-fixture')]);
     $ap=$pdo->query('SELECT * FROM purepay_connections')->fetchAll(PDO::FETCH_ASSOC);
     foreach ([2,5,7,8,9] as $id) {
         $hash=hash('sha256','fixture-'.$id);
