@@ -75,6 +75,25 @@ function quantaTimeReviewSnapshot(int $tenantId,string $entryId): array
         'status'=>$unchanged?'unchanged':'preview','placement_number'=>$placement['number']];
 }
 
+/** Local recovery remains available when a source entry is revoked, deleted or outside the feed window. */
+function quantaTimeReviewPending(int $tenantId,?int $before=null): array
+{
+    if($before!==null && $before<=0) throw new InvalidArgumentException('Invalid delivery page');
+    $owner=effectiveTenantIdForModule('placements',$tenantId)??$tenantId;
+    $stmt=getDB()->prepare('SELECT id,provider,entity_type,entity_tenant_id,entity_id,operation,state,review_hash,
+        remote_id,remote_receipt_id,error_code,created_at,expires_at,approved_at,attempted_at,finished_at
+        FROM integration_deliveries WHERE tenant_id=:t AND provider="quanta" AND operation="time.review"
+        AND entity_type="placement" AND entity_tenant_id=:o AND state IN ("sending","uncertain")'
+        .($before!==null?' AND id<:before':'').' ORDER BY id DESC LIMIT 51');
+    $params=['t'=>$tenantId,'o'=>$owner];if($before!==null)$params['before']=$before;
+    $stmt->execute($params);$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);$more=count($rows)>50;
+    $rows=array_slice($rows,0,50);
+    $rows=coreRecordNumbersAttachRelated(getDB(),$owner,'placement',$rows,'entity_id');
+    return ['rows'=>array_map(static fn($row)=>['delivery'=>integrationDeliverySummary($row),
+        'placement_number'=>$row['placement_number']],$rows),
+        'next_before'=>$more?(int)end($rows)['id']:null];
+}
+
 function quantaTimeReviewPreview(int $tenantId,int $actorId,string $entryId): array
 {
     if(!preg_match('/^[A-Za-z0-9_-]{1,128}$/D',$entryId)) throw new InvalidArgumentException('Choose imported Quanta time');

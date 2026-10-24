@@ -133,8 +133,12 @@ try {
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
 
-    if (in_array($action,['time_review_preview','time_review_send','time_review_receipt'],true)) {
+    if (in_array($action,['time_review_pending','time_review_preview','time_review_send','time_review_receipt'],true)) {
         foreach(['time.view','placements.view','people.view'] as $permission) rbac_legacy_require($user,$permission);
+        if($action==='time_review_pending') {
+            if(isset($body['before']) && (!is_int($body['before']) || $body['before']<=0)) throw new InvalidArgumentException('Invalid delivery page');
+            api_ok(quantaTimeReviewPending($tenantId,$body['before']??null));
+        }
         if($action==='time_review_preview') {
             if(!is_string($body['source_entry_id']??null)) throw new InvalidArgumentException('Choose imported Quanta time');
             api_ok(quantaTimeReviewPreview($tenantId,$actorId,$body['source_entry_id']));

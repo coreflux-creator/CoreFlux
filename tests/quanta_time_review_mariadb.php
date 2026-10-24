@@ -60,14 +60,40 @@ $check($fails(fn()=>$send($p2))&&$posts===2,'uncertain attempt is never automati
 $remote['regular_hours']=6;
 $reopened=$preview();
 $check($reopened['receipt_only']===true&&$reopened['delivery']['id']===$p2['delivery']['id']&&$posts===2,'refresh retains the original uncertain receipt even when source hours changed');
+$savedTransport=$GLOBALS['__quanta_transport'];
+$GLOBALS['__quanta_transport']=static function(){throw new RuntimeException('Source unavailable');};
+$pending=quantaTimeReviewPending(1);
+$check(count($pending['rows'])===1 && $pending['rows'][0]['delivery']['id']===$p2['delivery']['id']
+    && $pending['rows'][0]['placement_number']==='PL-42','independent recovery list survives a missing source or unavailable provider');
+$check(!array_intersect(['payload_ct','binding_hash','claim_hash','idempotency_key'],array_keys($pending['rows'][0]['delivery'])),'recovery list exposes no encrypted payload or private transport data');
+$check(quantaTimeReviewPending(2)['rows']===[],'another company cannot list pending deliveries');
+$pdo->exec('UPDATE integration_deliveries SET entity_tenant_id=2 WHERE id='.(int)$p2['delivery']['id']);
+$check(quantaTimeReviewPending(1)['rows']===[],'a former directory owner cannot appear in the current recovery list');
+$pdo->exec('UPDATE integration_deliveries SET entity_tenant_id=1 WHERE id='.(int)$p2['delivery']['id']);
+$GLOBALS['__quanta_transport']=$savedTransport;
 $remote=$validRemote;
 $pdo->exec('UPDATE time_entries SET status="rejected",updated_at="2026-10-24 00:06:00" WHERE id=1');
 $recovered=quantaTimeReviewReceipt(1,(int)$p2['delivery']['id'],$p2['delivery']['review_hash']);
 $check($recovered['receipt_state']==='confirmed'&&$recovered['delivery']['state']==='delivered'&&$reads===1&&$posts===2,'original receipt can be recovered after a later Core status change without resending');
+$check(quantaTimeReviewPending(1)['rows']===[],'confirmed deliveries leave the pending list');
 $check(quantaTimeReviewReceipt(1,(int)$p2['delivery']['id'],$p2['delivery']['review_hash'])['delivery']===$recovered['delivery']&&$reads===1,'recovered receipt replay performs no provider call');
 $p3=$preview();$check($p3['state']==='needs_correction'&&$p3['delivery']['id']!==$p2['delivery']['id'],'later rejection requires a distinct reviewed publication');
 $remote['regular_hours']=6;
 $check($fails(fn()=>$send($p3))&&$posts===2,'changed original source hours block the new status');
+$saved=integrationDeliveryGet($pdo,1,(int)$p3['delivery']['id']);
+$context=array_intersect_key($saved,array_flip(['provider','connection_ref','binding_hash','entity_type','entity_tenant_id','entity_id','operation','source_hash','remote_hash']));
+$context['entity_tenant_id']=(int)$context['entity_tenant_id'];$context['entity_id']=(int)$context['entity_id'];
+$payload=json_decode(decryptField($saved['payload_ct']),true);
+for($i=0;$i<51;$i++){
+    $context['source_hash']=hash('sha256','pagination-fixture-'.$i);
+    $row=integrationDeliveryPreview($pdo,1,7,$context,$payload);
+    $pdo->exec('UPDATE integration_deliveries SET state="uncertain" WHERE id='.(int)$row['id']);
+}
+$page1=quantaTimeReviewPending(1);$page2=quantaTimeReviewPending(1,$page1['next_before']);
+$check(count($page1['rows'])===50 && count($page2['rows'])===1 && $page2['next_before']===null,'bounded cursor reaches older unconfirmed attempts');
+$ids=array_map(static fn($r)=>(int)$r['delivery']['id'],[...$page1['rows'],...$page2['rows']]);
+$check(count(array_unique($ids))===51,'recovery pages do not repeat attempts');
+$check($fails(fn()=>quantaTimeReviewPending(1,0)),'invalid recovery cursor rejected');
 unset($GLOBALS['__quanta_transport'],$GLOBALS['__quanta_core_write_transport']);
 putenv('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY');putenv('COREFLUX_INTEGRATION_INSTANCE_ID');setRequestTenantId(null);
 echo "Quanta time review MariaDB: $passed passed\n";

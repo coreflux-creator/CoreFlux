@@ -7,7 +7,7 @@ import QuantaPublicationPanel from './QuantaPublicationPanel';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
 import QuantaMetadataPanel from './QuantaMetadataPanel';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
-import QuantaTimeReview from './QuantaTimeReview';
+import QuantaTimeReview, { QuantaTimeReviewRecovery } from './QuantaTimeReview';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -439,5 +439,6 @@ export default function QuantaSettings() {
         </tr>)}</tbody></table></div>
       </div>}
     </>}
+    <QuantaTimeReviewRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
   </div>;
 }
