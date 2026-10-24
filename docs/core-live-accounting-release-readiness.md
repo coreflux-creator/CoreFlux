@@ -1,3 +1,41 @@
+## Complete AP collection checks installed in Core pilot - October 24, 2026
+
+Runtime 9c0ac698948f050c324e84fa892eac366867ce36 passed all nine CI jobs
+(40110083765), including 27 collection checks and 78 real MariaDB driver checks
+with synthetic provider IO. Isolated staging installation 40110338891 succeeded:
+16 changed files, no pending or applied migrations, full native acceptance,
+61 rollback finance checks and 17 native onboarding HTTP checks. Private backup:
+/home/master/.coreflux-integration-backups/muzqvdvqbx/9c0ac698948f050c324e84fa892eac366867ce36-20261024161259.
+
+Vendor matching reads all supported pages; the adapter also checks bill pagination.
+Malformed, repeated,
+interrupted or ambiguous lists cannot establish absence. The captured provider's
+unpaged payment list is refused at its 1,000-row cap; incomplete polling returns
+unknown and preserves the durable hold. This closes the Core first-page decision
+gap. A provider pagination or bill-specific completeness contract for large payment
+histories, cross-request obligation reservations and reviewed AP rebinding remain
+open. A complete observed list is not a reservation against concurrent payment.
+
+Read-only inspection 40110601985 found the existing P-15/PL-13 records, confirmed
+onboarding plan and eight pending hours intact, but Quanta's preview returned 404.
+Chrome showed Emergent's sleeping-server page. After waking only that demo preview,
+inspection 40111055364 confirmed HTTP 200 for the expected Acme workspace and
+onboarding contract. Chrome again showed PL-13 version 2, Acme Northside membership,
+CL-1/CO-449 and all three original tasks. Core case version 5 / confirmed plan 4,
+TS-2's 8.00 hours pending_review with no approver, and the saved Meridian binding
+revision 2 are preserved. Document-transfer and Core intake switches remain off;
+private storage is ready. The read-only inspector source is 57676cc8 and was not
+installed as a new application runtime.
+
+Evidence: deploy/purepay-collection-completeness-staging-20261024.json and
+core-quanta-preview-recovered-20261024.png. No PurePay source/settings or Core
+production were changed. The separately authorized PurePay release owner reports
+its combined publication completed and the live API is healthy. Its admin session
+was cleared; user sign-in is pending before restoring paused workers and finishing
+authenticated live checks. Those production observations are attributed to that chat. The pending second-reviewer
+choice, worker/document intake, payroll round trip, actual Thunderhawk employer/WC
+alignment, financial attribution and separately approved Core cutover remain open.
+
 ## Acme worksite and native onboarding publication verified - October 24, 2026
 
 The approved simulation now shows P-15 / PL-13 assigned to Quanta's active
