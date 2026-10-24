@@ -126,7 +126,7 @@ function quantaWriteWorkerProfile(string $key,string $workspace,array $body,stri
     if ($key==='' || preg_match('/[\r\n]/',$key) || !preg_match('/^[a-f0-9]{64}$/D',$idempotencyKey)) {
         throw new InvalidArgumentException('A scoped key and durable delivery identity are required');
     }
-    $url=QUANTA_API_BASE.QUANTA_CORE_CONTRACT_PATH.'/worker-profiles';
+    $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.'/worker-profiles';
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
     $headers=['Authorization: Bearer '.$key,'Accept: application/json','Content-Type: application/json','Idempotency-Key: '.$idempotencyKey];
     try {

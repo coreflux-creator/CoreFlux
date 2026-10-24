@@ -29,7 +29,7 @@ function quantaWriteWorker(string $apiKey, ?string $workerId, array $fields, str
         }
     }
     $method=$create?'POST':'PATCH';
-    $url=QUANTA_API_BASE.'/workers'.($create?'':'/'.$workerId);
+    $url=quantaApiBase().'/workers'.($create?'':'/'.$workerId);
     $body=json_encode($fields,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
     $headers=['Authorization: Bearer '.$apiKey,'Accept: application/json','Content-Type: application/json','Idempotency-Key: '.$idempotencyKey];
     if (isset($GLOBALS['__quanta_write_transport']) && is_callable($GLOBALS['__quanta_write_transport'])) {

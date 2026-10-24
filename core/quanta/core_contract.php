@@ -126,7 +126,7 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
             ||($expected['projection_hash']??null)!==onboardingHash($publication)
             ||onboardingHash($expected['publication']??[])!==onboardingHash($publication))throw new InvalidArgumentException('Onboarding confirmation differs from the publication');
     } else { throw new InvalidArgumentException('Unsupported Quanta contract operation'); }
-    $url=QUANTA_API_BASE.QUANTA_CORE_CONTRACT_PATH.$path;
+    $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.$path;
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
     $headers=['Authorization: Bearer '.$key,'Accept: application/json','Content-Type: application/json','Idempotency-Key: '.$idempotencyKey];
     try {

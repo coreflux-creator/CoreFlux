@@ -166,7 +166,7 @@ final class QuantaDocumentBuffer {
 function quantaOnboardingDocumentBytes(string $key,array $receipt,array $doc): string {
     if($key===''||preg_match('/[\r\n]/',$key)||!preg_match('/^cfo_[a-f0-9]{64}$/D',(string)($receipt['case_id']??''))
         ||!preg_match('/^cfs_[a-f0-9]{64}$/D',(string)($receipt['id']??'')))throw new InvalidArgumentException('Verified document receipt required');
-    $url=QUANTA_API_BASE.QUANTA_CORE_CONTRACT_PATH.'/onboarding/'.$receipt['case_id'].'/documents/'.$receipt['id'];
+    $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.'/onboarding/'.$receipt['case_id'].'/documents/'.$receipt['id'];
     $headers=['Authorization: Bearer '.$key,'Accept: application/octet-stream','Accept-Encoding: identity'];
     $buffer=new QuantaDocumentBuffer($doc['size_bytes']);
     if(isset($GLOBALS['__quanta_document_transport'])&&is_callable($GLOBALS['__quanta_document_transport'])) {

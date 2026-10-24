@@ -47,7 +47,7 @@ function quantaWorkspaceBindingHash(int $tenantId, int $connectionId, string $ap
 {
     if ($tenantId<=0 || $connectionId<=0 || $revision<=0 || $apiKey==='' || preg_match('/[\r\n]/',$apiKey)) throw new InvalidArgumentException('A scoped active connection is required');
     integrationRecordReference($instanceId,$tenantId,'person','P-1'); // Validate the namespace, never allocate a record.
-    return integrationDeliveryHash(['tenant_id'=>$tenantId,'connection_id'=>$connectionId,'connection_revision'=>$revision,'provider_url'=>QUANTA_API_BASE,
+    return integrationDeliveryHash(['tenant_id'=>$tenantId,'connection_id'=>$connectionId,'connection_revision'=>$revision,'provider_url'=>quantaApiBase(),
         'credential_digest'=>hash('sha256',$apiKey),'instance_id'=>$instanceId,'context'=>quantaContractContextValidate($context)]);
 }
 

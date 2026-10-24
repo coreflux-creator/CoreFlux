@@ -49,6 +49,16 @@ preview source time, and select the entries to import.
 
 ## Connection and scope
 
+For the isolated integration pilot only, deployment configuration may set
+`COREFLUX_QUANTA_PREVIEW_API_BASE` to
+`https://clockin-hub-16.preview.emergentagent.com/api/v1`. This requires the
+strict boolean `COREFLUX_STAGING=true`; production, malformed values and other
+hosts fail before any request. A private PHP constant takes precedence over
+the process environment. With no setting, the existing live origin remains
+the default. Reads, worker/assignment/onboarding writes and private document
+retrieval all use the same selection. Changing it invalidates the reviewed
+workspace binding. This setting creates no connection or delivery authority.
+
 Use a Quanta key with `timesheets:read`, `workers:read`, and `worksites:read`.
 Time import calls Quanta's documented GET endpoints on
 `https://helloquanta.app/api/v1`; the import itself does not write to Quanta. The key is
