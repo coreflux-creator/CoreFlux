@@ -185,7 +185,8 @@ foreach([102,103]as$id){
     $held(fn()=>apAllocatePayment($id,['allocations'=>[['bill_id'=>$id,'amount'=>1]]]),'lost response cannot reallocate AP payment '.$id);
     $held(fn()=>apClearPayment(1,$id,'2026-10-21',null,null),'lost response cannot clear AP payment '.$id);
     $check($link('ap_payment:'.$id)===$before
-        && $pdo->query('SELECT status FROM ap_payments WHERE id='.$id)->fetchColumn()==='sent',
+        && $pdo->query('SELECT status FROM ap_payments WHERE id='.$id)->fetchColumn()==='sent'
+        && $pdo->query('SELECT SUM(amount_applied) FROM ap_payment_allocations WHERE payment_id='.$id)->fetchColumn()==='125.00',
         'blocked AP action preserves the provider receipt and bill reservation');
 }
 $pdo->exec('UPDATE ap_payments SET rail_status="failed",rail_external_ref="synthetic-cached-reference" WHERE id=102');
@@ -234,6 +235,25 @@ $check($fails(fn()=>$send($lostPayment)) && count($calls)===$before,
     'a voided failed attempt cannot dispatch another payment on retry');
 $check((int)$pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn()===0,
     'provider hold and cancellation checks never post a journal');
+// Settlement can authorize the normal clear flow, but never ordinary cancellation.
+$pdo->exec('UPDATE ap_bills SET amount_due=125 WHERE id=141'); $vendors=[$vendor];
+$settlementItem=array_replace($item,['external_ref'=>'ap_payment:141']); $send($settlementItem);
+$settlementLink=$link('ap_payment:141');
+$payments[$settlementLink['purepay_payment_id']]['pay_status']='settled';
+$check($driver->getStatusForTenant(1,'purepay:bill:'.$settlementLink['purepay_bill_id'])==='settled',
+    'current provider detail establishes a bound settlement receipt');
+$pdo->beginTransaction();
+$settlementRow=$pdo->query('SELECT * FROM ap_payments WHERE tenant_id=1 AND id=141 FOR UPDATE')->fetch(PDO::FETCH_ASSOC);
+$check(apAssertProviderPaymentAction($pdo,1,$settlementRow,'clear'),
+    'verified unchanged settlement permits the existing ledger-clear checks');
+$pdo->rollBack();
+$held(fn()=>apVoidPayment(1,141,'Synthetic settled cancellation'),'settlement cannot be cancelled to release the AP reservation');
+$payments[$settlementLink['purepay_payment_id']]['pay_status']='returned';
+$driver->getStatusForTenant(1,'purepay:bill:'.$settlementLink['purepay_bill_id']);
+$pdo->exec('UPDATE ap_payments SET status="cleared" WHERE id=141');
+$ledgerBlock='';try{apVoidPayment(1,141,'Synthetic return after clearance');}catch(DomainException $e){$ledgerBlock=$e->getMessage();}
+$check(str_contains($ledgerBlock,'Cleared payments need a linked accounting and bank correction'),
+    'a returned payment with ledger activity still requires a linked correction');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/163_purepay_attempt_binding.sql'))as$sql)$pdo->exec($sql);
 $check($link($item['external_ref'])['connection_fingerprint']===purepayConnectionFingerprint(1,$key),'migration replay preserves original connection bindings');
 $pdo->exec('UPDATE purepay_payment_links SET core_payment_id=NULL');
