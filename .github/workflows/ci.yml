@@ -183,6 +183,9 @@ jobs:
           php tests/purepay_collection_completeness_smoke.php
           php tests/purepay_delivery_mariadb.php
 
+      - name: Verify AP reservations across concurrent transaction snapshots
+        run: php tests/ap_payment_reservations_mariadb.php
+
       - name: Verify dedicated PurePay Core connection and organization review
         run: php tests/purepay_core_connection_mariadb.php
 
