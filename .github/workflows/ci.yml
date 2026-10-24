@@ -193,6 +193,7 @@ jobs:
           php tests/purepay_core_endpoint_smoke.php
           php tests/purepay_preview_origin_smoke.php
           php tests/purepay_preview_origin_mariadb.php
+          php tests/purepay_people_scope_smoke.php
 
       - name: Verify reviewed Core record links and response-loss reconciliation
         run: |

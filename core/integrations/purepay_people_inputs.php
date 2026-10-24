@@ -5,6 +5,23 @@ require_once __DIR__.'/purepay_links.php';
 
 const PUREPAY_PEOPLE_INPUT_VERSION = '2026-10-22.1';
 
+/** Person workflows authorize people and placements only; legacy AP metadata grants no access. */
+function purepayPeopleInputOwners(array $owners): array
+{
+    if (array_diff(array_keys($owners),['people','placements','ap'])) {
+        throw new InvalidArgumentException('Unknown person directory scope.');
+    }
+    foreach (['people','placements'] as $module) {
+        if (!is_int($owners[$module] ?? null) || $owners[$module]<=0) {
+            throw new InvalidArgumentException('Authorized person and placement directories are required.');
+        }
+    }
+    if (array_key_exists('ap',$owners) && (!is_int($owners['ap']) || $owners['ap']<=0)) {
+        throw new InvalidArgumentException('Invalid legacy directory metadata.');
+    }
+    return ['people'=>$owners['people'],'placements'=>$owners['placements']];
+}
+
 function purepayPeopleInputEnabled(): bool
 {
     return defined('COREFLUX_PUREPAY_PEOPLE_DELIVERY') ? constant('COREFLUX_PUREPAY_PEOPLE_DELIVERY')===true : getenv('COREFLUX_PUREPAY_PEOPLE_DELIVERY')==='1';
@@ -12,6 +29,7 @@ function purepayPeopleInputEnabled(): bool
 
 function purepayPeopleInputSource(PDO $pdo,string $instance,array $owners,string $personNumber,string $placementNumber): array
 {
+    $owners=purepayPeopleInputOwners($owners);
     foreach(['people','placements'] as $module) if(!is_int($owners[$module]??null)||$owners[$module]<=0)throw new InvalidArgumentException('Authorized directory owners required.');
     $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$personNumber);
     $placement=purepayCoreLinkSource($pdo,$instance,$owners['placements'],'placement',$placementNumber);
@@ -43,6 +61,8 @@ function purepayPeopleInputAccess(PDO $pdo,int $tenant,string $instance,bool $wr
 
 function purepayPeopleInputSnapshot(PDO $pdo,int $tenant,string $instance,array $owners,string $personNumber,string $placementNumber): array
 {
+    // New person envelopes omit unrelated routing metadata. Historical payloads remain byte-exact.
+    $owners=purepayPeopleInputOwners($owners);
     $access=purepayPeopleInputAccess($pdo,$tenant,$instance,true);
     if($pdo->inTransaction())throw new LogicException('Person review needs its own consistent read.');
     $pdo->beginTransaction();
@@ -68,11 +88,12 @@ function purepayPeopleInputPreview(PDO $pdo,int $tenant,int $actor,string $insta
 
 function purepayPeopleInputEnvelope(PDO $pdo,int $tenant,int $id,string $hash,string $instance,array $owners): array
 {
+    $owners=purepayPeopleInputOwners($owners);
     $row=integrationDeliveryGet($pdo,$tenant,$id);
     if($row['provider']!=='purepayroll' || $row['operation']!=='people.inputs' || $row['entity_type']!=='person'
         || !hash_equals($row['review_hash'],$hash))throw new InvalidArgumentException('Choose the current person review.');
     $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
-    if($payload['owners']!==integrationDeliveryCanonical($owners) || $payload['body']['person']['instance_id']!==$instance
+    if(purepayPeopleInputOwners($payload['owners'])!==$owners || $payload['body']['person']['instance_id']!==$instance
         || (int)$row['entity_tenant_id']!==$owners['people'])throw new RuntimeException('The person review belongs to different directory owners.');
     $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$payload['body']['person']['number']);
     if($person['entity_id']!==(int)$row['entity_id'])throw new RuntimeException('The person identity changed.');
@@ -133,6 +154,7 @@ function purepayPeopleInputStatus(PDO $pdo,int $tenant,string $instance,array $o
 
 function purepayPeopleInputHistory(PDO $pdo,int $tenant,string $instance,array $owners,string $personNumber,?int $before=null): array
 {
+    $owners=purepayPeopleInputOwners($owners);
     $access=purepayPeopleInputAccess($pdo,$tenant,$instance,false);
     $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$personNumber);
     if($before!==null && $before<=0)throw new InvalidArgumentException('Invalid history page.');
