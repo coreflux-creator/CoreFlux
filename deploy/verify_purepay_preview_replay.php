@@ -81,7 +81,14 @@ try {
         'Native assignment receipt changed'=>'assignment_receipt_changed',
         default=>'native_receipt_check_failed',
     };
+    $ownerTypes=[];
+    foreach (($payload['owners'] ?? []) as $owner=>$value) {
+        if (in_array($owner,['people','placements','ap'],true)) $ownerTypes[$owner]=get_debug_type($value);
+    }
     fwrite(STDERR,'PUREPAY_NATIVE_REPLAY_FAILURE='.json_encode(['phase'=>$phase,'reason'=>$reason,
         'exception_class'=>get_class($e),'source_file'=>basename($e->getFile()),'source_line'=>$e->getLine(),
+        'stored_owner_types'=>$ownerTypes,
+        'stored_owners_all_simulation'=>isset($payload['owners']) && is_array($payload['owners'])
+            && !array_filter($payload['owners'],static fn($value): bool=>$value!==999),
         'send_called'=>false],JSON_THROW_ON_ERROR)."\n"); exit(2);
 }
