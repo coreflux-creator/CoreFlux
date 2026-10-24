@@ -20,7 +20,7 @@ function purepayPreviewContinuityFixtures(): array
 }
 
 /** Bounded GETs only. The candidate is fixed, with no redirects in the native adapter. */
-function purepayPreviewContinuityRead(string $key, array $bodies): array
+function purepayPreviewContinuityRead(string $key, array $bodies, array $inputs): array
 {
     $report = ['candidate'=>CONTINUITY_CANDIDATE, 'continuity_verified'=>false,
         'configuration_changed'=>false, 'provider_record_writes'=>false, 'checks'=>[]];
@@ -71,6 +71,25 @@ function purepayPreviewContinuityRead(string $key, array $bodies): array
             $left = purepayCoreLinkReceipt($links['reference_link'], CONTINUITY_ORG, $body, true);
             $right = purepayCoreLinkReceipt($links['provider_link'], CONTINUITY_ORG, $body, true);
             if ($left !== $right) throw new RuntimeException('Conflicting links');
+            $report['checks'][$stage] = ['verified'=>true, 'number'=>$fixture['number']];
+        }
+        foreach (['person'=>['people','cpp','employee_id'], 'placement'=>['assignments','cpa','assignment_id']] as $kind=>$definition) {
+            $stage = $kind.'_input_receipt';
+            $body = $inputs[$kind] ?? [];
+            $ref = $body[$kind === 'person' ? 'person' : 'placement'] ?? [];
+            $fixture = purepayPreviewContinuityFixtures()[$kind];
+            if (integrationDeliveryHash($ref) !== integrationDeliveryHash(integrationRecordReference(CONTINUITY_INSTANCE,999,$kind,$fixture['number']))) {
+                throw new RuntimeException('Input belongs to a different fixture');
+            }
+            $hash = integrationDeliveryHash($body);
+            $id = $definition[1].'_'.integrationDeliveryHash([CONTINUITY_ORG,$hash]);
+            $receipt = $get('/'.$definition[0].'/inputs/'.$id);
+            if (($receipt['id'] ?? null) !== $id || ($receipt['organization_id'] ?? null) !== CONTINUITY_ORG
+                || ($receipt['content_hash'] ?? null) !== $hash || ($receipt['state'] ?? null) !== 'created'
+                || ($receipt[$definition[2]] ?? null) !== $fixture['provider_id']
+                || integrationDeliveryHash($receipt['packet'] ?? []) !== $hash) {
+                throw new RuntimeException('Original input receipt changed');
+            }
             $report['checks'][$stage] = ['verified'=>true, 'number'=>$fixture['number']];
         }
         $report['continuity_verified'] = true;
@@ -130,14 +149,49 @@ try {
         if ($source['entity_id'] !== $fixture['entity_id']) throw new RuntimeException('Local identity changed');
         $bodies[$kind] = $payload['body']; $before[$kind] = $row;
     }
+    $inputs = []; $inputRows = [];
+    foreach (['person'=>[2,'people.inputs','cpp'], 'placement'=>[5,'assignments.inputs','cpa']] as $kind=>$definition) {
+        $row = integrationDeliveryGet($pdo,999,$definition[0]);
+        $payload = json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
+        $body = $payload['body'] ?? [];
+        $expected = $definition[2].'_'.integrationDeliveryHash([CONTINUITY_ORG,integrationDeliveryHash($body)]);
+        if ($row['provider'] !== 'purepayroll' || $row['operation'] !== $definition[1] || $row['state'] !== 'delivered'
+            || (int)$row['entity_tenant_id'] !== 999 || $row['entity_type'] !== $kind
+            || (int)$row['entity_id'] !== purepayPreviewContinuityFixtures()[$kind]['entity_id']
+            || (string)$row['connection_ref'] !== (string)$connection['id']
+            || $row['remote_id'] !== $expected || $row['remote_receipt_id'] !== $expected
+            || ($payload['organization_id'] ?? null) !== CONTINUITY_ORG) {
+            throw new RuntimeException('Original input evidence changed');
+        }
+        $inputs[$kind] = $body; $inputRows[$definition[0]] = $row;
+    }
     $key = (string)decryptField($connection['api_key_ct']);
-    $report = purepayPreviewContinuityRead($key,$bodies);
-    $key = ''; unset($payload,$bodies);
+    $report = purepayPreviewContinuityRead($key,$bodies,$inputs);
+    $key = ''; unset($payload,$bodies,$inputs);
     if (purepayCoreConnection($pdo,999) !== $connection) throw new RuntimeException('Connection changed during reads');
     foreach (purepayPreviewContinuityFixtures() as $kind=>$fixture) {
         if (integrationDeliveryGet($pdo,999,$fixture['delivery_id']) !== $before[$kind]) {
             throw new RuntimeException('Delivery changed during reads');
         }
+    }
+    foreach ($inputRows as $id=>$row) {
+        if (integrationDeliveryGet($pdo,999,$id) !== $row) throw new RuntimeException('Input changed during reads');
+    }
+    $inventory = $pdo->prepare('SELECT provider,operation,state,COUNT(*) AS count FROM integration_deliveries
+        WHERE tenant_id=999 AND provider IN ("purepay","purepayroll") AND connection_ref=:c GROUP BY provider,operation,state ORDER BY provider,operation,state');
+    $inventory->execute(['c'=>(string)$connection['id']]);
+    $report['delivery_inventory'] = $inventory->fetchAll(PDO::FETCH_ASSOC);
+    $report['private_configuration'] = [];
+    foreach (['integration'=>dirname(CONTINUITY_ROOT).'/private_html/coreflux.integration.php',
+        'database_loader'=>CONTINUITY_ROOT.'/core/db.local.php'] as $name=>$path) {
+        if (is_link($path) || realpath($path) !== $path || !is_file($path) || filesize($path)>1048576) {
+            throw new RuntimeException('Configuration metadata unavailable');
+        }
+        $content = (string)file_get_contents($path);
+        $report['private_configuration'][$name] = ['sha256'=>hash('sha256',$content),
+            'old_preview_occurrences'=>substr_count($content,CONTINUITY_OLD_BASE),
+            'new_preview_occurrences'=>substr_count($content,CONTINUITY_CANDIDATE)];
+        unset($content);
     }
     $report += ['checked_at'=>gmdate('c'), 'tenant_id'=>999, 'local_writes'=>false,
         'saved_binding_unchanged'=>true, 'saved_deliveries_unchanged'=>true,
