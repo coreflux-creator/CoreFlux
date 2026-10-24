@@ -30,9 +30,10 @@ $check('AP clearing locks payment and owns its journal transaction',
     && str_contains($apLib, 'cf_tx_commit($pdo, $ownsTransaction)')
     && str_contains($apLib, 'cf_tx_rollback($pdo, $ownsTransaction)'));
 $check('ordinary void refuses payment ledger activity under lock',
-    str_contains($apApi, 'apPaymentHasLedgerActivity($pdo, $tid, $row)')
-    && str_contains($apApi, 'Cleared payments need a linked accounting and bank correction')
-    && str_contains($apApi, 'ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE'));
+    str_contains($apApi, 'apVoidPayment($tid, $id, $reason)')
+    && str_contains($apLib, 'apPaymentHasLedgerActivity($pdo,$tenantId,$row)')
+    && str_contains($apLib, 'Cleared payments need a linked accounting and bank correction')
+    && str_contains($apLib, 'ap_payments WHERE tenant_id=:t AND id=:id FOR UPDATE'));
 $check('clearing requires a real entity bank account',
     str_contains($apLib, 'Connect or create an active bank account for this entity before clearing the payment.'));
 $check('payment and bank currencies must agree',

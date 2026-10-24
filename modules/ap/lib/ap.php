@@ -1044,6 +1044,83 @@ function apPaymentHasLedgerActivity(\PDO $pdo, int $tenantId, array $payment): b
  *  - cleared → void  (treat as reversal)
  *  - void → terminal
  */
+/** Caller holds the payment row lock; provider attempts outlive missing UI receipts. */
+function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, string $action): bool
+{
+    if (!$pdo->inTransaction() || !in_array($action, ['allocate', 'void', 'clear'], true)) {
+        throw new LogicException('Provider payment checks require the locked AP transaction');
+    }
+    $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    $exists = $pdo->query($mysql
+        ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_payment_links'"
+        : "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purepay_payment_links'")->fetchColumn();
+    $attempt = null;
+    if ($exists) {
+        $q = $pdo->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t
+            AND (core_payment_id=:p OR source_ref=:s) ORDER BY id LIMIT 2'.($mysql ? ' FOR UPDATE' : ''));
+        $q->execute(['t'=>$tenantId,'p'=>(int)$payment['id'],'s'=>'ap_payment:'.$payment['id']]);
+        $attempt = $q->fetch(PDO::FETCH_ASSOC);
+        if ($q->fetch(PDO::FETCH_ASSOC)) throw new DomainException('Multiple PurePay attempts need reconciliation before changing this payment');
+    }
+    if (!$attempt) {
+        if (($payment['disbursement_rail'] ?? '') === 'purepay'
+            && (!empty($payment['rail_external_ref']) || !empty($payment['rail_originated_at']))) {
+            throw new DomainException('The PurePay attempt is missing; reconcile this payment before changing it');
+        }
+        return false;
+    }
+    $allowed = $action === 'void' ? ['failed','payment_failed','declined','returned','reversed','cancelled','canceled','void','voided']
+        : ($action === 'clear' ? ['settled','paid','completed','cleared'] : []);
+    if (!in_array(strtolower((string)$attempt['status']), $allowed, true)
+        || $attempt['source_ref'] !== 'ap_payment:'.$payment['id']
+        || (!empty($attempt['core_payment_id']) && (int)$attempt['core_payment_id'] !== (int)$payment['id'])
+        || empty($attempt['purepay_bill_id']) || empty($attempt['purepay_payment_id'])
+        || empty($attempt['last_synced_at']) || empty($attempt['connection_fingerprint'])) {
+        throw new DomainException('This PurePay attempt still reserves its bills. Reconcile its provider result before changing the payment.');
+    }
+    $service = __DIR__.'/../../../core/purepay_service.php';
+    if (!is_file($service)) throw new DomainException('PurePay reconciliation is required in full Core');
+    require_once $service;
+    $q = $pdo->prepare('SELECT api_key_ct,status FROM purepay_connections WHERE tenant_id=:t'.($mysql ? ' FOR UPDATE' : ''));
+    $q->execute(['t'=>$tenantId]); $connection=$q->fetch(PDO::FETCH_ASSOC);
+    if (!$connection || $connection['status'] !== 'active'
+        || !hash_equals((string)$attempt['connection_fingerprint'], purepayConnectionFingerprint($tenantId,(string)decryptField($connection['api_key_ct'])))) {
+        throw new DomainException('The PurePay company connection changed; reconcile this attempt before changing the payment');
+    }
+    return true;
+}
+
+/** The API and recovery tests share the same locked cancellation path. */
+function apVoidPayment(int $tenantId, int $paymentId, string $reason): array
+{
+    if (trim($reason) === '') throw new DomainException('A reason is required');
+    $pdo=getDB(); $ownsTxn=!$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
+    try {
+        $q=$pdo->prepare('SELECT * FROM ap_payments WHERE tenant_id=:t AND id=:id FOR UPDATE');
+        $q->execute(['t'=>$tenantId,'id'=>$paymentId]); $row=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['status']==='void') throw new DomainException('Payment is already void or unavailable');
+        $verifiedProvider=apAssertProviderPaymentAction($pdo,$tenantId,$row,'void');
+        if (apPaymentHasLedgerActivity($pdo,$tenantId,$row)) {
+            throw new DomainException('Cleared payments need a linked accounting and bank correction; they cannot be voided here');
+        }
+        if (!$verifiedProvider && !empty($row['rail_external_ref'])
+            && !in_array((string)($row['rail_status']??''),['failed','returned','cancelled','rejected'],true)) {
+            throw new DomainException('This payout has been sent to its provider. Confirm a failure or cancellation before voiding it');
+        }
+        $q=$pdo->prepare('UPDATE ap_payments SET status="void",voided_at=NOW(),void_reason=:reason
+            WHERE tenant_id=:t AND id=:id AND status<>"void"');
+        $q->execute(['reason'=>$reason,'t'=>$tenantId,'id'=>$paymentId]);
+        if ($q->rowCount()!==1) throw new DomainException('Payment changed while voiding it');
+        apRefreshReleasedPaymentBillsForPayment($pdo,$tenantId,$paymentId);
+        if ($ownsTxn) $pdo->commit();
+        return ['before'=>$row];
+    } catch (Throwable $e) {
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
 function apPaymentTransitionAllowed(string $from, string $to): bool
 {
     static $allowed = [
@@ -1267,6 +1344,7 @@ function apClearPaymentLocked(
     if ((float) ($row['unallocated_amount'] ?? 0) > 0.005) {
         throw new \RuntimeException('Allocate the full payment before clearing it.');
     }
+    apAssertProviderPaymentAction($pdo, $tenantId, $row, 'clear');
 
     $posting = apPaymentPostingContext($tenantId, $row, $bankAccountId);
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
@@ -1886,6 +1964,7 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         $payStmt->execute(['id' => $paymentId]);
         $pay = $payStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$pay) throw new \RuntimeException("payment {$paymentId} not found");
+        apAssertProviderPaymentAction($pdo, (int)$pay['tenant_id'], $pay, 'allocate');
         if (!in_array($pay['status'], ['draft', 'queued'], true)) {
             throw new \RuntimeException('A released payment cannot be reallocated. Void or correct it, then create a replacement.');
         }

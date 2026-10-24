@@ -151,7 +151,8 @@ $assert('send requires ap.payment.send',       strpos($pay, "rbac_legacy_require
 $assert('send SoD guard',                      strpos($pay, 'cannot release your own payment') !== false);
 $assert('send refuses disputed bills',         strpos($pay, 'disputed","void"') !== false || strpos($pay, "disputed\",\"void") !== false);
 $assert('void recomputes bills from released payments only',
-                                                strpos($pay, 'apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id)') !== false);
+                                                strpos($pay, 'apVoidPayment($tid, $id, $reason)') !== false
+                                                && strpos((string)file_get_contents(__DIR__.'/../modules/ap/lib/ap.php'), 'apRefreshReleasedPaymentBillsForPayment($pdo,$tenantId,$paymentId)') !== false);
 
 $vend = (string) file_get_contents(__DIR__ . '/../modules/ap/api/vendors.php');
 $assert('vendors typeahead (q filter)',        strpos($vend, "!empty(\$_GET['q'])") !== false);

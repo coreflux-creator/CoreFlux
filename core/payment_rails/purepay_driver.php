@@ -98,7 +98,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             $recipientEmail, (int) $item['amount_cents'], 'wallet',
             'effective_date'=>$effectiveDate,'invoice_number'=>substr((string)($item['invoice_number']??$sourceRef),0,100),
         ], JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR));
-        $link = $this->claimLink($tenantId, $sourceRef, (int) $item['amount_cents'], $fingerprint, $apiKey);
+        $link = $this->claimLink($tenantId, $sourceRef, (int) $item['amount_cents'], $fingerprint, $apiKey, $recipientName);
         if (!hash_equals((string) $link['request_fingerprint'], $fingerprint)) {
             throw new PaymentRailsOriginateException('Pure//Pay idempotency conflict: this CoreFlux payment was previously sent with different details');
         }
@@ -301,13 +301,20 @@ class PurePayRailDriver implements PaymentRailsDriver
         }
     }
 
-    private function claimLink(int $tenantId, string $sourceRef, int $amountCents, string $fingerprint, string $apiKey): array
+    private function claimLink(int $tenantId, string $sourceRef, int $amountCents, string $fingerprint, string $apiKey, string $recipientName): array
     {
         $pdo=getDB();
         if (!$pdo || $pdo->inTransaction() || !(bool)$pdo->getAttribute(PDO::ATTR_AUTOCOMMIT)) throw new PaymentRailsOriginateException('Pure//Pay requires a durable claim outside a caller transaction');
-        $corePaymentId = preg_match('/^ap_payment:(\d+)$/', $sourceRef, $m) ? (int) $m[1] : null;
+        if (!preg_match('/^ap_payment:([1-9]\d*)$/D', $sourceRef, $m)) {
+            throw new PaymentRailsOriginateException('PurePay requires a canonical AP payment reference');
+        }
+        $corePaymentId=(int)$m[1];
         $pdo->beginTransaction();
         try {
+        // Serialize with void/allocation before committing an irrevocable provider attempt.
+        $paymentStmt=$pdo->prepare('SELECT * FROM ap_payments WHERE tenant_id=:t AND id=:id FOR UPDATE');
+        $paymentStmt->execute(['t'=>$tenantId,'id'=>$corePaymentId]); $payment=$paymentStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$payment) throw new PaymentRailsOriginateException('The tenant-owned AP payment was not found');
         $connection=$pdo->prepare('SELECT api_key_ct,status,key_scope FROM purepay_connections WHERE tenant_id=:t FOR UPDATE');
         $connection->execute(['t'=>$tenantId]);$current=$connection->fetch(\PDO::FETCH_ASSOC);
         if (!$current || $current['status']!=='active' || $current['key_scope']!=='read_write'
@@ -323,6 +330,42 @@ class PurePayRailDriver implements PaymentRailsDriver
         $stmt->execute(['t'=>$tenantId,'s'=>$sourceRef]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$row) throw new PaymentRailsOriginateException('Could not create Pure//Pay durable operation');
+        if ($fresh) {
+            if (!in_array($payment['status'],['draft','queued','sent'],true)
+                || (int)round((float)$payment['amount']*100)!==$amountCents
+                || (float)$payment['unallocated_amount']>0.005
+                || strtoupper((string)$payment['currency'])!=='USD'
+                || trim((string)$payment['vendor_name'])!==$recipientName) {
+                throw new PaymentRailsOriginateException('The AP payment changed or is not fully allocated; review it before dispatch');
+            }
+            $allocations=$pdo->prepare('SELECT a.amount_applied,b.id,b.tenant_id,b.vendor_name,b.currency,b.status,b.entity_id,b.amount_due,b.pwp_status
+                FROM ap_payment_allocations a LEFT JOIN ap_bills b ON b.id=a.bill_id
+                WHERE a.payment_id=:p ORDER BY a.bill_id,a.id FOR UPDATE');
+            $allocations->execute(['p'=>$corePaymentId]); $total=0; $billBalances=[];
+            foreach ($allocations->fetchAll(PDO::FETCH_ASSOC) as $allocation) {
+                if ((int)($allocation['tenant_id']??0)!==$tenantId
+                    || $allocation['vendor_name']!==$payment['vendor_name']
+                    || strtoupper((string)$allocation['currency'])!=='USD'
+                    || !in_array($allocation['status'],['approved','partially_paid'],true)
+                    || ($allocation['pwp_status']??'')==='awaiting_ar'
+                    || (int)($payment['entity_id']??0)<=0
+                    || (int)($allocation['entity_id']??0)!==(int)$payment['entity_id']
+                    || (float)$allocation['amount_applied']<=0) {
+                    throw new PaymentRailsOriginateException('The AP bill reservations no longer match this payment');
+                }
+                $total+=(int)round((float)$allocation['amount_applied']*100);
+                $billBalances[(int)$allocation['id']]=(int)round((float)$allocation['amount_due']*100);
+            }
+            if ($total!==$amountCents) throw new PaymentRailsOriginateException('The AP payment has no complete bill reservation');
+            $reserved=$pdo->prepare('SELECT a.amount_applied FROM ap_payment_allocations a
+                JOIN ap_payments p ON p.id=a.payment_id WHERE a.bill_id=:b AND p.tenant_id=:t
+                AND p.status IN ("draft","queued","sent") FOR UPDATE');
+            foreach ($billBalances as $billId=>$dueCents) {
+                $reserved->execute(['b'=>$billId,'t'=>$tenantId]);
+                $held=array_sum(array_map(static fn($amount)=>(int)round((float)$amount*100),$reserved->fetchAll(PDO::FETCH_COLUMN)));
+                if ($held>$dueCents) throw new PaymentRailsOriginateException('The AP bill has competing or excess reservations; reconcile it before dispatch');
+            }
+        }
         $row['__fresh'] = $fresh;
         $pdo->commit();
         return $row;

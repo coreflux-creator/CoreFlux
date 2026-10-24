@@ -9,10 +9,32 @@ require_once __DIR__.'/../core/purepay_service.php';
 require_once __DIR__.'/../core/payment_rails/purepay_driver.php';
 require_once __DIR__.'/../core/purepay_webhooks.php';
 require_once __DIR__.'/../core/migrate.php';
+require_once __DIR__.'/../modules/ap/lib/ap.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_purepay_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
+foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/ap/migrations/001_init.sql'))as$sql) {
+    if(preg_match('/CREATE TABLE IF NOT EXISTS (ap_bills|ap_payments|ap_payment_allocations)\s*\(/',$sql))$pdo->exec($sql);
+}
+$pdo->exec('ALTER TABLE ap_payments ADD entity_id BIGINT NULL, ADD disbursement_rail VARCHAR(40) NULL,
+    ADD rail_external_ref VARCHAR(160) NULL, ADD rail_status VARCHAR(40) NULL, ADD rail_originated_at DATETIME NULL');
+$pdo->exec('ALTER TABLE ap_bills ADD entity_id BIGINT NULL, ADD opening_cutover_id BIGINT NULL, ADD amount_credited DECIMAL(12,2) NOT NULL DEFAULT 0, ADD pwp_status VARCHAR(40) NULL');
+// Empty ledger tables allow native cancellation/refresh checks; this fixture never posts money.
+$pdo->exec('CREATE TABLE accounting_subledger_links (tenant_id BIGINT,source_module VARCHAR(40),source_record_id VARCHAR(160))');
+$pdo->exec('CREATE TABLE accounting_events (tenant_id BIGINT,source_module VARCHAR(40),source_record_id VARCHAR(160),status VARCHAR(40))');
+$pdo->exec('CREATE TABLE accounting_journal_entries (id BIGINT,tenant_id BIGINT,status VARCHAR(40))');
+$pdo->exec('CREATE TABLE placement_economic_obligations (tenant_id BIGINT,ap_bill_id BIGINT,status VARCHAR(40))');
+$seedAp=static function(int $id,int $tenant=1,string $name='Synthetic Vendor')use($pdo):void {
+    $pdo->prepare('INSERT INTO ap_bills(id,tenant_id,entity_id,bill_number,internal_ref,vendor_name,received_at,bill_date,due_date,total,amount_due,status)
+        VALUES (?,?,11,?,?,?,"2026-10-01","2026-10-01","2026-10-31",125,125,"approved")')->execute([$id,$tenant,'SYN-'.$id,'SYN-'.$id,$name]);
+    $pdo->prepare('INSERT INTO ap_payments(id,tenant_id,entity_id,vendor_name,pay_date,amount,unallocated_amount,status,disbursement_rail)
+        VALUES (?,?,11,?,"2026-10-21",125,0,"sent","purepay")')->execute([$id,$tenant,$name]);
+    $pdo->prepare('INSERT INTO ap_payment_allocations(payment_id,bill_id,amount_applied) VALUES (?,?,125)')->execute([$id,$id]);
+};
+foreach(array_merge(range(101,123),[140,141,142,143])as$id)$seedAp($id,1,$id===123?'Later Vendor':'Synthetic Vendor');
+$seedAp(201,2);
+$GLOBALS['__cf_request_tenant_id']=1;
 $passed=0;$check=static function(bool $ok,string $label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS {$label}\n";};
 $fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable $e){return true;}};
 $key='fixture-company-a';$otherKey='fixture-company-b';
@@ -81,7 +103,11 @@ $pdo->beginTransaction();
 $check($fails(fn()=>$send($item)) && !$link($item['external_ref']) && $postCount()===0,'caller transaction cannot strand an uncommitted attempt after provider IO');$pdo->rollBack();
 $check($fails(fn()=>$send(array_replace($item,['amount_cents'=>12.5]))) && $postCount()===0,'fractional cents rejected before a claim');
 $check($fails(fn()=>$send($item,array_replace($opts,['effective_date'=>'2026-02-30']))) && $postCount()===0,'invalid effective date rejected before a claim');
-$interleave=static function()use($send,$item,$link,$check){$check($fails=tryPurePayDuplicate($send,$item),'competing request is refused');$check($link($item['external_ref'])['status']==='creating','competing request cannot overwrite the first attempt state');};
+$interleave=static function()use($send,$item,$link,$check,$fails){
+    $check($fails(fn()=>apVoidPayment(1,101,'Synthetic concurrent void')),'void after the committed claim cannot release its reservation');
+    $check(tryPurePayDuplicate($send,$item),'competing request is refused');
+    $check($link($item['external_ref'])['status']==='creating','competing request cannot overwrite the first attempt state');
+};
 function tryPurePayDuplicate(callable $send,array $item):bool{try{$send($item);return false;}catch(PaymentRailsOriginateException $e){return true;}}
 $result=$send($item);
 $check($result['items'][0]['status']==='submitted' && $postCount()===2,'first valid attempt creates one bill and pays once');
@@ -147,6 +173,58 @@ $before=$postCount();$check($fails(fn()=>$send($newVendor)) && $postCount()===$b
 $nextVendor=array_replace($newVendor,['external_ref'=>'ap_payment:108']);$before=$postCount();
 $check($fails(fn()=>$send($nextVendor)) && $postCount()===$before,'another payment cannot bypass an uncertain vendor creation');
 $check($pdo->query('SELECT state FROM purepay_vendor_attempts WHERE core_vendor_ref="vendor:new"')->fetchColumn()==='needs_review','vendor attempt retains reconciliation state');
+// A lost response must hold the actual AP reservation, not only the adapter row.
+$mode='ok';
+$held=static function(callable $action,string $label)use($check):void{
+    $message='';try{$action();}catch(DomainException $e){$message=$e->getMessage();}
+    $check(str_contains($message,'PurePay'),$label);
+};
+foreach([102,103]as$id){
+    $before=$link('ap_payment:'.$id);
+    $held(fn()=>apVoidPayment(1,$id,'Synthetic lost-response void'), 'lost response cannot void AP payment '.$id);
+    $held(fn()=>apAllocatePayment($id,['allocations'=>[['bill_id'=>$id,'amount'=>1]]]),'lost response cannot reallocate AP payment '.$id);
+    $held(fn()=>apClearPayment(1,$id,'2026-10-21',null,null),'lost response cannot clear AP payment '.$id);
+    $check($link('ap_payment:'.$id)===$before
+        && $pdo->query('SELECT status FROM ap_payments WHERE id='.$id)->fetchColumn()==='sent',
+        'blocked AP action preserves the provider receipt and bill reservation');
+}
+$before=count($calls);
+apVoidPayment(1,140,'Synthetic void before claim');
+$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:140'])))
+    && !$link('ap_payment:140') && count($calls)===$before,
+    'void winning before the claim prevents any provider request');
+foreach([
+    ['external_ref'=>'ap_payment:141','amount_cents'=>13000],
+    ['external_ref'=>'ap_payment:142','recipient_name'=>'Different Vendor'],
+    ['external_ref'=>'ap_payment:99999'],
+    ['external_ref'=>'payroll_line:143'],
+]as$change){
+    $check($fails(fn()=>$send(array_replace($item,$change))) && count($calls)===$before,
+        'changed or missing AP source is rejected before provider IO');
+}
+$pdo->exec('UPDATE ap_payments SET unallocated_amount=1 WHERE id=143');
+$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:143']))) && count($calls)===$before,
+    'unallocated AP source cannot acquire a provider claim');
+$pdo->exec('UPDATE ap_bills SET amount_due=100 WHERE id=141');
+$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:141']))) && count($calls)===$before,
+    'a reduced bill balance cannot dispatch an excess reservation');
+$pdo->exec('UPDATE ap_bills SET pwp_status="awaiting_ar" WHERE id=142');
+$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:142']))) && count($calls)===$before,
+    'pay-when-paid change is rechecked in the durable claim');
+// Provider detail reconciliation supplies the terminal receipt missing from the lost POST.
+foreach($payments as&$paymentRow)if($paymentRow['bill_id']===$link('ap_payment:103')['purepay_bill_id'])$paymentRow['pay_status']='failed';
+unset($paymentRow);
+$check($driver->getStatusForTenant(1,'purepay:bill:'.$link('ap_payment:103')['purepay_bill_id'])==='failed',
+    'current provider detail reconciles the lost payment response');
+apVoidPayment(1,103,'Synthetic verified failure');
+$check($pdo->query('SELECT status FROM ap_payments WHERE id=103')->fetchColumn()==='void'
+    && $pdo->query('SELECT amount_due FROM ap_bills WHERE id=103')->fetchColumn()==='125.00',
+    'verified failure permits void while preserving the unpaid bill balance');
+$before=count($calls);
+$check($fails(fn()=>$send($lostPayment)) && count($calls)===$before,
+    'a voided failed attempt cannot dispatch another payment on retry');
+$check((int)$pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn()===0,
+    'provider hold and cancellation checks never post a journal');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/163_purepay_attempt_binding.sql'))as$sql)$pdo->exec($sql);
 $check($link($item['external_ref'])['connection_fingerprint']===purepayConnectionFingerprint(1,$key),'migration replay preserves original connection bindings');
 $pdo->exec('UPDATE purepay_payment_links SET core_payment_id=NULL');
