@@ -10,15 +10,32 @@ $pdo=getDB();
 if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'
     || (int)$pdo->query('SELECT is_simulation FROM tenants WHERE id=999')->fetchColumn()!==1
     || !defined('COREFLUX_STAGING') || !COREFLUX_STAGING) throw new RuntimeException('Staging identity mismatch');
-if (integrationInstanceId()!==null) { echo "Permanent Core integration identity verified; retained unchanged.\n"; exit(0); }
+$directory=dirname($root).'/private_html';
+$path=$directory.'/coreflux.integration.php';
+$allowWebRead=static function()use($root,$path):void {
+    // Use the same web-service group as the working private database config.
+    // The identity stays outside the webroot, with no group write or public access.
+    $group=filegroup($root.'/core/db.local.php');
+    if ($group===false || is_link($path) || realpath($path)!==$path
+        || fileowner($path)!==posix_geteuid() || !chgrp($path,$group) || !chmod($path,0640)) {
+        throw new RuntimeException('Cannot grant the web process private identity read access');
+    }
+};
+if (integrationInstanceId()!==null) {
+    $allowWebRead();
+    echo "Permanent Core integration identity verified; retained unchanged with private web read access.\n";
+    exit(0);
+}
 if ((int)$pdo->query('SELECT COUNT(*) FROM quanta_workspace_bindings')->fetchColumn()>0
     || (int)$pdo->query('SELECT COUNT(*) FROM integration_deliveries WHERE attempted_at IS NOT NULL')->fetchColumn()>0) {
     throw new RuntimeException('Prior integration state exists. Restore its permanent identity before continuing.');
 }
-$directory=dirname($root).'/private_html';
-if (!is_dir($directory) && !mkdir($directory,0700)) throw new RuntimeException('Cannot create private configuration directory');
+if (!is_dir($directory)) {
+    if (!mkdir($directory,0750) || !chgrp($directory,filegroup($root.'/core/db.local.php')) || !chmod($directory,0750)) {
+        throw new RuntimeException('Cannot create private configuration directory');
+    }
+}
 if (is_link($directory) || realpath($directory)!==$directory) throw new RuntimeException('Invalid private configuration directory');
-$path=$directory.'/coreflux.integration.php';
 $bytes=random_bytes(16);
 $bytes[6]=chr((ord($bytes[6])&0x0f)|0x40);$bytes[8]=chr((ord($bytes[8])&0x3f)|0x80);
 $hex=bin2hex($bytes);
@@ -31,5 +48,6 @@ try {
     try { if (fwrite($file,$content)!==strlen($content) || !fflush($file)) throw new RuntimeException('Private identity could not be saved completely'); }
     finally { fclose($file); }
 } finally { umask($oldMask); }
+$allowWebRead();
 if (integrationInstanceId()!==$uuid) throw new RuntimeException('Saved permanent identity did not verify');
 echo "Permanent Core integration identity initialized for isolated staging. Provider delivery remains disabled.\n";
