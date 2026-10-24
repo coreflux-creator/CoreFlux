@@ -308,7 +308,7 @@ function quantaRouteFor(array $routes, array $entry, array $workerPeople): array
     return $route;
 }
 
-function quantaImportLookup(int $tenantId, array $entryIds, bool $lock = false): array
+function quantaImportLookup(int $tenantId, array $entryIds, bool $lock = false, bool $review = false): array
 {
     if (!$entryIds) return [];
     $found = [];
@@ -319,7 +319,8 @@ function quantaImportLookup(int $tenantId, array $entryIds, bool $lock = false):
                     te.timesheet_id AS current_timesheet_id, te.bill_extracted_at, te.ap_extracted_at,
                     te.payroll_extracted_at, te.hours AS current_hours, te.hour_type AS current_hour_type,
                     te.category AS current_category, te.billable AS current_billable, te.description AS current_description,
-                    te.source AS current_source, te.source_system AS current_source_system, te.superseded_by_id
+                    te.source AS current_source, te.source_system AS current_source_system, te.superseded_by_id"
+                . ($review ? ", te.approved_by_user_id, te.approved_at, te.rate_snapshot_id, te.updated_at AS core_updated_at" : "") . "
                FROM quanta_time_imports qi
           LEFT JOIN time_entries te ON te.id = qi.time_entry_id AND te.tenant_id = qi.tenant_id
               WHERE qi.tenant_id = ? AND qi.quanta_entry_id IN ({$holders})" . ($lock ? ' FOR UPDATE' : '')

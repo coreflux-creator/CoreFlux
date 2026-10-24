@@ -48,6 +48,23 @@ function staffingWorkflowPayloadFields(array $columns): array
         'directory_tenant_id'=>['integer','Owning directory, separate from the operating workspace.'],
         'entity_type'=>['enum','Typed canonical person or placement reference.'],
         'number'=>['string','Immutable canonical business number; never a provider ID or credential.']];
+    $timeReview=[
+        'contract_version'=>['string','Exact time-review observation contract version.'],
+        'assignment_id'=>['string','Existing Quanta assignment, derived from the typed Core placement and provider workspace.'],
+        'assignment_version'=>['integer','Current Quanta assignment revision, verified again by the provider.'],
+        'source_entry_id'=>['string','Original imported Quanta entry ID; never a Core row ID.'],
+        'source_revision'=>['sha256','Opaque hash of current approved source time, including whole-week classification.'],
+        'core_tenant_id'=>['integer','Operating Core time workspace, distinct from person and placement directory ownership.'],
+        'core_revision'=>['sha256','Exact Core import, route, status and native approval evidence observed for every component.'],
+        'expected_version'=>['integer','Conditional provider review version; zero means no prior publication.'],
+        'components[].entry_id'=>['integer','Original Core time row in the operating workspace.'],
+        'components[].component'=>['enum','Original regular, overtime, doubletime or specific paid-leave component.'],
+        'components[].status'=>['draft|pending_review|approved|rejected','Observed native Core review status; does not approve Quanta source time.'],
+    ];
+    $add('quanta_time_review','integration_deliveries.payload_ct','body.','quanta',
+        '/api/v1/integrations/coreflux/time-reviews','core_to_quanta','2026-10-24.1',
+        'core/quanta/time_review_contract.php',$timeReview,'core_time_review',
+        'exact_import_and_native_approval_evidence; complete_components; original_receipt_recovery; no_time_or_financial_mutation');
     $publication = [
         'contract_version'=>['string','Exact onboarding publication contract version.'],
         'core_case_id'=>['uuid','Original Core onboarding case.'],

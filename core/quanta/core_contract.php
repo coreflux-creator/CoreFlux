@@ -125,6 +125,11 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
             ||($expected['version']??null)!==($body['expected_version']??0)+1
             ||($expected['projection_hash']??null)!==onboardingHash($publication)
             ||onboardingHash($expected['publication']??[])!==onboardingHash($publication))throw new InvalidArgumentException('Onboarding confirmation differs from the publication');
+    } elseif ($operation==='time.review') {
+        require_once __DIR__.'/time_review_contract.php';
+        $body=quantaTimeReviewBody($body);
+        if(integrationDeliveryHash($expected)!==integrationDeliveryHash(quantaTimeReviewExpected($workspaceId,$body))) throw new InvalidArgumentException('Time review acknowledgement differs from the request');
+        $id=$expected['id'];$path='/time-reviews';$codes=[200,201];
     } else { throw new InvalidArgumentException('Unsupported Quanta contract operation'); }
     $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.$path;
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);

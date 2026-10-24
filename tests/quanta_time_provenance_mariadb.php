@@ -9,7 +9,7 @@ require_once __DIR__.'/../core/quanta/sync.php';require_once __DIR__.'/../core/m
 $password=$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
 $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false];
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
-$db='coreflux_qorigin_'.(defined('COREFLUX_QPAYROLL_FIXTURE')?'payroll_':'').($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
+$db='coreflux_qorigin_'.(defined('COREFLUX_QPAYROLL_FIXTURE')?'payroll_':(defined('COREFLUX_QREVIEW_FIXTURE')?'review_':'')).($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
 $migrate=static function(string $file)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);};
 foreach(['147_quanta_time_integration.sql','148_quanta_worker_identity.sql','149_quanta_time_source_context.sql','159_quanta_workspace_binding.sql','165_quanta_time_workspace.sql','170_quanta_time_approval_evidence.sql']as$file)$migrate($file);

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../core/quanta/publication.php';
 require_once __DIR__ . '/../core/quanta/workspace.php';
 require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
+require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -131,6 +132,18 @@ try {
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
+
+    if (in_array($action,['time_review_preview','time_review_send','time_review_receipt'],true)) {
+        foreach(['time.view','placements.view','people.view'] as $permission) rbac_legacy_require($user,$permission);
+        if($action==='time_review_preview') {
+            if(!is_string($body['source_entry_id']??null)) throw new InvalidArgumentException('Choose imported Quanta time');
+            api_ok(quantaTimeReviewPreview($tenantId,$actorId,$body['source_entry_id']));
+        }
+        if(!is_int($body['delivery_id']??null) || $body['delivery_id']<=0 || !is_string($body['review_hash']??null)) throw new InvalidArgumentException('Choose the reviewed time status');
+        if($action==='time_review_receipt') api_ok(quantaTimeReviewReceipt($tenantId,$body['delivery_id'],$body['review_hash']));
+        if(($body['confirm_status']??null)!==true) throw new InvalidArgumentException('Review the status to share with Quanta');
+        api_ok(quantaTimeReviewSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
+    }
 
     if ($action === 'metadata_preview') {
         rbac_legacy_require($user, 'people.view');

@@ -3246,3 +3246,30 @@ specialized access; this dictionary exposes metadata, never those values.
 - All 112 relevant existing/new smoke scripts and 56 dashboard unit tests passed.
 - The full dashboard build passed; existing lint/build warnings remain.
 - Hosted deployment and the provider round trip are not validated by these tests.
+
+### 2026-10-24 — Return Core time review status to Quanta (candidate)
+
+Core can prepare a reviewed observation for one original Quanta entry and all
+its imported components. It checks the company binding, typed assignment and
+person references, original source approval, complete hours, native Core review
+state, and approval/rate evidence. The exchange carries no approval command,
+rates, private review notes, payroll instruction, or payment instruction.
+
+The portal reports the last shared observation as awaiting Core review,
+accepted in Core, or needs correction. Changed source hours, classification,
+approval, or assignment revision instead display source changed. The original
+operating Core time owner cannot be replaced by another workspace sharing the
+directory.
+
+Encrypted review, a locked final source check, one provider attempt, conditional
+publication version, and original receipt recovery protect this return path.
+An uncertain receipt remains recoverable after refresh and source changes.
+COREFLUX_QUANTA_TIME_REVIEW_DELIVERY defaults off. The field dictionary describes
+every transmitted observation field.
+
+Local contract checks and the dashboard build passed. Quanta's initial full-app
+candidate passed 97 tests with network blocked and an isolated database, plus
+its portal build. The later original-owner guard is undergoing the same hosted
+acceptance. Core's new disposable MariaDB lifecycle test is included in CI.
+The feature is not yet enabled in a live workspace; pilot publication and the
+portal walkthrough remain required.

@@ -7,6 +7,7 @@ import QuantaPublicationPanel from './QuantaPublicationPanel';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
 import QuantaMetadataPanel from './QuantaMetadataPanel';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
+import QuantaTimeReview from './QuantaTimeReview';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -414,7 +415,9 @@ export default function QuantaSettings() {
                 <td style={cell}><input type="checkbox" aria-label={`Select Quanta entry ${row.id}`} disabled={!!busy || !['ready', 'update', 'verify_source'].includes(row.status)} checked={selected.includes(row.id)} onChange={e => setSelected(prev => e.target.checked ? [...prev, row.id] : prev.filter(id => id !== row.id))} /></td>
                 <td style={cell}>{row.work_date || '—'}</td><td style={cell}>{workerName(workers.get(String(row.worker_id)))}</td><td style={cell}>{sites.get(String(row.worksite_id))?.name || row.worksite_id || '—'}<div style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{dimensionLabel(row.dimension_values, dimensions)}</div></td>
                 <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `${row.placement_number || 'Placement number unavailable'} · ${row.person_name}` : '—'}</td>
-                <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}<QuantaApprovalEvidence value={row.source_approval} /></td>
+                <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}<QuantaApprovalEvidence value={row.source_approval} />
+                  {row.status === 'imported' && <QuantaTimeReview entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
+                </td>
               </tr>)}</tbody>
             </table>
           </div>

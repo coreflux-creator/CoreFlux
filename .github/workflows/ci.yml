@@ -175,7 +175,9 @@ jobs:
           php tests/quanta_time_schema_mariadb.php
           php tests/quanta_time_approval_smoke.php
           php tests/quanta_time_current_smoke.php
+          php tests/quanta_time_review_smoke.php
           php tests/quanta_time_provenance_mariadb.php
+          php tests/quanta_time_review_mariadb.php
           php tests/quanta_payroll_inputs_mariadb.php
 
       - name: Verify PurePay attempts and company isolation
