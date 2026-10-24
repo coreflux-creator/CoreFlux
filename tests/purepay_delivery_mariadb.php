@@ -188,6 +188,9 @@ foreach([102,103]as$id){
         && $pdo->query('SELECT status FROM ap_payments WHERE id='.$id)->fetchColumn()==='sent',
         'blocked AP action preserves the provider receipt and bill reservation');
 }
+$pdo->exec('UPDATE ap_payments SET rail_status="failed",rail_external_ref="synthetic-cached-reference" WHERE id=102');
+$held(fn()=>apVoidPayment(1,102,'Synthetic stale UI failure'),
+    'cached AP failure status cannot release an uncertain provider attempt');
 $before=count($calls);
 apVoidPayment(1,140,'Synthetic void before claim');
 $check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:140'])))
@@ -216,6 +219,12 @@ foreach($payments as&$paymentRow)if($paymentRow['bill_id']===$link('ap_payment:1
 unset($paymentRow);
 $check($driver->getStatusForTenant(1,'purepay:bill:'.$link('ap_payment:103')['purepay_bill_id'])==='failed',
     'current provider detail reconciles the lost payment response');
+$pdo->exec('UPDATE ap_payments SET amount=126 WHERE id=103');
+$held(fn()=>apVoidPayment(1,103,'Synthetic amount drift'),'terminal receipt cannot release a changed AP amount');
+$pdo->exec('UPDATE ap_payments SET amount=125 WHERE id=103');
+$pdo->prepare('UPDATE purepay_connections SET api_key_ct=? WHERE tenant_id=1')->execute([encryptField('rotated-after-failure')]);
+$held(fn()=>apVoidPayment(1,103,'Synthetic changed connection'),'terminal receipt remains bound to its original company connection');
+$pdo->prepare('UPDATE purepay_connections SET api_key_ct=? WHERE tenant_id=1')->execute([encryptField($key)]);
 apVoidPayment(1,103,'Synthetic verified failure');
 $check($pdo->query('SELECT status FROM ap_payments WHERE id=103')->fetchColumn()==='void'
     && $pdo->query('SELECT amount_due FROM ap_bills WHERE id=103')->fetchColumn()==='125.00',

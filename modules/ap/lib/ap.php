@@ -1035,15 +1035,6 @@ function apPaymentHasLedgerActivity(\PDO $pdo, int $tenantId, array $payment): b
     return (bool) $event->fetchColumn();
 }
 
-/**
- * Payment state machine.
- *  - draft → queued | sent | void
- *  - queued → sent | void
- *  - sent → cleared | failed | void
- *  - failed → queued | void
- *  - cleared → void  (treat as reversal)
- *  - void → terminal
- */
 /** Caller holds the payment row lock; provider attempts outlive missing UI receipts. */
 function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, string $action): bool
 {
@@ -1064,7 +1055,7 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
     }
     if (!$attempt) {
         if (($payment['disbursement_rail'] ?? '') === 'purepay'
-            && (!empty($payment['rail_external_ref']) || !empty($payment['rail_originated_at']))) {
+            && (!empty($payment['rail_external_ref']) || !empty($payment['rail_originated_at']) || !empty($payment['rail_status']))) {
             throw new DomainException('The PurePay attempt is missing; reconcile this payment before changing it');
         }
         return false;
@@ -1074,6 +1065,8 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
     if (!in_array(strtolower((string)$attempt['status']), $allowed, true)
         || $attempt['source_ref'] !== 'ap_payment:'.$payment['id']
         || (!empty($attempt['core_payment_id']) && (int)$attempt['core_payment_id'] !== (int)$payment['id'])
+        || (int)$attempt['amount_cents'] !== (int)round((float)$payment['amount']*100)
+        || strtoupper((string)$payment['currency']) !== 'USD'
         || empty($attempt['purepay_bill_id']) || empty($attempt['purepay_payment_id'])
         || empty($attempt['last_synced_at']) || empty($attempt['connection_fingerprint'])) {
         throw new DomainException('This PurePay attempt still reserves its bills. Reconcile its provider result before changing the payment.');
@@ -1083,8 +1076,9 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
     require_once $service;
     $q = $pdo->prepare('SELECT api_key_ct,status FROM purepay_connections WHERE tenant_id=:t'.($mysql ? ' FOR UPDATE' : ''));
     $q->execute(['t'=>$tenantId]); $connection=$q->fetch(PDO::FETCH_ASSOC);
-    if (!$connection || $connection['status'] !== 'active'
-        || !hash_equals((string)$attempt['connection_fingerprint'], purepayConnectionFingerprint($tenantId,(string)decryptField($connection['api_key_ct'])))) {
+    $key=$connection ? (string)decryptField($connection['api_key_ct']) : '';
+    if (!$connection || $connection['status'] !== 'active' || $key===''
+        || !hash_equals((string)$attempt['connection_fingerprint'], purepayConnectionFingerprint($tenantId,$key))) {
         throw new DomainException('The PurePay company connection changed; reconcile this attempt before changing the payment');
     }
     return true;
@@ -1121,6 +1115,7 @@ function apVoidPayment(int $tenantId, int $paymentId, string $reason): array
     }
 }
 
+/** Payment state transitions; provider and ledger checks remain separately required. */
 function apPaymentTransitionAllowed(string $from, string $to): bool
 {
     static $allowed = [
