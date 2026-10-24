@@ -190,6 +190,9 @@ jobs:
         run: |
           php tests/purepay_core_connection_mariadb.php
           php tests/purepay_preview_continuity_smoke.php
+          php tests/purepay_core_endpoint_smoke.php
+          php tests/purepay_preview_origin_smoke.php
+          php tests/purepay_preview_origin_mariadb.php
 
       - name: Verify reviewed Core record links and response-loss reconciliation
         run: |

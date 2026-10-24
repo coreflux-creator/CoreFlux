@@ -19,9 +19,14 @@ function purepayCoreApiBase(): string
         : getenv('COREFLUX_PUREPAY_PREVIEW_API_BASE');
     if(defined('COREFLUX_PUREPAY_PREVIEW_API_BASE') || ($preview!==false && $preview!=='')) {
         if(!is_string($preview) || !defined('COREFLUX_STAGING') || COREFLUX_STAGING!==true
-            || $preview!=='https://beautiful-kalam-6.preview.emergentagent.com/api/v1') {
+            || !in_array($preview,[
+                'https://beautiful-kalam-6.preview.emergentagent.com/api/v1',
+                'https://pure-pay-support.preview.emergentagent.com/api/v1',
+            ],true)) {
             throw new RuntimeException('PurePay preview access requires the reviewed isolated staging destination.');
         }
+        // Admission is not migration: purepayCoreAssertPin still requires the
+        // saved origin, and review hashes bind every delivery to that origin.
         return $preview;
     }
     $base=rtrim(trim((string)(getenv('PUREPAY_CORE_API_BASE') ?: purepayApiBase())),'/');
