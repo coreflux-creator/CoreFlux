@@ -57,8 +57,8 @@ function fullCoreJobdivaReadPerson(string $candidate, callable $request): array
     if(!$ids||array_values(array_unique($ids))!==[$candidate]){$report['status']='candidate_identity_mismatch';return $finish($report);}
     $fields=[];
     foreach(['first_name'=>['firstname','candidatefirstname'],'last_name'=>['lastname','candidatelastname'],
-        'email_primary'=>['email','emailaddress','candidateemail','emailprimary'],
-        'phone_primary'=>['phone','phonenumber','candidatephone','phoneprimary']] as $field=>$aliases){
+        'email_primary'=>['email','emailaddress','candidateemail','emailprimary','primaryemail'],
+        'phone_primary'=>['phone','phonenumber','candidatephone','phoneprimary','phone1']] as $field=>$aliases){
         $values=[];$invalid=false;
         foreach($row as $key=>$value){
             if(!in_array(strtolower(preg_replace('/[^a-z0-9]/i','',(string)$key)),$aliases,true))continue;

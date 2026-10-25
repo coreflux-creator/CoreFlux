@@ -136,6 +136,11 @@ $check($readPerson([$alias])['report']['fields']['phone_primary']==='unrecognize
 $alias=$candidate;$alias['email']='';unset($alias['lastName']);
 $missing=$readPerson([$alias]);
 $check($missing['report']['fields']['email_primary']==='missing'&&$missing['report']['fields']['last_name']==='missing','blank and absent contact fields stay missing');
+$legacyAliases=['id'=>'201','first name'=>'PRIVATE-FIRST','last name'=>'PRIVATE-LAST','primary email'=>'PRIVATE@example.test','phone 1'=>'+1 (555) 123-4567'];
+$aliased=$readPerson([$legacyAliases]);
+$check($aliased['person']['fields']['email_primary']['value']==='private@example.test'
+    &&$aliased['person']['fields']['phone_primary']['value']==='+15551234567',
+    'inspection includes the existing bootstrap primary-email and phone-one aliases');
 foreach([401,403,429,500] as $status){
     $result=fullCoreJobdivaReadPerson('201',static fn()=>['status'=>$status,'body'=>'PRIVATE-TOKEN']);
     $check($result['person']===null&&$result['report']['http_status']===$status&&!str_contains(json_encode($result),'PRIVATE'),'person HTTP failure exposes only status');
