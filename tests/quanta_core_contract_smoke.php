@@ -33,6 +33,19 @@ $otherInstance=$person;$otherInstance['instance_id']='481e452a-5d11-4e2e-9daa-e9
 $check($fails(fn()=>quantaAssignmentPlan('a',array_replace($desired,['person'=>$otherInstance]),null)),'mixed installations are rejected');
 $remote=$desired+['id'=>$plan['remote_id'],'tenant_id'=>'a','version'=>1];
 $check(quantaAssignmentPlan('a',$desired,$remote)['status']==='unchanged','unchanged assignment produces no write');
+$locationUpdate=quantaAssignmentPlan('a',$located,$remote);
+$check($locationUpdate['body']===['expected_version'=>1,'work_location'=>$located['work_location']],
+    'legacy assignment without location accepts a location-only conditional update');
+$check(quantaAssignmentPlan('a',$located,$remote+['work_location'=>null])['body']===$locationUpdate['body'],
+    'legacy null location accepts the same conditional update');
+$remoteLocated=$remote+['work_location'=>$located['work_location']];
+$check(quantaAssignmentPlan('a',$located,$remoteLocated)['status']==='unchanged',
+    'matching location does not create another update');
+$check(quantaAssignmentPlan('a',$desired,$remoteLocated)['status']==='unchanged',
+    'older source without location does not clear provider location');
+$relocated=$located;$relocated['work_location']['city']='Québec';
+$check(quantaAssignmentPlan('a',$relocated,$remoteLocated)['body']===['expected_version'=>1,'work_location'=>$relocated['work_location']],
+    'changed location retains the existing version and relationships');
 $changed=array_replace($desired,['title'=>'Reviewed title','status'=>'active']);
 $update=quantaAssignmentPlan('a',$changed,$remote);
 $check($update['body']===['expected_version'=>1,'title'=>'Reviewed title','status'=>'active'],'update transmits only conditional reviewed fields');

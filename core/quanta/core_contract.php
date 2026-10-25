@@ -127,7 +127,7 @@ function quantaAssignmentPlan(string $workspaceId, array $desired, ?array $remot
     $changes=[];
     foreach (['title','end_date','status'] as $field) if (!array_key_exists($field,$remote) || $desired[$field]!==$remote[$field]) $changes[$field]=$desired[$field];
     if (array_key_exists('work_location',$desired)
-        && integrationDeliveryHash($desired['work_location'])!==integrationDeliveryHash($remote['work_location']??null)) {
+        && integrationDeliveryHash([$desired['work_location']])!==integrationDeliveryHash([$remote['work_location']??null])) {
         $changes['work_location']=$desired['work_location'];
     }
     $transitions=['draft'=>['draft','active','cancelled'],'active'=>['active','ended','cancelled']];
