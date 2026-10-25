@@ -101,7 +101,7 @@ try {
     if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'
         || !defined('COREFLUX_STAGING') || COREFLUX_STAGING!==true || integrationInstanceId()!==ASSIGNMENT_PILOT_INSTANCE
         || (int)$pdo->query('SELECT is_simulation FROM tenants WHERE id=999 AND is_active=1')->fetchColumn()!==1) throw new RuntimeException('Simulation identity changed');
-    foreach(['people','placements','ap','time'] as $module)if(effectiveTenantIdForModule($module,999)!==999)throw new RuntimeException('Directory ownership changed');
+    foreach(['people','placements','companies','ap','time'] as $module)if(effectiveTenantIdForModule($module,999)!==999)throw new RuntimeException('Directory ownership changed');
     if (!$pdo->query("SELECT id FROM people WHERE id=15 AND tenant_id=999 AND status='active' AND deleted_at IS NULL
             AND email_primary='core-integration-20261023@example.com'")->fetchColumn()
         || !$pdo->query("SELECT id FROM placements WHERE id=13 AND tenant_id=999 AND person_id=15 AND status='active'

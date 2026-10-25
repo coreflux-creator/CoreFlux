@@ -28,6 +28,8 @@ require_once PILOT_ROOT.'/core/sub_tenants.php';
 require_once PILOT_ROOT.'/core/quanta/onboarding_delivery.php';
 if (effectiveTenantIdForModule('people', PILOT_TENANT) !== PILOT_TENANT
     || effectiveTenantIdForModule('placements', PILOT_TENANT) !== PILOT_TENANT
+    || effectiveTenantIdForModule('companies', PILOT_TENANT) !== PILOT_TENANT
+    || effectiveTenantIdForModule('ap', PILOT_TENANT) !== PILOT_TENANT
     || integrationInstanceId() !== PILOT_INSTANCE
     || quantaApiBase() !== 'https://clockin-hub-16.preview.emergentagent.com/api/v1') {
     fwrite(STDERR, "The reviewed simulation identity, directories or preview destination changed.\n");

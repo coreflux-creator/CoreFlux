@@ -59,7 +59,7 @@ try {
         || (int)$pdo->query('SELECT is_simulation FROM tenants WHERE id=999 AND is_active=1')->fetchColumn()!==1) {
         throw new RuntimeException('Simulation identity changed');
     }
-    foreach (['people','placements','ap'] as $module) {
+    foreach (['people','placements','companies','ap'] as $module) {
         $phase='directory_'.$module;
         if (effectiveTenantIdForModule($module,999)!==999) throw new RuntimeException('Directory ownership changed');
     }
