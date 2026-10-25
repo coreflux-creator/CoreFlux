@@ -20,6 +20,20 @@ require_once __DIR__ . '/../../../core/record_numbers.php';
 
 const COMPANY_ROLES = ['client','customer','vendor','msp','prime_vendor','sub_vendor','referrer','partner'];
 
+/** Company endpoints live under People URLs, but their catalog has its own owner. */
+function companiesUseDirectoryScope(): int
+{
+    require_once __DIR__ . '/../../../core/sub_tenants.php';
+    $active = currentTenantId();
+    if (!$active) throw new RuntimeException('An active company workspace is required.');
+    $owner = effectiveTenantIdForModule('companies', $active);
+    if (!$owner) throw new RuntimeException('The company directory is unavailable.');
+    // Keep the authenticated workspace for permissions and audit. Only data
+    // access uses the configured Companies directory, independently of People.
+    setRequestModuleScope('companies');
+    return $owner;
+}
+
 function companiesGet(int $id): ?array
 {
     $row = scopedFind('SELECT * FROM companies WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL', ['id' => $id]);

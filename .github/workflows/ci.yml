@@ -491,6 +491,9 @@ jobs:
       - name: Verify staffing vendor identity and name collisions
         run: php tests/staffing_vendor_identity_db_check.php --confirm-disposable-fixture
 
+      - name: Verify native company directory ownership and isolated writes
+        run: php tests/company_directory_owner_db_check.php --confirm-disposable-fixture
+
       - name: Exercise approved-time AP bills with mixed locked rates
         run: php tests/ap_generated_time_bill_db_check.php --confirm-disposable-fixture
 
