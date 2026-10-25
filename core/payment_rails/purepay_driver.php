@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../payment_rails.php';
+require_once __DIR__ . '/../purepay_payment_evidence.php';
 
 class PurePayRailDriver implements PaymentRailsDriver
 {
@@ -77,7 +78,7 @@ class PurePayRailDriver implements PaymentRailsDriver
         if (!filter_var((string) $item['recipient_email'], FILTER_VALIDATE_EMAIL)) {
             throw new PaymentRailsOriginateException("Pure//Pay item {$index}: vendor remit email is invalid");
         }
-        if (!is_int($item['amount_cents']) || $item['amount_cents'] <= 0) {
+        if (!is_int($item['amount_cents']) || $item['amount_cents'] <= 0 || $item['amount_cents'] > 9999999999999) {
             throw new PaymentRailsOriginateException("Pure//Pay item {$index}: amount must be positive");
         }
         if (strtoupper((string) ($item['currency'] ?? '')) !== 'USD') {
@@ -111,7 +112,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             // An existing row is never authority for another provider POST. The
             // original claim may still be executing or its response may be lost.
             $confirmedStates=['submitted','processing','in_transit','initiated','posted','sent','settled','paid','completed','cleared','returned','reversed','cancelled','canceled','void','voided'];
-            if (($billId==='' && $paymentId==='') || !in_array($rawStatus,$confirmedStates,true)) {
+            if (($billId==='' && $paymentId==='') || !in_array($rawStatus,$confirmedStates,true) || !purepayStoredPaymentEvidence($link)) {
                 throw new PaymentRailsOriginateException('This Pure//Pay attempt already exists. Reconcile its bill and payment before another payout; no request was repeated.');
             }
             return [
@@ -170,19 +171,21 @@ class PurePayRailDriver implements PaymentRailsDriver
         $paymentsBefore = purepayCompleteBillPayments($apiKey, $billId);
         $alreadyPaid = $this->findPayment($paymentsBefore, '', $billId);
         if ($alreadyPaid) {
-            $paymentId = (string) ($alreadyPaid['id'] ?? $alreadyPaid['payment_id'] ?? '');
-            $status = (string) ($alreadyPaid['pay_status'] ?? $alreadyPaid['status'] ?? 'unknown');
+            $evidence = purepayPaymentEvidence($alreadyPaid, (int)$link['amount_cents'], $billId, $paymentId);
+            if (!$evidence['ok']) throw new PaymentRailsOriginateException('Pure//Pay existing payment needs reconciliation: '.$evidence['reason']);
+            $paymentId = $evidence['payment_id'];
+            $status = $evidence['status'];
             $status = $this->updateLink($tenantId, $sourceRef, [
                 'purepay_payment_id' => $paymentId !== '' ? $paymentId : null,
                 'status' => $status,
-                'response_json' => json_encode($alreadyPaid, JSON_UNESCAPED_SLASHES),
+                'response_json' => purepayPaymentReceipt($evidence, 'bill_history'),
                 'last_synced_at' => date('Y-m-d H:i:s'),
                 'last_error' => null,
                 'last_error_json' => null,
             ]);
             return [
                 'external_ref' => $sourceRef,
-                'status' => $this->normalizeStatus($status),
+                'status' => $this->confirmedStatus($tenantId, $sourceRef),
                 'rail_external_ref' => 'purepay:bill:' . $billId,
             ];
         }
@@ -190,8 +193,7 @@ class PurePayRailDriver implements PaymentRailsDriver
         $paid = purepayPayBill($apiKey, $billId, ['pay_via' => 'wallet'], purepayIdempotencyKey($tenantId, 'pay', $sourceRef));
         $paymentResource = is_array($paid['payment'] ?? null) ? $paid['payment'] : $paid;
         $paymentId = (string) ($paymentResource['payment_id'] ?? $paymentResource['id'] ?? '');
-        $status = (string) (purepayResource($paid, ['payment', 'bill'])['pay_status']
-            ?? purepayResource($paid, ['payment', 'bill'])['status'] ?? 'submitted');
+        $receipt = json_encode($paid, JSON_UNESCAPED_SLASHES);
 
         // Verify the payment through the provider's detail endpoint; fall back
         // to the list when the POST response omits its payment id.
@@ -199,27 +201,25 @@ class PurePayRailDriver implements PaymentRailsDriver
             ? purepayResource(purepayGetPayment($apiKey, $paymentId), ['payment'])
             : $this->findPayment(purepayCompleteBillPayments($apiKey, $billId), '', $billId);
         if ($remotePayment) {
-            $actualId=(string)($remotePayment['id']??$remotePayment['payment_id']??'');
-            $actualBill=(string)($remotePayment['bill_id']??$remotePayment['payable_id']??'');
-            if ($actualId==='' || ($paymentId!=='' && $actualId!==$paymentId) || $actualBill!==$billId) {
-                throw new PaymentRailsOriginateException('Pure//Pay payment detail does not confirm the expected payment and bill. Reconcile this attempt before another payout.');
-            }
-            $paymentId = (string) ($remotePayment['id'] ?? $remotePayment['payment_id'] ?? $paymentId);
-            $status = (string) ($remotePayment['pay_status'] ?? $remotePayment['status'] ?? $status);
+            $evidence = purepayPaymentEvidence($remotePayment, (int)$link['amount_cents'], $billId, $paymentId);
+            if (!$evidence['ok']) throw new PaymentRailsOriginateException('Pure//Pay payment detail needs reconciliation: '.$evidence['reason']);
+            $receipt = purepayPaymentReceipt($evidence, $paymentId !== '' ? 'detail' : 'bill_history');
+            $paymentId = $evidence['payment_id'];
+            $status = $evidence['status'];
         } else {
             $status = 'posted_unverified';
         }
         $status = $this->updateLink($tenantId, $sourceRef, [
             'purepay_payment_id' => $paymentId !== '' ? $paymentId : null,
             'status' => $status,
-            'response_json' => json_encode($paid, JSON_UNESCAPED_SLASHES),
+            'response_json' => $receipt,
             'last_synced_at' => date('Y-m-d H:i:s'),
             'last_error' => null,
             'last_error_json' => null,
         ]);
         return [
             'external_ref' => $sourceRef,
-            'status' => $this->normalizeStatus($status),
+            'status' => $remotePayment ? $this->confirmedStatus($tenantId, $sourceRef) : 'pending',
             'rail_external_ref' => 'purepay:bill:' . $billId,
         ];
     }
@@ -391,6 +391,8 @@ class PurePayRailDriver implements PaymentRailsDriver
         if ($current['status']==='settled_failed_review' || ($prior==='returned' && $next!=='returned')
             || ($prior==='cancelled' && !in_array($next,['returned','settled'],true))) $status=(string)$current['status'];
         elseif ($prior==='settled' && !in_array($next,['settled','returned'],true)) $status=$next==='failed'?'settled_failed_review':(string)$current['status'];
+        // A late processing response must not replace a concurrent terminal receipt.
+        if ($this->normalizeStatus($status) !== $next) unset($fields['response_json'], $fields['last_error'], $fields['last_error_json']);
         $fields['status']=$status;
         $allowed = ['purepay_vendor_id','purepay_bill_id','purepay_payment_id','status','response_json','last_error','last_error_json','last_synced_at'];
         $sets = []; $params = ['t'=>$tenantId,'s'=>$sourceRef];
@@ -421,10 +423,12 @@ class PurePayRailDriver implements PaymentRailsDriver
     {
         $matches=[];
         foreach ($rows as $row) {
-            if (!is_array($row)) continue;
-            $rid = (string) ($row['id'] ?? $row['payment_id'] ?? '');
-            $rbill = (string) ($row['bill_id'] ?? $row['payable_id'] ?? '');
-            if (($paymentId !== '' && $rid === $paymentId) || ($billId !== '' && $rbill === $billId)) $matches[]=$row;
+            if (!is_array($row) || (!isset($row['bill_id']) && !isset($row['payable_id']))) {
+                throw new PaymentRailsOriginateException('Pure//Pay history has an unidentified bill; reconcile it before another payout');
+            }
+            // Conflicting aliases must be examined, not hide a payment from the preflight.
+            if (($paymentId !== '' && in_array($paymentId, [$row['id']??null, $row['payment_id']??null], true))
+                || ($billId !== '' && in_array($billId, [$row['bill_id']??null, $row['payable_id']??null], true))) $matches[]=$row;
         }
         if (count($matches)>1) throw new PaymentRailsOriginateException('Multiple Pure//Pay payments match this bill; reconcile them before changing its status');
         return $matches[0]??null;
@@ -434,6 +438,14 @@ class PurePayRailDriver implements PaymentRailsDriver
     {
         // The interface has no tenant argument. Refuse a global provider-ID lookup.
         return 'unknown';
+    }
+
+    private function confirmedStatus(int $tenantId, string $sourceRef): string
+    {
+        $stmt = getDB()->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s');
+        $stmt->execute(['t'=>$tenantId, 's'=>$sourceRef]);
+        $link = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $link && purepayStoredPaymentEvidence($link) ? $this->normalizeStatus((string)$link['status']) : 'unknown';
     }
 
     public function getStatusForTenant(int $tenantId,string $railExternalRef): string
@@ -450,7 +462,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             if (!$link || $stmt->fetch(\PDO::FETCH_ASSOC)) return 'unknown';
             if (($link['status'] ?? '') === 'settled_failed_review') return 'unknown';
             $conn = purepayGetConnection((int) $link['tenant_id']);
-            if (!$conn || ($conn['status'] ?? '') !== 'active') return $this->normalizeStatus((string) $link['status']);
+            if (!$conn || ($conn['status'] ?? '') !== 'active') return 'unknown';
             if (!hash_equals((string)($link['connection_fingerprint']??''),purepayConnectionFingerprint($tenantId,(string)$conn['api_key']))) return 'unknown';
             $paymentId = (string) ($link['purepay_payment_id'] ?? '');
             $remote = $paymentId !== ''
@@ -459,38 +471,36 @@ class PurePayRailDriver implements PaymentRailsDriver
                     purepayCompleteBillPayments((string) $conn['api_key'], (string) ($link['purepay_bill_id'] ?? '')),
                     '', (string) ($link['purepay_bill_id'] ?? '')
                 );
-            if (!$remote) return $this->normalizeStatus((string) $link['status']);
-            $remotePaymentId=(string)($remote['id']??$remote['payment_id']??'');
-            if ($remotePaymentId==='' || ($paymentId!=='' && $remotePaymentId!==$paymentId)) return 'unknown';
-            $remoteBillId=(string)($remote['bill_id']??$remote['payable_id']??'');
-            if ((string)($link['purepay_bill_id']??'')!=='' && $remoteBillId!==$link['purepay_bill_id']) return 'unknown';
-            $status = (string) ($remote['pay_status'] ?? $remote['status'] ?? 'unknown');
+            if (!$remote) {
+                purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], 'payment_evidence_missing');
+                return 'unknown';
+            }
+            $evidence = purepayPaymentEvidence($remote, (int)$link['amount_cents'], (string)($link['purepay_bill_id'] ?? ''), $paymentId);
+            if (!$evidence['ok']) {
+                purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], $evidence['reason']);
+                return 'unknown';
+            }
+            $status = $evidence['status'];
             $status=$this->updateLink((int) $link['tenant_id'], (string) $link['source_ref'], [
                 'status'=>$status, 'last_synced_at'=>date('Y-m-d H:i:s'),
-                'purepay_payment_id'=>(string) ($remote['id'] ?? $remote['payment_id'] ?? $link['purepay_payment_id'] ?? ''),
+                'purepay_payment_id'=>$evidence['payment_id'],
+                'response_json'=>purepayPaymentReceipt($evidence, $paymentId !== '' ? 'detail' : 'bill_history'),
+                'last_error'=>null, 'last_error_json'=>null,
             ]);
-            return $this->normalizeStatus($status);
+            return $this->confirmedStatus($tenantId, (string)$link['source_ref']);
         } catch (\Throwable $e) {
-            // An incomplete inventory is not a new provider status. Preserve the
-            // durable attempt, but surface uncertainty instead of its cached label.
-            if ($e instanceof PurePayApiException && $e->errorCode === 'incomplete_collection') return 'unknown';
-            return $link ? $this->normalizeStatus((string) $link['status']) : 'unknown';
+            // Missing, ambiguous, or unreadable evidence cannot replay a cached terminal label.
+            if ($link) {
+                try { purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], 'payment_evidence_unavailable'); }
+                catch (\Throwable $_) { /* Return uncertainty even if the review marker could not be saved. */ }
+            }
+            return 'unknown';
         }
     }
 
     private function normalizeStatus(string $status): string
     {
-        $s = strtolower(trim($status));
-        return match ($s) {
-            'settled', 'paid', 'completed', 'cleared' => 'settled',
-            'returned', 'reversed' => 'returned',
-            'cancelled', 'canceled', 'void', 'voided' => 'cancelled',
-            'failed', 'payment_failed', 'declined' => 'failed',
-            'posted', 'sent' => 'posted',
-            'submitted', 'processing', 'in_transit', 'initiated' => 'submitted',
-            'creating', 'bill_created', 'ready_to_pay', 'pending', 'pushed_unverified', 'posted_unverified', 'needs_review' => 'pending',
-            default => 'unknown',
-        };
+        return purepayPaymentStatus($status);
     }
 
     public function metadata(): array

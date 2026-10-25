@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/purepay_service.php';
+require_once __DIR__ . '/purepay_payment_evidence.php';
 
 function purepayWebhookVerify(string $secret, string $timestamp, string $rawBody, string $signature, int $toleranceSeconds = 300): array
 {
@@ -131,6 +132,11 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
         || ($paymentId!=='' && !empty($link['purepay_payment_id']) && $paymentId!==$link['purepay_payment_id'])) {
         return ['outcome'=>'needs_review','reason'=>'provider_identity_conflict'];
     }
+    $moneyEvidence = purepayPaymentEvidence($data, (int)$link['amount_cents'], $billId, $paymentId);
+    if (!$moneyEvidence['ok']) {
+        purepayHoldPaymentEvidence($pdo, $tenantId, (string)$link['source_ref'], $moneyEvidence['reason']);
+        return ['outcome'=>'needs_review','reason'=>$moneyEvidence['reason']];
+    }
     if ($link['status']==='settled_failed_review' || in_array($link['status'],['returned','reversed'],true)) return ['outcome'=>'needs_review','reason'=>'terminal_result_requires_review'];
     if (in_array(strtolower((string) $link['status']), ['settled', 'paid', 'completed', 'cleared'], true)
         && $remoteStatus === 'failed') {
@@ -142,7 +148,7 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
                 status=:s, response_json=:j, last_error=:e, last_error_json=NULL,
                 last_synced_at=NOW(), updated_at=NOW() WHERE tenant_id=:t AND id=:id'
     )->execute([
-        'p'=>$paymentId,'s'=>$remoteStatus,'j'=>json_encode($payload, JSON_UNESCAPED_SLASHES),
+        'p'=>$paymentId,'s'=>$remoteStatus,'j'=>purepayPaymentReceipt($moneyEvidence, 'signed_webhook'),
         'e'=>$remoteStatus === 'settled_failed_review' ? 'Provider sent a failure after settlement; review before changing the AP or GL state.' : null,
         't'=>$tenantId,'id'=>$link['id'],
     ]);
@@ -176,12 +182,26 @@ function purepayApplyPaymentStatus(int $tenantId, int $corePaymentId, string $re
     if ($ownsTransaction) $pdo->beginTransaction();
     try {
         $load = $pdo->prepare(
-            'SELECT status FROM ap_payments
+            'SELECT * FROM ap_payments
               WHERE tenant_id=:t AND id=:id AND disbursement_rail="purepay" FOR UPDATE'
         );
         $load->execute(['t'=>$tenantId,'id'=>$corePaymentId]);
         $payment = $load->fetch(\PDO::FETCH_ASSOC);
         if ($payment) {
+            // Polling and callbacks both reach this path. Recheck the durable
+            // receipt under the AP lock before a terminal result can release bills.
+            if (in_array($remoteStatus, ['settled','paid','completed','cleared','failed','returned','cancelled'], true)) {
+                require_once __DIR__ . '/../modules/ap/lib/ap.php';
+                if (!apAssertProviderPaymentAction($pdo, $tenantId, $payment,
+                    purepayPaymentStatus($remoteStatus) === 'settled' ? 'clear' : 'void')) {
+                    throw new DomainException('PurePay terminal result is missing its reserved payment evidence');
+                }
+                $receipt = $pdo->prepare('SELECT status FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s');
+                $receipt->execute(['t'=>$tenantId, 's'=>'ap_payment:'.$corePaymentId]);
+                if (purepayPaymentStatus((string)$receipt->fetchColumn()) !== purepayPaymentStatus($remoteStatus)) {
+                    throw new DomainException('PurePay terminal result conflicts with its saved payment evidence');
+                }
+            }
             // Settlement is only a provider status. A failed payout must release
             // the bill; a cash posting is still made by the normal AP clear flow.
             $failed = in_array($remoteStatus, ['failed', 'returned', 'cancelled'], true)

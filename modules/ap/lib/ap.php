@@ -1074,6 +1074,10 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
     $service = __DIR__.'/../../../core/purepay_service.php';
     if (!is_file($service)) throw new DomainException('PurePay reconciliation is required in full Core');
     require_once $service;
+    require_once __DIR__.'/../../../core/purepay_payment_evidence.php';
+    if (!purepayStoredPaymentEvidence($attempt)) {
+        throw new DomainException('This PurePay result lacks verified payment amount and currency. Reconcile it before changing the payment.');
+    }
     $q = $pdo->prepare('SELECT api_key_ct,status FROM purepay_connections WHERE tenant_id=:t'.($mysql ? ' FOR UPDATE' : ''));
     $q->execute(['t'=>$tenantId]); $connection=$q->fetch(PDO::FETCH_ASSOC);
     $key=$connection ? (string)decryptField($connection['api_key_ct']) : '';

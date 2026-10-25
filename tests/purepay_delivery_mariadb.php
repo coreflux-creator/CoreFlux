@@ -47,8 +47,8 @@ $vendor=['id'=>'vendor-1','display_name'=>'Synthetic Vendor','email'=>'vendor@ex
 $item=['external_ref'=>'ap_payment:101','recipient_name'=>'Synthetic Vendor','recipient_ref'=>'vendor:1','recipient_email'=>'vendor@example.test','amount_cents'=>12500,'currency'=>'USD','invoice_number'=>'SYNTH-101'];
 $opts=['tenant_id'=>1,'effective_date'=>'2026-10-21'];
 $driver=new PurePayRailDriver();
-$calls=[];$bills=[];$payments=[];$vendors=[$vendor];$mode='ok';$interleave=null;
-$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$calls,&$bills,&$payments,&$vendors,&$mode,&$interleave,$vendor,$pdo,$check){
+$calls=[];$bills=[];$payments=[];$vendors=[$vendor];$mode='ok';$interleave=null;$preexisting=null;$detailOverride=[];
+$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$calls,&$bills,&$payments,&$vendors,&$mode,&$interleave,&$preexisting,&$detailOverride,$vendor,$pdo,$check){
     $path=parse_url($url,PHP_URL_PATH);$body=$json===null?[]:json_decode($json,true);$calls[]=[$method,$path,$body,$headers];
     if($method==='POST')$check(!$pdo->inTransaction(),'each provider mutation follows a committed durable claim');
     if($interleave!==null){$callback=$interleave;$interleave=null;$callback($method,$path);}
@@ -70,6 +70,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     }
     if($method==='POST' && $path==='/api/v1/bills'){
         $id='bill-'.(count($bills)+1);$bills[$id]=$body+['id'=>$id];
+        if($preexisting!==null){$payment='existing-'.count($payments);$payments[$payment]=$preexisting+['id'=>$payment,'bill_id'=>$id];}
         if($mode==='bill_timeout'){ $e=new PurePayApiException('Synthetic lost bill response');$e->outcomeUncertain=true;throw $e; }
         return ['status'=>200,'body'=>json_encode(['bill'=>$bills[$id]])];
     }
@@ -78,7 +79,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         if(!in_array($mode,['scoped_payments','scoped_incomplete'],true))return ['status'=>404,'body'=>'{"detail":"Not Found"}'];
         $bill=rawurldecode($match[1]);$rows=[];
         foreach($payments as$row)if(($row['bill_id']??$row['payable_id']??'')===$bill)$rows[]=[
-            'id'=>$row['id'],'bill_id'=>$bill,'status'=>$row['pay_status']??$row['status']??null,'amount'=>null,'currency'=>null];
+            'id'=>$row['id'],'bill_id'=>$bill,'status'=>$row['pay_status']??$row['status']??null,'amount'=>$row['amount']??null,'currency'=>$row['currency']??null];
         return ['status'=>200,'body'=>json_encode(['contract_version'=>'2026-10-25.1','organization_id'=>'org-a','bill_id'=>$bill,
             'complete'=>$mode==='scoped_payments','total'=>count($rows),'items'=>$rows,
             'consistency'=>'rechecked_read_not_transactional_snapshot','observed_at'=>'2026-10-25T02:40:00+00:00'])];
@@ -90,19 +91,25 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         return ['status'=>200,'body'=>json_encode(['payments'=>array_values($payments)])];
     }
     if($method==='POST' && preg_match('~/bills/([^/]+)/pay$~',$path,$m)){
-        $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing'];
+        $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing','amount'=>'125.00','currency'=>'USD'];
         if($mode==='payment_timeout'){ $e=new PurePayApiException('Synthetic lost payment response');$e->outcomeUncertain=true;throw $e; }
         return ['status'=>200,'body'=>json_encode(['payment'=>$payments[$id]])];
     }
     if($method==='GET' && str_starts_with($path,'/api/v1/payments/')){
+        if($mode==='detail_failure')return ['status'=>503,'body'=>'{"detail":"Unavailable"}'];
+        if($mode==='detail_missing')return ['status'=>404,'body'=>'{"detail":"Not Found"}'];
+        if(in_array($mode,['settled_then_get_failure','settled_then_stale_success'],true)) {
+            $racedPayment=$payments[basename($path)];
+            $racedPayment['payment_id']=$racedPayment['id'];$racedPayment['pay_status']='settled';
+            $outcome=purepayWebhookProcess(1,'raced-settlement','payment.settled',['data'=>$racedPayment],purepayConnectionFingerprint(1,'fixture-company-a'));
+            $check(($outcome['status']??'')==='settled','concurrent signed result includes verified reservation evidence');
+        }
         if($mode==='settled_then_get_failure'){
-            $pdo->exec('UPDATE purepay_payment_links SET status="settled" WHERE source_ref="ap_payment:105" AND tenant_id=1');
             throw new PurePayApiException('Synthetic detail read failed after webhook');
         }
-        if($mode==='settled_then_stale_success')$pdo->exec('UPDATE purepay_payment_links SET status="settled" WHERE source_ref="ap_payment:109" AND tenant_id=1');
         if($mode==='wrong_payment')return ['status'=>200,'body'=>json_encode(['payment'=>['id'=>'different-payment','bill_id'=>$payments[basename($path)]['bill_id'],'pay_status'=>'settled']])];
         if($mode==='wrong_bill')return ['status'=>200,'body'=>json_encode(['payment'=>array_replace($payments[basename($path)],['bill_id'=>'different-bill'])])];
-        return ['status'=>200,'body'=>json_encode(['payment'=>$payments[basename($path)]])];
+        return ['status'=>200,'body'=>json_encode(['payment'=>array_replace($payments[basename($path)],$detailOverride)])];
     }
     throw new RuntimeException('Unexpected fixture route '.$method.' '.$path);
 };
@@ -276,14 +283,86 @@ $pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL WHERE sourc
 $scopedBefore=$link('ap_payment:144');
 foreach(['scoped_incomplete','scoped_failure']as$failedMode){$mode=$failedMode;
     $check($driver->getStatusForTenant(1,'purepay:bill:'.$scoped['purepay_bill_id'])==='unknown'
-        && $link('ap_payment:144')===$scopedBefore,'failed or incomplete scoped history preserves the durable attempt without a cached success');
+        && $link('ap_payment:144')['status']===$scopedBefore['status']
+        && $link('ap_payment:144')['response_json']===$scopedBefore['response_json']
+        && !purepayStoredPaymentEvidence($link('ap_payment:144')),'failed or incomplete scoped history preserves the receipt but holds cached success for review');
 }
 $mode='ok';
+// Identity alone is not evidence that the entire reserved obligation was paid.
+$badMoney=[['amount'=>'40.00'],['amount'=>null],['amount'=>'125.001'],['currency'=>null],['currency'=>'CAD'],
+    ['amount_cents'=>125],['allocated'=>40],['allocations'=>[['amount'=>40]]],['payment_id'=>'conflicting-alias'],['pay_status'=>'settled','status'=>'failed']];
+foreach($badMoney as$i=>$change){
+    $id=150+$i;$seedAp($id);$candidate=array_replace($item,['external_ref'=>'ap_payment:'.$id]);
+    $previousPayments=$payments;
+    $preexisting=array_replace(['pay_status'=>'settled','amount'=>'125.00','currency'=>'USD'],$change);$before=$payCount();
+    $check($fails(fn()=>$send($candidate)) && $payCount()===$before && $link($candidate['external_ref'])['status']==='needs_review',
+        'existing partial or conflicting payment cannot settle the reservation or trigger a new payout');
+    $before=count($calls);
+    $check($fails(fn()=>$send($candidate)) && count($calls)===$before,'held existing payment cannot be reposted on retry');
+    $payments=$previousPayments;
+}
+$seedAp(160);$preexisting=['pay_status'=>'settled','amount'=>'125.00','currency'=>'USD'];$before=$payCount();
+$check($send(array_replace($item,['external_ref'=>'ap_payment:160']))['items'][0]['status']==='settled' && $payCount()===$before,
+    'matching full preexisting payment is adopted without another payout');
+$preexisting=null;
+foreach($badMoney as$i=>$change){
+    $id=170+$i;$seedAp($id);$candidate=array_replace($item,['external_ref'=>'ap_payment:'.$id]);$detailOverride=$change;$before=$payCount();
+    $check($fails(fn()=>$send($candidate)) && $payCount()===$before+1 && $link($candidate['external_ref'])['status']==='needs_review',
+        'POST acknowledgement cannot substitute for full matching payment detail');
+    $before=count($calls);
+    $check($fails(fn()=>$send($candidate)) && count($calls)===$before,'unverified payment detail preserves one durable payout attempt');
+}
+$detailOverride=[];
+$seedAp(180);$candidate=array_replace($item,['external_ref'=>'ap_payment:180']);$send($candidate);$moneyLink=$link($candidate['external_ref']);
+$moneyId=$moneyLink['purepay_payment_id'];$moneyRef='purepay:bill:'.$moneyLink['purepay_bill_id'];
+$payments[$moneyId]['pay_status']='settled';$validPayment=$payments[$moneyId];
+foreach($badMoney as$change){
+    $payments[$moneyId]=$validPayment;
+    $check($driver->getStatusForTenant(1,$moneyRef)==='settled','fresh matching detail can establish or restore evidence');
+    $payments[$moneyId]=array_replace($validPayment,$change);$priorReceipt=$link($candidate['external_ref'])['response_json'];
+    $check($driver->getStatusForTenant(1,$moneyRef)==='unknown' && $link($candidate['external_ref'])['response_json']===$priorReceipt
+        && !purepayStoredPaymentEvidence($link($candidate['external_ref'])),'mismatched current detail holds even a previously valid settled receipt');
+    $held(fn()=>apClearPayment(1,180,'2026-10-21',null,null),'held money evidence cannot clear the full Core reservation');
+    $held(fn()=>purepayApplyPaymentStatus(1,180,'settled',$pdo),'terminal projection cannot bypass held evidence');
+    $before=count($calls);$check($fails(fn()=>$send($candidate)) && count($calls)===$before,'a held cached settlement cannot replay as successful');
+}
+$payments[$moneyId]=$validPayment;
+foreach(['detail_failure','detail_missing']as$failedMode){
+    $mode='ok';$driver->getStatusForTenant(1,$moneyRef);$mode=$failedMode;
+    $check($driver->getStatusForTenant(1,$moneyRef)==='unknown' && !purepayStoredPaymentEvidence($link($candidate['external_ref'])),
+        'missing or unreadable current detail cannot fall back to cached settlement');
+    $held(fn()=>apClearPayment(1,180,'2026-10-21',null,null),'unavailable evidence holds ledger clearance');
+}
+$mode='ok';$driver->getStatusForTenant(1,$moneyRef);
+$pdo->exec('UPDATE purepay_payment_links SET response_json=NULL WHERE source_ref="ap_payment:180"');
+$held(fn()=>apClearPayment(1,180,'2026-10-21',null,null),'legacy status-only settlement requires current money evidence');
+$driver->getStatusForTenant(1,$moneyRef);
+// Bill-only lookup must validate the same money as payment detail.
+$mode='scoped_payments';$payments[$moneyId]['amount']='40.00';
+$pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL WHERE source_ref="ap_payment:180"');
+$check($driver->getStatusForTenant(1,$moneyRef)==='unknown' && $link('ap_payment:180')['purepay_payment_id']===null,
+    'bill history cannot attach a partial payment as full settlement');
+$payments[$moneyId]=$validPayment;$driver->getStatusForTenant(1,$moneyRef);$mode='ok';
+// Signed terminal callbacks with mismatched money must not release live AP reservations.
+$seedAp(181);$send(array_replace($item,['external_ref'=>'ap_payment:181']));$moneyHook=$link('ap_payment:181');
+$hookData=['bill_id'=>$moneyHook['purepay_bill_id'],'payment_id'=>$moneyHook['purepay_payment_id'],
+    'pay_status'=>'failed','amount'=>'125.00','currency'=>'USD'];
+foreach([['amount'=>'40.00'],['amount'=>null],['currency'=>null],['currency'=>'CAD'],['allocated'=>40]]as$change){
+    $outcome=purepayWebhookProcess(1,'bad-money','payment.failed',['data'=>array_replace($hookData,$change)],purepayConnectionFingerprint(1,$key));
+    $check($outcome['outcome']==='needs_review' && !purepayStoredPaymentEvidence($link('ap_payment:181'))
+        && $pdo->query('SELECT status FROM ap_payments WHERE id=181')->fetchColumn()==='sent',
+        'signed failure with missing or mismatched money cannot release its AP reservation');
+    $held(fn()=>apVoidPayment(1,181,'Synthetic unmatched failure'),'unverified callback cannot authorize cancellation');
+}
+$outcome=purepayWebhookProcess(1,'good-money','payment.failed',['data'=>$hookData],purepayConnectionFingerprint(1,$key));
+$check($outcome['outcome']==='updated' && $pdo->query('SELECT status FROM ap_payments WHERE id=181')->fetchColumn()==='failed',
+    'corrected signed evidence can release exactly the matched reservation');
+$check((int)$pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn()===0,'money reconciliation tests never post a journal');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/163_purepay_attempt_binding.sql'))as$sql)$pdo->exec($sql);
 $check($link($item['external_ref'])['connection_fingerprint']===purepayConnectionFingerprint(1,$key),'migration replay preserves original connection bindings');
 $pdo->exec('UPDATE purepay_payment_links SET core_payment_id=NULL');
 $hookBill=$link($item['external_ref'])['purepay_bill_id'];$hookPayment=$link($item['external_ref'])['purepay_payment_id'];
-$hook=static fn($data,$event='payment.settled',$fingerprint=null)=>purepayWebhookProcess(1,'synthetic-event',$event,['data'=>$data+['pay_status'=>$event==='payment.settled'?'settled':'failed']],$fingerprint??purepayConnectionFingerprint(1,$key));
+$hook=static fn($data,$event='payment.settled',$fingerprint=null)=>purepayWebhookProcess(1,'synthetic-event',$event,['data'=>$data+['pay_status'=>$event==='payment.settled'?'settled':'failed','amount'=>'125.00','currency'=>'USD']],$fingerprint??purepayConnectionFingerprint(1,$key));
 $prior=$link($item['external_ref']);
 foreach ([['pay_status'=>'processing'], ['pay_status'=>'created'], ['pay_status'=>null], ['pay_status'=>'failed','status'=>'processing']] as $badResult) {
     $check($hook($badResult+['bill_id'=>$hookBill,'payment_id'=>$hookPayment], 'payment.failed')['reason']==='payment_status_conflict'

@@ -191,6 +191,7 @@ jobs:
         run: |
           php tests/purepay_collection_completeness_smoke.php
           php tests/purepay_bill_payment_history_smoke.php
+          php tests/purepay_payment_evidence_smoke.php
           php tests/purepay_delivery_mariadb.php
 
       - name: Verify AP reservations across concurrent transaction snapshots
