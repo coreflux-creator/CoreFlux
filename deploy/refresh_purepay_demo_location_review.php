@@ -7,6 +7,15 @@ const DEMO_LOCATION_INSTANCE='9f4b6dfb-e52e-464c-9a9d-af7766928ddf';
 const DEMO_LOCATION_BASE='https://pure-pay-support.preview.emergentagent.com/api/v1';
 const DEMO_LOCATION_ORG='org_purepay_demo';
 
+function purepayDemoLocationConnectionPreserved(array $before,array $after): bool
+{
+    // updated_at is maintained by the database on the native confirmation UPDATE.
+    foreach (['binding_hash','verified_by','verified_at','updated_at'] as $field) {
+        unset($before[$field],$after[$field]);
+    }
+    return $before===$after;
+}
+
 /** True only for the single reviewed schema delta; false for an exact completed replay. */
 function purepayDemoLocationReviewDelta(array $row,array $review,string $key): bool
 {
@@ -94,9 +103,7 @@ try {
     $beforeAudit=$auditCount();
     $assertPreserved=static function()use($pdo,$row,$deliveries,$ap):void {
         $after=purepayCoreConnection($pdo,999);
-        $before=$row;
-        foreach (['binding_hash','verified_by','verified_at'] as $field) {unset($before[$field],$after[$field]);}
-        if ($before!==$after || purepayPreviewOriginRows($pdo)!==$deliveries
+        if (!$after || !purepayDemoLocationConnectionPreserved($row,$after) || purepayPreviewOriginRows($pdo)!==$deliveries
             || $pdo->query('SELECT * FROM purepay_connections ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC)!==$ap) {
             throw new RuntimeException('Unrelated state changed');
         }

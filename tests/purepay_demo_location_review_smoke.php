@@ -29,6 +29,12 @@ $assert(purepayDemoLocationReviewDelta($row,$review,$key),'Exact schema delta di
 $complete=$row;$complete['binding_hash']=$review['review_hash'];
 $verified=array_replace($review,['verified'=>true]);
 $assert(!purepayDemoLocationReviewDelta($complete,$verified,$key),'Exact replay requested another mutation');
+$after=array_replace($complete,['verified_by'=>4,'verified_at'=>'2026-10-25 16:00:00','updated_at'=>'2026-10-25 16:00:00']);
+$assert(purepayDemoLocationConnectionPreserved($row,$after),'Native confirmation timestamps counted as unrelated data');
+foreach (['revision'=>4,'api_key_ct'=>'replacement-ciphertext','remote_organization_id'=>'foreign-org','status'=>'revoked'] as $field=>$value) {
+    $assert(!purepayDemoLocationConnectionPreserved($row,array_replace($after,[$field=>$value])),
+        'Unrelated connection mutation was accepted');
+}
 foreach (['id'=>2,'tenant_id'=>2,'revision'=>4,'status'=>'revoked','core_instance_id'=>'different-instance',
     'remote_organization_id'=>'foreign-org','remote_organization_name'=>'Foreign company',
     'remote_api_base'=>'https://purepay.online/api/v1','binding_hash'=>str_repeat('0',64)] as $field=>$value) {
