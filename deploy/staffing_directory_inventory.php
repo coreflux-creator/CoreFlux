@@ -68,7 +68,7 @@ function fullCoreStaffingPilotInventory(PDO $pdo, array $pilot): array
         if (!is_int($pilot[$key] ?? null) || $pilot[$key] <= 0) throw new InvalidArgumentException('Explicit positive pilot identities required');
     }
     if (!is_string($pilot['workspace_name'] ?? null) || trim($pilot['workspace_name']) === '') throw new InvalidArgumentException('Explicit workspace name required');
-    foreach (['person','placement'] as $entity) {
+    foreach (['person','placement','job'] as $entity) {
         $expected = $pilot['jobdiva_ids'][$entity] ?? null;
         if (!is_string($expected) || $expected === '' || strlen($expected) > 128 || preg_match('/[\x00-\x20\x7f]/', $expected)) {
             throw new InvalidArgumentException('Explicit opaque JobDiva identities required');
@@ -105,15 +105,24 @@ function fullCoreStaffingPilotInventory(PDO $pdo, array $pilot): array
     // Only fixed, reviewed column names enter SQL. Return presence, never values.
     $result['placement_fields'] = [];
     foreach (['accounting_entity_id','branch','workers_comp_class','client_id','end_client_company_id',
-        'job_id','worksite_country','worksite_state','engagement_type','start_date','end_date','status'] as $field) {
+        'staffing_job_id','jobdiva_job_id','worksite_country','worksite_state','engagement_type','start_date','end_date','status'] as $field) {
         if (!in_array($field,$columns['placements'],true)) { $result['placement_fields'][$field] = 'column_missing'; continue; }
-        $present = str_ends_with($field,'_id') ? '`'.$field.'` > 0' : "TRIM(CAST(`$field` AS CHAR)) <> ''";
+        $present = in_array($field,['accounting_entity_id','client_id','end_client_company_id','staffing_job_id'],true)
+            ? '`'.$field.'` > 0' : "TRIM(CAST(`$field` AS CHAR)) <> ''";
         $s = $pdo->prepare('SELECT CASE WHEN '.$present.' THEN 1 ELSE 0 END FROM placements WHERE id=:id AND tenant_id=:t AND person_id=:p AND deleted_at IS NULL');
         $s->execute(['id'=>$pilot['placement_id'],'t'=>$pilot['tenant_id'],'p'=>$pilot['person_id']]);
         $result['placement_fields'][$field] = (int)$s->fetchColumn() === 1 ? 'present' : 'empty';
     }
     $mappingAvailable = !array_diff(['tenant_id','source_system','internal_entity_type','internal_entity_id','external_id'],$columns['external_entity_mappings']);
     $numberAvailable = !array_diff(['tenant_id','entity_type','record_id','record_number','canonical_record_id'],$columns['core_record_numbers']);
+    $result['jobdiva_identity']['job'] = ['status'=>'schema_unavailable'];
+    if (in_array('jobdiva_job_id',$columns['placements'],true)) {
+        $s = $pdo->prepare('SELECT jobdiva_job_id FROM placements WHERE id=:id AND tenant_id=:t AND person_id=:p AND deleted_at IS NULL');
+        $s->execute(['id'=>$pilot['placement_id'],'t'=>$pilot['tenant_id'],'p'=>$pilot['person_id']]);
+        $job = $s->fetchColumn();
+        $result['jobdiva_identity']['job'] = ['status'=>$job === $pilot['jobdiva_ids']['job'] ? 'exact_match'
+            : ($job === null || $job === false || trim((string)$job) === '' ? 'missing' : 'mismatch')];
+    }
     foreach (['person','placement'] as $entity) {
         $id = $pilot[$entity.'_id'];
         $result['jobdiva_identity'][$entity] = ['status'=>'schema_unavailable'];

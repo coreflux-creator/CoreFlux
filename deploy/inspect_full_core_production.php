@@ -126,7 +126,7 @@ try {
         'thunderhawk_pilot' => fullCoreStaffingPilotInventory($db, [
             'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2,
             'person_id'=>358, 'placement_id'=>864,
-            'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243'],
+            'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
         ]),
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
