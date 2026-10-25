@@ -1,3 +1,13 @@
+## Provider payment receipt ownership — October 25, 2026
+
+Core pilot runtime `098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d` reserves each provider payment receipt to one Core AP attempt per company. An existing provider bill/payment cannot be adopted by a second attempt to clear another bill. Receipt validation also refuses historical shared receipts before replay, clearance or reservation release. Migration 175 adds a case-sensitive unique owner and stops on existing conflicts without choosing a winner or changing evidence. Credential rotation does not create another receipt namespace.
+
+All nine CI jobs passed (40168772740), including 301 payment-delivery MariaDB checks. Two independent database sessions prove first-binding exclusion before and after commit. Isolated staging deployment (40168942036) applied migration 175 and passed runtime/schema acceptance. Read-only readiness (40169357076) confirms unchanged private settings, the original Quanta workspace and Meridian binding revision 3. Evidence: `deploy/purepay-receipt-ownership-staging-20261025.json`.
+
+Quanta had returned 404 after preview sleep; its original environment was resumed, 15 reviewed source files matched and the platform-restarted scheduler was stopped again. No source or business records changed. Preview availability remains an operational limitation.
+
+Shared supplier-obligation reservations remain incomplete: verified financial organization binding, canonical bill mapping, partial/multi-bill allocations and reviewed AP rebinding are still required. Hosted signed callbacks and the actual Thunderhawk round trip remain unproved. Production publishing and live financial execution remain unauthorized.
+
 ## Reserved payment amount — October 25, 2026
 
 Core pilot runtime `628dbf43b22fe8cc0632e88c6c084c2194e35c0a` now sends the reserved gross amount in its PurePay wallet request. Previously an omitted amount let a provider installment plan choose a smaller payment; validating the result afterwards was too late. All nine CI jobs passed (40167642205), including 279 delivery database checks, and isolated staging deployment passed (40167821777). Post-release read-only readiness (40168107529) preserved private configuration, original company bindings and Quanta HTTP 200.
