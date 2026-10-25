@@ -238,6 +238,7 @@ jobs:
           php tests/purepay_observation_context.php
           php tests/purepay_observation_contract.php
           php tests/purepay_observations_mariadb.php
+          php -l deploy/accept_synthetic_payroll_capture.php
 
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh

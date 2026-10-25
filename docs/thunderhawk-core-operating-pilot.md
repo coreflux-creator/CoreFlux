@@ -1,24 +1,25 @@
-## Native PurePayroll observations installed in Core pilot - October 24, 2026
+## Native PurePayroll observations verified in the hosted pilot - October 24, 2026
 
-Core revision 87d8b9026524a408d75fd930b171e224addcc674 passed CI 40147942595
-and isolated staging deployment 40148113039. Migration 174 adds encrypted,
-immutable captures of payroll operated independently in PurePayroll. The new
-review screen lists existing provider runs, preserves missing figures as unknown,
-compares stored run totals with complete payroll lines, and shows Core person
-numbers only through completed identity receipts. It does not create payroll
-input or authority, match Core time/rates, prove settlement, or post a journal.
+Core runtime ca97741738d8c4a3bd543ce99c533cea3ffa7572 passed CI 40149282370
+and isolated staging deployment 40149514001. Migration 174 stores encrypted,
+reviewed copies of independently operated provider payroll. History loads one
+verified capture per page, including after a reviewed key rotation. Validation
+includes 41 MariaDB checks, 38 contract checks, 9 company-binding checks and
+11 screen tests, plus the existing CI and hosted acceptance suites.
 
-The increment passed 40 database checks, 38 contract checks, 9 company-binding
-checks and 11 screen tests, together with the existing CI and staging acceptance
-suites. Source-field definitions are included in the shared field dictionary.
-The read-only observation hint preserves existing company and scope bindings.
+PurePay preview source cc64360b20e446d4e1674b51a25a3fec3f7e2416 passed 113
+hosted checks. The two runtime hashes and 6,319 source files were verified;
+protected configuration and all 50 existing demo payroll runs were unchanged.
+The final provider check at 2026-10-25T01:09:41Z confirmed review mode with
+background jobs, startup migrations and scheduled operations disabled.
 
-PurePay candidate cc64360b passed 113 isolated provider checks. Its preview was
-unavailable and is being recovered in the existing environment. Hosted provider
-installation and an actual stored demo run remain unverified; this is not yet
-end-to-end acceptance. The existing demo replay inspector now optionally checks
-the new endpoint, reads at most one existing run twice, and saves no capture.
-An empty collection will be reported explicitly, not treated as a payroll test.
+Hosted workflow 40149435092 read one existing Meridian payroll twice with an
+identical review hash and replayed all five original integration deliveries.
+Its two employee lines remain unlinked because no completed Core identity
+receipts match them. The check used Core runtime 87d8b902 and runner ca977417;
+it saved no capture. The separate guarded capture acceptance remains pending.
+Neither native/manual origin, Core time/rate matching, settlement nor tax
+remittance is inferred from the provider ledger. No payroll or journal was run.
 
 Evidence: deploy/native-payroll-observations-staging-20261024.json. Production
 is unchanged. Thunderhawk's replacement key ending be2c was copied privately;

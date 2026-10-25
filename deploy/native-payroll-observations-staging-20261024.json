@@ -1,11 +1,11 @@
 {
-  "status": "core_pilot_installed_provider_acceptance_pending",
-  "core_revision": "87d8b9026524a408d75fd930b171e224addcc674",
-  "ci_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40147942595",
-  "deployment_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40148113039",
+  "status": "hosted_read_verified_capture_acceptance_pending",
+  "core_revision": "ca97741738d8c4a3bd543ce99c533cea3ffa7572",
+  "ci_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40149282370",
+  "deployment_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40149514001",
   "installed_migration": "174_payroll_native_observations.sql",
   "checks": {
-    "core_database": 40,
+    "core_database": 41,
     "provider_contract": 38,
     "company_binding": 9,
     "review_screen": 11,
@@ -23,13 +23,48 @@
     "page_limit": 100,
     "line_limit": 5000,
     "source_reference_limit": 10000,
-    "capture_size_limit_bytes": 8388608
+    "capture_size_limit_bytes": 8388608,
+    "history_captures_per_page": 1
   },
   "provider_candidate": {
     "revision": "cc64360b20e446d4e1674b51a25a3fec3f7e2416",
     "isolated_checks_reported_passed": 113,
-    "hosted_installation_verified": false,
-    "existing_demo_native_run_verified": false
+    "hosted_checks_passed": 113,
+    "hosted_installation_verified": true,
+    "existing_demo_payroll_run_read_verified": true,
+    "source_files_verified": 6319,
+    "runtime_hashes": {
+      "backend/coreflux_exchange.py": "7578a2e4dfbbbb13544023c408a1d85219045e44b4f4cc045b7db317f32bef45",
+      "backend/coreflux_payroll_observations.py": "eb936eb9ea6fd6072c9207e4425c6dc10136c3c2d6ccf3b852b38eb1cf2f8781"
+    },
+    "final_check_at": "2026-10-25T01:09:41.444089Z",
+    "startup_mode": "review",
+    "background_jobs": false,
+    "startup_migrations": false,
+    "scheduled_operations": false,
+    "existing_demo_runs_unchanged": 50,
+    "core_inputs": 0,
+    "core_authorities": 0,
+    "published": false
+  },
+  "hosted_read_acceptance": {
+    "run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40149435092",
+    "runner_revision": "ca97741738d8c4a3bd543ce99c533cea3ffa7572",
+    "installed_runtime_at_check": "87d8b9026524a408d75fd930b171e224addcc674",
+    "tenant_id": 999,
+    "organization_id": "org_purepay_demo",
+    "contract_version": "2026-10-25.1",
+    "observation_hash": "db95cf444407b8bd786028bf7fedf05e624fd09a4aced1c2bc6dd147e4b3c8c9",
+    "existing_delivery_replays": 5,
+    "native_receipt_reads": 10,
+    "page_size": 1,
+    "more_runs": true,
+    "line_count": 2,
+    "linked_people": 0,
+    "repeated_review_identical": true,
+    "capture_saved": false,
+    "existing_connections_and_deliveries_unchanged": true,
+    "provider_record_writes": false
   },
   "production_cutover": false,
   "real_payroll_payments_or_ledger_postings_executed": false,
