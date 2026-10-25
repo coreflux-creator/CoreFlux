@@ -7,9 +7,19 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/encryption.php';
 require_once __DIR__ . '/purepay_adapter.php';
 
+/** The named financial preview is exclusively the approved tenant-999 pilot. */
+function purepayAssertFinancialPreviewConnection(int $tenantId, ?string $keyScope = null): void
+{
+    if (purepayFinancialPreviewBase() !== null
+        && ($tenantId !== 999 || ($keyScope !== null && $keyScope !== 'read_only'))) {
+        throw new PurePayApiException('The financial preview requires the approved simulation company and a read-only connection.');
+    }
+}
+
 /** Internal binding only; key rotation requires review of existing provider identities. */
 function purepayConnectionFingerprint(int $tenantId,string $apiKey): string
 {
+    purepayAssertFinancialPreviewConnection($tenantId);
     if ($tenantId<=0 || $apiKey==='' || preg_match('/[\r\n]/',$apiKey)) throw new InvalidArgumentException('Valid Pure//Pay connection required');
     return hash('sha256',json_encode(['tenant_id'=>$tenantId,'base'=>purepayApiBase(),'credential_digest'=>hash('sha256',$apiKey)],JSON_THROW_ON_ERROR));
 }
@@ -34,6 +44,7 @@ function purepayWalletBalanceCents(array $response): ?int
 
 function purepayGetConnection(int $tenantId): ?array
 {
+    if (purepayFinancialPreviewBase() !== null && $tenantId !== 999) return null;
     try {
         $stmt = getDB()->prepare(
         'SELECT id, tenant_id, label, api_key_ct, api_key_last4, key_scope,
@@ -45,6 +56,7 @@ function purepayGetConnection(int $tenantId): ?array
         $stmt->execute(['t' => $tenantId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$row) return null;
+        purepayAssertFinancialPreviewConnection($tenantId, (string)$row['key_scope']);
         $row['api_key'] = decryptField($row['api_key_ct'] ?? null) ?: '';
         $row['webhook_secret'] = decryptField($row['webhook_secret_ct'] ?? null) ?: '';
         unset($row['api_key_ct'], $row['webhook_secret_ct']);
@@ -56,6 +68,7 @@ function purepayGetConnection(int $tenantId): ?array
 
 function purepayStoreConnection(int $tenantId, string $apiKey, ?string $label, ?int $userId, string $keyScope): array
 {
+    purepayAssertFinancialPreviewConnection($tenantId, $keyScope);
     $apiKey = trim($apiKey);
     if ($apiKey === '') throw new PurePayApiException('Pure//Pay: API key required');
     if (!in_array($keyScope, ['read_only', 'read_write'], true)) {
@@ -86,6 +99,7 @@ function purepayStoreConnection(int $tenantId, string $apiKey, ?string $label, ?
 
 function purepaySaveWebhookSecret(int $tenantId, string $secret): void
 {
+    purepayAssertFinancialPreviewConnection($tenantId);
     $secret = trim($secret);
     if ($secret === '' || !str_starts_with($secret, 'whsec_')) {
         throw new \InvalidArgumentException('Pure//Pay webhook secret must start with whsec_');

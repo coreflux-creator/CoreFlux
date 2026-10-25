@@ -74,6 +74,22 @@ if ($allowed) {
             }
         }
         if (count($calls) !== 1) throw new RuntimeException('A financial write escaped the guard');
+        foreach ([
+            static fn()=>purepayStoreConnection(2,'fixture-key','Wrong company',4,'read_only'),
+            static fn()=>purepayStoreConnection(999,'fixture-key','Wrong scope',4,'read_write'),
+            static fn()=>purepaySaveWebhookSecret(2,'whsec_fixture'),
+            static fn()=>purepayConnectionFingerprint(2,'fixture-key'),
+        ] as $forbiddenConnection) {
+            try {
+                $forbiddenConnection();
+                throw new LogicException('Financial preview accepted an unreviewed company or write scope');
+            } catch (PurePayApiException $e) {
+                if ($e->getMessage() !== 'The financial preview requires the approved simulation company and a read-only connection.') throw $e;
+            }
+        }
+        if (purepayGetConnection(2) !== null || count($calls)!==1) {
+            throw new RuntimeException('Financial preview read another company connection or contacted a provider');
+        }
         // Existing reviewed staffing writes retain their independently chosen origin.
         require_once __DIR__.'/../core/integrations/purepay_core.php';
         $staffing = 'https://beautiful-kalam-6.preview.emergentagent.com/api/v1';
