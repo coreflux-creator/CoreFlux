@@ -1,3 +1,48 @@
+## Current production release inspection - October 24, 2026
+
+The latest read-only preflight (40150709663) is bound to candidate
+5de5e3bdfc9e5505dde6f4b10654acf64d1a614f. Production still serves
+index-95sB_8ni.js; the candidate serves index-CdYj1jbX.js. It has 70 pending
+migrations, 30 accounting schema gaps and the incompatible tenant-only bank
+cash-code unique key. The migration source review has no blockers, which is
+not authorization or proof that production upgrade execution is ready.
+The comparison finds 413 changed and 4,745 added package files. Its 99 source
+differences comprise the seven previously reviewed runtime/SQL paths and 92
+test paths. The three historical migration sources still require retention.
+
+Fresh source/permissions inspection 40151089408 confirms the deployment process
+is UID 1003/GID 33 while Core's webroot and .htaccess are owned by the app
+system account grcudkpvcd (UID 1004/GID 33). The deployment process cannot act
+as that owner. Chrome confirms the existing listed application login is
+kunalverma2, which is a different account. Existing Cloudways sign-in recovered
+without any password, credential or account change.
+
+Cloudways documents that its blanket reset changes every public_html file to
+0664 and directory to 0775, with a chosen owner. A complete metadata-only walk
+found 11,345 files and 1,817 directories, including one restricted 0640 file,
+291 executable files, and no symlinks or hardlinks. The reset would broaden
+world/group access and remove executable bits. It was not performed. A precise
+advice-only support request is prepared and awaits the user's authorization
+to send it; support has not been contacted.
+
+All eight inspected outbound/authority flags remain false in the production
+CLI configuration. Production still uses local document storage; S3 remains
+verified only for the isolated pilot. Nine Core scheduler lines remain active.
+The host has about 25 GiB free, but that is not a final backup or writer-drain
+receipt. A supported file-owner deployment/recovery procedure, current private
+CLI/PHP-FPM configuration proof, maintenance and writer drain, matching final
+backup/recovery evidence, guarded production execution and explicit cutover
+authorization remain open. No production file, permission, credential, schedule,
+financial record or schema was changed by this inspection.
+
+Evidence: deploy/core-production-preflight-20261024.json. Cloudways reference:
+https://support.cloudways.com/en/articles/5126387-how-can-i-reset-file-and-folder-permissions
+The exact private preflight is retained at
+/tmp/core-integration-40150709663/production-preflight.json; masked log values
+were not reconstructed. Earlier release counts and preview blockers below are
+historical. The current native payroll read/capture acceptance is recorded in
+deploy/native-payroll-observations-staging-20261024.json and the staffing pilot log.
+
 ## Existing Core worker portal access installed in Quanta preview - October 24, 2026
 
 An active imported Quanta worker could not receive a login through the native
