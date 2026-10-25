@@ -10,6 +10,8 @@ The `pilot_payment_preview` deployment action requires the exact installed adapt
 
 Core's vendor-payment rail reserves one USD obligation for each durable attempt. A provider bill ID and terminal status alone cannot settle or release that reservation. A $40 payment against its bill must not settle a $125 Core payment.
 
+The outgoing wallet request includes the exact amount from that durable Core claim. It must not delegate amount selection to a PurePay payment plan or the bill's current balance. PurePay still rejects an explicit amount above its open balance before creating a payment. This prevents amount drift; it does not establish a shared reservation against another system paying the underlying obligation through a different record or rail.
+
 The Core consumer requires the following evidence from an authenticated payment-detail read or verified signed callback. Complete bill-specific history only locates a payment; Core then reads its full detail so the compact history projection cannot conceal allocation semantics:
 
 | Field | Meaning and validation |

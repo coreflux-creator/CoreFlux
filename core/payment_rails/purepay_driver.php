@@ -194,7 +194,12 @@ class PurePayRailDriver implements PaymentRailsDriver
             ];
         }
 
-        $paid = purepayPayBill($apiKey, $billId, ['pay_via' => 'wallet'], purepayIdempotencyKey($tenantId, 'pay', $sourceRef));
+        // Pin the durable Core obligation. Omitting amount lets a provider-side
+        // payment plan or changed bill balance choose a different payout.
+        $paid = purepayPayBill($apiKey, $billId, [
+            'pay_via' => 'wallet',
+            'amount' => ((int) $link['amount_cents']) / 100,
+        ], purepayIdempotencyKey($tenantId, 'pay', $sourceRef));
         $paymentResource = is_array($paid['payment'] ?? null) ? $paid['payment'] : $paid;
         $paymentId = (string) ($paymentResource['payment_id'] ?? $paymentResource['id'] ?? '');
         $receipt = json_encode($paid, JSON_UNESCAPED_SLASHES);

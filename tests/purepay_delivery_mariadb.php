@@ -91,7 +91,10 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         return ['status'=>200,'body'=>json_encode(['payments'=>array_values($payments)])];
     }
     if($method==='POST' && preg_match('~/bills/([^/]+)/pay$~',$path,$m)){
-        $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing','amount'=>'125.00','currency'=>'USD'];
+        // The provider uses its own $40 plan when the caller leaves amount out.
+        // The real driver must pin its reserved $125 instead of accepting that default.
+        $requestedAmount=$body['amount']??40;
+        $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing','amount'=>$requestedAmount,'currency'=>'USD'];
         if($mode==='payment_timeout'){ $e=new PurePayApiException('Synthetic lost payment response');$e->outcomeUncertain=true;throw $e; }
         if($mode==='post_id_missing')return ['status'=>200,'body'=>'{"ok":true,"pay_status":"settled"}'];
         return ['status'=>200,'body'=>json_encode(['payment'=>$payments[$id]])];
@@ -129,6 +132,9 @@ $interleave=static function()use($send,$item,$link,$check,$fails){
 function tryPurePayDuplicate(callable $send,array $item):bool{try{$send($item);return false;}catch(PaymentRailsOriginateException $e){return true;}}
 $result=$send($item);
 $check($result['items'][0]['status']==='submitted' && $postCount()===2,'first valid attempt creates one bill and pays once');
+$payCalls=array_values(array_filter($calls,static fn($c)=>$c[0]==='POST' && str_ends_with($c[1],'/pay')));
+$check(count($payCalls)===1 && purepayMoneyCents($payCalls[0][2]['amount']??null)===12500,
+    'payment request pins the durable Core amount instead of the provider payment plan');
 $before=count($calls);$original=$link($item['external_ref']);
 $check($send($item)['items'][0]['rail_external_ref']===$result['items'][0]['rail_external_ref'] && count($calls)===$before,'confirmed replay returns its existing reference without any provider IO');
 foreach([['amount_cents'=>13000],['recipient_email'=>'changed@example.test'],['invoice_number'=>'changed']]as$change){

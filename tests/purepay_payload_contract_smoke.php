@@ -39,7 +39,7 @@ $GLOBALS['__purepay_transport'] = function(string $method,string $url,array $hea
 
 $vendorPayload=['display_name'=>'Acme','email'=>'pay@acme.test','relationship'=>'vendor'];
 $billPayload=['vendor_id'=>'ven_1','amount'=>12.50,'bill_date'=>'2026-08-23','due_date'=>'2026-08-23','invoice_number'=>'INV-1'];
-$payPayload=['pay_via'=>'wallet'];
+$payPayload=['pay_via'=>'wallet','amount'=>12.50];
 $vendorKey=purepayIdempotencyKey(7,'vendor','ap_vendor:4');
 $billKey=purepayIdempotencyKey(7,'bill','ap_payment:9');
 $payKey=purepayIdempotencyKey(7,'pay','ap_payment:9');
@@ -68,7 +68,7 @@ $check('adapter base is the published v1 URL', purepayApiBase() === 'https://pur
 $driver=(string) file_get_contents($root . '/core/payment_rails/purepay_driver.php');
 $check('driver re-GETs bills after create', str_contains($driver,'purepayGetBill($apiKey, $billId)'));
 $check('driver re-GETs payments after pay', str_contains($driver,'purepayGetPayment($apiKey, $paymentId)'));
-$check('driver uses wallet pay_via', str_contains($driver,"['pay_via' => 'wallet']"));
+$check('driver uses wallet pay_via', str_contains($driver,"'pay_via' => 'wallet'"));
 $check('driver never transmits bank fields', !str_contains($driver,"'account_routing'") && !str_contains($driver,"'account_number'"));
 $check('driver has durable request fingerprint', str_contains($driver,'request_fingerprint'));
 $check('driver fingerprints full vendor identity', str_contains($driver,'$recipientName') && str_contains($driver,'$recipientEmail'));
