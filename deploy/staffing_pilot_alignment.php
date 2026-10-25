@@ -12,6 +12,15 @@ function fullCorePilotAlignedValue(mixed $value, string $field): ?string
     if ($text === '' || strtolower($text) === 'null') return null;
     if ($field === 'worksite_country') return integrationSourceCountry($text);
     if (in_array($field, ['start_date', 'end_date'], true)) {
+        // JobDiva sends both epoch seconds/milliseconds and account-local ISO
+        // calendar timestamps. Preserve the latter's business date, as import does.
+        if (preg_match('/^\d{10}(?:\d{3})?$/D', $text)) {
+            $seconds = strlen($text) === 13 ? intdiv((int)$text, 1000) : (int)$text;
+            return $seconds >= 100_000_000 ? gmdate('Y-m-d', $seconds) : null;
+        }
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/D', $text, $match)) {
+            $text = $match[1];
+        }
         foreach (['!Y-m-d', '!m/d/Y', '!Y-m-d H:i:s'] as $format) {
             $date = DateTimeImmutable::createFromFormat($format, $text);
             $errors = DateTimeImmutable::getLastErrors();

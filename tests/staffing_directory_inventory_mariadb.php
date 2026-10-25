@@ -95,6 +95,14 @@ try {
     $check($comparison['fields']['branch']==='differs_from_stored_source', 'Core override is reported as a difference without proposing an overwrite');
     $check($comparison['fields']['worksite_country']==='matches_stored_source'&&$comparison['fields']['start_date']==='matches_stored_source',
         'recognized country aliases and explicit dates compare canonically');
+    $dated=$snapshot;$dated['_jd_contract']['start_date']='2026-05-18T23:59:59.000-0400';
+    $check(fullCorePilotSnapshotFieldComparison($current,$dated,'start001')['fields']['start_date']==='matches_stored_source',
+        'JobDiva local ISO timestamps retain their calendar business date');
+    foreach ([1779062400,1779062400000] as $timestamp) {
+        $dated['_jd_contract']['start_date']=$timestamp;
+        $check(fullCorePilotSnapshotFieldComparison($current,$dated,'start001')['fields']['start_date']==='matches_stored_source',
+            'JobDiva epoch timestamps compare to the imported business date');
+    }
     $division=$snapshot;$division['_jd_contract']['branch']='';$division['_jd_contract']['job_division']='Core override';
     $check(fullCorePilotSnapshotFieldComparison($current,$division,'start001')['fields']['branch']==='matches_stored_source',
         'the reviewed assignment division supplies the documented branch default only when branch is absent');
