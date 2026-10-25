@@ -1,0 +1,69 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "separate_bill_to_and_work_recipient_staging_release",
+  "installed_commit": "ae5af205a73df3f56aabe73615a6b85fd6c3afd1",
+  "supersedes_installed_commit": "9b527b1b602bdda332927aa812f4bd54670d887b",
+  "changes": [
+    "Resolve authoritative JobDiva billing and explicit end-client evidence independently; reject provider identity conflicts.",
+    "Keep placement client_id separate from end_client_company_id in manual, API, CSV and repair paths.",
+    "Use bill-to company and terms for AR participants, invoice grouping, approved dimensions and accounting counterparties.",
+    "Preserve manual debtor terms for review and leave approved snapshots and existing obligations unchanged.",
+    "Display bill-to client numbers and preserve current selections in the new placement picker."
+  ],
+  "ci": {
+    "databaseId": 40201802034,
+    "headSha": "ae5af205a73df3f56aabe73615a6b85fd6c3afd1",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40201802034",
+    "successful_jobs": 9,
+    "company_role_database_checks": 23,
+    "commercial_projection_checks": 28,
+    "approval_with_distinct_billing_dimensions": "passed",
+    "csv_time_to_independent_invoice_approval_ledger_and_receipt": "passed",
+    "simulation_scenarios": {
+      "passed": 7,
+      "failed": 0
+    }
+  },
+  "deployment": {
+    "databaseId": 40202029104,
+    "headSha": "ae5af205a73df3f56aabe73615a6b85fd6c3afd1",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40202029104",
+    "target_application": "muzqvdvqbx",
+    "simulation_tenant": 999,
+    "migrations_applied": [],
+    "runtime_and_schema_verified": true,
+    "served_assets_verified": 4,
+    "acceptance": {
+      "accounting_lifecycle": "passed",
+      "split_receipt": "passed",
+      "credit_applications": {
+        "status": "passed",
+        "checks": 61,
+        "rollback": true
+      },
+      "billing_delivery": "passed: log-only delivery",
+      "staffing_onboarding": {
+        "status": "passed",
+        "checks": 17,
+        "portal_delivery": "not_checked",
+        "payroll_authorization": "not_evaluated"
+      }
+    }
+  },
+  "browser_review": {
+    "data": "synthetic",
+    "component": "BillToClientPicker",
+    "client_numbers_visible": true,
+    "current_selection_retained": true
+  },
+  "boundaries": {
+    "production_runtime_changed": false,
+    "production_cutover": false,
+    "arabella_changed": false,
+    "real_payroll_or_payments_executed": false,
+    "credential_rotation_completed": false,
+    "full_thunderhawk_round_trip_proven": false
+  }
+}

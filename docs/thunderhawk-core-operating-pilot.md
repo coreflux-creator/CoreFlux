@@ -1,3 +1,11 @@
+## 2026-10-25 - Separate billing client and work recipient installed in Core staging
+
+Release `ae5af205a73df3f56aabe73615a6b85fd6c3afd1` is installed in isolated Core staging by run `40202029104`. The JobDiva adapter, manual/API/CSV placement edits and repair paths now retain separate bill-to and end-client identities. AR participants, invoice grouping, time-approval dimensions and accounting counterparties use the bill-to company. Explicit recipient evidence cannot silently retarget a billing mapping. New approved snapshots retain the billing profile; existing approved snapshots and obligations remain unchanged. Legacy user-reviewed debtor terms survive for review, and conflicting receivables block a new contract.
+
+All nine CI jobs passed in `40201802034`, including 23 real-database role checks, 28 commercial projection checks, frozen billing dimensions at time approval, and CSV time through independent invoice approval, ledger, logged delivery and bank receipt. Synthetic browser review verified client-number labels and retained current selections. Staging applied no migrations, verified runtime/schema and four served assets, and passed accounting lifecycle, split receipt, 61 credit checks, log-only billing delivery and 17 onboarding checks. See `deploy/bill-to-company-staging-release-20261025.json`.
+
+This is an isolated staging release. No production runtime, Arabella data, real payroll or payments changed. Provider publication, full Thunderhawk acceptance, remaining field evidence/approvals and financial callback/recovery acceptance remain open. The replacement Thunderhawk key is retrieved but consumer credential entry and verification are still pending; the old key remains active until verified.
+
 ## 2026-10-25 - Hybrid audit compatibility installed in isolated Core staging
 
 Staging run `40198303037` installed `9b527b1b602bdda332927aa812f4bd54670d887b` in the isolated Core application, replacing the prior d68a4a7d staging release. The native audit writer now fills mandatory legacy `action` and `entity_id` columns alongside canonical `event` and `target_id` columns on mixed schemas. Real-database tests cover canonical, legacy and the observed mixed schema, including transactional rollback. All nine CI jobs passed; the pilot fixture has 105 checks and the native audit writer has three schema cases.
