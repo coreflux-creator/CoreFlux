@@ -1,3 +1,11 @@
+## 2026-10-25 - Mercury/PurePay AP creation race verified in source
+
+Core candidate `af2a1d89c19d224539584776c051a7b01a09429b` passed all nine jobs in CI `40182604361`, including 100 allocation/recovery/Mercury checks against MariaDB. Evidence: `deploy/mercury-ap-claims-candidate-20261025.json`. Both actual Mercury AP entry points now lock the original AP payment and commit their draft plus reverse reference together. Canonical source identity and full vendor names are aligned; historical attempts remain claims even when a reverse reference is missing. Failed single-payment results do not erase an existing service claim.
+
+Two SQL sessions verify mutual exclusion, stale snapshots and rollback. A race during PurePay's unlocked bill review prevents its later reservation commit. Mercury transport attempts are blocked and asserted zero; no real funding, payout, payroll or accounting operation was performed. Core and provider candidates remain uninstalled and unpublished, and Arabella is untouched.
+
+Next: durable Plaid/NACHA claims and original-result recovery, then remaining uncertain-funding and action controls, combined hosted/real-Mongo verification, financial credential rebinding and the full Thunderhawk staffing-to-financial-result acceptance. Thunderhawk key be2c still requires the user's Core entry and connection verification; old q9eE has not been revoked. This is progress on the integration goal, not completion or release approval.
+
 ## 2026-10-25 — Audited payment review and recovery candidate (not deployed)
 
 Core backend candidate `208ce25a4f67792e114c9c584612c3853be18591` adds per-bill review, explicit resume, cancellation and immutable operator events. Migration 179 commits cancellation intent before provider access; every later reserve/execute checks it. PurePay candidate `cff7b26013d9b820a2a3c7d13ddf24b63e7fb713` records the original request as permanently released when cancellation arrives before reserve, without changing native or other reservation locks. A contradictory execution after cancellation remains held for review.

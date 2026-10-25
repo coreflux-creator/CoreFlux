@@ -1,0 +1,44 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "mercury_ap_claim_source_candidate_not_deployed",
+  "core_candidate_commit": "af2a1d89c19d224539584776c051a7b01a09429b",
+  "provider_candidate_unchanged": "cff7b26013d9b820a2a3c7d13ddf24b63e7fb713",
+  "ci": {
+    "run_id": 40182604361,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40182604361",
+    "head_sha": "af2a1d89c19d224539584776c051a7b01a09429b",
+    "conclusion": "success",
+    "jobs_passed": 9,
+    "allocation_recovery_and_mercury_claim_mariadb_checks": 100,
+    "mercury_network_attempts": 0,
+    "database": "Disposable MariaDB 10.11 with two independent sessions",
+    "provider_reservations": "Synthetic PurePay transport; actual Core services and actual Mercury draft/approval path"
+  },
+  "implemented": [
+    "Direct and shared-driver Mercury AP paths insert the instruction and reverse reference in one transaction",
+    "AP row locks serialize Mercury drafts with PurePay original-bill preparation",
+    "Canonical ap source identity, historical ap_payment recognition and full vendor name preservation",
+    "Company, money, original bill release and authenticated independent operator checks inside the claim",
+    "Durable Mercury and PurePay attempts survive missing reverse references",
+    "Failed no-reference single-payment results cannot overwrite another provider claim",
+    "Reference-write failure and caller rollback remove the whole Mercury draft",
+    "Mercury claim during PurePay's unlocked bill review prevents PurePay reservation commit"
+  ],
+  "boundaries": {
+    "core_deployed": false,
+    "provider_deployed": false,
+    "production_changed": false,
+    "real_payment_executed": false,
+    "payroll_executed": false,
+    "accounting_posted": false,
+    "arabella_changed": false
+  },
+  "remaining": [
+    "Plaid and NACHA durable dispatch claims and original-result/download recovery",
+    "Original-claim allocation, void and clear controls plus uncertain funding recovery across other payment services",
+    "Combined hosted Core/PurePay acceptance and real Mongo contention",
+    "Financial credential rebinding and Thunderhawk replacement key consumer verification",
+    "Thunderhawk staffing, onboarding, independent time approval and payroll/financial end-to-end evidence",
+    "Controlled publication after the remaining release requirements are verified"
+  ]
+}
