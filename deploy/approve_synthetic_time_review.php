@@ -50,6 +50,9 @@ try {
     }
     setRequestTenantId(999);
     $phase='source_preflight';$entry=timeEntryGet(1);$rate=timeResolveRateSnapshot(13,'2026-10-19');
+    if((int)$pdo->query("SELECT COUNT(*) FROM placement_rates WHERE tenant_id=999 AND placement_id=13 AND approved_at IS NOT NULL
+        AND effective_from<='2026-10-19' AND (effective_to IS NULL OR effective_to>='2026-10-19')")->fetchColumn()!==1)
+        throw new RuntimeException('Demo approved rate is ambiguous');
     $snapshot=quantaTimeReviewSnapshot(999,PILOT_SOURCE);
     syntheticTimeApprovalGuard($entry??[],$rate??[],$snapshot);
     $report['source_identity_and_rates_verified']=true;
@@ -57,7 +60,7 @@ try {
     $tables=$pdo->query("SELECT c.TABLE_NAME FROM information_schema.COLUMNS c JOIN information_schema.TABLES t
         ON t.TABLE_SCHEMA=c.TABLE_SCHEMA AND t.TABLE_NAME=c.TABLE_NAME WHERE c.TABLE_SCHEMA=DATABASE()
         AND c.COLUMN_NAME='tenant_id' AND t.TABLE_TYPE='BASE TABLE' ORDER BY c.TABLE_NAME")->fetchAll(PDO::FETCH_COLUMN);
-    $excluded=['time_entries','staffing_timesheets','audit_log','integration_deliveries'];
+    $excluded=['time_entries','staffing_timesheets','audit_log','integration_deliveries','users','tenant_memberships','membership_audit'];
     $protected=static function()use($pdo,$tables,$excluded):array {
         $hashes=[];foreach($tables as $table){
             if(in_array($table,$excluded,true))continue;
@@ -68,6 +71,7 @@ try {
         }return $hashes;
     };
     $protectedBefore=$protected();$report['protected_tables_checked']=count($protectedBefore);
+    $operatorBefore=$pdo->query('SELECT * FROM users WHERE id=4')->fetch(PDO::FETCH_ASSOC);
     $timeBefore=$pdo->query('SELECT * FROM time_entries WHERE tenant_id=999 AND id<>1 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
     $sheetId=(int)$entry['timesheet_id'];
     $sheetStmt=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=999 AND id<>? ORDER BY id');
@@ -134,6 +138,8 @@ try {
     $report['protected_records_unchanged']=true;$report['payroll_or_financial_writes']=false;
     $phase='retire_test_reviewer';
     $report['reviewer_retirement']=syntheticTimeReviewerRetire($pdo,51);
+    if($protected()!==$protectedBefore||$pdo->query('SELECT * FROM users WHERE id=4')->fetch(PDO::FETCH_ASSOC)!==$operatorBefore)
+        throw new RuntimeException('Reviewer retirement changed protected records');
     $report['reviewer_cleanup_pending']=false;$report['passed']=true;
 }catch(Throwable $e){
     if($pdo->inTransaction())$pdo->rollBack();
