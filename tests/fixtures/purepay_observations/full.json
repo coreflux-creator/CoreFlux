@@ -1,0 +1,92 @@
+{
+  "contract_version": "2026-10-25.1",
+  "organization_id": "org_synthetic_observation",
+  "run_id": "run_native_fixture",
+  "record_version": "0c9a7812f9054435f80b050669e250e8db88a8748e21e7d0b1456cc2585cb24f",
+  "period_start": "2026-10-01",
+  "period_end": "2026-10-15",
+  "pay_date": "2026-10-16",
+  "status": "draft",
+  "native": true,
+  "manual": false,
+  "provider_mode": false,
+  "source": "native",
+  "provider": "purepayroll",
+  "paid_at": null,
+  "created_at": "2026-10-15T14:00:00Z",
+  "currency": "USD",
+  "execution_hold": false,
+  "unavailable_fields": {
+    "paid_at": "missing"
+  },
+  "totals": {
+    "gross": "100.00",
+    "bonus": "0.00",
+    "reimbursements": "5.00",
+    "federal_wh": "10.00",
+    "social_security": "6.20",
+    "medicare": "1.45",
+    "state_wh": "0.00",
+    "local_wh": "0.00",
+    "sdi_pfl": "0.00",
+    "other_deductions": "0.00",
+    "garnishments": "0.00",
+    "net": "87.35",
+    "employer_fica": "7.65",
+    "employer_futa": "0.60",
+    "employer_suta": "0.50",
+    "employer_match": "0.00",
+    "funding_required": "113.75"
+  },
+  "unavailable_totals": {},
+  "lines": [
+    {
+      "line_index": 0,
+      "employee_id": "emp_native_fixture",
+      "hours": "4.0000",
+      "ot_hours": "0.0000",
+      "unavailable_fields": {},
+      "amounts": {
+        "gross": "100.00",
+        "bonus": "0.00",
+        "reimbursements": "5.00",
+        "federal_wh": "10.00",
+        "social_security": "6.20",
+        "medicare": "1.45",
+        "state_wh": "0.00",
+        "local_wh": "0.00",
+        "sdi_pfl": "0.00",
+        "other_deductions": "0.00",
+        "garnishments": "0.00",
+        "net": "87.35",
+        "employer_fica": "7.65",
+        "employer_futa": "0.60",
+        "employer_suta": "0.50",
+        "employer_match": "0.00",
+        "funding_required": "113.75"
+      },
+      "unavailable_amounts": {},
+      "source_time_lineage": {
+        "status": "recorded",
+        "entries": [
+          {
+            "id": "time-fixture-1",
+            "entry_id": "quanta-fixture-1",
+            "source": "quanta",
+            "person_id": "emp_native_fixture",
+            "date": "2026-10-02",
+            "hours": "4.0000",
+            "source_workspace_id": "quanta-fixture"
+          }
+        ],
+        "unavailable_entries": []
+      }
+    }
+  ],
+  "amount_basis": "stored_payroll_ledger",
+  "delivery_confirmation": "not_evaluated",
+  "core_match": "not_evaluated",
+  "consistency": "rechecked_read_not_transactional_snapshot",
+  "observation_hash": "b80213fdf3ee3910902f8b623c5752182a2e61f70ba3a832ee329db6c8d4c431",
+  "observed_at": "2026-10-25T00:00:00+00:00"
+}

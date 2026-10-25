@@ -5,7 +5,7 @@ declare(strict_types=1);
 function staffingWorkflowFieldTables(): array
 {
     return ['integration_deliveries', 'staffing_onboarding_cases', 'staffing_onboarding_events',
-        'quanta_onboarding_document_transfers', 'payroll_provider_results'];
+        'quanta_onboarding_document_transfers', 'payroll_provider_results', 'payroll_native_observations'];
 }
 
 /** Logical fields inside stored workflow envelopes, separately from physical SQL columns. */
@@ -154,5 +154,33 @@ function staffingWorkflowPayloadFields(array $columns): array
         '/api/v1/integrations/coreflux/payroll/authorities/{authority_id}/result','purepayroll_to_core','2026-10-22.1',
         'core/integrations/purepay_payroll_results.php',$result,'purepayroll_observed_result',
         'immutable_encrypted_observation; original_component_hash_and_money_arithmetic_required; no_posting_or_claim_release');
+    $observation=[];
+    foreach(['contract_version','organization_id','run_id','record_version','amount_basis','delivery_confirmation','core_match','consistency','observation_hash'] as $field)
+        $observation[$field]=['string','Validated native payroll observation '.$field.'; company-scoped and independent of Core execution authority.'];
+    $observation['observed_at']=['UTC timestamp','Fresh provider read time; excluded from the stable observation hash.'];
+    foreach(['period_start','period_end','pay_date'] as $field)$observation[$field]=['date|null','Stored provider '.$field.'; unknown remains null with an unavailable reason.'];
+    foreach(['status','source','provider','currency','paid_at','created_at'] as $field)$observation[$field]=['string|null','Stored provider '.$field.'; no missing currency or timestamp zone is inferred.'];
+    foreach(['native','manual','provider_mode','execution_hold'] as $field)$observation[$field]=['boolean|null','Observed provider '.$field.'; null never means false and conveys no authority.'];
+    foreach(['period_start','period_end','pay_date','status','source','provider','currency','paid_at','created_at','native','manual','provider_mode','execution_hold'] as $field)
+        $observation['unavailable_fields.'.$field]=['missing|invalid','Reason for null '.$field.'; omitted when valid.'];
+    $observation['lines[].line_index']=['integer','Original sequential provider payroll line index.'];
+    $observation['lines[].employee_id']=['string|null','Actual provider employee ID; Core match requires a separately completed identity receipt.'];
+    foreach(['hours','ot_hours'] as $field)$observation['lines[].'.$field]=['signed decimal(4)|null','Stored provider '.$field.'; no source-time matching is implied.'];
+    foreach(['employee_id','hours','ot_hours'] as $field)$observation['lines[].unavailable_fields.'.$field]=['missing|invalid','Reason for null line '.$field.'.'];
+    foreach(array_diff($amounts,['source_gross']) as $field) {
+        foreach(['totals.','lines[].amounts.'] as $prefix)$observation[$prefix.$field]=['signed decimal(2)|null','Stored '.$field.'; exact cents, negative corrections and unknown amounts preserved. Totals are not inferred from lines.'];
+        foreach(['unavailable_totals.','lines[].unavailable_amounts.'] as $prefix)$observation[$prefix.$field]=['missing|invalid','Reason for null '.$field.'; omitted for a valid stored amount.'];
+    }
+    $lineage='lines[].source_time_lineage.';
+    $observation[$lineage.'status']=['recorded|empty|not_recorded|partial|invalid','Completeness of actual stored source references; not a validated match to Core time.'];
+    $observation[$lineage.'unavailable_entries[]']=['integer','Original index of an incomplete or invalid source reference.'];
+    foreach(['id','entry_id','source','person_id','source_workspace_id','revision','core_input_id','date','hours','ot_hours'] as $field)
+        $observation[$lineage.'entries[].'.$field]=['string|null','Actual provider source '.$field.'; omitted if absent and null if invalid.'];
+    foreach(['core'=>['instance_id','time_tenant_id','time_entry_id'],'original_source'=>['system','workspace_id','entry_id','component','revision']] as $group=>$fields)
+        foreach($fields as $field)$observation[$lineage.'entries[].'.$group.'.'.$field]=['string|null','Actual nested source '.$field.'; integer identifiers normalized to strings, never invented.'];
+    $add('purepayroll_native_observation','payroll_native_observations.payload_ct','observation.','purepayroll',
+        '/api/v1/integrations/coreflux/payroll/observations/{run_id}','purepayroll_to_core','2026-10-25.1',
+        'core/integrations/purepay_observations.php',$observation,'purepayroll_observed_ledger',
+        'immutable_encrypted_capture; missing_values_explicit; no_authority_creation_or_time_rate_match_or_posting');
     return $rows;
 }

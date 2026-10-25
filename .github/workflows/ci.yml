@@ -233,6 +233,11 @@ jobs:
         run: |
           php tests/purepay_payroll_result_receipt.php
           php tests/purepay_payroll_results_mariadb.php
+      - name: Native payroll observation contract, isolation and encrypted captures
+        run: |
+          php tests/purepay_observation_context.php
+          php tests/purepay_observation_contract.php
+          php tests/purepay_observations_mariadb.php
 
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh

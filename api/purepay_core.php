@@ -5,6 +5,7 @@ require_once __DIR__.'/../core/api_bootstrap.php';
 require_once __DIR__.'/../core/integrations/purepay_links.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_results.php';
+require_once __DIR__.'/../core/integrations/purepay_observations.php';
 require_once __DIR__.'/../core/integrations/purepay_people_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_assignment_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_people_setup.php';
@@ -45,6 +46,13 @@ function purepayCoreApiAssignmentOwners(array $user,int $tenant): array
     foreach(['placements','people','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenant)??$tenant;
     return $owners;
 }
+function purepayCoreApiObservationOwners(array $user,int $tenant): array
+{
+    foreach(['payroll.view','people.view','time.view','placements.view','placements.financials.view'] as $permission)rbac_legacy_require($user,$permission);
+    $owners=[];
+    foreach(['people','placements','time'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenant)??$tenant;
+    return $owners;
+}
 try {
     if($method==='GET' && $action==='status')api_ok(purepayCoreSummary(purepayCoreConnection($pdo,$tenantId)));
     if($method!=='POST')api_error('Method not allowed',405);
@@ -53,6 +61,7 @@ try {
         // Action and company only; credentials and employee payloads never enter audit metadata.
         $metadata=['action'=>$action];
         if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile','payroll_result_refresh','people_input_send','people_input_status','assignment_input_send','assignment_input_status'],true))$metadata['delivery_id']=$body['delivery_id'];
+        if($action==='payroll_observation_save')$metadata['provider_run_id']=$body['run_id'];
         $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(:t,:u,:e,NULL,:m,:ip,NOW())')
             ->execute(['t'=>$tenantId,'u'=>(int)$user['id'],'e'=>'purepay.core.'.$action,'m'=>json_encode($metadata),'ip'=>$_SERVER['REMOTE_ADDR']??null]);
     };
@@ -97,6 +106,28 @@ try {
                 :purepayCoreLinkReconcile($pdo,$tenantId,$instance,$owner,$body['delivery_id'],$body['review_hash'],$audit);
             break;
         case 'disconnect': purepayCoreDisconnect($pdo,$tenantId,$audit);$result=['connected'=>false];break;
+        case 'payroll_observation_page':
+        case 'payroll_observation_read':
+        case 'payroll_observation_save':
+        case 'payroll_observation_history':
+            $owners=purepayCoreApiObservationOwners($user,$tenantId);
+            header('Cache-Control: no-store, private');
+            if($action==='payroll_observation_page') {
+                if((isset($body['cursor']) && !is_string($body['cursor'])) || (isset($body['limit']) && !is_int($body['limit'])))api_error('Choose a payroll observation page.',422);
+                $result=purepayObservationPage($pdo,$tenantId,$instance,$body['limit']??25,$body['cursor']??null);
+            } else {
+                if(!is_string($body['run_id']??null))api_error('Choose an existing provider payroll run.',422);
+                if($action==='payroll_observation_read')$result=purepayObservationRead($pdo,$tenantId,$instance,$owners,$body['run_id']);
+                elseif($action==='payroll_observation_history') {
+                    if(isset($body['before']) && !is_int($body['before']))api_error('Choose a payroll history page.',422);
+                    $result=purepayObservationHistory($pdo,$tenantId,$instance,$owners,$body['run_id'],$body['before']??null);
+                } else {
+                    rbac_legacy_require($user,'payroll.runs.manage');
+                    if(($body['confirmed']??null)!==true || !is_string($body['review_hash']??null))api_error('Review and confirm the observation before saving.',422);
+                    $result=purepayObservationSave($pdo,$tenantId,(int)$user['id'],$instance,$owners,$body['run_id'],$body['review_hash'],$audit);
+                }
+            }
+            break;
         case 'assignment_input_preview':
             if(!is_string($body['placement_number']??null) || (isset($body['previous_revision']) && !is_string($body['previous_revision'])))api_error('Choose a Core placement and an optional accepted predecessor.',422);
             $owners=purepayCoreApiAssignmentOwners($user,$tenantId);
