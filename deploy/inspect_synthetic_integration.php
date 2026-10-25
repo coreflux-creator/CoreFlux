@@ -84,6 +84,28 @@ $report['synthetic_time'] = $pdo->query('SELECT t.id,t.hours,t.status,t.approved
 $report['saved_purepay_binding'] = $pdo->query('SELECT id,status,revision,remote_organization_id
     FROM purepay_core_connections WHERE tenant_id=999')->fetch(PDO::FETCH_ASSOC);
 
+// Staffing exchange and financial callbacks have separate saved connections.
+// Report configuration presence only; never load/decrypt credentials or send a callback.
+require_once PILOT_ROOT.'/core/purepay_adapter.php';
+$paymentConnection = $pdo->query('SELECT status,key_scope,
+    (api_key_ct IS NOT NULL AND api_key_ct<>"") AS api_key_stored,
+    (webhook_secret_ct IS NOT NULL AND webhook_secret_ct<>"") AS callback_secret_stored
+    FROM purepay_connections WHERE tenant_id=999')->fetch(PDO::FETCH_ASSOC);
+$paymentBase = purepayApiBase();
+$report['payment_callback_setup'] = [
+    'connection_present'=>(bool)$paymentConnection,
+    'connection_status'=>$paymentConnection['status'] ?? null,
+    'key_scope'=>$paymentConnection['key_scope'] ?? null,
+    'api_key_stored'=>(bool)($paymentConnection['api_key_stored'] ?? false),
+    'callback_secret_stored'=>(bool)($paymentConnection['callback_secret_stored'] ?? false),
+    'payment_api_destination'=>$paymentBase === 'https://pure-pay-support.preview.emergentagent.com/api/v1'
+        ? 'reviewed_preview' : ($paymentBase === 'https://purepay.online/api/v1' ? 'production_default' : 'other'),
+    'payment_links'=>(int)$pdo->query('SELECT COUNT(*) FROM purepay_payment_links WHERE tenant_id=999')->fetchColumn(),
+    'saved_callback_events'=>(int)$pdo->query('SELECT COUNT(*) FROM purepay_webhook_events WHERE tenant_id=999')->fetchColumn(),
+    'credentials_decrypted'=>false, 'provider_contacted'=>false,
+];
+unset($paymentConnection, $paymentBase);
+
 // Report only bounded capability/status values. Never print access arrays, keys or exception text.
 $probe = static function(callable $read): array {
     try { $read(); return ['available' => true, 'http_status' => 200]; }
