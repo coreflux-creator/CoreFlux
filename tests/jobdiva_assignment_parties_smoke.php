@@ -35,4 +35,9 @@ $check($isolated['end_client_company_id']==='E-002','Another Start cannot contam
 foreach([['endClientName'=>'Name Only'],['endClientCompanyId'=>'E-002'],[]] as $i=>$row){
     $check(jobdivaAssignmentEndClientEvidence($row)['status']===['name_only','identity_only','missing'][$i],'Incomplete recipient evidence remains explicit '.$i);
 }
+require_once __DIR__.'/../modules/billing/lib/billing.php';
+$bill=['client_company_id'=>10,'client_name'=>'Billing Co','payment_terms'=>'NET45'];
+$check(billingReceivableGroupingKey($bill)===billingReceivableGroupingKey($bill+['end_client_name'=>'Different Recipient']),'Different work recipients can share the same bill-to invoice group');
+$check(billingReceivableGroupingKey($bill)!==billingReceivableGroupingKey(array_replace($bill,['client_company_id'=>11])),'Different debtors never merge through a shared end-client name');
+$check(billingReceivableGroupingKey($bill)!==billingReceivableGroupingKey(array_replace($bill,['payment_terms'=>'NET90'])),'Different approved payment terms remain separate invoice groups');
 echo "Assignment party evidence: {$passed} checks passed\n";

@@ -12,6 +12,17 @@ require_once __DIR__ . '/../../accounting/lib/credit_balances.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
+ * Group by the reviewed receivable contract, never by a worksite/end-client label.
+ * Different payment terms remain separate invoice groups.
+ */
+function billingReceivableGroupingKey(array $contract): string
+{
+    $companyId = (int) ($contract['client_company_id'] ?? 0);
+    if ($companyId <= 0) throw new RuntimeException('Choose a canonical bill-to company before grouping invoices.');
+    return 'C:' . $companyId . ':' . hash('sha256', (string) ($contract['payment_terms'] ?? ''));
+}
+
+/**
  * Atomically allocate the next invoice number for a tenant.
  * Format: {prefix}-{YYYY}-{NNNN}, where NNNN is zero-padded to ≥4 digits.
  */
@@ -152,8 +163,12 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
     // Group bundles
     $groups = [];
     foreach ($bundles as $b) {
+        $b['_receivable_contract'] = placementEconomicsReceivableContract(
+            (int) $placementsTenantId, (int) $b['placement_id'], true,
+            !empty($b['rate_snapshot_id']) ? (int) $b['rate_snapshot_id'] : null
+        );
         $key = $aggregation === 'per_client'
-            ? 'C:' . (string) ($b['end_client_name'] ?? 'Unknown Client')
+            ? billingReceivableGroupingKey($b['_receivable_contract'])
             : 'P:' . (int) $b['placement_id'];
         $groups[$key][] = $b;
     }
@@ -166,12 +181,7 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
         $contracts = [];
         foreach ($groupBundles as $contractBundle) {
             $groupPlacementId = (int) $contractBundle['placement_id'];
-            $contract = placementEconomicsReceivableContract(
-                (int) $placementsTenantId,
-                $groupPlacementId,
-                true,
-                !empty($contractBundle['rate_snapshot_id']) ? (int) $contractBundle['rate_snapshot_id'] : null
-            );
+            $contract = $contractBundle['_receivable_contract'];
             $signature = ($contract['client_company_id'] ?? 0) . '|' . $contract['client_name'] . '|' . $contract['payment_terms'];
             $contracts[$signature] = $contract;
         }
@@ -382,10 +392,14 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
     // Group keys
     $groups = [];
     foreach ($billable as $e) {
+        $e['_receivable_contract'] = placementEconomicsReceivableContract(
+            (int) $placementsTenantId, (int) $e['placement_id'], true,
+            !empty($e['_rate_snapshot_id']) ? (int) $e['_rate_snapshot_id'] : null
+        );
         $key = match ($aggregation) {
             'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'],
             'per_placement' => 'P:' . $e['placement_id'],
-            'per_client'    => 'C:' . ((string) ($e['end_client_name'] ?? 'Unknown Client')),
+            'per_client'    => billingReceivableGroupingKey($e['_receivable_contract']),
         };
         $groups[$key][] = $e;
     }
@@ -397,12 +411,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
         $contracts = [];
         foreach ($rows as $contractRow) {
             $groupPlacementId = (int) $contractRow['placement_id'];
-            $contract = placementEconomicsReceivableContract(
-                (int) $placementsTenantId,
-                $groupPlacementId,
-                true,
-                !empty($contractRow['_rate_snapshot_id']) ? (int) $contractRow['_rate_snapshot_id'] : null
-            );
+            $contract = $contractRow['_receivable_contract'];
             $signature = ($contract['client_company_id'] ?? 0) . '|' . $contract['client_name'] . '|' . $contract['payment_terms'];
             $contracts[$signature] = $contract;
         }

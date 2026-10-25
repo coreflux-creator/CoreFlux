@@ -30,9 +30,8 @@ $a('placement list exposes display client name', str_contains($placementLib, 'en
 
 $placementApi = $c('modules/placements/api/placements.php');
 $a('placement API loads staffing client bridge', str_contains($placementApi, "/../../staffing/lib/clients.php"));
-$a('placement create/update ensures staffing client bridge', substr_count($placementApi, 'staffingClientEnsureForCompany(') >= 2);
-$a('placement writes client_id from bridge', str_contains($placementApi, "\$insert['client_id'] = \$clientRef['client_id'];")
-    && str_contains($placementApi, "\$body['client_id'] = \$clientRef['client_id'];"));
+$a('placement create/update resolves company roles separately', substr_count($placementApi, 'placementsResolveCompanyRoles(') >= 2);
+$a('placement create applies explicitly selected company roles', str_contains($placementApi, 'array_replace($insert, placementsResolveCompanyRoles'));
 
 $staffingLib = $c('modules/staffing/lib/clients.php');
 $a('staffing bridge helper exists', str_contains($staffingLib, 'function staffingClientEnsureForCompany'));

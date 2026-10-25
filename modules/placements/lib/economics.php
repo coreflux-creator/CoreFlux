@@ -783,6 +783,10 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
         placementEconomicsRepairPrimaryLaborPayee($tenantId, $placementId, $engagement);
 
         $managedRefs = array_values(array_unique($summary['source_refs']));
+        // Keep a legacy debtor with user-reviewed terms visible for resolution.
+        // The resulting multiple-receivable check blocks a new contract until reviewed.
+        $legacyOverrideGuard = ' AND NOT (source_ref = "placement:end_client"
+            AND (payment_terms_overridden = 1 OR pwp_overridden = 1 OR cycle_overridden = 1))';
         $managedSourceTypes = ['placement','worker','chain','corp','referral','commission'];
         $params = ['t' => $tenantId, 'p' => $placementId];
         $sourcePh = [];
@@ -802,13 +806,13 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 'UPDATE placement_economic_parties SET active = 0
                   WHERE tenant_id = :t AND placement_id = :p
                     AND source_managed = 1 AND source_type IN (' . implode(',', $sourcePh) . ')
-                    AND source_ref NOT IN (' . implode(',', $ph) . ')'
+                    AND source_ref NOT IN (' . implode(',', $ph) . ')' . $legacyOverrideGuard
             )->execute($params);
         } else {
             $pdo->prepare(
                 'UPDATE placement_economic_parties SET active = 0
                   WHERE tenant_id = :t AND placement_id = :p
-                    AND source_managed = 1 AND source_type IN (' . implode(',', $sourcePh) . ')'
+                    AND source_managed = 1 AND source_type IN (' . implode(',', $sourcePh) . ')' . $legacyOverrideGuard
             )->execute($params);
         }
     } catch (\Throwable $e) {

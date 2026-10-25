@@ -1263,8 +1263,7 @@ if ($method === 'POST' && $action === 'post') {
         if ($documentEntityId > 0 && $placementEntityId > 0 && $placementEntityId !== $documentEntityId) {
             api_error("Invoice {$row['invoice_number']} contains placement #{$placementId} from a different legal entity", 422);
         }
-        $placementClientCompanyId = (int) ($placementContexts[$placementId]['placement']['end_client_company_id'] ?? 0)
-            ?: (int) ($placementContexts[$placementId]['placement']['staffing_client_company_id'] ?? 0);
+        $placementClientCompanyId = (int) ($placementContexts[$placementId]['placement']['staffing_client_company_id'] ?? 0);
         if ($party && $placementClientCompanyId > 0 && $placementClientCompanyId !== $party) {
             api_error(
                 "Invoice {$row['invoice_number']} is for a different client than placement #{$placementId}",

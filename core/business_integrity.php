@@ -836,7 +836,7 @@ function businessIntegrityAudit(int $tenantId): array
     $dimensionGapWhere = "(
            COALESCE(p.person_id, 0) = 0
         OR (p.engagement_type <> 'internal'
-                AND COALESCE(p.end_client_company_id, sc.company_id, 0) = 0)
+                AND COALESCE(sc.company_id, 0) = 0)
         OR (COALESCE(p.staffing_job_id, 0) = 0 AND COALESCE(p.jobdiva_job_id, '') = '')
         OR (COALESCE(p.recruiter_name, '') = '' AND COALESCE(p.recruiter_email, '') = ''
             AND NOT EXISTS (
@@ -886,7 +886,7 @@ function businessIntegrityAudit(int $tenantId): array
         "SELECT p.id AS placement_id, p.external_id, p.title, p.engagement_type,
                 CONCAT_WS(', ',
                     IF(COALESCE(p.person_id, 0) = 0, 'worker', NULL),
-                    IF(p.engagement_type <> 'internal' AND COALESCE(p.end_client_company_id, sc.company_id, 0) = 0, 'client', NULL),
+                    IF(p.engagement_type <> 'internal' AND COALESCE(sc.company_id, 0) = 0, 'client', NULL),
                     IF(COALESCE(p.staffing_job_id, 0) = 0 AND COALESCE(p.jobdiva_job_id, '') = '', 'job', NULL),
                     IF(COALESCE(p.recruiter_name, '') = '' AND COALESCE(p.recruiter_email, '') = ''
                         AND NOT EXISTS (

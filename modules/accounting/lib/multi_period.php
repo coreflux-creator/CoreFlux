@@ -791,8 +791,8 @@ function accountingPostBundleAccrual(int $tenantId, int $bundleId, string $bundl
         $assignmentDimensions = (array) ($dimensionContext['dimensions'] ?? []);
         $partyCompanyId = null;
         if ($bundleType === 'ar') {
-            $partyCompanyId = !empty($dimensionContext['placement']['end_client_company_id'])
-                ? (int) $dimensionContext['placement']['end_client_company_id']
+            $partyCompanyId = !empty($dimensionContext['placement']['staffing_client_company_id'])
+                ? (int) $dimensionContext['placement']['staffing_client_company_id']
                 : null;
         } else {
             $partyCompanyId = !empty($dimensionContext['vendor_company_id'])

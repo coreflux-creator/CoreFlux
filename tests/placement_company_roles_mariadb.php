@@ -22,8 +22,8 @@ $table=static function(string $name,array $row)use($pdo):void{
     $pdo->exec('CREATE TABLE '.$name.' ('.implode(',',$columns).')');
 };
 try{
-    $pdo->exec('CREATE TABLE tenants(id BIGINT PRIMARY KEY,parent_id BIGINT,tenant_type VARCHAR(20),billing_invoice_terms VARCHAR(20))');
-    $pdo->exec("INSERT INTO tenants VALUES(1,NULL,'master','NET30'),(2,NULL,'master','NET30')");
+    $pdo->exec('CREATE TABLE tenants(id BIGINT PRIMARY KEY,parent_id BIGINT,tenant_type VARCHAR(20),name VARCHAR(80),is_active INT,billing_invoice_terms VARCHAR(20))');
+    $pdo->exec("INSERT INTO tenants VALUES(1,NULL,'master','Synthetic Pilot',1,'NET30'),(2,NULL,'master','Other Pilot',1,'NET30')");
     $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(40),scope_mode VARCHAR(20))');
     foreach(['modules/people/migrations/004_companies.sql','modules/staffing/migrations/003_clients.sql','core/migrations/126_staffing_economic_graph.sql','core/migrations/138_placement_one_time_items.sql']as$file){
         foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../'.$file))as$sql){
@@ -37,16 +37,19 @@ try{
     foreach([[1,1,10,'Billing Co'],[2,1,11,'Work Recipient'],[3,2,12,'Foreign Co'],[4,1,13,'Another Bill-to']]as[$id,$tid,$co,$name])$insert('staffing_clients',['id'=>$id,'tenant_id'=>$tid,'company_id'=>$co,'name'=>$name,'source_system'=>'jobdiva','payment_terms_days'=>45]);
     $fixture=purepayAssignmentFixtureRows();
     $placement=array_diff_key($fixture['placement'],['billing_company_id'=>true])+['tenant_id'=>1,'deleted_at'=>null,'updated_at'=>'2026-10-01 00:00:00','coreflux_overridden_fields'=>null,
-        'client_bill_cycle'=>'monthly','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>null,'client_payment_terms_override'=>null,'vendor_pwp_enabled'=>0];
+        'client_bill_cycle'=>'monthly','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>null,'client_payment_terms_override'=>null,'vendor_pwp_enabled'=>0,'recruiter_name'=>null,'recruiter_email'=>null,'account_manager_name'=>null,'account_manager_email'=>null];
     $table('placements',$placement);$insert('placements',$placement);
     $insert('placements',array_replace($placement,['id'=>902,'tenant_id'=>2,'client_id'=>3,'end_client_company_id'=>12]));
-    $person=$fixture['person']+['tenant_id'=>1,'email_primary'=>'synthetic@example.invalid','pay_frequency'=>'biweekly','deleted_at'=>null];$table('people',$person);$insert('people',$person);
+    $person=$fixture['person']+['tenant_id'=>1,'email_primary'=>'synthetic@example.invalid','pay_frequency'=>'biweekly','entity_id'=>9,'deleted_at'=>null];$table('people',$person);$insert('people',$person);
     $pdo->exec('CREATE TABLE users(id BIGINT PRIMARY KEY,name VARCHAR(100))');
     $pdo->exec('CREATE TABLE placement_corp_details(tenant_id BIGINT,placement_id BIGINT)');
     $pdo->exec('CREATE TABLE placement_client_chain(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,position INT)');
     $pdo->exec('CREATE TABLE placement_referrals(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,referrer_company_id BIGINT,referrer_person_id BIGINT,referrer_user_id BIGINT)');
-    $pdo->exec('CREATE TABLE placement_commissions(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,user_id BIGINT)');
+    $pdo->exec('CREATE TABLE placement_commissions(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,user_id BIGINT,role VARCHAR(40),effective_from DATE,effective_to DATE)');
     $pdo->exec('CREATE TABLE ap_vendors_index(id BIGINT PRIMARY KEY,tenant_id BIGINT,vendor_name VARCHAR(100),vendor_type VARCHAR(30),default_terms VARCHAR(20),default_pwp INT)');
+    $pdo->exec('CREATE TABLE staffing_jobs(id BIGINT PRIMARY KEY,tenant_id BIGINT,department VARCHAR(80),location_state VARCHAR(80))');
+    $pdo->exec('CREATE TABLE accounting_entities(id BIGINT PRIMARY KEY,tenant_id BIGINT,active INT)');
+    $pdo->exec('INSERT INTO accounting_entities VALUES(9,1,1)');
     $table('placement_rates',$fixture['rates'][0]);foreach($fixture['rates']as$r)$insert('placement_rates',$r);
     foreach($fixture['cycles']as$r)$insert('staffing_operating_cycles',$r+['tenant_id'=>1]);
     $snapshot=static fn():array=>$pdo->query('SELECT * FROM placements ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
@@ -94,7 +97,19 @@ try{
     $check($pdo->query('SELECT * FROM placement_economic_parties ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'Identical reconciliation replay preserves party identities and values');
     placementEconomicsUpsertParty(1,901,['source_ref'=>'placement:manual_note','source_type'=>'placement','role'=>'replacement','display_name'=>'Source overwrite','source_managed'=>1]);
     $check($pdo->query('SELECT * FROM placement_economic_parties ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'Source upsert atomically respects manual party ownership');
-    $counts=jobdivaProjectorGraphReadinessCounts(1);
+    require_once __DIR__.'/../modules/staffing/lib/dimensions.php';
+    $context=staffingAssignmentDimensionContext(1,901,9,'2026-10-01');
+    $check($context['dimensions']['client']===10,'Financial client dimension identifies the bill-to company, not the work recipient');
+    $pdo->exec('UPDATE placements SET client_id=NULL WHERE id=901');
+    $context=staffingAssignmentDimensionContext(1,901,9,'2026-10-01');
+    $check(!isset($context['dimensions']['client']),'A work recipient alone cannot supply the financial client dimension');
+    $pdo->exec('UPDATE placements SET client_id=1 WHERE id=901');
+    $counts=jobdivaProjectorReadinessCounts(1);
     $check($counts['client_company_mismatch']===0,'Readiness does not report distinct roles as a broken company link');
+    $pdo->exec('UPDATE placement_economic_parties SET active=1,payment_terms_overridden=1,payment_terms="NET17" WHERE id='.$legacy);
+    placementEconomicsReconcile(1,901);
+    $reviewed=$pdo->query('SELECT active,payment_terms FROM placement_economic_parties WHERE id='.$legacy)->fetch(PDO::FETCH_ASSOC);
+    $check((int)$reviewed['active']===1&&$reviewed['payment_terms']==='NET17','Legacy user-reviewed debtor terms survive source reconciliation for review');
+    $check($fails(fn()=>placementEconomicsReceivableContract(1,901,false)),'Conflicting legacy debtor blocks a new receivable contract until reviewed');
     echo "Company role database checks: {$count} passed\n";
 }finally{$pdo->exec('DROP DATABASE '.$db);}

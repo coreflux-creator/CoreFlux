@@ -10,7 +10,7 @@ export default function BillToClientPicker({ value, currentName, onChange, testI
     <select className="input" value={value || ''} onChange={event => onChange(event.target.value)} disabled={loading || !!error} data-testid={testId}>
       <option value="">— Not selected —</option>
       {missingCurrent && <option value={value}>{currentName || `Client ${value}`} (current)</option>}
-      {rows.map(row => <option key={row.id} value={row.id}>{row.record_number ? `${row.record_number} · ` : ''}{row.name}</option>)}
+      {rows.map(row => <option key={row.id} value={row.id}>{row.client_number ? `${row.client_number} · ` : ''}{row.name}</option>)}
     </select>
     {error && <span role="alert">Clients could not be loaded. Your current selection is unchanged.</span>}
   </label>;
