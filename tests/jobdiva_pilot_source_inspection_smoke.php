@@ -32,6 +32,25 @@ $check(count($calls)===2&&!$result['report']['record_writes'],'successful lookup
 $serialized=json_encode($result['report']);
 $check(!str_contains($serialized,'PRIVATE-WORKER')&&!str_contains($serialized,'United States')&&!str_contains($serialized,'101'),
     'public report excludes provider record values and source identifiers');
+$check($result['report']['provider_calls'][0]['response_shape']==='list'
+    &&$result['report']['provider_calls'][1]['recognized_envelope']==='data'
+    &&$result['report']['start_diagnostics']['rows_with_expected_person_and_job']===1,
+    'diagnostics report fixed shape labels and scoped identity counts');
+$incomplete=$start;unset($incomplete['candidate id'],$incomplete['startStatus']);
+$result=$run([$ok([$incomplete])],$calls);
+$diagnostic=$result['report']['start_diagnostics']['expected_id_checks'][0];
+$check($diagnostic['person_echo']==='missing'&&!$diagnostic['assignment_row_recognized']
+    &&$diagnostic['lifecycle_reason']==='missing_assignment_state'&&$result['contract']===null&&count($calls)===1,
+    'generic ID diagnostics never promote an incomplete row into a verified assignment');
+$unknown=$start;$unknown['startStatus']='PRIVATE-STATUS-SENTINEL';$unknown['PRIVATE-FIELD-NAME']='PRIVATE-VALUE';
+$result=$run([$ok([$unknown])],$calls);
+$check($result['report']['start_diagnostics']['expected_id_checks'][0]['lifecycle_reason']==='unqualified_assignment_state'
+    &&!str_contains(json_encode($result['report']),'PRIVATE-'),
+    'unrecognized lifecycle and field names are reduced to fixed diagnostics without exposing values');
+$result=$run([$ok([])],$calls);
+$check($result['report']['start_diagnostics']['parsed_rows']===0
+    &&$result['report']['start_diagnostics']['expected_id_checks']===[]&&count($calls)===1,
+    'an empty source response stays distinct from rejected returned records');
 $wrong=$start;$wrong['candidate id']='999';
 $result=$run([$ok([$wrong])],$calls);
 $check($result['report']['status']==='exact_assignment_unavailable'&&$result['contract']===null&&count($calls)===1,

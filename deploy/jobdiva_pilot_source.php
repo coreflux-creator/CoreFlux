@@ -19,6 +19,38 @@ function fullCoreJobdivaDetailHasExactIdentity(array $row, array $ids): bool
     return true;
 }
 
+/** Counts and fixed reason codes only: never serialize provider values or field names. */
+function fullCoreJobdivaStartDiagnostics(array $rows, array $ids): array
+{
+    $result=['parsed_rows'=>count($rows),'rows_with_expected_id'=>0,'rows_with_expected_person'=>0,
+        'rows_with_expected_job'=>0,'rows_with_expected_person_and_job'=>0,'expected_id_checks'=>[]];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $person=jobdivaAssignmentIdentityPluck($row,['candidate id','candidateId','employeeId']);
+        $job=jobdivaAssignmentIdentityPluck($row,['job id','jobId']);
+        if ($person===$ids['person']) $result['rows_with_expected_person']++;
+        if ($job===$ids['job']) $result['rows_with_expected_job']++;
+        if ($person===$ids['person'] && $job===$ids['job']) $result['rows_with_expected_person_and_job']++;
+        // Diagnostic only: generic ID presence must not confer assignment eligibility.
+        if (!in_array($ids['placement'],jobdivaAssignmentIdentityValues($row,true),true)) continue;
+        $result['rows_with_expected_id']++;
+        $structural=jobdivaAssignmentStructuralEvidence($row);
+        $lifecycle=jobdivaAssignmentLifecycleEvidence($row,'searchStart:criteria_exact');
+        $reason=$lifecycle['reason']??'';
+        $reason=in_array($reason,['qualified_assignment_state','rejected_assignment_state',
+            'offer_not_accepted','unqualified_assignment_state','missing_assignment_state'],true)?$reason:'unknown';
+        $result['expected_id_checks'][]=[
+            'assignment_identity_unambiguous'=>jobdivaAssignmentIdentityValues($row,true)===[$ids['placement']],
+            'assignment_row_recognized'=>jobdivaAssignmentRowId($row)===$ids['placement'],
+            'person_echo'=>$person===''?'missing':($person===$ids['person']?'exact_match':'mismatch'),
+            'job_echo'=>$job===''?'missing':($job===$ids['job']?'exact_match':'mismatch'),
+            'start_date_present'=>$structural['start_date']!=='',
+            'lifecycle_reason'=>$reason,
+        ];
+    }
+    return $result;
+}
+
 /** Private return contains a contract; only its comparison report may be logged. */
 function fullCoreJobdivaReadPilot(array $ids, callable $request): array
 {
@@ -38,11 +70,24 @@ function fullCoreJobdivaReadPilot(array $ids, callable $request): array
             return [];
         }
         $status = $response['status'] ?? null;
-        $report['provider_calls'][] = ['operation'=>$label, 'http_status'=>is_int($status)?$status:null];
-        return $status === 200 ? jobdivaAssignmentRowsFromResponse($response['body'] ?? null) : [];
+        $callReport=['operation'=>$label, 'http_status'=>is_int($status)?$status:null];
+        $body=$response['body']??null;
+        $rows=$status===200?jobdivaAssignmentRowsFromResponse($body):[];
+        if ($status===200) {
+            $callReport['response_shape']=is_array($body)?(array_is_list($body)?'list':'object'):(is_string($body)?'text':'other');
+            $callReport['parsed_rows']=count($rows);
+            if (is_array($body)) {
+                foreach (['data','items','starts','records','results'] as $key) {
+                    if (isset($body[$key]) && is_array($body[$key])) { $callReport['recognized_envelope']=$key;break; }
+                }
+            }
+        }
+        $report['provider_calls'][]=$callReport;
+        return $rows;
     };
     $starts = $call('search_exact_start','POST','/apiv2/jobdiva/searchStart',
         ['jobId'=>(int)$ids['job'], 'candidateid'=>(int)$ids['person'], 'maxreturned'=>100, 'offset'=>0], null);
+    $report['start_diagnostics']=fullCoreJobdivaStartDiagnostics($starts,$ids);
     $exact = [];
     foreach ($starts as $row) {
         if (!is_array($row) || jobdivaAssignmentRowId($row) !== $ids['placement']) continue;
