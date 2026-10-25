@@ -496,7 +496,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             $status=$this->updateLink((int) $link['tenant_id'], (string) $link['source_ref'], [
                 'status'=>$status, 'last_synced_at'=>date('Y-m-d H:i:s'),
                 'purepay_payment_id'=>$evidence['payment_id'],
-                'response_json'=>purepayPaymentReceipt($evidence, $paymentId !== '' ? 'detail' : 'bill_history'),
+                'response_json'=>purepayPaymentReceipt($evidence, 'detail'),
                 'last_error'=>null, 'last_error_json'=>null,
             ]);
             return $this->confirmedStatus($tenantId, (string)$link['source_ref']);
