@@ -1,4 +1,4 @@
-## Native PurePayroll observations verified in the hosted pilot - October 24, 2026
+## Native PurePayroll read and capture verified in the hosted pilot - October 24, 2026
 
 Core runtime ca97741738d8c4a3bd543ce99c533cea3ffa7572 passed CI 40149282370
 and isolated staging deployment 40149514001. Migration 174 stores encrypted,
@@ -16,15 +16,26 @@ background jobs, startup migrations and scheduled operations disabled.
 Hosted workflow 40149435092 read one existing Meridian payroll twice with an
 identical review hash and replayed all five original integration deliveries.
 Its two employee lines remain unlinked because no completed Core identity
-receipts match them. The check used Core runtime 87d8b902 and runner ca977417;
-it saved no capture. The separate guarded capture acceptance remains pending.
-Neither native/manual origin, Core time/rate matching, settlement nor tax
-remittance is inferred from the provider ledger. No payroll or journal was run.
+receipts match them. The read check used Core runtime 87d8b902 and saved no
+capture. Workflow 40150447182 subsequently used runner 04219c17 (CI 40150263563)
+against installed runtime ca977417 to save capture 1 and exactly one audit.
+The reviewed observation was pinned by its prior hash. Existing operator
+permissions and directory ownership were checked before saving. Replay reused
+the same capture, encrypted history matched, and existing integration, time,
+payroll-authority and connection rows were unchanged. The first attempt had
+stopped before saving because its comparison helper tried to JSON-encode an
+encrypted BLOB; the corrected runner fingerprints binary records directly.
 
-Evidence: deploy/native-payroll-observations-staging-20261024.json. Production
-is unchanged. Thunderhawk's replacement key ending be2c was copied privately;
-Core still shows q9eE in read-only mode, pending the user's entry and submission.
-The old key remains active until its replacement is verified.
+Neither native/manual origin, Core time/rate matching, settlement nor tax
+remittance is inferred from the provider ledger. No provider record was written,
+no payroll or payment was executed, and no journal was posted. This demo result
+does not establish the actual Thunderhawk round trip or independent time approval.
+
+Evidence: deploy/native-payroll-observations-staging-20261024.json and
+ deploy/synthetic-payroll-capture-20261024.json. Production is unchanged.
+Thunderhawk's replacement key ending be2c was copied privately; Core still shows
+q9eE in read-only mode, pending the user's entry and submission. The old key
+remains active until its replacement is verified.
 
 ## Core time-review return verified in the hosted demo - October 24, 2026
 

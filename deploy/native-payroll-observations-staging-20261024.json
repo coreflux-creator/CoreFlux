@@ -1,5 +1,5 @@
 {
-  "status": "hosted_read_verified_capture_acceptance_pending",
+  "status": "hosted_read_capture_replay_and_history_verified",
   "core_revision": "ca97741738d8c4a3bd543ce99c533cea3ffa7572",
   "ci_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40149282370",
   "deployment_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40149514001",
@@ -64,6 +64,20 @@
     "repeated_review_identical": true,
     "capture_saved": false,
     "existing_connections_and_deliveries_unchanged": true,
+    "provider_record_writes": false
+  },
+  "hosted_capture_acceptance": {
+    "run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40150447182",
+    "runner_revision": "04219c172fe01cb58bd04247791ef12bb5a9d024",
+    "runner_ci": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40150263563",
+    "installed_runtime": "ca97741738d8c4a3bd543ce99c533cea3ffa7572",
+    "receipt": "deploy/synthetic-payroll-capture-20261024.json",
+    "capture_id": 1,
+    "captures_added": 1,
+    "audits_added": 1,
+    "identical_replay": true,
+    "encrypted_history_verified": true,
+    "unrelated_local_state_unchanged": true,
     "provider_record_writes": false
   },
   "production_cutover": false,
