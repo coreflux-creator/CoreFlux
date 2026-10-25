@@ -1,0 +1,105 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "read_only_thunderhawk_commercial_alignment",
+  "canonical_person": "P-358",
+  "canonical_placement": "PL-864",
+  "ci": {
+    "databaseId": 40195236113,
+    "headSha": "5e9d6e522a823a8eebac7a8e3880cb30b2271e15",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40195236113",
+    "successful_jobs": 9,
+    "commercial_comparison_checks": 23,
+    "directory_and_commercial_database_checks": 74
+  },
+  "inspection": {
+    "databaseId": 40195230206,
+    "headSha": "5e9d6e522a823a8eebac7a8e3880cb30b2271e15",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40195230206"
+  },
+  "observed_at": "2026-10-25T12:56:57+00:00",
+  "exact_assignment_verified": true,
+  "exact_detail_verified": true,
+  "source_refreshed": true,
+  "record_writes": false,
+  "import_authorized": false,
+  "commercial_alignment": {
+    "status": "observed",
+    "as_of": "2026-10-25",
+    "records_changed": false,
+    "scope": "Current nonsuperseded rate versions and the billing-client company link; no raw values.",
+    "limits": [
+      "Matching drafts are not approved compensation.",
+      "Billing client, end client, legal employer and vendor are distinct roles.",
+      "A source comparison does not authorize import, approval, payroll or payment."
+    ],
+    "rates": {
+      "status": "compared",
+      "draft_versions": 1,
+      "approved_versions": 0,
+      "versions": [
+        {
+          "status": "compared",
+          "approval": "draft",
+          "source_rate_basis_resolved": true,
+          "fields": {
+            "bill_rate_unit": "matches_fresh_source",
+            "pay_rate_unit": "matches_fresh_source",
+            "currency": "matches_fresh_source",
+            "bill_rate": "matches_fresh_source",
+            "bill_discount_pct": "source_value_missing",
+            "invoice_bill_rate": "awaiting_rate_approval",
+            "pay_rate": "matches_fresh_source",
+            "payroll_load_pct": "source_value_missing",
+            "workers_comp_pct": "source_value_missing",
+            "benefits_load_pct": "source_value_missing",
+            "c2c_overhead_pct": "source_value_missing",
+            "other_cost_per_hour": "source_value_missing",
+            "other_cost_flat": "source_value_missing"
+          }
+        }
+      ]
+    },
+    "billing_client_company": {
+      "status": "matches_fresh_source"
+    }
+  },
+  "existing_placement_alignment": {
+    "branch": "matches_fresh_source",
+    "workers_comp_class": "source_value_missing",
+    "worksite_city": "core_column_unavailable",
+    "worksite_state": "matches_fresh_source",
+    "worksite_country": "matches_fresh_source",
+    "engagement_type": "matches_fresh_source",
+    "start_date": "matches_fresh_source",
+    "end_date": "matches_fresh_source",
+    "status": "matches_fresh_source"
+  },
+  "interpretation": [
+    "Five rate fields and the billing-client company link match the fresh exact assignment contract.",
+    "Core has one current draft rate version and no current approved version; this does not approve compensation or billing.",
+    "The frozen net invoice amount awaits normal rate approval.",
+    "Missing additional-cost evidence is not assumed to mean zero.",
+    "The source company is checked in the explicitly selected company directory, with both forward and reverse identity checks; it does not establish the end client or legal employer."
+  ],
+  "boundaries": {
+    "runtime_installed": false,
+    "production_records_changed": false,
+    "credentials_changed": false,
+    "rate_approved": false,
+    "real_payroll_or_payments_executed": false,
+    "production_cutover": false,
+    "arabella_changed": false,
+    "full_thunderhawk_round_trip_proven": false
+  },
+  "remaining": [
+    "Review and approve actual pilot rates through the normal workflow once required setup is established.",
+    "Complete legal-entity alignment under the existing sync rules and obtain source WC evidence.",
+    "Verify remaining person, end-client, vendor and custom-field values.",
+    "Complete the pending credential, independent time review, onboarding/document and financial-result exchanges.",
+    "Demonstrate the complete Thunderhawk round trip and obtain production release authorization."
+  ]
+}
