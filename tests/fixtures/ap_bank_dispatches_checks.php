@@ -9,7 +9,7 @@ function exerciseApBankDispatches(PDO $pdo,PDO $other,callable $seed,callable $c
         return paymentRailsBuildItem($seed($id,1)+['routing'=>'021000021','account'=>'12345678','account_type'=>'checking','sec_code'=>'ccd','description'=>'AP-PAY']);
     };
     $dispatch=static fn(string $rail,array $items,callable $send)=>apBankDispatch($pdo,1,$rail,$items,$opts,$send);
-    $nacha=new NachaRailDriver();$sent=0;
+    $nacha=paymentRailsGetDriver('nacha');$sent=0;
     $format=static function($items,$options)use($nacha,$pdo,&$sent):array{
         $sent++;if(!$pdo->inTransaction())throw new RuntimeException('Bank file must commit with its original claims');
         return $nacha->originate($items,$options);
