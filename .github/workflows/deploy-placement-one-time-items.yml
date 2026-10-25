@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_payroll_input, pilot_payroll_reservation, pilot_onboarding, pilot_time_review, pilot_time_approver, pilot_time_approval, pilot_time_approval_verify, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
+        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_payroll_input, pilot_payroll_reservation, pilot_payroll_result, pilot_onboarding, pilot_time_review, pilot_time_approver, pilot_time_approval, pilot_time_approval_verify, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   reserve-demo-payroll-source:
-    if: inputs.integration_staging == 'pilot_payroll_reservation'
+    if: inputs.integration_staging == 'pilot_payroll_reservation' || inputs.integration_staging == 'pilot_payroll_result'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -36,9 +36,9 @@ jobs:
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          source: deploy/accept_synthetic_payroll_reservation.php,deploy/synthetic_payroll_input_guard.php,core/integrations/purepay_payroll_reservation_review.php,core/integrations/purepay_payroll_authority.php,core/integrations/purepay_payroll_results.php,core/integrations/purepay_payroll_inputs.php,core/integrations/purepay_links.php,core/integrations/purepay_core.php,core/integrations/delivery.php,core/integrations/purepay_observations.php,core/integrations/purepay_observation_contract.php,core/memberships.php,core/RBAC.php,core/rbac/permissions.php,core/rbac/legacy_map.php,api/purepay_core.php
+          source: deploy/accept_synthetic_payroll_reservation.php,deploy/observe_synthetic_payroll_result.php,deploy/synthetic_payroll_input_guard.php,core/integrations/purepay_payroll_reservation_review.php,core/integrations/purepay_payroll_authority.php,core/integrations/purepay_payroll_results.php,core/integrations/purepay_payroll_inputs.php,core/integrations/purepay_links.php,core/integrations/purepay_core.php,core/integrations/delivery.php,core/integrations/purepay_observations.php,core/integrations/purepay_observation_contract.php,core/memberships.php,core/RBAC.php,core/rbac/permissions.php,core/rbac/legacy_map.php,api/purepay_core.php
           target: /tmp/core-payroll-reservation-${{ github.run_id }}
-      - name: Reserve and share only the accepted demo input without creating payroll
+      - name: Rehearse the selected demo reservation or held-result review
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.CW_SSH_HOST }}
@@ -55,8 +55,13 @@ jobs:
             test -d "$PACKAGE/deploy"
             trap 'find "$PACKAGE" -type f -delete; find "$PACKAGE" -depth -type d -empty -delete' EXIT
             php -l "$PACKAGE/deploy/accept_synthetic_payroll_reservation.php"
+            php -l "$PACKAGE/deploy/observe_synthetic_payroll_result.php"
             cd "$ROOT"
-            COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_payroll_reservation.php" --reserve-demo-hours
+            if [ '${{ inputs.integration_staging }}' = 'pilot_payroll_result' ]; then
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/observe_synthetic_payroll_result.php" --observe-demo-draft
+            else
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_payroll_reservation.php" --reserve-demo-hours
+            fi
 
   receive-demo-payroll-input:
     if: inputs.integration_staging == 'pilot_payroll_input'
