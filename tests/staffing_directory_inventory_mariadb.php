@@ -19,6 +19,15 @@ try {
     $pdo->exec('INSERT INTO placements VALUES(1,11,1,NULL),(2,11,2,NULL),(3,11,999,NULL),(4,10,1,NULL),(5,12,4,NULL)');
     $pdo->exec('CREATE TABLE external_entity_mappings(tenant_id BIGINT,source_system VARCHAR(40),internal_entity_type VARCHAR(40),internal_entity_id BIGINT)');
     $pdo->exec("INSERT INTO external_entity_mappings VALUES(11,'jobdiva','person',1),(11,'jobdiva','person',999),(12,'jobdiva','person',4)");
+    $pdo->exec('ALTER TABLE external_entity_mappings ADD COLUMN external_id VARCHAR(128)');
+    $pdo->exec("UPDATE external_entity_mappings SET external_id='candidateAlpha' WHERE internal_entity_id=1 OR tenant_id=12");
+    $pdo->exec("INSERT INTO external_entity_mappings VALUES(11,'jobdiva','placement',1,'start001'),(12,'jobdiva','placement',5,'start001')");
+    $pdo->exec('ALTER TABLE placements ADD COLUMN accounting_entity_id BIGINT NULL, ADD COLUMN branch VARCHAR(100), ADD COLUMN workers_comp_class VARCHAR(64), ADD COLUMN end_date DATE');
+    $pdo->exec("UPDATE placements SET accounting_entity_id=0,branch='Reviewed division',workers_comp_class='   ' WHERE id=1");
+    $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(24),record_id BIGINT,record_number VARCHAR(48),canonical_record_id BIGINT)');
+    $pdo->exec("INSERT INTO core_record_numbers VALUES(10,'person',1,'P-1',1),(11,'placement',1,'PL-1',1),(11,'person',1,'P-2',99)");
+    $pilot=['tenant_id'=>11,'workspace_name'=>'Synthetic child','person_directory_id'=>10,'person_id'=>1,'placement_id'=>1,
+        'jobdiva_ids'=>['person'=>'candidateAlpha','placement'=>'start001']];
     $pdo->exec('SET TRANSACTION READ ONLY'); $pdo->beginTransaction();
     $result=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']); $row=$result['workspaces'][0];
     $check($result['status']==='available'&&count($result['workspaces'])===1&&(int)$row['id']===11,'only the explicitly named pilot workspace is reported');
@@ -34,11 +43,50 @@ try {
     $master=fullCoreStaffingDirectoryInventory($pdo,['Synthetic pilot'])['workspaces'][0];
     $check($master['configured_scopes']===[],'absent overrides are not fabricated as configured policy');
     $check(fullCoreStaffingDirectoryInventory($pdo,['No match'])['workspaces']===[],'unknown workspace is not replaced by a default');
-    $pdo->rollBack(); $pdo->exec('DROP TABLE tenant_module_scope');
+    $observed=fullCoreStaffingPilotInventory($pdo,$pilot);
+    $check($observed['status']==='observed','explicit shared-directory pilot pair is inspected in a read-only transaction');
+    $check($observed['placement_fields']['branch']==='present'&&$observed['placement_fields']['workers_comp_class']==='empty'
+        &&$observed['placement_fields']['accounting_entity_id']==='empty','blank and zero assignment dimensions remain missing');
+    $check($observed['placement_fields']['end_date']==='empty'&&$observed['placement_fields']['start_date']==='column_missing','open-ended and absent schema are distinct evidence');
+    $check($observed['jobdiva_identity']['person']['status']==='exact_match'&&$observed['jobdiva_identity']['placement']['status']==='exact_match','source links match exact opaque IDs and ignore another tenant');
+    $check($observed['persisted_numbers']===['person'=>'allocated','placement'=>'allocated'],'persisted person number uses the actual shared owner');
+    $serialized=json_encode($observed);
+    $check(!str_contains($serialized,'candidateAlpha')&&!str_contains($serialized,'Reviewed division')&&!str_contains($serialized,'P-1'),'raw source IDs, dimension values and number labels are not emitted');
+    $wrongName=fullCoreStaffingPilotInventory($pdo,array_replace($pilot,['workspace_name'=>'synthetic child']));
+    $check($wrongName['status']==='workspace_identity_mismatch'&&!isset($wrongName['placement_fields']),'workspace name must match exactly before record fields are read');
+    $check(fullCoreStaffingPilotInventory($pdo,array_replace($pilot,['placement_id'=>5]))['status']==='placement_not_found','foreign placement is not used as a fallback');
+    $check(fullCoreStaffingPilotInventory($pdo,array_replace($pilot,['person_id'=>4]))['status']==='person_identity_mismatch','different linked worker is not inspected');
+    $check(fullCoreStaffingPilotInventory($pdo,array_replace($pilot,['person_directory_id'=>11]))['status']==='person_directory_or_active_record_mismatch','requested person owner must match the record');
+    $check(fullCoreStaffingPilotInventory($pdo,array_replace($pilot,['placement_id'=>2,'person_id'=>2]))['status']==='person_directory_or_active_record_mismatch','deleted person cannot pass the pilot identity check');
+    $differentCase=$pilot; $differentCase['jobdiva_ids']['person']='candidatealpha';
+    $check(fullCoreStaffingPilotInventory($pdo,$differentCase)['jobdiva_identity']['person']['status']==='mismatch_or_ambiguous','provider identifiers are compared without case folding');
+    $invalid=$pilot; $invalid['placement_id']='1'; $rejected=false;
+    try { fullCoreStaffingPilotInventory($pdo,$invalid); } catch (InvalidArgumentException $e) { $rejected=true; }
+    $check($rejected,'ambiguous numeric input is rejected before querying');
+    $pdo->rollBack();
+    $pdo->exec("UPDATE placements SET accounting_entity_id=77,workers_comp_class='8810' WHERE id=1");
+    $pdo->exec("UPDATE core_record_numbers SET canonical_record_id=99 WHERE entity_type='placement'");
+    $pdo->exec("INSERT INTO external_entity_mappings VALUES(11,'jobdiva','person',3,'candidateAlpha')");
+    $changed=fullCoreStaffingPilotInventory($pdo,$pilot);
+    $check($changed['placement_fields']['accounting_entity_id']==='present'&&$changed['placement_fields']['workers_comp_class']==='present','nonempty dimensions report presence without certifying their correctness');
+    $check($changed['persisted_numbers']['placement']==='alias_requires_review','aliased record is not silently accepted as the canonical pilot');
+    $check($changed['jobdiva_identity']['person']['status']==='mismatch_or_ambiguous','conflicting reverse mapping is not accepted');
+    $pdo->exec("DELETE FROM external_entity_mappings WHERE tenant_id=11 AND internal_entity_type='placement'");
+    $pdo->exec("DELETE FROM core_record_numbers WHERE entity_type='placement'");
+    $absent=fullCoreStaffingPilotInventory($pdo,$pilot);
+    $check($absent['jobdiva_identity']['placement']['status']==='missing'&&$absent['persisted_numbers']['placement']==='unallocated','missing mapping and unallocated persisted number stay explicit');
+    $pdo->exec('ALTER TABLE external_entity_mappings DROP COLUMN external_id'); $pdo->exec('DROP TABLE core_record_numbers');
+    $legacy=fullCoreStaffingPilotInventory($pdo,$pilot);
+    $check($legacy['jobdiva_identity']['person']['status']==='schema_unavailable'&&$legacy['persisted_numbers']['placement']==='schema_unavailable','legacy schema does not fabricate source or canonical number evidence');
+    $pdo->exec('UPDATE tenants SET is_active=0 WHERE id=11');
+    $check(fullCoreStaffingPilotInventory($pdo,$pilot)['status']==='workspace_identity_mismatch','inactive workspace stops inspection');
+    $pdo->exec('UPDATE tenants SET is_active=1 WHERE id=11');
+    $pdo->exec('DROP TABLE tenant_module_scope');
     $partial=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']);
     $check($partial['status']==='partial'&&$partial['workspaces'][0]['configured_scopes']===null,'missing scope schema is explicit rather than empty policy');
     $pdo->exec('DROP TABLE tenants');
     $check(fullCoreStaffingDirectoryInventory($pdo,['Synthetic child'])['status']==='unavailable','missing tenant metadata is not presented as an empty directory');
+    $check(fullCoreStaffingPilotInventory($pdo,$pilot)['status']==='unavailable','missing required pilot schema stops record inspection');
     echo "$passed passed\n";
 } finally {
     if($pdo->inTransaction())$pdo->rollBack();

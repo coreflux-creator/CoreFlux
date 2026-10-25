@@ -60,3 +60,81 @@ function fullCoreStaffingDirectoryInventory(PDO $pdo, array $workspaceNames): ar
     unset($workspace);
     return ['status'=>$missing?'partial':'available','missing_schema'=>$missing,'workspaces'=>$workspaces];
 }
+
+/** Inspect one explicitly selected pilot pair without returning worker data or source payloads. */
+function fullCoreStaffingPilotInventory(PDO $pdo, array $pilot): array
+{
+    foreach (['tenant_id','person_directory_id','person_id','placement_id'] as $key) {
+        if (!is_int($pilot[$key] ?? null) || $pilot[$key] <= 0) throw new InvalidArgumentException('Explicit positive pilot identities required');
+    }
+    if (!is_string($pilot['workspace_name'] ?? null) || trim($pilot['workspace_name']) === '') throw new InvalidArgumentException('Explicit workspace name required');
+    foreach (['person','placement'] as $entity) {
+        $expected = $pilot['jobdiva_ids'][$entity] ?? null;
+        if (!is_string($expected) || $expected === '' || strlen($expected) > 128 || preg_match('/[\x00-\x20\x7f]/', $expected)) {
+            throw new InvalidArgumentException('Explicit opaque JobDiva identities required');
+        }
+    }
+    $columns = [];
+    foreach (['tenants','placements','people','external_entity_mappings','core_record_numbers'] as $table) {
+        $s = $pdo->prepare('SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t');
+        $s->execute(['t'=>$table]); $columns[$table] = $s->fetchAll(PDO::FETCH_COLUMN);
+    }
+    $missing = [];
+    foreach (['tenants'=>['id','name','is_active'], 'placements'=>['id','tenant_id','person_id','deleted_at'],
+        'people'=>['id','tenant_id','deleted_at']] as $table=>$required) {
+        if (array_diff($required,$columns[$table])) $missing[] = $table;
+    }
+    $result = ['status'=>'unavailable','tenant_id'=>$pilot['tenant_id'],'placement_id'=>$pilot['placement_id'],
+        'person_id'=>$pilot['person_id'],'person_directory_id'=>$pilot['person_directory_id'],'missing_schema'=>$missing,
+        'note'=>'Presence and exact identity evidence only; this does not approve employment, compensation, routing or delivery.'];
+    if ($missing) return $result;
+    $s = $pdo->prepare('SELECT name,is_active FROM tenants WHERE id=:id');
+    $s->execute(['id'=>$pilot['tenant_id']]); $workspace = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$workspace || $workspace['name'] !== $pilot['workspace_name'] || (int)$workspace['is_active'] !== 1) {
+        $result['status'] = 'workspace_identity_mismatch'; return $result;
+    }
+    $s = $pdo->prepare('SELECT person_id FROM placements WHERE id=:id AND tenant_id=:t AND deleted_at IS NULL');
+    $s->execute(['id'=>$pilot['placement_id'],'t'=>$pilot['tenant_id']]); $person = $s->fetchColumn();
+    if ($person === false) { $result['status'] = 'placement_not_found'; return $result; }
+    if ((int)$person !== $pilot['person_id']) { $result['status'] = 'person_identity_mismatch'; return $result; }
+    $s = $pdo->prepare('SELECT COUNT(*) FROM people WHERE id=:id AND tenant_id=:t AND deleted_at IS NULL');
+    $s->execute(['id'=>$pilot['person_id'],'t'=>$pilot['person_directory_id']]);
+    if ((int)$s->fetchColumn() !== 1) { $result['status'] = 'person_directory_or_active_record_mismatch'; return $result; }
+
+    $result['status'] = 'observed';
+    // Only fixed, reviewed column names enter SQL. Return presence, never values.
+    $result['placement_fields'] = [];
+    foreach (['accounting_entity_id','branch','workers_comp_class','client_id','end_client_company_id',
+        'job_id','worksite_country','worksite_state','engagement_type','start_date','end_date','status'] as $field) {
+        if (!in_array($field,$columns['placements'],true)) { $result['placement_fields'][$field] = 'column_missing'; continue; }
+        $present = str_ends_with($field,'_id') ? '`'.$field.'` > 0' : "TRIM(CAST(`$field` AS CHAR)) <> ''";
+        $s = $pdo->prepare('SELECT CASE WHEN '.$present.' THEN 1 ELSE 0 END FROM placements WHERE id=:id AND tenant_id=:t AND person_id=:p AND deleted_at IS NULL');
+        $s->execute(['id'=>$pilot['placement_id'],'t'=>$pilot['tenant_id'],'p'=>$pilot['person_id']]);
+        $result['placement_fields'][$field] = (int)$s->fetchColumn() === 1 ? 'present' : 'empty';
+    }
+    $mappingAvailable = !array_diff(['tenant_id','source_system','internal_entity_type','internal_entity_id','external_id'],$columns['external_entity_mappings']);
+    $numberAvailable = !array_diff(['tenant_id','entity_type','record_id','record_number','canonical_record_id'],$columns['core_record_numbers']);
+    foreach (['person','placement'] as $entity) {
+        $id = $pilot[$entity.'_id'];
+        $result['jobdiva_identity'][$entity] = ['status'=>'schema_unavailable'];
+        if ($mappingAvailable) {
+            $s = $pdo->prepare('SELECT internal_entity_id,external_id FROM external_entity_mappings
+                WHERE tenant_id=:t AND source_system="jobdiva" AND internal_entity_type=:e
+                AND (internal_entity_id=:id OR BINARY external_id=BINARY :external)');
+            $s->execute(['t'=>$pilot['tenant_id'],'e'=>$entity,'id'=>$id,'external'=>$pilot['jobdiva_ids'][$entity]]);
+            $mappings = $s->fetchAll(PDO::FETCH_ASSOC);
+            $matches = count($mappings) === 1 && (int)$mappings[0]['internal_entity_id'] === $id
+                && $mappings[0]['external_id'] === $pilot['jobdiva_ids'][$entity];
+            $result['jobdiva_identity'][$entity] = ['status'=>$matches?'exact_match':($mappings?'mismatch_or_ambiguous':'missing')];
+        }
+        $result['persisted_numbers'][$entity] = 'schema_unavailable';
+        if ($numberAvailable) {
+            $owner = $entity === 'person' ? $pilot['person_directory_id'] : $pilot['tenant_id'];
+            $s = $pdo->prepare('SELECT record_number,canonical_record_id FROM core_record_numbers WHERE tenant_id=:t AND entity_type=:e AND record_id=:id');
+            $s->execute(['t'=>$owner,'e'=>$entity,'id'=>$id]); $number = $s->fetch(PDO::FETCH_ASSOC);
+            $result['persisted_numbers'][$entity] = !$number || trim($number['record_number']) === '' ? 'unallocated'
+                : ((int)$number['canonical_record_id'] === $id ? 'allocated' : 'alias_requires_review');
+        }
+    }
+    return $result;
+}

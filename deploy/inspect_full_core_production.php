@@ -123,6 +123,11 @@ try {
         'database_identity_verified' => true, 'live_bundle' => $liveBundle[0] ?? null,
         'candidate_bundle' => $candidateBundle[0] ?? null, 'client_counts' => $clients,
         'staffing_directories' => fullCoreStaffingDirectoryInventory($db, ['Thunderhawk', "charge d'Affaires"]),
+        'thunderhawk_pilot' => fullCoreStaffingPilotInventory($db, [
+            'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2,
+            'person_id'=>358, 'placement_id'=>864,
+            'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243'],
+        ]),
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
         'comparison_base_commit' => $manifest['base_commit'] ?? null,
