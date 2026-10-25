@@ -1,0 +1,79 @@
+{
+  "scope": "Read-only inspection of the selected real Thunderhawk pilot",
+  "inspector_commit": "ad0ac12be48e3d2ae959c4ff000ad9e7ab95f264",
+  "inspection_run": 40154202080,
+  "inspection_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40154202080",
+  "inspection_job": 121051938392,
+  "inspection_completed_at": "2026-10-25T02:24:46Z",
+  "inspection_conclusion": "success",
+  "ci_run": 40154120153,
+  "ci_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40154120153",
+  "ci_jobs_passed": 9,
+  "database_fixture_checks": 39,
+  "database_fixture_job": 121051680625,
+  "pilot": {
+    "status": "observed",
+    "tenant_id": 2,
+    "placement_id": 864,
+    "person_id": 358,
+    "person_directory_id": 2,
+    "missing_schema": [],
+    "note": "Presence and exact identity evidence only; this does not approve employment, compensation, routing or delivery.",
+    "placement_fields": {
+      "accounting_entity_id": "empty",
+      "branch": "present",
+      "workers_comp_class": "empty",
+      "client_id": "present",
+      "end_client_company_id": "present",
+      "staffing_job_id": "present",
+      "jobdiva_job_id": "present",
+      "worksite_country": "present",
+      "worksite_state": "present",
+      "engagement_type": "present",
+      "start_date": "present",
+      "end_date": "present",
+      "status": "present"
+    },
+    "employer_references": {
+      "accounting_directory_id": 2,
+      "placement": "empty",
+      "person": "empty"
+    },
+    "jobdiva_identity": {
+      "job": {
+        "status": "exact_match"
+      },
+      "person": {
+        "status": "exact_match"
+      },
+      "placement": {
+        "status": "exact_match"
+      }
+    },
+    "persisted_numbers": {
+      "person": "schema_unavailable",
+      "placement": "schema_unavailable"
+    }
+  },
+  "production": {
+    "database_identity_verified": true,
+    "live_bundle": "spa-assets/index-95sB_8ni.js",
+    "candidate_bundle": "spa-assets/index-CdYj1jbX.js",
+    "pending_migration_count": 70,
+    "activation_performed": false,
+    "records_changed": false,
+    "runtime_installed": false
+  },
+  "evidence_limits": [
+    "Field presence does not certify correct employment, compensation, routing or delivery.",
+    "Matching source IDs do not establish a completed cross-system round trip.",
+    "The persisted-number registry is absent in production; screen labels are not persisted-number evidence.",
+    "Masked numeric log values remain null; the exact private receipt remains on the inspection host."
+  ],
+  "next_requirements": [
+    "Establish the employing legal entity and workers compensation class from reviewed source information.",
+    "Complete the supported production deployment and recovery procedure before applying the shared-numbering migration.",
+    "Complete controlled worker access, independent time review and the actual Thunderhawk round trip."
+  ],
+  "private_host_receipt": "/tmp/core-integration-40154202080/production-preflight.json"
+}

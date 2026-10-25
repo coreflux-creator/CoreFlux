@@ -1,3 +1,29 @@
+## Real Thunderhawk pilot identity and setup inspection - October 24, 2026
+
+Read-only production inspection 40154202080, using inspector revision
+ad0ac12be48e3d2ae959c4ff000ad9e7ab95f264, verified tenant 2 and the exact
+P-358 / PL-864 pair in Thunderhawk's own people directory. The JobDiva candidate,
+assignment and source job all match the previously selected opaque IDs. The
+internal requisition is linked separately. Branch, client, end client, worksite,
+classification and dates are populated; this check does not certify their values.
+
+The placement legal-entity reference is empty, and the person-level entity
+fallback is also empty. The WC class is empty. Production has no shared
+persisted-number registry, so its displayed P/PL references do not prove the
+new canonical numbers have been installed. Seventy migrations remain pending.
+No production records, runtime files, integration settings or credentials changed.
+
+All nine CI jobs passed in 40154120153. The disposable MariaDB fixture passed
+39 checks covering exact source IDs, separate source/internal jobs, shared person
+ownership, wrong-company and inactive employer references, duplicate mappings,
+number aliases, missing schema and read-only execution. The installed pilot
+runtime remains b3013ea8; this inspection did not deploy a new application version.
+
+Evidence: deploy/thunderhawk-pilot-identity-inspection-20261024.json. Resolve the
+employer/WC from reviewed source information and finish the supported release
+procedure before the numbering migration. Controlled worker access, independent
+time review and the complete real Thunderhawk exchange remain unverified.
+
 ## Stable custom-field identities installed in the pilot - October 24, 2026
 
 Runtime b3013ea847b724cb043cf09b9bd0ed3c5d6f2782 corrects the integration
