@@ -405,26 +405,35 @@ function jobdivaAssignmentContractRowsForStart(
         // Read both shapes before deciding that a financial record belongs
         // to this Start.
         $entries = jobdivaAssignmentContractEntries([$row]);
-        $rowPick = static function (array $labels) use ($row, $entries): string {
-            $value = jobdivaAssignmentContractShallowPick($row, $labels);
-            if (jobdivaAssignmentContractHasValue($value)) return trim((string) $value);
-            return trim((string) (jobdivaAssignmentContractPick($entries, $labels) ?? ''));
+        // Identity aliases must agree across the compound record. A shallow
+        // match cannot hide another worker or Start in BILLING/SALARY.
+        $identityValues = static function (array $labels) use ($entries): array {
+            $keys = array_map('jobdivaAssignmentContractNormaliseKey', $labels);
+            $values = [];
+            foreach ($entries as $entry) {
+                if (!in_array($entry['norm_key'], $keys, true)) continue;
+                $value = trim((string) $entry['value']);
+                if ($value !== '') $values[] = $value;
+            }
+            return array_values(array_unique($values));
         };
-        $rowStartId = $rowPick([
+        $startIds = $identityValues([
             'Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId',
         ]);
+        $candidateIds = $identityValues([
+            'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
+        ]);
+        $jobIds = $identityValues(['Job ID', 'jobId', 'job_id']);
+        if (count($startIds) > 1 || count($candidateIds) > 1 || count($jobIds) > 1) continue;
+        $rowStartId = $startIds[0] ?? '';
         $explicitStartMatch = false;
         if ($expectedStartId !== '' && $rowStartId !== '') {
             if ($rowStartId !== $expectedStartId) continue;
             $explicitStartMatch = true;
         }
 
-        $rowCandidateId = $rowPick([
-            'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
-        ]);
-        $rowJobId = $rowPick([
-            'Job ID', 'jobId', 'job_id',
-        ]);
+        $rowCandidateId = $candidateIds[0] ?? '';
+        $rowJobId = $jobIds[0] ?? '';
         $contextMatched = false;
         $contextComplete = true;
         foreach ([
@@ -634,7 +643,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     } elseif ($salaryBlocked && $approved === true) {
         $placementStatus = 'draft';
     } elseif ($actualStart === true
-        && $approved !== false
+        && $approved === true
         && $salaryReady) {
         $placementStatus = 'active';
     } elseif ($approved === true

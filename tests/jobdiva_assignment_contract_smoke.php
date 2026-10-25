@@ -291,6 +291,31 @@ $assert('active lifecycle requires the approved pay side when salary evidence ex
     ($productionContract['salary_approved'] ?? null) === true
     && (string) ($productionContract['salary_status'] ?? '') === '2');
 
+foreach ([null, '', false, 0, 'unknown'] as $approval) {
+    $incompleteApproval = $productionShape;
+    $incompleteApproval[0]['BILLING'][0]['APPROVED'] = $approval;
+    $incompleteContract = jobdivaAssignmentContractBuild($incompleteApproval, [], '57137454');
+    $assert('actual start alone cannot activate an assignment without explicit billing approval',
+        !in_array($incompleteContract['placement_status'] ?? '', ['active', 'pending_start'], true));
+}
+$missingApproval = $productionShape;
+unset($missingApproval[0]['BILLING'][0]['APPROVED']);
+$assert('absent billing approval cannot be inferred from salary approval',
+    (jobdivaAssignmentContractBuild($missingApproval, [], '57137454')['placement_status'] ?? '') === '');
+
+$identityHint = ['id'=>'57137454', 'candidate id'=>'201', 'job id'=>'301', 'start date'=>'2026-07-06'];
+$identifiedDetail = $productionShape[0];
+$identifiedDetail['EMPLOYEE_ID'] = '201';
+$identifiedDetail['JOB_ID'] = '301';
+$assert('compound assignment detail with consistent identities remains usable',
+    count(jobdivaAssignmentContractRowsForStart([$identifiedDetail], $identityHint, '57137454')) === 1);
+foreach (['START_ID'=>'999', 'EMPLOYEE_ID'=>'999', 'JOB_ID'=>'999'] as $field=>$foreignId) {
+    $conflictedDetail = $identifiedDetail;
+    $conflictedDetail['SALARY'][0][$field] = $foreignId;
+    $assert('nested identity disagreement cannot be hidden by a matching top-level identity',
+        jobdivaAssignmentContractRowsForStart([$conflictedDetail], $identityHint, '57137454') === []);
+}
+
 $billingOnlyShape = $productionShape;
 $billingOnlyShape[0]['Start ID'] = '57862244';
 $billingOnlyShape[0]['SALARY'][0]['APPROVED'] = 0;

@@ -165,6 +165,16 @@ function fullCoreJobdivaReadPilot(array $ids, callable $request): array
     $report['status'] = 'exact_source_observed';
     $report['source_refreshed'] = true;
     $report['exact_detail_verified'] = true;
+    $report['contract_lifecycle'] = [
+        'status'=>in_array($contract['placement_status'] ?? '', ['active','pending_start','draft','ended'], true)
+            ? $contract['placement_status'] : 'unresolved',
+        'billing_approved'=>$contract['approved'] ?? null,
+        'salary_approved'=>$contract['salary_approved'] ?? null,
+        'actual_start'=>$contract['actual_start'] ?? null,
+        'actual_end'=>$contract['actual_end'] ?? null,
+        'billing_closed'=>$contract['closed'] ?? null,
+        'salary_closed'=>$contract['salary_closed'] ?? null,
+    ];
     $report['observed_at'] = gmdate('c');
     return ['report'=>$report, 'contract'=>$contract];
 }
