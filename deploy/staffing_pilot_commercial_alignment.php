@@ -24,15 +24,22 @@ function fullCorePilotRateComparison(array $rate, array $contract, string $expec
     foreach ($proposal['fields'] as $field) {
         $name = $field['field']; $column = fullCorePilotRateColumns()[$name] ?? null;
         if ($column === null) continue;
+        $proposed=$field['proposed'];
+        // The proposal UI suppresses zero overheads, but explicit source zero is
+        // evidence distinct from a missing value in a reconciliation report.
+        if ($field['group']==='Overhead' && $proposed===null && isset($contract[$name])
+            && is_numeric($contract[$name]) && (float)$contract[$name]===0.0) $proposed=0.0;
         if (!array_key_exists($column, $rate)) $status = 'core_column_unavailable';
         elseif ($basis['errors']) $status = 'source_rate_basis_needs_review';
         elseif ((isset($contract['classification_review']) && ($contract['classification_review']['status'] ?? null)!=='resolved')
             || ($proposal['classification_review']['status'] ?? null) !== 'resolved') $status = 'source_classification_needs_review';
         elseif ($basis['bill_rate_unit']!=='hour'||$basis['pay_rate_unit']!=='hour') $status = 'source_rate_model_needs_review';
         elseif (($proposal['placement']['engagement_type'] ?? null)==='referral' && $name==='pay_rate') $status = 'derived_referral_policy_not_worker_pay';
-        elseif ($field['proposed'] === null || $field['proposed'] === '') $status = 'source_value_missing';
+        elseif ($proposed === null || $proposed === '') $status = 'source_value_missing';
+        elseif ($name==='invoice_bill_rate' && $field['current']===null && empty($rate['approved_at'])) $status='awaiting_rate_approval';
         elseif ($field['current'] === null || $field['current'] === '') $status = 'core_value_missing';
-        else $status = $field['changes'] ? 'differs_from_fresh_source' : 'matches_fresh_source';
+        else $status = jobdivaContractProjectionField('', $name, '', $field['current'], $proposed, '')['changes']
+            ? 'differs_from_fresh_source' : 'matches_fresh_source';
         $fields[$name] = $status;
     }
     return ['status'=>'compared', 'approval'=>empty($rate['approved_at'])?'draft':'approved',

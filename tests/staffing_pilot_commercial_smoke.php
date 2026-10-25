@@ -41,4 +41,10 @@ $vmsComparison=fullCorePilotRateComparison($vmsRate,$vms,'start001');
 $check($vmsComparison['fields']['bill_rate']==='matches_fresh_source'
     &&$vmsComparison['fields']['invoice_bill_rate']==='matches_fresh_source'
     &&$vmsComparison['fields']['bill_discount_pct']==='matches_fresh_source','gross, discount and net invoice terms remain distinct');
+$check(fullCorePilotRateComparison(array_replace($rate,['adjusted_bill_rate'=>null]),$contract,'start001')['fields']['invoice_bill_rate']==='awaiting_rate_approval',
+    'draft computed net invoice rate is explicitly awaiting approval');
+$check(fullCorePilotRateComparison(array_replace($rate,['adjusted_bill_rate'=>null,'approved_at'=>'2026-01-01']),$contract,'start001')['fields']['invoice_bill_rate']==='core_value_missing',
+    'an approved version without its frozen invoice amount remains incomplete');
+$zero=fullCorePilotRateComparison(array_replace($rate,['workers_comp_pct'=>'0.000000']),array_replace($contract,['workers_comp_pct'=>0]),'start001');
+$check($zero['fields']['workers_comp_pct']==='matches_fresh_source','explicit zero overhead is not confused with missing source evidence');
 echo "$passed passed\n";
