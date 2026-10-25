@@ -89,6 +89,18 @@ try {
     $check(!$alignment['records_changed']&&!$alignment['source_refreshed']
         &&!str_contains(json_encode($alignment),'DO-NOT-EMIT')&&!str_contains(json_encode($alignment),'Reviewed division'),
         'alignment emits no source values or false live-refresh evidence');
+    $fresh=$snapshot;$fresh['_jd_contract']['branch']='Fresh provider division';
+    $freshAlignment=fullCoreStaffingPilotAlignment($pdo,$pilot,$fresh);
+    $check($freshAlignment['status']==='compared'&&$freshAlignment['fields']['branch']==='differs_from_stored_source'
+        &&$freshAlignment['source_last_synced_at']===null&&!$freshAlignment['source_refreshed']&&!$freshAlignment['records_changed'],
+        'supplied source evidence is compared read-only without inheriting stored freshness or claiming a refresh');
+    $check(fullCoreStaffingPilotAlignment($pdo,$pilot)===$alignment,
+        'supplied source comparison leaves the saved snapshot and sync timestamp unchanged');
+    $check(fullCoreStaffingPilotAlignment($pdo,array_replace($pilot,['person_id'=>4]),$fresh)['status']==='identity_not_verified',
+        'supplied source cannot bypass the original placement and person identity');
+    $fresh['_jd_contract']['start_id']='unrelated-start';
+    $check(fullCoreStaffingPilotAlignment($pdo,$pilot,$fresh)['status']==='contract_assignment_mismatch',
+        'supplied source contract must still echo the exact original assignment');
     $current=['branch'=>'Core override','workers_comp_class'=>'8810','worksite_country'=>'US','worksite_city'=>null,
         'worksite_state'=>'NJ','start_date'=>'2026-05-18','end_date'=>'2026-12-31','engagement_type'=>'w2','status'=>'active'];
     $comparison=fullCorePilotSnapshotFieldComparison($current,$snapshot,'start001');

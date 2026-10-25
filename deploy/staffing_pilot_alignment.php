@@ -77,7 +77,7 @@ function fullCorePilotSnapshotFieldComparison(array $placement, array $payload, 
     return ['status'=>'compared', 'fields'=>$fields];
 }
 
-function fullCoreStaffingPilotAlignment(PDO $pdo, array $pilot): array
+function fullCoreStaffingPilotAlignment(PDO $pdo, array $pilot, ?array $observedPayload = null): array
 {
     $identity = fullCoreStaffingPilotInventory($pdo, $pilot);
     $result = ['status'=>'identity_not_verified',
@@ -92,7 +92,7 @@ function fullCoreStaffingPilotAlignment(PDO $pdo, array $pilot): array
     $s = $pdo->prepare('SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t');
     $s->execute(['t'=>'external_entity_mappings']);
     $mappingColumns = $s->fetchAll(PDO::FETCH_COLUMN);
-    if (!in_array('payload_snapshot', $mappingColumns, true)) return array_replace($result, ['status'=>'snapshot_schema_unavailable']);
+    if ($observedPayload === null && !in_array('payload_snapshot', $mappingColumns, true)) return array_replace($result, ['status'=>'snapshot_schema_unavailable']);
     $s->execute(['t'=>'placements']); $placementColumns = $s->fetchAll(PDO::FETCH_COLUMN);
     $selected = array_values(array_intersect(['branch','workers_comp_class','worksite_city','worksite_state',
         'worksite_country','engagement_type','start_date','end_date','status'], $placementColumns));
@@ -102,6 +102,11 @@ function fullCoreStaffingPilotAlignment(PDO $pdo, array $pilot): array
     $s->execute(['id'=>$pilot['placement_id'], 't'=>$pilot['tenant_id'], 'p'=>$pilot['person_id']]);
     $placement = $s->fetch(PDO::FETCH_ASSOC);
     if (!$placement) return $result;
+    if ($observedPayload !== null) {
+        return array_replace($result, fullCorePilotSnapshotFieldComparison($placement, $observedPayload, $pilot['jobdiva_ids']['placement']),
+            ['scope'=>'Nine placement dimensions against the supplied exact-assignment contract; caller must establish freshness.',
+             'source_last_synced_at'=>null]);
+    }
     $s = $pdo->prepare('SELECT payload_snapshot'.(in_array('last_synced_at', $mappingColumns, true)?',last_synced_at':'').'
         FROM external_entity_mappings WHERE tenant_id=:t AND source_system="jobdiva"
         AND internal_entity_type="placement" AND internal_entity_id=:id AND BINARY external_id=BINARY :external');

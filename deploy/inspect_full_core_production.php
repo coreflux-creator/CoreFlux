@@ -66,6 +66,7 @@ require_once $package . '/core/accounting/schema_contract.php';
 require_once $package . '/deploy/full_core_migration_plan.php';
 require_once $package . '/deploy/staffing_directory_inventory.php';
 require_once $package . '/deploy/staffing_pilot_alignment.php';
+require_once $package . '/deploy/jobdiva_pilot_runtime.php';
 $db = getDB();
 if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) {
     throw new RuntimeException('Production database does not match the app identity.');
@@ -119,6 +120,14 @@ try {
     preg_match('~spa-assets/index-[A-Za-z0-9_-]+\.js~', $liveIndex, $liveBundle);
     preg_match('~spa-assets/index-[A-Za-z0-9_-]+\.js~', $candidateIndex, $candidateBundle);
     require_once $package . '/core/StorageService.php';
+    $freshJobdiva = null;
+    if (in_array('--refresh-jobdiva-pilot', $argv, true)) {
+        $freshJobdiva = fullCoreJobdivaFreshPilot($db, [
+            'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2, 'accounting_directory_id'=>2,
+            'person_id'=>358, 'placement_id'=>864,
+            'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
+        ], $root);
+    }
     echo json_encode([
         'mode' => 'read-only-production-inspection', 'candidate_commit' => $manifest['commit'],
         'database_identity_verified' => true, 'live_bundle' => $liveBundle[0] ?? null,
@@ -134,6 +143,7 @@ try {
             'person_id'=>358, 'placement_id'=>864,
             'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
         ]),
+        'thunderhawk_fresh_jobdiva_source' => $freshJobdiva,
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
         'comparison_base_commit' => $manifest['base_commit'] ?? null,
