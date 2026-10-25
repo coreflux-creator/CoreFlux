@@ -407,6 +407,9 @@ try{
     $check($mercuryCalls===0,'all Mercury concurrency checks complete without any external provider calls');
     require_once __DIR__.'/fixtures/ap_bank_dispatches_checks.php';
     exerciseApBankDispatches($pdo,$other,$seed,$check,$fails,$guard,$date);
+    require_once __DIR__.'/fixtures/mercury_ap_actions_checks.php';
+    exerciseMercuryApActions($pdo,$other,$seed,$check,$fails,$guard,$dbError);
+    $check($mercuryCalls===0,'Mercury AP lifecycle verification performs no external bank operations');
     $pdo->exec('UPDATE purepay_connections SET key_scope="read_only" WHERE tenant_id=1');$before=$executeCount;$callsBefore=count($calls);
     $check($fails(fn()=>purepayAllocationCall($pdo,1,4,40,'execute')) && $executeCount===$before
         && !array_filter(array_slice($calls,$callsBefore),static fn($call)=>$call[0]==='POST'),'read-only connection cannot execute');

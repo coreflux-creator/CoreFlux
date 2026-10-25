@@ -1044,13 +1044,18 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
     $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
     require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
     $bankAction = apBankAssertAction($pdo, $tenantId, $payment, $action);
-    if ($bankAction !== null) return $bankAction;
+    require_once __DIR__.'/../../../core/mercury_ap_claims.php';
+    $mercuryAction = mercuryApAssertAction($pdo, $tenantId, $payment, $action);
+    if ($mercuryAction !== null && $bankAction !== null) throw new DomainException('Multiple payment services claim this AP payment; reconcile the original deliveries.');
     $allocated = $pdo->query($mysql
         ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_allocated_payments'"
         : "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purepay_allocated_payments'")->fetchColumn();
     if ($allocated) {
         require_once __DIR__.'/../../../core/purepay_allocated_payments.php';
-        if (purepayAllocationAssertAction($pdo,$tenantId,$payment,$action)) return true;
+        if (purepayAllocationAssertAction($pdo,$tenantId,$payment,$action)) {
+            if ($mercuryAction !== null || $bankAction !== null) throw new DomainException('Multiple payment services claim this AP payment; reconcile the original deliveries.');
+            return true;
+        }
     }
     $exists = $pdo->query($mysql
         ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_payment_links'"
@@ -1068,8 +1073,9 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
             && (!empty($payment['rail_external_ref']) || !empty($payment['rail_originated_at']) || !empty($payment['rail_status']))) {
             throw new DomainException('The PurePay attempt is missing; reconcile this payment before changing it');
         }
-        return false;
+        return $mercuryAction ?? $bankAction ?? false;
     }
+    if ($mercuryAction !== null || $bankAction !== null) throw new DomainException('Multiple payment services claim this AP payment; reconcile the original deliveries.');
     $allowed = $action === 'void' ? ['failed','payment_failed','declined','returned','reversed','cancelled','canceled','void','voided']
         : ($action === 'clear' ? ['settled','paid','completed','cleared'] : []);
     if (!in_array(strtolower((string)$attempt['status']), $allowed, true)
