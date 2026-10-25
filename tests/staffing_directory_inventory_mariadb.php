@@ -66,6 +66,17 @@ try {
     $pdo->exec('ALTER TABLE accounting_entities ADD COLUMN code VARCHAR(32),ADD COLUMN legal_name VARCHAR(200)');
     $pdo->exec("UPDATE accounting_entities SET code='SYN',legal_name='Synthetic employer'");
     $pdo->exec('ALTER TABLE placements ADD COLUMN coreflux_overridden_fields JSON');
+    $profileSource=['candidate_id'=>'candidateAlpha','fields'=>[
+        'first_name'=>['status'=>'present','value'=>'PRIVATE-FIRST'],
+        'last_name'=>['status'=>'present','value'=>'PRIVATE-LAST'],
+        'email_primary'=>['status'=>'present','value'=>'private@example.test'],
+        'phone_primary'=>['status'=>'present','value'=>'+15551234567']]];
+    $pdo->exec('SET TRANSACTION READ ONLY');$pdo->beginTransaction();
+    $profile=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$profileSource);
+    $check(array_values(array_unique($profile['fields']))===['core_column_unavailable'],'missing person columns remain visible without blocking the scoped identity check');
+    $pdo->rollBack();
+    $pdo->exec('ALTER TABLE people ADD COLUMN first_name VARCHAR(100), ADD COLUMN last_name VARCHAR(100), ADD COLUMN email_primary VARCHAR(255), ADD COLUMN phone_primary VARCHAR(100)');
+    $pdo->exec("UPDATE people SET first_name='PRIVATE-FIRST',last_name='PRIVATE-OVERRIDE',email_primary='PRIVATE@example.test',phone_primary='+1 (555) 123-4567' WHERE id=1");
     $pdo->exec('SET TRANSACTION READ ONLY'); $pdo->beginTransaction();
     $result=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']); $row=$result['workspaces'][0];
     $check($result['status']==='available'&&count($result['workspaces'])===1&&(int)$row['id']===11,'only the explicitly named pilot workspace is reported');
@@ -104,15 +115,6 @@ try {
     $invalid=$pilot; $invalid['placement_id']='1'; $rejected=false;
     try { fullCoreStaffingPilotInventory($pdo,$invalid); } catch (InvalidArgumentException $e) { $rejected=true; }
     $check($rejected,'ambiguous numeric input is rejected before querying');
-    $profileSource=['candidate_id'=>'candidateAlpha','fields'=>[
-        'first_name'=>['status'=>'present','value'=>'PRIVATE-FIRST'],
-        'last_name'=>['status'=>'present','value'=>'PRIVATE-LAST'],
-        'email_primary'=>['status'=>'present','value'=>'private@example.test'],
-        'phone_primary'=>['status'=>'present','value'=>'+15551234567']]];
-    $profile=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$profileSource);
-    $check(array_values(array_unique($profile['fields']))===['core_column_unavailable'],'missing person columns remain visible without blocking the scoped identity check');
-    $pdo->exec('ALTER TABLE people ADD COLUMN first_name VARCHAR(100), ADD COLUMN last_name VARCHAR(100), ADD COLUMN email_primary VARCHAR(255), ADD COLUMN phone_primary VARCHAR(100)');
-    $pdo->exec("UPDATE people SET first_name='PRIVATE-FIRST',last_name='PRIVATE-OVERRIDE',email_primary='PRIVATE@example.test',phone_primary='+1 (555) 123-4567' WHERE id=1");
     $profileBefore=$pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
     $mappingBefore=$pdo->query('SELECT * FROM external_entity_mappings ORDER BY tenant_id,internal_entity_type,internal_entity_id')->fetchAll(PDO::FETCH_ASSOC);
     $profile=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$profileSource);
