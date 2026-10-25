@@ -24,7 +24,7 @@ function purepayPaymentStatus(string $status): string
         'failed', 'payment_failed', 'declined' => 'failed',
         'posted', 'sent' => 'posted',
         'submitted', 'processing', 'in_transit', 'initiated' => 'submitted',
-        'creating', 'bill_created', 'ready_to_pay', 'pending', 'pushed_unverified', 'posted_unverified', 'needs_review' => 'pending',
+        'created', 'awaiting_funds', 'submitting', 'creating', 'bill_created', 'ready_to_pay', 'pending', 'pushed_unverified', 'posted_unverified', 'needs_review' => 'pending',
         default => 'unknown',
     };
 }
