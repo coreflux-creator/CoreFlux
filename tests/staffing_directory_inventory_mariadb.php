@@ -6,6 +6,7 @@ if (!$ci&&!$local) throw new RuntimeException('Explicit disposable fixture confi
 require_once __DIR__.'/../deploy/staffing_directory_inventory.php';
 require_once __DIR__.'/../deploy/staffing_pilot_alignment.php';
 require_once __DIR__.'/../deploy/staffing_pilot_commercial_alignment.php';
+require_once __DIR__.'/../deploy/staffing_pilot_entity_inheritance.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_directory_inventory_'.($ci?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db); $pdo->exec('USE '.$db);
@@ -61,6 +62,9 @@ try {
         (6,11,1,'2026-01-01',NULL,1,NULL,999,999,'hour','hour','USD')");
     $commercialContract=['start_id'=>'start001','engagement_type'=>'w2','bill_rate'=>98,'pay_rate'=>65,
         'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD','client_company_id'=>'companyAlpha'];
+    $pdo->exec('ALTER TABLE accounting_entities ADD COLUMN code VARCHAR(32),ADD COLUMN legal_name VARCHAR(200)');
+    $pdo->exec("UPDATE accounting_entities SET code='SYN',legal_name='Synthetic employer'");
+    $pdo->exec('ALTER TABLE placements ADD COLUMN coreflux_overridden_fields JSON');
     $pdo->exec('SET TRANSACTION READ ONLY'); $pdo->beginTransaction();
     $result=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']); $row=$result['workspaces'][0];
     $check($result['status']==='available'&&count($result['workspaces'])===1&&(int)$row['id']===11,'only the explicitly named pilot workspace is reported');
@@ -167,6 +171,14 @@ try {
         'field comparison cannot bypass the original person and placement identity check');
     $pdo->rollBack();
     $pdo->exec('SET TRANSACTION READ ONLY');$pdo->beginTransaction();
+    $inheritance=fullCorePilotEntityInheritance($pdo,$pilot,11);
+    $check($inheritance['status']==='unique_existing_default'&&$inheritance['can_follow_existing_sync_rule']
+        &&$inheritance['existing_default']['id']===77&&!$inheritance['records_changed'],
+        'existing sync default is observable without filling the missing placement reference');
+    $check($inheritance['person_reference']==='unresolved_reference'&&$inheritance['entity_override']==='absent',
+        'person employer and placement inheritance remain distinct');
+    $check(fullCorePilotEntityInheritance($pdo,$pilot,12)['status']==='effective_accounting_directory_mismatch',
+        'deployed accounting scope must match the reviewed directory');
     $commercial=fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$commercialContract,'2026-10-25');
     $check($commercial['rates']['draft_versions']===1&&$commercial['rates']['approved_versions']===1,
         'commercial inspection excludes foreign, future, expired and superseded rate versions');
@@ -182,6 +194,26 @@ try {
     $check(!str_contains(json_encode($commercial),'companyAlpha')&&!str_contains(json_encode($commercial),'98.0000'),
         'commercial database report excludes company identifiers and rate values');
     $pdo->rollBack();
+    $pdo->exec("UPDATE placements SET coreflux_overridden_fields='[\"accounting_entity_id\"]' WHERE id=1");
+    $check(!fullCorePilotEntityInheritance($pdo,$pilot,11)['can_follow_existing_sync_rule'],
+        'an explicit empty entity override is preserved');
+    $pdo->exec("UPDATE placements SET coreflux_overridden_fields='{}' WHERE id=1");
+    $check(!fullCorePilotEntityInheritance($pdo,$pilot,11)['can_follow_existing_sync_rule'],
+        'unrecognized override shape does not grant inheritance');
+    $pdo->exec('UPDATE placements SET coreflux_overridden_fields=NULL WHERE id=1');
+    $pdo->exec("INSERT INTO accounting_entities VALUES(99,11,1,'SECOND','Second synthetic employer')");
+    $check(fullCorePilotEntityInheritance($pdo,$pilot,11)['status']==='multiple_active_entities',
+        'multiple active employers are surfaced instead of silently accepting the first row');
+    $pdo->exec('DELETE FROM accounting_entities WHERE id=99');
+    $pdo->exec('UPDATE accounting_entities SET active=0 WHERE id=77');
+    $check(fullCorePilotEntityInheritance($pdo,$pilot,11)['status']==='active_entity_setup_missing',
+        'inactive entities cannot become the inherited employer');
+    $pdo->exec('UPDATE accounting_entities SET active=1 WHERE id=77');
+    $pdo->exec('UPDATE placements SET accounting_entity_id=77 WHERE id=1');
+    $selectedEntity=fullCorePilotEntityInheritance($pdo,$pilot,11);
+    $check($selectedEntity['placement_matches_default']&&!$selectedEntity['can_follow_existing_sync_rule'],
+        'an existing entity is preserved rather than treated as a repair');
+    $pdo->exec('UPDATE placements SET accounting_entity_id=0 WHERE id=1');
     $pdo->exec("INSERT INTO external_entity_mappings(tenant_id,source_system,internal_entity_type,internal_entity_id,external_id)
         VALUES(11,'jobdiva','company',77,'duplicateCompany')");
     $check(fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$commercialContract,'2026-10-25')['billing_client_company']['status']==='source_mapping_ambiguous',

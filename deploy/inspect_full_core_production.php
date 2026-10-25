@@ -67,6 +67,8 @@ require_once $package . '/deploy/full_core_migration_plan.php';
 require_once $package . '/deploy/staffing_directory_inventory.php';
 require_once $package . '/deploy/staffing_pilot_alignment.php';
 require_once $package . '/deploy/jobdiva_pilot_runtime.php';
+require_once $package . '/deploy/staffing_pilot_entity_inheritance.php';
+require_once $root . '/core/sub_tenants.php';
 $db = getDB();
 if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) {
     throw new RuntimeException('Production database does not match the app identity.');
@@ -145,6 +147,11 @@ try {
             'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
         ]),
         'thunderhawk_fresh_jobdiva_source' => $freshJobdiva,
+        'thunderhawk_entity_inheritance' => fullCorePilotEntityInheritance($db, [
+            'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2, 'accounting_directory_id'=>2,
+            'person_id'=>358, 'placement_id'=>864,
+            'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
+        ], (int)effectiveTenantIdForModule('accounting',2)),
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
         'comparison_base_commit' => $manifest['base_commit'] ?? null,
