@@ -44,7 +44,9 @@ function syntheticTimeReviewerVerify(PDO $pdo, int $id): array
     foreach (['people','placements','staffing','companies','billing','ap','accounting','payroll','treasury','reports','integrations','ai','tenant'] as $module) {
         if (RBACResolver::can($user,999,$module,'read')) throw new RuntimeException('Unexpected module access');
     }
-    foreach (['payroll.runs.execute','treasury.payments.release','accounting.journal.post','time.entry.self','time.entry.manage','tenant.users.manage'] as $permission) {
+    foreach (['payroll.run.create','payroll.run.approve','payroll.run.disburse','payroll.run.post',
+        'treasury.execute_payment','treasury.approve_transfer','accounting.je.post','ap.payment.send',
+        'time.entry.create','time.entry.self','time.entry.manage'] as $permission) {
         if (RBAC::hasPermission($user,$permission)) throw new RuntimeException('Unexpected legacy execution permission');
     }
     $st=$pdo->prepare('SELECT detail FROM membership_audit WHERE tenant_id=999 AND membership_id=? AND target_user_id=? AND actor_user_id=4 AND action=?');

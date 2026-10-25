@@ -46,6 +46,7 @@ try {
     $report['distinct_from_pilot_entry_creators']=true;$report['passed']=true;
 } catch(Throwable $e) {
     $report['passed']=false;$report['failure_class']=get_class($e);
+    $report['failure_source']=basename($e->getFile());$report['failure_line']=$e->getLine();
 } finally { unset($_SESSION['user']); }
 echo 'CORE_PILOT_TEST_APPROVER='.json_encode($report,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n";
 exit($report['passed']?0:1);
