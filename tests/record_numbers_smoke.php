@@ -84,6 +84,26 @@ numberCheck(array_column($payRate['purepayroll']['mappings'],'path') === ['compo
     && $payRate['quanta']['status'] === 'unverified', 'frozen payroll rate never becomes a Quanta or native employee rate write');
 numberCheck(staffingFieldContractRules('placement_rates','bill_rate')['remote_contracts']['purepayroll']['path']==='terms[].bill_rates.regular', 'approved bill rate has an explicit commercial review mapping');
 numberCheck(isset(staffingExchangeWorkflowGaps()['native_payroll_employee_provisioning']), 'native provisioning remains an explicit unresolved workflow');
+$customDefinition = ['id'=>7, 'field_key'=>'badge', 'field_key_source'=>'field_key', 'field_label'=>'Badge',
+    'field_type'=>'text', 'options_json'=>null, 'required'=>0, 'pii'=>0];
+$customField = staffingFieldContractCustomField($customDefinition, 1, 'placements');
+numberCheck($customField['core_path'] === 'placements.custom.badge', 'dedicated custom key retains its lookup path');
+$legacyCustom = staffingFieldContractCustomField(array_replace($customDefinition, ['field_key_source'=>'label']), 1, 'placements');
+numberCheck($legacyCustom['core_path'] === null && $legacyCustom['field_key_status'] === 'stable_key_review_required'
+    && str_contains($legacyCustom['write_policy'], 'no_mapping_target'), 'display label cannot become a custom mapping target');
+foreach ([null, '', 'Site Badge', 'badge.name', 'badge\n', str_repeat('x', 81)] as $badKey) {
+    $badCustom = staffingFieldContractCustomField(array_replace($customDefinition, ['field_key'=>$badKey]), 1, 'placements');
+    numberCheck($badCustom['core_path'] === null && $badCustom['definition_identity'] === $customField['definition_identity'],
+        'invalid dedicated key remains inventoried by its original definition identity');
+}
+numberCheck(staffingFieldContractCustomField($customDefinition, 2, 'placements')['definition_identity'] !== $customField['definition_identity']
+    && staffingFieldContractCustomField($customDefinition, 1, 'companies')['definition_identity'] !== $customField['definition_identity'],
+    'custom definition identity includes owning workspace and entity');
+$privateCustom = staffingFieldContractCustomField(array_replace($customDefinition, ['pii'=>1, 'field_key_source'=>null]), 1, 'placements');
+numberCheck($privateCustom['disposition'] === 'restricted' && $privateCustom['write_policy'] === 'specialized_workflow_only',
+    'missing custom key never relaxes PII restrictions');
+numberCheck(numberThrows(fn() => staffingFieldContractCustomField(array_replace($customDefinition, ['id'=>0]), 1, 'placements')),
+    'missing custom definition identity is rejected');
 require_once __DIR__ . '/../core/integrations/field_map.php';
 foreach (coreRecordNumberFields() as $field) {
     numberCheck(tenantIntegrationFieldMapIsProtectedInternalField($field), 'number excluded from mapping targets');

@@ -125,7 +125,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-10-24.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-24.2', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
@@ -149,7 +149,7 @@ function staffingFieldContractCustomDefinitions(PDO $pdo, int $owner, string $en
     $columns = $stmt->fetchAll(PDO::FETCH_COLUMN);
     if (!$columns) throw new RuntimeException('Custom field definitions unavailable');
     $choices = [
-        'id' => ['id'], 'field_key' => ['field_key', 'field_name', 'label'],
+        'id' => ['id'], 'field_key' => ['field_key', 'field_name'],
         'field_label' => ['field_label', 'label'], 'field_type' => ['field_type', 'type'],
         'required' => ['required', 'is_required'], 'pii' => ['pii'],
         'visible_to_roles_json' => ['visible_to_roles_json'], 'options_json' => ['options_json', 'options'],
@@ -159,6 +159,8 @@ function staffingFieldContractCustomDefinitions(PDO $pdo, int $owner, string $en
         $available = array_values(array_intersect($candidates, $columns));
         $select[] = ($available ? '`' . $available[0] . '`' : 'NULL') . ' AS `' . $alias . '`';
     }
+    $keyColumns = array_values(array_intersect(['field_key', 'field_name'], $columns));
+    $select[] = ($keyColumns ? "'" . $keyColumns[0] . "'" : 'NULL') . ' AS field_key_source';
     $where = ['tenant_id = :tenant'];
     $params = ['tenant' => $owner];
     if ($table === 'custom_fields') { $where[] = 'module = :module'; $params['module'] = $entity; }
@@ -169,12 +171,45 @@ function staffingFieldContractCustomDefinitions(PDO $pdo, int $owner, string $en
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/** Labels are editable display text. Legacy definitions without a dedicated key remain review-only. */
+function staffingFieldContractCustomField(array $definition, int $owner, string $entity): array
+{
+    $id = filter_var($definition['id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+    if ($owner <= 0 || !in_array($entity, ['people', 'placements', 'companies'], true) || $id === false) {
+        throw new InvalidArgumentException('Scoped custom field definition identity required');
+    }
+    $source = $definition['field_key_source'] ?? null;
+    $key = $definition['field_key'] ?? null;
+    $hasKey = in_array($source, ['field_key', 'field_name'], true)
+        && is_string($key) && preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $key) === 1;
+    $path = $hasKey ? $entity . '.custom.' . $key : null;
+    return array_merge(staffingFieldContractRules($entity, 'custom'), [
+        'key' => $path ?? $entity . '.custom_definition.' . $id,
+        'core_path' => $path,
+        'kind' => 'custom', 'definition_id' => $id, 'owner_tenant_id' => $owner,
+        'definition_identity' => [
+            'owner_tenant_id' => $owner, 'entity_type' => $entity,
+            'definition_table' => $entity === 'people' ? 'people_custom_field_defs' : 'custom_fields',
+            'definition_id' => $id,
+        ],
+        'field_key_source' => $source,
+        'field_key_status' => $hasKey ? 'stable_key_available' : 'stable_key_review_required',
+        'label' => $definition['field_label'], 'type' => $definition['field_type'],
+        'options' => json_decode((string) ($definition['options_json'] ?? ''), true),
+        'nullable' => empty($definition['required']), 'core_schema_status' => 'verified_present',
+        'disposition' => !empty($definition['pii']) ? 'restricted' : 'review_required',
+        'write_policy' => !empty($definition['pii']) ? 'specialized_workflow_only'
+            : ($hasKey ? 'verified_mapping_and_owner_required' : 'stable_key_review_required; no_mapping_target'),
+    ]);
+}
+
 /** Custom field definitions follow existing per-field visibility and module ownership rules. */
 function staffingFieldContractWithCustomFields(array $contract, array $user): array
 {
     require_once __DIR__ . '/../custom_fields.php';
     require_once __DIR__ . '/../sub_tenants.php';
     $incomplete = [];
+    $keyReview = [];
     foreach (['people' => 'people', 'placements' => 'placements', 'companies' => 'people'] as $entity => $module) {
         $owner = effectiveTenantIdForModule($module, $contract['tenant_id']) ?? $contract['tenant_id'];
         try {
@@ -186,19 +221,13 @@ function staffingFieldContractWithCustomFields(array $contract, array $user): ar
         }
         foreach ($definitions as $definition) {
             if (!customFieldUserCanViewDefinition($user, $definition)) continue;
-            $contract['fields'][] = array_merge(staffingFieldContractRules($entity, 'custom'), [
-                'key' => $entity . '.custom.' . $definition['field_key'],
-                'core_path' => $entity . '.custom.' . $definition['field_key'],
-                'kind' => 'custom', 'definition_id' => $definition['id'], 'owner_tenant_id' => $owner,
-                'label' => $definition['field_label'], 'type' => $definition['field_type'],
-                'options' => json_decode((string) ($definition['options_json'] ?? ''), true),
-                'nullable' => empty($definition['required']), 'core_schema_status' => 'verified_present',
-                'disposition' => !empty($definition['pii']) ? 'restricted' : 'review_required',
-                'write_policy' => !empty($definition['pii']) ? 'specialized_workflow_only' : 'verified_mapping_and_owner_required',
-            ]);
+            $field = staffingFieldContractCustomField($definition, $owner, $entity);
+            $contract['fields'][] = $field;
+            if ($field['field_key_status'] !== 'stable_key_available') $keyReview[] = $field['definition_identity'];
         }
     }
     $contract['custom_fields_status'] = $incomplete ? 'partial' : 'visible_definitions_included';
     $contract['unverified_custom_entities'] = $incomplete;
+    $contract['custom_field_keys_requiring_review'] = $keyReview;
     return $contract;
 }

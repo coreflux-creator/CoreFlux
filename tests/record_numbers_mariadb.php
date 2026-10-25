@@ -131,6 +131,33 @@ $pdo->exec("CREATE TABLE people_custom_field_defs (id INT PRIMARY KEY, tenant_id
 $pdo->exec("INSERT INTO people_custom_field_defs VALUES (1,1,'badge_code','Badge','text',0,0,NULL,NULL),(2,2,'private_code','Other tenant','text',0,0,NULL,NULL),(3,1,'retired','Archived','text',0,0,NULL,NOW())");
 $custom = staffingFieldContractCustomDefinitions($pdo, 1, 'people');
 $check(count($custom) === 1 && $custom[0]['field_key'] === 'badge_code', 'custom inventory respects owner and archived status');
+$personCustom = staffingFieldContractCustomField($custom[0], 1, 'people');
+$check($personCustom['core_path'] === 'people.custom.badge_code'
+    && $personCustom['field_key_source'] === 'field_key', 'dedicated person field key remains the verified lookup path');
+$pdo->exec("CREATE TABLE custom_fields (id INT PRIMARY KEY, tenant_id INT, module VARCHAR(30), label VARCHAR(80), type VARCHAR(30), is_active INT)");
+$pdo->exec("INSERT INTO custom_fields VALUES (1,1,'placements','Site badge','text',1),(2,1,'placements','Site badge','text',1),(3,2,'placements','Other tenant','text',1),(4,1,'companies','Company badge','text',1),(5,1,'placements','Retired badge','text',0)");
+$legacy = staffingFieldContractCustomDefinitions($pdo, 1, 'placements');
+$check(count($legacy) === 2 && $legacy[0]['field_key'] === null && $legacy[0]['field_key_source'] === null,
+    'legacy labels are not exported as keys; tenant, entity and active filters still apply');
+$legacyFields = array_map(static fn($row) => staffingFieldContractCustomField($row, 1, 'placements'), $legacy);
+$check($legacyFields[0]['key'] !== $legacyFields[1]['key'] && $legacyFields[0]['core_path'] === null
+    && $legacyFields[0]['field_key_status'] === 'stable_key_review_required',
+    'duplicate display labels have distinct definition identities and no invented lookup path');
+$pdo->exec("UPDATE custom_fields SET label='Renamed badge' WHERE id=1");
+$renamed = staffingFieldContractCustomField(staffingFieldContractCustomDefinitions($pdo, 1, 'placements')[0], 1, 'placements');
+$check($renamed['key'] === $legacyFields[0]['key']
+    && $renamed['definition_identity'] === $legacyFields[0]['definition_identity']
+    && $renamed['label'] === 'Renamed badge', 'legacy label rename preserves the exported definition identity');
+$pdo->exec("ALTER TABLE custom_fields ADD field_name VARCHAR(80) NULL, ADD field_label VARCHAR(80) NULL");
+$pdo->exec("UPDATE custom_fields SET field_name='site_badge',field_label='Display badge' WHERE id=1");
+$modern = staffingFieldContractCustomField(staffingFieldContractCustomDefinitions($pdo, 1, 'placements')[0], 1, 'placements');
+$check($modern['core_path'] === 'placements.custom.site_badge' && $modern['field_key_source'] === 'field_name'
+    && $modern['definition_identity'] === $legacyFields[0]['definition_identity'],
+    'dedicated legacy key restores a lookup path without changing definition identity');
+$pdo->exec("UPDATE custom_fields SET field_label='Localized display' WHERE id=1");
+$modernRenamed = staffingFieldContractCustomField(staffingFieldContractCustomDefinitions($pdo, 1, 'placements')[0], 1, 'placements');
+$check($modernRenamed['core_path'] === $modern['core_path'] && $modernRenamed['key'] === $modern['key'],
+    'modern display label cannot rename the mapping key');
 require_once __DIR__ . '/../core/custom_fields.php';
 $check(!customFieldUserCanViewDefinition(['role' => 'employee'], ['visible_to_roles_json' => '["tenant_admin"]']), 'custom metadata obeys field visibility');
 $check(customFieldUserCanViewDefinition(['role' => 'tenant_admin'], ['visible_to_roles_json' => '["tenant_admin"]']), 'authorized custom metadata visible');
