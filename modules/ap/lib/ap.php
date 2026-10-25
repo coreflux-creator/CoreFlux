@@ -1088,7 +1088,8 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
         || !hash_equals((string)$attempt['connection_fingerprint'], purepayConnectionFingerprint($tenantId,$key))) {
         throw new DomainException('The PurePay company connection changed; reconcile this attempt before changing the payment');
     }
-    purepayFinancialRequire($pdo,$tenantId);
+    try { purepayFinancialRequire($pdo,$tenantId); }
+    catch (Throwable $e) { throw new DomainException('Confirm the PurePay financial company before changing this reserved payment.'); }
     return true;
 }
 

@@ -198,7 +198,9 @@ $fresh=array_replace($item,['external_ref'=>'ap_payment:106']);
 $check($fails(fn()=>$send($fresh)) && count($calls)===$before,'old vendor mapping cannot silently retarget after rotation');
 $pdo->prepare('UPDATE purepay_connections SET api_key_ct=? WHERE tenant_id=1')->execute([encryptField($key)]);
 $pdo->exec('UPDATE purepay_vendor_mappings SET connection_fingerprint=NULL WHERE tenant_id=2');
-$before=count($calls);$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:201']),array_replace($opts,['tenant_id'=>2]))) && count($calls)===$before,'historical unbound vendor mapping needs review before release');
+$before=count($calls);$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:201']),array_replace($opts,['tenant_id'=>2])))
+    && array_map(static fn($call)=>array_slice($call,0,2),array_slice($calls,$before))===[['GET','/api/v1/context']],
+    'historical unbound vendor mapping permits company verification only, never a financial resource read or release');
 $mode='vendor_timeout';$vendors=[];$newVendor=array_replace($item,['external_ref'=>'ap_payment:107','recipient_ref'=>'vendor:new']);
 $before=$postCount();$check($fails(fn()=>$send($newVendor)) && $postCount()===$before+1,'lost vendor-create response is a single durable attempt');
 $nextVendor=array_replace($newVendor,['external_ref'=>'ap_payment:108']);$before=$postCount();
