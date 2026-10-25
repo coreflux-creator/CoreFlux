@@ -1,3 +1,11 @@
+## Approved demo hours received in PurePayroll - October 25, 2026
+
+Core's approved eight-hour Quanta demo reached the native PurePayroll review queue for Meridian Holdings LLC. P-15, PL-13, original Quanta workspace/entry/component/revision and the frozen USD 30.0000 hourly rate survived delivery. PurePayroll returned an immutable received-for-review receipt and a USD 240.00 earnings preview; can_apply, payroll_created and source_time_reserved remained false. No draft was created.
+
+Native delivery replay reused the same result. Two provider receipt reads matched the exact source packet. One local input and one audit receipt remained; source time, rates, existing integration history, retired reviewer, protected Core records, provider employee/assignment and validated payroll-run inventory were unchanged. The process-only delivery flag was restored. Existing staffing receipts were also reverified with 12 native lookups. Chrome showed the packet, IDs, hours, rate and gross preview in PurePayroll's Core payroll inputs section.
+
+Evidence: `deploy/synthetic-payroll-input-review-20261025.json`; [acceptance](https://github.com/coreflux-creator/CoreFlux/actions/runs/40226611810); [all nine CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/40226390660); [existing receipt replay](https://github.com/coreflux-creator/CoreFlux/actions/runs/40226072928). Core staging runtime remains daf386d0a40ff08f11a0934beef4517a6bfe6314; this helper did not install application changes or publish provider code. Actual Thunderhawk acceptance and production release remain open.
+
 ## Native synthetic time approval reconciled - October 25, 2026
 
 The existing eight-hour Quanta/Acme demo for Core workspace 999, P-15/PL-13, is now approved by the separate synthetic reviewer. Core rechecked the source workspace, original approval evidence, unchanged hours/routing and the unique approved USD 60/30 hourly rate before the native approval. The original creator was rejected by the self-approval control; a second approval was rejected without another transition. The native source proof and a separate automated-test audit receipt were retained.
