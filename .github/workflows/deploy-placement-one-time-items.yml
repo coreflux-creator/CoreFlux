@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_payroll_capture, pilot_onboarding, pilot_time_review, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
+        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_payroll_capture, pilot_onboarding, pilot_time_review, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -18,6 +18,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  review-demo-location-contract:
+    if: inputs.integration_staging == 'pilot_location_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact reviewed helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -qv '^0$'
+      - name: Upload the bounded company review and original receipt verifier
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/refresh_purepay_demo_location_review.php,deploy/verify_purepay_preview_replay.php
+          target: /tmp/core-demo-location-review-${{ github.run_id }}
+      - name: Reconfirm the unchanged demo identity and recover original receipts
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-demo-location-review-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/refresh_purepay_demo_location_review.php" "$PACKAGE/deploy/verify_purepay_preview_replay.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE"' EXIT
+            php -l "$PACKAGE/deploy/refresh_purepay_demo_location_review.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/refresh_purepay_demo_location_review.php" --refresh-reviewed-demo-location
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/refresh_purepay_demo_location_review.php" --refresh-reviewed-demo-location
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/verify_purepay_preview_replay.php" --verify-native-demo-replay
+
   configure-financial-preview:
     if: inputs.integration_staging == 'pilot_payment_preview'
     runs-on: ubuntu-latest
