@@ -1,3 +1,11 @@
+## Native synthetic time approval reconciled - October 25, 2026
+
+The existing eight-hour Quanta/Acme demo for Core workspace 999, P-15/PL-13, is now approved by the separate synthetic reviewer. Core rechecked the source workspace, original approval evidence, unchanged hours/routing and the unique approved USD 60/30 hourly rate before the native approval. The original creator was rejected by the self-approval control; a second approval was rejected without another transition. The native source proof and a separate automated-test audit receipt were retained.
+
+Core returned accepted status to Quanta, repeated the same delivery with its original receipt, and verified a fresh unchanged provider comparison. Other simulation business tables and unrelated time records remained unchanged. The temporary reviewer was then disabled, its membership revoked and its time grant removed, with the user identity and audit history retained.
+
+All nine CI jobs passed for `3bbe7dfca240d6c4800cb0b3d986462e0a2a1dc4`. Initial hosted run 40224595207 completed those operations but failed its final assertion because the legacy membership update during retirement was not excluded from protected business rows. The corrected read-only verifier passed in run 40225228310, proving the original native and synthetic audit receipts, accepted provider status, two identical original provider receipt reads, and the inactive account with no active membership or module grant. This exercises native services, not browser approval submission or independent human Thunderhawk approval. Actual Thunderhawk onboarding, time/payroll/result exchange and financial reconciliation remain open. No real payroll, payment, posting, production or Arabella action occurred. Evidence: `deploy/synthetic-time-approval-reconciled-20261025.json`.
+
 ## Synthetic time approver created - October 25, 2026
 
 The user-authorized Core Pilot Test Approver now exists only in isolated simulation workspace 999. Native membership provisioning wrote both permission models; the account has time-review access, no other module grants, no global-admin status and no other active workspace membership. Its identity differs from the pilot time creators. A mandatory audit receipt identifies the automation test and records that it is not independent human sign-off. No password or invitation was issued.

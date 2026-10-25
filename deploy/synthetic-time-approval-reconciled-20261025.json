@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-25T19:21:52.977508+00:00",
+  "scope": "Existing eight-hour Quanta/Acme demo, Core workspace 999 P-15 PL-13; automated approval test only",
+  "helper_sha": "3bbe7dfca240d6c4800cb0b3d986462e0a2a1dc4",
+  "installed_core_sha": "daf386d0a40ff08f11a0934beef4517a6bfe6314",
+  "ci": {
+    "run_id": 40224966434,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40224966434",
+    "all_nine_jobs_passed": true
+  },
+  "initial_hosted_run": {
+    "run_id": 40224595207,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40224595207",
+    "conclusion": "failure",
+    "report": {
+      "checked_at": "2026-10-25T19:09:20+00:00",
+      "mode": "synthetic_native_time_approval",
+      "tenant_id": 999,
+      "production_changed": false,
+      "application_deployed": false,
+      "independent_human_review": false,
+      "reviewer": {
+        "user_id": 51,
+        "membership_id": 36,
+        "display_name": "Core Pilot Test Approver",
+        "tenant_id": 999,
+        "time_review_allowed_in_both_models": true,
+        "other_modules_denied": true,
+        "global_admin": false,
+        "other_active_tenant_memberships": 0,
+        "audit_verified": true
+      },
+      "source_identity_and_rates_verified": true,
+      "protected_tables_checked": 327,
+      "self_approval_rejected": true,
+      "new_approval": true,
+      "time_approved": true,
+      "entry_id": 1,
+      "approver_user_id": 51,
+      "rate_snapshot_id": 1,
+      "hours": 8,
+      "native_approval_state": "approved",
+      "duplicate_approval_rejected": true,
+      "delivery": {
+        "id": 17,
+        "state": "delivered",
+        "remote_id": "cft_69c49f524c64eb334f606207297b17731492977693bc1c4e3e2cf8b8a5a6***73",
+        "remote_receipt_id": "cfd_214bc60420cd75b1e92de6d0199a92164ec5420c13cf39***78005f66ed97b3e4"
+      },
+      "native_delivery_replay_verified": true,
+      "remote": {
+        "id": "cft_69c49f524c64eb334f606207297b17731492977693bc1c4e3e2cf8b8a5a6***73",
+        "assignment_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+        "source_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676",
+        "version": 2,
+        "state": "accepted"
+      },
+      "fresh_comparison": "unchanged",
+      "protected_records_unchanged": true,
+      "payroll_or_financial_writes": false,
+      "reviewer_retirement": {
+        "user_id": 51,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "passed": false,
+      "failed_phase": "retire_test_reviewer",
+      "failure_class": "RuntimeException",
+      "failure_source": "approve_synthetic_time_review.php",
+      "failure_line": 142,
+      "publication_flag_restored": true
+    },
+    "reason": "Approval, delivery/replay, reconciliation and account retirement completed. The final protection assertion omitted the allowed legacy user_tenants retirement update."
+  },
+  "read_only_verification": {
+    "run_id": 40225228310,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40225228310",
+    "report": {
+      "checked_at": "2026-10-25T19:21:10+00:00",
+      "mode": "read_only_approved_demo_verification",
+      "tenant_id": 999,
+      "local_writes": false,
+      "provider_record_writes": false,
+      "production_changed": false,
+      "independent_human_review": false,
+      "reviewer_retirement": {
+        "user_id": 51,
+        "membership_id": 36,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "passed": true,
+      "entry_id": 1,
+      "hours": 8,
+      "approver_user_id": 51,
+      "native_approval_state": "approved",
+      "rate_snapshot_id": 1,
+      "native_approval_audit_verified": true,
+      "synthetic_audit_verified": true,
+      "source_identity_and_rates_verified": true,
+      "remote_state": "accepted",
+      "remote_version": 2,
+      "delivery_id": 17,
+      "original_provider_receipt_verified": true,
+      "provider_receipt_reads": 2,
+      "receipt_repeat_identical": true,
+      "stored_time_and_delivery_unchanged": true,
+      "reviewer_cleanup_pending": false
+    }
+  },
+  "redaction_note": "GitHub-masked values remain masked or null; nothing hidden was reconstructed.",
+  "limits": [
+    "Native service workflow was exercised; browser approval submission was not exercised.",
+    "This is a separate synthetic actor, not independent human review of real Thunderhawk time.",
+    "Payroll input/result exchange, onboarding documents and the actual Thunderhawk operational round trip remain open.",
+    "No real payroll, payments, financial postings, production cutover or Arabella changes."
+  ]
+}
