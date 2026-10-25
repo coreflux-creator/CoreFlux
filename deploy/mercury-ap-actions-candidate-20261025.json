@@ -1,0 +1,38 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "mercury_ap_lifecycle_source_candidate_not_deployed",
+  "core_candidate_commit": "91359012339757cfddea4222fcb7b9debe454e44",
+  "ci": {
+    "run_id": 40185170962,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40185170962",
+    "head_sha": "91359012339757cfddea4222fcb7b9debe454e44",
+    "conclusion": "success",
+    "jobs_passed": 9,
+    "allocation_recovery_mercury_bank_mariadb_checks": 161,
+    "database": "Disposable MariaDB 10.11 with two independent sessions",
+    "mercury_network_attempts": 0
+  },
+  "implemented": [
+    "Allocation, void and clear inspect the original Mercury instruction under the AP transaction",
+    "Missing reverse references, changed money/currency/vendor, foreign company and ambiguous instructions remain held",
+    "An authenticated, continuous pre-approval cancellation audit and absent funding/payout evidence permit only the explicit AP void action",
+    "Failed, returned, settled, reconciled and cancelled labels alone cannot release bills or authorize AP accounting",
+    "Competing services cannot override an existing Mercury claim through the common AP action guard"
+  ],
+  "boundaries": {
+    "core_deployed": false,
+    "provider_changed": false,
+    "real_payment_executed": false,
+    "payroll_executed": false,
+    "accounting_posted": false,
+    "production_changed": false,
+    "arabella_changed": false
+  },
+  "remaining": [
+    "Verified bank-result reconciliation and audited recovery after uncertain funding",
+    "Combined hosted and real-Mongo acceptance, including restoring the unavailable Quanta preview",
+    "Financial credential rebinding and Thunderhawk key consumer verification",
+    "Full Thunderhawk staffing, onboarding, independent time approval, payroll and financial-result round trip",
+    "Controlled staging deployment and publication after remaining release verification"
+  ]
+}
