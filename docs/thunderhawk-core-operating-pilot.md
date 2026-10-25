@@ -1,3 +1,37 @@
+## Core time-review return verified in the hosted demo - October 24, 2026
+
+The installed Core release 0477c6308f673ed358d2a4034d6f6fd23f54f433 and
+Quanta preview now complete the pending-review return path for the existing
+Acme/Meridian demo. Workflow 40145474814 used runner revision
+10528e51b24f509ed589f6361bf9a315948daf8a; it compared the relevant source files
+with the installed runtime before calling native Core services. Delivery 11
+was acknowledged, original-receipt recovery and replay passed, and a fresh
+comparison reported unchanged. Existing time, person, placement and import
+records were unchanged. The process-only publication flag was restored.
+
+The actual Quanta owner/admin portal shows PL-13 / P-15, assignment version 2,
+and October 19's 8.00 hours as Awaiting Core review, last shared at
+2026-10-25T00:08:27.113284+00:00. This proves the demo portal observation; it
+does not establish worker login, independent approval, or Thunderhawk acceptance.
+The complete Quanta candidate passed 98 isolated full-app cases with no network
+attempts and a successful frontend build before installation. Core's CI and
+staging deployment passed in runs 40143979012 and 40144183981. The installed
+Quanta source hashes and background/document-transfer holds were rechecked after
+its preview resumed; the existing demo records were retained.
+
+Evidence: deploy/synthetic-time-review-delivered-20261024.json; Quanta-source
+verification/time-review-delivered-20261024.json,
+verification/time-review-resume-20261024.json and
+verification/time-review-portal-delivered-20261024.png. GitHub masked part of the
+remote review ID, so the saved receipt explicitly leaves that ID null.
+
+Outstanding acceptance remains the controlled worker inbox/login and document
+submission, an independent Core time reviewer, the held payroll-input/result
+round trip, the actual Thunderhawk cohort and production release gates. The
+Thunderhawk PurePay replacement ending be2c has been copied for the user; Core
+still shows q9eE in read-only mode. The production-session hold remains in force.
+No real payroll, payment, financial posting or production cutover occurred.
+
 ## Existing Core worker portal access installed in Quanta preview - October 24, 2026
 
 An active imported Quanta worker could not receive a login through the native
