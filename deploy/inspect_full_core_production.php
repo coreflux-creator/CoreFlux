@@ -126,7 +126,7 @@ try {
     if (in_array('--refresh-jobdiva-pilot', $argv, true)) {
         $freshJobdiva = fullCoreJobdivaFreshPilot($db, [
             'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2, 'accounting_directory_id'=>2,
-            'company_directory_id'=>2,
+            'company_directory_id'=>2, 'ap_directory_id'=>2,
             'person_id'=>358, 'placement_id'=>864,
             'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
         ], $root);

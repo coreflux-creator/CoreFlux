@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/jobdiva_pilot_source.php';
 require_once __DIR__ . '/staffing_pilot_alignment.php';
 require_once __DIR__ . '/staffing_pilot_commercial_alignment.php';
+require_once __DIR__ . '/staffing_pilot_party_alignment.php';
 
 function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): array
 {
@@ -66,6 +67,7 @@ function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): ar
                 'Employer, rates, custom-field values and downstream delivery require separate evidence.'];
             $report['alignment']=$alignment;
             $report['commercial_alignment']=fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$observed['contract'],gmdate('Y-m-d'));
+            $report['party_alignment']=fullCoreStaffingPilotPartyAlignment($pdo,$pilot,$observed['contract'],gmdate('Y-m-d'));
             $person=fullCoreJobdivaReadPerson($pilot['jobdiva_ids']['person'],$request);
             $report['person_source']=$person['report'];
             if($person['person']!==null)$report['person_alignment']=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$person['person']);
