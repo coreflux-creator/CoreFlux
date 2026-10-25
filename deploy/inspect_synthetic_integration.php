@@ -178,6 +178,40 @@ if ($report['quanta_binding']['available']) {
     $report['quanta_assignment_location'] = $probe(static function() use ($access): void {
         quantaAssignmentLocationRequire($access['api_key'], PILOT_QUANTA_WORKSPACE);
     });
+    require_once PILOT_ROOT.'/core/quanta/metadata_delivery.php';
+    $report['quanta_metadata_receipts'] = $probe(static function() use ($access): void {
+        quantaMetadataReceiptRequire($access['api_key'], PILOT_QUANTA_WORKSPACE);
+    });
+    if ($report['quanta_metadata_receipts']['available']) {
+        try {
+            $originals=$pdo->query('SELECT * FROM integration_deliveries WHERE tenant_id=999 AND provider="quanta"
+                AND operation IN ("person.link","assignment.create","assignment.update") AND state="delivered"
+                AND entity_tenant_id=999 AND ((entity_type="person" AND entity_id=15) OR (entity_type="placement" AND entity_id=13))
+                ORDER BY id DESC LIMIT 5')->fetchAll(PDO::FETCH_ASSOC);
+            if (!$originals) throw new RuntimeException('No original demo receipt');
+            $checked=[];
+            foreach ($originals as $original) {
+                if ((string)$original['connection_ref']!==(string)$access['connection']['id']
+                    || !hash_equals($original['binding_hash'],$access['binding_hash'])) throw new RuntimeException('Original binding changed');
+                [$row,$payload]=quantaMetadataEnvelope(PILOT_TENANT,(int)$original['id'],$original['review_hash']);
+                $query=['operation'=>$row['operation']];
+                if ($row['operation']==='assignment.update') $query['record_id']=quantaCoreRemoteId(PILOT_QUANTA_WORKSPACE,$payload['expected']['placement']);
+                $path=QUANTA_CORE_CONTRACT_PATH.'/metadata-deliveries/'.$row['idempotency_key'];
+                $first=quantaGet($access['api_key'],$path,$query);
+                $again=quantaGet($access['api_key'],$path,$query);
+                $outcome=quantaMetadataReceiptOutcome($row,$payload,PILOT_QUANTA_WORKSPACE,$first);
+                if ($outcome['state']!=='confirmed' || $outcome['receipt_id']!==$row['remote_receipt_id']
+                    || $outcome['remote_id']!==$row['remote_id'] || integrationDeliveryHash($first)!==integrationDeliveryHash($again)
+                    || integrationDeliveryGet($pdo,PILOT_TENANT,(int)$row['id'])!==$original) throw new RuntimeException('Original receipt differs');
+                $checked[]=['delivery_id'=>(int)$row['id'],'operation'=>$row['operation'],'original_receipt_verified'=>true,'repeat_read_identical'=>true];
+            }
+            $report['quanta_original_metadata_receipts']=['verified'=>true,'checked'=>count($checked),'receipts'=>$checked,
+                'local_history_unchanged'=>true,'provider_record_writes'=>false];
+            unset($originals,$original,$row,$payload,$first,$again,$outcome,$query,$path,$checked);
+        } catch (Throwable $e) {
+            $report['quanta_original_metadata_receipts']=['verified'=>false,'reason'=>'original_receipt_check_failed','provider_record_writes'=>false];
+        }
+    }
     try {
         $reference=integrationRecordReference(PILOT_INSTANCE,999,'placement','PL-13');
         $remote=quantaContractRecord($access['api_key'],PILOT_QUANTA_WORKSPACE,$reference);
