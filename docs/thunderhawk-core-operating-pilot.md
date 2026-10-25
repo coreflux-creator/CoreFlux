@@ -1,3 +1,15 @@
+## 2026-10-25 - Hybrid audit compatibility installed in isolated Core staging
+
+Staging run `40198303037` installed `9b527b1b602bdda332927aa812f4bd54670d887b` in the isolated Core application, replacing the prior d68a4a7d staging release. The native audit writer now fills mandatory legacy `action` and `entity_id` columns alongside canonical `event` and `target_id` columns on mixed schemas. Real-database tests cover canonical, legacy and the observed mixed schema, including transactional rollback. All nine CI jobs passed; the pilot fixture has 105 checks and the native audit writer has three schema cases.
+
+The installation changed 14 package files, applied no migrations, verified the runtime/schema and four served assets, and passed the accounting lifecycle, split receipt, 61 credit application checks, log-only billing delivery and 17 onboarding checks. Portal delivery was not checked and payroll authorization was not evaluated. See `deploy/core-audit-compatibility-staging-release-20261025.json`. The live Core runtime remains unchanged; the separately verified PL-864 entity correction is recorded below. The full Thunderhawk round trip, credentials, independent time review, remaining placement setup/approvals and production release remain open.
+
+## 2026-10-25 - Selected Thunderhawk placement inherits the existing THUN entity
+
+Following the user's instruction to follow the existing sync alignment, run `40198138420` set only PL-864's empty `accounting_entity_id` to the uniquely active existing entity THUN (id 2). The transaction revalidated exact workspace, person, placement and provider IDs, effective accounting ownership, the unchanged entity identity, and the absence of a manual override. It wrote a system audit receipt atomically and verified that the person and rate records did not change. Independent read-back confirmed the placement's active THUN reference, the still-empty person reference, and unchanged source identity links. See `deploy/thunderhawk-entity-alignment-20261025.json`.
+
+All nine CI jobs passed for `9b527b1b602bdda332927aa812f4bd54670d887b`, including 105 database checks with 23 added mutation, audit, rollback and isolation cases. No runtime installation, migration, compensation approval, payroll, payment, production cutover or Arabella change occurred. WC evidence, remaining field review, normal rate approval and the full authorized operational round trip remain outstanding.
+
 ## 2026-10-25 - Thunderhawk draft rates and billing-client identity match fresh source
 
 Read-only inspection `40195230206` verified the exact P-358 / PL-864 JobDiva assignment again. The current Core draft matches its bill rate, pay rate, bill/pay units and currency. The billing-client company also matches its exact provider identity in the selected company directory, including the reverse mapping. Core has one current draft and zero current approved rate versions. The net invoice amount is computed at approval and remains pending; additional-cost fields lack source values to compare. Matching these terms does not approve them or establish the legal employer. See `deploy/thunderhawk-commercial-alignment-20261025.json`.
