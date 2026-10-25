@@ -5,7 +5,7 @@
 # test) so the classification logic lives in exactly ONE place.
 #
 # Lanes:
-#   harness  — simulation harness + module emission discipline
+#   harness  — simulation/deployment harness + module emission discipline
 #   ui       — dashboard / SPA / CSV / digest / scenarios / sprint UIs
 #   modules  — AP / AR / billing / time / staffing / placement / payroll
 #               / treasury / payment / company / mail / plaid / gusto
@@ -27,7 +27,7 @@ ci_classify_lane() {
         #    posting + replay surface (phase_1*, sprint7b/c/e event-layer,
         #    posting rules sandbox, formula engine). These all stand or
         #    fall together with the harness invariants.
-        sim_harness_*|module_emission_discipline_smoke.php|phase_2a_event_discipline_smoke.php|\
+        sim_harness_*|purepay_financial_preview_config_smoke.php|module_emission_discipline_smoke.php|phase_2a_event_discipline_smoke.php|\
         phase_1b_*|phase_1c_*|phase_1d_*|phase_1e_*|\
         event_registry_contract_*|accounting_bank_rule_learning_*|\
         ai_rule_competition_*|\
