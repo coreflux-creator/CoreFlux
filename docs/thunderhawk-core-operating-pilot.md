@@ -1,3 +1,11 @@
+## PurePay demo location review refreshed and original receipts verified - October 25, 2026
+
+Run `40207378442` refreshed only Meridian's existing company review for assignment contract 2026-10-25.1. The helper first proved that the saved company, credential, connection revision, permissions and all other context still match the previous reviewed contract, then checked nine original provider identities and receipts. Native confirmation added one audit event; an exact repeat added none. No provider business record, separate AP connection, credential or runtime setting changed.
+
+The same run recovered all five original staffing deliveries with ten identical native repeat reads. The existing payroll observation remains readable, but both lines still lack linked Core people; this is not a payroll round trip. All nine CI jobs passed at `a275343b30b9b72b3c794d315caa0b52a1c337de`, including 24 targeted review guards. See `deploy/purepay-demo-location-review-20261025.json`.
+
+The stale PurePay company-review hold below is resolved. Hosted revised assignment delivery, independent time approval, worker/documents, financial callbacks/recovery, actual Thunderhawk acceptance and authorized production release remain open. The independent reviewer has been requested; no permissions or approval bypass was introduced.
+
 ## Assignment location installed in the three pilot environments - October 25, 2026
 
 Core staging run `40205505707` installed `adc8b1e9f48d2dc762e0c42f34d724dfaead252b`, applied migration 181, verified four served assets and passed the five acceptance suites, including 18 onboarding HTTP checks and explicit city/state/country persistence. All nine CI jobs passed before deployment.
