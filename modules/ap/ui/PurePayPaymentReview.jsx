@@ -65,7 +65,7 @@ export default function PurePayPaymentReview({ paymentId, onClose, onChanged }) 
           <p><strong>{review.vendor_name} · {money(review.amount_cents)}</strong> · {label(review.status)}</p>
           <p>These are saved results. Refresh to check PurePay for updates. Refreshing does not start or resend a payment.</p>
           {review.reason && <p>{review.reason}</p>}
-          {review.release_requested && <p><strong>Cancellation requested.</strong> This payment cannot resume. An attempt already in progress must be reconciled.</p>}
+          {review.release_requested && review.status !== 'cancelled' && <p><strong>Cancellation requested.</strong> This payment cannot resume. An attempt already in progress must be reconciled.</p>}
           <div style={{ overflowX: 'auto' }}><table className="table" style={{ width: '100%' }}>
             <thead><tr><th>Supplier bill</th><th>Amount</th><th>Delivery</th><th>Last checked</th></tr></thead>
             <tbody>{review.bills.map(bill => <tr key={bill.bill_id}>

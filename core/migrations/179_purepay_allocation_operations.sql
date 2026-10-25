@@ -2,7 +2,7 @@
 SET @pp_has_cancel := (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='purepay_allocated_payments' AND COLUMN_NAME='release_requested');
 SET @pp_cancel_sql := IF(@pp_has_cancel=0,
-    'ALTER TABLE purepay_allocated_payments ADD COLUMN release_requested TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1');
+    'ALTER TABLE purepay_allocated_payments ADD COLUMN release_requested TINYINT(1) NOT NULL DEFAULT 0', 'DO 0');
 PREPARE pp_cancel_stmt FROM @pp_cancel_sql;
 EXECUTE pp_cancel_stmt;
 DEALLOCATE PREPARE pp_cancel_stmt;

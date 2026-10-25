@@ -228,7 +228,7 @@ try{
         'stale displayed evidence cannot authorize an operation or provider call');
     $review=purepayAllocationReview($pdo,1,20,8,true);$before=$executeCount;
     $out=purepayAllocationOperate($pdo,1,20,8,true,'release',$review['review_hash'],'Duplicate draft detected');
-    $check($out['status']==='cancelled' && $out['release_requested'] && !$out['can_resume'] && $executeCount===$before
+    $check($out['status']==='cancelled' && $out['release_requested'] && !$out['can_resume'] && !$out['can_release'] && $executeCount===$before
         && count($out['history'])===2 && $guard(20,'void'),'cancelling never-reserved bills records every original release and an immutable audit');
     $check($pdo->query('SELECT rail_external_ref FROM ap_payments WHERE id=20')->fetchColumn()==='purepay:allocation:20',
         'the AP payment retains its original rail claim after cancellation');

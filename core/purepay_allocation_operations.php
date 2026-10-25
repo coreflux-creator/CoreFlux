@@ -47,10 +47,13 @@ function purepayAllocationReviewLocked(PDO $pdo,int $tenant,int $payment,int $ac
             'needs_review'=>!empty($c['last_error']) || !empty($c['terminal_review']) || $c['provider_state']==='needs_review'];
     }
     $canResume=$canResume && $hasWork;
+    $canRelease=$canRelease && $hasWork;
     if($sourceValid && $saved['effective_date']>date('Y-m-d')){
         $canResume=false;$reason='This payment is scheduled for a future date.';
     }
-    if($cancelled)$reason='Cancellation is permanent. Refresh the results or finish cancelling the unexecuted bills.';
+    if($cancelled)$reason=purepayAllocationAggregate($parent,$children)==='cancelled'
+        ?'Every original bill is confirmed cancelled before payment. Review the Core payment before voiding it.'
+        :'Cancellation is permanent. Refresh the results or finish cancelling the unexecuted bills.';
     elseif(!$valid)$reason='The original delivery records need review.';
     elseif($sourceValid && !$canResume && !$canRelease)$reason='Refresh the original results. A payment already attempted cannot be cancelled here.';
     if((int)($ap['created_by_user_id']??0)>0 && (int)$ap['created_by_user_id']===$actor){
