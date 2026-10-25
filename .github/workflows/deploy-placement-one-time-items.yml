@@ -379,6 +379,7 @@ jobs:
             $ownerIdentity = ['sudo_available'=>is_executable('/usr/bin/sudo'),'can_act_as_web_file_owner'=>false];
             $ownerAccount=isset($metadata['web_config']['uid']) ? posix_getpwuid($metadata['web_config']['uid']) : false;
             $ownerIdentity['matches_existing_core_application_user']=($ownerAccount['name']??'')==='kunalverma2';
+            $ownerIdentity['file_owner_account']=$ownerAccount['name']??null;
             if ($ownerIdentity['sudo_available'] && isset($metadata['web_config']['uid'])) {
               $identity = proc_open(['/usr/bin/sudo','-n','-u','#'.$metadata['web_config']['uid'],'/usr/bin/id','-u'],
                 [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$identityPipes);
@@ -389,6 +390,34 @@ jobs:
                 $ownerIdentity['identity_command_exit']=$ownerExit;
               }
             }
+            // Cloudways' blanket reset changes every webroot file to 0664 and directory
+            // to 0775. Inventory metadata only before anyone proposes that operation.
+            // Never follow links or read file contents; an incomplete walk is not safe.
+            $permissionInventory=['scope'=>'public_html_only','complete'=>false,'files'=>0,'directories'=>0,
+              'symlinks'=>0,'other_objects'=>0,'hardlinked_files'=>0,'file_modes'=>[],
+              'directory_modes'=>[],'owner_counts'=>[],'reset_would_expand_world_read'=>false,
+              'reset_would_expand_group_write'=>false,'reset_would_remove_executable_bits'=>false];
+            try {
+              $walk=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST);
+              foreach($walk as $item) {
+                $stat=lstat($item->getPathname());
+                if($stat===false)throw new RuntimeException('File metadata unavailable');
+                if($item->isLink()){$permissionInventory['symlinks']++;continue;}
+                $type=$stat['mode'] & 0170000;$mode=$stat['mode'] & 07777;
+                if($type===0100000){$permissionInventory['files']++;$modeKey='file_modes';$target=0664;
+                  if($stat['nlink']>1)$permissionInventory['hardlinked_files']++;
+                  if(($mode & 0111)!==0)$permissionInventory['reset_would_remove_executable_bits']=true;
+                }elseif($type===0040000){$permissionInventory['directories']++;$modeKey='directory_modes';$target=0775;}
+                else{$permissionInventory['other_objects']++;continue;}
+                $octal=sprintf('%04o',$mode);$uid=(string)$stat['uid'];
+                $permissionInventory[$modeKey][$octal]=($permissionInventory[$modeKey][$octal]??0)+1;
+                $permissionInventory['owner_counts'][$uid]=($permissionInventory['owner_counts'][$uid]??0)+1;
+                if(($target & 0005 & ~$mode)!==0)$permissionInventory['reset_would_expand_world_read']=true;
+                if(($target & 0020 & ~$mode)!==0)$permissionInventory['reset_would_expand_group_write']=true;
+              }
+              foreach(['file_modes','directory_modes','owner_counts'] as $key)ksort($permissionInventory[$key],SORT_STRING);
+              $permissionInventory['complete']=true;
+            }catch(Throwable $error){$permissionInventory['failure_class']=get_class($error);}
             foreach (['DB_HOST','DB_NAME','DB_USER','DB_PASS','COREFLUX_DB_CONFIG_PATH',
               'SMTP_HOST','SMTP_USER','SMTP_PASS','DATA_KEY'] as $key) $configured[$key] = getenv($key)!==false && getenv($key)!=='';
             require_once $root.'/core/db.php';
@@ -477,7 +506,7 @@ jobs:
                 'manifest_sha256'=>is_file($manifestPath)?hash_file('sha256',$manifestPath):null];
             }
             echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
-              'paths'=>$metadata, 'web_owner_identity_check'=>$ownerIdentity, 'environment_configured'=>$configured,
+              'paths'=>$metadata, 'web_owner_identity_check'=>$ownerIdentity,'file_permission_inventory'=>$permissionInventory, 'environment_configured'=>$configured,
               'database_operations'=>$database,
               'migration_history'=>$history,
               'ssh_user_crontab'=>['readable'=>$cronExit===0,'sha256'=>$cronExit===0?hash('sha256',$cronText):null,
