@@ -149,4 +149,24 @@ $check(fullCorePilotPersonValue('+1 555 123 4567','phone_primary')['value']!==fu
     'comparison does not guess a country prefix');
 $check(fullCorePilotPersonValue("PRIVATE\nNAME",'first_name')['status']==='unrecognized'
     &&fullCorePilotPersonValue(false,'phone_primary')['status']==='unrecognized','control characters and nonstring contact data are rejected');
+foreach([404,405,200] as $status){
+    $calls=[];
+    $detail=fullCoreJobdivaReadPerson('201',static function($method,$path,$body,$query)use(&$calls,$status):array{
+        $calls[]=[$method,$path,$body,$query];
+        return count($calls)===1?['status'=>$status,'body'=>[]]:['status'=>200,'body'=>[['CANDIDATEID'=>'201','FIRSTNAME'=>'PRIVATE-FIRST','LASTNAME'=>'PRIVATE-LAST']]];
+    });
+    $check(count($calls)===2&&$calls[1]===['GET','/apiv2/bi/CandidatesDetail',null,['candidateIds'=>'201','userFieldsName'=>'']]
+        &&$detail['report']['exact_person_verified']&&$detail['report']['provider_calls'][0]['http_status']===$status,
+        'unavailable or empty search falls back to the exact single candidate BI record');
+}
+$count=0;
+$wrong=fullCoreJobdivaReadPerson('201',static function()use(&$count):array{
+    return ++$count===1?['status'=>404,'body'=>[]]:['status'=>200,'body'=>[['CANDIDATEID'=>'999','FIRSTNAME'=>'PRIVATE-OTHER']]];
+});
+$check($count===2&&$wrong['person']===null&&!str_contains(json_encode($wrong),'PRIVATE'),'BI fallback cannot replace the selected person or expose another worker');
+foreach([401,403,429,500] as $status){
+    $count=0;
+    fullCoreJobdivaReadPerson('201',static function()use(&$count,$status):array{$count++;return ['status'=>$status,'body'=>[]];});
+    $check($count===1,'authorization and service failures never trigger candidate fallback');
+}
 echo "$passed passed\n";

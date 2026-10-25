@@ -29,13 +29,22 @@ function fullCoreJobdivaReadPerson(string $candidate, callable $request): array
 {
     if (!preg_match('/^[1-9][0-9]{0,17}$/D',$candidate)) throw new InvalidArgumentException('Exact candidate ID required');
     $report=['status'=>'source_unavailable','source_refreshed'=>false,'record_writes'=>false,
-        'exact_person_verified'=>false,'http_status'=>null];
+        'exact_person_verified'=>false,'http_status'=>null,'provider_calls'=>[]];
     $finish=static fn(array $r,?array $person=null):array=>['report'=>$r,'person'=>$person];
-    try {$response=$request('POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>$candidate],null);}
-    catch(Throwable){$report['status']='transport_failed';return $finish($report);}
-    $report['http_status']=is_int($response['status']??null)?$response['status']:null;
+    $read=static function(string $label,string $method,string $path,?array $body,?array $query)use($request,&$report):array{
+        try{$response=$request($method,$path,$body,$query);}
+        catch(Throwable){$report['status']='transport_failed';$report['http_status']=null;
+            $report['provider_calls'][]=['operation'=>$label,'http_status'=>null];return [];}
+        $report['http_status']=is_int($response['status']??null)?$response['status']:null;
+        $report['provider_calls'][]=['operation'=>$label,'http_status'=>$report['http_status']];
+        return $report['http_status']===200?jobdivaAssignmentRowsFromResponse($response['body']??null):[];
+    };
+    $rows=$read('candidate_search','POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>$candidate],null);
+    // Existing ID-based mirror route, narrowed to this one candidate. Never
+    // broaden an authorization failure, service failure or conflicting result.
+    if(in_array($report['http_status'],[404,405],true)||($report['http_status']===200&&$rows===[]))
+        $rows=$read('candidate_detail','GET','/apiv2/bi/CandidatesDetail',null,['candidateIds'=>$candidate,'userFieldsName'=>'']);
     if($report['http_status']!==200)return $finish($report);
-    $rows=jobdivaAssignmentRowsFromResponse($response['body']??null);
     $report['parsed_rows']=count($rows);
     if(count($rows)!==1||!is_array($rows[0])){$report['status']='exact_person_unavailable';return $finish($report);}
     $row=$rows[0];$ids=[];

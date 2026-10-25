@@ -43,7 +43,7 @@ function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): ar
         if ($token==='') $authenticate();
         $request=static function(string $method,string $path,?array $body,?array $query)use(&$token,$authenticate,&$authCount):array {
             if (!(($method==='POST' && in_array($path,['/apiv2/jobdiva/searchStart','/apiv2/jobdiva/searchCandidate'],true))
-                || ($method==='GET' && $path==='/apiv2/bi/EmployeeAssignmentRecordsDetail'))) {
+                || ($method==='GET' && in_array($path,['/apiv2/bi/EmployeeAssignmentRecordsDetail','/apiv2/bi/CandidatesDetail'],true)))) {
                 throw new RuntimeException('Inspection endpoint is not allowlisted');
             }
             $response=jobdivaRawRequest($method,$path,$body,$query,true,$token);
