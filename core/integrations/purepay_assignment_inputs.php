@@ -4,9 +4,25 @@ declare(strict_types=1);
 require_once __DIR__.'/purepay_links.php';
 require_once __DIR__.'/purepay_assignment_contract.php';
 
+function purepayAssignmentOwnersValidate(array $owners): void
+{
+    foreach(['placements','people','companies','ap'] as $module)
+        if(!is_int($owners[$module]??null)||$owners[$module]<=0)
+            throw new InvalidArgumentException('Authorized module owners are required for the complete commercial graph.');
+}
+
+/** Older envelopes used People for companies. Read only when that is still the authorized company owner. */
+function purepayAssignmentOwnersMatch(array $saved,array $current): bool
+{
+    purepayAssignmentOwnersValidate($current);
+    if(!array_key_exists('companies',$saved)&&$current['companies']===$current['people'])
+        $saved['companies']=$saved['people']??null;
+    return integrationDeliveryCanonical($saved)===integrationDeliveryCanonical($current);
+}
+
 function purepayAssignmentInputSource(PDO $pdo,string $instance,array $owners,string $number,?string $previous=null): array
 {
-    foreach(['placements','people','ap'] as $module)if(!is_int($owners[$module]??null) || $owners[$module]<=0)throw new InvalidArgumentException('Authorized module owners are required for the complete commercial graph.');
+    purepayAssignmentOwnersValidate($owners);
     $placement=purepayCoreLinkSource($pdo,$instance,$owners['placements'],'placement',$number);
     $refs=[];
     $resolve=static function(string $kind,int $id,?int $expectedCompany=null)use($pdo,$instance,$owners,&$refs):array {
@@ -18,7 +34,7 @@ function purepayAssignmentInputSource(PDO $pdo,string $instance,array $owners,st
         $key=$kind.':'.$id;
         if(isset($refs[$key]))return $refs[$key];
         $definition=coreRecordNumberDefinition($kind);$owner=$owners[$definition['module']];
-        $deleted=in_array($kind,['person','placement'],true)?' AND r.deleted_at IS NULL':'';
+        $deleted=in_array($kind,['person','placement','company'],true)?' AND r.deleted_at IS NULL':'';
         $s=$pdo->prepare('SELECT n.record_number FROM '.$definition['table'].' r JOIN core_record_numbers n
             ON n.tenant_id=r.tenant_id AND n.record_id=r.id AND n.canonical_record_id=r.id
             WHERE r.tenant_id=:t AND r.id=:i AND n.entity_type=:k'.$deleted.' LIMIT 2');
@@ -102,7 +118,7 @@ function purepayAssignmentInputEnvelope(PDO $pdo,int $tenant,int $id,string $has
     if($row['provider']!=='purepayroll' || $row['operation']!=='assignments.inputs' || $row['entity_type']!=='placement'
         || !hash_equals($row['review_hash'],$hash))throw new InvalidArgumentException('Choose the current placement review.');
     $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
-    if($payload['owners']!==integrationDeliveryCanonical($owners) || $payload['body']['placement']['instance_id']!==$instance
+    if(!purepayAssignmentOwnersMatch($payload['owners'],$owners) || $payload['body']['placement']['instance_id']!==$instance
         || (int)$row['entity_tenant_id']!==$owners['placements'])throw new RuntimeException('This placement review belongs to different directory owners.');
     $source=purepayCoreLinkSource($pdo,$instance,$owners['placements'],'placement',$payload['body']['placement']['number']);
     if($source['entity_id']!==(int)$row['entity_id'])throw new RuntimeException('The placement identity changed.');

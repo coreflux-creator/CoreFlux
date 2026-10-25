@@ -211,7 +211,7 @@ function staffingFieldContractWithCustomFields(array $contract, array $user): ar
     require_once __DIR__ . '/../sub_tenants.php';
     $incomplete = [];
     $keyReview = [];
-    foreach (['people' => 'people', 'placements' => 'placements', 'companies' => 'people'] as $entity => $module) {
+    foreach (['people' => 'people', 'placements' => 'placements', 'companies' => 'companies'] as $entity => $module) {
         $owner = effectiveTenantIdForModule($module, $contract['tenant_id']) ?? $contract['tenant_id'];
         try {
             $definitions = staffingFieldContractCustomDefinitions(getDB(), $owner, $entity);

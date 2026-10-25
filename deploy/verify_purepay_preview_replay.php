@@ -88,7 +88,7 @@ try {
                     throw new RuntimeException('Native employee receipt changed');
                 }
             } elseif ($row['operation']==='assignments.inputs') {
-                $native=purepayAssignmentInputStatus($pdo,999,CONTINUITY_INSTANCE,['people'=>999,'placements'=>999,'ap'=>999],(int)$row['id'],$row['review_hash']);
+                $native=purepayAssignmentInputStatus($pdo,999,CONTINUITY_INSTANCE,['people'=>999,'placements'=>999,'companies'=>999,'ap'=>999],(int)$row['id'],$row['review_hash']);
                 $successor=null;
                 if (($native['provider_review']['state']??null)==='superseded') {
                     if ((int)$row['id']!==5) throw new RuntimeException('Native assignment receipt changed');
@@ -96,9 +96,9 @@ try {
                     if ($next['provider']!=='purepayroll'||$next['operation']!=='assignments.inputs'||$next['state']!=='delivered'
                         ||$next['entity_type']!=='placement'||(int)$next['entity_tenant_id']!==999||(int)$next['entity_id']!==13)
                         throw new RuntimeException('Native assignment receipt changed');
-                    [$next,$nextPayload]=purepayAssignmentInputEnvelope($pdo,999,12,$next['review_hash'],CONTINUITY_INSTANCE,['people'=>999,'placements'=>999,'ap'=>999]);
+                    [$next,$nextPayload]=purepayAssignmentInputEnvelope($pdo,999,12,$next['review_hash'],CONTINUITY_INSTANCE,['people'=>999,'placements'=>999,'companies'=>999,'ap'=>999]);
                     if ($nextPayload['organization_id']!==CONTINUITY_ORG) throw new RuntimeException('Foreign original receipt');
-                    $nextStatus=purepayAssignmentInputStatus($pdo,999,CONTINUITY_INSTANCE,['people'=>999,'placements'=>999,'ap'=>999],12,$next['review_hash']);
+                    $nextStatus=purepayAssignmentInputStatus($pdo,999,CONTINUITY_INSTANCE,['people'=>999,'placements'=>999,'companies'=>999,'ap'=>999],12,$next['review_hash']);
                     $nativeLookups++;
                     if ($nextStatus['delivery']!==integrationDeliverySummary($next)
                         || ($attempt===1 && $successorReads[12]!==$nextStatus)) throw new RuntimeException('Original delivery changed');

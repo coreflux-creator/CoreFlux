@@ -43,7 +43,7 @@ function purepayCoreApiAssignmentOwners(array $user,int $tenant): array
 {
     foreach(['placements.view','placements.financials.view','people.view','ap.view','payroll.view'] as $permission)rbac_legacy_require($user,$permission);
     $owners=[];
-    foreach(['placements','people','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenant)??$tenant;
+    foreach(['placements','people','companies','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenant)??$tenant;
     return $owners;
 }
 function purepayCoreApiObservationOwners(array $user,int $tenant): array

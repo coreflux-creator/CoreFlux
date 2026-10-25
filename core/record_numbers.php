@@ -7,7 +7,7 @@ function coreRecordNumberDefinitions(): array
     return [
         'person' => ['table' => 'people', 'field' => 'person_number', 'prefix' => 'P-', 'module' => 'people'],
         'placement' => ['table' => 'placements', 'field' => 'placement_number', 'prefix' => 'PL-', 'module' => 'placements'],
-        'company' => ['table' => 'companies', 'field' => 'company_number', 'prefix' => 'CO-', 'module' => 'people'],
+        'company' => ['table' => 'companies', 'field' => 'company_number', 'prefix' => 'CO-', 'module' => 'companies'],
         'client' => ['table' => 'staffing_clients', 'field' => 'client_number', 'prefix' => 'CL-', 'module' => 'placements'],
         'vendor' => ['table' => 'ap_vendors_index', 'field' => 'vendor_number', 'prefix' => 'V-', 'module' => 'ap'],
     ];

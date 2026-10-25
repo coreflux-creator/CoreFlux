@@ -100,7 +100,7 @@ if (purepayCoreApiBase()==='https://pure-pay-support.preview.emergentagent.com/a
             try {
                 require_once PILOT_ROOT.'/core/integrations/purepay_assignment_inputs.php';
                 $source=purepayAssignmentInputSource($pdo,PILOT_INSTANCE,
-                    ['people'=>999,'placements'=>999,'ap'=>999],'PL-13');
+                    ['people'=>999,'placements'=>999,'companies'=>999,'ap'=>999],'PL-13');
                 $report['synthetic_commercial_source']=[
                     'complete'=>true,'contract_version'=>$source['body']['contract_version'],
                     'approved_term_periods'=>count($source['body']['terms']),

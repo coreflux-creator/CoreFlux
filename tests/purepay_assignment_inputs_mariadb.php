@@ -34,7 +34,7 @@ $table=static function(string $name,array $row)use($pdo):void {
 $placement=array_diff_key($fixture['placement'],['billing_company_id'=>true])+['tenant_id'=>20,'deleted_at'=>null];$table('placements',$placement);$insert('placements',$placement);
 $person=$fixture['person']+['tenant_id'=>10,'deleted_at'=>null];$table('people',$person);$insert('people',$person);
 $pdo->exec('CREATE TABLE staffing_clients(id BIGINT PRIMARY KEY,tenant_id BIGINT,company_id BIGINT)');$insert('staffing_clients',['id'=>1,'tenant_id'=>20,'company_id'=>10]);
-$pdo->exec('CREATE TABLE companies(id BIGINT PRIMARY KEY,tenant_id BIGINT)');$insert('companies',['id'=>10,'tenant_id'=>10]);$insert('companies',['id'=>11,'tenant_id'=>10]);
+$pdo->exec('CREATE TABLE companies(id BIGINT PRIMARY KEY,tenant_id BIGINT,deleted_at DATETIME NULL)');$insert('companies',['id'=>10,'tenant_id'=>10]);$insert('companies',['id'=>11,'tenant_id'=>10]);
 $pdo->exec('CREATE TABLE ap_vendors_index(id BIGINT PRIMARY KEY,tenant_id BIGINT,default_terms VARCHAR(40),default_pwp TINYINT)');
 $insert('ap_vendors_index',['id'=>1,'tenant_id'=>30,'default_terms'=>'NET5','default_pwp'=>1]);
 $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(32),record_id BIGINT,canonical_record_id BIGINT,record_number VARCHAR(64))');
@@ -52,7 +52,7 @@ foreach($fixture['items'] as $row)$insert('placement_economic_items',$row+['tena
 $passed=0;$posts=0;$audits=0;$receipts=[];$mode='ok';
 $check=static function(bool $ok,string $label)use(&$passed):void{if(!$ok)throw new RuntimeException($label);$passed++;echo 'PASS '.$label."\n";};
 $fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable){return true;}};
-$instance='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';$owners=['people'=>10,'placements'=>20,'ap'=>30];
+$instance='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';$owners=['people'=>10,'placements'=>20,'companies'=>10,'ap'=>30];
 $context=['organization'=>['id'=>'org-a','name'=>'Synthetic company'],'contract_version'=>PUREPAY_CORE_VERSION,'link_contract_version'=>PUREPAY_CORE_LINK_VERSION,
     'assignment_input_contract_version'=>PUREPAY_ASSIGNMENT_INPUT_VERSION,'capabilities'=>['read:coreflux','read:payroll','write:assignment_inputs'],'execution_side_effects'=>false];
 $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$context,&$posts,&$receipts,&$mode,$observer,$check):array {
@@ -79,8 +79,27 @@ $check($body['person']['directory_tenant_id']===10 && $body['client']['directory
     && $body['current_commercial_context']['parties'][2]['roots']['vendor']['directory_tenant_id']===30,'every canonical reference uses its authorized directory owner');
 $check($body['terms'][0]['economics']['parties'][0]['cycle']['cadence']==='weekly' && $body['current_commercial_context']['cycles'][0]['cadence']==='monthly','SQL source preserves frozen versus current cycles');
 $check($body['terms'][0]['pay_rates']['overtime']==='63.187500','SQL decimals retain exact overtime precision');
-$check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,['people'=>11,'placements'=>20,'ap'=>30],'PL-901')),'foreign people owner refused');
-$check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,['people'=>10,'placements'=>20,'ap'=>31],'PL-901')),'foreign vendor owner refused');
+$check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,array_replace($owners,['people'=>11]),'PL-901')),'foreign people owner refused');
+$check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,array_replace($owners,['ap'=>31]),'PL-901')),'foreign vendor owner refused');
+$check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,array_diff_key($owners,['companies'=>true]),'PL-901')),
+    'commercial source requires an explicit Companies owner');
+$pdo->beginTransaction();
+try {
+    $pdo->exec('UPDATE companies SET tenant_id=40');
+    $pdo->exec("UPDATE core_record_numbers SET tenant_id=40 WHERE entity_type='company'");
+    $separate=purepayAssignmentInputSource($pdo,$instance,array_replace($owners,['companies'=>40]),'PL-901');
+    $check($separate['body']['work_context']['end_client']['directory_tenant_id']===40
+        &&$separate['body']['person']['directory_tenant_id']===10,
+        'commercial end client follows Companies separately from People');
+    foreach($separate['body']['current_commercial_context']['parties'] as $party)
+        if($party['roots']['company']!==null)$check($party['roots']['company']['directory_tenant_id']===40,
+            'economic party company root uses the reviewed Companies owner');
+    $check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,$owners,'PL-901')),
+        'commercial references cannot fall back to the People company number');
+    $pdo->exec("UPDATE companies SET deleted_at='2026-01-01' WHERE id=10");
+    $check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,array_replace($owners,['companies'=>40]),'PL-901')),
+        'deleted company cannot supply an exported commercial identity');
+} finally {$pdo->rollBack();}
 $pdo->exec("UPDATE core_record_numbers SET canonical_record_id=99 WHERE entity_type='vendor'");
 $check($fails(fn()=>purepayAssignmentInputSource($pdo,$instance,$owners,'PL-901')),'merged vendor cannot be exported under an obsolete number');
 $pdo->exec("UPDATE core_record_numbers SET canonical_record_id=record_id WHERE entity_type='vendor'");
@@ -112,6 +131,28 @@ $receipts[$rid]['accepted_revision']=str_repeat('b',64);$check($fails(fn()=>$sta
 $receipts[$rid]['assignment_id']='foreign-native';$check($fails(fn()=>$status($r)),'foreign assignment identity refused');$receipts[$rid]['assignment_id']=$native;
 $receipts[$rid]['packet']['terms'][0]['pay_rates']['regular']='99.0000';$check($fails(fn()=>$status($r)),'modified provider economics refused');$receipts[$rid]['packet']=$packet;
 $check($fails(fn()=>purepayAssignmentInputStatus($pdo,2,$instance,$owners,(int)$r['delivery']['id'],$r['delivery']['review_hash'])),'another Core tenant cannot read the receipt');
+$originalRow=integrationDeliveryGet($pdo,1,(int)$r['delivery']['id']);
+$legacyPayload=json_decode(decryptField($originalRow['payload_ct']),true);unset($legacyPayload['owners']['companies']);
+$legacyContext=array_intersect_key($originalRow,array_flip(['provider','connection_ref','binding_hash','entity_type','entity_tenant_id','entity_id','operation','source_hash','remote_hash']));
+$legacy=integrationDeliveryPreview($pdo,1,7,$legacyContext,$legacyPayload);
+$legacyReview=['delivery'=>integrationDeliverySummary($legacy)];
+$check($fails(fn()=>$send($legacyReview))&&$posts===1&&integrationDeliveryGet($pdo,1,(int)$legacy['id'])['state']==='preview',
+    'legacy unsent owner assumptions require a new explicit company review before publishing');
+integrationDeliveryApprove($pdo,1,(int)$legacy['id'],7,$legacy['review_hash']);
+$legacyClaim=integrationDeliveryClaim($pdo,1,(int)$legacy['id'],array_intersect_key($legacyContext,array_flip(['binding_hash','source_hash','remote_hash'])));
+integrationDeliveryFinish($pdo,1,(int)$legacy['id'],$legacyClaim['claim'],'uncertain',null,'synthetic_historical_lost_reply');
+$legacyBefore=integrationDeliveryGet($pdo,1,(int)$legacy['id']);
+$check($fails(fn()=>purepayAssignmentInputStatus($pdo,1,$instance,array_replace($owners,['companies'=>40]),(int)$legacy['id'],$legacy['review_hash']))
+    &&integrationDeliveryGet($pdo,1,(int)$legacy['id'])===$legacyBefore&&$posts===1,
+    'legacy receipt cannot adopt a different current Companies owner');
+$recovered=$status($legacyReview);
+$legacyAfter=integrationDeliveryGet($pdo,1,(int)$legacy['id']);
+$check($recovered['delivery']['state']==='delivered'&&$recovered['provider_review']['assignment_id']===$native
+    &&$legacyAfter['payload_ct']===$legacyBefore['payload_ct']&&$posts===1,
+    'legacy same-directory receipt recovers its original packet without resending or rewriting owners');
+$check($status($legacyReview)===$recovered&&integrationDeliveryGet($pdo,1,(int)$legacy['id'])===$legacyAfter
+    &&integrationDeliveryGet($pdo,1,(int)$r['delivery']['id'])===$originalRow&&$posts===1,
+    'legacy company-owner recovery replay preserves both original delivery rows');
 $pdo->exec("UPDATE placement_economic_parties SET fee_pct=0.050 WHERE id=3");$revision=$preview($packet['source_revision']);
 $check($revision['packet']['previous_revision']===$packet['source_revision'] && $revision['packet']['source_revision']!==$packet['source_revision'],'revision binds explicit predecessor to changed source');
 $history=purepayAssignmentInputHistory($pdo,1,$instance,$owners,'PL-901');

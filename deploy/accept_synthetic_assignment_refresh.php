@@ -172,7 +172,7 @@ try {
             'version'=>$fresh['remote']['assignment']['version'],'work_location'=>$fresh['remote']['assignment']['work_location'],
             'original_receipt_replay_identical'=>true,'other_assignment_fields_unchanged'=>true,'worker_identity_unchanged'=>true];
     } else {
-        $phase='purepay_preflight';$owners=['people'=>999,'placements'=>999,'ap'=>999];
+        $phase='purepay_preflight';$owners=['people'=>999,'placements'=>999,'companies'=>999,'ap'=>999];
         if(purepayCoreApiBase()!=='https://pure-pay-support.preview.emergentagent.com/api/v1')throw new RuntimeException('PurePay preview destination changed');
         $old=integrationDeliveryGet($pdo,999,5);
         if($old['provider']!=='purepayroll'||$old['operation']!=='assignments.inputs'||$old['state']!=='delivered'||(int)$old['entity_id']!==13)throw new RuntimeException('Original commercial delivery changed');

@@ -26,7 +26,7 @@ function quantaMetadataReference(PDO $pdo,string $instance,int $owner,string $ki
 function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $kind,int $id): array
 {
     if ($id<=0 || !in_array($kind,['person','placement'],true)) throw new InvalidArgumentException('Choose a person or placement');
-    foreach (['people','placements','ap'] as $module) if (!is_int($owners[$module]??null) || $owners[$module]<=0) throw new InvalidArgumentException('Authorized directory owners required');
+    foreach (['people','placements','companies','ap'] as $module) if (!is_int($owners[$module]??null) || $owners[$module]<=0) throw new InvalidArgumentException('Authorized directory owners required');
     $owner=$owners[$kind==='person'?'people':'placements'];
     $ref=quantaMetadataReference($pdo,$instance,$owner,$kind,$id);
     $placement=null;
@@ -48,7 +48,7 @@ function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $ki
     if ($placement) {
         $references=[];
         foreach (['client'=>['client_id','client',$owners['placements']], 'vendor'=>['ap_vendor_id','vendor',$owners['ap']],
-                  'end_client'=>['end_client_company_id','company',$owners['people']]] as $field=>[$column,$type,$directory]) {
+                  'end_client'=>['end_client_company_id','company',$owners['companies']]] as $field=>[$column,$type,$directory]) {
             $references[$field]=empty($placement[$column])?null:quantaMetadataReference($pdo,$instance,$directory,$type,(int)$placement[$column]);
         }
         $result['assignment']=['placement'=>$ref,'person'=>$personRef,'title'=>$placement['title'],
@@ -68,7 +68,7 @@ function quantaMetadataSnapshot(int $tenantId,string $kind,int $id,?string $work
     $key=$verified['api_key']; $workspace=$verified['context']['workspace']['id'];
     quantaMetadataReceiptRequire($key,$workspace);
     $owners=[];
-    foreach (['people','placements','ap'] as $module) $owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
+    foreach (['people','placements','companies','ap'] as $module) $owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
     $source=quantaMetadataSource(getDB(),$verified['instance_id'],$owners,$kind,$id);
     if ($kind==='placement') quantaAssignmentLocationRequire($key,$workspace);
     $matches=array_values(array_filter(quantaWorkerLinks($tenantId),static fn($link)=>(int)$link['person_id']===(int)$source['person_record']['id']));
@@ -185,7 +185,7 @@ function quantaMetadataEnvelope(int $tenantId,int $id,string $reviewHash): array
     if ($row['provider']!=='quanta' || !in_array($row['operation'],['person.link','assignment.create','assignment.update'],true)
         || !hash_equals($row['review_hash'],$reviewHash)) throw new InvalidArgumentException('Choose the original metadata delivery');
     $kind=$row['operation']==='person.link'?'person':'placement';
-    $owners=[];foreach(['people','placements','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
+    $owners=[];foreach(['people','placements','companies','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
     if ($row['entity_type']!==$kind || (int)$row['entity_tenant_id']!==$owners[$kind==='person'?'people':'placements']) {
         throw new RuntimeException('Restore the original directory before checking this receipt');
     }
@@ -193,7 +193,7 @@ function quantaMetadataEnvelope(int $tenantId,int $id,string $reviewHash): array
     $instance=integrationInstanceId();
     $references=$kind==='person'?['person'=>['person','people']]:[
         'person'=>['person','people'],'placement'=>['placement','placements'],
-        'client'=>['client','placements'],'vendor'=>['vendor','ap'],'end_client'=>['company','people']];
+        'client'=>['client','placements'],'vendor'=>['vendor','ap'],'end_client'=>['company','companies']];
     foreach($references as $field=>[$type,$module]) {
         if (!array_key_exists($field,$payload['expected']??[])) throw new RuntimeException('Incomplete original metadata identity');
         $reference=$payload['expected'][$field];
