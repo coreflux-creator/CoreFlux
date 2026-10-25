@@ -1,3 +1,11 @@
+## 2026-10-25 Incoming payment-result recovery and isolated financial routing
+
+- Core runtime `4891a9a71fa07b1875beb36caec052c26a105c3a` passed all nine CI jobs ([40164545508](https://github.com/coreflux-creator/CoreFlux/actions/runs/40164545508)) and staging deployment/acceptance ([40164717305](https://github.com/coreflux-creator/CoreFlux/actions/runs/40164717305)). The financial preview route is limited to the reviewed host in staging and blocks outbound financial writes. It is implemented but not configured.
+- PurePay source `4d2335ab94a22ca6d53e5321b6fbbe81e0faf10f` is installed in the held preview. Incoming Moov receipts now retain completion/phase evidence, resume guarded status updates on redelivery, serialize transfer events and hold uncertain financial effects for reconciliation. Legacy receipt-only events do not prove completion.
+- The installed application passed 48 isolated checks without overlays, live database or network use. Its running review mode, 6,322 source files, unchanged configuration and demo records were independently checked. Waking the sleeping workspace restarted its scheduler and left the backend stopped; the review backend was restored and scheduler stopped before installation. No production publication or financial execution occurred.
+- [Post-deployment inspection](https://github.com/coreflux-creator/CoreFlux/actions/runs/40164994733) confirms Quanta HTTP 200 and saved Meridian staffing binding revision 3. There are no financial connections anywhere in the isolated Core installation, and no tenant-999 callback secret, payment links or callback events. Eight hours still await independent Core review; worker document intake remains disabled.
+- Receipt: `deploy/purepay-moov-inbox-preview-20261025.json`. Next: configure the isolated financial observation/callback connection and prove hosted signed delivery/replay. Actual Thunderhawk and production cutover requirements remain open; Arabella remains separate.
+
 ## 2026-10-25 Saved payment recovery follow-up
 
 - PurePay source `20b21f9bf0939a9479adfb5329d3edc8fe591e46` is installed in the held preview. A bounded cyclic scan now recovers valid saved terminal results when the separate event-log write was lost. It also revisits older changed rows and later subscriptions; stable event identity prevents duplicate delivery.
