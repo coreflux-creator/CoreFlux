@@ -1,0 +1,46 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "isolated_core_staging_release_verified",
+  "installed_commit": "bef076f38c0ec14164de59b0adea1229645f6ec8",
+  "deployment": {
+    "run_id": 40186439935,
+    "job_id": 121148109637,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40186439935",
+    "conclusion": "success",
+    "target_application": "muzqvdvqbx",
+    "simulation_tenant": 999,
+    "backup_created": true,
+    "runtime_and_schema_verified": true,
+    "verified_at_utc": "2026-10-25T10:53:34Z"
+  },
+  "migrations_applied": [
+    "178_purepay_allocated_payments.sql",
+    "179_purepay_allocation_operations.sql",
+    "180_ap_bank_dispatches.sql"
+  ],
+  "acceptance": {
+    "accounting_staging_lifecycle": "passed",
+    "accounting_split_receipt_staging": "passed",
+    "accounting_credit_applications_mariadb": "passed: 61 checks, rollback true",
+    "billing_delivery_staging_http": "passed: log-only delivery",
+    "staffing_onboarding_staging_http": "passed"
+  },
+  "boundaries": {
+    "payroll_authority_enabled": false,
+    "synthetic_accounting_exercised": true,
+    "real_payment_executed": false,
+    "real_payroll_executed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "purepay_bill_reservation_candidate_installed": false,
+    "combined_hosted_acceptance_complete": false
+  },
+  "remaining": [
+    "Install and verify the combined PurePay candidate in the held review preview",
+    "Configure the separate demo financial credential and signed callbacks",
+    "Complete real-Mongo contention and combined hosted acceptance",
+    "Complete independent time approval and worker/document exchange",
+    "Verify Thunderhawk's replacement key consumer before retiring the old key",
+    "Complete the Thunderhawk staffing-to-financial-result round trip and release readiness"
+  ]
+}

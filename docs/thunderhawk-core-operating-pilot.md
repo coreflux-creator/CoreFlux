@@ -1,3 +1,9 @@
+## 2026-10-25 - Core candidate installed in isolated staging
+
+Release `bef076f38c0ec14164de59b0adea1229645f6ec8` is now installed and verified in Core's isolated `muzqvdvqbx` staging application. Deployment `40186439935` created the private backup, applied migrations 178, 179 and 180, verified the runtime, and passed the accounting lifecycle, split receipt, credit application, log-only billing delivery and staffing onboarding acceptance suites. Payroll authority remains disabled. These tests exercised synthetic records; no real payment, payroll, production or Arabella change occurred. See `deploy/core-staging-release-20261025.json`.
+
+This supersedes the earlier Core-candidate-not-installed status below. PurePay's later bill-reservation candidate remains uninstalled in its held review preview, so combined hosted acceptance is still outstanding. The separate demo financial credential/callback setup, independent reviewer, worker/document acceptance, financial recovery, full Thunderhawk round trip and production publication remain open. The replacement Thunderhawk key ending be2c is copied for the user's Core entry; Core is currently signed out, and old q9eE remains active until consumer verification.
+
 ## 2026-10-25 - Quanta preview resumed and reverified
 
 The same Quanta environment resumed through its existing Emergent project. All 15 reviewed source files match the saved hashes. The platform restarted its webhook scheduler; that scheduler is now stopped again, and backend configuration retains `DISABLE_BACKGROUND_WORKERS=1`. Read-only Core inspection `40185656354` confirms HTTP 200 for the original workspace binding and onboarding endpoints; document context still matches and transfer remains disabled. No source files, production publication or business-record mutations were requested. This resolves the temporary 404 reported below. See `deploy/synthetic-integration-readiness-20261025.json` for the dated before/after evidence.
