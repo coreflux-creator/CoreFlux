@@ -16,6 +16,7 @@ try {
            FROM purepay_payment_links l
            LEFT JOIN ap_payments p ON p.tenant_id=l.tenant_id AND p.id=l.core_payment_id
           WHERE (l.status NOT IN ('settled','paid','completed','cleared','returned','cancelled','canceled','failed','settled_failed_review')
+                 OR l.last_error_json IS NOT NULL
                  OR (p.status='sent' AND l.status IN ('returned','cancelled','canceled','failed')))
             AND (l.purepay_bill_id IS NOT NULL OR l.purepay_payment_id IS NOT NULL)
        ORDER BY l.updated_at ASC LIMIT 500"
