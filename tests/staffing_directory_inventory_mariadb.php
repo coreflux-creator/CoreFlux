@@ -7,6 +7,7 @@ require_once __DIR__.'/../deploy/staffing_directory_inventory.php';
 require_once __DIR__.'/../deploy/staffing_pilot_alignment.php';
 require_once __DIR__.'/../deploy/staffing_pilot_commercial_alignment.php';
 require_once __DIR__.'/../deploy/staffing_pilot_entity_inheritance.php';
+require_once __DIR__.'/staffing_pilot_entity_apply_cases.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_directory_inventory_'.($ci?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db); $pdo->exec('USE '.$db);
@@ -194,6 +195,7 @@ try {
     $check(!str_contains(json_encode($commercial),'companyAlpha')&&!str_contains(json_encode($commercial),'98.0000'),
         'commercial database report excludes company identifiers and rate values');
     $pdo->rollBack();
+    testPilotEntityApply($pdo,$pilot,$check);
     $pdo->exec("UPDATE placements SET coreflux_overridden_fields='[\"accounting_entity_id\"]' WHERE id=1");
     $check(!fullCorePilotEntityInheritance($pdo,$pilot,11)['can_follow_existing_sync_rule'],
         'an explicit empty entity override is preserved');

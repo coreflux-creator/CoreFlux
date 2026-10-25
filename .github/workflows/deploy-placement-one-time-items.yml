@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_payroll_capture, pilot_onboarding, pilot_time_review, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, cleanup_known_uploads]
+        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_payroll_capture, pilot_onboarding, pilot_time_review, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -923,13 +923,13 @@ jobs:
             df -h /tmp
 
   core-integration-staging:
-    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_preflight' || inputs.integration_staging == 'production_jobdiva_pilot' || inputs.integration_staging == 'production_prepare_settings'
+    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_preflight' || inputs.integration_staging == 'production_jobdiva_pilot' || inputs.integration_staging == 'production_prepare_settings' || inputs.integration_staging == 'production_pilot_entity_alignment'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Require passing CI for the selected deployment revision
-        if: inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_prepare_settings'
+        if: inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_prepare_settings' || inputs.integration_staging == 'production_pilot_entity_alignment'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -986,6 +986,17 @@ jobs:
               php package/deploy/verify_full_core_web_settings.php --verify-private-web-settings
               # Private settings stay outside the webroot. The token-protected
               # read-only web probe is removed. No runtime bridge or activation.
+              exit 0
+            fi
+            if [ '${{ inputs.integration_staging }}' = 'production_pilot_entity_alignment' ]; then
+              unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
+              export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+              export COREFLUX_PILOT_ALIGNMENT_RUN='${{ github.run_id }}'
+              php package/deploy/apply_thunderhawk_pilot_entity.php --apply-reviewed-existing-default
+              # Independent read-only inspection after the exact one-field transaction.
+              (umask 077; php package/deploy/inspect_full_core_production.php --inspect-production > "$UPLOAD/production-after-alignment.json")
+              cat "$UPLOAD/production-after-alignment.json"
+              # No runtime installation, migration, approval, or financial execution.
               exit 0
             fi
             if [ '${{ inputs.integration_staging }}' = 'production_preflight' ] || [ '${{ inputs.integration_staging }}' = 'production_jobdiva_pilot' ]; then
