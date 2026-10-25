@@ -29,11 +29,10 @@ function purepayPaymentStatus(string $status): string
     };
 }
 
-/** Only a single-bill payment with explicit gross/allocated money can discharge this reservation. */
-function purepayPaymentEvidence(array $data, int $expectedCents, string $billId, string $paymentId = ''): array
+function purepayPaymentIdentity(array $data, string $billId, string $paymentId = ''): array
 {
     $bad = static fn(string $reason): array => ['ok'=>false, 'reason'=>$reason];
-    if ($expectedCents <= 0 || $expectedCents > 9999999999999 || $billId === '') return $bad('reservation_invalid');
+    if ($billId === '') return $bad('reservation_invalid');
     $ids = [];
     foreach (['payment'=>['id','payment_id'], 'bill'=>['bill_id','payable_id']] as $kind=>$fields) {
         foreach ($fields as $field) {
@@ -48,6 +47,16 @@ function purepayPaymentEvidence(array $data, int $expectedCents, string $billId,
         if (!isset($ids[$kind])) return $bad('provider_identity_missing');
     }
     if ($ids['bill'] !== $billId || ($paymentId !== '' && $ids['payment'] !== $paymentId)) return $bad('provider_identity_conflict');
+    return ['ok'=>true, 'payment_id'=>$ids['payment'], 'bill_id'=>$ids['bill']];
+}
+
+/** Only a single-bill payment with explicit gross money can discharge this reservation. */
+function purepayPaymentEvidence(array $data, int $expectedCents, string $billId, string $paymentId = ''): array
+{
+    $bad = static fn(string $reason): array => ['ok'=>false, 'reason'=>$reason];
+    if ($expectedCents <= 0 || $expectedCents > 9999999999999) return $bad('reservation_invalid');
+    $identity = purepayPaymentIdentity($data, $billId, $paymentId);
+    if (!$identity['ok']) return $identity;
     if (!array_key_exists('amount', $data) || $data['amount'] === null) return $bad('payment_amount_missing');
     $amount = purepayMoneyCents($data['amount']);
     if ($amount === null || $amount <= 0) return $bad('payment_amount_invalid');
@@ -78,14 +87,14 @@ function purepayPaymentEvidence(array $data, int $expectedCents, string $billId,
     if ($status === null) return $bad('payment_status_missing');
     if (!empty($data['qbo_billpayment_id']) || !empty($data['mercury_request_id'])) return $bad('payment_delivery_unconfirmed');
     if (purepayPaymentStatus($status) === 'settled' && ($data['ok'] ?? null) === false) return $bad('payment_status_conflict');
-    return ['ok'=>true, 'payment_id'=>$ids['payment'], 'bill_id'=>$ids['bill'], 'status'=>$status,
+    return ['ok'=>true, 'payment_id'=>$identity['payment_id'], 'bill_id'=>$identity['bill_id'], 'status'=>$status,
         'amount_cents'=>$amount, 'currency'=>'USD'];
 }
 
 /** Persist only validated evidence; source is assigned by Core after the authenticated read/callback. */
 function purepayPaymentReceipt(array $evidence, string $source): string
 {
-    if (($evidence['ok'] ?? false) !== true || !in_array($source, ['detail','bill_history','signed_webhook'], true)) {
+    if (($evidence['ok'] ?? false) !== true || !in_array($source, ['detail','signed_webhook'], true)) {
         throw new InvalidArgumentException('A verified PurePay result and evidence source are required');
     }
     return json_encode(['payment_evidence'=>['version'=>'2026-10-25.1', 'source'=>$source, 'payment'=>[
@@ -103,7 +112,7 @@ function purepayStoredPaymentEvidence(array $link): bool
     $receipt = json_decode((string)($link['response_json'] ?? ''), true);
     $receipt = is_array($receipt) ? ($receipt['payment_evidence'] ?? null) : null;
     if (!is_array($receipt) || ($receipt['version'] ?? '') !== '2026-10-25.1'
-        || !in_array($receipt['source'] ?? null, ['detail','bill_history','signed_webhook'], true)
+        || !in_array($receipt['source'] ?? null, ['detail','signed_webhook'], true)
         || !is_array($receipt['payment'] ?? null) || empty($link['purepay_payment_id'])) return false;
     $evidence = purepayPaymentEvidence($receipt['payment'], (int)($link['amount_cents'] ?? 0),
         (string)($link['purepay_bill_id'] ?? ''), (string)$link['purepay_payment_id']);

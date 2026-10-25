@@ -93,6 +93,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     if($method==='POST' && preg_match('~/bills/([^/]+)/pay$~',$path,$m)){
         $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing','amount'=>'125.00','currency'=>'USD'];
         if($mode==='payment_timeout'){ $e=new PurePayApiException('Synthetic lost payment response');$e->outcomeUncertain=true;throw $e; }
+        if($mode==='post_id_missing')return ['status'=>200,'body'=>'{"ok":true,"pay_status":"settled"}'];
         return ['status'=>200,'body'=>json_encode(['payment'=>$payments[$id]])];
     }
     if($method==='GET' && str_starts_with($path,'/api/v1/payments/')){
@@ -337,12 +338,28 @@ $mode='ok';$driver->getStatusForTenant(1,$moneyRef);
 $pdo->exec('UPDATE purepay_payment_links SET response_json=NULL WHERE source_ref="ap_payment:180"');
 $held(fn()=>apClearPayment(1,180,'2026-10-21',null,null),'legacy status-only settlement requires current money evidence');
 $driver->getStatusForTenant(1,$moneyRef);
-// Bill-only lookup must validate the same money as payment detail.
-$mode='scoped_payments';$payments[$moneyId]['amount']='40.00';
-$pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL WHERE source_ref="ap_payment:180"');
-$check($driver->getStatusForTenant(1,$moneyRef)==='unknown' && $link('ap_payment:180')['purepay_payment_id']===null,
-    'bill history cannot attach a partial payment as full settlement');
+// Compact history omits adjustment/partial metadata: full detail must still be read.
+$mode='scoped_payments';
+foreach([['amount'=>'40.00'],['allocated'=>40],['partial'=>true],['allocations'=>[['amount'=>40]]]]as$change){
+    $payments[$moneyId]=array_replace($validPayment,$change);$before=count($calls);
+    $pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL WHERE source_ref="ap_payment:180"');
+    $check($driver->getStatusForTenant(1,$moneyRef)==='unknown' && $link('ap_payment:180')['purepay_payment_id']===null
+        && in_array('/api/v1/payments/'.$moneyId,array_column(array_slice($calls,$before),1),true),
+        'bill history cannot hide partial payment or adjustment metadata from the full detail check');
+}
 $payments[$moneyId]=$validPayment;$driver->getStatusForTenant(1,$moneyRef);$mode='ok';
+$seedAp(182);$previousPayments=$payments;$mode='scoped_payments';
+$preexisting=['pay_status'=>'settled','amount'=>'125.00','currency'=>'USD','allocated'=>40];$before=$payCount();
+$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:182']))) && $payCount()===$before,
+    'compact preexisting history cannot hide an adjustment or authorize another payout');
+$preexisting=null;$payments=$previousPayments;$mode='post_id_missing';
+$seedAp(183);$detailOverride=['allocated'=>40];$before=$payCount();
+$check($fails(fn()=>$send(array_replace($item,['external_ref'=>'ap_payment:183']))) && $payCount()===$before+1
+    && $link('ap_payment:183')['status']==='needs_review','POST without payment ID must still prove full detail after history lookup');
+$detailOverride=[];$seedAp(184);
+$check($send(array_replace($item,['external_ref'=>'ap_payment:184']))['items'][0]['status']==='submitted',
+    'missing POST identity recovers actual processing state from full detail rather than its settled acknowledgement');
+$mode='ok';
 // Signed terminal callbacks with mismatched money must not release live AP reservations.
 $seedAp(181);$send(array_replace($item,['external_ref'=>'ap_payment:181']));$moneyHook=$link('ap_payment:181');
 $hookData=['bill_id'=>$moneyHook['purepay_bill_id'],'payment_id'=>$moneyHook['purepay_payment_id'],

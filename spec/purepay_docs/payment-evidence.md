@@ -2,7 +2,7 @@
 
 Core's vendor-payment rail reserves one USD obligation for each durable attempt. A provider bill ID and terminal status alone cannot settle or release that reservation. A $40 payment against its bill must not settle a $125 Core payment.
 
-The Core consumer requires the following evidence from an authenticated payment-detail read, complete bill-specific payment history, or verified signed callback:
+The Core consumer requires the following evidence from an authenticated payment-detail read or verified signed callback. Complete bill-specific history only locates a payment; Core then reads its full detail so the compact history projection cannot conceal allocation semantics:
 
 | Field | Meaning and validation |
 | --- | --- |

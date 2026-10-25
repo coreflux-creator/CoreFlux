@@ -171,14 +171,18 @@ class PurePayRailDriver implements PaymentRailsDriver
         $paymentsBefore = purepayCompleteBillPayments($apiKey, $billId);
         $alreadyPaid = $this->findPayment($paymentsBefore, '', $billId);
         if ($alreadyPaid) {
-            $evidence = purepayPaymentEvidence($alreadyPaid, (int)$link['amount_cents'], $billId, $paymentId);
+            $identity = purepayPaymentIdentity($alreadyPaid, $billId, $paymentId);
+            if (!$identity['ok']) throw new PaymentRailsOriginateException('Pure//Pay existing payment needs reconciliation: '.$identity['reason']);
+            $paymentId = $identity['payment_id'];
+            $remote = $this->readPaymentDetail($apiKey, $billId, $paymentId);
+            $evidence = purepayPaymentEvidence($remote ?? [], (int)$link['amount_cents'], $billId, $paymentId);
             if (!$evidence['ok']) throw new PaymentRailsOriginateException('Pure//Pay existing payment needs reconciliation: '.$evidence['reason']);
             $paymentId = $evidence['payment_id'];
             $status = $evidence['status'];
             $status = $this->updateLink($tenantId, $sourceRef, [
                 'purepay_payment_id' => $paymentId !== '' ? $paymentId : null,
                 'status' => $status,
-                'response_json' => purepayPaymentReceipt($evidence, 'bill_history'),
+                'response_json' => purepayPaymentReceipt($evidence, 'detail'),
                 'last_synced_at' => date('Y-m-d H:i:s'),
                 'last_error' => null,
                 'last_error_json' => null,
@@ -195,15 +199,13 @@ class PurePayRailDriver implements PaymentRailsDriver
         $paymentId = (string) ($paymentResource['payment_id'] ?? $paymentResource['id'] ?? '');
         $receipt = json_encode($paid, JSON_UNESCAPED_SLASHES);
 
-        // Verify the payment through the provider's detail endpoint; fall back
-        // to the list when the POST response omits its payment id.
-        $remotePayment = $paymentId !== ''
-            ? purepayResource(purepayGetPayment($apiKey, $paymentId), ['payment'])
-            : $this->findPayment(purepayCompleteBillPayments($apiKey, $billId), '', $billId);
+        // History locates an omitted payment ID; only the full detail can prove
+        // money and allocation semantics omitted from that compact projection.
+        $remotePayment = $this->readPaymentDetail($apiKey, $billId, $paymentId);
         if ($remotePayment) {
             $evidence = purepayPaymentEvidence($remotePayment, (int)$link['amount_cents'], $billId, $paymentId);
             if (!$evidence['ok']) throw new PaymentRailsOriginateException('Pure//Pay payment detail needs reconciliation: '.$evidence['reason']);
-            $receipt = purepayPaymentReceipt($evidence, $paymentId !== '' ? 'detail' : 'bill_history');
+            $receipt = purepayPaymentReceipt($evidence, 'detail');
             $paymentId = $evidence['payment_id'];
             $status = $evidence['status'];
         } else {
@@ -448,6 +450,21 @@ class PurePayRailDriver implements PaymentRailsDriver
         return $link && purepayStoredPaymentEvidence($link) ? $this->normalizeStatus((string)$link['status']) : 'unknown';
     }
 
+    private function readPaymentDetail(string $apiKey, string $billId, string $paymentId): ?array
+    {
+        if ($paymentId === '') {
+            $candidate = $this->findPayment(purepayCompleteBillPayments($apiKey, $billId), '', $billId);
+            if ($candidate === null) return null;
+            $identity = purepayPaymentIdentity($candidate, $billId);
+            if (!$identity['ok']) throw new PaymentRailsOriginateException('PurePay history has conflicting payment identity');
+            $paymentId = $identity['payment_id'];
+        }
+        $detail = purepayResource(purepayGetPayment($apiKey, $paymentId), ['payment']);
+        $identity = purepayPaymentIdentity($detail, $billId, $paymentId);
+        if (!$identity['ok']) throw new PaymentRailsOriginateException('PurePay detail does not confirm the original payment and bill');
+        return $detail;
+    }
+
     public function getStatusForTenant(int $tenantId,string $railExternalRef): string
     {
         require_once __DIR__ . '/../purepay_service.php';
@@ -465,12 +482,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             if (!$conn || ($conn['status'] ?? '') !== 'active') return 'unknown';
             if (!hash_equals((string)($link['connection_fingerprint']??''),purepayConnectionFingerprint($tenantId,(string)$conn['api_key']))) return 'unknown';
             $paymentId = (string) ($link['purepay_payment_id'] ?? '');
-            $remote = $paymentId !== ''
-                ? purepayResource(purepayGetPayment((string) $conn['api_key'], $paymentId), ['payment'])
-                : $this->findPayment(
-                    purepayCompleteBillPayments((string) $conn['api_key'], (string) ($link['purepay_bill_id'] ?? '')),
-                    '', (string) ($link['purepay_bill_id'] ?? '')
-                );
+            $remote = $this->readPaymentDetail((string)$conn['api_key'], (string)($link['purepay_bill_id'] ?? ''), $paymentId);
             if (!$remote) {
                 purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], 'payment_evidence_missing');
                 return 'unknown';

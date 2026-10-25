@@ -44,4 +44,6 @@ foreach ([['amount_cents'=>'4000'],['purepay_bill_id'=>'other'],['purepay_paymen
 }
 $check(!purepayStoredPaymentEvidence(array_replace($link,['response_json'=>str_replace('"detail"','"post_acknowledgement"',$link['response_json'])])),
     'POST acknowledgement is never a verified receipt source');
+$check(!purepayStoredPaymentEvidence(array_replace($link,['response_json'=>str_replace('"detail"','"bill_history"',$link['response_json'])])),
+    'compact bill history alone is never settlement evidence');
 echo "PurePay payment evidence: {$passed} passed\n";
