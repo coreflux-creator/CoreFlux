@@ -288,10 +288,63 @@
   "credential_changes": false,
   "arabella_changed": false,
   "remaining": [
-    "Fresh Core-to-provider capability and company-review inspection",
     "PurePay company review refresh for new assignment contract",
     "Hosted location delivery and replay acceptance",
     "Independent time approval, document exchange and financial callback/recovery acceptance",
     "Actual Thunderhawk end-to-end round trip and production release"
-  ]
+  ],
+  "hosted_capability_inspection": {
+    "checked_at": "2026-10-25T15:17:08+00:00",
+    "mode": "read_only_synthetic_integration",
+    "tenant_id": 999,
+    "database_identity_verified": true,
+    "private_identity_verified": true,
+    "local_writes": false,
+    "provider_record_writes": false,
+    "configuration_changed": false,
+    "saved_purepay_binding": {
+      "id": 1,
+      "status": "active",
+      "revision": 3,
+      "remote_organization_id": "org_purepay_demo"
+    },
+    "purepay_assignment_context": {
+      "available": true,
+      "organization_matches": true,
+      "binding_verified": false,
+      "assignment_contract_version": "2026-10-25.1",
+      "assignment_location_supported": true,
+      "provider_record_writes": false
+    },
+    "quanta_binding": {
+      "available": true,
+      "http_status": 200
+    },
+    "quanta_assignment_location": {
+      "available": true,
+      "http_status": 200
+    },
+    "time_review_gate": {
+      "eligible_in_both_permission_models": 1,
+      "entries": [
+        {
+          "entry_id": 1,
+          "status": "pending_review",
+          "independent_eligible_reviewers": 0,
+          "existing_operator_is_creator": true
+        }
+      ]
+    },
+    "onboarding_delivery_enabled": false,
+    "document_intake_enabled": false,
+    "private_document_storage_ready": true,
+    "run_id": 40206145442,
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40206145442",
+    "inspector_commit": "4b07def27211b68bc6c7ad787515aa8c0981e712",
+    "inspector_ci_run": 40206144666,
+    "inspector_ci_jobs_passed": 9,
+    "financial_connection_present": false,
+    "field_dictionary_count": 1346
+  }
 }
