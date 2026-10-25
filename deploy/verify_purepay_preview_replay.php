@@ -66,9 +66,39 @@ try {
         || $pdo->query('SELECT * FROM purepay_connections ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC)!==$ap) {
         throw new RuntimeException('Stored integration or AP state changed');
     }
+    // Optional additive contract: inspect one existing native demo run only.
+    // A complete empty page proves endpoint availability, not a payroll round trip.
+    $phase='native_payroll_observation';
+    $nativeObservation=['available'=>false,'reason'=>'contract_not_advertised','capture_saved'=>false];
+    $review=purepayCoreReview($pdo,999,CONTINUITY_INSTANCE);
+    if(($review['payroll_observation_contract_version']??null)==='2026-10-25.1') {
+        if(effectiveTenantIdForModule('time',999)!==999)throw new RuntimeException('Directory ownership changed');
+        require_once REPLAY_ROOT.'/core/integrations/purepay_observations.php';
+        $pdo->exec('SET SESSION TRANSACTION READ ONLY');
+        $captureCount=(int)$pdo->query('SELECT COUNT(*) FROM payroll_native_observations WHERE tenant_id=999')->fetchColumn();
+        $page=purepayObservationPage($pdo,999,CONTINUITY_INSTANCE,1);
+        $nativeObservation=['available'=>true,'contract_version'=>$page['contract_version'],
+            'page_size'=>count($page['items']),'more_runs'=>$page['next_cursor']!==null,'capture_saved'=>false,
+            'detail_verified'=>false,'empty_collection'=>!$page['items'] && $page['next_cursor']===null];
+        if($page['items']) {
+            $runId=$page['items'][0]['run_id'];$owners=['people'=>999,'placements'=>999,'time'=>999];
+            $left=purepayObservationRead($pdo,999,CONTINUITY_INSTANCE,$owners,$runId);
+            $right=purepayObservationRead($pdo,999,CONTINUITY_INSTANCE,$owners,$runId);
+            if($left['review_hash']!==$right['review_hash'])throw new RuntimeException('Native observation changed during acceptance');
+            $nativeObservation+=['observation_hash'=>$left['observation']['observation_hash'],
+                'line_count'=>count($left['observation']['lines']),
+                'linked_people'=>count(array_filter($left['comparison']['people'],static fn($person)=>$person['link_status']==='linked')),
+                'repeated_review_identical'=>true,'core_time_match_evaluated'=>false,'settlement_evaluated'=>false];
+            $nativeObservation['detail_verified']=true;
+        }
+        if((int)$pdo->query('SELECT COUNT(*) FROM payroll_native_observations WHERE tenant_id=999')->fetchColumn()!==$captureCount
+            || purepayCoreConnection($pdo,999)!==$connection || purepayPreviewOriginRows($pdo)!==$before)
+            throw new RuntimeException('Native observation altered local state');
+    }
     echo 'PUREPAY_NATIVE_REPLAY='.json_encode(['verified'=>true,'tenant_id'=>999,'organization_id'=>CONTINUITY_ORG,
         'deliveries'=>$results,'native_lookups'=>10,'original_deliveries_unchanged'=>true,'connection_unchanged'=>true,
-        'ap_connection_unchanged'=>true,'provider_record_writes'=>false,'payroll_or_payments_executed'=>false],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n";
+        'ap_connection_unchanged'=>true,'provider_record_writes'=>false,'payroll_or_payments_executed'=>false,
+        'native_payroll_observation'=>$nativeObservation],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n";
 } catch (Throwable $e) {
     $reason=match($e->getMessage()) {
         'Simulation identity changed'=>'simulation_identity_changed',

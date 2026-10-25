@@ -1,3 +1,30 @@
+## Native PurePayroll observations installed in Core pilot - October 24, 2026
+
+Core revision 87d8b9026524a408d75fd930b171e224addcc674 passed CI 40147942595
+and isolated staging deployment 40148113039. Migration 174 adds encrypted,
+immutable captures of payroll operated independently in PurePayroll. The new
+review screen lists existing provider runs, preserves missing figures as unknown,
+compares stored run totals with complete payroll lines, and shows Core person
+numbers only through completed identity receipts. It does not create payroll
+input or authority, match Core time/rates, prove settlement, or post a journal.
+
+The increment passed 40 database checks, 38 contract checks, 9 company-binding
+checks and 11 screen tests, together with the existing CI and staging acceptance
+suites. Source-field definitions are included in the shared field dictionary.
+The read-only observation hint preserves existing company and scope bindings.
+
+PurePay candidate cc64360b passed 113 isolated provider checks. Its preview was
+unavailable and is being recovered in the existing environment. Hosted provider
+installation and an actual stored demo run remain unverified; this is not yet
+end-to-end acceptance. The existing demo replay inspector now optionally checks
+the new endpoint, reads at most one existing run twice, and saves no capture.
+An empty collection will be reported explicitly, not treated as a payroll test.
+
+Evidence: deploy/native-payroll-observations-staging-20261024.json. Production
+is unchanged. Thunderhawk's replacement key ending be2c was copied privately;
+Core still shows q9eE in read-only mode, pending the user's entry and submission.
+The old key remains active until its replacement is verified.
+
 ## Core time-review return verified in the hosted demo - October 24, 2026
 
 The installed Core release 0477c6308f673ed358d2a4034d6f6fd23f54f433 and

@@ -1,0 +1,44 @@
+{
+  "status": "core_pilot_installed_provider_acceptance_pending",
+  "core_revision": "87d8b9026524a408d75fd930b171e224addcc674",
+  "ci_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40147942595",
+  "deployment_run": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40148113039",
+  "installed_migration": "174_payroll_native_observations.sql",
+  "checks": {
+    "core_database": 40,
+    "provider_contract": 38,
+    "company_binding": 9,
+    "review_screen": 11,
+    "all_ci_jobs_passed": true,
+    "existing_staging_acceptance_passed": true
+  },
+  "scope": {
+    "provider_reads": "existing native/provider payroll runs",
+    "core_writes": "explicitly reviewed encrypted capture and audit only",
+    "person_mapping": "completed same-context Core identity receipts only",
+    "comparison": "stored provider totals versus complete line amounts",
+    "source_time_and_rate_match": "not_evaluated",
+    "payment_and_tax_remittance": "not_evaluated",
+    "missing_amounts": "null with missing or invalid reason",
+    "page_limit": 100,
+    "line_limit": 5000,
+    "source_reference_limit": 10000,
+    "capture_size_limit_bytes": 8388608
+  },
+  "provider_candidate": {
+    "revision": "cc64360b20e446d4e1674b51a25a3fec3f7e2416",
+    "isolated_checks_reported_passed": 113,
+    "hosted_installation_verified": false,
+    "existing_demo_native_run_verified": false
+  },
+  "production_cutover": false,
+  "real_payroll_payments_or_ledger_postings_executed": false,
+  "thunderhawk_key_rotation": {
+    "replacement_last4": "be2c",
+    "replacement_copied_privately": true,
+    "last_verified_core_key_last4": "q9eE",
+    "core_mode": "read_only",
+    "old_key_retired": false,
+    "awaiting_user_entry_and_submission": true
+  }
+}
