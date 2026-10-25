@@ -1,3 +1,13 @@
+## Actual Thunderhawk party alignment - October 25, 2026
+
+[Read-only inspection 40220845582](https://github.com/coreflux-creator/CoreFlux/actions/runs/40220845582) compared the actual P-358 / PL-864 source and Core identities using candidate `6ecdf6a7176af63cccd117b1225f6090a0901cbd`. [All nine CI jobs passed](https://github.com/coreflux-creator/CoreFlux/actions/runs/40220584649), including 54 new database checks and 44 comparison variations that preserved all fixture rows; the combined directory fixture passed 169 checks. The initial candidate stopped on an incorrect test-case count assertion; the corrected exact candidate passed before inspection.
+
+The existing W2 labor party matches the selected person and payroll/payable route, with no contradictory company or AP-vendor link. No corporate facet exists, and this source classification does not require a subcontract vendor. Fresh JobDiva assignment evidence contains no explicit end-client identity or name, so that role remains unverified; the billing company is not substituted for the work recipient. Company/client canonical numbering schema remains unavailable in production. Existing Core end-client values were not changed and no vendor or number was created.
+
+This was an inspection, not a runtime deployment. Core staging remains `4aa62cba50c77085985c64cb13a7c3b632730253`. No production, provider, credential, source-snapshot or Arabella records changed. The public candidate hash was partially redacted in GitHub logs; its visible characters agree with the independently retrieved workflow head. Evidence: `deploy/thunderhawk-party-alignment-20261025.json`.
+
+End-client and custom-value review, additional economic parties, production release, WC and normal commercial approval, worker/document actions, independent time review, financial callback acceptance and the actual Thunderhawk payroll/reconciliation round trip remain open. The replacement PurePay key still awaits human installation and verification in Core.
+
 ## Staffing company-to-vendor identity correction - October 25, 2026
 
 Core staging is installed at `4aa62cba50c77085985c64cb13a7c3b632730253`. All nine CI jobs passed (`40219118096`), including 20 new database checks against the fully migrated disposable database. Deployment `40219400566` verified runtime/schema and served assets and passed the full-Core accounting, credit, billing-delivery and onboarding acceptance.
