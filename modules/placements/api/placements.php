@@ -267,7 +267,7 @@ if ($method === 'POST') {
             catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
         } elseif ($field === 'end_client_company_id') {
             $value = (int) $value;
-            if ($value <= 0 || !companiesGet($value, companiesDirectoryTenantId())) api_error('Client company not found', 422);
+            if ($value <= 0 || !companiesGet($value, placementsCompanyDirectoryTenantId())) api_error('Client company not found', 422);
         } else {
             $value = trim((string) $value);
             if ($value === '') api_error("{$field} cannot be blank", 422);

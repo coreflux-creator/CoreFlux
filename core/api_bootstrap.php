@@ -479,6 +479,10 @@ set_exception_handler(function (Throwable $e) {
         ]);
     }
 
+    if ($e instanceof PlacementCompanyScopeConflict) {
+        api_error($e->getMessage(), 409, ['kind' => 'placement_company_scope_conflict']);
+    }
+
     // Recognise "table doesn't exist" — happens when a module's migration
     // hasn't been run yet on the target database. Helps the operator spot
     // it instantly instead of a generic 500.

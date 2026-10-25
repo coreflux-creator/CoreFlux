@@ -494,6 +494,9 @@ jobs:
       - name: Verify native company directory ownership and isolated writes
         run: php tests/company_directory_owner_db_check.php --confirm-disposable-fixture
 
+      - name: Verify placement company graph ownership and atomic reconciliation
+        run: php tests/placement_company_graph_owner_db_check.php --confirm-disposable-fixture
+
       - name: Exercise approved-time AP bills with mixed locked rates
         run: php tests/ap_generated_time_bill_db_check.php --confirm-disposable-fixture
 

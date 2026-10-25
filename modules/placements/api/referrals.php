@@ -51,14 +51,14 @@ if ($method === 'POST') {
     if ($body['referrer_type'] === 'vendor') {
         if (!$companyId && trim((string) $vendorName) === '') api_error('Choose or create a vendor referrer', 422);
         if ($companyId) {
-            $co = companiesGet($companyId, companiesDirectoryTenantId());
+            $co = companiesGet($companyId, placementsCompanyDirectoryTenantId());
             if (!$co) api_error('referrer_company_id not found in this tenant', 422);
             $vendorName = $co['name'];
             companiesAddRole($companyId, 'referrer');
             companiesAddRole($companyId, 'vendor');
             companiesBumpUsage($companyId);
         } elseif ($vendorName) {
-            $companyId = companiesUpsertByName(companiesDirectoryTenantId(), (string) $vendorName, [
+            $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), (string) $vendorName, [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['referrer', 'vendor']);
             companiesBumpUsage($companyId);
@@ -118,6 +118,11 @@ if ($method === 'PATCH') {
     if (!$body) api_error('No fields to update', 422);
     $source = scopedFind('SELECT * FROM placement_referrals WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$source) api_error('Not found', 404);
+    if (!empty($body['referrer_company_id'])) {
+        $company = companiesGet((int) $body['referrer_company_id'], placementsCompanyDirectoryTenantId());
+        if (!$company) api_error('Company not found in this placement directory', 422);
+        $body['referrer_vendor_name'] = (string) $company['name'];
+    }
     placementReferralValidateFee(array_replace($source, $body));
     $rows = scopedUpdate('placement_referrals', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);

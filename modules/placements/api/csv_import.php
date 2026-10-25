@@ -256,14 +256,14 @@ function placementsCsvUpsertReferralEngagement(int $placementId, array $row, ?in
     $companyId = (int) ($row['referral_vendor_company_id'] ?? 0);
     $vendorName = trim((string) ($row['referral_vendor_name'] ?? ''));
     if ($companyId > 0) {
-        $company = companiesGet($companyId, companiesDirectoryTenantId());
+        $company = companiesGet($companyId, placementsCompanyDirectoryTenantId());
         if (!$company) throw new \RuntimeException("referral_vendor_company_id not found: {$companyId}");
         $vendorName = (string) $company['name'];
         companiesAddRole($companyId, 'referrer');
         companiesAddRole($companyId, 'vendor');
         companiesBumpUsage($companyId);
     } elseif ($vendorName !== '') {
-        $companyId = companiesUpsertByName(companiesDirectoryTenantId(), $vendorName, [
+        $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), $vendorName, [
             'created_by_user_id' => $userId,
         ], ['referrer', 'vendor']);
         companiesBumpUsage($companyId);
@@ -344,7 +344,7 @@ function placementsCsvUpsertChainRow(
     $roleForCompany = $role === 'end_client'
         ? 'client'
         : ($role === 'direct' ? 'client' : $role);
-    $companyId = companiesUpsertByName(companiesDirectoryTenantId(), $name, [
+    $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), $name, [
         'created_by_user_id' => $userId,
     ], [$roleForCompany]);
     companiesBumpUsage($companyId);

@@ -218,12 +218,12 @@ if ($method === 'POST' && $action === 'party') {
     }
     if ($displayName === '') api_error('display_name required', 422);
     if ($companyId) {
-        $company = companiesGet($companyId, companiesDirectoryTenantId());
+        $company = companiesGet($companyId, placementsCompanyDirectoryTenantId());
         if (!$company) api_error('company_id not found in this tenant', 422);
         $displayName = (string) $company['name'];
         companiesAddRole($companyId, $channel === 'ar' ? 'client' : 'vendor');
     } elseif ($channel === 'ap' && !$personId) {
-        $companyId = companiesUpsertByName(companiesDirectoryTenantId(), $displayName, [
+        $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), $displayName, [
             'created_by_user_id' => $user['id'] ?? null,
         ], ['vendor']);
     }

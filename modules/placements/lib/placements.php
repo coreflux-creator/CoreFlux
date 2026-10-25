@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/record_numbers.php';
 require_once __DIR__ . '/../../../core/audit.php';
+require_once __DIR__ . '/../../people/lib/companies.php';
 
 /**
  * Allowed values for the placements.remote_policy ENUM. The MySQL column is
@@ -32,6 +33,19 @@ function placementsGraphTenantId(?int $tenantId = null): ?int
     } catch (\Throwable $_) {
         return $tenantId;
     }
+}
+
+class PlacementCompanyScopeConflict extends InvalidArgumentException {}
+
+/** A shared placement must not acquire a company private to one viewer. */
+function placementsCompanyDirectoryTenantId(?int $workspaceId = null): int
+{
+    $workspaceId = $workspaceId ?? currentTenantId();
+    $owner = companiesDirectoryTenantId((int) placementsGraphTenantId($workspaceId));
+    if (companiesDirectoryTenantId($workspaceId) !== $owner) {
+        throw new PlacementCompanyScopeConflict('This shared placement cannot use a company private to this workspace. Review the workspace sharing setup before linking a company.');
+    }
+    return $owner;
 }
 
 function placementsNormalizeRemotePolicy($v): ?string
@@ -65,9 +79,12 @@ function placementsResolveCompanyRoles(int $tenantId, array $input, array $exist
         $patch['client_id'] = $id > 0 ? $id : null;
     }
     if (array_key_exists('end_client_company_id', $input) || array_key_exists('end_client_name', $input)) {
-        $owner = companiesDirectoryTenantId($workspaceId ?? $tenantId);
+        $owner = companiesDirectoryTenantId($tenantId);
         $id = (int) ($input['end_client_company_id'] ?? 0);
         $name = trim((string) ($input['end_client_name'] ?? ''));
+        if (($id > 0 || $name !== '') && $workspaceId !== null) {
+            $owner = placementsCompanyDirectoryTenantId($workspaceId);
+        }
         if ($id > 0) {
             $s = $pdo->prepare('SELECT name FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
             $s->execute(['t' => $owner, 'i' => $id]);
@@ -131,11 +148,11 @@ function placementGet(int $id): ?array
                    sj.status            AS staffing_job_status
             FROM placements p
             LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
-            LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+            LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :company_tenant AND ec.deleted_at IS NULL
             LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
             LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
-    $row = scopedFind($sql, ['id' => $id]);
+    $row = scopedFind($sql, ['id' => $id, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())]);
     if (!$row) return null;
     $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'placement', [$row])[0];
     return placementHydratePersonFields($row);
@@ -181,7 +198,7 @@ function placementHydratePersonFields(array $row, ?callable $loader = null): arr
 function placementsList(array $filters = []): array
 {
     $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
-    $params = [];
+    $params = ['company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())];
     if (!empty($filters['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
         $where[] = '(CAST(p.id AS CHAR) LIKE :q_id
@@ -271,7 +288,7 @@ function placementsList(array $filters = []): array
         : "{$sortExpr} {$sortDir}, p.id {$tieDir}";
 
     $joins = ' LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-               LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+               LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :company_tenant AND ec.deleted_at IS NULL
                LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
                LEFT JOIN placement_rates cr ON cr.id = (
                     SELECT cr2.id
@@ -474,12 +491,12 @@ function placementReferrals(int $placementId): array
                 COALESCE(c.name, NULLIF(TRIM(CONCAT(pp.first_name, " ", pp.last_name)), ""), u.name, pr.referrer_vendor_name) AS referrer_name,
                 c.id AS canonical_company_id
            FROM placement_referrals pr
-      LEFT JOIN companies c ON c.tenant_id = pr.tenant_id AND c.id = pr.referrer_company_id
+      LEFT JOIN companies c ON c.tenant_id = :company_tenant AND c.id = pr.referrer_company_id AND c.deleted_at IS NULL
       LEFT JOIN people pp ON pp.tenant_id = pr.tenant_id AND pp.id = pr.referrer_person_id
       LEFT JOIN users u ON u.id = pr.referrer_user_id
           WHERE pr.tenant_id = :tenant_id AND pr.placement_id = :pid
           ORDER BY pr.start_date DESC',
-        ['pid' => $placementId]
+        ['pid' => $placementId, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())]
     );
 }
 

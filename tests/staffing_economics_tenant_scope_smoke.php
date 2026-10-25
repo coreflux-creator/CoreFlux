@@ -57,15 +57,17 @@ foreach ([1 => 1, 2 => 1, 3 => 3] as $activeTenant => $graphTenant) {
         placementsGraphTenantId($activeTenant) === effectiveTenantIdForRequest());
     $before = count($pdo->placementLookups);
     $result = placementEconomicsContext($activeTenant, 810);
+    $expectedLookup = ['t' => $graphTenant, 'p' => 810,
+        'end_company_owner' => $graphTenant, 'bill_company_owner' => $graphTenant];
     $assert("tenant $activeTenant queries only graph tenant $graphTenant",
         count($pdo->placementLookups) === $before + 1
-        && end($pdo->placementLookups) === ['t' => $graphTenant, 'p' => 810]);
+        && end($pdo->placementLookups) === $expectedLookup);
     $assert("tenant $activeTenant preserves not-found and authenticated context",
         !$result['available'] && $result['reconcile']['errors'] === ['placement not found']
         && currentTenantId() === $activeTenant);
     placementEconomicsReconcile($activeTenant, 810);
     $assert("direct reconciliation for tenant $activeTenant uses graph scope",
-        end($pdo->placementLookups) === ['t' => $graphTenant, 'p' => 810]);
+        end($pdo->placementLookups) === $expectedLookup);
 }
 
 foreach (['economics', 'cycles'] as $endpoint) {

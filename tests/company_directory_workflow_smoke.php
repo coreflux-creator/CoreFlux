@@ -41,10 +41,10 @@ $checks = [
 foreach (['chain', 'referrals', 'economics', 'csv_import', 'placements'] as $endpoint) {
     $source = (string) file_get_contents($root . '/modules/placements/api/' . $endpoint . '.php');
     $checks["$endpoint validates selected companies against the Companies directory"] =
-        preg_match('/companiesGet\([^;]+companiesDirectoryTenantId\(\)\)/', $source) === 1;
+        preg_match('/companiesGet\([^;]+placementsCompanyDirectoryTenantId\(\)\)/', $source) === 1;
     if ($endpoint !== 'placements') {
         $checks["$endpoint creates companies in the Companies directory"] =
-            str_contains($source, 'companiesUpsertByName(companiesDirectoryTenantId(),');
+            str_contains($source, 'companiesUpsertByName(placementsCompanyDirectoryTenantId(),');
     }
 }
 

@@ -20,6 +20,9 @@ $row = static function(string $table, int $id) use ($pdo): array {
     $s = $pdo->prepare('SELECT * FROM '.$table.' WHERE id=?'); $s->execute([$id]);
     return $s->fetch(PDO::FETCH_ASSOC);
 };
+$rejectsPrivateLink = static function(callable $fn): bool {
+    try { $fn(); return false; } catch (PlacementCompanyScopeConflict) { return true; }
+};
 $scope = static function(string $companies, string $people) use ($pdo): void {
     $s = $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(999,?,?)
         ON DUPLICATE KEY UPDATE scope_mode=VALUES(scope_mode)');
@@ -102,6 +105,21 @@ try {
             && companiesGet($selected, companiesDirectoryTenantId()) !== null
             && companiesGet($foreign, companiesDirectoryTenantId()) === null,
             "$label: selection matches the company directory and rejects another directory");
+        if ($companyMode === 'isolated' && $placementMode === 'shared') {
+            $beforePrivate = $pdo->query('SELECT * FROM companies ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+            $check($rejectsPrivateLink(fn() => placementsCompanyDirectoryTenantId(999)),
+                "$label: private company catalog cannot feed a shared placement");
+            $check($rejectsPrivateLink(fn() => placementsResolveCompanyRoles($placementOwner,
+                ['end_client_company_id' => $selected], [], null, 999)),
+                "$label: overview cannot expose a private company in a shared placement");
+            $check($rejectsPrivateLink(fn() => placementEconomicsEnsureVendor($placementOwner,
+                'Private company', $selected, 'w9_business', null, null, null, 999)),
+                "$label: manual payable cannot expose a private company");
+            $check($pdo->query('SELECT * FROM companies ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $beforePrivate
+                && currentModuleKey() === 'placements' && $pdo->inTransaction(),
+                "$label: rejected links preserve companies, request scope and caller transaction");
+            continue;
+        }
         $patch = placementsResolveCompanyRoles($placementOwner, ['end_client_company_id' => $selected], [], null, 999);
         $check($patch['end_client_company_id'] === $selected
             && $patch['end_client_name'] === $row('companies', $selected)['name'],
