@@ -1,3 +1,11 @@
+## Placement company save paths installed in staging - October 25, 2026
+
+Core staging runs `2a65068e02321eb29379c3dfb473b8ea367e78cf`. CI 40232874257 passed all nine jobs, including 40 real-database directory checks (21 new placement cases), and deployment/standard staging acceptance passed in 40233070598. Native overview/bulk, chain, referral, CSV and manual economic-party saves now use the configured Companies directory for selection and creation. Authenticated workspace and placement write scope remain unchanged. Background callers retain their explicit owner behavior.
+
+The new service/database tests cover shared Companies with isolated Placements, the inverse, and both shared: selected/foreign company lookup, overview resolution, create replay, manual company-to-vendor linking, deleted selection, and a subsequent placement insert in the correct catalog. All fixture writes roll back. Local checks passed: companies 133, workflow wiring 17, client save 21, CSV 62. This is not native placement HTTP submission or full acceptance of every mixed-scope workflow: company-aware reads and automatic graph reconciliation still need coverage, and existing misplaced records/merge references are not migrated. Evidence: `deploy/placement-company-directory-staging-20261025.json`.
+
+The prepared demo key still awaits the human creation step. No source reservation, held payroll draft, result or cancellation has been created by this release. Actual Thunderhawk acceptance, financial callbacks and an authorized production release remain open. Production, provider records, credentials and Arabella are unchanged.
+
 ## Native company directory ownership installed in staging - October 25, 2026
 
 Core staging now runs `eeb9c4b4b1a169c2a4f10368817e74eaca73ba05`. All nine CI jobs passed in run 40231792149, including 19 real-database checks for the native Companies workflow. Deployment and the existing full staging acceptance suites passed in run 40232040028. The Companies API still uses its normal People route and permission checks, but resolves company data ownership independently. List/detail/typeahead and explicit create/upsert/delete owners now agree with the configured Companies directory; authentication and audit remain in the selected workspace.
