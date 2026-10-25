@@ -64,10 +64,18 @@ function purepayPaymentEvidence(array $data, int $expectedCents, string $billId,
     if (!array_key_exists('currency', $data) || $data['currency'] === null) return $bad('payment_currency_missing');
     if (!is_string($data['currency']) || !preg_match('/^[A-Z]{3}$/D', $data['currency'])) return $bad('payment_currency_invalid');
     if ($data['currency'] !== 'USD') return $bad('payment_currency_mismatch');
-    // These fields use cents, unlike amount. A second representation may not contradict it.
-    foreach (['amount_cents','gross_cents'] as $field) {
-        if (!array_key_exists($field, $data)) continue;
-        if (!is_int($data[$field]) || $data[$field] !== $expectedCents) return $bad('payment_amount_conflict');
+    if (array_key_exists('gross_cents', $data)
+        && (!is_int($data['gross_cents']) || $data['gross_cents'] !== $expectedCents)) return $bad('payment_amount_conflict');
+    // Unlike Core's request amount_cents, PurePay's stored amount_cents is the
+    // NET transfer (including scheduled/retried wallet payouts). Keep its units
+    // and meaning separate from the gross bill obligation.
+    if (array_key_exists('net_cents', $data)
+        && (!is_int($data['net_cents']) || $data['net_cents'] <= 0 || $data['net_cents'] > $expectedCents)) {
+        return $bad('payment_transfer_amount_invalid');
+    }
+    if (array_key_exists('amount_cents', $data)
+        && (!is_int($data['amount_cents']) || !isset($data['net_cents']) || $data['amount_cents'] !== $data['net_cents'])) {
+        return $bad('payment_transfer_amount_conflict');
     }
     // PurePay's `allocated` is an adjustment/overpayment amount, not money applied
     // to this bill. Never mistake it (or a multi-bill total) for allocation proof.

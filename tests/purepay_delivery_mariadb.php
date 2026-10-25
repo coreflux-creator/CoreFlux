@@ -335,6 +335,13 @@ foreach(['detail_failure','detail_missing']as$failedMode){
     $held(fn()=>apClearPayment(1,180,'2026-10-21',null,null),'unavailable evidence holds ledger clearance');
 }
 $mode='ok';$driver->getStatusForTenant(1,$moneyRef);
+$payments[$moneyId]=$validPayment+['gross_cents'=>12500,'net_cents'=>12000,'amount_cents'=>12000];
+$check($driver->getStatusForTenant(1,$moneyRef)==='settled',
+    'explicit consistent net transfer cents do not conflict with the full gross bill obligation');
+$payments[$moneyId]['amount_cents']=12500;
+$check($driver->getStatusForTenant(1,$moneyRef)==='unknown' && !purepayStoredPaymentEvidence($link('ap_payment:180')),
+    'conflicting provider net-transfer aliases hold the full reservation');
+$payments[$moneyId]=$validPayment;$driver->getStatusForTenant(1,$moneyRef);
 $pdo->exec('UPDATE purepay_payment_links SET response_json=NULL WHERE source_ref="ap_payment:180"');
 $held(fn()=>apClearPayment(1,180,'2026-10-21',null,null),'legacy status-only settlement requires current money evidence');
 $driver->getStatusForTenant(1,$moneyRef);

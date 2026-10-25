@@ -23,6 +23,7 @@ $cases=[
     ['currency'=>null], ['currency'=>'CAD'], ['currency'=>'usd'], ['currency'=>['USD']],
     ['id'=>'another-payment'], ['payment_id'=>'another-payment'], ['payable_id'=>'another-bill'], ['bill_id'=>'another-bill'],
     ['amount_cents'=>125], ['gross_cents'=>12501], ['gross_cents'=>'12500'],
+    ['amount_cents'=>12500,'net_cents'=>12000], ['net_cents'=>12501], ['net_cents'=>null], ['net_cents'=>'12500'],
     ['allocated'=>40], ['allocated_amount'=>null], ['allocations'=>[]], ['bill_allocations'=>[['bill_id'=>'bill-1','amount'=>40]]],
     ['partial'=>true], ['allocation'=>'vendor_credit'],
     ['status'=>null], ['pay_status'=>'failed'], ['ok'=>false], ['qbo_billpayment_id'=>'ledger-only'], ['mercury_request_id'=>'submission-only'],
@@ -32,7 +33,8 @@ foreach (['id','bill_id','amount','currency','status'] as $field) {
     $missing=$payment;unset($missing[$field]);
     $check(!$verify($missing)['ok'],'missing required evidence is refused');
 }
-$check($verify($payment+['gross_cents'=>12500,'allocated'=>0,'partial'=>false,'net_cents'=>12000])['ok'],'gross obligation is distinct from net transfer after a provider fee');
+$check($verify($payment+['gross_cents'=>12500,'allocated'=>0,'partial'=>false,'net_cents'=>12000,'amount_cents'=>12000])['ok'],
+    'provider amount_cents is the net transfer, distinct from the gross obligation after a fee');
 $check($verify(['payment_id'=>'payment-1','payable_id'=>'bill-1','amount'=>125,'currency'=>'USD','pay_status'=>'paid'])['ok'],'consistent explicit identity aliases are accepted');
 $link=['amount_cents'=>'12500','purepay_bill_id'=>'bill-1','purepay_payment_id'=>'payment-1','status'=>'settled',
     'response_json'=>purepayPaymentReceipt($valid,'detail')];
