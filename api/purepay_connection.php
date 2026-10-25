@@ -46,7 +46,7 @@ if ($method === 'GET' && ($action === '' || $action === 'status')) {
         'label' => $row['label'] ?? null,
         'api_key_last4' => $row['api_key_last4'] ?? null,
         'key_scope' => $row['key_scope'] ?? null,
-        'wallet_balance_cents' => isset($row['wallet_balance_cents']) ? (int) $row['wallet_balance_cents'] : null,
+        'wallet_balance_cents' => $company['verified'] && isset($row['wallet_balance_cents']) ? (int) $row['wallet_balance_cents'] : null,
         'last_probe_at' => $row['last_probe_at'] ?? null,
         'last_probe_error' => $row['last_probe_error'] ?? null,
         'webhook_configured' => !empty($row['webhook_secret']),

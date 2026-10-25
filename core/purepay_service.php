@@ -81,8 +81,9 @@ function purepayStoreConnection(int $tenantId, string $apiKey, ?string $label, ?
     $pdo=getDB();
     if ($pdo->inTransaction()) throw new LogicException('Connection changes require their own transaction.');
     $context=purepayFinancialReadContext($apiKey);
-    $wallet = purepayGetWallet($apiKey); // Probe before persistence.
-    $balance = purepayWalletBalanceCents($wallet);
+    // Company identity is sufficient to check the key. Read wallet data only
+    // after the administrator confirms this is the intended company.
+    $balance = null;
     $ct = encryptField($apiKey);
     $pdo->beginTransaction();
     try {

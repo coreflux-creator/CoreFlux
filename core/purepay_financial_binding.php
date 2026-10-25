@@ -118,8 +118,8 @@ function purepayFinancialConfirm(PDO $pdo,int $tenant,int $actor,string $hash,st
         $pdo->prepare('INSERT INTO purepay_financial_organizations(origin_hash,organization_id,tenant_id,connection_id,reviewed_by,reviewed_at)
             VALUES(?,?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE origin_hash=origin_hash')
             ->execute([hash('sha256',purepayApiBase()),$organization,$tenant,$connection['id'],$actor]);
-        $q=$pdo->prepare('SELECT * FROM purepay_financial_organizations WHERE origin_hash=? AND organization_id=? FOR UPDATE');
-        $q->execute([hash('sha256',purepayApiBase()),$organization]);$claim=$q->fetch(PDO::FETCH_ASSOC);
+        $q=$pdo->prepare('SELECT * FROM purepay_financial_organizations WHERE origin_hash=? AND organization_id=? AND tenant_id=? FOR UPDATE');
+        $q->execute([hash('sha256',purepayApiBase()),$organization,$tenant]);$claim=$q->fetch(PDO::FETCH_ASSOC);
         if (!$claim || (int)$claim['tenant_id']!==$tenant || (int)$claim['connection_id']!==(int)$connection['id']) throw new PurePayApiException('This PurePay organization is already assigned to another Core company or connection.');
         $pdo->prepare('UPDATE purepay_financial_bindings SET remote_api_base=?,remote_organization_id=?,remote_organization_name=?,
             provider_key_scope=?,binding_hash=?,verified_by=?,verified_at=NOW() WHERE tenant_id=?')

@@ -36,7 +36,8 @@ try {
         foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
     $check($fails(fn()=>purepayFinancialRequire($pdo,1)),'missing connection has no financial authority');
     $store($key);
-    $check(!$review()['verified'] && !$driver->isConfiguredForTenant(1),'wallet access does not confirm a company or enable payouts');
+    $check(!$review()['verified'] && !$driver->isConfiguredForTenant(1),'valid key does not confirm a company or enable payouts');
+    $check(array_unique(array_column($calls,1))===['/api/v1/context'],'unconfirmed connection reads identity only, never a wallet');
     $saved=purepayFinancialConnection($pdo,1);
     $check(!str_contains($saved['api_key_ct'],$key) && purepayFinancialKey($saved)===$key,'key encrypted at rest');
     $check($fails(fn()=>purepaySaveWebhookSecret(1,'whsec_fixture')),'unconfirmed company cannot install callback secret');
