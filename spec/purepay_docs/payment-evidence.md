@@ -44,6 +44,16 @@ Confirmation re-reads provider evidence, compares the displayed review hash, the
 
 This is an identity link, not a reservation or execution contract. It does not create provider bills, reconcile balances, adopt historical payment receipts, allocate payments, change existing vendor mappings, or alter the current payment dispatch path. Its summary explicitly distinguishes saved identity from a fresh provider read. Dispatch must still be connected to this canonical bill model, with shared provider reservations and an explicit partial/multi-bill allocation contract. These remaining steps are required before the link can authorize payment execution.
 
+## Original-bill reservation candidate (not deployed)
+
+PurePay source branch `codex/payroll-native-observations` now contains an original-bill reservation contract and shared native payment guards. The reservation binds the authenticated organization and original provider bill to the Core instance, tenant, payment and bill IDs, reviewed invoice/vendor identity and integer cents. A single conditional payable-document update claims the obligation against native execution. Replay and key rotation retain the same immutable request. Uncertain execution keeps the claim; it never creates a second payment on retry.
+
+The provider exposes reserve/read/release/execute/reconcile routes below `/api/v1/bills/{bill_id}/reservations`. Native wallet, Mercury, QuickBooks recording and NACHA exports contend with the same claim. Wallet payments carry the reservation identity before provider I/O. A verified applied Moov settlement can complete one partial claim, while later return evidence stays associated with its original payment. Failed or interrupted funding remains held for review. Read-only and dedicated staffing keys cannot mutate this financial contract.
+
+The candidate passed 163 full-application offline checks and 82 existing source-level payment checks. Application tests use memory Mongo, real application routing/API-key authentication and blocked outbound sockets; synthetic wallet tests stop after the durable payment insert, before provider execution. This does not prove real Mongo contention, a hosted round trip or live financial execution. Evidence is in `deploy/purepay-bill-reservations-local-20261025.json`. The previous held preview and Core staging runtimes remain unchanged.
+
+Core's driver still needs to consume this contract with durable per-bill child allocations, immutable receipt ownership, parent-status aggregation and updated AP guards/callback handling. Provider-change conflicts during an active reservation and audited failed-funding/native-attempt recovery are also unfinished. This candidate is not a production release or a replacement for those remaining requirements.
+
 ## Provider compatibility gate
 
 PurePay source `20b21f9bf0939a9479adfb5329d3edc8fe591e46` is installed in the held `pure-pay-support` preview. New wallet records store explicit USD from the execution contract and exact gross cents. Invalid money or incompatible bill currency is rejected before storage. Terminal callbacks re-read the exact tenant/bill/payment, retain amount and currency, and require agreeing rail evidence when present. Cached results cannot override missing or conflicting current records.

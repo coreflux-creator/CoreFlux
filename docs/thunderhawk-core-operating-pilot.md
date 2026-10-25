@@ -1,3 +1,9 @@
+## 2026-10-25 — Original-bill reservation source candidate (not deployed)
+
+PurePay source `ed40d8dbb5581730136b9563d37c02871262c730` adds durable original-bill reservations shared with native wallet, Mercury, QuickBooks recording and NACHA paths. The candidate passed 163 isolated full-application checks and 82 source-level payment checks; no real database or financial provider was used. Core staging and the held PurePay preview were not changed. Evidence: `deploy/purepay-bill-reservations-local-20261025.json`.
+
+Next: connect Core per-bill dispatch, receipt aggregation and AP/callback guards to this contract; complete provider-change conflicts and audited uncertain-funding recovery; then validate the combined candidate in the held preview. The full Thunderhawk round trip, production publication and key rotation are not complete.
+
 ## Reviewed supplier bill identity — October 25, 2026
 
 Core pilot runtime `52585f7a1417e04ffd7cfc7f6e6a13a3a05d7b70` includes an explicit comparison between the original Core AP bill and an existing PurePay bill. It shows the Core legal entity and both vendor/bill identities, checks invoice number, dates, original total, currency and remit identity, and saves a permanent exclusive provider-bill claim with immutable review history. Confirmation re-reads provider evidence and locks/rechecks local records; rotation requires fresh review without retargeting the saved bill.
