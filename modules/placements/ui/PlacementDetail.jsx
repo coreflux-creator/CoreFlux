@@ -9,6 +9,7 @@ import IdBadge from '../../../dashboard/src/components/IdBadge';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import BillToClientPicker from './BillToClientPicker';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -306,6 +307,7 @@ function OverviewTab({ placement, dimensionReadiness, reload }) {
       <section data-testid="tab-overview-section-client" style={{ marginBottom: 'var(--cf-space-4)' }}>
         <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>End client &amp; approver</h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+          <Item k="Bill-to client" v={placement.billing_client_name || (placement.client_id ? 'Client ' + placement.client_id : null)} t="overview-bill-to-client" field="client_id" />
           <Item k="End client"        v={placement.end_client_company_id
               ? <a href={`/modules/people/companies/${placement.end_client_company_id}`} data-testid="overview-end-client-link" style={{ color: '#1d4ed8', textDecoration: 'none' }}>
                   {placement.end_client_company_name || placement.end_client_name}
@@ -396,7 +398,7 @@ function OverviewEdit({ placement, onClose }) {
   const save = async () => {
     setSaving(true); setError(null);
     try {
-      const fields = ['title','status','start_date','end_date','due_date','end_client_name','worksite_state','worksite_country','remote_policy','engagement_type','notes','external_id','staffing_job_id','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id','recruiter_name','recruiter_email','account_manager_name','account_manager_email'];
+      const fields = ['title','status','start_date','end_date','due_date','end_client_name','client_id','worksite_state','worksite_country','remote_policy','engagement_type','notes','external_id','staffing_job_id','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id','recruiter_name','recruiter_email','account_manager_name','account_manager_email'];
       const patch = {};
       for (const f of fields) if (form[f] !== placement[f]) patch[f] = form[f];
       if (!Object.keys(patch).length) { onClose(); return; }
@@ -477,6 +479,11 @@ function OverviewEdit({ placement, onClose }) {
             <RevertControl field={k} />
           </label>
         ))}
+        <div>
+          <BillToClientPicker value={form.client_id} currentName={placement.billing_client_name}
+            onChange={(value) => setForm({ ...form, client_id: value })} testId="overview-edit-bill-to-client" />
+          <RevertControl field="client_id" />
+        </div>
         <label style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Job / requisition</span>
           <select className="input" value={form.staffing_job_id ?? ''} onChange={set('staffing_job_id')} data-testid="overview-edit-staffing-job-id">

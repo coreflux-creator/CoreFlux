@@ -41,8 +41,8 @@ $a('placement sync uses projector for canonical graph writes',
 $a('projector passes user id into canonical upsert',
     str_contains($projector, 'jobdivaSyncUpsertPlacement(')
     && str_contains($projector, '$userId'));
-$a('sync calls staffingClientEnsureForCompany for JobDiva end-client',
-    str_contains($sync, 'staffingClientEnsureForCompany($tid, $endClientCompanyId, $clientBridgeName'));
+$a('sync bridges the resolved billing company to its staffing client',
+    str_contains($sync, "staffingClientEnsureForCompany(\$tid, \$billingCompanyId, \$clientEvidence['name']"));
 $a('update field set includes client_id',
     str_contains($sync, "'client_id'            => ['cli',   \$clientId]"));
 $a('insert column list includes client_id next to end_client_company_id',
@@ -82,23 +82,22 @@ $a('report flags placements missing canonical end-client company',
 $a('repair function exists and uses staffing bridge',
     str_contains($service, 'function jobdivaMappingRepairStaffingClientLinks')
     && str_contains($service, 'staffingClientEnsureForCompany($tenantId, $companyId, $name'));
-$a('repair selects rows with missing end_client_company_id, not only missing client_id',
-    str_contains($service, 'OR p.end_client_company_id IS NULL')
-    && str_contains($service, 'OR p.end_client_company_id = 0'));
+$a('repair selects billing links without requiring an end client',
+    str_contains($service, 'SELECT p.id, p.client_id, p.coreflux_overridden_fields')
+    && str_contains($service, 'jobdivaProjectorResolveBillingClientCompany($tenantId, $payload, $userId)'));
 $a('repair rebuilds exact assignment billing evidence from stored mirrors',
     str_contains($service, 'm.payload_snapshot')
     && str_contains($service, 'jobdivaPlacementPayloadWithMirrors(')
     && str_contains($service, "(string) (\$row['mapping_external_id'] ?? '')")
     && str_contains($service, 'jobdivaProjectorAssignmentClientEvidence($payload)'));
-$a('repair treats exact assignment billing company as authoritative over stale placement labels',
-    str_contains($service, "!empty(\$evidence['authoritative'])")
-    && str_contains($service, 'jobdivaProjectorCompanyNameKey((string) ($row[\'end_client_name\'] ?? \'\'))')
-    && str_contains($service, 'end_client_name = :end_client_name'));
-$a('repair resolves canonical company through projector end-client rules',
-    str_contains($service, 'jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId)'));
-$a('repair backfills from an existing staffing client company when present',
-    str_contains($service, 'existing_client_company_id')
-    && str_contains($service, "\$companyId === null && !empty(\$row['existing_client_company_id'])"));
+$a('billing repair never rewrites the end-client fields',
+    !str_contains($service, 'end_client_name = :end_client_name')
+    && !str_contains($service, 'end_client_company_id = :end_client_company_id'));
+$a('repair resolves the billing company through exact assignment evidence',
+    str_contains($service, 'jobdivaProjectorResolveBillingClientCompany($tenantId, $payload, $userId)'));
+$a('repair uses the established billing company and preserves manual choice',
+    str_contains($service, "\$companyId = !empty(\$row['existing_client_company_id'])")
+    && str_contains($service, "in_array('client_id', \$overrides, true)"));
 $a('duplicate placement detector and repair function exist',
     str_contains($service, 'duplicate_jobdiva_placement_rows')
     && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')
@@ -198,11 +197,9 @@ $a('ordered repair workflow replays canonical projection before cleanup and rate
 $a('JobDiva placement sync uses the shared source lifecycle normalizer',
     str_contains($sync, 'jobdivaAssignmentPlacementStatusForWrite(')
     && str_contains($sync, '$currentStatus'));
-$a('projector distrusts external company mappings whose name conflicts with JobDiva payload',
-    str_contains($projector, 'function jobdivaProjectorCompanyNameCompatible')
-    && str_contains($projector, 'function jobdivaProjectorMappedCompanyIdIfNameMatches')
-    && str_contains($projector, 'jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, \'company\', $companyExtId, $endClientName)')
-    && !str_contains($projector, '$cm = mappingFindInternal($tenantId, \'jobdiva\', \'company\', $companyExtId);'));
+$a('projector rejects conflicting source names without retargeting provider IDs',
+    str_contains($projector, 'jobdivaProjectorCompanyNameCompatible')
+    && str_contains($projector, 'Review the existing identity.'));
 
 echo "\n4. Alignment API is wired and gated\n";
 $a('alignment API file exists', file_exists($apiPath));

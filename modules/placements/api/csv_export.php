@@ -80,7 +80,7 @@ $rows = scopedQuery(
             CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
             p.title, p.engagement_type, p.status,
             p.start_date, p.end_date, p.actual_end_date, p.due_date,
-            p.end_client_company_id,
+            p.end_client_company_id, p.client_id,
             p.end_client_name, p.worksite_state, p.worksite_country, p.remote_policy,
             p.staffing_job_id, p.branch, p.service_line, p.workers_comp_class,
             p.department, p.cost_center, p.accounting_entity_id,
@@ -197,6 +197,7 @@ exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, expor
 ], $datasetOptions));
 
 $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'placement', $rows, 'placement_id');
+$rows = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'client', $rows, 'client_id', 'client_number');
 
 (new CsvExportService([
     'placement_number' => 'Placement number',
@@ -211,6 +212,8 @@ $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'p
     'end_date'          => 'End date',
     'actual_end_date'   => 'Actual end date',
     'due_date'          => 'Due date',
+    'client_number' => 'Bill-to Client Number',
+    'client_id' => 'Bill-to client ID',
     'end_client_company_id' => 'End client company ID',
     'end_client_name'   => 'End client name',
     'worksite_state'    => 'Worksite state',

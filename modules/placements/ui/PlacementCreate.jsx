@@ -4,6 +4,7 @@ import { Search, UserRoundPlus } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import BillToClientPicker from './BillToClientPicker';
 
 const ETYPES = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'referral', 'internal'];
 const ETYPE_LABELS = {
@@ -60,7 +61,7 @@ export default function PlacementCreate() {
     person_id: prefilledPersonId || '',
     title: '', engagement_type: fromQuanta ? '' : 'w2',
     start_date: fromQuanta ? '' : new Date().toISOString().slice(0, 10),
-    end_date: '', due_date: '',
+    end_date: '', due_date: '', client_id: '',
     worksite_state: '', worksite_country: 'US',
     remote_policy: '', external_id: '', notes: '',
     staffing_job_id: '', branch: '', service_line: '', workers_comp_class: '',
@@ -462,10 +463,11 @@ export default function PlacementCreate() {
 
           {!internalHire && (
             <>
-              <SectionTitle>3. End client</SectionTitle>
+              <SectionTitle>3. Client companies</SectionTitle>
+              <BillToClientPicker value={form.client_id} onChange={(value) => setForm({ ...form, client_id: value })} testId="placement-create-bill-to-client" />
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>The bill-to client receives invoices. The end client receives the work.</p>
               <Field label="End client (typeahead — picks from Companies, or creates one)">
                 <CompanyTypeahead
-                  role="client"
                   value={endClient}
                   onChange={setEndClient}
                   testId="placement-create-end-client"

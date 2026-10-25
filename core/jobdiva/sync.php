@@ -350,7 +350,7 @@ function jobdivaPlacementContactIdentity(
             'jobContactId', 'job_contact_id', 'job contact id', 'contactId', 'contact_id', 'contact id',
             'customerId', 'customer_id', 'customer id',
         ]);
-        $companyName = jobdivaEndClientNameFromPayload($item);
+        $companyName = jobdivaPluckField($item, ['companyName', 'company_name', 'company name', 'COMPANYNAME']);
         $startContactName = jobdivaPluckField($item, [
             'submittedTo', 'submitted_to', 'submitted to',
             'customerName', 'customer_name', 'customer name',
@@ -376,64 +376,9 @@ function jobdivaPlacementContactIdentity(
 
 function jobdivaEndClientNameFromPayload(array $item): string
 {
-    $companySpecific = [
-        'endClientCompanyName', 'end_client_company_name', 'end client company name',
-        'companyName', 'company_name', 'company name', 'COMPANYNAME',
-        'jobCompanyName', 'job_company_name', 'job company name',
-    ];
-    $ambiguousNames = [
-        'endClientName', 'end_client_name', 'end client name',
-        'customerName', 'customer_name', 'customer name',
-        'clientName', 'client_name', 'client name',
-    ];
-
-    if (isset($item['_jd_contract']) && is_array($item['_jd_contract'])) {
-        $v = jobdivaPluckField($item['_jd_contract'], [
-            'client_company_name', 'clientCompanyName', 'endClientCompanyName',
-        ]);
-        if ($v !== '') return $v;
-    }
-
-    // The Start/Assignment owns the billing company. The linked Job can have
-    // a different customer, so it is enrichment only and must not outrank
-    // the exact Start.
-    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
-        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], $companySpecific);
-        if ($v !== '') return $v;
-    }
-    $v = jobdivaPluckField($item, $companySpecific);
-    if ($v !== '') return $v;
-    foreach (['_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client'] as $nest) {
-        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], array_merge($companySpecific, ['legalName', 'legal_name', 'name']));
-        if ($v !== '') return $v;
-    }
-    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
-        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], $companySpecific);
-        if ($v !== '') return $v;
-    }
-
-    $v = jobdivaPluckField($item, $ambiguousNames);
-    if ($v !== '') return $v;
-
-    foreach (['_jd_customer', 'customer', 'Customer', 'client', 'Client'] as $nest) {
-        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
-        $v = jobdivaPluckField($item[$nest], array_merge($ambiguousNames, ['name']));
-        if ($v !== '') return $v;
-    }
-    return '';
+    return jobdivaProjectorEndClientNameFromPayload($item);
 }
 
-/**
- * Build JobDiva BI date-range query string. `fromDate` defaults to 7
- * days ago (narrower than before to dodge the JobDiva-side "Not an
- * array" 500 that fires when a result set is too large or contains a
- * malformed row). Accepts ISO-8601 overrides via `modified_since` /
- * `modified_until`. Time-zone agnostic — JobDiva treats these as
- * account-local.
- */
 function jobdivaBiDateRange(array $opts): array
 {
     $defaultWindowDays = (int) ($opts['default_window_days'] ?? 7);
@@ -4793,10 +4738,7 @@ function jobdivaSyncUpsertPlacementChain(
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
 
-    $endClientName = trim((string) ($endClientName ?: jobdivaPluckFieldDeep($jd, [
-        'end_client_name', 'endClientName', 'customer name', 'customerName',
-        'companyName', 'company name', 'job.COMPANYNAME', 'job.companyName',
-    ])));
+    $endClientName = trim((string) ($endClientName ?: jobdivaAssignmentEndClientEvidence($jd)['name']));
     if ($endClientName !== '') {
         $id = jobdivaSyncUpsertPlacementChainRow(
             $tid,
@@ -6018,6 +5960,7 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
     };
     $snapshot = [
         'placement' => null,
+        'billing_client' => null,
         'rates' => [],
         'chain' => [],
         'corp' => [],
@@ -6041,6 +5984,9 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
                 'vendor_pay_cycle', 'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',
                 'vendor_pwp_enabled', 'coreflux_overridden_fields',
             ]);
+            $client = $pdo->prepare('SELECT id, company_id, name FROM staffing_clients WHERE tenant_id = :t AND id = :c');
+            $client->execute(['t' => $tenantId, 'c' => $row['client_id'] ?? 0]);
+            $snapshot['billing_client'] = $client->fetch(\PDO::FETCH_ASSOC) ?: null;
         }
     } catch (\Throwable $e) {
         error_log('[jobdiva projection audit] placement snapshot failed: ' . $e->getMessage());
@@ -6219,6 +6165,9 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $jd = jobdivaClassificationPayloadForTenant($tid, $jd);
     $engagement = jobdivaClassificationRequire($jd);
     $assignmentContract = jobdivaContractProjectionContract($jd);
+    if (jobdivaAssignmentEndClientEvidence($jd)['status'] === 'ambiguous') {
+        throw new RuntimeException('Conflicting explicit end-client identities require review.');
+    }
     // Validate before identity repair or any placement mutation.
     jobdivaSyncUpsertPlacementRates($tid, 0, '', $jd, true);
     $worksiteCountryRaw = (string) ($assignmentContract['worksite_country'] ?? '');
@@ -6376,12 +6325,11 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $endClientName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'end_client_name', $jd,
-        static fn() => jobdivaEndClientNameFromPayload($jd)
+        static fn() => jobdivaAssignmentEndClientEvidence($jd)['name']
     );
-    // The verified assignment contract is the canonical billing relationship.
-    // A legacy tenant mapping such as job.COMPANYNAME may describe the broader
-    // requisition customer and must not overwrite the Start's billing company.
-    $contractEndClientName = trim((string) ($assignmentContract['client_company_name'] ?? ''));
+    $endClientEvidence=jobdivaAssignmentEndClientEvidence($jd);
+    if ($endClientEvidence['status']==='ambiguous') throw new RuntimeException('Conflicting explicit end-client identities require review.');
+    $contractEndClientName = trim((string) ($assignmentContract['end_client_company_name'] ?? ''));
     if ($contractEndClientName !== '') {
         $endClientName = $contractEndClientName;
     }
@@ -6389,43 +6337,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $clientEvidence = function_exists('jobdivaProjectorAssignmentClientEvidence')
         ? jobdivaProjectorAssignmentClientEvidence($jd)
         : ['authoritative' => false, 'name' => '', 'external_id' => ''];
-    $clientBridgeName = !empty($clientEvidence['authoritative'])
-        ? trim((string) ($clientEvidence['name'] ?? ''))
-        : '';
-    if ($clientBridgeName === '' && $endClientCompanyId !== null && $endClientCompanyId > 0) {
-        try {
-            $nameStmt = $pdo->prepare(
-                'SELECT name FROM companies
-                  WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
-                  LIMIT 1'
-            );
-            $nameStmt->execute(['t' => $tid, 'id' => $endClientCompanyId]);
-            $clientBridgeName = trim((string) ($nameStmt->fetchColumn() ?: ''));
-        } catch (\Throwable $e) {
-            error_log('[jobdiva placement sync] client bridge company-name lookup failed: ' . $e->getMessage());
-        }
-    }
-    if ($clientBridgeName !== '') {
-        try {
-            $clientRef = staffingClientEnsureForCompany($tid, $endClientCompanyId, $clientBridgeName, [
-                'created_by_user_id' => $userId,
-                'source_system' => 'jobdiva',
-            ]);
-            $clientId = (int) ($clientRef['client_id'] ?? 0) ?: null;
-            if (!empty($clientRef['company_id'])) {
-                $endClientCompanyId = (int) $clientRef['company_id'];
-            }
-            if ($endClientName === '' && !empty($clientRef['name'])) {
-                $endClientName = (string) $clientRef['name'];
-            }
-        } catch (\Throwable $e) {
-            error_log('[jobdiva placement sync] staffing client bridge failed: ' . $e->getMessage());
-        }
-    } elseif ($endClientCompanyId !== null && $endClientCompanyId > 0) {
-        // Preserve a previously established canonical relationship without
-        // promoting a weak job/company label into the client directory.
-        $existingClient = staffingClientFindForCompany($tid, $endClientCompanyId);
-        $clientId = $existingClient ? (int) $existingClient['id'] : null;
+    if (!empty($clientEvidence['authoritative'])) {
+        $billingCompanyId = jobdivaProjectorResolveBillingClientCompany($tid, $jd, $userId);
+        $clientRef = staffingClientEnsureForCompany($tid, $billingCompanyId, $clientEvidence['name'], [
+            'created_by_user_id' => $userId,
+            'source_system' => 'jobdiva',
+        ]);
+        $clientId = (int) ($clientRef['client_id'] ?? 0) ?: null;
     }
     $statusRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'status', $jd,
@@ -6770,12 +6688,16 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         if (!empty($jd['__cf_force_source_contract'])) {
             $contractOwnedFields = [
                 'engagement_type', 'status', 'start_date', 'end_date',
-                'end_client_name', 'end_client_company_id', 'client_id',
+                'client_id',
                 'client_bill_cycle', 'client_bill_cycle_anchor',
                 'client_payment_terms_override', 'vendor_pay_cycle',
                 'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',
                 'vendor_pwp_enabled',
             ];
+            // Billing authority does not grant authority over the end-client role.
+            if (in_array($endClientEvidence['status'],['resolved','identity_only','name_only'],true)) {
+                $contractOwnedFields[]='end_client_name';$contractOwnedFields[]='end_client_company_id';
+            }
             $retainedOverrides = array_values(array_diff($overrides, $contractOwnedFields));
             if ($retainedOverrides !== $overrides) {
                 $pdo->prepare(

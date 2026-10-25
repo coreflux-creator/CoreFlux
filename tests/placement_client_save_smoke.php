@@ -118,6 +118,6 @@ foreach ([1 => 1, 2 => 1, 3 => 3] as $activeTenant => $catalogTenant) {
 $api = file_get_contents(__DIR__ . '/../modules/placements/api/placements.php');
 $assert('placement create and edit use the resolved catalog for company identity',
     str_contains($api, '$placementTenantId = (int) placementsGraphTenantId((int) $ctx[\'tenant_id\']);')
-    && str_contains($api, 'companiesUpsertByName($placementTenantId,')
-    && preg_match_all('/staffingClientEnsureForCompany\(\s*\$placementTenantId,/', $api) === 2);
+    && str_contains($api, 'placementsResolveCompanyRoles($placementTenantId,')
+    && substr_count($api, 'placementsResolveCompanyRoles($placementTenantId,') === 2);
 exit($failures ? 1 : 0);

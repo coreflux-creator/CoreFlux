@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/classification.php';
 require_once __DIR__ . '/dates.php';
+require_once __DIR__ . '/assignment_parties.php';
 
 /** JobDiva uses zero for an absent subcontract company; other provider IDs stay opaque. */
 function jobdivaAssignmentCompanyId(mixed $value): string
@@ -853,6 +854,15 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         }
         return $out;
     };
+    $endClient=jobdivaAssignmentExplicitEndClient($sourceRows);
+    if ($endClient['status']==='missing') $endClient=jobdivaAssignmentEndClientEvidence($fallback);
+    if ($endClient['status']!=='missing') {
+        $contract['end_client_review']=['status'=>$endClient['status']];
+        if ($endClient['status']!=='ambiguous') {
+            $contract['end_client_company_id']=$endClient['external_id'];
+            $contract['end_client_company_name']=$endClient['name'];
+        }
+    }
     $result = $prune($contract);
     // Preserve an explicit no-company sentinel separately from a missing field.
     if (jobdivaAssignmentContractHasValue($corporationIdRaw)) {

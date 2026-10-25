@@ -42,6 +42,40 @@ function placementsNormalizeRemotePolicy($v): ?string
     return in_array($v, PLACEMENTS_ALLOWED_REMOTE, true) ? $v : null;
 }
 
+/** Resolve only the company roles explicitly edited; neither role supplies the other. */
+function placementsResolveCompanyRoles(int $tenantId, array $input, array $existing = [], ?int $userId = null): array
+{
+    require_once __DIR__ . '/../../people/lib/companies.php';
+    $patch = [];
+    $pdo = getDB();
+    if (array_key_exists('client_id', $input)) {
+        $id = (int) $input['client_id'];
+        if ($id > 0) {
+            $s = $pdo->prepare('SELECT id FROM staffing_clients WHERE tenant_id = :t AND id = :i');
+            $s->execute(['t' => $tenantId, 'i' => $id]);
+            if (!$s->fetchColumn()) throw new InvalidArgumentException('Bill-to client is not in this placement directory.');
+        }
+        $patch['client_id'] = $id > 0 ? $id : null;
+    }
+    if (array_key_exists('end_client_company_id', $input) || array_key_exists('end_client_name', $input)) {
+        $owner = effectiveTenantIdForModule('companies', $tenantId) ?? $tenantId;
+        $id = (int) ($input['end_client_company_id'] ?? 0);
+        $name = trim((string) ($input['end_client_name'] ?? ''));
+        if ($id > 0) {
+            $s = $pdo->prepare('SELECT name FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
+            $s->execute(['t' => $owner, 'i' => $id]);
+            $canonical = $s->fetchColumn();
+            if ($canonical === false) throw new InvalidArgumentException('End client is not in this company directory.');
+            $name = (string) $canonical;
+        } elseif ($name !== '') {
+            $id = companiesUpsertByName($owner, $name, ['created_by_user_id' => $userId], []);
+        }
+        $patch['end_client_company_id'] = $id > 0 ? $id : null;
+        $patch['end_client_name'] = $name !== '' ? $name : null;
+    }
+    return $patch;
+}
+
 function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
@@ -85,12 +119,14 @@ function placementGet(int $id): ?array
                    pe.work_auth_expiry  AS person_work_auth_expiry,
                    ec.name              AS end_client_company_name,
                    ec.website           AS end_client_company_website,
+                   sc.name              AS billing_client_name,
                    sj.title             AS staffing_job_title,
                    sj.status            AS staffing_job_status
             FROM placements p
             LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
             LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
             LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
+            LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
     $row = scopedFind($sql, ['id' => $id]);
     if (!$row) return null;

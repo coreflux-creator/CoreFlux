@@ -52,6 +52,7 @@ CsvImportService::registerSchema('placements', [
         'due_date'          => ['label' => 'Due date',         'type' => 'date'],
         'end_client_company_id' => ['label' => 'End client company ID', 'type' => 'integer', 'reference_type' => 'company', 'aliases' => ['end_client_company_number', 'End Client Company Number']],
         'end_client_name'   => ['label' => 'End client name'],
+        'client_id' => ['label' => 'Bill-to client ID', 'type' => 'integer', 'reference_type' => 'client', 'aliases' => ['client_number', 'Bill-to Client Number']],
         'worksite_state'    => ['label' => 'Worksite state'],
         'worksite_country'  => ['label' => 'Worksite country (2-letter)'],
         'remote_policy'     => ['label' => 'Remote policy',    'enum' => ['onsite','hybrid','remote']],
@@ -1050,31 +1051,9 @@ if ($method === 'POST' && $action === 'commit') {
         ];
         $payload = array_filter($payload, static fn($v): bool => $v !== null && $v !== '');
 
-        if (!empty($payload['end_client_company_id'])) {
-            $co = companiesGet((int) $payload['end_client_company_id']);
-            if ($co) {
-                $payload['end_client_name'] = $co['name'];
-                companiesAddRole((int) $co['id'], 'client');
-                companiesBumpUsage((int) $co['id']);
-            }
-        } elseif (!empty($payload['end_client_name'])) {
-            $cid = companiesUpsertByName(currentTenantId(), (string) $payload['end_client_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['client']);
-            $payload['end_client_company_id'] = $cid;
-            companiesBumpUsage($cid);
-        }
-        if (!empty($payload['end_client_company_id']) || !empty($payload['end_client_name'])) {
-            $clientRef = staffingClientEnsureForCompany(
-                currentTenantId(),
-                !empty($payload['end_client_company_id']) ? (int) $payload['end_client_company_id'] : null,
-                (string) ($payload['end_client_name'] ?? ''),
-                ['created_by_user_id' => $user['id'] ?? null]
-            );
-            $payload['client_id'] = $clientRef['client_id'];
-            $payload['end_client_company_id'] = $clientRef['company_id'] ?: ($payload['end_client_company_id'] ?? null);
-            $payload['end_client_name'] = $clientRef['name'];
-        }
+        $payload = array_replace($payload, placementsResolveCompanyRoles(
+            (int) placementsGraphTenantId(currentTenantId()), $row, $existing ?: [], $user['id'] ?? null
+        ));
 
         if ($existing) {
             scopedUpdate('placements', (int) $existing['id'], $payload);

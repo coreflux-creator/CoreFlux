@@ -6,14 +6,14 @@ require_once __DIR__.'/../core/integrations/identity.php';
 
 function purepayAssignmentFixtureRows(string $employment='w2'): array
 {
-    $placement=['id'=>901,'person_id'=>9001,'client_id'=>1,'end_client_company_id'=>10,'title'=>'Engineer / Montréal',
+    $placement=['id'=>901,'person_id'=>9001,'client_id'=>1,'billing_company_id'=>10,'end_client_company_id'=>11,'title'=>'Engineer / Montréal',
         'start_date'=>'2026-10-01','end_date'=>null,'actual_end_date'=>null,'status'=>'active','engagement_type'=>'w2',
         'billing_operating_cycle_id'=>1,'payroll_operating_cycle_id'=>2,'ap_operating_cycle_id'=>3,
-        'external_id'=>'jd:fixture-901','jobdiva_job_id'=>'00702','end_client_name'=>'Synthetic Client',
+        'external_id'=>'jd:fixture-901','jobdiva_job_id'=>'00702','end_client_name'=>'Synthetic Work Recipient',
         'staffing_job_id'=>7,'accounting_entity_id'=>9,'due_date'=>null,'worksite_country'=>'US','worksite_state'=>'NY',
         'branch'=>'North','service_line'=>'Staffing','workers_comp_class'=>'8810','department'=>null,'cost_center'=>'A-1','remote_policy'=>'hybrid'];
     $person=['id'=>9001,'first_name'=>'Synthetic','last_name'=>'Worker'];
-    $party=['id'=>1,'source_ref'=>'placement:end_client','source_type'=>'placement','role'=>'end_client','display_name'=>'Synthetic Client',
+    $party=['id'=>1,'source_ref'=>'placement:bill_to','source_type'=>'placement','role'=>'bill_to_client','display_name'=>'Synthetic Client',
         'company_id'=>10,'person_id'=>null,'user_id'=>null,'ap_vendor_id'=>null,'money_flow'=>'receivable','settlement_channel'=>'ar',
         'fee_basis'=>'none','fee_pct'=>null,'fee_flat'=>null,'payment_terms'=>'NET30','payment_terms_overridden'=>0,
         'pwp_enabled'=>0,'pwp_overridden'=>0,'operating_cycle_id'=>1,'cycle_overridden'=>0,
@@ -99,12 +99,27 @@ if(realpath($_SERVER['SCRIPT_FILENAME']??'')===__FILE__) {
         if($change==='gap')$r['rates'][1]['effective_from']='2026-11-02';
         if($change==='overlap')$r['rates'][1]['effective_from']='2026-10-31';
         if($change==='draft')$r['rates'][1]['approved_at']=null;
-        if($change==='company')$r['placement']['end_client_company_id']=11;
+        if($change==='company')$r['placement']['billing_company_id']=12;
         if($change==='missing_cost')unset($r['rates'][0]['c2c_overhead_pct']);
         if($change==='wrong_rate')$r['rates'][0]['pay_rate']='43.0000';
         if($change==='reversed')$r['rates'][0]['effective_to']='2026-08-31';
         $reject(static fn()=>purepayAssignmentFixtureBuild($r),'Reject '.$change);
     }
+    $check($body['work_context']['end_client']['number']==='CO-11'
+        && $first['economics']['parties'][0]['roots']['company']['number']==='CO-10',
+        'End client and bill-to company remain distinct through export');
+    $r=purepayAssignmentFixtureRows();$r['placement']['end_client_company_id']=12;
+    $changedRecipient=purepayAssignmentFixtureBuild($r);
+    $check($changedRecipient['terms']===$body['terms'],'Changing the work recipient cannot retarget approved billing terms');
+    $r=purepayAssignmentFixtureRows();
+    foreach($r['rates'] as &$rate){$snapshot=json_decode($rate['economics_snapshot_json'],true);
+        $snapshot['contract_parties'][0]['source_ref']='placement:end_client';
+        $rate['economics_snapshot_json']=json_encode($snapshot);}
+    unset($rate);
+    $check(purepayAssignmentFixtureBuild($r)['terms'][0]['economics']['parties'][0]['roots']['company']['number']==='CO-10',
+        'Legacy snapshot bridges only to its verified billing company');
+    $r['placement']['billing_company_id']=11;
+    $reject(static fn()=>purepayAssignmentFixtureBuild($r),'Legacy end-client coincidence cannot retarget the debtor');
     $r=purepayAssignmentFixtureRows();$old=$r['rates'][0];$old['id']=4;$old['effective_to']='2026-08-31';$old['superseded_by']=5;$r['rates'][]=$old;
     $check(purepayAssignmentFixtureBuild($r)===$body,'Proven same-day correction does not create a bogus period');
     $r=purepayAssignmentFixtureRows();$draft=$r['rates'][1];$draft['id']=9;$draft['approved_at']=null;$draft['pay_rate']='99.0000';$r['rates'][]=$draft;

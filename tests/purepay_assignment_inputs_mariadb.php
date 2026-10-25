@@ -31,14 +31,14 @@ $table=static function(string $name,array $row)use($pdo):void {
     }
     $pdo->exec('CREATE TABLE '.$name.' ('.implode(',',$fields).')');
 };
-$placement=$fixture['placement']+['tenant_id'=>20,'deleted_at'=>null];$table('placements',$placement);$insert('placements',$placement);
+$placement=array_diff_key($fixture['placement'],['billing_company_id'=>true])+['tenant_id'=>20,'deleted_at'=>null];$table('placements',$placement);$insert('placements',$placement);
 $person=$fixture['person']+['tenant_id'=>10,'deleted_at'=>null];$table('people',$person);$insert('people',$person);
-$pdo->exec('CREATE TABLE staffing_clients(id BIGINT PRIMARY KEY,tenant_id BIGINT)');$insert('staffing_clients',['id'=>1,'tenant_id'=>20]);
-$pdo->exec('CREATE TABLE companies(id BIGINT PRIMARY KEY,tenant_id BIGINT)');$insert('companies',['id'=>10,'tenant_id'=>10]);
+$pdo->exec('CREATE TABLE staffing_clients(id BIGINT PRIMARY KEY,tenant_id BIGINT,company_id BIGINT)');$insert('staffing_clients',['id'=>1,'tenant_id'=>20,'company_id'=>10]);
+$pdo->exec('CREATE TABLE companies(id BIGINT PRIMARY KEY,tenant_id BIGINT)');$insert('companies',['id'=>10,'tenant_id'=>10]);$insert('companies',['id'=>11,'tenant_id'=>10]);
 $pdo->exec('CREATE TABLE ap_vendors_index(id BIGINT PRIMARY KEY,tenant_id BIGINT,default_terms VARCHAR(40),default_pwp TINYINT)');
 $insert('ap_vendors_index',['id'=>1,'tenant_id'=>30,'default_terms'=>'NET5','default_pwp'=>1]);
 $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(32),record_id BIGINT,canonical_record_id BIGINT,record_number VARCHAR(64))');
-foreach([[10,'person',9001,'P-9001'],[20,'placement',901,'PL-901'],[20,'client',1,'CL-1'],[10,'company',10,'CO-10'],[30,'vendor',1,'V-1']] as [$owner,$kind,$id,$number])
+foreach([[10,'person',9001,'P-9001'],[20,'placement',901,'PL-901'],[20,'client',1,'CL-1'],[10,'company',10,'CO-10'],[10,'company',11,'CO-11'],[30,'vendor',1,'V-1']] as [$owner,$kind,$id,$number])
     $insert('core_record_numbers',['tenant_id'=>$owner,'entity_type'=>$kind,'record_id'=>$id,'canonical_record_id'=>$id,'record_number'=>$number]);
 $table('placement_rates',$fixture['rates'][0]);
 foreach($fixture['rates'] as $rate){$rate['tenant_id']=20;$insert('placement_rates',$rate);}

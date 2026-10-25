@@ -9,7 +9,12 @@ function purepayAssignmentInputSource(PDO $pdo,string $instance,array $owners,st
     foreach(['placements','people','ap'] as $module)if(!is_int($owners[$module]??null) || $owners[$module]<=0)throw new InvalidArgumentException('Authorized module owners are required for the complete commercial graph.');
     $placement=purepayCoreLinkSource($pdo,$instance,$owners['placements'],'placement',$number);
     $refs=[];
-    $resolve=static function(string $kind,int $id)use($pdo,$instance,$owners,&$refs):array {
+    $resolve=static function(string $kind,int $id,?int $expectedCompany=null)use($pdo,$instance,$owners,&$refs):array {
+        if($kind==='client' && $expectedCompany!==null){
+            $s=$pdo->prepare('SELECT company_id FROM staffing_clients WHERE tenant_id=:t AND id=:i');
+            $s->execute(['t'=>$owners['placements'],'i'=>$id]);
+            if((int)$s->fetchColumn()!==$expectedCompany)throw new RuntimeException('The approved billing client no longer matches its frozen company identity.');
+        }
         $key=$kind.':'.$id;
         if(isset($refs[$key]))return $refs[$key];
         $definition=coreRecordNumberDefinition($kind);$owner=$owners[$definition['module']];
@@ -24,6 +29,9 @@ function purepayAssignmentInputSource(PDO $pdo,string $instance,array $owners,st
     $s=$pdo->prepare('SELECT * FROM placements WHERE tenant_id=:t AND id=:i AND deleted_at IS NULL');
     $s->execute(['t'=>$owners['placements'],'i'=>$placement['entity_id']]);$row=$s->fetch(PDO::FETCH_ASSOC);
     if(!$row)throw new RuntimeException('This placement is no longer available.');
+    $s=$pdo->prepare('SELECT company_id FROM staffing_clients WHERE tenant_id=:t AND id=:i');
+    $s->execute(['t'=>$owners['placements'],'i'=>$row['client_id']]);
+    $row['billing_company_id']=$s->fetchColumn() ?: null;
     $s=$pdo->prepare('SELECT id,first_name,last_name FROM people WHERE tenant_id=:t AND id=:i AND deleted_at IS NULL');
     $s->execute(['t'=>$owners['people'],'i'=>$row['person_id']]);$person=$s->fetch(PDO::FETCH_ASSOC);
     if(!$person)throw new RuntimeException('The placed person is outside the authorized people directory.');

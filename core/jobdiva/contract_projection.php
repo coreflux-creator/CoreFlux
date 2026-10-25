@@ -162,6 +162,7 @@ function jobdivaContractProjectionBuild(
     ]);
     $clientName = trim((string) ($contract['client_company_name'] ?? ''));
     $clientExternalId = trim((string) ($contract['client_company_id'] ?? ''));
+    $endClient = jobdivaAssignmentEndClientEvidence($payload);
 
     $sourceBill = jobdivaContractProjectionAmount($contract['bill_rate'] ?? null) ?? 0.0;
     $vmsBill = jobdivaContractProjectionAmount($contract['bill_rate_in_vms'] ?? null) ?? 0.0;
@@ -208,7 +209,7 @@ function jobdivaContractProjectionBuild(
     $participants = [];
     if ($clientName !== '' || $clientExternalId !== '') {
         $participants[] = [
-            'role' => 'end_client',
+            'role' => 'bill_to_client',
             'name' => $clientName,
             'external_id' => $clientExternalId,
             'money_flow' => 'receivable',
@@ -217,7 +218,14 @@ function jobdivaContractProjectionBuild(
             'cadence' => $clientCadence ?: 'monthly',
             'payment_terms' => $clientTerms ?: 'tenant_or_client_default',
             'paid_when_paid' => false,
-            'source' => 'Start/Job company identity + Assignment BILLING',
+            'source' => 'Assignment BILLING.COMPANY',
+        ];
+    }
+    if ($endClient['status'] !== 'ambiguous' && $endClient['name'] !== '') {
+        $participants[] = [
+            'role' => 'end_client', 'name' => $endClient['name'], 'external_id' => $endClient['external_id'],
+            'money_flow' => 'informational', 'settlement_channel' => 'none', 'calculation' => 'none',
+            'cadence' => null, 'payment_terms' => null, 'paid_when_paid' => false, 'source' => $endClient['source'],
         ];
     }
     if (in_array($engagement, ['w2', 'temp_to_perm', 'internal'], true)) {
@@ -307,7 +315,8 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Placement', 'status', 'Lifecycle status', $currentPlacement['status'] ?? null, $contract['placement_status'] ?? null, $sourceFor('placement_status', 'Assignment.BILLING lifecycle flags')),
         jobdivaContractProjectionField('Placement', 'start_date', 'Start date', $currentPlacement['start_date'] ?? null, $startDate, $sourceFor('start_date', 'Assignment.BILLING.START_DATE')),
         jobdivaContractProjectionField('Placement', 'end_date', 'End date', $currentPlacement['end_date'] ?? null, $endDate, $sourceFor('end_date', 'Assignment.BILLING.END_DATE')),
-        jobdivaContractProjectionField('Placement', 'end_client_name', 'Bill-to client', $currentPlacement['end_client_name'] ?? null, $clientName ?: null, $sourceFor('client_company_name', 'Assignment.BILLING.COMPANY.COMPANYNAME')),
+        jobdivaContractProjectionField('Placement', 'billing_client_name', 'Bill-to client', $currentGraph['billing_client']['name'] ?? null, $clientName ?: null, $sourceFor('client_company_name', 'Assignment.BILLING.COMPANY.COMPANYNAME')),
+        jobdivaContractProjectionField('Placement', 'end_client_name', 'End client', $currentPlacement['end_client_name'] ?? null, $endClient['status'] === 'ambiguous' ? null : ($endClient['name'] ?: null), $endClient['source']),
         jobdivaContractProjectionField('Placement', 'worksite_country', 'Worksite country', $currentPlacement['worksite_country'] ?? null, $country, 'Assignment.BILLING.WORKING_COUNTRY'),
         jobdivaContractProjectionField('Rate', 'bill_rate_unit', 'Bill rate unit', $currentRate['bill_rate_unit'] ?? null, $basis['bill_rate_unit'], 'Assignment bill rate / unit'),
         jobdivaContractProjectionField('Rate', 'pay_rate_unit', 'Pay rate unit', $currentRate['pay_rate_unit'] ?? null, $basis['pay_rate_unit'], 'Assignment salary / unit'),
@@ -381,6 +390,7 @@ function jobdivaContractProjectionBuild(
         )
         : $laborPayeeCheck;
     $checks = [
+        jobdivaContractProjectionCheck('end_client_evidence', 'End-client evidence', $endClient['status'] !== 'ambiguous', $endClient['status'] === 'ambiguous' ? 'Explicit end-client identities conflict.' : 'Bill-to and end-client identities are separate.'),
         jobdivaContractProjectionCheck('exact_assignment_contract', 'Exact assignment financial contract', $contract !== [] && $startId !== '' && ($expectedStartId === '' || $startId === $expectedStartId), $contract === [] ? 'EmployeeAssignmentRecordsDetail has not been stored for this Start ID.' : "Start ID {$startId}"),
         jobdivaContractProjectionCheck('candidate_identity', 'Candidate identity', $candidateId !== '', $candidateId !== '' ? "Candidate {$candidateId}" : 'Candidate ID is missing.'),
         jobdivaContractProjectionCheck('job_identity', 'Job identity', $jobId !== '', $jobId !== '' ? "Job {$jobId}" : 'Job ID is missing.'),

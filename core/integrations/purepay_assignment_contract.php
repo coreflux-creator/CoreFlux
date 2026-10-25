@@ -120,11 +120,12 @@ function purepayAssignmentParty(array $row,array $placement,callable $resolve,ar
     $channel=purepayAssignmentChoice($row['settlement_channel'],['ar','ap','payroll','none']);
     $clientBasis=null;
     if($channel==='ar') {
-        if(!empty($row['client_id'])){$roots['client']=$resolve('client',purepayAssignmentId($row['client_id']));$clientBasis='approved_snapshot';}
+        if(!empty($row['client_id'])){$roots['client']=$resolve('client',purepayAssignmentId($row['client_id']),purepayAssignmentId($row['company_id']));$clientBasis='approved_snapshot';}
         else {
-            // Historic graph snapshots retained the end-client company, but not the CL identity.
-            // Expose that limitation; only the standard, unchanged placement relation can be mapped.
-            if($row['source_ref']!=='placement:end_client' || ($row['company_id']===null?null:(int)$row['company_id'])!==($placement['end_client_company_id']===null?null:(int)$placement['end_client_company_id']))throw new RuntimeException('Review the historical bill-to identity before exporting this placement.');
+            // Legacy snapshots lack CL identity. Only a verified bill-to company
+            // can bridge that gap; the work recipient never establishes a debtor.
+            if(!in_array($row['source_ref'],['placement:end_client','placement:bill_to'],true)
+                || empty($row['company_id']) || (int)$row['company_id']!==(int)($placement['billing_company_id']??0))throw new RuntimeException('Review the historical bill-to identity before exporting this placement.');
             $roots['client']=$resolve('client',purepayAssignmentId($placement['client_id']));$clientBasis='current_placement';
         }
     }

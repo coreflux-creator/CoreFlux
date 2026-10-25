@@ -282,19 +282,7 @@ if ($method === 'POST') {
                 }
                 $patch = [$field => $value];
                 if ($field === 'end_client_company_id') {
-                    $company = companiesGet((int) $value);
-                    if (!$company) throw new \RuntimeException('Client company not found');
-                    $clientRef = staffingClientEnsureForCompany(
-                        currentTenantId(),
-                        (int) $company['id'],
-                        (string) $company['name'],
-                        ['created_by_user_id' => $user['id'] ?? null]
-                    );
-                    $patch = [
-                        'client_id' => $clientRef['client_id'],
-                        'end_client_company_id' => $clientRef['company_id'],
-                        'end_client_name' => $clientRef['name'],
-                    ];
+                    $patch = placementsResolveCompanyRoles((int) placementsGraphTenantId(currentTenantId()), $patch, $existing, $user['id'] ?? null);
                 }
 
                 $before = placementAuditRow($pid) ?? $existing;
@@ -534,34 +522,7 @@ if ($method === 'POST') {
             'created_by_user_id' => $user['id'] ?? null,
         ];
 
-        // If a company_id is provided, prefer its canonical name and tag it 'client'.
-        // If only a free-text end_client_name is provided, upsert into companies for
-        // future picks. Either path also ensures the staffing client consumer row.
-        if (!empty($insert['end_client_company_id'])) {
-            $co = companiesGet((int) $insert['end_client_company_id']);
-            if ($co) {
-                $insert['end_client_name'] = $co['name'];
-                companiesAddRole((int) $co['id'], 'client');
-                companiesBumpUsage((int) $co['id']);
-            }
-        } elseif (!empty($insert['end_client_name'])) {
-            $cid = companiesUpsertByName($placementTenantId, (string) $insert['end_client_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['client']);
-            $insert['end_client_company_id'] = $cid;
-            companiesBumpUsage($cid);
-        }
-        if (!empty($insert['end_client_company_id']) || !empty($insert['end_client_name'])) {
-            $clientRef = staffingClientEnsureForCompany(
-                $placementTenantId,
-                !empty($insert['end_client_company_id']) ? (int) $insert['end_client_company_id'] : null,
-                (string) ($insert['end_client_name'] ?? ''),
-                ['created_by_user_id' => $user['id'] ?? null]
-            );
-            $insert['client_id'] = $clientRef['client_id'];
-            $insert['end_client_company_id'] = $clientRef['company_id'] ?: $insert['end_client_company_id'];
-            $insert['end_client_name'] = $clientRef['name'];
-        }
+        $insert = array_replace($insert, placementsResolveCompanyRoles($placementTenantId, $body, [], $user['id'] ?? null));
 
         $id = scopedInsert('placements', $insert);
 
@@ -700,24 +661,10 @@ if ($method === 'PATCH') {
             'patch_status'
         );
     }
-    if (array_key_exists('end_client_company_id', $body) || array_key_exists('end_client_name', $body)) {
-        $companyId = !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null;
-        if (!array_key_exists('end_client_name', $body) && !$companyId && !empty($existing['end_client_company_id'])) {
-            $companyId = (int) $existing['end_client_company_id'];
-        }
-        $clientName = trim((string) ($body['end_client_name'] ?? $existing['end_client_name'] ?? ''));
-        if ($companyId || $clientName !== '') {
-            $clientRef = staffingClientEnsureForCompany($placementTenantId, $companyId, $clientName, [
-                'created_by_user_id' => $user['id'] ?? null,
-            ]);
-            $body['client_id'] = $clientRef['client_id'];
-            $body['end_client_company_id'] = $clientRef['company_id'];
-            $body['end_client_name'] = $clientRef['name'];
-        } else {
-            $body['client_id'] = null;
-            $body['end_client_company_id'] = null;
-            $body['end_client_name'] = null;
-        }
+    try {
+        $body = array_replace($body, placementsResolveCompanyRoles($placementTenantId, $body, $existing, $user['id'] ?? null));
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
     }
     $isJobDivaSourced = is_string($existing['external_id'] ?? null)
         && strpos((string) $existing['external_id'], 'jd:') === 0;

@@ -203,28 +203,15 @@ try {
 
         $source = $row['source'];
         $protectedFields = array_column($row['protected_changes'], 'field');
-        if (!empty($source['end_client_name']) && !in_array('end_client_name', $protectedFields, true)) {
-            $companyId = companiesUpsertByName($tenantId, (string) $source['end_client_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['client']);
-            $client = staffingClientEnsureForCompany(
-                $tenantId,
-                $companyId,
-                (string) $source['end_client_name'],
-                ['created_by_user_id' => $user['id'] ?? null]
-            );
+        if (!empty($source['end_client_name']) && !in_array('end_client_name', $protectedFields, true)
+            && !in_array('end_client_company_id', $protectedFields, true)) {
+            $recipient = placementsResolveCompanyRoles($tenantId, ['end_client_name' => $source['end_client_name']], [], $user['id'] ?? null);
             $pdo->prepare(
-                'UPDATE placements
-                    SET end_client_name = :name,
-                        end_client_company_id = :company_id,
-                        client_id = :client_id
+                'UPDATE placements SET end_client_name = :name, end_client_company_id = :company_id
                   WHERE tenant_id = :tenant_id AND id = :id'
             )->execute([
-                'name' => $client['name'],
-                'company_id' => $client['company_id'],
-                'client_id' => $client['client_id'],
-                'tenant_id' => $tenantId,
-                'id' => $placementId,
+                'name' => $recipient['end_client_name'], 'company_id' => $recipient['end_client_company_id'],
+                'tenant_id' => $tenantId, 'id' => $placementId,
             ]);
         }
 

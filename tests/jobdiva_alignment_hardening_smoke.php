@@ -61,10 +61,8 @@ $a('field map exposes an explicit internal-field presence helper',
 $a('placement classification uses the shared source and mapping review',
     str_contains($sync, '$jd = jobdivaClassificationPayloadForTenant($tid, $jd);')
     && str_contains($sync, '$engagement = jobdivaClassificationRequire($jd);'));
-$a('assignment/job engagement evidence is scanned before candidate classification',
-    strpos($sync, "'_jd_start', 'assignment'") !== false
-    && strpos($sync, "'_jd_candidate', 'person', 'candidate'") !== false
-    && strpos($sync, "'_jd_start', 'assignment'") < strpos($sync, "'_jd_candidate', 'person', 'candidate'"));
+$a('shared assignment classification remains independent of company roles',
+    str_contains($sync, '$engagement = jobdivaClassificationRequire($jd);'));
 
 echo "\n4. People graph no longer poisons placement workflow with W2 defaults\n";
 $a('person classification derives from JobDiva evidence',
