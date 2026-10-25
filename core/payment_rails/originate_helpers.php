@@ -113,6 +113,7 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
         );
     }
     $opts = [
+        'user_id'         => isset($sourceRow['actor_user_id']) ? (int) $sourceRow['actor_user_id'] : null,
         'company_name'    => (string) ($settings['nacha_company_name']    ?? ($module === 'payroll' ? 'PAYROLL'  : 'AP')),
         'company_id'      => (string) ($settings['nacha_company_id']      ?? '1234567890'),
         'origin_routing'  => (string) ($settings['nacha_origin_routing']  ?? ''),

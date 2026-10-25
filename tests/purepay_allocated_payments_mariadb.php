@@ -293,8 +293,113 @@ try{
     $out=purepayAllocationOperate($pdo,1,25,8,true,'reconcile',$out['review_hash'],'Inspect original in-flight attempt');
     $check($out['status']==='needs_review' && !$out['can_release'] && !$out['can_resume'],
         'reconciliation of an executing cancelled request preserves the hold');
+    // Both actual Mercury AP paths must contend on the same row as PurePay.
+    // Only draft/approval records are created; no Mercury worker or adapter is invoked.
+    require_once __DIR__.'/../core/mercury_payments.php';
+    require_once __DIR__.'/../core/payment_rails/mercury_driver.php';
+    $mercuryCalls=0;
+    $GLOBALS['__mercury_transport']=static function()use(&$mercuryCalls){
+        $mercuryCalls++;throw new RuntimeException('Mercury network is prohibited in this fixture');
+    };
+    foreach(['048_mercury_foundation.sql','049_mercury_recipients.sql','050_mercury_payments.sql'] as $file)
+        foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file)) as $sql)
+            if(preg_match('/CREATE TABLE IF NOT EXISTS /',$sql))$pdo->exec($sql);
+    $pdo->exec('ALTER TABLE payment_instructions ADD is_internal_transfer TINYINT NOT NULL DEFAULT 0');
+    $pdo->exec('INSERT INTO mercury_recipients(id,tenant_id,kind,name,status) VALUES(1,1,"vendor","Synthetic supplier","active")');
+    $pdo->prepare('INSERT INTO mercury_connections(tenant_id,api_token_ct,api_token_last4,status) VALUES(1,?,"ture","active")')
+        ->execute([encryptField('synthetic-not-a-credential')]);
+    $pdo->prepare('INSERT INTO mercury_recipient_bank_methods(tenant_id,recipient_id,routing_number_ct,account_number_ct,account_number_last4,is_default)
+        VALUES(1,1,?,?,"5678",1)')->execute([encryptField('021000021'),encryptField('12345678')]);
+    $mercuryData=static fn(int $id):array=>['source_module'=>'ap','source_ref'=>'ap_payment:'.$id,'recipient_id'=>1,'amount_cents'=>12500,'currency'=>'USD'];
+    $mercuryCount=static function(int $id)use($pdo):int{
+        $q=$pdo->prepare('SELECT COUNT(*) FROM payment_instructions WHERE tenant_id=1 AND source_ref IN (?,?)');
+        $q->execute([(string)$id,'ap_payment:'.$id]);return (int)$q->fetchColumn();
+    };
+    $mercuryItem=$seed(101,1);$before=count($calls);$pdo->beginTransaction();
+    $draft=mpCreateFromApPayment(1,101,8);
+    $check($pdo->inTransaction() && $draft['state']==='Draft'
+        && $pdo->query('SELECT rail_external_ref FROM ap_payments WHERE id=101')->fetchColumn()==='pi:'.$draft['id'],
+        'direct Mercury draft and AP reference share their caller transaction and require human approval');
+    $check($dbError(fn()=>purepayAllocationPrepare($other,1,101,$mercuryItem,$date))===1205 && count($calls)===$before,
+        'another SQL session cannot prepare PurePay while Mercury owns the AP row');
+    $pdo->commit();
+    $check($fails(fn()=>purepayAllocationPrepare($pdo,1,101,$mercuryItem,$date)) && count($calls)===$before && $mercuryCount(101)===1,
+        'committed Mercury draft excludes PurePay before any provider read or write');
+    $check($fails(fn()=>mpCreateFromApPayment(1,101,8)) && $mercuryCount(101)===1,
+        'repeated direct draft does not create another instruction');
+    $pdo->exec('UPDATE ap_payments SET rail_external_ref=NULL WHERE id=101');
+    $check($fails(fn()=>purepayAllocationPrepare($pdo,1,101,$mercuryItem,$date))
+        && $fails(fn()=>mpCreate(1,$mercuryData(101),8)) && $mercuryCount(101)===1,
+        'a missing reverse link cannot erase the original Mercury claim in either path');
+    $mercuryItem=$seed(102,1);purepayAllocationPrepare($pdo,1,102,$mercuryItem,$date);$before=count($calls);
+    $check($fails(fn()=>mpCreateFromApPayment(1,102,8)) && $fails(fn()=>mpCreate(1,$mercuryData(102),8))
+        && $mercuryCount(102)===0 && count($calls)===$before,'PurePay that claims first excludes both Mercury paths');
+    $pdo->exec('UPDATE ap_payments SET rail_external_ref=NULL WHERE id=102');
+    $check($fails(fn()=>mpCreate(1,$mercuryData(102),8)) && $mercuryCount(102)===0,
+        'a missing PurePay reverse link still blocks Mercury via its durable original allocation');
+    $mercuryItem=$seed(103,1);
+    $pdo->exec("CREATE TRIGGER fail_mercury_reference BEFORE UPDATE ON ap_payments FOR EACH ROW
+        BEGIN IF NEW.id=103 AND NEW.disbursement_rail='mercury' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic reference failure'; END IF; END");
+    $check($fails(fn()=>mpCreateFromApPayment(1,103,8)) && !$pdo->inTransaction() && $mercuryCount(103)===0
+        && !$pdo->query('SELECT rail_external_ref FROM ap_payments WHERE id=103')->fetchColumn(),
+        'reference persistence failure rolls back the entire direct Mercury draft');
+    $pdo->exec('DROP TRIGGER fail_mercury_reference');
+    purepayAllocationPrepare($pdo,1,103,$mercuryItem,$date);
+    $check(purepayAllocationParent($pdo,1,103)!==null,'rolled-back Mercury draft leaves no phantom provider claim');
+    $mercuryItem=$seed(104,1);$pdo->beginTransaction();
+    $pdo->query('SELECT COUNT(*) FROM payment_instructions')->fetchColumn();
+    $primary=$pdo;$GLOBALS['pdo']=$other;
+    try{$draft=mpCreate(1,$mercuryData(104),8);}finally{$GLOBALS['pdo']=$primary;}
+    $before=count($calls);
+    $check($fails(fn()=>purepayAllocationSource($pdo,1,104,$mercuryItem,$date)) && count($calls)===$before,
+        'an older transaction snapshot sees the competing committed Mercury AP claim');
+    $pdo->rollBack();
+    $mercuryItem=$seed(105,1);$pdo->beginTransaction();
+    mpCreate(1,$mercuryData(105),8);$check($pdo->inTransaction(),'batch-style Mercury creation preserves its caller transaction');
+    $pdo->rollBack();
+    $check($mercuryCount(105)===0 && !$pdo->query('SELECT rail_external_ref FROM ap_payments WHERE id=105')->fetchColumn(),
+        'caller rollback removes both batch-style Mercury draft and AP reverse link');
+    foreach([['amount_cents'=>12501],['amount_cents'=>12500.5],['currency'=>'CAD'],['source_ref'=>'ap_payment:0105']]as$change)
+        $check($fails(fn()=>mpCreate(1,array_replace($mercuryData(105),$change),8)) && $mercuryCount(105)===0,
+            'changed money, currency or noncanonical AP identity cannot create a Mercury draft');
+    $check($fails(fn()=>mpCreate(2,$mercuryData(105),8)) && $fails(fn()=>mpCreate(1,$mercuryData(105),null)),
+        'foreign company and missing operator cannot claim an AP payment');
+    $pdo->exec('UPDATE ap_payments SET created_by_user_id=8 WHERE id=105');
+    $check($fails(fn()=>mpCreate(1,$mercuryData(105),8)) && $mercuryCount(105)===0,
+        'payment creator cannot bypass independent release through the Mercury batch path');
+    $pdo->exec('UPDATE ap_payments SET created_by_user_id=NULL WHERE id=105');
+    $pdo->exec('UPDATE ap_bills SET pwp_status="awaiting_ar" WHERE id=1050');
+    $check($fails(fn()=>mpCreate(1,$mercuryData(105),8)) && $mercuryCount(105)===0,
+        'Mercury rechecks the original supplier bill release gate inside the AP claim');
+    $pdo->exec('UPDATE ap_bills SET pwp_status=NULL WHERE id=1050');
+    $data=$mercuryData(105);$data['source_module']='ap_payment';mpCreate(1,$data,8);
+    $check($mercuryCount(105)===1 && $pdo->query('SELECT source_module FROM payment_instructions WHERE source_ref="ap_payment:105"')->fetchColumn()==='ap',
+        'legacy ap_payment source spelling is normalized and cannot bypass the AP claim');
+    $pdo->exec('UPDATE payment_instructions SET source_module="ap_payment",state="Failed" WHERE source_ref="ap_payment:105"');
+    $pdo->exec('UPDATE ap_payments SET rail_external_ref=NULL WHERE id=105');
+    $check($fails(fn()=>purepayAllocationPrepare($pdo,1,105,$mercuryItem,$date)) && $fails(fn()=>mpCreate(1,$mercuryData(105),8)),
+        'historical batch source spelling and a failed instruction retain the original claim for reconciliation');
+    $mercuryItem=$seed(106,1);
+    $mercuryItem['recipient_name']='Synthetic supplier with a longer legal name';
+    $pdo->exec('UPDATE ap_payments SET vendor_name="Synthetic supplier with a longer legal name" WHERE id=106');
+    $pdo->exec('UPDATE ap_bills SET vendor_name="Synthetic supplier with a longer legal name" WHERE id=1060');
+    $pdo->exec('UPDATE mercury_recipients SET name="Synthetic supplier with a longer legal name" WHERE id=1');
+    $railItem=paymentRailsBuildItem($mercuryItem+['routing'=>'021000021','account'=>'12345678',
+        'account_type'=>'checking','sec_code'=>'ccd','description'=>'AP-PAY']);
+    $before=count($calls);$beforeExecution=$executeCount;
+    $result=paymentRailsDispatch('ap',['tenant_id'=>1,'actor_user_id'=>8,'disbursement_rail'=>'mercury'],[],[$railItem]);
+    $check($result['rail']==='mercury' && $result['items'][0]['status']!=='failed' && $mercuryCount(106)===1
+        && $pdo->query('SELECT rail_external_ref FROM ap_payments WHERE id=106')->fetchColumn()===$result['items'][0]['rail_external_ref'],
+        'actual shared dispatch creates one Mercury draft with the full vendor name and matching AP reference');
+    $check(count($calls)===$before && $executeCount===$beforeExecution
+        && $fails(fn()=>purepayAllocationPrepare($pdo,1,106,$mercuryItem,$date)),
+        'shared Mercury dispatch excludes PurePay without provider or funding execution');
+    $result=paymentRailsDispatch('ap',['tenant_id'=>1,'actor_user_id'=>8,'disbursement_rail'=>'mercury'],[],[$railItem]);
+    $check($result['items'][0]['status']==='failed' && $mercuryCount(106)===1,
+        'repeated actual Mercury dispatch returns a conflict without creating a second instruction');
+    $check($mercuryCalls===0,'all Mercury concurrency checks complete without any external provider calls');
     $pdo->exec('UPDATE purepay_connections SET key_scope="read_only" WHERE tenant_id=1');$before=$executeCount;$callsBefore=count($calls);
     $check($fails(fn()=>purepayAllocationCall($pdo,1,4,40,'execute')) && $executeCount===$before
         && !array_filter(array_slice($calls,$callsBefore),static fn($call)=>$call[0]==='POST'),'read-only connection cannot execute');
     echo "PASS allocated payment MariaDB checks: $checks\n";
-}finally{unset($GLOBALS['__purepay_transport']);$pdo->exec('DROP DATABASE '.$database);}
+}finally{unset($GLOBALS['__purepay_transport'],$GLOBALS['__mercury_transport']);$pdo->exec('DROP DATABASE '.$database);}

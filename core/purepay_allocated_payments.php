@@ -49,6 +49,15 @@ function purepayAllocationSource(PDO $pdo,int $tenant,int $payment,array $item,s
         || trim((string)($item['recipient_full_name']??$item['recipient_name']??''))!==$p['vendor_name']) {
         throw new PurePayApiException('Review the fully allocated USD AP payment before dispatch.');
     }
+    // Mercury uses the same locked AP row. Its durable draft remains a claim
+    // even when a damaged/missing reverse link would otherwise hide it.
+    $q=$pdo->query("SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='payment_instructions'");
+    if($q->fetchColumn()) {
+        $q=$pdo->prepare('SELECT id FROM payment_instructions WHERE tenant_id=? AND source_module IN ("ap","ap_payment")
+            AND source_ref IN (?,?) LIMIT 1 FOR UPDATE');
+        $q->execute([$tenant,(string)$payment,'ap_payment:'.$payment]);
+        if($q->fetchColumn()!==false)throw new PurePayApiException('Reconcile the original Mercury instruction before changing payment service.');
+    }
     $connection=purepayFinancialConnection($pdo,$tenant,true);
     $binding=purepayFinancialRequire($pdo,$tenant,$connection);
     if ($connection['key_scope']!=='read_write' || $binding['provider_key_scope']!=='write') throw new PurePayApiException('Dispatch requires a reviewed read-write financial connection.');

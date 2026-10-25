@@ -531,6 +531,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
 
     try {
         $res = paymentRailsDispatch('ap', [
+            'actor_user_id' => (int) ($user['id'] ?? 0),
             'tenant_id' => (int) currentTenantId(),
             'effective_date' => date('Y-m-d', strtotime('+1 day')),
             'disbursement_rail' => $railOverride,
@@ -703,6 +704,7 @@ if ($method === 'POST' && $action === 'originate') {
     $item = paymentRailsBuildItem($itemData, $targetRail === 'purepay');
 
     try {
+        $row['actor_user_id'] = (int) ($user['id'] ?? 0);
         $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
     } catch (PaymentRailsOriginateException $e) {
         apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id, [
@@ -712,6 +714,10 @@ if ($method === 'POST' && $action === 'originate') {
     }
 
     $itemRes = $res['items'][0] ?? ['status' => 'failed'];
+    if (($itemRes['status'] ?? '') === 'failed' && empty($itemRes['rail_external_ref'])) {
+        // A rejected competing request must never erase another service's claim.
+        api_error((string) ($itemRes['error'] ?? 'Payment service did not return a payment reference. Review the original delivery before retrying.'), 409);
+    }
     getDB()->prepare(
         'UPDATE ap_payments SET disbursement_rail = :r, rail_external_ref = :x,
                 rail_status = :s, rail_originated_at = NOW()
