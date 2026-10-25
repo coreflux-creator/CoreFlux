@@ -81,3 +81,8 @@ test('switching the selected company cannot send an old review into the new comp
     assert.equal(f.calls.length, 1); assert.ok(text(f.tree.root).includes('The company changed'));
   } finally { f.close(); }
 });
+test('completed cancellation has no resume or finish-cancellation action', async () => {
+  const f = await fixture({ ...review, status: 'cancelled', release_requested: true, can_resume: false, can_release: false });
+  try { assert.ok(!f.button('Review resume')); assert.ok(!f.button('Finish cancellation')); assert.ok(!text(f.tree.root).includes('An attempt already in progress')); }
+  finally { f.close(); }
+});

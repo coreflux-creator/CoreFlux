@@ -238,6 +238,10 @@ try{
     purepayAllocationSave($pdo,1,20,200,$delayed);
     $check(purepayAllocationParent($pdo,1,20)['status']==='cancelled' && $guard(20,'void'),
         'a late held receipt cannot reopen a cancelled original request');
+    $contradiction=$delayed;$contradiction['state']='executing';purepayAllocationSave($pdo,1,20,200,$contradiction);
+    purepayAllocationSave($pdo,1,20,200,$reservations[$child['reservation_id']]);
+    $check(purepayAllocationParent($pdo,1,20)['status']==='needs_review' && $fails(fn()=>$guard(20,'void')),
+        'execution reported after cancellation creates a sticky conflict that later release cannot erase');
     $operatorItem=$seed(21);purepayAllocationPrepare($pdo,1,21,$operatorItem,$date);$review=purepayAllocationReview($pdo,1,21,8,true);$lose='release';
     $out=purepayAllocationOperate($pdo,1,21,8,true,'release',$review['review_hash'],'Stop before payment');
     $check($out['status']==='needs_review' && $out['release_requested'] && !$out['can_resume'] && $fails(fn()=>$guard(21,'void')),

@@ -232,6 +232,8 @@ function purepayAllocationSave(PDO $pdo,int $tenant,int $payment,int $bill,array
             if($q->fetchColumn()!==false)throw new PurePayApiException('This receipt already belongs to a historical Core payment.');
         }
         $status=$verified['payment_status'];$error=null;
+        if($child['provider_state']==='released' && !in_array($verified['provider_state'],['released','held'],true))
+            $error='A cancelled reservation reports a payment attempt. Review the original evidence.';
         if($child['provider_state']==='released' && $verified['provider_state']==='held') {
             // The held response may have been delayed until after cancellation.
             $pdo->commit();return $parent['status'];
@@ -260,8 +262,6 @@ function purepayAllocationHold(PDO $pdo,int $tenant,int $payment,int $bill,bool 
     try {
         $q=$pdo->prepare('SELECT id FROM ap_payments WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$tenant,$payment]);
         $parent=purepayAllocationParent($pdo,$tenant,$payment,true);
-        if(!empty($parent['release_requested']) && in_array($action,['reserve','execute'],true))
-            throw new PurePayApiException('Cancellation has been requested. This payment cannot resume.');
         if($parent){
             $pdo->prepare('UPDATE purepay_payment_allocations SET last_error="Original reservation needs reconciliation",terminal_review=GREATEST(terminal_review,?),updated_at=NOW()
                 WHERE tenant_id=? AND core_payment_id=? AND core_bill_id=?')->execute([$terminalReview?1:0,$tenant,$payment,$bill]);
@@ -294,6 +294,8 @@ function purepayAllocationCall(PDO $pdo,int $tenant,int $payment,int $bill,strin
                 || $parent['connection_fingerprint']!==purepayConnectionFingerprint($tenant,purepayFinancialKey($connection)))throw new PurePayApiException('Reconfirm the original company connection before reconciliation.');
         }
         $parent=purepayAllocationParent($pdo,$tenant,$payment,true);
+        if(!empty($parent['release_requested']) && in_array($action,['reserve','execute'],true))
+            throw new PurePayApiException('Cancellation has been requested. This payment cannot resume.');
         if($action==='execute' && $saved['effective_date']>date('Y-m-d'))throw new PurePayApiException('This payment is scheduled for a future date.');
         $children=purepayAllocationChildren($pdo,$tenant,$payment,true);
         if(!purepayAllocationChildrenMatch($parent,$children))throw new PurePayApiException('The original allocation records changed.');
