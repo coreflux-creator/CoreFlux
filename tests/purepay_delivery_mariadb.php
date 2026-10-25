@@ -189,10 +189,11 @@ $check($driver->getStatusForTenant(1,'purepay:payment:'.$ownerId)==='settled','f
 $owner=$link('ap_payment:190');$seedAp(191);$secondItem=array_replace($item,['external_ref'=>'ap_payment:191']);$seedLegacy(191,$owner['purepay_bill_id'],false);unset($payments['historic-payment-191']);
 $reusedBillId=$owner['purepay_bill_id'];$before=$payCount();
 $check($fails(fn()=>$send($secondItem)) && $payCount()===$before,'a second Core payment cannot adopt an already owned provider payment or originate another');
-$check($driver->getStatusForTenant(1,'purepay:payment:'.$ownerId)==='settled','owner stays readable without adopting the held duplicate');
 $second=$link('ap_payment:191');
 $check($second['purepay_payment_id']===null && $second['status']==='needs_review'
     && $link('ap_payment:190')===$owner,'conflict preserves the original receipt and leaves the second attempt held');
+// Assert conflict isolation before the deliberate status refresh updates sync timestamps.
+$check($driver->getStatusForTenant(1,'purepay:payment:'.$ownerId)==='settled','owner stays readable without adopting the held duplicate');
 $held(fn()=>apVoidPayment(1,191,'Synthetic ownership conflict'),'receipt ownership conflict cannot release the second bill reservation');
 $held(fn()=>apClearPayment(1,191,'2026-10-21',null,null),'receipt ownership conflict cannot clear the second AP payment');
 $reusedBillId=null;
