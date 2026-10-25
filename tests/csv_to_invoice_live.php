@@ -62,14 +62,18 @@ $pdo->prepare(
 $pdo->prepare(
     "INSERT INTO companies (id, tenant_id, name) VALUES (9701, :t, 'CSV Billing Client')"
 )->execute(['t' => $tenantId]);
+$pdo->prepare("INSERT INTO companies (id, tenant_id, name) VALUES (9702, :t, 'CSV Work Recipient')")
+    ->execute(['t' => $tenantId]);
+$pdo->prepare("INSERT INTO staffing_clients (id, tenant_id, company_id, name) VALUES (9701, :t, 9701, 'CSV Billing Client')")
+    ->execute(['t' => $tenantId]);
 $pdo->prepare(
     "INSERT INTO placements
         (id, tenant_id, person_id, status, start_date, engagement_type, title,
-         end_client_company_id, end_client_name, accounting_entity_id,
+         end_client_company_id, end_client_name, accounting_entity_id, client_id,
          worksite_state, workers_comp_class, branch)
      VALUES
         (9701, :t, 9701, 'active', '2026-01-01', 'w2', 'Data Consultant',
-         9701, 'CSV Billing Client', 1, 'NY', '8810', 'East')"
+         9702, 'CSV Work Recipient', 1, 9701, 'NY', '8810', 'East')"
 )->execute(['t' => $tenantId]);
 $pdo->prepare(
     "INSERT INTO placement_rates

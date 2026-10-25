@@ -21,16 +21,20 @@ $pdo->prepare(
      VALUES (9601, :tenant_id, 'Casey', 'Rivera', 'ci-worker@coreflux.test', 'w2', 1)"
 )->execute(['tenant_id' => $tenantId]);
 $pdo->prepare(
-    "INSERT INTO companies (id, tenant_id, name) VALUES (9601, :tenant_id, 'CI Client')"
+    "INSERT INTO companies (id, tenant_id, name) VALUES (9601, :tenant_id, 'CI Work Recipient')"
 )->execute(['tenant_id' => $tenantId]);
+$pdo->prepare("INSERT INTO companies (id, tenant_id, name) VALUES (9602, :t, 'CI Billing Client')")
+    ->execute(['t' => $tenantId]);
+$pdo->prepare("INSERT INTO staffing_clients (id, tenant_id, company_id, name) VALUES (9601, :t, 9602, 'CI Billing Client')")
+    ->execute(['t' => $tenantId]);
 $pdo->prepare(
     "INSERT INTO placements
         (id, tenant_id, person_id, status, start_date, engagement_type, title,
-         end_client_company_id, end_client_name, accounting_entity_id,
+         end_client_company_id, end_client_name, accounting_entity_id, client_id,
          worksite_state, workers_comp_class, branch)
      VALUES
         (9601, :tenant_id, 9601, 'active', '2026-01-01', 'w2', 'Consultant',
-         9601, 'CI Client', 1, 'NY', '8810', 'East')"
+         9601, 'CI Work Recipient', 1, 9601, 'NY', '8810', 'East')"
 )->execute(['tenant_id' => $tenantId]);
 $pdo->prepare(
     "INSERT INTO placement_rates
@@ -69,6 +73,7 @@ $snapshotJson = (string) ($approved['dimension_snapshot_json'] ?? '');
 $snapshot = json_decode($snapshotJson, true, 512, JSON_THROW_ON_ERROR);
 if ($approved['status'] !== 'approved' || (int) $approved['rate_snapshot_id'] !== 9601
     || ($snapshot['dimensions']['branch'] ?? '') !== 'East'
+    || (int) ($snapshot['dimensions']['client'] ?? 0) !== 9602
     || ($snapshot['engagement_type'] ?? '') !== 'w2'
     || !hash_equals(
         (string) $approved['dimension_snapshot_hash'],
@@ -101,7 +106,8 @@ if (count($posted) !== 1 || $posted[0]['status'] !== 'posted' || (int) $posted[0
 }
 $payload = json_decode((string) $posted[0]['payload'], true, 512, JSON_THROW_ON_ERROR);
 if ((float) $payload['hours'] !== 6.0 || (float) $payload['revenue'] !== 600.0
-    || (float) $payload['cost'] !== 360.0 || ($payload['dimensions']['branch'] ?? '') !== 'East') {
+    || (float) $payload['cost'] !== 360.0 || ($payload['dimensions']['branch'] ?? '') !== 'East'
+    || (int) ($payload['dimensions']['client'] ?? 0) !== 9602) {
     throw new RuntimeException('Approved staffing event has incorrect economics or dimensions');
 }
 
