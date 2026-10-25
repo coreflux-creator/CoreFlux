@@ -34,5 +34,10 @@ try {
         'payroll_or_payments_executed'=>false,'arabella_changed'=>false],JSON_THROW_ON_ERROR)."\n";
 } catch (Throwable $e) {
     // No DB diagnostics or private row data in deployment logs.
-    fwrite(STDERR,"THUNDERHAWK_ENTITY_ALIGNMENT held: reviewed precondition, postcondition or audit failed.\n");exit(2);
+    $known=['A separate transaction is required','Reviewed existing entity required','Transactional pilot tables required',
+        'Reviewed placement unavailable','Reviewed entity or source identity changed','Existing entity or override must be preserved',
+        'Placement changed before inheritance','Entity update was not retained','Unrelated placement fields changed',
+        'Verified audit receipt required','Person or rate records changed'];
+    $reason=in_array($e->getMessage(),$known,true)?$e->getMessage():($e instanceof PDOException?'Database operation rejected':'Unexpected guard failure');
+    fwrite(STDERR,'THUNDERHAWK_ENTITY_ALIGNMENT held: '.$reason."\n");exit(2);
 }

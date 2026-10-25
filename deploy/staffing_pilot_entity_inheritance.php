@@ -3,6 +3,23 @@
 declare(strict_types=1);
 require_once __DIR__.'/staffing_directory_inventory.php';
 
+/** Schema metadata only, to diagnose a held correction without exposing row contents. */
+function fullCorePilotEntityStorage(PDO $pdo): array
+{
+    $report=['engines'=>[],'audit_columns'=>[],'records_changed'=>false];
+    foreach (['placements','audit_log','people','placement_rates','tenants','tenant_module_scope','accounting_entities','external_entity_mappings'] as $table) {
+        $s=$pdo->prepare('SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t');
+        $s->execute(['t'=>$table]);$report['engines'][$table]=$s->fetchColumn()?:null;
+    }
+    $s=$pdo->query("SELECT COLUMN_NAME,IS_NULLABLE,COLUMN_DEFAULT,EXTRA FROM information_schema.columns
+        WHERE table_schema=DATABASE() AND table_name='audit_log' ORDER BY ORDINAL_POSITION");
+    foreach($s->fetchAll(PDO::FETCH_ASSOC) as $column){
+        $report['audit_columns'][]=['name'=>$column['COLUMN_NAME'],'nullable'=>$column['IS_NULLABLE']==='YES',
+            'has_default'=>$column['COLUMN_DEFAULT']!==null,'auto_increment'=>str_contains($column['EXTRA'],'auto_increment')];
+    }
+    return $report;
+}
+
 function fullCorePilotEntityInheritance(PDO $pdo, array $pilot, int $accountingOwner): array
 {
     $report=['status'=>'identity_not_verified','records_changed'=>false,

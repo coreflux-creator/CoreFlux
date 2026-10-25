@@ -152,6 +152,7 @@ try {
             'person_id'=>358, 'placement_id'=>864,
             'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
         ], (int)effectiveTenantIdForModule('accounting',2)),
+        'pilot_entity_storage' => fullCorePilotEntityStorage($db),
         'changed_file_count' => count($changed), 'added_file_count' => count($added),
         'changed_files' => $changed, 'added_files' => $added,
         'comparison_base_commit' => $manifest['base_commit'] ?? null,
