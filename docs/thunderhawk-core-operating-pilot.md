@@ -1,3 +1,11 @@
+## Reviewed supplier bill identity — October 25, 2026
+
+Core pilot runtime `52585f7a1417e04ffd7cfc7f6e6a13a3a05d7b70` includes an explicit comparison between the original Core AP bill and an existing PurePay bill. It shows the Core legal entity and both vendor/bill identities, checks invoice number, dates, original total, currency and remit identity, and saves a permanent exclusive provider-bill claim with immutable review history. Confirmation re-reads provider evidence and locks/rechecks local records; rotation requires fresh review without retargeting the saved bill.
+
+All nine CI jobs passed (40173281094), including 37 bill-identity, 31 company-binding and 301 payment-delivery MariaDB checks. Initial deployment 40172971742 applied migration 177; final deployment 40173466268 passed isolated staging acceptance with the audit-reconfirmation fix. The actual UI component was exercised with synthetic local responses, including explicit confirmation and a locked saved identity. Evidence: `deploy/purepay-bill-identity-staging-20261025.json`.
+
+This saves identity only. Payment dispatch still needs to consume the canonical mapping; shared reservations, partial/multi-bill allocations and reviewed historical AP receipt rebinding remain incomplete. Missing historical provider currency blocks review instead of being inferred. A hosted financial-key/bill walkthrough and actual Thunderhawk round trip are not proved. No provider source, production or live financial action changed.
+
 ## Reviewed financial company connection — October 25, 2026
 
 Core pilot runtime `ebf75db102ad118d91178aa2755e1b9dfd2b8d21` requires an explicit review of the financial API key’s company. The read-only provider context reports its stable organization ID, name and actual key permissions. Core checks this against the chosen local access. Wallet reads, financial attempts and callback consumption require confirmation. One provider origin/organization has one permanent Core-company owner; disconnecting or rotating keys does not free that claim. Rotation requires fresh confirmation and does not automatically rebind old AP receipts.
