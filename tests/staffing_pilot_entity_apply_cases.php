@@ -86,4 +86,14 @@ function testPilotEntityApply(PDO $pdo,array $pilot,callable $check): void
         &&$meta['before']['accounting_entity_id']===null,'legacy audit aliases preserve the same scoped system receipt');
     $pdo->exec('UPDATE placements SET accounting_entity_id=0 WHERE id=1');
     $pdo->exec('DROP TABLE audit_log');
+    $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT NOT NULL,
+        actor_user_id BIGINT NULL,actor_type VARCHAR(40),event VARCHAR(100),target_id BIGINT,object_type VARCHAR(80),
+        user_id BIGINT NULL,action VARCHAR(100) NOT NULL,entity_id BIGINT NOT NULL,entity VARCHAR(80) NOT NULL,
+        meta_json JSON,created_at DATETIME) ENGINE=InnoDB');
+    $result=$apply($pilot,$expected,11,$audit);$row=$pdo->query('SELECT * FROM audit_log')->fetch(PDO::FETCH_ASSOC);
+    $check($result['status']==='aligned'&&$row['event']===$row['action']&&$row['target_id']===$row['entity_id']
+        &&$row['object_type']===$row['entity']&&$row['actor_user_id']===null&&$row['user_id']===null,
+        'hybrid live audit schema fills mandatory legacy aliases as well as canonical fields');
+    $pdo->exec('UPDATE placements SET accounting_entity_id=0 WHERE id=1');
+    $pdo->exec('DROP TABLE audit_log');
 }

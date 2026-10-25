@@ -63,16 +63,11 @@ function platformAuditLogWrite(
         $add('user_id', $actorUserId);
         $add('actor_type', $actorType);
         $add('actor_email', $actorEmail);
-        if ($has('event')) {
-            $values['event'] = $event;
-        } elseif ($has('action')) {
-            $values['action'] = $event;
-        }
-        if ($has('target_id')) {
-            $values['target_id'] = $targetId;
-        } elseif ($has('entity_id')) {
-            $values['entity_id'] = $targetId;
-        }
+        // Upgraded legacy tables can retain required aliases beside canonical columns.
+        $add('event', $event);
+        $add('action', $event);
+        $add('target_id', $targetId);
+        $add('entity_id', $targetId);
         $add('object_type', $objectType);
         $add('entity', $objectType);
         $add('before_json', platformAuditJson($before));

@@ -23,6 +23,8 @@ function fullCorePilotEntityAudit(PDO $pdo,array $pilot,?int $before,int $after,
     $values=['tenant_id'=>$pilot['tenant_id'],$target=>$pilot['placement_id'],$event=>'placements.entity_inherited',
         'meta_json'=>json_encode($meta,JSON_THROW_ON_ERROR)];
     foreach (['actor_user_id'=>null,'user_id'=>null,'actor_type'=>'system','object_type'=>'placement','entity'=>'placement',
+        'event'=>'placements.entity_inherited','action'=>'placements.entity_inherited',
+        'target_id'=>$pilot['placement_id'],'entity_id'=>$pilot['placement_id'],
         'before_json'=>json_encode($meta['before'],JSON_THROW_ON_ERROR),'after_json'=>json_encode($meta['after'],JSON_THROW_ON_ERROR),
         'request_id'=>$requestId,'source'=>'jobdiva-pilot-alignment'] as $column=>$value) {
         if (in_array($column,$cols,true)) $values[$column]=$value;
