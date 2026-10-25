@@ -1,3 +1,11 @@
+## 2026-10-25 — Core original-bill dispatch candidate (not deployed)
+
+Core source `eea4aa215ecfe405ab278629516b8b1c757043cf` now consumes PurePay's original-bill reservation contract. Fresh payments use the reviewed supplier bills, with a separate durable allocation and receipt for each bill. The parent settles only when every allocation settles; partial outcomes and later terminal conflicts remain held. Polling and signed callbacks reconcile the original reservations without executing another payment or posting accounting entries. Historical attempts retain their separate read and reconciliation path.
+
+All nine jobs passed in [CI 40178001665](https://github.com/coreflux-creator/CoreFlux/actions/runs/40178001665), including 51 new allocation checks, 105 historical-receipt checks, 31 financial-company checks, 37 bill-identity checks and 87 money-evidence checks. MariaDB tests use the real driver, transactions and two independent SQL sessions, with synthetic provider responses. These results do not prove the combined hosted contract or real Mongo concurrency. Evidence: `deploy/purepay-core-allocations-candidate-20261025.json`.
+
+No staging, preview or production deployment occurred. Next: add operator review/resume/release controls, complete audited uncertain-funding and credential-rebinding recovery, then validate the combined candidate in the held preview. The Thunderhawk key handoff and full staffing/onboarding/time/payroll/financial round trip remain incomplete. Arabella remains separate.
+
 ## 2026-10-25 — Original-bill reservation source candidate (not deployed)
 
 PurePay source `ed40d8dbb5581730136b9563d37c02871262c730` adds durable original-bill reservations shared with native wallet, Mercury, QuickBooks recording and NACHA paths. The candidate passed 163 isolated full-application checks and 82 source-level payment checks; no real database or financial provider was used. Core staging and the held PurePay preview were not changed. Evidence: `deploy/purepay-bill-reservations-local-20261025.json`.
