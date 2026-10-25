@@ -42,7 +42,7 @@ function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): ar
         };
         if ($token==='') $authenticate();
         $request=static function(string $method,string $path,?array $body,?array $query)use(&$token,$authenticate,&$authCount):array {
-            if (!(($method==='POST' && $path==='/apiv2/jobdiva/searchStart')
+            if (!(($method==='POST' && in_array($path,['/apiv2/jobdiva/searchStart','/apiv2/jobdiva/searchCandidate'],true))
                 || ($method==='GET' && $path==='/apiv2/bi/EmployeeAssignmentRecordsDetail'))) {
                 throw new RuntimeException('Inspection endpoint is not allowlisted');
             }
@@ -66,6 +66,10 @@ function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): ar
                 'Employer, rates, custom-field values and downstream delivery require separate evidence.'];
             $report['alignment']=$alignment;
             $report['commercial_alignment']=fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$observed['contract'],gmdate('Y-m-d'));
+            $person=fullCoreJobdivaReadPerson($pilot['jobdiva_ids']['person'],$request);
+            $report['person_source']=$person['report'];
+            if($person['person']!==null)$report['person_alignment']=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$person['person']);
+            unset($person);
             $report['employment_setup_source_presence']=[
                 'workers_comp_class'=>fullCorePilotAlignedValue($observed['contract']['workers_comp_class']??null,'workers_comp_class')!==null,
                 'branch'=>fullCorePilotAlignedValue($observed['contract']['branch']??null,'branch')!==null,

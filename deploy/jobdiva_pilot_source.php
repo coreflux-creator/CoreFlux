@@ -4,6 +4,68 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/jobdiva/assignment_identity.php';
 require_once __DIR__ . '/../core/jobdiva/assignment_contract.php';
 
+/** Conservative contact comparison only; no inferred country, address or identity. */
+function fullCorePilotPersonValue(mixed $value, string $field): array
+{
+    if ($value===null || $value==='') return ['status'=>'missing','value'=>null];
+    if (!is_string($value) || strlen($value)>1024 || !preg_match('//u',$value)
+        || preg_match('/[\x00-\x1f\x7f]/',$value)) return ['status'=>'unrecognized','value'=>null];
+    $text=trim($value);
+    if ($text==='' || strtolower($text)==='null') return ['status'=>'missing','value'=>null];
+    if ($field==='email_primary') {
+        if (!filter_var($text,FILTER_VALIDATE_EMAIL)) return ['status'=>'unrecognized','value'=>null];
+        $text=strtolower($text);
+    } elseif ($field==='phone_primary') {
+        $text=preg_replace('/[(). -]/','',$text);
+        if (!preg_match('/^\+?[0-9]{7,15}$/D',$text)) return ['status'=>'unrecognized','value'=>null];
+    } else {
+        $text=preg_replace('/ +/',' ',$text);
+    }
+    return ['status'=>'present','value'=>$text];
+}
+
+/** The person payload is private; only the fixed status report may be logged. */
+function fullCoreJobdivaReadPerson(string $candidate, callable $request): array
+{
+    if (!preg_match('/^[1-9][0-9]{0,17}$/D',$candidate)) throw new InvalidArgumentException('Exact candidate ID required');
+    $report=['status'=>'source_unavailable','source_refreshed'=>false,'record_writes'=>false,
+        'exact_person_verified'=>false,'http_status'=>null];
+    $finish=static fn(array $r,?array $person=null):array=>['report'=>$r,'person'=>$person];
+    try {$response=$request('POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>$candidate],null);}
+    catch(Throwable){$report['status']='transport_failed';return $finish($report);}
+    $report['http_status']=is_int($response['status']??null)?$response['status']:null;
+    if($report['http_status']!==200)return $finish($report);
+    $rows=jobdivaAssignmentRowsFromResponse($response['body']??null);
+    $report['parsed_rows']=count($rows);
+    if(count($rows)!==1||!is_array($rows[0])){$report['status']='exact_person_unavailable';return $finish($report);}
+    $row=$rows[0];$ids=[];
+    foreach($row as $key=>$value){
+        $key=strtolower(preg_replace('/[^a-z0-9]/i','',(string)$key));
+        if(!in_array($key,['id','candidateid'],true))continue;
+        if(!is_string($value)&&!is_int($value)){$report['status']='candidate_identity_invalid';return $finish($report);}
+        $ids[]=(string)$value;
+    }
+    if(!$ids||array_values(array_unique($ids))!==[$candidate]){$report['status']='candidate_identity_mismatch';return $finish($report);}
+    $fields=[];
+    foreach(['first_name'=>['firstname','candidatefirstname'],'last_name'=>['lastname','candidatelastname'],
+        'email_primary'=>['email','emailaddress','candidateemail','emailprimary'],
+        'phone_primary'=>['phone','phonenumber','candidatephone','phoneprimary']] as $field=>$aliases){
+        $values=[];$invalid=false;
+        foreach($row as $key=>$value){
+            if(!in_array(strtolower(preg_replace('/[^a-z0-9]/i','',(string)$key)),$aliases,true))continue;
+            $normalized=fullCorePilotPersonValue($value,$field);
+            $invalid=$invalid||$normalized['status']==='unrecognized';
+            if($normalized['status']==='present')$values[]=$normalized['value'];
+        }
+        $values=array_values(array_unique($values));
+        $fields[$field]=['status'=>$invalid?'unrecognized':(count($values)>1?'ambiguous':($values?'present':'missing')),
+            'value'=>!$invalid&&count($values)===1?$values[0]:null];
+    }
+    $report['status']='exact_person_observed';$report['source_refreshed']=true;$report['exact_person_verified']=true;
+    $report['fields']=array_map(static fn(array $field):string=>$field['status'],$fields);
+    return $finish($report,['candidate_id'=>$candidate,'fields'=>$fields]);
+}
+
 function fullCoreJobdivaDetailIdentity(array $row, array $ids): array
 {
     $labels = ['placement'=>['startid','assignmentid'], 'person'=>['candidateid','employeeid'], 'job'=>['jobid']];

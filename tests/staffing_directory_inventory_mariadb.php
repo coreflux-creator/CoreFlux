@@ -104,6 +104,31 @@ try {
     $invalid=$pilot; $invalid['placement_id']='1'; $rejected=false;
     try { fullCoreStaffingPilotInventory($pdo,$invalid); } catch (InvalidArgumentException $e) { $rejected=true; }
     $check($rejected,'ambiguous numeric input is rejected before querying');
+    $profileSource=['candidate_id'=>'candidateAlpha','fields'=>[
+        'first_name'=>['status'=>'present','value'=>'PRIVATE-FIRST'],
+        'last_name'=>['status'=>'present','value'=>'PRIVATE-LAST'],
+        'email_primary'=>['status'=>'present','value'=>'private@example.test'],
+        'phone_primary'=>['status'=>'present','value'=>'+15551234567']]];
+    $profile=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$profileSource);
+    $check(array_values(array_unique($profile['fields']))===['core_column_unavailable'],'missing person columns remain visible without blocking the scoped identity check');
+    $pdo->exec('ALTER TABLE people ADD COLUMN first_name VARCHAR(100), ADD COLUMN last_name VARCHAR(100), ADD COLUMN email_primary VARCHAR(255), ADD COLUMN phone_primary VARCHAR(100)');
+    $pdo->exec("UPDATE people SET first_name='PRIVATE-FIRST',last_name='PRIVATE-OVERRIDE',email_primary='PRIVATE@example.test',phone_primary='+1 (555) 123-4567' WHERE id=1");
+    $profileBefore=$pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    $mappingBefore=$pdo->query('SELECT * FROM external_entity_mappings ORDER BY tenant_id,internal_entity_type,internal_entity_id')->fetchAll(PDO::FETCH_ASSOC);
+    $profile=fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$profileSource);
+    $check($profile['fields']===['first_name'=>'matches_fresh_source','last_name'=>'differs_from_fresh_source',
+        'email_primary'=>'matches_fresh_source','phone_primary'=>'matches_fresh_source'],'person comparison uses the explicit shared owner and preserves a differing Core name');
+    $check(!str_contains(json_encode($profile),'PRIVATE')&&!$profile['records_changed'],'person comparison never emits private values or proposes writes');
+    $check(fullCoreStaffingPilotPersonAlignment($pdo,array_replace($pilot,['person_directory_id'=>12]),$profileSource)['status']==='identity_not_verified','foreign person owner cannot establish profile comparison');
+    $check(fullCoreStaffingPilotPersonAlignment($pdo,array_replace($pilot,['person_id'=>4]),$profileSource)['status']==='identity_not_verified','unrelated worker cannot be compared through the pilot placement');
+    $check(fullCoreStaffingPilotPersonAlignment($pdo,$pilot,array_replace($profileSource,['candidate_id'=>'other']))['status']==='source_person_mismatch','a different provider candidate cannot supply profile values');
+    foreach(['missing','ambiguous','unrecognized'] as $state){
+        $different=$profileSource;$different['fields']['email_primary']=['status'=>$state,'value'=>null];
+        $check(fullCoreStaffingPilotPersonAlignment($pdo,$pilot,$different)['fields']['email_primary']==='source_value_'.$state,'source contact '.$state.' cannot become a false match');
+    }
+    $check($pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$profileBefore
+        &&$pdo->query('SELECT * FROM external_entity_mappings ORDER BY tenant_id,internal_entity_type,internal_entity_id')->fetchAll(PDO::FETCH_ASSOC)===$mappingBefore,
+        'profile comparisons preserve every person, source snapshot and mapping row');
     $alignment=fullCoreStaffingPilotAlignment($pdo,$pilot);
     $check($alignment['status']==='compared'&&$alignment['fields']['branch']==='matches_stored_source',
         'read-only alignment compares a verified assignment snapshot with current values');

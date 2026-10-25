@@ -111,4 +111,42 @@ catch(InvalidArgumentException $e){$check(!$called,'invalid request identities a
 $invalid=$ids;$invalid['person']='99999999999999999999999999';
 try{fullCoreJobdivaReadPilot($invalid,static fn()=>[]);throw new RuntimeException('Overflow accepted');}
 catch(InvalidArgumentException $e){$check(true,'provider request integer overflow is rejected');}
+$readPerson=static function(array $rows):array{
+    return fullCoreJobdivaReadPerson('201',static fn()=>['status'=>200,'body'=>['data'=>$rows]]);
+};
+$candidate=['id'=>201,'candidateId'=>'201','firstName'=>'PRIVATE-FIRST','lastName'=>'PRIVATE-LAST',
+    'email'=>'PRIVATE@example.test','phone'=>'+1 (555) 123-4567','private_custom'=>'DO-NOT-EMIT'];
+$personCalls=[];
+$person=fullCoreJobdivaReadPerson('201',static function($method,$path,$body,$query)use(&$personCalls,$candidate):array{
+    $personCalls[]=[$method,$path,$body,$query];return ['status'=>200,'body'=>[$candidate]];
+});
+$check($personCalls===[['POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>'201'],null]],'person read uses only the explicitly selected candidate');
+$check($person['report']['exact_person_verified']&&$person['report']['source_refreshed']&&!$person['report']['record_writes'],'exact person echo proves the bounded source read only');
+$check(!str_contains(json_encode($person['report']),'PRIVATE')&&!str_contains(json_encode($person['report']),'201')
+    &&!str_contains(json_encode($person['report']),'DO-NOT-EMIT'),'person diagnostics contain no contact data, provider ID or custom values');
+$check($person['person']['fields']['email_primary']['value']==='private@example.test'
+    &&$person['person']['fields']['phone_primary']['value']==='+15551234567','contact comparison normalizes case and phone formatting without country inference');
+foreach([[],[$candidate,$candidate],[array_replace($candidate,['candidateId'=>'999'])],
+    [array_replace($candidate,['id'=>true])],[['firstName'=>'PRIVATE-FIRST']]] as $rows)
+    $check($readPerson($rows)['person']===null,'missing, duplicate or conflicting candidate identity remains unavailable');
+$alias=$candidate;$alias['EMAIL_ADDRESS']='different@example.test';
+$check($readPerson([$alias])['report']['fields']['email_primary']==='ambiguous','conflicting contact aliases are explicit rather than first-match wins');
+$alias=$candidate;$alias['phone']=['PRIVATE-PHONE'];
+$check($readPerson([$alias])['report']['fields']['phone_primary']==='unrecognized','structured source contact values are not cast or exposed');
+$alias=$candidate;$alias['email']='';unset($alias['lastName']);
+$missing=$readPerson([$alias]);
+$check($missing['report']['fields']['email_primary']==='missing'&&$missing['report']['fields']['last_name']==='missing','blank and absent contact fields stay missing');
+foreach([401,403,429,500] as $status){
+    $result=fullCoreJobdivaReadPerson('201',static fn()=>['status'=>$status,'body'=>'PRIVATE-TOKEN']);
+    $check($result['person']===null&&$result['report']['http_status']===$status&&!str_contains(json_encode($result),'PRIVATE'),'person HTTP failure exposes only status');
+}
+$result=fullCoreJobdivaReadPerson('201',static function(){throw new RuntimeException('PRIVATE-SECRET');});
+$check($result['report']['status']==='transport_failed'&&!str_contains(json_encode($result),'PRIVATE'),'person transport errors do not expose exception text');
+$called=false;
+try{fullCoreJobdivaReadPerson('201 OR 1=1',static function()use(&$called){$called=true;return [];});throw new RuntimeException('Invalid person accepted');}
+catch(InvalidArgumentException){$check(!$called,'invalid candidate criteria never reach the provider');}
+$check(fullCorePilotPersonValue('+1 555 123 4567','phone_primary')['value']!==fullCorePilotPersonValue('5551234567','phone_primary')['value'],
+    'comparison does not guess a country prefix');
+$check(fullCorePilotPersonValue("PRIVATE\nNAME",'first_name')['status']==='unrecognized'
+    &&fullCorePilotPersonValue(false,'phone_primary')['status']==='unrecognized','control characters and nonstring contact data are rejected');
 echo "$passed passed\n";

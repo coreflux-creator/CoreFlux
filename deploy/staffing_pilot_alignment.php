@@ -4,6 +4,40 @@ declare(strict_types=1);
 require_once __DIR__ . '/staffing_directory_inventory.php';
 require_once __DIR__ . '/../core/jobdiva/assignment_contract.php';
 require_once __DIR__ . '/../core/integrations/source_values.php';
+require_once __DIR__ . '/jobdiva_pilot_source.php';
+
+/** Fixed field statuses only; neither contact values nor changes are returned. */
+function fullCoreStaffingPilotPersonAlignment(PDO $pdo,array $pilot,array $source): array
+{
+    $result=['status'=>'identity_not_verified','records_changed'=>false,'fields'=>[],
+        'scope'=>'Four current person fields against an exact candidate read; no overwrite proposed.',
+        'limits'=>['Core overrides and tenant mappings may intentionally differ.',
+            'Names are case-sensitive; phone formatting alone is ignored, with no country inference.',
+            'This does not verify addresses, custom fields, worker access or payroll eligibility.']];
+    $identity=fullCoreStaffingPilotInventory($pdo,$pilot);
+    if($identity['status']!=='observed')return $result;
+    foreach(['person','placement','job'] as $entity)
+        if(($identity['jobdiva_identity'][$entity]['status']??null)!=='exact_match')return $result;
+    if(($source['candidate_id']??null)!==$pilot['jobdiva_ids']['person'])return array_replace($result,['status'=>'source_person_mismatch']);
+    $s=$pdo->query('SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name="people"');
+    $columns=array_values(array_intersect(['first_name','last_name','email_primary','phone_primary'],$s->fetchAll(PDO::FETCH_COLUMN)));
+    $person=[];
+    if($columns){
+        $s=$pdo->prepare('SELECT '.implode(',',$columns).' FROM people WHERE id=:id AND tenant_id=:t AND deleted_at IS NULL');
+        $s->execute(['id'=>$pilot['person_id'],'t'=>$pilot['person_directory_id']]);$person=$s->fetch(PDO::FETCH_ASSOC);
+        if(!$person)return $result;
+    }
+    foreach(['first_name','last_name','email_primary','phone_primary'] as $field){
+        if(!array_key_exists($field,$person)){$result['fields'][$field]='core_column_unavailable';continue;}
+        $remote=$source['fields'][$field]??['status'=>'missing','value'=>null];
+        if(!in_array($remote['status'],['present','missing','ambiguous','unrecognized'],true))throw new RuntimeException('Invalid candidate comparison status');
+        if($remote['status']!=='present'){$result['fields'][$field]='source_value_'.$remote['status'];continue;}
+        $local=fullCorePilotPersonValue($person[$field],$field);
+        $result['fields'][$field]=$local['status']!=='present'?'core_value_'.$local['status']:
+            ($local['value']===$remote['value']?'matches_fresh_source':'differs_from_fresh_source');
+    }
+    $result['status']='compared';return $result;
+}
 
 function fullCorePilotAlignedValue(mixed $value, string $field): ?string
 {
