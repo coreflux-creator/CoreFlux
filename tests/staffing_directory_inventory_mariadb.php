@@ -26,7 +26,11 @@ try {
     $pdo->exec("UPDATE placements SET accounting_entity_id=0,branch='Reviewed division',workers_comp_class='   ',jobdiva_job_id='job001' WHERE id=1");
     $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(24),record_id BIGINT,record_number VARCHAR(48),canonical_record_id BIGINT)');
     $pdo->exec("INSERT INTO core_record_numbers VALUES(10,'person',1,'P-1',1),(11,'placement',1,'PL-1',1),(11,'person',1,'P-2',99)");
-    $pilot=['tenant_id'=>11,'workspace_name'=>'Synthetic child','person_directory_id'=>10,'person_id'=>1,'placement_id'=>1,
+    $pdo->exec('CREATE TABLE accounting_entities(id BIGINT,tenant_id BIGINT,active INT)');
+    $pdo->exec('INSERT INTO accounting_entities VALUES(77,11,1),(88,12,1)');
+    $pdo->exec('ALTER TABLE people ADD COLUMN entity_id BIGINT NULL');
+    $pdo->exec('UPDATE people SET entity_id=88 WHERE id=1');
+    $pilot=['tenant_id'=>11,'workspace_name'=>'Synthetic child','person_directory_id'=>10,'accounting_directory_id'=>11,'person_id'=>1,'placement_id'=>1,
         'jobdiva_ids'=>['person'=>'candidateAlpha','placement'=>'start001','job'=>'job001']];
     $pdo->exec('SET TRANSACTION READ ONLY'); $pdo->beginTransaction();
     $result=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']); $row=$result['workspaces'][0];
@@ -52,6 +56,7 @@ try {
     $check($observed['jobdiva_identity']['job']['status']==='exact_match'&&$observed['placement_fields']['jobdiva_job_id']==='present'
         &&$observed['placement_fields']['staffing_job_id']==='column_missing','provider job ID stays distinct from the internal requisition and preserves opaque values');
     $check($observed['persisted_numbers']===['person'=>'allocated','placement'=>'allocated'],'persisted person number uses the actual shared owner');
+    $check($observed['employer_references']['placement']==='empty'&&$observed['employer_references']['person']==='unresolved_reference','person employer fallback does not accept another accounting directory');
     $serialized=json_encode($observed);
     $check(!str_contains($serialized,'candidateAlpha')&&!str_contains($serialized,'Reviewed division')&&!str_contains($serialized,'P-1'),'raw source IDs, dimension values and number labels are not emitted');
     $wrongName=fullCoreStaffingPilotInventory($pdo,array_replace($pilot,['workspace_name'=>'synthetic child']));
@@ -68,6 +73,7 @@ try {
     $pdo->rollBack();
     $pdo->exec("UPDATE placements SET accounting_entity_id=77,workers_comp_class='8810' WHERE id=1");
     $pdo->exec("UPDATE placements SET jobdiva_job_id='job002' WHERE id=1");
+    $pdo->exec('UPDATE people SET entity_id=77 WHERE id=1');
     $pdo->exec("UPDATE core_record_numbers SET canonical_record_id=99 WHERE entity_type='placement'");
     $pdo->exec("INSERT INTO external_entity_mappings VALUES(11,'jobdiva','person',3,'candidateAlpha')");
     $changed=fullCoreStaffingPilotInventory($pdo,$pilot);
@@ -75,15 +81,24 @@ try {
     $check($changed['persisted_numbers']['placement']==='alias_requires_review','aliased record is not silently accepted as the canonical pilot');
     $check($changed['jobdiva_identity']['person']['status']==='mismatch_or_ambiguous','conflicting reverse mapping is not accepted');
     $check($changed['jobdiva_identity']['job']['status']==='mismatch','a different source job cannot be inferred from the matching placement identity');
+    $check($changed['employer_references']['placement']==='active_in_expected_directory'
+        &&$changed['employer_references']['person']==='active_in_expected_directory','both employer reference paths check the active entity in the explicit accounting owner');
+    $pdo->exec('UPDATE accounting_entities SET active=0 WHERE id=77');
+    $inactive=fullCoreStaffingPilotInventory($pdo,$pilot);
+    $check($inactive['employer_references']['placement']==='unresolved_reference'
+        &&$inactive['employer_references']['person']==='unresolved_reference','inactive entity does not establish employer coverage');
     $pdo->exec("DELETE FROM external_entity_mappings WHERE tenant_id=11 AND internal_entity_type='placement'");
     $pdo->exec("DELETE FROM core_record_numbers WHERE entity_type='placement'");
     $absent=fullCoreStaffingPilotInventory($pdo,$pilot);
     $check($absent['jobdiva_identity']['placement']['status']==='missing'&&$absent['persisted_numbers']['placement']==='unallocated','missing mapping and unallocated persisted number stay explicit');
     $pdo->exec('ALTER TABLE placements DROP COLUMN jobdiva_job_id');
+    $pdo->exec('DROP TABLE accounting_entities');
     $pdo->exec('ALTER TABLE external_entity_mappings DROP COLUMN external_id'); $pdo->exec('DROP TABLE core_record_numbers');
     $legacy=fullCoreStaffingPilotInventory($pdo,$pilot);
     $check($legacy['jobdiva_identity']['person']['status']==='schema_unavailable'&&$legacy['persisted_numbers']['placement']==='schema_unavailable','legacy schema does not fabricate source or canonical number evidence');
     $check($legacy['jobdiva_identity']['job']['status']==='schema_unavailable','missing source job column remains unavailable');
+    $check($legacy['employer_references']['placement']==='schema_unavailable'
+        &&$legacy['employer_references']['person']==='schema_unavailable','missing accounting schema does not establish an employer from an integer alone');
     $pdo->exec('UPDATE tenants SET is_active=0 WHERE id=11');
     $check(fullCoreStaffingPilotInventory($pdo,$pilot)['status']==='workspace_identity_mismatch','inactive workspace stops inspection');
     $pdo->exec('UPDATE tenants SET is_active=1 WHERE id=11');

@@ -124,7 +124,7 @@ try {
         'candidate_bundle' => $candidateBundle[0] ?? null, 'client_counts' => $clients,
         'staffing_directories' => fullCoreStaffingDirectoryInventory($db, ['Thunderhawk', "charge d'Affaires"]),
         'thunderhawk_pilot' => fullCoreStaffingPilotInventory($db, [
-            'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2,
+            'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2, 'accounting_directory_id'=>2,
             'person_id'=>358, 'placement_id'=>864,
             'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
         ]),

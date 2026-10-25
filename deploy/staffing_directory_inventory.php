@@ -64,7 +64,7 @@ function fullCoreStaffingDirectoryInventory(PDO $pdo, array $workspaceNames): ar
 /** Inspect one explicitly selected pilot pair without returning worker data or source payloads. */
 function fullCoreStaffingPilotInventory(PDO $pdo, array $pilot): array
 {
-    foreach (['tenant_id','person_directory_id','person_id','placement_id'] as $key) {
+    foreach (['tenant_id','person_directory_id','accounting_directory_id','person_id','placement_id'] as $key) {
         if (!is_int($pilot[$key] ?? null) || $pilot[$key] <= 0) throw new InvalidArgumentException('Explicit positive pilot identities required');
     }
     if (!is_string($pilot['workspace_name'] ?? null) || trim($pilot['workspace_name']) === '') throw new InvalidArgumentException('Explicit workspace name required');
@@ -75,7 +75,7 @@ function fullCoreStaffingPilotInventory(PDO $pdo, array $pilot): array
         }
     }
     $columns = [];
-    foreach (['tenants','placements','people','external_entity_mappings','core_record_numbers'] as $table) {
+    foreach (['tenants','placements','people','accounting_entities','external_entity_mappings','core_record_numbers'] as $table) {
         $s = $pdo->prepare('SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t');
         $s->execute(['t'=>$table]); $columns[$table] = $s->fetchAll(PDO::FETCH_COLUMN);
     }
@@ -115,6 +115,19 @@ function fullCoreStaffingPilotInventory(PDO $pdo, array $pilot): array
     }
     $mappingAvailable = !array_diff(['tenant_id','source_system','internal_entity_type','internal_entity_id','external_id'],$columns['external_entity_mappings']);
     $numberAvailable = !array_diff(['tenant_id','entity_type','record_id','record_number','canonical_record_id'],$columns['core_record_numbers']);
+    $entityAvailable = !array_diff(['id','tenant_id','active'],$columns['accounting_entities']);
+    $result['employer_references'] = ['accounting_directory_id'=>$pilot['accounting_directory_id']];
+    foreach (['placement'=>['placements','accounting_entity_id',$pilot['tenant_id']],
+        'person'=>['people','entity_id',$pilot['person_directory_id']]] as $entity=>[$table,$field,$owner]) {
+        $result['employer_references'][$entity] = 'schema_unavailable';
+        if (!$entityAvailable || !in_array($field,$columns[$table],true)) continue;
+        $s = $pdo->prepare('SELECT CASE WHEN r.`'.$field.'` IS NULL OR r.`'.$field.'` <= 0 THEN "empty"
+            WHEN EXISTS (SELECT 1 FROM accounting_entities ae WHERE ae.id=r.`'.$field.'`
+                AND ae.tenant_id=:a AND ae.active=1) THEN "active_in_expected_directory"
+            ELSE "unresolved_reference" END FROM '.$table.' r WHERE r.id=:id AND r.tenant_id=:t AND r.deleted_at IS NULL');
+        $s->execute(['a'=>$pilot['accounting_directory_id'],'id'=>$pilot[$entity.'_id'],'t'=>$owner]);
+        $result['employer_references'][$entity] = $s->fetchColumn();
+    }
     $result['jobdiva_identity']['job'] = ['status'=>'schema_unavailable'];
     if (in_array('jobdiva_job_id',$columns['placements'],true)) {
         $s = $pdo->prepare('SELECT jobdiva_job_id FROM placements WHERE id=:id AND tenant_id=:t AND person_id=:p AND deleted_at IS NULL');
