@@ -161,13 +161,13 @@ try{
         && $pdo->query('SELECT rail_status FROM ap_payments WHERE id=7')->fetchColumn()==='settled','public status reconciliation projects evidence without paying or clearing AP');
     $children7=purepayAllocationChildren($pdo,1,7);$child7=$children7[0];$payment7=$reservations[$child7['reservation_id']]['payment'];
     $before=count($calls);$check($driver->getStatusForTenant(2,'purepay:allocation:7')==='unknown' && count($calls)===$before,'foreign company cannot reconcile another allocation');
-    $badCallback=array_replace($payment7,['amount'=>'1.00']);
+    $callback7=$payment7+['payment_id'=>$payment7['id']];$badCallback=array_replace($callback7,['amount'=>'1.00']);
     $out=purepayWebhookProcess(1,'bad-allocation-money','payment.settled',['data'=>$badCallback],purepayConnectionFingerprint(1,$key));
     $check($out['outcome']==='needs_review' && $fails(fn()=>$guard(7,'clear')),'signed callback cannot clear an allocation with conflicting money');
-    $before=$executeCount;$out=purepayWebhookProcess(1,'good-allocation-money','payment.settled',['data'=>$payment7],purepayConnectionFingerprint(1,$key));
+    $before=$executeCount;$out=purepayWebhookProcess(1,'good-allocation-money','payment.settled',['data'=>$callback7],purepayConnectionFingerprint(1,$key));
     $check($out['outcome']==='updated' && $out['status']==='settled' && $executeCount===$before,'signed callback reconciles original receipts without another payout');
     $returned=array_replace($payment7,['status'=>'returned','moov_status'=>'reversed']);$reservations[$child7['reservation_id']]['payment']=$returned;
-    $out=purepayWebhookProcess(1,'returned-allocation','payment.returned',['data'=>$returned],purepayConnectionFingerprint(1,$key));
+    $out=purepayWebhookProcess(1,'returned-allocation','payment.returned',['data'=>$returned+['payment_id'=>$payment7['id']]],purepayConnectionFingerprint(1,$key));
     $check($out['outcome']==='needs_review' && $pdo->query('SELECT status FROM ap_payments WHERE id=7')->fetchColumn()==='sent','late allocation return holds the entire payment without automatic accounting reversal');
     $reservations[$child7['reservation_id']]['payment']=$payment7;
     $check($driver->getStatusForTenant(1,'purepay:allocation:7')==='unknown' && $driver->getStatusForTenant(1,'purepay:allocation:7')==='unknown',
@@ -187,6 +187,18 @@ try{
     $q=$pdo->query('SELECT * FROM purepay_payment_links WHERE source_ref="legacy-overlap"');
     $check(!purepayPaymentEvidenceOwned($pdo,1,$q->fetch(PDO::FETCH_ASSOC)),'historical receipt checks cannot reuse a new allocation receipt');
     $pdo->exec('DELETE FROM purepay_payment_links WHERE source_ref="legacy-overlap"');
+    $item10=$seed(10,1);purepayAllocationPrepare($pdo,1,10,$item10,$date);
+    $other=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$database.';charset=utf8mb4','root',$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    $other->exec('SET SESSION innodb_lock_wait_timeout=1');
+    $dbError=static function(callable $fn):int{try{$fn();return 0;}catch(PDOException $e){return (int)($e->errorInfo[1]??0);}};
+    $pdo->beginTransaction();$pdo->exec('UPDATE purepay_payment_allocations SET provider_payment_id="allocation-race" WHERE core_payment_id=9');
+    $check($dbError(fn()=>$other->exec('UPDATE purepay_payment_allocations SET provider_payment_id="allocation-race" WHERE core_payment_id=10'))===1205,
+        'a second SQL session cannot bind an uncommitted allocation receipt');$pdo->commit();
+    $check($dbError(fn()=>$other->exec('UPDATE purepay_payment_allocations SET provider_payment_id="allocation-race" WHERE core_payment_id=10'))===1062,
+        'committed allocation receipt remains exclusive across SQL sessions');
+    $other->exec('UPDATE purepay_payment_allocations SET provider_payment_id="ALLOCATION-RACE" WHERE core_payment_id=10');
+    $check($other->query('SELECT provider_payment_id FROM purepay_payment_allocations WHERE core_payment_id=10')->fetchColumn()==='ALLOCATION-RACE',
+        'allocation receipt identity remains case sensitive');
     $check(!array_filter($calls,static fn($call)=>$call[0]==='POST' && in_array($call[1],['/api/v1/bills','/api/v1/vendors'],true))
         && (int)$pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn()===0,'dispatch preserves original provider records and never posts journals');
     $pdo->exec('UPDATE purepay_connections SET key_scope="read_only" WHERE tenant_id=1');$before=$executeCount;$callsBefore=count($calls);
