@@ -22,10 +22,11 @@
       "required": ["vendor_id", "amount"]
     },
     "BillPay": {
-      "writableProperties": ["pay_via"],
+      "writableProperties": ["pay_via", "amount"],
       "required": ["pay_via"],
       "constraints": {
-        "pay_via.allowed": ["wallet"]
+        "pay_via.allowed": ["wallet"],
+        "amount": "Explicit gross USD amount from the durable Core payment obligation; do not rely on the provider payment-plan default"
       }
     },
     "Webhook": {
