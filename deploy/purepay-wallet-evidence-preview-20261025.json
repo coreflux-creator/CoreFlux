@@ -1,0 +1,102 @@
+{
+  "at": "2026-10-25T04:02:44.526011+00:00",
+  "installed": true,
+  "source_hashes": {
+    "integration_payment_results.py": "d7d65fde2db7f2e270b3f8a4278f32419652eb9d75ca221c87d089a32c753dff",
+    "moov_client.py": "8ba337b3ca635c11393cf5b9c494b5c274a1113bf6cef196ca2f34891d5a12bb",
+    "server.py": "485b10469b9218593cea2b2b742bc2b43008a182f390b30e010c4096b0dfd102"
+  },
+  "protected_unchanged_during_install": true,
+  "post_install": {
+    "at": "2026-10-25T04:02:44.523151+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "health": {
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "source_files_verified": 6320,
+    "head_and_configuration_unchanged": true,
+    "protected_differences": {
+      "index": {
+        "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+        "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+      }
+    },
+    "demo_unchanged": true,
+    "demo_counts": {
+      "pay_runs": 50,
+      "coreflux_payroll_inputs": 0,
+      "coreflux_payroll_authorities": 0
+    },
+    "demo_run_count": 50,
+    "published": false,
+    "credential_changes": false,
+    "candidate_installed": true,
+    "index_semantics": {
+      "equals_current_head": true,
+      "entries": 6256,
+      "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+      "historical_byte_equivalence_proven": false
+    }
+  },
+  "production_published": false,
+  "business_records_written": false,
+  "backup_directory": "/app/audit/core-wallet-payment-evidence-2026-10-25",
+  "final_verification": {
+    "at": "2026-10-25T04:04:42.725478+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "health": {
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "source_files_verified": 6320,
+    "head_and_configuration_unchanged": true,
+    "protected_differences": {
+      "index": {
+        "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+        "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+      }
+    },
+    "demo_unchanged": true,
+    "demo_counts": {
+      "pay_runs": 50,
+      "coreflux_payroll_inputs": 0,
+      "coreflux_payroll_authorities": 0
+    },
+    "demo_run_count": 50,
+    "published": false,
+    "credential_changes": false,
+    "candidate_installed": true,
+    "index_semantics": {
+      "equals_current_head": true,
+      "entries": 6256,
+      "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+      "historical_byte_equivalence_proven": false
+    }
+  },
+  "acceptance_file": "wallet-payment-evidence-installed-acceptance-20261025.json",
+  "scope": "New wallet currency storage, exact gross/net evidence, current stored-payment validation for immediate v1 payment callbacks; isolated HTTP and client-request tests.",
+  "remaining": [
+    "Asynchronous terminal callback delivery and replay need integration coverage.",
+    "QuickBooks-linked Moov payments are still conservatively held by the existing blanket qbo_billpayment_id exclusion in Core and the provider; distinguish confirmed rail settlement from ledger-only receipts.",
+    "Actual Thunderhawk round trip, controlled worker inbox, independent time reviewer, employing entity and WC class remain unproven.",
+    "Historical missing-currency records require reconciliation; no backfill was performed.",
+    "Production release and real payment/payroll execution are not authorized by this preview change."
+  ],
+  "local_companion_test": {
+    "test": "test_actual_provider_response_is_preserved_by_core_php",
+    "passed": 1,
+    "skipped": 0
+  },
+  "provider_source_commit": "30ccb2a",
+  "core_runtime_commit": "ea1241f23d15196e6eee508b84ab92dad0d6d998",
+  "core_docs_ci": {
+    "run": 40159094378,
+    "status": "completed",
+    "conclusion": "success"
+  }
+}

@@ -1,3 +1,10 @@
+## 2026-10-25 PurePay wallet evidence preview increment
+
+- Provider source `30ccb2a` is installed in the existing held PurePay preview. New wallet records store the execution contract currency and gross cents; immediate terminal callbacks require matching current stored money and identity.
+- The 54 isolated full-application checks passed again against installed sources, without overlays or network calls. Three source hashes match the receipt; 6,320 source files and the existing demo counts were verified. Review-mode jobs, migrations and scheduled operations remain disabled.
+- Receipt: `deploy/purepay-wallet-evidence-preview-20261025.json`. Core runtime remains `ea1241f2`; its follow-up documentation CI 40159094378 succeeded. No production publication or real financial execution occurred.
+- The financial compatibility gate stays open: asynchronous callbacks/replay and genuine Moov payments carrying a QuickBooks bookkeeping reference still require implementation/verification. Historical missing currency remains unresolved. Actual Thunderhawk round-trip and the previously recorded setup/release requirements remain incomplete.
+
 ## Payment result evidence — October 24, 2026
 
 Core pilot runtime `ea1241f23d15196e6eee508b84ab92dad0d6d998` now requires exact payment money and identity evidence before treating a provider result as settlement or release. A partial $40 payment cannot clear a $125 reservation. Compact history only finds the payment; Core reads its full detail, checks currency and adjustment semantics, and retains a review hold for conflicting or unavailable evidence. AP cancellation and clearance recheck the saved verified receipt. No payment was executed.
