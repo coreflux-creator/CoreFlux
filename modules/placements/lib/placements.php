@@ -50,7 +50,7 @@ function placementsNormalizeWorksiteCity(mixed $value): ?string
 }
 
 /** Resolve only the company roles explicitly edited; neither role supplies the other. */
-function placementsResolveCompanyRoles(int $tenantId, array $input, array $existing = [], ?int $userId = null): array
+function placementsResolveCompanyRoles(int $tenantId, array $input, array $existing = [], ?int $userId = null, ?int $workspaceId = null): array
 {
     require_once __DIR__ . '/../../people/lib/companies.php';
     $patch = [];
@@ -65,7 +65,7 @@ function placementsResolveCompanyRoles(int $tenantId, array $input, array $exist
         $patch['client_id'] = $id > 0 ? $id : null;
     }
     if (array_key_exists('end_client_company_id', $input) || array_key_exists('end_client_name', $input)) {
-        $owner = effectiveTenantIdForModule('companies', $tenantId) ?? $tenantId;
+        $owner = companiesDirectoryTenantId($workspaceId ?? $tenantId);
         $id = (int) ($input['end_client_company_id'] ?? 0);
         $name = trim((string) ($input['end_client_name'] ?? ''));
         if ($id > 0) {

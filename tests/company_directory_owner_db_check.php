@@ -5,6 +5,7 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'coreaccounting'
     || getenv('COREFLUX_STANDALONE_DATABASE') !== 'coreaccounting_ci'
     || !in_array('--confirm-disposable-fixture', $argv, true)) exit(2);
 require_once __DIR__ . '/../modules/people/lib/companies.php';
+require_once __DIR__ . '/../modules/placements/lib/economics.php';
 $pdo = getDB();
 if ($pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') throw new RuntimeException('Disposable database required');
 $parent = (int) $pdo->query('SELECT MIN(id) FROM tenants WHERE id <> 999')->fetchColumn();
@@ -85,6 +86,47 @@ try {
     $s->execute([$isolatedCreated, $owner]);
     $check(companiesGet($isolatedCreated) === null && $row('companies', $created) === $sharedBefore,
         'soft deletion affects only the isolated company');
+
+    // A company lookup must not move subsequent placement writes into its catalog.
+    foreach ([['shared', 'isolated'], ['isolated', 'shared'], ['shared', 'shared']] as [$companyMode, $placementMode]) {
+        $scope($companyMode, 'isolated');
+        $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(999,"placements",?)
+            ON DUPLICATE KEY UPDATE scope_mode=VALUES(scope_mode)')->execute([$placementMode]);
+        setRequestModuleScope('placements');
+        $companyOwner = $companyMode === 'shared' ? $parent : 999;
+        $placementOwner = $placementMode === 'shared' ? $parent : 999;
+        $selected = $companyMode === 'shared' ? $parentCompany : $childCompany;
+        $foreign = $companyMode === 'shared' ? $childCompany : $parentCompany;
+        $label = "$companyMode companies / $placementMode placements";
+        $check(companiesDirectoryTenantId() === $companyOwner
+            && companiesGet($selected, companiesDirectoryTenantId()) !== null
+            && companiesGet($foreign, companiesDirectoryTenantId()) === null,
+            "$label: selection matches the company directory and rejects another directory");
+        $patch = placementsResolveCompanyRoles($placementOwner, ['end_client_company_id' => $selected], [], null, 999);
+        $check($patch['end_client_company_id'] === $selected
+            && $patch['end_client_name'] === $row('companies', $selected)['name'],
+            "$label: overview and bulk edits resolve the same selected end client");
+        $name = "CI placement company $companyMode $placementMode";
+        $newCompany = companiesUpsertByName(companiesDirectoryTenantId(), $name, [], ['vendor', 'referrer']);
+        $replay = companiesUpsertByName(companiesDirectoryTenantId(), $name, [], ['vendor', 'referrer']);
+        $check($newCompany === $replay && (int) $row('companies', $newCompany)['tenant_id'] === $companyOwner,
+            "$label: create-on-the-fly and replay retain one company in the selected directory");
+        $vendor = placementEconomicsEnsureVendor($placementOwner, $name, $newCompany, 'w9_business', 'NET30', false, null, 999);
+        $check((int) $row('ap_vendors_index', (int) $vendor['id'])['tenant_id'] === $placementOwner && (int) $vendor['company_id'] === $newCompany,
+            "$label: manual payable resolves that company without moving the vendor");
+        $check(currentTenantId() === 999 && currentModuleKey() === 'placements'
+            && effectiveTenantIdForRequest() === $placementOwner,
+            "$label: company operations preserve authentication and placement write scope");
+        $person = scopedInsert('people', ['first_name' => 'Synthetic', 'last_name' => 'Directory',
+            'email_primary' => "ci-directory-$companyMode-$placementMode@example.invalid"]);
+        $placement = scopedInsert('placements', ['person_id' => $person, 'title' => 'CI directory placement',
+            'start_date' => '2026-10-01', 'end_client_company_id' => $selected, 'end_client_name' => $patch['end_client_name']]);
+        $check((int) $row('placements', $placement)['tenant_id'] === $placementOwner,
+            "$label: subsequent native placement insert uses its own directory");
+        $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE id=? AND tenant_id=?')->execute([$newCompany, $companyOwner]);
+        $check(companiesGet($newCompany, companiesDirectoryTenantId()) === null
+            && currentModuleKey() === 'placements', "$label: deleted selection is rejected without scope changes");
+    }
     $check($pdo->inTransaction(), 'native directory operations do not commit the fixture transaction');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();

@@ -55,7 +55,8 @@ function placementEconomicsEnsureVendor(
     string $vendorType,
     ?string $terms = null,
     ?bool $pwp = null,
-    ?int $placementId = null
+    ?int $placementId = null,
+    ?int $workspaceId = null
 ): ?array {
     $displayName = trim($displayName);
     if ($tenantId <= 0 || $displayName === '') return null;
@@ -70,7 +71,7 @@ function placementEconomicsEnsureVendor(
     try {
         $existing = null;
         if ($companyId !== null) {
-            $companyOwner = effectiveTenantIdForModule('companies', $tenantId);
+            $companyOwner = companiesDirectoryTenantId($workspaceId ?? $tenantId);
             $st = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL FOR UPDATE');
             $st->execute(['c'=>$companyId, 't'=>$companyOwner]);
             if (!$st->fetchColumn()) throw new RuntimeException('The vendor company is outside the current company directory or is no longer active.');

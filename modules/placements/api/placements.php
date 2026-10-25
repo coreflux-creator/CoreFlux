@@ -267,7 +267,7 @@ if ($method === 'POST') {
             catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
         } elseif ($field === 'end_client_company_id') {
             $value = (int) $value;
-            if ($value <= 0 || !companiesGet($value)) api_error('Client company not found', 422);
+            if ($value <= 0 || !companiesGet($value, companiesDirectoryTenantId())) api_error('Client company not found', 422);
         } else {
             $value = trim((string) $value);
             if ($value === '') api_error("{$field} cannot be blank", 422);
@@ -285,7 +285,7 @@ if ($method === 'POST') {
                 }
                 $patch = [$field => $value];
                 if ($field === 'end_client_company_id') {
-                    $patch = placementsResolveCompanyRoles((int) placementsGraphTenantId(currentTenantId()), $patch, $existing, $user['id'] ?? null);
+                    $patch = placementsResolveCompanyRoles((int) placementsGraphTenantId(currentTenantId()), $patch, $existing, $user['id'] ?? null, currentTenantId());
                 }
 
                 $before = placementAuditRow($pid) ?? $existing;
@@ -528,7 +528,7 @@ if ($method === 'POST') {
             'created_by_user_id' => $user['id'] ?? null,
         ];
 
-        $insert = array_replace($insert, placementsResolveCompanyRoles($placementTenantId, $body, [], $user['id'] ?? null));
+        $insert = array_replace($insert, placementsResolveCompanyRoles($placementTenantId, $body, [], $user['id'] ?? null, currentTenantId()));
 
         $id = scopedInsert('placements', $insert);
 
@@ -672,7 +672,7 @@ if ($method === 'PATCH') {
         );
     }
     try {
-        $body = array_replace($body, placementsResolveCompanyRoles($placementTenantId, $body, $existing, $user['id'] ?? null));
+        $body = array_replace($body, placementsResolveCompanyRoles($placementTenantId, $body, $existing, $user['id'] ?? null, currentTenantId()));
     } catch (InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     }

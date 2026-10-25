@@ -38,6 +38,16 @@ $checks = [
         && str_contains($api, "\$action === 'bulk_update'"),
 ];
 
+foreach (['chain', 'referrals', 'economics', 'csv_import', 'placements'] as $endpoint) {
+    $source = (string) file_get_contents($root . '/modules/placements/api/' . $endpoint . '.php');
+    $checks["$endpoint validates selected companies against the Companies directory"] =
+        preg_match('/companiesGet\([^;]+companiesDirectoryTenantId\(\)\)/', $source) === 1;
+    if ($endpoint !== 'placements') {
+        $checks["$endpoint creates companies in the Companies directory"] =
+            str_contains($source, 'companiesUpsertByName(companiesDirectoryTenantId(),');
+    }
+}
+
 foreach ($checks as $label => $passed) {
     if (!$passed) {
         fwrite(STDERR, "FAIL: {$label}\n");

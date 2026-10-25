@@ -51,14 +51,14 @@ if ($method === 'POST') {
     if ($body['referrer_type'] === 'vendor') {
         if (!$companyId && trim((string) $vendorName) === '') api_error('Choose or create a vendor referrer', 422);
         if ($companyId) {
-            $co = companiesGet($companyId);
+            $co = companiesGet($companyId, companiesDirectoryTenantId());
             if (!$co) api_error('referrer_company_id not found in this tenant', 422);
             $vendorName = $co['name'];
             companiesAddRole($companyId, 'referrer');
             companiesAddRole($companyId, 'vendor');
             companiesBumpUsage($companyId);
         } elseif ($vendorName) {
-            $companyId = companiesUpsertByName(currentTenantId(), (string) $vendorName, [
+            $companyId = companiesUpsertByName(companiesDirectoryTenantId(), (string) $vendorName, [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['referrer', 'vendor']);
             companiesBumpUsage($companyId);

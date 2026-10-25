@@ -256,14 +256,14 @@ function placementsCsvUpsertReferralEngagement(int $placementId, array $row, ?in
     $companyId = (int) ($row['referral_vendor_company_id'] ?? 0);
     $vendorName = trim((string) ($row['referral_vendor_name'] ?? ''));
     if ($companyId > 0) {
-        $company = companiesGet($companyId);
+        $company = companiesGet($companyId, companiesDirectoryTenantId());
         if (!$company) throw new \RuntimeException("referral_vendor_company_id not found: {$companyId}");
         $vendorName = (string) $company['name'];
         companiesAddRole($companyId, 'referrer');
         companiesAddRole($companyId, 'vendor');
         companiesBumpUsage($companyId);
     } elseif ($vendorName !== '') {
-        $companyId = companiesUpsertByName(currentTenantId(), $vendorName, [
+        $companyId = companiesUpsertByName(companiesDirectoryTenantId(), $vendorName, [
             'created_by_user_id' => $userId,
         ], ['referrer', 'vendor']);
         companiesBumpUsage($companyId);
@@ -344,7 +344,7 @@ function placementsCsvUpsertChainRow(
     $roleForCompany = $role === 'end_client'
         ? 'client'
         : ($role === 'direct' ? 'client' : $role);
-    $companyId = companiesUpsertByName(currentTenantId(), $name, [
+    $companyId = companiesUpsertByName(companiesDirectoryTenantId(), $name, [
         'created_by_user_id' => $userId,
     ], [$roleForCompany]);
     companiesBumpUsage($companyId);
@@ -1054,7 +1054,7 @@ if ($method === 'POST' && $action === 'commit') {
         $payload = array_filter($payload, static fn($v): bool => $v !== null && $v !== '');
 
         $payload = array_replace($payload, placementsResolveCompanyRoles(
-            (int) placementsGraphTenantId(currentTenantId()), $row, $existing ?: [], $user['id'] ?? null
+            (int) placementsGraphTenantId(currentTenantId()), $row, $existing ?: [], $user['id'] ?? null, currentTenantId()
         ));
 
         if ($existing) {

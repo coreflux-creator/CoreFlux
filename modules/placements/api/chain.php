@@ -165,13 +165,13 @@ if ($method === 'POST') {
                    : ($body['party_role'] === 'direct' ? 'client' : $body['party_role']);
 
     if ($companyId) {
-        $co = companiesGet($companyId);
+        $co = companiesGet($companyId, companiesDirectoryTenantId());
         if (!$co) api_error('company_id not found in this tenant', 422);
         $partyName = $co['name'];
         companiesAddRole($companyId, $roleForDir);
         companiesBumpUsage($companyId);
     } else {
-        $companyId = companiesUpsertByName(currentTenantId(), (string) $partyName, [
+        $companyId = companiesUpsertByName(companiesDirectoryTenantId(), (string) $partyName, [
             'created_by_user_id' => $user['id'] ?? null,
         ], [$roleForDir]);
         companiesBumpUsage($companyId);

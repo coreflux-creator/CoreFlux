@@ -20,23 +20,39 @@ require_once __DIR__ . '/../../../core/record_numbers.php';
 
 const COMPANY_ROLES = ['client','customer','vendor','msp','prime_vendor','sub_vendor','referrer','partner'];
 
+/** Resolve Companies independently without redirecting the caller's other data. */
+function companiesDirectoryTenantId(?int $workspaceId = null): int
+{
+    require_once __DIR__ . '/../../../core/sub_tenants.php';
+    $active = $workspaceId ?? currentTenantId();
+    if (!$active || $active <= 0) throw new RuntimeException('An active company workspace is required.');
+    $owner = effectiveTenantIdForModule('companies', $active);
+    if (!$owner) throw new RuntimeException('The company directory is unavailable.');
+    return $owner;
+}
+
 /** Company endpoints live under People URLs, but their catalog has its own owner. */
 function companiesUseDirectoryScope(): int
 {
-    require_once __DIR__ . '/../../../core/sub_tenants.php';
-    $active = currentTenantId();
-    if (!$active) throw new RuntimeException('An active company workspace is required.');
-    $owner = effectiveTenantIdForModule('companies', $active);
-    if (!$owner) throw new RuntimeException('The company directory is unavailable.');
+    $owner = companiesDirectoryTenantId();
     // Keep the authenticated workspace for permissions and audit. Only data
     // access uses the configured Companies directory, independently of People.
     setRequestModuleScope('companies');
     return $owner;
 }
 
-function companiesGet(int $id): ?array
+/** An explicit owner is resolved server-side; never take it from a request body. */
+function companiesGet(int $id, ?int $directoryTenantId = null): ?array
 {
-    $row = scopedFind('SELECT * FROM companies WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL', ['id' => $id]);
+    $sql = 'SELECT * FROM companies WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL';
+    if ($directoryTenantId === null) {
+        $row = scopedFind($sql, ['id' => $id]);
+    } else {
+        if ($directoryTenantId <= 0) return null;
+        $st = getDB()->prepare($sql);
+        $st->execute(['tenant_id' => $directoryTenantId, 'id' => $id]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC);
+    }
     if (!$row) return null;
     $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'company', [$row])[0];
     unset($row['ein_full_ct']);
