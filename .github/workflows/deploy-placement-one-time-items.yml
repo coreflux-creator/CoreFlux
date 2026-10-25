@@ -235,6 +235,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Require passing CI for the exact receipt verifier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
       - name: Upload only the native demo receipt verifier
         uses: appleboy/scp-action@v1.0.0
         with:
