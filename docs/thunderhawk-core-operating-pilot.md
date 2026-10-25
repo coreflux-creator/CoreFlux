@@ -1,3 +1,11 @@
+## 2026-10-25 - Fresh Thunderhawk assignment identity and seven placement fields verified
+
+Read-only inspection `40190477595` matched the selected P-358 / PL-864 person, job and assignment IDs in both the live Start response and assignment-detail response. The first response omits lifecycle status; the inspector now distinguishes permission to read the exact record from eligibility to import it. Fresh matching fields: branch, worksite_state, worksite_country, engagement_type, start_date, end_date, status. WC remains missing in the current source contract; production has no worksite-city column. See `deploy/thunderhawk-fresh-field-alignment-20261025.json`. This supersedes the earlier source-read hold, without authorizing imports or replacing the saved snapshot.
+
+The standalone contract reader now loads the shared date normalizer directly, so elapsed assignment end dates remain authoritative outside the sync driver. All nine CI jobs passed at `ba28b7b7c35cbcf86b2ce6914d26f85757561027`, including 34 exact-source checks and 65 MariaDB inspection checks. The only difference from the inspected revision is the old sync smoke test, updated to verify shared date behavior rather than its former source-file location. No production runtime, record, connection setting, saved session token, financial action or Arabella data changed.
+
+Next: resolve the normal import/repair path for missing Start status using verified detail lifecycle evidence, compare the remaining person/company/rate/custom fields, and complete the authorized integration round trip. Employer/WC evidence, production schema release, independent approval and the pending credential handoffs remain open.
+
 ## 2026-10-25 - Fresh Thunderhawk source lookup held at exact identity check
 
 Read-only inspection `40189499660` authenticated to JobDiva and received HTTP 200 for the bounded original person/job Start search. No row passed every selected assignment identity and lifecycle check, so the inspector stopped before detail lookup or field comparison. This is not evidence that the assignment is absent; safe response-shape and identity/lifecycle diagnostics are the next step. The September stored snapshot remains historical evidence. See `deploy/thunderhawk-fresh-source-inspection-20261025.json`.
