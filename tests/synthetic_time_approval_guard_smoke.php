@@ -30,9 +30,9 @@ foreach(['id'=>'other','worker_id'=>'other','work_date'=>'2026-10-20','hours'=>7
     $bad=$snapshot;$bad['entry'][$field]=$value;$check($fails($entry,$rate,$bad),'changed source entry '.$field.' is held');
 }
 $approved=array_replace($entry,['status'=>'approved','approved_by_user_id'=>51,'approved_at'=>'2026-10-25 18:00:00',
-    'approved_via'=>'synthetic_pilot_review','rate_snapshot_id'=>19]);
+    'approved_via'=>'manual','rate_snapshot_id'=>19]);
 $accepted=$snapshot;$accepted['payload']['body']['components'][0]['status']='approved';
 syntheticTimeApprovalGuard($approved,$rate,$accepted);$check(true,'exact prior test approval is eligible for status recovery');
-foreach(['approved_by_user_id'=>4,'approved_via'=>'manual','approved_at'=>null,'rate_snapshot_id'=>20] as $field=>$value)
+foreach(['approved_by_user_id'=>4,'approved_via'=>'bulk_pre_approved','approved_at'=>null,'rate_snapshot_id'=>20] as $field=>$value)
     $check($fails(array_replace($approved,[$field=>$value]),$rate,$accepted),'foreign prior '.$field.' cannot be adopted');
 echo "$passed synthetic approval boundary checks passed\n";

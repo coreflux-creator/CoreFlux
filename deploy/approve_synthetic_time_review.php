@@ -76,27 +76,34 @@ try {
     if($entry['status']==='pending_review') {
         $_SESSION['user']=$reviewer;$pdo->beginTransaction();
         // The normal self-approval gate must still reject the original creator before any write.
-        try{timeApproveEntry(1,$operator,'synthetic_pilot_review');throw new LogicException('Self-approval gate failed');}
+        try{timeApproveEntry(1,$operator,'manual');throw new LogicException('Self-approval gate failed');}
         catch(RuntimeException $e){if($e->getCode()!==403)throw $e;}
         $report['self_approval_rejected']=true;
-        $approved=timeApproveEntry(1,$reviewer,'synthetic_pilot_review');
+        $approved=timeApproveEntry(1,$reviewer,'manual');
         if($protected()!==$protectedBefore)throw new RuntimeException('Approval changed protected records');
         $audit=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=999 AND actor_user_id=51 AND event="time.entry.approved" AND target_id=1 ORDER BY id DESC LIMIT 1');
         $audit->execute();$meta=json_decode((string)$audit->fetchColumn(),true);
-        if(($meta['approved_via']??null)!=='synthetic_pilot_review'||($meta['quanta_source_check']['workspace_id']??null)!=='0598d4ef-3075-4289-9714-c93f904aa85d'
+        if(($meta['approved_via']??null)!=='manual'||($meta['quanta_source_check']['workspace_id']??null)!=='0598d4ef-3075-4289-9714-c93f904aa85d'
             ||($meta['quanta_source_check']['source_entries']??null)!==1)throw new RuntimeException('Native approval audit proof missing');
+        // Keep the native approval-method vocabulary; the separate receipt identifies the automated test.
+        platformAuditLogWrite(999,51,'time.pilot.reviewed',1,['synthetic'=>true,'independent_human_review'=>false,
+            'source_entry_id'=>PILOT_SOURCE,'native_source_proof'=>$meta['quanta_source_check']],['source'=>'synthetic_pilot']);
+        $marker=$pdo->query('SELECT meta_json FROM audit_log WHERE tenant_id=999 AND actor_user_id=51 AND event="time.pilot.reviewed" AND target_id=1')->fetchAll(PDO::FETCH_COLUMN);
+        if(count($marker)!==1||(json_decode($marker[0],true)['synthetic']??null)!==true)throw new RuntimeException('Pilot audit receipt missing');
         $pdo->commit();$report['new_approval']=true;
     } else {
         $approved=$entry;$report['new_approval']=false;
         $audit=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=999 AND actor_user_id=51 AND event="time.entry.approved" AND target_id=1 ORDER BY id DESC LIMIT 1');
         $audit->execute();$meta=json_decode((string)$audit->fetchColumn(),true);
-        if(($meta['approved_via']??null)!=='synthetic_pilot_review'||($meta['quanta_source_check']['workspace_id']??null)!=='0598d4ef-3075-4289-9714-c93f904aa85d'
+        if(($meta['approved_via']??null)!=='manual'||($meta['quanta_source_check']['workspace_id']??null)!=='0598d4ef-3075-4289-9714-c93f904aa85d'
             ||($meta['quanta_source_check']['source_entries']??null)!==1)throw new RuntimeException('Prior native approval audit proof missing');
+        $marker=$pdo->query('SELECT meta_json FROM audit_log WHERE tenant_id=999 AND actor_user_id=51 AND event="time.pilot.reviewed" AND target_id=1')->fetchAll(PDO::FETCH_COLUMN);
+        if(count($marker)!==1||(json_decode($marker[0],true)['synthetic']??null)!==true)throw new RuntimeException('Prior pilot audit receipt missing');
     }
     $report['time_approved']=true;$report['entry_id']=1;$report['approver_user_id']=51;$report['rate_snapshot_id']=(int)$approved['rate_snapshot_id'];
     $report['hours']=8;$report['native_approval_state']=$approved['status'];
     $phase='approval_repeat';$beforeRepeat=timeEntryGet(1);
-    try{timeApproveEntry(1,$reviewer,'synthetic_pilot_review');throw new LogicException('Duplicate approval was accepted');}
+    try{timeApproveEntry(1,$reviewer,'manual');throw new LogicException('Duplicate approval was accepted');}
     catch(RuntimeException $e){if($e->getCode()!==409)throw $e;}
     if(timeEntryGet(1)!==$beforeRepeat)throw new RuntimeException('Rejected repeat changed time');
     $report['duplicate_approval_rejected']=true;

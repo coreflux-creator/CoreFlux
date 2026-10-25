@@ -17,7 +17,7 @@ function syntheticTimeApprovalGuard(array $entry,array $rate,array $snapshot): v
         || ($rate['currency']??null)!=='USD' || ($rate['bill_rate_unit']??null)!=='hour' || ($rate['pay_rate_unit']??null)!=='hour')
         throw new RuntimeException('Approved demo rates differ');
     if ($entry['status']==='approved' && ((int)($entry['approved_by_user_id']??0)!==51
-        || ($entry['approved_via']??null)!=='synthetic_pilot_review' || empty($entry['approved_at'])
+        || ($entry['approved_via']??null)!=='manual' || empty($entry['approved_at'])
         || (int)($entry['rate_snapshot_id']??0)!==(int)$rate['id'])) throw new RuntimeException('Prior approval was not this test');
     if ($entry['status']==='pending_review' && (!empty($entry['approved_by_user_id']) || !empty($entry['approved_at'])))
         throw new RuntimeException('Pending demo retains a prior approval');
