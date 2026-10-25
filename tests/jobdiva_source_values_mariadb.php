@@ -22,7 +22,7 @@ $pdo->exec('CREATE TABLE placement_rates(id BIGINT AUTO_INCREMENT PRIMARY KEY,te
 $passed=0;
 $check=static function($ok,$label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
 $failure=static function($fn):string{try{$fn();return '';}catch(Throwable $e){return $e->getMessage();}};
-$pdo->exec('ALTER TABLE placements ADD engagement_type VARCHAR(30)');
+$pdo->exec('ALTER TABLE placements ADD engagement_type VARCHAR(30) DEFAULT "w2"');
 $apply('core/migrations/078_integration_writable_targets.sql');
 $beforeCity=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
 $apply('core/migrations/181_placement_worksite_city.sql');
@@ -78,7 +78,6 @@ $check($summary['written']===0&&$summary['errors']!==[]&&$snapshot()===$rows,'on
 $mapped['pay_rate_unit']='USD/Hour';unset($mapped['currency']);
 $summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context);
 $check($summary['written']===5&&$summary['errors']===[]&&$snapshot()===$rows,'mapped combined descriptors persist their explicit currency');
-$pdo->exec('ALTER TABLE placements ADD engagement_type VARCHAR(30) DEFAULT "w2"');
 $pdo->exec('UPDATE placements SET external_id="legacy:keep" WHERE id=1');
 $placementBefore=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
 $peopleBefore=$pdo->query('SELECT * FROM people')->fetchAll(PDO::FETCH_ASSOC);
