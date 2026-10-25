@@ -1,3 +1,9 @@
+## 2026-10-25 - Fresh Thunderhawk source lookup held at exact identity check
+
+Read-only inspection `40189499660` authenticated to JobDiva and received HTTP 200 for the bounded original person/job Start search. No row passed every selected assignment identity and lifecycle check, so the inspector stopped before detail lookup or field comparison. This is not evidence that the assignment is absent; safe response-shape and identity/lifecycle diagnostics are the next step. The September stored snapshot remains historical evidence. See `deploy/thunderhawk-fresh-source-inspection-20261025.json`.
+
+All nine CI jobs passed for `b45713df65213b881c19278291c9e83adf1602cd`, including 25 exact-source inspection checks and 65 MariaDB directory/comparison checks. The inspector uses the existing credentials with an in-memory session and the production read-only transaction. No connection setting, saved token, worker record, source snapshot, production runtime, financial posting or Arabella record changed.
+
 ## 2026-10-25 - Actual Thunderhawk stored-value alignment inspected
 
 Read-only production inspection `40188370446` compared nine dimensions of the selected P-358 / PL-864 pair with its exact stored JobDiva assignment contract. Matching fields: worksite_state, worksite_country, engagement_type, start_date, end_date, status. The source snapshot was last synced at `2026-09-21 10:02:10`; it is not fresh source acceptance. Branch and WC lack values in that stored contract, and production has no worksite-city column. Employer references remain empty and persisted person/placement numbering tables remain unavailable. See `deploy/thunderhawk-field-alignment-inspection-20261025.json` for per-field statuses and limits.
