@@ -1,3 +1,13 @@
+## Payment result evidence — October 24, 2026
+
+Core pilot runtime `ea1241f23d15196e6eee508b84ab92dad0d6d998` now requires exact payment money and identity evidence before treating a provider result as settlement or release. A partial $40 payment cannot clear a $125 reservation. Compact history only finds the payment; Core reads its full detail, checks currency and adjustment semantics, and retains a review hold for conflicting or unavailable evidence. AP cancellation and clearance recheck the saved verified receipt. No payment was executed.
+
+All nine CI jobs passed ([run 40158700686](https://github.com/coreflux-creator/CoreFlux/actions/runs/40158700686)), including 76 pure evidence checks and 273 MariaDB delivery checks. The existing isolated pilot deployment and acceptance passed ([run 40158836250](https://github.com/coreflux-creator/CoreFlux/actions/runs/40158836250)); its matching backup is recorded in `deploy/purepay-money-evidence-staging-20261024.json`.
+
+PurePay source/runtime was unchanged in this increment. Its current wallet rows lack explicit currency, and terminal callbacks omit money evidence. They remain unresolved under this contract until a separate provider change establishes and returns that evidence; no historical money was inferred. See `spec/purepay_docs/payment-evidence.md`.
+
+The Thunderhawk replacement key ending be2c was retrieved privately and copied to the user's clipboard. Core sign-in/manual key submission and replacement verification remain pending; the old key has not been revoked. The production publication, actual Thunderhawk employer/WC, worker login/document intake, independent time approval and full live round-trip gates remain open.
+
 ## Bill payment history installed in the integration pilot - October 24, 2026
 
 Core runtime ab61b0ba949171f545c1306dcac3056878c9f832 and PurePay source
