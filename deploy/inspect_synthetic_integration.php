@@ -104,6 +104,18 @@ $report['payment_callback_setup'] = [
     'saved_callback_events'=>(int)$pdo->query('SELECT COUNT(*) FROM purepay_webhook_events WHERE tenant_id=999')->fetchColumn(),
     'credentials_decrypted'=>false, 'provider_contacted'=>false,
 ];
+// Financial preview routing is installation-wide. Inspect every saved consumer
+// before considering that switch; the pilot tenant alone cannot prove isolation.
+$report['payment_callback_setup']['installation_scope'] = [
+    'has_nonpilot_connections'=>(bool)$pdo->query('SELECT EXISTS(SELECT 1 FROM purepay_connections WHERE tenant_id<>999)')->fetchColumn(),
+    'saved_connections'=>$pdo->query('SELECT c.tenant_id,c.status,c.key_scope,t.is_simulation,
+        (c.api_key_ct IS NOT NULL AND c.api_key_ct<>"") AS api_key_stored,
+        (c.webhook_secret_ct IS NOT NULL AND c.webhook_secret_ct<>"") AS callback_secret_stored
+        FROM purepay_connections c LEFT JOIN tenants t ON t.id=c.tenant_id ORDER BY c.tenant_id LIMIT 101')->fetchAll(PDO::FETCH_ASSOC),
+    'private_db_config_sha256'=>is_file(PILOT_ROOT.'/core/db.local.php')
+        ? hash_file('sha256',PILOT_ROOT.'/core/db.local.php') : null,
+    'financial_preview_constant_present'=>defined('COREFLUX_PUREPAY_FINANCIAL_PREVIEW_API_BASE'),
+];
 unset($paymentConnection, $paymentBase);
 
 // Report only bounded capability/status values. Never print access arrays, keys or exception text.
