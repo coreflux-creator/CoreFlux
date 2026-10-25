@@ -3,6 +3,16 @@
 declare(strict_types=1);
 require_once __DIR__.'/staffing_pilot_entity_inheritance.php';
 
+function fullCorePilotEntityAuditMatches(mixed $actual,mixed $expected): bool
+{
+    if (!is_array($actual)||!is_array($expected)) return $actual===$expected;
+    if (array_is_list($actual)!==array_is_list($expected)) return false;
+    ksort($actual);ksort($expected);
+    if (array_keys($actual)!==array_keys($expected)) return false;
+    foreach($expected as $key=>$value) if(!fullCorePilotEntityAuditMatches($actual[$key],$value)) return false;
+    return true;
+}
+
 /** Use the caller's existing connection; never bootstrap candidate runtime against live data. */
 function fullCorePilotEntityAudit(PDO $pdo,array $pilot,?int $before,int $after,string $requestId,string $commit): bool
 {
@@ -33,7 +43,7 @@ function fullCorePilotEntityAudit(PDO $pdo,array $pilot,?int $before,int $after,
     if (in_array('created_at',$cols,true)) { $columns[]='created_at';$slots[]='NOW()'; }
     $pdo->prepare('INSERT INTO audit_log (`'.implode('`,`',$columns).'`) VALUES ('.implode(',',$slots).')')->execute($values);
     $s->execute($query);$rows=$s->fetchAll(PDO::FETCH_COLUMN);
-    return count($rows)===1&&json_decode($rows[0],true,512,JSON_THROW_ON_ERROR)===$meta;
+    return count($rows)===1&&fullCorePilotEntityAuditMatches(json_decode($rows[0],true,512,JSON_THROW_ON_ERROR),$meta);
 }
 
 function fullCorePilotEntityProtectedState(PDO $pdo,array $pilot): array

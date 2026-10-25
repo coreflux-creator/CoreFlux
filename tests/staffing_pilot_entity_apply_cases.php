@@ -5,6 +5,10 @@ require_once __DIR__.'/../deploy/staffing_pilot_entity_apply.php';
 
 function testPilotEntityApply(PDO $pdo,array $pilot,callable $check): void
 {
+    $check(fullCorePilotEntityAuditMatches(['after'=>['id'=>77],'before'=>['id'=>null]],['before'=>['id'=>null],'after'=>['id'=>77]]),
+        'database JSON object key normalization preserves the same receipt');
+    $check(!fullCorePilotEntityAuditMatches(['id'=>'77'],['id'=>77])&&!fullCorePilotEntityAuditMatches(['id'=>77,'extra'=>true],['id'=>77]),
+        'receipt comparison rejects coerced values and unexpected evidence');
     $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT,actor_user_id BIGINT NULL,
         actor_type VARCHAR(40),event VARCHAR(100),target_id BIGINT,object_type VARCHAR(80),meta_json JSON,
         before_json JSON,after_json JSON,request_id VARCHAR(100),source VARCHAR(100),created_at DATETIME) ENGINE=InnoDB');
