@@ -397,6 +397,13 @@ try{
     $result=paymentRailsDispatch('ap',['tenant_id'=>1,'actor_user_id'=>8,'disbursement_rail'=>'mercury'],[],[$railItem]);
     $check($result['items'][0]['status']==='failed' && $mercuryCount(106)===1,
         'repeated actual Mercury dispatch returns a conflict without creating a second instruction');
+    $pdo->exec('UPDATE mercury_recipients SET name="Synthetic supplier" WHERE id=1');
+    $mercuryItem=$seed(107,1);$before=count($calls);
+    $interleave=static function(){mpCreateFromApPayment(1,107,8);};
+    $check($fails(fn()=>purepayAllocationPrepare($pdo,1,107,$mercuryItem,$date))
+        && $mercuryCount(107)===1 && purepayAllocationParent($pdo,1,107)===null
+        && !array_filter(array_slice($calls,$before),static fn($call)=>$call[0]==='POST'),
+        'Mercury that wins during PurePay bill review prevents the later reservation commit and provider writes');
     $check($mercuryCalls===0,'all Mercury concurrency checks complete without any external provider calls');
     $pdo->exec('UPDATE purepay_connections SET key_scope="read_only" WHERE tenant_id=1');$before=$executeCount;$callsBefore=count($calls);
     $check($fails(fn()=>purepayAllocationCall($pdo,1,4,40,'execute')) && $executeCount===$before

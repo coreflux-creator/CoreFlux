@@ -729,58 +729,58 @@ function mpCreateFromApPayment(int $tenantId, int $apPaymentId, ?int $userId = n
     $pdo = getDB();
     $owns = cf_tx_begin($pdo);
     try {
-    // Keep vendor selection, draft insertion, and the reverse link in one transaction.
-    $ap = $pdo->prepare(
-        'SELECT id, vendor_name, amount, status, method, rail_external_ref
-           FROM ap_payments WHERE tenant_id = :t AND id = :id LIMIT 1 FOR UPDATE'
-    );
-    $ap->execute(['t' => $tenantId, 'id' => $apPaymentId]);
-    $row = $ap->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) throw new \RuntimeException('ap_payment not found');
-    if ($row['status'] !== 'sent') throw new \RuntimeException('ap_payment must be in status=sent');
-    if (!empty($row['rail_external_ref'])) {
-        throw new \RuntimeException('ap_payment is already attached to rail ' . $row['rail_external_ref']);
-    }
+        // Keep vendor selection, draft insertion, and the reverse link in one transaction.
+        $ap = $pdo->prepare(
+            'SELECT id, vendor_name, amount, status, method, rail_external_ref
+               FROM ap_payments WHERE tenant_id = :t AND id = :id LIMIT 1 FOR UPDATE'
+        );
+        $ap->execute(['t' => $tenantId, 'id' => $apPaymentId]);
+        $row = $ap->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) throw new \RuntimeException('ap_payment not found');
+        if ($row['status'] !== 'sent') throw new \RuntimeException('ap_payment must be in status=sent');
+        if (!empty($row['rail_external_ref'])) {
+            throw new \RuntimeException('ap_payment is already attached to rail ' . $row['rail_external_ref']);
+        }
 
-    // Refuse duplicate instructions per ap_payment unless prior one was terminal.
-    $dup = $pdo->prepare(
-        'SELECT id, state FROM payment_instructions
-          WHERE tenant_id = :t AND source_module = "ap" AND source_ref = :r
-            AND state NOT IN ("Cancelled","Failed","Returned")
-          LIMIT 1'
-    );
-    $dup->execute(['t' => $tenantId, 'r' => (string) $apPaymentId]);
-    if ($e = $dup->fetch(\PDO::FETCH_ASSOC)) {
-        throw new \RuntimeException("payment_instruction #{$e['id']} already exists for this ap_payment ({$e['state']})");
-    }
+        // Report an active draft here; mpCreate also checks terminal and historical claims.
+        $dup = $pdo->prepare(
+            'SELECT id, state FROM payment_instructions
+              WHERE tenant_id = :t AND source_module = "ap" AND source_ref = :r
+                AND state NOT IN ("Cancelled","Failed","Returned")
+              LIMIT 1'
+        );
+        $dup->execute(['t' => $tenantId, 'r' => (string) $apPaymentId]);
+        if ($e = $dup->fetch(\PDO::FETCH_ASSOC)) {
+            throw new \RuntimeException("payment_instruction #{$e['id']} already exists for this ap_payment ({$e['state']})");
+        }
 
-    // Find the mercury_recipient by vendor name (case-insensitive).
-    $rec = $pdo->prepare(
-        'SELECT id FROM mercury_recipients
-          WHERE tenant_id = :t AND kind = "vendor" AND status = "active"
-            AND deleted_at IS NULL
-            AND LOWER(name) = LOWER(:n) LIMIT 1'
-    );
-    $rec->execute(['t' => $tenantId, 'n' => (string) $row['vendor_name']]);
-    $recipientId = (int) ($rec->fetchColumn() ?: 0);
-    if ($recipientId === 0) {
-        throw new \RuntimeException("no Mercury recipient found for vendor '{$row['vendor_name']}'; add them under Treasury → Pay-out Rails → Recipients first");
-    }
+        // Find the mercury_recipient by vendor name (case-insensitive).
+        $rec = $pdo->prepare(
+            'SELECT id FROM mercury_recipients
+              WHERE tenant_id = :t AND kind = "vendor" AND status = "active"
+                AND deleted_at IS NULL
+                AND LOWER(name) = LOWER(:n) LIMIT 1'
+        );
+        $rec->execute(['t' => $tenantId, 'n' => (string) $row['vendor_name']]);
+        $recipientId = (int) ($rec->fetchColumn() ?: 0);
+        if ($recipientId === 0) {
+            throw new \RuntimeException("no Mercury recipient found for vendor '{$row['vendor_name']}'; add them under Treasury → Pay-out Rails → Recipients first");
+        }
 
-    $amountCents = (int) round(((float) $row['amount']) * 100);
-    $instruction = mpCreate($tenantId, [
-        'recipient_id'   => $recipientId,
-        'amount_cents'   => $amountCents,
-        'currency'       => 'USD',
-        'description'    => 'AP #' . $apPaymentId . ' / ' . substr((string) $row['vendor_name'], 0, 35),
-        'notes'          => 'Auto-created from ap_payments #' . $apPaymentId,
-        'source_module'  => 'ap',
-        'source_ref'     => (string) $apPaymentId,
-        'idempotency_key' => 'ap:' . $apPaymentId . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
-    ], $userId);
+        $amountCents = (int) round(((float) $row['amount']) * 100);
+        $instruction = mpCreate($tenantId, [
+            'recipient_id'   => $recipientId,
+            'amount_cents'   => $amountCents,
+            'currency'       => 'USD',
+            'description'    => 'AP #' . $apPaymentId . ' / ' . substr((string) $row['vendor_name'], 0, 35),
+            'notes'          => 'Auto-created from ap_payments #' . $apPaymentId,
+            'source_module'  => 'ap',
+            'source_ref'     => (string) $apPaymentId,
+            'idempotency_key' => 'ap:' . $apPaymentId . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
+        ], $userId);
 
-    cf_tx_commit($pdo, $owns);
-    return $instruction;
+        cf_tx_commit($pdo, $owns);
+        return $instruction;
     } catch (Throwable $e) {
         cf_tx_rollback($pdo, $owns);
         throw $e;
