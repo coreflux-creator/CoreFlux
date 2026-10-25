@@ -118,6 +118,8 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
     if (!$currentConnection || $currentConnection['status']!=='active') return ['outcome'=>'needs_review','reason'=>'connection_inactive'];
     $connectionFingerprint=purepayConnectionFingerprint($tenantId,(string)decryptField($currentConnection['api_key_ct']));
     if (!hash_equals($connectionFingerprint,$verifiedConnectionFingerprint)) return ['outcome'=>'needs_review','reason'=>'connection_changed'];
+    try { purepayFinancialRequire($pdo,$tenantId); }
+    catch (Throwable $e) { return ['outcome'=>'needs_review','reason'=>'financial_company_unconfirmed']; }
     $where = [];
     $params = ['t'=>$tenantId];
     if ($paymentId !== '') { $where[] = 'purepay_payment_id=:p'; $params['p']=$paymentId; }

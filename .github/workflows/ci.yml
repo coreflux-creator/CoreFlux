@@ -189,6 +189,7 @@ jobs:
 
       - name: Verify PurePay attempts and company isolation
         run: |
+          php tests/purepay_financial_company_mariadb.php
           php tests/purepay_collection_completeness_smoke.php
           php tests/purepay_bill_payment_history_smoke.php
           php tests/purepay_payment_evidence_smoke.php

@@ -19,6 +19,7 @@ class PurePayRailDriver implements PaymentRailsDriver
     {
         require_once __DIR__ . '/../purepay_service.php';
         $conn = purepayGetConnection($tenantId);
+        try { purepayFinancialRequire(getDB(),$tenantId,$conn); } catch (Throwable $e) { return false; }
         return $conn && ($conn['status'] ?? '') === 'active'
             && ($conn['key_scope'] ?? '') === 'read_write' && ($conn['api_key'] ?? '') !== '';
     }
@@ -39,6 +40,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             throw new PaymentRailsNotConfiguredException('Pure//Pay payouts require a read-write API key');
         }
 
+        purepayFinancialRequire(getDB(),$tenantId,$conn);
         $batchId = (string) ($opts['batch_id'] ?? ('purepay_' . date('YmdHis') . '_' . bin2hex(random_bytes(3))));
         $results = [];
         foreach ($items as $index => $item) {
@@ -123,6 +125,9 @@ class PurePayRailDriver implements PaymentRailsDriver
             ];
         }
         try {
+            $active=purepayGetConnection($tenantId);
+            if (!$active || !hash_equals($apiKey,(string)$active['api_key'])) throw new PaymentRailsOriginateException('The PurePay key changed before provider access.');
+            purepayFinancialRequire(getDB(),$tenantId,$active,true);
             return $this->originateClaimed($tenantId,$apiKey,$item,$opts,$link,$sourceRef);
         } catch (\Throwable $e) {
             $this->recordFailure($tenantId,$sourceRef,$e);
@@ -327,6 +332,7 @@ class PurePayRailDriver implements PaymentRailsDriver
         $connection->execute(['t'=>$tenantId]);$current=$connection->fetch(\PDO::FETCH_ASSOC);
         if (!$current || $current['status']!=='active' || $current['key_scope']!=='read_write'
             || !hash_equals($apiKey,(string)decryptField($current['api_key_ct']))) throw new PaymentRailsOriginateException('The Pure//Pay connection changed before this attempt');
+        purepayFinancialRequire($pdo,$tenantId);
         $insert = $pdo->prepare(
             'INSERT IGNORE INTO purepay_payment_links
                 (tenant_id, source_ref, core_payment_id, amount_cents, status, request_fingerprint,connection_fingerprint)
@@ -386,9 +392,12 @@ class PurePayRailDriver implements PaymentRailsDriver
         if ($pdo->inTransaction()) throw new PaymentRailsOriginateException('Provider result requires its own durable transaction');
         $pdo->beginTransaction();
         try {
+        purepayFinancialRequire($pdo,$tenantId);
         $read=$pdo->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s FOR UPDATE');
         $read->execute(['t'=>$tenantId,'s'=>$sourceRef]);$current=$read->fetch(PDO::FETCH_ASSOC);
         if (!$current) throw new PaymentRailsOriginateException('Pure//Pay attempt was not found');
+        $connection=purepayFinancialConnection($pdo,$tenantId,true);
+        if (!hash_equals((string)$current['connection_fingerprint'],purepayConnectionFingerprint($tenantId,purepayFinancialKey($connection)))) throw new PaymentRailsOriginateException('The company connection changed while reading this payment.');
         foreach (['purepay_vendor_id','purepay_bill_id','purepay_payment_id'] as $identity) {
             if (!empty($current[$identity]) && isset($fields[$identity]) && $fields[$identity]!==$current[$identity]) {
                 throw new PaymentRailsOriginateException('Pure//Pay result conflicts with the recorded provider identity');
@@ -497,6 +506,7 @@ class PurePayRailDriver implements PaymentRailsDriver
             if (($link['status'] ?? '') === 'settled_failed_review') return 'unknown';
             $conn = purepayGetConnection((int) $link['tenant_id']);
             if (!$conn || ($conn['status'] ?? '') !== 'active') return 'unknown';
+            purepayFinancialRequire(getDB(),$tenantId,$conn,true);
             if (!hash_equals((string)($link['connection_fingerprint']??''),purepayConnectionFingerprint($tenantId,(string)$conn['api_key']))) return 'unknown';
             $paymentId = (string) ($link['purepay_payment_id'] ?? '');
             $remote = $this->readPaymentDetail((string)$conn['api_key'], (string)($link['purepay_bill_id'] ?? ''), $paymentId);

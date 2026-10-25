@@ -13,7 +13,7 @@ require_once __DIR__.'/../modules/ap/lib/ap.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_purepay_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
-foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql','175_purepay_payment_receipt_owner.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
+foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql','175_purepay_payment_receipt_owner.sql','176_purepay_financial_company.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/ap/migrations/001_init.sql'))as$sql) {
     if(preg_match('/CREATE TABLE IF NOT EXISTS (ap_bills|ap_payments|ap_payment_allocations)\s*\(/',$sql))$pdo->exec($sql);
 }
@@ -52,6 +52,10 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     $path=parse_url($url,PHP_URL_PATH);$body=$json===null?[]:json_decode($json,true);$calls[]=[$method,$path,$body,$headers];
     if($method==='POST')$check(!$pdo->inTransaction(),'each provider mutation follows a committed durable claim');
     if($interleave!==null){$callback=$interleave;$interleave=null;$callback($method,$path);}
+    if($method==='GET' && $path==='/api/v1/context') {
+        $tenant=str_contains($headers[0],'fixture-company-b')?2:1;
+        return ['status'=>200,'body'=>json_encode(['contract_version'=>'2026-10-25.1','organization'=>['id'=>'org-'.$tenant,'name'=>'Synthetic '.$tenant],'key_scope'=>'write','execution_authority'=>false])];
+    }
     if($method==='GET' && $path==='/api/v1/vendors'){
         parse_str(parse_url($url,PHP_URL_QUERY)??'', $query);
         $rows=$mode==='vendor_repeated_page'
@@ -118,6 +122,8 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
     }
     throw new RuntimeException('Unexpected fixture route '.$method.' '.$path);
 };
+foreach([1,2]as$tenant){$review=purepayFinancialReview($pdo,$tenant);purepayFinancialConfirm($pdo,$tenant,7,$review['review_hash'],$review['organization']['id']);}
+$calls=[];
 $postCount=static function()use(&$calls){return count(array_filter($calls,static fn($call)=>$call[0]==='POST'));};
 $link=static function($ref,$tenant=1)use($pdo){$s=$pdo->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=? AND source_ref=?');$s->execute([$tenant,$ref]);return $s->fetch(PDO::FETCH_ASSOC);};
 $send=static fn($value,$options=null)=>$driver->originate([$value],$options??$opts);

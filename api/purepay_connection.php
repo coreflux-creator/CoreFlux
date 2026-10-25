@@ -22,21 +22,26 @@ $base = trim((string) (getenv('APP_PUBLIC_URL') ?: (defined('APP_URL') ? constan
 if ($base === '') $base = 'https://www.corefluxapp.com';
 $deliveryUrl = rtrim($base, '/') . '/api/webhooks/purepay.php?t=' . $tenantId;
 
-function ppAudit(string $event, array $meta, int $tenantId, ?int $userId): void
+function ppAudit(string $event, array $meta, int $tenantId, ?int $userId, bool $required=false): void
 {
     try {
         getDB()->prepare(
             'INSERT INTO audit_log (tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at)
              VALUES (:t,:u,:e,NULL,:m,:ip,NOW())'
         )->execute(['t'=>$tenantId,'u'=>$userId,'e'=>$event,'m'=>json_encode($meta),'ip'=>$_SERVER['REMOTE_ADDR'] ?? null]);
-    } catch (\Throwable $_) {}
+    } catch (\Throwable $e) { if ($required) throw $e; }
 }
 
 if ($method === 'GET' && ($action === '' || $action === 'status')) {
     $row = purepayGetConnection($tenantId);
+    $company=purepayFinancialSummary(getDB(),$tenantId);
+    $name=getDB()->prepare('SELECT name FROM tenants WHERE id=?');$name->execute([$tenantId]);
     api_ok([
         'configured' => purepayServiceConfigured(),
-        'connected' => $row && ($row['status'] ?? '') === 'active',
+        'has_connection' => $row && ($row['status'] ?? '') !== 'revoked',
+        'connected' => $row && ($row['status'] ?? '') === 'active' && $company['verified'],
+        'financial_company'=>$company,
+        'core_company'=>['id'=>$tenantId,'name'=>(string)$name->fetchColumn()],
         'status' => $row['status'] ?? null,
         'label' => $row['label'] ?? null,
         'api_key_last4' => $row['api_key_last4'] ?? null,
@@ -51,6 +56,18 @@ if ($method === 'GET' && ($action === '' || $action === 'status')) {
     ]);
 }
 if ($method !== 'POST') api_error('Method not allowed', 405);
+
+if ($action==='review_company' || $action==='confirm_company') {
+    $body=api_json_body();
+    try {
+        $result=$action==='review_company' ? purepayFinancialReview(getDB(),$tenantId)
+            : purepayFinancialConfirm(getDB(),$tenantId,(int)($user['id']??0),
+                (string)($body['review_hash']??''),(string)($body['organization_id']??''),
+                fn()=>ppAudit('purepay.financial_company.confirmed',['organization_id'=>$body['organization_id']??null],$tenantId,$user['id']??null,true));
+    } catch (PurePayApiException $e) { api_error($e->getMessage(),422); }
+    catch (Throwable $e) { api_error('Company review could not be saved. Check the integration setup and try again.',422); }
+    api_ok($result);
+}
 
 if ($action === 'disconnect') {
     purepayRevokeConnection($tenantId);
@@ -84,5 +101,6 @@ catch (PurePayApiException $e) {
     ppAudit('purepay.connection.probe_failed', ['http_status'=>$e->httpStatus,'error'=>$e->getMessage()], $tenantId, $user['id'] ?? null);
     api_error('Pure//Pay rejected the key: ' . $e->getMessage(), 422, ['http_status'=>$e->httpStatus]);
 }
+catch (Throwable $e) { api_error('PurePay connection could not be saved. Check the integration setup and try again.',422); }
 ppAudit('purepay.connection.connected', ['label'=>$label, 'key_scope'=>$keyScope], $tenantId, $user['id'] ?? null);
 api_ok(['ok'=>true] + $result);
