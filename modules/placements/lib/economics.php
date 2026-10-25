@@ -59,95 +59,82 @@ function placementEconomicsEnsureVendor(
 ): ?array {
     $displayName = trim($displayName);
     if ($tenantId <= 0 || $displayName === '') return null;
-    if (!in_array($vendorType, ['1099_individual','c2c_corp','w9_business','utility','other'], true)) {
-        $vendorType = 'other';
-    }
+    if ($companyId !== null && $companyId <= 0) throw new RuntimeException('Review the vendor company identity before linking it.');
+    if (!in_array($vendorType, ['1099_individual','c2c_corp','w9_business','utility','other'], true)) $vendorType = 'other';
 
     $pdo = getDB();
-    $existing = null;
-    if ($companyId) {
-        $st = $pdo->prepare(
-            'SELECT * FROM ap_vendors_index
-              WHERE tenant_id = :t AND company_id = :c
-              ORDER BY id ASC LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'c' => $companyId]);
-        $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    }
-    if (!$existing) {
-        $st = $pdo->prepare(
-            'SELECT * FROM ap_vendors_index
-              WHERE tenant_id = :t AND vendor_name = :n
-              ORDER BY id ASC LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'n' => $displayName]);
-        $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    }
+    $ownTransaction = !$pdo->inTransaction();
+    $savepoint = 'staffing_vendor_' . bin2hex(random_bytes(8));
+    if ($ownTransaction) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $existing = null;
+        if ($companyId !== null) {
+            $companyOwner = effectiveTenantIdForModule('companies', $tenantId);
+            $st = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL FOR UPDATE');
+            $st->execute(['c'=>$companyId, 't'=>$companyOwner]);
+            if (!$st->fetchColumn()) throw new RuntimeException('The vendor company is outside the current company directory or is no longer active.');
+            // Lock the company even when no vendor exists. Concurrent resolution
+            // of the same company must not create two differently named vendors.
+            $st = $pdo->prepare('SELECT * FROM ap_vendors_index WHERE tenant_id=:t AND company_id=:c ORDER BY id LIMIT 2 FOR UPDATE');
+            $st->execute(['t'=>$tenantId, 'c'=>$companyId]);
+            $matches = $st->fetchAll(PDO::FETCH_ASSOC);
+            if (count($matches)>1) throw new RuntimeException('This company has multiple vendor records. Review their identities before linking the placement.');
+            $existing = $matches[0] ?? null;
+        }
+        if (!$existing) {
+            $st = $pdo->prepare('SELECT * FROM ap_vendors_index WHERE tenant_id=:t AND vendor_name=:n LIMIT 2 FOR UPDATE');
+            $st->execute(['t'=>$tenantId, 'n'=>$displayName]);
+            $matches = $st->fetchAll(PDO::FETCH_ASSOC);
+            if (count($matches)>1) throw new RuntimeException('Multiple vendors have this name. Review the vendor identity before linking.');
+            $existing = $matches[0] ?? null;
+            // A name is not authority to bind an unlinked vendor, replace its
+            // company, or adopt a company vendor for a person-only payee.
+            if ($existing && ($companyId !== null || !empty($existing['company_id']))) {
+                throw new RuntimeException('A vendor with this name has a different or unreviewed company identity. Review the company-to-vendor link before using it on the placement.');
+            }
+        }
 
-    $normalTerms = placementEconomicsNormaliseTerms(
-        $terms,
-        (string) ($existing['default_terms'] ?? 'NET30')
-    );
-    $normalPwp = $pwp === null
-        ? (int) ($existing['default_pwp'] ?? (placementEconomicsTermsArePwp($normalTerms) ? 1 : 0))
-        : ($pwp ? 1 : 0);
-
-    if ($companyId) {
-        try {
+        $normalTerms = placementEconomicsNormaliseTerms($terms, (string)($existing['default_terms'] ?? 'NET30'));
+        $normalPwp = $pwp === null ? (int)($existing['default_pwp'] ?? (placementEconomicsTermsArePwp($normalTerms) ? 1 : 0)) : ($pwp ? 1 : 0);
+        if ($existing) {
+            // The locked identity is already verified; never retarget it here.
+            $pdo->prepare('UPDATE ap_vendors_index SET placement_id_last=COALESCE(:p,placement_id_last) WHERE tenant_id=:t AND id=:i')
+                ->execute(['p'=>$placementId,'t'=>$tenantId,'i'=>(int)$existing['id']]);
+            $vendorId = (int)$existing['id'];
+        } else {
+            $pdo->prepare('INSERT INTO ap_vendors_index
+                (tenant_id,vendor_name,company_id,vendor_type,default_terms,default_pwp,requires_1099,placement_id_last)
+                VALUES(:t,:n,:c,:type,:terms,:pwp,:tax,:p)')
+                ->execute(['t'=>$tenantId,'n'=>$displayName,'c'=>$companyId,'type'=>$vendorType,'terms'=>$normalTerms,
+                    'pwp'=>$normalPwp,'tax'=>$vendorType==='1099_individual'?1:0,'p'=>$placementId]);
+            $vendorId = (int)$pdo->lastInsertId();
+        }
+        if ($companyId !== null) {
             companiesAddRole($companyId, 'vendor');
             companiesBumpUsage($companyId);
-        } catch (\Throwable $e) {
-            error_log('[placement economics] company vendor role skipped: ' . $e->getMessage());
         }
+        $result = [
+            'id'=>$vendorId, 'company_id'=>$existing ? ($existing['company_id']===null?null:(int)$existing['company_id']) : $companyId,
+            'vendor_name'=>$existing ? (string)$existing['vendor_name'] : $displayName,
+            'vendor_type'=>$existing ? (string)$existing['vendor_type'] : $vendorType,
+            'requires_1099'=>$existing ? (int)$existing['requires_1099'] : ($vendorType==='1099_individual'?1:0),
+            'default_terms'=>$existing ? (string)($existing['default_terms'] ?? 'NET30') : $normalTerms,
+            'default_pwp'=>$existing ? (int)($existing['default_pwp'] ?? 0) : $normalPwp,
+        ];
+        if ($ownTransaction) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        return $result;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            if ($ownTransaction) $pdo->rollBack();
+            else {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+        throw $error;
     }
-
-    if ($existing) {
-        $pdo->prepare(
-            'UPDATE ap_vendors_index
-                SET company_id = COALESCE(company_id, :company_id),
-                    placement_id_last = COALESCE(:placement_id, placement_id_last)
-              WHERE tenant_id = :t AND id = :id'
-        )->execute([
-            'company_id' => $companyId,
-            'placement_id' => $placementId,
-            't' => $tenantId,
-            'id' => (int) $existing['id'],
-        ]);
-        $vendorId = (int) $existing['id'];
-    } else {
-        $pdo->prepare(
-            'INSERT INTO ap_vendors_index
-                (tenant_id, vendor_name, company_id, vendor_type, default_terms,
-                 default_pwp, requires_1099, placement_id_last)
-             VALUES
-                (:t, :name, :company_id, :vendor_type, :terms,
-                 :pwp, :requires_1099, :placement_id)'
-        )->execute([
-            't' => $tenantId,
-            'name' => $displayName,
-            'company_id' => $companyId,
-            'vendor_type' => $vendorType,
-            'terms' => $normalTerms,
-            'pwp' => $normalPwp,
-            'requires_1099' => $vendorType === '1099_individual' ? 1 : 0,
-            'placement_id' => $placementId,
-        ]);
-        $vendorId = (int) $pdo->lastInsertId();
-    }
-
-    return [
-        'id' => $vendorId,
-        'company_id' => $existing ? ($existing['company_id'] ?: $companyId) : $companyId,
-        'vendor_name' => $existing ? (string) $existing['vendor_name'] : $displayName,
-        'vendor_type' => $existing ? (string) $existing['vendor_type'] : $vendorType,
-        'requires_1099' => $existing ? (int) $existing['requires_1099'] : ($vendorType === '1099_individual' ? 1 : 0),
-        'default_terms' => $existing
-            ? (string) ($existing['default_terms'] ?? 'NET30')
-            : $normalTerms,
-        'default_pwp' => $existing
-            ? (int) ($existing['default_pwp'] ?? 0)
-            : $normalPwp,
-    ];
 }
 
 function placementEconomicsEnsureCycle(
