@@ -5,6 +5,7 @@ require_once __DIR__.'/../core/api_bootstrap.php';
 require_once __DIR__.'/../core/integrations/purepay_links.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_payroll_results.php';
+require_once __DIR__.'/../core/integrations/purepay_payroll_reservation_review.php';
 require_once __DIR__.'/../core/integrations/purepay_observations.php';
 require_once __DIR__.'/../core/integrations/purepay_people_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_assignment_inputs.php';
@@ -176,6 +177,35 @@ try {
             if(!is_string($body['person_number']??null) || (isset($body['before'])&&!is_int($body['before'])))api_error('Choose a person number for input history.',422);
             $owners=purepayCoreApiPayrollOwners($user,$tenantId);
             $result=purepayPayrollInputHistory($pdo,$tenantId,$instance,$owners,strtoupper(trim($body['person_number'])),$body['before']??null);break;
+        case 'payroll_reservation_history':
+        case 'payroll_reservation_reserve':
+        case 'payroll_reservation_send':
+        case 'payroll_reservation_reconcile':
+        case 'payroll_reservation_release':
+            if(!is_int($body['delivery_id']??null)||$body['delivery_id']<=0||!is_string($body['review_hash']??null))api_error('Choose a received payroll input.',422);
+            $owners=purepayCoreApiPayrollOwners($user,$tenantId);
+            $cancelAllowed=rbac_legacy_can($user,'payroll.runs.approve');
+            $verb=substr($action,strlen('payroll_reservation_'));
+            $reservationAudit=static function(string $event,array $meta)use($pdo,$tenantId,$user):void{
+                $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(?,?,?,NULL,?,?,NOW())')
+                    ->execute([$tenantId,(int)$user['id'],$event,json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null]);
+            };
+            if($verb==='history'){
+                if(isset($body['before'])&&!is_string($body['before']))api_error('Invalid reservation page.',422);
+                $result=purepayPayrollReservationHistory($pdo,$tenantId,$instance,$owners,$body['delivery_id'],$body['review_hash'],$body['before']??null);
+                $result['can_release']=$cancelAllowed;
+            }else{
+                if($verb!=='reconcile'&&($body['confirmed']??null)!==true)api_error('Review and confirm this reservation action.',422);
+                if($verb==='release')rbac_legacy_require($user,'payroll.runs.approve');
+                if($verb==='reserve'){
+                    if(!is_string($body['request_id']??null))api_error('A retained reservation request is required.',422);
+                    $result=['authority'=>purepayPayrollReservationReserve($pdo,$tenantId,(int)$user['id'],$instance,$owners,$body['delivery_id'],$body['review_hash'],$body['request_id'],$reservationAudit)];
+                }else{
+                    if(!is_string($body['authority_id']??null))api_error('Choose the original reservation.',422);
+                    $result=purepayPayrollReservationAct($pdo,$tenantId,(int)$user['id'],$instance,$owners,$body['delivery_id'],$body['review_hash'],$body['authority_id'],$verb,$reservationAudit);
+                }
+            }
+            break;
         case 'payroll_result_history':
         case 'payroll_result_refresh':
             if(!is_int($body['delivery_id']??null) || $body['delivery_id']<=0 || !is_string($body['review_hash']??null)

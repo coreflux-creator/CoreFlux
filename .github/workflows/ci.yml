@@ -259,7 +259,7 @@ jobs:
           php tests/purepay_assignment_inputs_mariadb.php
 
       - name: Core payroll source reservation and database fences
-        run: php tests/purepay_payroll_authority_mariadb.php
+        run: php tests/purepay_payroll_reservation_review_mariadb.php
 
       - name: Core payroll allocation and permanent cancellation receipts
         run: php tests/purepay_payroll_allocation_receipt.php

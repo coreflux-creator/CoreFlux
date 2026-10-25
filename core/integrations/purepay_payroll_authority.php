@@ -30,7 +30,7 @@ function purepayPayrollAuthorityView(array $row): array
 
 /**
  * Internal service boundary: callers must resolve owners and authorize payroll-create.
- * No API calls this until the native draft review workflow is implemented.
+ * The operator reservation workflow supplies authorized module owners and a retained request ID.
  * A request ID is generated for a review and retained on retry, never an expiry.
  */
 function purepayPayrollAuthorityReserve(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,int $deliveryId,string $reviewHash,string $requestId,?callable $audit=null): array
