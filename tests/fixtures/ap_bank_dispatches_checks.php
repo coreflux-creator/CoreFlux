@@ -110,8 +110,11 @@ function exerciseApBankDispatches(PDO $pdo,PDO $other,callable $seed,callable $c
     $pdo->exec('UPDATE ap_bills SET entity_id=12 WHERE id=2100');
     $check($fails(fn()=>$dispatch('nacha',[$fresh],$format)) && !apBankClaim($pdo,1,210),'supplier bills in another legal entity cannot enter the bank file');
     $pdo->exec('UPDATE ap_bills SET entity_id=11 WHERE id=2100');
-    $result=paymentRailsDispatch('ap',['tenant_id'=>1,'actor_user_id'=>8,'effective_date'=>$date,'disbursement_rail'=>'nacha'],
-        ['nacha_company_id'=>'1234567890','nacha_origin_routing'=>'021000021'],[$fresh]);
+    $source=['tenant_id'=>1,'actor_user_id'=>8,'effective_date'=>$date,'disbursement_rail'=>'nacha'];
+    $check($fails(fn()=>paymentRailsDispatch('ap',$source,[],[$fresh])) && !apBankClaim($pdo,1,210),
+        'missing bank-file origin setup cannot use placeholder company or routing values');
+    $result=paymentRailsDispatch('ap',$source,
+        ['nacha_company_name'=>'Synthetic company','nacha_company_id'=>'1234567890','nacha_origin_routing'=>'021000021'],[$fresh]);
     $check($result['ap_dispatch_recorded'] && apBankClaim($other,1,210)!==null,'actual AP helper uses the durable original-file path');
     $fresh=$item(211);purepayAllocationPrepare($pdo,1,211,$fresh,$date);$pdo->exec('UPDATE ap_payments SET rail_external_ref=NULL WHERE id=211');
     $check($fails(fn()=>$dispatch('nacha',[$fresh],$format)) && !apBankClaim($pdo,1,211),'historical PurePay claim blocks a new bank file despite a missing reverse link');

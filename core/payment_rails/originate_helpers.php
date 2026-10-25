@@ -112,6 +112,13 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
             'via Admin → Export Templates and upload to your bank manually.'
         );
     }
+    if ($module === 'ap' && $rail === 'nacha') {
+        foreach (['nacha_company_name', 'nacha_company_id', 'nacha_origin_routing'] as $field) {
+            if (trim((string) ($settings[$field] ?? '')) === '') {
+                throw new PaymentRailsNotConfiguredException('Configure the bank-file company name, company ID and origin routing before preparing AP payments');
+            }
+        }
+    }
     $opts = [
         'user_id'         => isset($sourceRow['actor_user_id']) ? (int) $sourceRow['actor_user_id'] : null,
         'company_name'    => (string) ($settings['nacha_company_name']    ?? ($module === 'payroll' ? 'PAYROLL'  : 'AP')),
