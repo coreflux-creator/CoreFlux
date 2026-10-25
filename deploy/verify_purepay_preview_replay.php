@@ -3,6 +3,24 @@
 declare(strict_types=1);
 const REPLAY_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html';
 
+/** Select the original receipts while retaining later deliveries in the protected snapshot. */
+function purepayReplayOriginalRows(array $history): array
+{
+    $rows=array_values(array_filter($history,static fn(array $row):bool=>in_array((int)($row['id']??0),[2,5,7,8,9],true)));
+    if(array_map(static fn(array $row):int=>(int)$row['id'],$rows)!==[2,5,7,8,9]
+        ||array_filter($rows,static fn(array $row):bool=>(int)($row['tenant_id']??0)!==999
+            ||!in_array($row['provider']??null,['purepay','purepayroll'],true)
+            ||($row['state']??null)!=='delivered'||(string)($row['connection_ref']??'')!=='1'))
+        throw new RuntimeException('Unexpected or unresolved original delivery history');
+    return $rows;
+}
+
+function purepayReplaySavedHistory(PDO $pdo): array
+{
+    return $pdo->query('SELECT * FROM integration_deliveries WHERE tenant_id=999
+        AND provider IN ("purepay","purepayroll") ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+}
+
 /** Original receipts may become historical only through the exact reviewed successor. */
 function purepayReplayAssignmentReview(array $review,array $original,string $nativeId,?array $successor=null): bool
 {
@@ -30,7 +48,7 @@ if (PHP_SAPI!=='cli' || ($argv[1] ?? '')!=='--verify-native-demo-replay'
 $phase='environment';
 try {
     require_once REPLAY_ROOT.'/core/db.php';
-    require_once REPLAY_ROOT.'/deploy/migrate_purepay_preview_origin.php';
+    require_once REPLAY_ROOT.'/deploy/inspect_purepay_preview_continuity.php';
     require_once REPLAY_ROOT.'/core/integrations/purepay_people_inputs.php';
     require_once REPLAY_ROOT.'/core/integrations/purepay_assignment_inputs.php';
     require_once REPLAY_ROOT.'/core/sub_tenants.php';
@@ -50,7 +68,8 @@ try {
     if (!$connection || (int)$connection['revision']!==3 || $connection['remote_organization_id']!==CONTINUITY_ORG
         || !purepayCoreReview($pdo,999,CONTINUITY_INSTANCE)['verified']) throw new RuntimeException('New company binding is not verified');
     $phase='saved_deliveries';
-    $before=purepayPreviewOriginRows($pdo);
+    $historyBefore=purepayReplaySavedHistory($pdo);
+    $before=purepayReplayOriginalRows($historyBefore);
     $ap=$pdo->query('SELECT * FROM purepay_connections ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC);
     $results=[];$successorRows=[];$successorReads=[];$nativeLookups=0;
     foreach ($before as $row) {
@@ -98,7 +117,7 @@ try {
             'same_original_receipt'=>true,'replay_identical'=>true,'native_state'=>$native['provider_review']['state']??null];
     }
     foreach($successorRows as $id=>$next)if(integrationDeliveryGet($pdo,999,$id)!==$next)throw new RuntimeException('Original delivery changed');
-    if (purepayPreviewOriginRows($pdo)!==$before || purepayCoreConnection($pdo,999)!==$connection
+    if (purepayReplaySavedHistory($pdo)!==$historyBefore || purepayCoreConnection($pdo,999)!==$connection
         || $pdo->query('SELECT * FROM purepay_connections ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC)!==$ap) {
         throw new RuntimeException('Stored integration or AP state changed');
     }
@@ -128,11 +147,12 @@ try {
             $nativeObservation['detail_verified']=true;
         }
         if((int)$pdo->query('SELECT COUNT(*) FROM payroll_native_observations WHERE tenant_id=999')->fetchColumn()!==$captureCount
-            || purepayCoreConnection($pdo,999)!==$connection || purepayPreviewOriginRows($pdo)!==$before)
+            || purepayCoreConnection($pdo,999)!==$connection || purepayReplaySavedHistory($pdo)!==$historyBefore)
             throw new RuntimeException('Native observation altered local state');
     }
     echo 'PUREPAY_NATIVE_REPLAY='.json_encode(['verified'=>true,'tenant_id'=>999,'organization_id'=>CONTINUITY_ORG,
         'deliveries'=>$results,'native_lookups'=>$nativeLookups,'original_deliveries_unchanged'=>true,'connection_unchanged'=>true,
+        'entire_saved_history_unchanged'=>true,'saved_deliveries_checked'=>count($historyBefore),
         'reviewed_successors'=>array_map(static fn($id)=>['delivery_id'=>$id,'native_state'=>$successorReads[$id]['provider_review']['state'],
             'same_original_receipt'=>true,'replay_identical'=>true,'stored_delivery_unchanged'=>true],array_keys($successorRows)),
         'ap_connection_unchanged'=>true,'provider_record_writes'=>false,'payroll_or_payments_executed'=>false,
@@ -142,6 +162,7 @@ try {
         'Simulation identity changed'=>'simulation_identity_changed',
         'Directory ownership changed'=>'directory_ownership_changed',
         'New company binding is not verified'=>'company_binding_not_verified',
+        'Unexpected or unresolved original delivery history'=>'original_delivery_history_changed',
         'The person review belongs to different directory owners.'=>'person_directory_owners_mismatch',
         'This placement review belongs to different directory owners.'=>'placement_directory_owners_mismatch',
         'Original delivery changed'=>'delivery_summary_changed',

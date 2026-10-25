@@ -36,4 +36,18 @@ foreach(['rate','person','client','directory','city','previous','version'] as $c
 }
 $bad=$old;$bad['contract_version']='2026-10-22.1';
 $check(!purepayReplayAssignmentReview($history,$bad,'same-native',$successor),'incomplete legacy contract cannot qualify as this successor');
+$rows=array_map(static fn(int $id):array=>['id'=>$id,'tenant_id'=>999,'provider'=>'purepayroll',
+    'state'=>'delivered','connection_ref'=>'1'],[2,5,7,8,9]);
+$check(purepayReplayOriginalRows($rows)===$rows,'original receipt set remains valid');
+$later=[...$rows,['id'=>12,'tenant_id'=>999,'provider'=>'purepayroll','state'=>'delivered','connection_ref'=>'1']];
+$check(purepayReplayOriginalRows($later)===$rows,'accepted successor does not invalidate the original receipt set');
+$later[]=['id'=>13,'tenant_id'=>999,'provider'=>'purepayroll','state'=>'failed','connection_ref'=>'1'];
+$check(purepayReplayOriginalRows($later)===$rows,'unrelated later attempts stay outside original receipt verification');
+$rejected=static function(array $value):bool{try{purepayReplayOriginalRows($value);return false;}catch(RuntimeException){return true;}};
+$check($rejected(array_slice($rows,1)),'missing original receipt is rejected');
+$check($rejected([...$rows,$rows[0]]),'duplicate original receipt is rejected');
+foreach(['tenant_id'=>2,'provider'=>'quanta','state'=>'failed','connection_ref'=>'2'] as $field=>$value){
+    $bad=$rows;$bad[0][$field]=$value;
+    $check($rejected($bad),'changed original '.$field.' is rejected');
+}
 echo "PurePay historical revision replay: {$checks} passed\n";
