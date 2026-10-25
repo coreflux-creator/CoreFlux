@@ -381,6 +381,8 @@ if ($method === 'GET' && !empty($_GET['id'])) {
             }
         }
     }
+    $bill['purepay_link_permitted'] = getenv('COREFLUX_ENV') !== 'coreaccounting'
+        && rbac_legacy_can($user, 'accounting.bank.manage');
     api_ok(['bill' => $bill, 'lines' => $lines, 'allocations' => $allocations, 'approval' => $approval]);
 }
 

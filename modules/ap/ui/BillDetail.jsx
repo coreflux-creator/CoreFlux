@@ -6,6 +6,7 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
+import PurePayBillLink from './PurePayBillLink';
 import { directBillAccountChoices, generatedBillAccountChoices } from './directBillAccounts';
 import { formatDocumentMeasure } from '../../../dashboard/src/lib/documentTotals';
 import { Pencil, RotateCcw, X } from 'lucide-react';
@@ -157,6 +158,8 @@ export default function BillDetail({ session }) {
           {canVoid    && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="ap-bill-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
       </div>
+
+      {!standaloneAccounting && bill.purepay_link_permitted && <PurePayBillLink key={id} billId={id} />}
 
       {attachmentWarning && (
         <div className="error" role="alert" data-testid="ap-bill-attachment-warning" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
