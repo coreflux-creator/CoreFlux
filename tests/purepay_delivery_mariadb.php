@@ -73,6 +73,16 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         if($mode==='bill_timeout'){ $e=new PurePayApiException('Synthetic lost bill response');$e->outcomeUncertain=true;throw $e; }
         return ['status'=>200,'body'=>json_encode(['bill'=>$bills[$id]])];
     }
+    if($method==='GET' && preg_match('~^/api/v1/bills/([^/]+)/payments$~',$path,$match)){
+        if($mode==='scoped_failure')return ['status'=>503,'body'=>'{"detail":"Unavailable"}'];
+        if(!in_array($mode,['scoped_payments','scoped_incomplete'],true))return ['status'=>404,'body'=>'{"detail":"Not Found"}'];
+        $bill=rawurldecode($match[1]);$rows=[];
+        foreach($payments as$row)if(($row['bill_id']??$row['payable_id']??'')===$bill)$rows[]=[
+            'id'=>$row['id'],'bill_id'=>$bill,'status'=>$row['pay_status']??$row['status']??null,'amount'=>null,'currency'=>null];
+        return ['status'=>200,'body'=>json_encode(['contract_version'=>'2026-10-25.1','organization_id'=>'org-a','bill_id'=>$bill,
+            'complete'=>$mode==='scoped_payments','total'=>count($rows),'items'=>$rows,
+            'consistency'=>'rechecked_read_not_transactional_snapshot','observed_at'=>'2026-10-25T02:40:00+00:00'])];
+    }
     if($method==='GET' && str_starts_with($path,'/api/v1/bills/'))return ['status'=>200,'body'=>json_encode(['bill'=>$bills[basename($path)]])];
     if($method==='GET' && $path==='/api/v1/payments'){
         if($mode==='payment_list_capped')return ['status'=>200,'body'=>json_encode(array_map(static fn($i)=>['id'=>'unrelated-payment-'.$i,'payable_id'=>'unrelated-bill-'.$i],range(1,1000)))];
@@ -254,6 +264,21 @@ $pdo->exec('UPDATE ap_payments SET status="cleared" WHERE id=141');
 $ledgerBlock='';try{apVoidPayment(1,141,'Synthetic return after clearance');}catch(DomainException $e){$ledgerBlock=$e->getMessage();}
 $check(str_contains($ledgerBlock,'Cleared payments need a linked accounting and bank correction'),
     'a returned payment with ledger activity still requires a linked correction');
+$seedAp(144);$mode='scoped_payments';$before=count($calls);
+$send(array_replace($item,['external_ref'=>'ap_payment:144']));$scoped=$link('ap_payment:144');
+$newCalls=array_slice($calls,$before);
+$check(count(array_filter($newCalls,static fn($c)=>str_ends_with($c[1],'/payments')))===1
+    && !in_array('/api/v1/payments',array_column($newCalls,1),true),'driver uses complete bill history without scanning unrelated provider payments');
+$pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL WHERE source_ref="ap_payment:144"');
+$check($driver->getStatusForTenant(1,'purepay:bill:'.$scoped['purepay_bill_id'])==='submitted'
+    && $link('ap_payment:144')['purepay_payment_id']===$scoped['purepay_payment_id'],'bill-only polling recovers the original payment through scoped history');
+$pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL WHERE source_ref="ap_payment:144"');
+$scopedBefore=$link('ap_payment:144');
+foreach(['scoped_incomplete','scoped_failure']as$failedMode){$mode=$failedMode;
+    $check($driver->getStatusForTenant(1,'purepay:bill:'.$scoped['purepay_bill_id'])==='unknown'
+        && $link('ap_payment:144')===$scopedBefore,'failed or incomplete scoped history preserves the durable attempt without a cached success');
+}
+$mode='ok';
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/163_purepay_attempt_binding.sql'))as$sql)$pdo->exec($sql);
 $check($link($item['external_ref'])['connection_fingerprint']===purepayConnectionFingerprint(1,$key),'migration replay preserves original connection bindings');
 $pdo->exec('UPDATE purepay_payment_links SET core_payment_id=NULL');

@@ -73,7 +73,8 @@ $check('driver never transmits bank fields', !str_contains($driver,"'account_rou
 $check('driver has durable request fingerprint', str_contains($driver,'request_fingerprint'));
 $check('driver fingerprints full vendor identity', str_contains($driver,'$recipientName') && str_contains($driver,'$recipientEmail'));
 $check('driver distinguishes a fresh durable claim', str_contains($driver,'$row[\'__fresh\'] = $fresh'));
-$check('driver checks complete remote payments before release', str_contains($driver,"\$paymentsBefore = purepayCompleteCollection(\$apiKey, 'payments')"));
+$historyRead=strpos($driver,'$paymentsBefore = purepayCompleteBillPayments($apiKey, $billId)');
+$check('driver checks complete remote payments before release', $historyRead!==false && $historyRead<strpos($driver,'$paid = purepayPayBill('));
 
 $GLOBALS['__purepay_transport'] = static fn(): array => ['status'=>422,'body'=>'{"code":"vendor_not_ready","detail":"bank setup required"}'];
 try {

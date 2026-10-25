@@ -30,7 +30,7 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
 {
     if ($apiKey === '' || preg_match('/[\r\n]/',$apiKey)) throw new PurePayApiException('Pure//Pay: valid API key required');
     $method = strtoupper($method);
-    if ($collection !== null && ($method !== 'GET' || !in_array($collection, ['vendors','bills','payments'], true))) {
+    if ($collection !== null && ($method !== 'GET' || !in_array($collection, ['vendors','bills','payments','bill_payments'], true))) {
         throw new InvalidArgumentException('Collection response validation requires a supported read');
     }
     // A server-configured integration can use its preview without moving the AP rail.
@@ -106,7 +106,9 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
         // Associative decoding alone conflates {} and [], including nested values.
         // Only an actual JSON list or the exact legacy list wrapper proves a page.
         $shape = json_decode($rawBody);
-        if (!is_array($shape)
+        if ($collection === 'bill_payments') {
+            if (!($shape instanceof \stdClass) || !is_array($shape->items ?? null)) purepayIncompleteCollection($collection);
+        } elseif (!is_array($shape)
             && !($shape instanceof \stdClass && array_keys(get_object_vars($shape)) === [$collection]
                 && is_array($shape->{$collection}))) purepayIncompleteCollection($collection);
     }
@@ -249,4 +251,47 @@ function purepayCompleteCollection(string $apiKey, string $resource, ?string $st
         if ($resource === 'payments' || $count < $pageSize) return $all;
     }
     $refuse();
+}
+
+/** Complete stored history of this bill, independent of unrelated organization volume.
+ * Rechecked reads are observations, not cross-system reservations or settlement proof.
+ */
+function purepayCompleteBillPayments(string $apiKey, string $billId): array
+{
+    $identifier = static fn($v) => is_string($v) && trim($v) !== '' && strlen($v) <= 255 && !preg_match('/[\x00-\x1f\x7f]/',$v);
+    if (!$identifier($billId)) throw new InvalidArgumentException('A valid PurePay bill identity is required');
+    $refuse = static fn() => purepayIncompleteCollection('bill payments');
+    try {
+        $response = purepayCall($apiKey,'GET','/bills/'.rawurlencode($billId).'/payments',collection:'bill_payments');
+    } catch (PurePayApiException $e) {
+        if ($e->httpStatus !== 404) $refuse();
+        // An older provider has no scoped endpoint. Only a verified complete legacy
+        // collection can supply an answer; its 1,000-row cap continues to refuse.
+        try { $legacy = purepayCompleteCollection($apiKey,'payments'); }
+        catch (PurePayApiException $legacyError) { $refuse(); }
+        return array_values(array_filter($legacy,static fn($row)=>($row['bill_id']??$row['payable_id'])===$billId));
+    }
+    $keys = array_keys($response); sort($keys);
+    $expected = ['contract_version','organization_id','bill_id','complete','total','items','consistency','observed_at']; sort($expected);
+    if ($keys !== $expected || $response['contract_version'] !== '2026-10-25.1'
+        || $response['consistency'] !== 'rechecked_read_not_transactional_snapshot'
+        || !$identifier($response['organization_id']) || $response['bill_id'] !== $billId
+        || $response['complete'] !== true || !is_int($response['total'])
+        || !is_array($response['items']) || !array_is_list($response['items'])
+        || $response['total'] !== count($response['items']) || $response['total'] > 10000
+        || !is_string($response['observed_at'])
+        || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D',$response['observed_at'])) $refuse();
+    $seen = [];
+    foreach ($response['items'] as $item) {
+        if (!is_array($item)) $refuse();
+        $keys = array_keys($item); sort($keys);
+        if ($keys !== ['amount','bill_id','currency','id','status'] || !$identifier($item['id'])
+            || $item['bill_id'] !== $billId || isset($seen[$item['id']])
+            || ($item['status'] !== null && (!is_string($item['status']) || trim($item['status']) === ''
+                || strlen($item['status']) > 64 || preg_match('/[\x00-\x1f\x7f]/',$item['status'])))
+            || ($item['amount'] !== null && (!is_string($item['amount']) || !preg_match('/^-?\d{1,11}\.\d{2}$/D',$item['amount'])))
+            || ($item['currency'] !== null && (!is_string($item['currency']) || !preg_match('/^[A-Z]{3}$/D',$item['currency'])))) $refuse();
+        $seen[$item['id']] = true;
+    }
+    return $response['items'];
 }
