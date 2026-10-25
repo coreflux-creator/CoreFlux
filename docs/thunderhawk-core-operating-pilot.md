@@ -1,3 +1,11 @@
+## Reserved payment amount — October 25, 2026
+
+Core pilot runtime `628dbf43b22fe8cc0632e88c6c084c2194e35c0a` now sends the reserved gross amount in its PurePay wallet request. Previously an omitted amount let a provider installment plan choose a smaller payment; validating the result afterwards was too late. All nine CI jobs passed (40167642205), including 279 delivery database checks, and isolated staging deployment passed (40167821777). Post-release read-only readiness (40168107529) preserved private configuration, original company bindings and Quanta HTTP 200.
+
+All 101 checks against installed PurePay source passed with review startup, isolated database fixtures and zero network attempts. Provider application source was unchanged; four additional regressions verify native defaults, explicit whole/cents amounts and rejection before payment creation when the open balance is insufficient. Runtime inspection matched 6,322 source files and confirmed held workers, unchanged demo data and configuration. Evidence: `deploy/purepay-reserved-amount-staging-20261025.json`.
+
+This fixes outgoing amount selection, not shared cross-system obligation reservations. Hosted signed callbacks and the actual Thunderhawk round trip remain unproved. Isolated Core still has no financial connection or callback secret; production publishing and live financial execution remain unauthorized.
+
 ## Isolated Core payment route installed and enabled — October 25, 2026
 
 Core staging now runs `85a3ec60b78e90e8e90c6f20f0ae48ee5a384fb1`. All nine CI jobs and staging acceptance passed. The approved simulation financial route is enabled for read-only access to the reviewed PurePay preview, with CLI and PHP-FPM checks and a private recovery copy. Setup created no credential or financial record.
