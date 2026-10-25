@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/jobdiva_pilot_source.php';
 require_once __DIR__ . '/staffing_pilot_alignment.php';
+require_once __DIR__ . '/staffing_pilot_commercial_alignment.php';
 
 function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): array
 {
@@ -64,6 +65,7 @@ function fullCoreJobdivaFreshPilot(PDO $pdo, array $pilot, string $liveRoot): ar
             $alignment['limits']=['Tenant mappings and Core overrides can intentionally differ; no overwrite is proposed.',
                 'Employer, rates, custom-field values and downstream delivery require separate evidence.'];
             $report['alignment']=$alignment;
+            $report['commercial_alignment']=fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$observed['contract'],gmdate('Y-m-d'));
             $report['employment_setup_source_presence']=[
                 'workers_comp_class'=>fullCorePilotAlignedValue($observed['contract']['workers_comp_class']??null,'workers_comp_class')!==null,
                 'branch'=>fullCorePilotAlignedValue($observed['contract']['branch']??null,'branch')!==null,

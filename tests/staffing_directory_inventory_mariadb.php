@@ -5,6 +5,7 @@ $local=getenv('COREFLUX_DELIVERY_LOCAL_FIXTURE')==='1'&&in_array('--confirm-disp
 if (!$ci&&!$local) throw new RuntimeException('Explicit disposable fixture configuration required');
 require_once __DIR__.'/../deploy/staffing_directory_inventory.php';
 require_once __DIR__.'/../deploy/staffing_pilot_alignment.php';
+require_once __DIR__.'/../deploy/staffing_pilot_commercial_alignment.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_directory_inventory_'.($ci?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db); $pdo->exec('USE '.$db);
@@ -39,6 +40,27 @@ try {
         'engagement_type'=>'w2','placement_status'=>'active','private_sentinel'=>'DO-NOT-EMIT-WORKER-DATA']];
     $s=$pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=:p,last_synced_at="2026-10-24 12:00:00" WHERE tenant_id=11 AND internal_entity_type="placement"');
     $s->execute(['p'=>json_encode($snapshot)]);
+    $pilot['company_directory_id']=11;
+    $pdo->exec('ALTER TABLE placements ADD COLUMN client_id BIGINT, ADD COLUMN end_client_company_id BIGINT');
+    $pdo->exec('CREATE TABLE companies(id BIGINT PRIMARY KEY,tenant_id BIGINT,deleted_at DATETIME NULL)');
+    $pdo->exec('INSERT INTO companies VALUES(77,11,NULL),(88,12,NULL)');
+    $pdo->exec('CREATE TABLE staffing_clients(id BIGINT PRIMARY KEY,tenant_id BIGINT,company_id BIGINT)');
+    $pdo->exec('INSERT INTO staffing_clients VALUES(77,11,77),(88,12,77)');
+    $pdo->exec('UPDATE placements SET client_id=77,end_client_company_id=88 WHERE id=1');
+    $pdo->exec("INSERT INTO external_entity_mappings(tenant_id,source_system,internal_entity_type,internal_entity_id,external_id)
+        VALUES(11,'jobdiva','company',77,'companyAlpha'),(12,'jobdiva','company',88,'companyAlpha')");
+    $pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,
+        effective_from DATE,effective_to DATE,superseded_by BIGINT,approved_at DATETIME NULL,
+        bill_rate DECIMAL(10,4),pay_rate DECIMAL(10,4),bill_rate_unit VARCHAR(20),pay_rate_unit VARCHAR(20),currency CHAR(3))');
+    $pdo->exec("INSERT INTO placement_rates VALUES
+        (1,11,1,'2026-01-01',NULL,NULL,NULL,98,65,'hour','hour','USD'),
+        (2,11,1,'2026-01-01',NULL,NULL,'2026-01-01',98,60,'hour','hour','USD'),
+        (3,12,1,'2026-01-01',NULL,NULL,NULL,999,999,'hour','hour','USD'),
+        (4,11,1,'2027-01-01',NULL,NULL,NULL,999,999,'hour','hour','USD'),
+        (5,11,1,'2025-01-01','2025-12-31',NULL,NULL,999,999,'hour','hour','USD'),
+        (6,11,1,'2026-01-01',NULL,1,NULL,999,999,'hour','hour','USD')");
+    $commercialContract=['start_id'=>'start001','engagement_type'=>'w2','bill_rate'=>98,'pay_rate'=>65,
+        'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD','client_company_id'=>'companyAlpha'];
     $pdo->exec('SET TRANSACTION READ ONLY'); $pdo->beginTransaction();
     $result=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']); $row=$result['workspaces'][0];
     $check($result['status']==='available'&&count($result['workspaces'])===1&&(int)$row['id']===11,'only the explicitly named pilot workspace is reported');
@@ -144,6 +166,34 @@ try {
     $check(fullCoreStaffingPilotAlignment($pdo,array_replace($pilot,['person_id'=>4]))['status']==='identity_not_verified',
         'field comparison cannot bypass the original person and placement identity check');
     $pdo->rollBack();
+    $pdo->exec('SET TRANSACTION READ ONLY');$pdo->beginTransaction();
+    $commercial=fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$commercialContract,'2026-10-25');
+    $check($commercial['rates']['draft_versions']===1&&$commercial['rates']['approved_versions']===1,
+        'commercial inspection excludes foreign, future, expired and superseded rate versions');
+    $check($commercial['rates']['versions'][0]['fields']['pay_rate']==='matches_fresh_source'
+        &&$commercial['rates']['versions'][1]['fields']['pay_rate']==='differs_from_fresh_source',
+        'matching current draft cannot conceal different approved pay');
+    $check($commercial['billing_client_company']['status']==='matches_fresh_source',
+        'billing company follows its exact scoped provider mapping and client link, not the end-client field');
+    $check(fullCoreStaffingPilotCommercialAlignment($pdo,array_replace($pilot,['company_directory_id'=>12]),$commercialContract,'2026-10-25')['billing_client_company']['status']==='source_company_directory_or_active_record_mismatch',
+        'company mapping cannot borrow a record from another directory');
+    $check(fullCoreStaffingPilotCommercialAlignment($pdo,array_replace($pilot,['person_id'=>4]),$commercialContract,'2026-10-25')['status']==='identity_not_verified',
+        'commercial inspection retains the exact worker gate');
+    $check(!str_contains(json_encode($commercial),'companyAlpha')&&!str_contains(json_encode($commercial),'98.0000'),
+        'commercial database report excludes company identifiers and rate values');
+    $pdo->rollBack();
+    $pdo->exec("INSERT INTO external_entity_mappings(tenant_id,source_system,internal_entity_type,internal_entity_id,external_id)
+        VALUES(11,'jobdiva','company',77,'duplicateCompany')");
+    $check(fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$commercialContract,'2026-10-25')['billing_client_company']['status']==='source_mapping_ambiguous',
+        'reverse company mapping ambiguity prevents a false client match');
+    $pdo->exec("DELETE FROM external_entity_mappings WHERE external_id='duplicateCompany'");
+    $pdo->exec('UPDATE placements SET client_id=88 WHERE id=1');
+    $check(fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$commercialContract,'2026-10-25')['billing_client_company']['status']==='core_client_company_unresolved',
+        'a staffing client in another tenant does not resolve the company');
+    $pdo->exec('UPDATE placements SET client_id=77 WHERE id=1');
+    $pdo->exec("INSERT INTO placement_rates SELECT 7,tenant_id,placement_id,effective_from,effective_to,superseded_by,approved_at,bill_rate,pay_rate,bill_rate_unit,pay_rate_unit,currency FROM placement_rates WHERE id=1");
+    $check(fullCoreStaffingPilotCommercialAlignment($pdo,$pilot,$commercialContract,'2026-10-25')['rates']['status']==='ambiguous_current_versions',
+        'multiple current drafts are not silently resolved by row order');
     $pdo->exec("UPDATE placements SET accounting_entity_id=77,workers_comp_class='8810' WHERE id=1");
     $pdo->exec("UPDATE placements SET jobdiva_job_id='job002' WHERE id=1");
     $pdo->exec('UPDATE people SET entity_id=77 WHERE id=1');
