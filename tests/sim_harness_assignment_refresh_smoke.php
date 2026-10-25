@@ -6,6 +6,9 @@ require_once __DIR__.'/../deploy/accept_synthetic_assignment_refresh.php';
 $checks=0;
 $check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks++;};
 $fails=static function(callable $fn):bool{try{$fn();return false;}catch(Throwable $e){return true;}};
+$binary=[['id'=>1,'api_key_ct'=>"\xff\x00\xfe\x80"]];
+$check(assignmentPilotRowsHash($binary)===assignmentPilotRowsHash($binary),'Binary encrypted database values remain comparable without decoding');
+$check(assignmentPilotRowsHash($binary)!==assignmentPilotRowsHash([['id'=>1,'api_key_ct'=>"\xff\x00\xfe\x81"]]),'A ciphertext byte change is detected');
 $location=['city'=>null,'state'=>'NJ','country'=>'US'];
 $snapshot=['verified'=>['context'=>['workspace'=>['id'=>ASSIGNMENT_PILOT_QUANTA]]],
     'source'=>['reference'=>assignmentPilotReference('placement','PL-13'),'person'=>assignmentPilotReference('person','P-15'),

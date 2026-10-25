@@ -8,6 +8,12 @@ const ASSIGNMENT_PILOT_REMOTE='cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb
 const ASSIGNMENT_PILOT_WORKER='cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c';
 const ASSIGNMENT_PILOT_PUREPAY='asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e';
 
+function assignmentPilotRowsHash(array $rows): string
+{
+    // Database snapshots include binary ciphertext; preserve bytes without decoding or exposing it.
+    return hash('sha256',serialize($rows));
+}
+
 function assignmentPilotReference(string $kind,string $number): array
 {
     return integrationRecordReference(ASSIGNMENT_PILOT_INSTANCE,999,$kind,$number);
@@ -118,9 +124,9 @@ try {
             'quanta_connections'=>'SELECT * FROM quanta_connections ORDER BY id',
             'purepay_core_connections'=>'SELECT * FROM purepay_core_connections ORDER BY id',
             'payment_connections'=>'SELECT * FROM purepay_connections ORDER BY tenant_id'];
-        $out=[];foreach($queries as $name=>$sql)$out[$name]=integrationDeliveryHash($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC));return $out;
+        $out=[];foreach($queries as $name=>$sql)$out[$name]=assignmentPilotRowsHash($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC));return $out;
     };
-    $before=$businessSnapshot();
+    $phase='local_preservation_snapshot';$before=$businessSnapshot();
     $history=$pdo->query('SELECT * FROM integration_deliveries WHERE state="delivered" OR tenant_id<>999 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
     if(defined($flag) && constant($flag)!==true)throw new RuntimeException('Persistent configuration prohibits publication');
     putenv($flag.'=1');
