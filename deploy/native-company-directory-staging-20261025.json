@@ -1,0 +1,94 @@
+{
+  "recorded_at": "2026-10-25T20:46:23.489903+00:00",
+  "scope": "Native Companies API under People routes; isolated Core staging only",
+  "installed_core_sha": "eeb9c4b4b1a169c2a4f10368817e74eaca73ba05",
+  "ci": {
+    "run_id": 40231792149,
+    "conclusion": "success",
+    "headSha": "eeb9c4b4b1a169c2a4f10368817e74eaca73ba05",
+    "jobs": [
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40231792149"
+  },
+  "staging_release": {
+    "run_id": 40232040028,
+    "conclusion": "success",
+    "headSha": "eeb9c4b4b1a169c2a4f10368817e74eaca73ba05",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40232040028"
+  },
+  "problem": "Native company endpoints inherited People catalog scope while explicit create/upsert/delete paths used the active workspace. They could disagree with the Companies owner used by integration packets.",
+  "result": "After normal authentication, native company endpoints resolve the configured Companies directory for both scoped queries and explicit owner arguments. Active workspace, permissions and audit context remain intact.",
+  "validation": {
+    "company_owner_database_checks": 19,
+    "full_migrated_disposable_database": true,
+    "shared_companies_isolated_people": true,
+    "isolated_companies_shared_people": true,
+    "list_count_detail_and_role_filtered_typeahead": true,
+    "canonical_numbers_preserved_on_repeat": true,
+    "create_upsert_update_contacts_and_addresses": true,
+    "foreign_updates_and_address_deletion_blocked": true,
+    "soft_delete_owner_isolation": true,
+    "fixture_transaction_rolled_back": true,
+    "local_company_contract_checks": 133,
+    "local_company_workflow_checks": 8,
+    "local_php_and_workflow_syntax": true,
+    "native_companies_http_submission_exercised": false,
+    "all_cross_module_company_joins_audited": false
+  },
+  "production_changed": false,
+  "actual_thunderhawk_business_records_changed": false,
+  "arabella_changed": false,
+  "provider_business_records_changed": false,
+  "credentials_changed": false,
+  "payroll_payments_or_financial_postings_executed": false,
+  "remaining": [
+    "Human creation and secure installation of the prepared demo key with source-reservation access",
+    "Held draft/result/cancellation acceptance using the existing exact input",
+    "Actual Thunderhawk field evidence, commercial approval, worker actions and operational acceptance",
+    "Separate financial callback acceptance and authorized production release"
+  ]
+}

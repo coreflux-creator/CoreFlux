@@ -1,3 +1,11 @@
+## Native company directory ownership installed in staging - October 25, 2026
+
+Core staging now runs `eeb9c4b4b1a169c2a4f10368817e74eaca73ba05`. All nine CI jobs passed in run 40231792149, including 19 real-database checks for the native Companies workflow. Deployment and the existing full staging acceptance suites passed in run 40232040028. The Companies API still uses its normal People route and permission checks, but resolves company data ownership independently. List/detail/typeahead and explicit create/upsert/delete owners now agree with the configured Companies directory; authentication and audit remain in the selected workspace.
+
+The database fixture verifies shared Companies with isolated People and the inverse, stable numbers on repeated reads, create/upsert/edit, contacts/addresses, and rejection of writes to another directory. All fixture changes roll back. Local company contract/workflow checks passed (133 and 8). This is service/database coverage and route wiring, not native Companies browser/HTTP submission or an audit of every cross-module company join. Existing misplaced business rows were not migrated. Evidence: `deploy/native-company-directory-staging-20261025.json`.
+
+The demo payroll key handoff remains pending; the prior source-reservation run correctly stopped before mutation. Held payroll result/cancellation, actual Thunderhawk acceptance, financial callbacks and authorized production release remain open. Production, provider business data, credentials and Arabella were unchanged by this release.
+
 ## Demo assignment activated; source reservation permission still required - October 25, 2026
 
 The coordinated PurePay preview candidate `07256681a09a43492334930a1df47c0f001e034a` is installed on the exact demo host. Its install and recovery checks retained all 145 collections; background processing and the broad provisioning/draft gates remain off. The narrow pilot gate allows only the reviewed Meridian assignment and payroll input. Native UI review and activation now show P-15 / PL-13 active, with the approved October dates, $30 hourly pay, $60 hourly bill rate, and automatic billing off. This is synthetic operator review, not independent human acceptance.
