@@ -1,3 +1,15 @@
+## Isolated Core payment route installed and enabled — October 25, 2026
+
+Core staging now runs `85a3ec60b78e90e8e90c6f20f0ae48ee5a384fb1`. All nine CI jobs and staging acceptance passed. The approved simulation financial route is enabled for read-only access to the reviewed PurePay preview, with CLI and PHP-FPM checks and a private recovery copy. Setup created no credential or financial record.
+
+Final inspection `40166970543` confirms the configured destination and empty financial connection tables, original Meridian staffing binding revision 3, and restored Quanta HTTP 200. Quanta resumed with the same 15 reviewed source hashes; the platform had restarted its scheduler, so the existing stopped state was restored. The demo API key, callback secret/subscription and hosted signed callback/replay remain outstanding. Core still reports no independent reviewer for the eight pending hours. Production and actual Thunderhawk acceptance remain open. Evidence: `deploy/purepay-financial-preview-enabled-20261025.json`.
+
+## Scoped payment callback recovery — October 25, 2026
+
+PurePay source `e9a98f59469a4556baedc4cd1848a2e042b20857` is installed in the held preview. Manual recovery now selects one organization and one active endpoint, keeps its own scan cursor, leaves other subscriptions and the global cursor untouched, and shares delivery claims with the normal worker. No autonomous worker was enabled.
+
+All 97 installed-source full-application checks passed with review startup, an isolated database fixture and zero network attempts. Separate runtime inspection verified 6,322 source files, review mode, a stopped webhook scheduler and unchanged demo payroll/configuration. These checks do not prove hosted signed callback delivery or the actual Thunderhawk round trip. Evidence: `deploy/purepay-payment-scope-preview-20261025.json`.
+
 ## 2026-10-25 Incoming payment-result recovery and isolated financial routing
 
 - Core runtime `4891a9a71fa07b1875beb36caec052c26a105c3a` passed all nine CI jobs ([40164545508](https://github.com/coreflux-creator/CoreFlux/actions/runs/40164545508)) and staging deployment/acceptance ([40164717305](https://github.com/coreflux-creator/CoreFlux/actions/runs/40164717305)). The financial preview route is limited to the reviewed host in staging and blocks outbound financial writes. It is implemented but not configured.
