@@ -84,8 +84,7 @@ function jobdivaStaffingFieldMappings(): array
     }
     foreach (['worksite_state' => 'WORKING_STATE', 'worksite_country' => 'WORKING_COUNTRY'] as $column => $path) {
         $assignment('placements.' . $column, 'BILLING[].' . $path, $column,
-            $column === 'worksite_country' ? 'Current importer uppercases and truncates to two characters; validate a source ISO alpha-2 code before pilot use.' : 'Preserve the assignment working-state value.',
-            $column === 'worksite_country' ? ['known_limitations' => ['Country names are not normalized by a country dictionary; truncation can produce invalid codes.']] : []);
+            $column === 'worksite_country' ? 'Normalize recognized country names and aliases through the shared country dictionary to ISO alpha-2; unrecognized source values require review before any placement or rate write.' : 'Preserve the assignment working-state value.');
     }
     foreach (['branch' => 'Branch', 'service_line' => 'Service Line',
         'department' => 'Department', 'cost_center' => 'Cost Center'] as $column => $path) {

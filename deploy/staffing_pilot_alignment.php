@@ -22,7 +22,8 @@ function fullCorePilotAlignedValue(mixed $value, string $field): ?string
         return null;
     }
     if ($field === 'workers_comp_class' && preg_match('/^[+-]?0+(?:\.0+)?$/D', $text)) return null;
-    if (in_array($field, ['engagement_type', 'status'], true)) return strtolower($text);
+    if ($field === 'engagement_type') return jobdivaClassificationValue($value);
+    if ($field === 'status') return strtolower($text);
     return $text;
 }
 
@@ -40,6 +41,11 @@ function fullCorePilotSnapshotFieldComparison(array $placement, array $payload, 
         'status'=>'placement_status'] as $column=>$source) {
         if (!array_key_exists($column, $placement)) { $fields[$column] = 'core_column_unavailable'; continue; }
         $raw = $contract[$source] ?? null;
+        // The reviewed assignment adapter keeps JOB division separate from employer.
+        // Its documented default supplies branch only when an explicit branch is absent.
+        if ($column === 'branch' && ($raw === null || (is_string($raw) && trim($raw) === ''))) {
+            $raw = $contract['job_division'] ?? null;
+        }
         $value = fullCorePilotAlignedValue($raw, $column);
         $current = fullCorePilotAlignedValue($placement[$column], $column);
         if ($column === 'end_date' && ($contract['end_date_present'] ?? null) === true
@@ -68,7 +74,7 @@ function fullCoreStaffingPilotAlignment(PDO $pdo, array $pilot): array
     $result = ['status'=>'identity_not_verified',
         'scope'=>'Nine placement dimensions against the stored exact-assignment contract; no raw worker values.',
         'source_refreshed'=>false, 'records_changed'=>false,
-        'limits'=>['Stored evidence may be stale.', 'Differences can be intentional Core overrides; no overwrite is proposed.',
+        'limits'=>['Stored evidence may be stale.', 'Default source dimensions only; tenant mappings and Core overrides can intentionally differ. No overwrite is proposed.',
             'Employer, rates, custom-field values and downstream delivery require separate evidence.']];
     if ($identity['status'] !== 'observed') return $result;
     foreach (['person','placement','job'] as $entity) {

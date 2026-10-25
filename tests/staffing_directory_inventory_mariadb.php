@@ -95,12 +95,21 @@ try {
     $check($comparison['fields']['branch']==='differs_from_stored_source', 'Core override is reported as a difference without proposing an overwrite');
     $check($comparison['fields']['worksite_country']==='matches_stored_source'&&$comparison['fields']['start_date']==='matches_stored_source',
         'recognized country aliases and explicit dates compare canonically');
+    $division=$snapshot;$division['_jd_contract']['branch']='';$division['_jd_contract']['job_division']='Core override';
+    $check(fullCorePilotSnapshotFieldComparison($current,$division,'start001')['fields']['branch']==='matches_stored_source',
+        'the reviewed assignment division supplies the documented branch default only when branch is absent');
+    $division['_jd_contract']['branch']='Explicit source branch';
+    $check(fullCorePilotSnapshotFieldComparison($current,$division,'start001')['fields']['branch']==='differs_from_stored_source',
+        'explicit source branch takes precedence over the assignment division');
     $check($comparison['fields']['end_date']==='differs_from_explicit_open_end', 'obsolete Core end date differs from an explicit source open end');
     $check($comparison['fields']['worksite_city']==='source_value_missing'&&$comparison['fields']['worksite_state']==='source_value_missing',
         'missing source data cannot be treated as a verified match');
     $conflicted=$snapshot; $conflicted['_jd_contract']['classification_review']=['status'=>'conflict'];
     $check(fullCorePilotSnapshotFieldComparison($current,$conflicted,'start001')['fields']['engagement_type']==='source_classification_needs_review',
         'matching classification text cannot hide conflicting source classification evidence');
+    $unknown=$snapshot;$unknown['_jd_contract']['engagement_type']='W2 or 1099';
+    $check(fullCorePilotSnapshotFieldComparison($current,$unknown,'start001')['fields']['engagement_type']==='source_value_unrecognized',
+        'unrecognized compound classification is never a valid source value');
     $bad=$snapshot; $bad['_jd_contract']['start_date']='02/30/2026';$bad['_jd_contract']['worksite_country']='United nonsense';
     $badComparison=fullCorePilotSnapshotFieldComparison($current,$bad,'start001');
     $check($badComparison['fields']['start_date']==='source_value_unrecognized'&&$badComparison['fields']['worksite_country']==='source_value_unrecognized',
