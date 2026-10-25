@@ -1,3 +1,13 @@
+## Placement company graph ownership and rollback installed - October 25, 2026
+
+Core staging runs `e8974bd7c9f1af4ed697add05582e279d35b61c2`. All nine CI jobs passed in 40233885553; deployment and standard staging acceptance passed in 40234151507. Native directory coverage is now 38 real-database checks, plus 20 new graph checks. Eleven focused local smoke suites passed. Evidence: `deploy/placement-company-graph-staging-20261025.json`.
+
+This corrects one overly permissive case in the preceding editor checkpoint: an isolated child company catalog cannot supply a company to a parent-shared placement. Such links now require sharing setup review instead of exposing private company data in the shared graph. Shared Companies with isolated Placements continues to work. The graph resolves company ownership from its placement owner, not from whoever views it. Detail/list/search/count and referral reads use canonical company identities; debtor and work recipient remain separate; corporation, chain and referrer backfill creates companies in that same directory while vendors stay placement-owned.
+
+The database rehearsal verifies graph replay, canonical referral rename, all three automatic company paths, and unchanged participant identities when the viewing workspace changes. A late foreign-company failure rolls back a 13-table row snapshot, preserving the caller transaction; a deleted debtor holds the rebuild without retiring its receivable. All fixture data rolls back. This is service/database coverage and standard staging acceptance, not native editor HTTP submission, every cross-module company join, or a migration of previously misplaced business records.
+
+The demo key creation/installation handoff remains pending. Held payroll draft/result/cancellation, actual Thunderhawk operational acceptance, financial callbacks and an authorized production release remain open. This release changes no production, provider business records, credentials or Arabella data.
+
 ## Placement company save paths installed in staging - October 25, 2026
 
 Core staging runs `2a65068e02321eb29379c3dfb473b8ea367e78cf`. CI 40232874257 passed all nine jobs, including 40 real-database directory checks (21 new placement cases), and deployment/standard staging acceptance passed in 40233070598. Native overview/bulk, chain, referral, CSV and manual economic-party saves now use the configured Companies directory for selection and creation. Authenticated workspace and placement write scope remain unchanged. Background callers retain their explicit owner behavior.

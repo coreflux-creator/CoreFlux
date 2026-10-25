@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-10-25T21:13:04.291997+00:00",
+  "scope": "Placement company reads, link boundary and native economic graph; isolated Core staging only",
+  "installed_core_sha": "e8974bd7c9f1af4ed697add05582e279d35b61c2",
+  "ci": {
+    "run_id": 40233885553,
+    "conclusion": "success",
+    "headSha": "e8974bd7c9f1af4ed697add05582e279d35b61c2",
+    "jobs": [
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40233885553"
+  },
+  "staging_release": {
+    "run_id": 40234151507,
+    "conclusion": "success",
+    "headSha": "e8974bd7c9f1af4ed697add05582e279d35b61c2",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40234151507"
+  },
+  "supersedes": "The inverse-sharing positive link case in deploy/placement-company-directory-staging-20261025.json is replaced by rejection: a child-private company cannot be put into a shared parent placement.",
+  "result": [
+    "Placement detail/list/referrals resolve canonical company data from the placement-owned company directory.",
+    "Economic graph reconciliation uses intrinsic placement ownership for debtor, recipient, C2C, chain and referral companies; changing the viewer cannot retarget the shared graph.",
+    "Editor company linking and creation reject incompatible private-company/shared-placement catalogs. Chain and referral PATCH paths validate explicit company IDs.",
+    "Native party upserts validate company ownership. Failed reconciliation rolls back earlier changes and reports zero retained writes."
+  ],
+  "validation": {
+    "directory_database_checks": 38,
+    "graph_database_checks": 20,
+    "full_migrated_disposable_database": true,
+    "canonical_company_detail_list_search_count_referral_name": true,
+    "distinct_bill_to_and_work_recipient": true,
+    "automatic_shared_company_creation_for_corp_chain_and_referrer": true,
+    "vendor_rows_remain_placement_owned": true,
+    "replay_preserves_party_company_vendor_ids": true,
+    "late_failure_rolls_back_thirteen_table_row_snapshot": true,
+    "deleted_debtor_preserves_existing_receivable": true,
+    "viewer_switch_preserves_shared_graph": true,
+    "nested_transaction_preserved_and_fixture_rolled_back": true,
+    "eleven_focused_local_smoke_suites": true,
+    "native_editor_http_submission_exercised": false,
+    "every_cross_module_company_join_audited": false
+  },
+  "production_changed": false,
+  "provider_business_records_changed": false,
+  "actual_thunderhawk_business_records_changed": false,
+  "arabella_changed": false,
+  "credentials_changed": false,
+  "payroll_payments_or_financial_postings_executed": false,
+  "remaining": [
+    "Human creation and secure installation of the prepared demo source-reservation key",
+    "Exact demo held payroll draft, result and cancellation acceptance",
+    "Actual Thunderhawk source evidence, commercial approval, worker actions, provider connections and operational round trip",
+    "Financial callbacks and authorized production release",
+    "Separate reviewed handling of previously misplaced company rows and merge references; no backfill in this release"
+  ]
+}
