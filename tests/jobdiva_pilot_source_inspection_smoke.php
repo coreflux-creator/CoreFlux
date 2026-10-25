@@ -122,6 +122,8 @@ $person=fullCoreJobdivaReadPerson('201',static function($method,$path,$body,$que
 });
 $check($personCalls===[['POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>'201'],null]],'person read uses only the explicitly selected candidate');
 $check($person['report']['exact_person_verified']&&$person['report']['source_refreshed']&&!$person['report']['record_writes'],'exact person echo proves the bounded source read only');
+$check($person['report']['native_review_profile']==='ready_for_review'&&!array_key_exists('row',$person),
+    'pilot confirms the native review projection without returning its raw source row');
 $check(!str_contains(json_encode($person['report']),'PRIVATE')&&!str_contains(json_encode($person['report']),'201')
     &&!str_contains(json_encode($person['report']),'DO-NOT-EMIT'),'person diagnostics contain no contact data, provider ID or custom values');
 $check($person['person']['fields']['email_primary']['value']==='private@example.test'
@@ -131,6 +133,7 @@ foreach([[],[$candidate,$candidate],[array_replace($candidate,['candidateId'=>'9
     $check($readPerson($rows)['person']===null,'missing, duplicate or conflicting candidate identity remains unavailable');
 $alias=$candidate;$alias['EMAIL_ADDRESS']='different@example.test';
 $check($readPerson([$alias])['report']['fields']['email_primary']==='ambiguous','conflicting contact aliases are explicit rather than first-match wins');
+$check($readPerson([$alias])['report']['native_review_profile']==='held','conflicting profile aliases keep native linking on hold');
 $alias=$candidate;$alias['phone']=['PRIVATE-PHONE'];
 $check($readPerson([$alias])['report']['fields']['phone_primary']==='unrecognized','structured source contact values are not cast or exposed');
 $alias=$candidate;$alias['email']='';unset($alias['lastName']);

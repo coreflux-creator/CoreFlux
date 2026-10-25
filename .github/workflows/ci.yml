@@ -160,7 +160,9 @@ jobs:
         run: php tests/quanta_worker_intake_mariadb.php
 
       - name: Verify reviewed JobDiva person links
-        run: php tests/jobdiva_person_review_mariadb.php
+        run: |
+          php tests/jobdiva_person_source_smoke.php
+          php tests/jobdiva_person_review_mariadb.php
 
       - name: Verify source classification, countries and rate bases before JobDiva writes
         run: |

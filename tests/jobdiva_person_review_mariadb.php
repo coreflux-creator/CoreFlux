@@ -73,6 +73,39 @@ $check(jobdivaPersonReviewStatus(10,7,$p['review_token'])['state']==='not_applie
 $commit($p); $check($count()===1,'same review succeeds after local rollback');
 $snapshot=$pdo->query('SELECT * FROM jobdiva_person_link_receipts ORDER BY review_id')->fetchAll(PDO::FETCH_ASSOC);$apply('core/migrations/169_jobdiva_person_link_receipts.sql');
 $check($snapshot===$pdo->query('SELECT * FROM jobdiva_person_link_receipts ORDER BY review_id')->fetchAll(PDO::FETCH_ASSOC),'migration replay retains original receipts');
+$biReads=0;$biOffline=false;
+$biCaller=static function($tenant,$method,$path,$body,$query,$absent)use(&$biReads,&$biOffline,&$source):array {
+    $biReads++;
+    if ($biOffline) throw new RuntimeException('Offline');
+    if ($tenant!==10) throw new LogicException('Wrong provider account');
+    if ($path==='/apiv2/jobdiva/searchCandidate'&&$method==='POST'&&$body===['candidateId'=>'1001']&&$absent===[404,405])
+        throw new JobdivaHttpException('Fixture route unavailable',404);
+    if ($path!=='/apiv2/bi/CandidatesDetail'||$method!=='GET'||$query!==['candidateIds'=>'1001','userFieldsName'=>'']||$absent!==[])
+        throw new LogicException('Unexpected candidate request');
+    return [['CANDIDATEID'=>$source['candidateId'],'first name'=>$source['firstName'],'last name'=>$source['lastName'],
+        'primary email'=>$source['email'],'phone 1'=>$source['phone']]];
+};
+$biTransport=static fn($method,$path,$body,$query)=>jobdivaPersonReviewRequestSource(10,$method,$path,$body,$query,$biCaller);
+$biPreview=static fn()=>jobdivaPersonReviewPreview(10,7,$request,null,$biTransport);
+$biApply=static fn($review)=>jobdivaPersonReviewApply(10,7,$review['review_token'],null,$biTransport);
+$peopleBefore=$pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$receiptsBefore=(int)$pdo->query('SELECT COUNT(*) FROM jobdiva_person_link_receipts')->fetchColumn();
+$pbi=$biPreview();
+$check($biReads===2&&$pbi['source']['name']==='Source Person'&&$count()===1,'normal preview uses BI fallback without creating a link');
+$source['phone']='+15550000003';
+$check($fails(fn()=>$biApply($pbi))&&(int)$pdo->query('SELECT COUNT(*) FROM jobdiva_person_link_receipts')->fetchColumn()===$receiptsBefore,
+    'BI primary contact drift after preview blocks the transaction');
+$source['phone']='+15550000002';$biResult=$biApply($pbi);
+$check($biResult['person_number']==='P-9001'&&$count()===1
+    &&(int)$pdo->query('SELECT COUNT(*) FROM jobdiva_person_link_receipts')->fetchColumn()===$receiptsBefore+1,
+    'BI reviewed link retains the existing candidate and canonical person with one receipt');
+$check($peopleBefore===$pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+    'fallback review never rewrites contacts, lifecycle or other provider IDs');
+$biOffline=true;$readsBeforeReplay=$biReads;
+$check($biApply($pbi)['replayed']===true&&$biReads===$readsBeforeReplay,
+    'accepted BI review recovers its original receipt without provider availability');
+$check($fails(fn()=>jobdivaPersonReviewApply(12,7,$pbi['review_token'],null,$biTransport))&&$biReads===$readsBeforeReplay,
+    'BI review receipt cannot cross workspaces or read another provider account');
 $payload=['candidateId'=>'1001','candidateFirstName'=>'Changed','candidateLastName'=>'Name','candidateEmail'=>'new@example.com'];
 $check(jobdivaPlacementsAutoCreatePerson(10,$payload,7)===1&&mappingFindInternal(10,'jobdiva','person','1001')['internal_entity_id']==1,'contact changes preserve established identity without overwriting contacts');
 $pdo->exec('UPDATE people SET external_id="jd:other" WHERE id=1');

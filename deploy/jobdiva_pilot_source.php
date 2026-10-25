@@ -4,75 +4,27 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/jobdiva/assignment_identity.php';
 require_once __DIR__ . '/../core/jobdiva/assignment_contract.php';
 
-/** Conservative contact comparison only; no inferred country, address or identity. */
+require_once __DIR__.'/../core/jobdiva/candidate_source.php';
+
+/** Compatibility entry points for existing pilot evidence and comparison helpers. */
 function fullCorePilotPersonValue(mixed $value, string $field): array
 {
-    if ($value===null || $value==='') return ['status'=>'missing','value'=>null];
-    if (!is_string($value) || strlen($value)>1024 || !preg_match('//u',$value)
-        || preg_match('/[\x00-\x1f\x7f]/',$value)) return ['status'=>'unrecognized','value'=>null];
-    $text=trim($value);
-    if ($text==='' || strtolower($text)==='null') return ['status'=>'missing','value'=>null];
-    if ($field==='email_primary') {
-        if (!filter_var($text,FILTER_VALIDATE_EMAIL)) return ['status'=>'unrecognized','value'=>null];
-        $text=strtolower($text);
-    } elseif ($field==='phone_primary') {
-        $text=preg_replace('/[(). -]/','',$text);
-        if (!preg_match('/^\+?[0-9]{7,15}$/D',$text)) return ['status'=>'unrecognized','value'=>null];
-    } else {
-        $text=preg_replace('/ +/',' ',$text);
-    }
-    return ['status'=>'present','value'=>$text];
+    return jobdivaCandidateCompareValue($value,$field);
 }
 
-/** The person payload is private; only the fixed status report may be logged. */
 function fullCoreJobdivaReadPerson(string $candidate, callable $request): array
 {
-    if (!preg_match('/^[1-9][0-9]{0,17}$/D',$candidate)) throw new InvalidArgumentException('Exact candidate ID required');
-    $report=['status'=>'source_unavailable','source_refreshed'=>false,'record_writes'=>false,
-        'exact_person_verified'=>false,'http_status'=>null,'provider_calls'=>[]];
-    $finish=static fn(array $r,?array $person=null):array=>['report'=>$r,'person'=>$person];
-    $read=static function(string $label,string $method,string $path,?array $body,?array $query)use($request,&$report):array{
-        try{$response=$request($method,$path,$body,$query);}
-        catch(Throwable){$report['status']='transport_failed';$report['http_status']=null;
-            $report['provider_calls'][]=['operation'=>$label,'http_status'=>null];return [];}
-        $report['http_status']=is_int($response['status']??null)?$response['status']:null;
-        $report['provider_calls'][]=['operation'=>$label,'http_status'=>$report['http_status']];
-        return $report['http_status']===200?jobdivaAssignmentRowsFromResponse($response['body']??null):[];
-    };
-    $rows=$read('candidate_search','POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>$candidate],null);
-    // Existing ID-based mirror route, narrowed to this one candidate. Never
-    // broaden an authorization failure, service failure or conflicting result.
-    if(in_array($report['http_status'],[404,405],true)||($report['http_status']===200&&$rows===[]))
-        $rows=$read('candidate_detail','GET','/apiv2/bi/CandidatesDetail',null,['candidateIds'=>$candidate,'userFieldsName'=>'']);
-    if($report['http_status']!==200)return $finish($report);
-    $report['parsed_rows']=count($rows);
-    if(count($rows)!==1||!is_array($rows[0])){$report['status']='exact_person_unavailable';return $finish($report);}
-    $row=$rows[0];$ids=[];
-    foreach($row as $key=>$value){
-        $key=strtolower(preg_replace('/[^a-z0-9]/i','',(string)$key));
-        if(!in_array($key,['id','candidateid'],true))continue;
-        if(!is_string($value)&&!is_int($value)){$report['status']='candidate_identity_invalid';return $finish($report);}
-        $ids[]=(string)$value;
+    $result=jobdivaCandidateReadExact($candidate,$request);
+    $result['report']['native_review_profile']='held';
+    try {
+        jobdivaCandidateReviewProfile($result);
+        $result['report']['native_review_profile']='ready_for_review';
+    } catch (RuntimeException) {
+        // A fixed status proves profile readiness without logging any contact.
     }
-    if(!$ids||array_values(array_unique($ids))!==[$candidate]){$report['status']='candidate_identity_mismatch';return $finish($report);}
-    $fields=[];
-    foreach(['first_name'=>['firstname','candidatefirstname'],'last_name'=>['lastname','candidatelastname'],
-        'email_primary'=>['email','emailaddress','candidateemail','emailprimary','primaryemail'],
-        'phone_primary'=>['phone','phonenumber','candidatephone','phoneprimary','phone1']] as $field=>$aliases){
-        $values=[];$invalid=false;
-        foreach($row as $key=>$value){
-            if(!in_array(strtolower(preg_replace('/[^a-z0-9]/i','',(string)$key)),$aliases,true))continue;
-            $normalized=fullCorePilotPersonValue($value,$field);
-            $invalid=$invalid||$normalized['status']==='unrecognized';
-            if($normalized['status']==='present')$values[]=$normalized['value'];
-        }
-        $values=array_values(array_unique($values));
-        $fields[$field]=['status'=>$invalid?'unrecognized':(count($values)>1?'ambiguous':($values?'present':'missing')),
-            'value'=>!$invalid&&count($values)===1?$values[0]:null];
-    }
-    $report['status']='exact_person_observed';$report['source_refreshed']=true;$report['exact_person_verified']=true;
-    $report['fields']=array_map(static fn(array $field):string=>$field['status'],$fields);
-    return $finish($report,['candidate_id'=>$candidate,'fields'=>$fields]);
+    // The raw row is private to native identity review, never part of diagnostics.
+    unset($result['row']);
+    return $result;
 }
 
 function fullCoreJobdivaDetailIdentity(array $row, array $ids): array

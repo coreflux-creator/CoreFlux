@@ -1,3 +1,11 @@
+## Exact candidate fallback and current contact evidence - October 25, 2026
+
+Read-only production inspection `40217104289` passed at `5ac3bd16`, including the existing `primary email` and `phone 1` aliases. Alexander's exact JobDiva candidate matches Core P-358 / PL-864 on first name, last name and returned email. No primary phone was returned under the supported aliases; that is missing evidence, not a verified phone match or proof about every custom field. No business records, saved source snapshot, credentials or production runtime changed. This supersedes the incomplete phone interpretation below.
+
+The normal candidate-link review is being updated to share the proven exact-candidate reader. It falls back to the existing single-ID BI route only for unavailable/empty search, retains original source IDs, rejects conflicting identities or contacts, and does not overwrite profiles. Local native-source checks: 35 passed; existing source-inspection checks: 63 passed. Added database checks cover BI preview, contact drift, one durable receipt, unchanged profiles and replay without provider access. CI and staging installation of this native correction are pending.
+
+The actual Thunderhawk round trip, commercial approval/WC evidence, independent time reviewer, document/worker flow and financial credential handoffs remain open. Production cutover and real payroll, payments and postings remain unauthorized.
+
 ## Actual pilot person comparison and corrected company-field guidance - October 25, 2026
 
 Isolated Core staging runs `4f1c08443bd41efd3b447ddba800e498cc4b5f74` after all nine CI jobs (`40216285612`) and deployment `40216535287` passed. No migrations were applied. The field dictionary now maps JobDiva billing-company evidence to the bill-to client and explicit end-client evidence to the work recipient, matching the already implemented workflow. Eighteen assignment-party checks cover that distinction; unrelated person, rate and company records are not rewritten by this metadata correction.

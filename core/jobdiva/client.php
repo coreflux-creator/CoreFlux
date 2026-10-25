@@ -26,6 +26,15 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../encryption.php';
 
+/** Preserve the HTTP status without parsing provider text for fallback decisions. */
+final class JobdivaHttpException extends RuntimeException
+{
+    public function __construct(string $message, public readonly int $httpStatus)
+    {
+        parent::__construct($message, $httpStatus);
+    }
+}
+
 const JOBDIVA_BASE_URL  = 'https://api.jobdiva.com';
 // Authenticate against JobDiva V2 — verified 2026-02 from
 // https://api.jobdiva.com/swagger?group=Version%202. The path WAS
@@ -420,7 +429,7 @@ function jobdivaCall(
                   WHERE tenant_id = :t'
             )->execute(['t' => $tenantId, 'err' => substr($err, 0, 4000)]);
         }
-        throw new \RuntimeException($err);
+        throw new JobdivaHttpException($err, (int) $resp['status']);
     }
     return $resp['body'];
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/sync_placements.php';
 require_once __DIR__.'/person_directory.php';
+require_once __DIR__.'/candidate_source.php';
 require_once __DIR__.'/../record_numbers.php';
 require_once __DIR__.'/../integrations/identity.php';
 
@@ -27,27 +28,27 @@ function jobdivaPersonReviewRequest(array $input): array
     return $input;
 }
 
-/** Optional reader is an internal test dependency, never accepted from an API request. */
-function jobdivaPersonReviewSource(int $tenant, string $candidate, ?callable $reader=null): array
+/** Internal caller dependency only. Authentication and retry rules remain in the client. */
+function jobdivaPersonReviewRequestSource(int $tenant,string $method,string $path,?array $body,?array $query,?callable $caller=null): array
 {
-    $response=$reader ? $reader($tenant,$candidate) : jobdivaCall($tenant,'POST','/apiv2/jobdiva/searchCandidate',['candidateId'=>$candidate]);
-    $rows=jobdivaRowsFromResponse($response);
-    if (count($rows)!==1 || !is_array($rows[0])) throw new RuntimeException('JobDiva did not return exactly one candidate. Review the source ID');
-    $row=$rows[0]; $ids=[];
-    foreach (['id','candidateId','candidate_id','candidate id','candidateID'] as $key) {
-        if (isset($row[$key])) {
-            if (!is_int($row[$key]) && !is_string($row[$key])) throw new RuntimeException('JobDiva returned an invalid candidate ID');
-            $ids[]=(string)$row[$key];
-        }
+    $caller??='jobdivaCall';
+    $expectedAbsent=$method==='POST'&&$path==='/apiv2/jobdiva/searchCandidate'?[404,405]:[];
+    try {
+        return ['status'=>200,'body'=>$caller($tenant,$method,$path,$body,$query,$expectedAbsent)];
+    } catch (JobdivaHttpException $error) {
+        // Never return provider bodies or secrets through candidate-review errors.
+        return ['status'=>$error->httpStatus,'body'=>null];
     }
-    if (!$ids || array_values(array_unique($ids))!==[$candidate]) throw new RuntimeException('JobDiva returned a different or ambiguous candidate ID');
-    $first=jobdivaPluckField($row,['firstName','first_name','candidateFirstName']);
-    $last=jobdivaPluckField($row,['lastName','last_name','candidateLastName']);
-    $name=trim($first.' '.$last) ?: jobdivaPluckField($row,['candidateName','fullName','name']);
-    if ($name==='') throw new RuntimeException('JobDiva returned no candidate name to review');
-    return ['candidate_id'=>$candidate,'name'=>$name,
-        'email'=>jobdivaPluckField($row,['email','emailAddress','candidateEmail','email_primary']),
-        'phone'=>jobdivaPluckField($row,['phone','phoneNumber','candidatePhone','phone_primary'])];
+}
+
+/** Optional reader/transport are internal test dependencies, never API inputs. */
+function jobdivaPersonReviewSource(int $tenant, string $candidate, ?callable $reader=null, ?callable $transport=null): array
+{
+    if ($reader!==null && $transport!==null) throw new LogicException('Choose one internal candidate source dependency');
+    $transport??=$reader!==null
+        ? static fn()=>['status'=>200,'body'=>$reader($tenant,$candidate)]
+        : static fn($method,$path,$body,$query)=>jobdivaPersonReviewRequestSource($tenant,$method,$path,$body,$query);
+    return jobdivaCandidateReviewProfile(jobdivaCandidateReadExact($candidate,$transport));
 }
 
 function jobdivaPersonReviewTarget(PDO $pdo,int $tenant,array $request,bool $lock=false): array
@@ -68,12 +69,12 @@ function jobdivaPersonReviewTarget(PDO $pdo,int $tenant,array $request,bool $loc
     return $target;
 }
 
-function jobdivaPersonReviewPreview(int $tenant,int $actor,array $input,?callable $reader=null): array
+function jobdivaPersonReviewPreview(int $tenant,int $actor,array $input,?callable $reader=null,?callable $transport=null): array
 {
     if ($actor<=0) throw new InvalidArgumentException('A current reviewer is required');
     $request=jobdivaPersonReviewRequest($input); $pdo=getDB();
     jobdivaPersonDirectoryCheck($pdo,$tenant); $binding=jobdivaPersonReviewBinding($pdo,$tenant);
-    $source=jobdivaPersonReviewSource($tenant,$request['candidate_id'],$reader);
+    $source=jobdivaPersonReviewSource($tenant,$request['candidate_id'],$reader,$transport);
     if (!hash_equals($binding,jobdivaPersonReviewBinding($pdo,$tenant))) throw new RuntimeException('The JobDiva connection changed. Review again');
     jobdivaPersonDirectoryCheck($pdo,$tenant); $target=jobdivaPersonReviewTarget($pdo,$tenant,$request);
     $review=['kind'=>'jobdiva_person_link_v1','id'=>bin2hex(random_bytes(32)),'tenant'=>$tenant,'actor'=>$actor,
@@ -115,13 +116,13 @@ function jobdivaPersonReviewStatus(int $tenant,int $actor,string $token): array
     } catch (Throwable $e) {if ($pdo->inTransaction()) $pdo->rollBack(); throw $e;}
 }
 
-function jobdivaPersonReviewApply(int $tenant,int $actor,string $token,?callable $reader=null): array
+function jobdivaPersonReviewApply(int $tenant,int $actor,string $token,?callable $reader=null,?callable $transport=null): array
 {
     $review=jobdivaPersonReviewOpen($tenant,$actor,$token);
     $receipt=jobdivaPersonReviewStatus($tenant,$actor,$token);
     if ($receipt['state']==='applied') return $receipt['result']+['replayed'=>true];
     if ($review['expires_at']<time()) throw new RuntimeException('This candidate review expired. Preview again');
-    $source=jobdivaPersonReviewSource($tenant,$review['request']['candidate_id'],$reader);
+    $source=jobdivaPersonReviewSource($tenant,$review['request']['candidate_id'],$reader,$transport);
     if (mappingHash($source)!==mappingHash($review['source'])) throw new RuntimeException('The JobDiva candidate changed after review. Preview again');
     $pdo=getDB(); $pdo->beginTransaction();
     try {
