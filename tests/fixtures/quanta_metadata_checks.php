@@ -67,9 +67,14 @@ require_once __DIR__.'/../../core/integrations/staffing_exchange_fields.php';
 foreach (staffingExchangeFieldMappings() as $field => $providers) {
     foreach ($providers['quanta'] ?? [] as $mapping) {
         if ($mapping['route'] !== '/api/v1/integrations/coreflux/assignments') continue;
-        $check(array_key_exists($mapping['path'], $source['assignment']), 'dictionary assignment path exists in the actual metadata payload: '.$field);
+        $value=$source['assignment'];$found=true;
+        foreach(explode('.',$mapping['path']) as $part){
+            if(!is_array($value)||!array_key_exists($part,$value)){$found=false;break;}
+            $value=$value[$part];
+        }
+        $check($found, 'dictionary assignment path exists in the actual metadata payload: '.$field);
         if (preg_match('/typed_reference:(\w+)/', $mapping['transform'], $kind)) {
-            $check($source['assignment'][$mapping['path']]['entity_type'] === $kind[1], 'dictionary relationship kind agrees with the actual sender: '.$field);
+            $check($value['entity_type'] === $kind[1], 'dictionary relationship kind agrees with the actual sender: '.$field);
         }
     }
 }

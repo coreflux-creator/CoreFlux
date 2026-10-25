@@ -438,7 +438,7 @@ $clientContract = jobdivaAssignmentContractBuild([[
         'BILL_RATE' => 74.26,
     ]],
 ]], $markerContext, '57612620');
-$assert('exact Assignment billing company owns the end-client identity',
+$assert('exact Assignment billing company identifies the bill-to party',
     ($clientContract['client_company_id'] ?? '') === '10803946'
     && ($clientContract['client_company_name'] ?? '') === 'TCS');
 $openEndedContract = jobdivaAssignmentContractBuild([[
@@ -463,9 +463,16 @@ $assert('tenant field mappings cannot overwrite the exact billing company',
     integrationFieldMapJobDivaContractOwnsTarget(
         'jobdiva',
         'placement',
-        ['target_table' => 'placements', 'target_column' => 'end_client_name'],
+        ['target_table' => 'placements', 'target_column' => 'client_id'],
         ['_jd_contract' => $clientContract]
     ));
+$assert('billing evidence alone cannot claim end-client ownership',
+    !integrationFieldMapJobDivaContractOwnsTarget('jobdiva','placement',
+        ['target_table'=>'placements','target_column'=>'end_client_name'],['_jd_contract'=>$clientContract]));
+$assert('explicit end-client evidence protects its separate target',
+    integrationFieldMapJobDivaContractOwnsTarget('jobdiva','placement',
+        ['target_table'=>'placements','target_column'=>'end_client_name'],
+        ['_jd_contract'=>array_replace($clientContract,['end_client_company_name'=>'Synthetic work recipient'])]));
 $assert('placeholder company names are distinguished from source names',
     jobdivaCompanyNameIsPlaceholder('JobDiva Company 12319524', '12319524')
     && !jobdivaCompanyNameIsPlaceholder('Techvy Corp', '12319524'));
