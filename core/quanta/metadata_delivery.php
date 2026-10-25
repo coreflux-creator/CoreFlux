@@ -253,7 +253,7 @@ function quantaMetadataReceipt(int $tenantId,int $actorId,int $id,string $review
     quantaMetadataReceiptRequire($access['api_key'],$workspace);
     $query=['operation'=>$row['operation']];
     if($row['operation']==='assignment.update')$query['record_id']=quantaCoreRemoteId($workspace,$payload['expected']['placement']);
-    try{$receipt=quantaGet($access['api_key'],QUANTA_CORE_CONTRACT_PATH.'/metadata-deliveries/'.$row['idempotency_key'].'?'.http_build_query($query));}
+    try{$receipt=quantaGet($access['api_key'],QUANTA_CORE_CONTRACT_PATH.'/metadata-deliveries/'.$row['idempotency_key'],$query);}
     catch(QuantaApiException $e){if($e->httpStatus===404)return ['delivery'=>integrationDeliverySummary($row),'receipt_state'=>'not_found'];throw $e;}
     $outcome=quantaMetadataReceiptOutcome($row,$payload,$workspace,$receipt);
     if($outcome['state']==='unconfirmed')return ['delivery'=>integrationDeliverySummary($row),'receipt_state'=>'unconfirmed'];
