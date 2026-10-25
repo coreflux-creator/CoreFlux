@@ -123,6 +123,14 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
                               : (isset($settings['tenant_id']) ? (int) $settings['tenant_id']
                               : (function_exists('currentTenantContext') ? (int) (currentTenantContext()['tenant_id'] ?? 0) : 0)),
     ];
+    if ($module === 'ap' && in_array($rail, ['nacha', 'plaid_transfer'], true)) {
+        require_once __DIR__ . '/../db.php';
+        require_once __DIR__ . '/../ap_bank_dispatches.php';
+        $pdo = getDB();
+        if (!$pdo) throw new PaymentRailsOriginateException('An AP database connection is required before dispatch');
+        return apBankDispatch($pdo, $opts['tenant_id'], $rail, $items, $opts,
+            static fn(array $packet, array $options): array => $driver->originate($packet, $options));
+    }
     $res = $driver->originate($items, $opts);
     $res['rail'] = $rail;
     return $res;

@@ -202,6 +202,10 @@ function mpLockApPayment(PDO $pdo, int $tenantId, string $source, ?int $userId):
     if (!empty($payment['rail_external_ref'])) {
         throw new DomainException('This AP payment is already attached to rail ' . $payment['rail_external_ref']);
     }
+    require_once __DIR__.'/ap_bank_dispatches.php';
+    if (apBankSchemaAvailable($pdo) && apBankClaim($pdo, $tenantId, $id, true)) {
+        throw new DomainException('Reconcile the original bank delivery before changing payment service');
+    }
     // A missing UI reference does not erase a durable provider attempt.
     foreach (['purepay_allocated_payments', 'purepay_payment_links'] as $table) {
         $q = $pdo->prepare('SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?');

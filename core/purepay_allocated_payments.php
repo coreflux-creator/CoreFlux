@@ -49,6 +49,9 @@ function purepayAllocationSource(PDO $pdo,int $tenant,int $payment,array $item,s
         || trim((string)($item['recipient_full_name']??$item['recipient_name']??''))!==$p['vendor_name']) {
         throw new PurePayApiException('Review the fully allocated USD AP payment before dispatch.');
     }
+    require_once __DIR__.'/ap_bank_dispatches.php';
+    if(apBankSchemaAvailable($pdo) && apBankClaim($pdo,$tenant,$payment,true))
+        throw new PurePayApiException('Reconcile the original bank delivery before changing payment service.');
     // Mercury uses the same locked AP row. Its durable draft remains a claim
     // even when a damaged/missing reverse link would otherwise hide it.
     $q=$pdo->query("SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='payment_instructions'");

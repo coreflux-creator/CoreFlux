@@ -405,6 +405,8 @@ try{
         && !array_filter(array_slice($calls,$before),static fn($call)=>$call[0]==='POST'),
         'Mercury that wins during PurePay bill review prevents the later reservation commit and provider writes');
     $check($mercuryCalls===0,'all Mercury concurrency checks complete without any external provider calls');
+    require_once __DIR__.'/fixtures/ap_bank_dispatches_checks.php';
+    exerciseApBankDispatches($pdo,$other,$seed,$check,$fails,$guard,$date);
     $pdo->exec('UPDATE purepay_connections SET key_scope="read_only" WHERE tenant_id=1');$before=$executeCount;$callsBefore=count($calls);
     $check($fails(fn()=>purepayAllocationCall($pdo,1,4,40,'execute')) && $executeCount===$before
         && !array_filter(array_slice($calls,$callsBefore),static fn($call)=>$call[0]==='POST'),'read-only connection cannot execute');

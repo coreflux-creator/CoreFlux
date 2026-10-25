@@ -1042,6 +1042,9 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
         throw new LogicException('Provider payment checks require the locked AP transaction');
     }
     $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
+    $bankAction = apBankAssertAction($pdo, $tenantId, $payment, $action);
+    if ($bankAction !== null) return $bankAction;
     $allocated = $pdo->query($mysql
         ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_allocated_payments'"
         : "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purepay_allocated_payments'")->fetchColumn();

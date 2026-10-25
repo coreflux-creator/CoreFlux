@@ -27,6 +27,18 @@ if (!coreAccountingAllowsApPaymentAction($method, (string) $action, (string) get
     api_error('Payment-provider origination is not available in CoreAccounting', 403);
 }
 
+if ($method === 'GET' && in_array($action, ['bank_delivery', 'bank_file'], true)) {
+    rbac_legacy_require($user, 'ap.view');
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') api_error('Provider deliveries belong in full Core', 403);
+    if ($action === 'bank_file') rbac_legacy_require($user, 'ap.payment.send');
+    require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
+    try {
+        $delivery = apBankDelivery(getDB(), $tid, (int) ($_GET['id'] ?? 0), $action === 'bank_file');
+        $delivery['can_download'] = $delivery['can_download'] && rbac_legacy_can($user, 'ap.payment.send');
+        api_ok(['delivery' => $delivery]);
+    } catch (DomainException $e) { api_error($e->getMessage(), 409); }
+}
+
 if (in_array($action, ['purepay_review', 'purepay_resume', 'purepay_release', 'purepay_reconcile'], true)) {
     rbac_legacy_require($user, 'ap.view');
     $id = (int) ($_GET['id'] ?? 0);
@@ -208,6 +220,17 @@ if ($method === 'GET') {
         $q->execute(array_merge([$tid], $ids));
         $deliveries = $q->fetchAll(\PDO::FETCH_KEY_PAIR);
         foreach ($rows as &$row) $row['purepay_allocation_status'] = $deliveries[$row['id']] ?? null;
+        unset($row);
+    }
+    require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
+    if ($rows && apBankSchemaAvailable(getDB())) {
+        $ids = array_column($rows, 'id');
+        $q = getDB()->prepare('SELECT c.payment_id,d.state FROM ap_bank_payment_claims c JOIN ap_bank_dispatches d
+            ON d.tenant_id=c.tenant_id AND d.dispatch_id=c.dispatch_id WHERE c.tenant_id=? AND c.payment_id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $q->execute(array_merge([$tid], $ids));
+        $deliveries = $q->fetchAll(PDO::FETCH_KEY_PAIR);
+        foreach ($rows as &$row) $row['bank_dispatch_state'] = $deliveries[$row['id']] ?? null;
         unset($row);
     }
     $journalIds = array_values(array_unique(array_filter(array_map(
@@ -548,6 +571,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
     // Pure//Pay can partially accept a batch. Failed items stay eligible for
     // review and retry; successful provider payouts are never rolled back.
     $failedItems = [];
+    $needsReviewItems = [];
     $originatedIds = [];
     $pdo->beginTransaction();
     try {
@@ -564,11 +588,15 @@ if ($method === 'POST' && $action === 'originate_batch') {
         foreach ($res['items'] as $it) $byRef[$it['external_ref']] = $it;
         foreach ($rows as $r) {
             $itemRes = $byRef['ap_payment:' . $r['id']] ?? ['status' => $res['status'] ?? 'submitted', 'rail_external_ref' => $res['batch_id']];
+            if (!empty($res['ap_dispatch_recorded']) && ($itemRes['status'] ?? '') === 'unknown') {
+                $needsReviewItems[] = ['payment_id' => (int) $r['id'], 'error' => 'Open the original bank delivery to reconcile its outcome'];
+                continue;
+            }
             if (($itemRes['status'] ?? '') === 'failed') {
                 $failedItems[] = ['payment_id' => (int) $r['id'], 'error' => (string) ($itemRes['error'] ?? 'Provider rejected payment')];
                 continue;
             }
-            $upd->execute([
+            if (empty($res['ap_dispatch_recorded'])) $upd->execute([
                 'r'  => $res['rail'],
                 'x'  => array_key_exists('rail_external_ref', $itemRes) ? $itemRes['rail_external_ref'] : $res['batch_id'],
                 's'  => $itemRes['status']            ?? 'submitted',
@@ -611,6 +639,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
         'item_count'  => count($items),
         'originated_count' => count($originatedIds),
         'failed_items'=> $failedItems,
+        'needs_review_items' => $needsReviewItems,
         'amount_total'=> $originatedAmount,
     ];
     if ($res['rail'] === 'nacha' && !empty($res['payload']['content'])) {
@@ -718,7 +747,7 @@ if ($method === 'POST' && $action === 'originate') {
         // A rejected competing request must never erase another service's claim.
         api_error((string) ($itemRes['error'] ?? 'Payment service did not return a payment reference. Review the original delivery before retrying.'), 409);
     }
-    getDB()->prepare(
+    if (empty($res['ap_dispatch_recorded'])) getDB()->prepare(
         'UPDATE ap_payments SET disbursement_rail = :r, rail_external_ref = :x,
                 rail_status = :s, rail_originated_at = NOW()
          WHERE tenant_id = :t AND id = :id'
