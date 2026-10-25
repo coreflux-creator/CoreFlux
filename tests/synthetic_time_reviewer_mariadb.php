@@ -82,6 +82,13 @@ try {
         &&(int)$pdo->query("SELECT COUNT(*) FROM membership_audit WHERE target_user_id=$id AND action='synthetic_time_reviewer_retired'")->fetchColumn()===1,
         'retirement preserves the original user identity and mandatory audit receipt');
     $state=$all();$check($fails(fn()=>syntheticTimeReviewerProvision($pdo))&&$all()===$state,'provisioning replay cannot reactivate a retired reviewer');
+    $verified=syntheticTimeReviewerVerifyRetired($pdo,$id);
+    $check($verified['account_inactive']&&$all()===$state,'retired-state verification is read-only');
+    $pdo->exec('UPDATE users SET is_active=1 WHERE id='.$id);$changed=$all();
+    $check($fails(fn()=>syntheticTimeReviewerVerifyRetired($pdo,$id))&&$all()===$changed,'reactivated account cannot be reported as retired');
+    $pdo->exec('UPDATE users SET is_active=0 WHERE id='.$id);
+    $pdo->exec('INSERT INTO membership_module_access(membership_id,module_key,access_level) VALUES('.$mid.',"time","admin")');$changed=$all();
+    $check($fails(fn()=>syntheticTimeReviewerVerifyRetired($pdo,$id))&&$all()===$changed,'leftover time grant cannot be reported as retired');
     echo "$passed synthetic reviewer integration checks passed\n";
 } finally {
     if ($pdo->inTransaction())$pdo->rollBack();

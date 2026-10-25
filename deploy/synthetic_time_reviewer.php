@@ -123,3 +123,24 @@ function syntheticTimeReviewerRetire(PDO $pdo,int $id): array
         $pdo->commit();return ['user_id'=>$id,'account_inactive'=>true,'active_memberships'=>0,'module_grants'=>0,'audit_identity_preserved'=>true];
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();RBACResolver::resetCache();throw $e;}
 }
+
+/** Read-only terminal-state verification; never repair or reactivate this account. */
+function syntheticTimeReviewerVerifyRetired(PDO $pdo,int $id): array
+{
+    $st=$pdo->prepare('SELECT tenant_id,email,name,role,is_active,is_global_admin FROM users WHERE id=?');$st->execute([$id]);
+    $u=$st->fetch(PDO::FETCH_ASSOC);
+    if(!$u||$id===4||(int)$u['tenant_id']!==999||$u['email']!==SYNTHETIC_REVIEWER_EMAIL||$u['name']!==SYNTHETIC_REVIEWER_NAME
+        ||$u['role']!=='manager'||(int)$u['is_active']!==0||(int)$u['is_global_admin']!==0)throw new RuntimeException('Retired reviewer identity differs');
+    // tenant-leak-allow: inspect only the verified reserved test identity to reject any foreign membership, including inactive ones.
+    $st=$pdo->prepare('SELECT id,tenant_id,status,persona_type,persona_label FROM tenant_memberships WHERE user_id=?');$st->execute([$id]);
+    $rows=$st->fetchAll(PDO::FETCH_ASSOC);$m=$rows[0]??[];
+    if(count($rows)!==1||(int)$m['tenant_id']!==999||$m['status']!=='revoked'||$m['persona_type']!=='manager'
+        ||$m['persona_label']!=='Pilot time reviewer'||membershipTenantCountForUser($id)!==0
+        ||isset(membershipRoleLabelsForTenant(999,$pdo)[$id]))throw new RuntimeException('Retired reviewer still has membership access');
+    $st=$pdo->prepare('SELECT COUNT(*) FROM membership_module_access WHERE membership_id=?');$st->execute([(int)$m['id']]);
+    if((int)$st->fetchColumn()!==0)throw new RuntimeException('Retired reviewer still has module grants');
+    $st=$pdo->prepare('SELECT detail FROM membership_audit WHERE tenant_id=999 AND membership_id=? AND target_user_id=? AND actor_user_id=4 AND action="synthetic_time_reviewer_retired"');
+    $st->execute([(int)$m['id'],$id]);$receipts=$st->fetchAll(PDO::FETCH_COLUMN);
+    if(count($receipts)!==1||(json_decode($receipts[0],true)['audit_identity_preserved']??null)!==true)throw new RuntimeException('Retirement audit receipt missing');
+    return ['user_id'=>$id,'membership_id'=>(int)$m['id'],'account_inactive'=>true,'active_memberships'=>0,'module_grants'=>0,'audit_identity_preserved'=>true];
+}

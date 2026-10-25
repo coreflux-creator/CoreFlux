@@ -195,6 +195,10 @@ jobs:
           php tests/synthetic_time_reviewer_mariadb.php
           php tests/synthetic_time_approval_guard_smoke.php
           php -l deploy/approve_synthetic_time_review.php
+          php -l deploy/verify_synthetic_time_approval.php
+          if COREFLUX_ENV=staging php deploy/verify_synthetic_time_approval.php --verify-approved-demo-time; then
+            echo 'Synthetic approval verifier accepted an unapproved filesystem root'; exit 1
+          fi
           if COREFLUX_ENV=staging php deploy/approve_synthetic_time_review.php --approve-demo-time-review; then
             echo 'Synthetic approval accepted an unapproved filesystem root'; exit 1
           fi

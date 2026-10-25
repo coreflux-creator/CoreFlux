@@ -60,7 +60,8 @@ try {
     $tables=$pdo->query("SELECT c.TABLE_NAME FROM information_schema.COLUMNS c JOIN information_schema.TABLES t
         ON t.TABLE_SCHEMA=c.TABLE_SCHEMA AND t.TABLE_NAME=c.TABLE_NAME WHERE c.TABLE_SCHEMA=DATABASE()
         AND c.COLUMN_NAME='tenant_id' AND t.TABLE_TYPE='BASE TABLE' ORDER BY c.TABLE_NAME")->fetchAll(PDO::FETCH_COLUMN);
-    $excluded=['time_entries','staffing_timesheets','audit_log','integration_deliveries','users','tenant_memberships','membership_audit'];
+    // Native reviewer retirement dual-writes the legacy membership as well as the new membership.
+    $excluded=['time_entries','staffing_timesheets','audit_log','integration_deliveries','users','tenant_memberships','user_tenants','membership_audit'];
     $protected=static function()use($pdo,$tables,$excluded):array {
         $hashes=[];foreach($tables as $table){
             if(in_array($table,$excluded,true))continue;
