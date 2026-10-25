@@ -42,5 +42,18 @@ foreach ($rows as $row) {
         fwrite(STDERR, "{$ref}: {$e->getMessage()}\n");
     }
 }
+if(purepayAllocatedSchemaAvailable($pdo)){
+    // Include settled allocations so a later return is observed even after the
+    // original payment was cleared. Reconciliation never dispatches a payout.
+    $parents=$pdo->query('SELECT tenant_id,core_payment_id FROM purepay_allocated_payments
+        WHERE status<>"cancelled" ORDER BY updated_at,tenant_id,core_payment_id LIMIT 500')->fetchAll(PDO::FETCH_ASSOC);
+    foreach($parents as$parent){
+        $tenant=(int)$parent['tenant_id'];$payment=(int)$parent['core_payment_id'];
+        try{
+            $status=$driver->getStatusForTenant($tenant,'purepay:allocation:'.$payment);
+            purepayApplyPaymentStatus($tenant,$payment,$status,$pdo);$synced++;
+        }catch(Throwable $e){$failed++;fwrite(STDERR,"Core payment {$payment}: {$e->getMessage()}\n");}
+    }
+}
 fwrite(STDOUT, "purepay_payment_sync done: synced={$synced} failed={$failed}\n");
 exit($failed > 0 ? 1 : 0);

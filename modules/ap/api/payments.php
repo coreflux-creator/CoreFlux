@@ -458,6 +458,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
         $v = $vendors[$vname];
         $itemData = [
             'external_ref'   => 'ap_payment:' . $r['id'],
+            'effective_date' => (string)$r['pay_date'],
             'recipient_name' => (string) $vname,
             'recipient_ref'  => 'ap_vendor:' . (int) $v['id'],
             'recipient_email'=> (string) ($v['remit_to_email'] ?: $v['contact_email'] ?: ''),
@@ -629,6 +630,7 @@ if ($method === 'POST' && $action === 'originate') {
 
     $itemData = [
         'external_ref'   => 'ap_payment:' . $row['id'],
+        'effective_date' => (string)$row['pay_date'],
         'recipient_name' => (string) $row['vendor_name'],
         'recipient_ref'  => 'ap_vendor:' . (int) $vendor['id'],
         'recipient_email'=> (string) ($vendor['remit_to_email'] ?: $vendor['contact_email'] ?: ''),

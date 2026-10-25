@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS purepay_payment_allocations (
     provider_state VARCHAR(32) NOT NULL DEFAULT 'unreserved',
     provider_payment_id VARCHAR(200) CHARACTER SET ascii COLLATE ascii_bin NULL,
     payment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    terminal_review TINYINT(1) NOT NULL DEFAULT 0,
     reservation_json JSON NULL,
     receipt_json JSON NULL,
     last_error VARCHAR(255) NULL,

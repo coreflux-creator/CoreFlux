@@ -66,15 +66,11 @@ $check('bill and payment keys are distinct and stable', $billKey !== $payKey && 
 $check('adapter base is the published v1 URL', purepayApiBase() === 'https://purepay.online/api/v1');
 
 $driver=(string) file_get_contents($root . '/core/payment_rails/purepay_driver.php');
-$check('driver re-GETs bills after create', str_contains($driver,'purepayGetBill($apiKey, $billId)'));
-$check('driver re-GETs payments after pay', str_contains($driver,'purepayGetPayment($apiKey, $paymentId)'));
+$check('historical driver reads full payment detail', str_contains($driver,'purepayGetPayment($apiKey, $paymentId)'));
 $check('driver uses wallet pay_via', str_contains($driver,"'pay_via' => 'wallet'"));
 $check('driver never transmits bank fields', !str_contains($driver,"'account_routing'") && !str_contains($driver,"'account_number'"));
-$check('driver has durable request fingerprint', str_contains($driver,'request_fingerprint'));
-$check('driver fingerprints full vendor identity', str_contains($driver,'$recipientName') && str_contains($driver,'$recipientEmail'));
-$check('driver distinguishes a fresh durable claim', str_contains($driver,'$row[\'__fresh\'] = $fresh'));
-$historyRead=strpos($driver,'$paymentsBefore = purepayCompleteBillPayments($apiKey, $billId)');
-$check('driver checks complete remote payments before release', $historyRead!==false && $historyRead<strpos($driver,'$paid = purepayPayBill('));
+// Dispatch, complete child identity, amount/date drift and replay are exercised
+// through the public driver with real SQL in purepay_allocated_payments_mariadb.php.
 
 $GLOBALS['__purepay_transport'] = static fn(): array => ['status'=>422,'body'=>'{"code":"vendor_not_ready","detail":"bank setup required"}'];
 try {

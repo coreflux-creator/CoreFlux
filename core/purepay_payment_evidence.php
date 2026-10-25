@@ -142,12 +142,31 @@ function purepayStoredPaymentEvidence(array $link): bool
     return $evidence['ok'] && purepayPaymentStatus($evidence['status']) === purepayPaymentStatus((string)($link['status'] ?? ''));
 }
 
+function purepayAllocatedSchemaAvailable(PDO $pdo): bool
+{
+    return (bool)$pdo->query($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql'
+        ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_allocated_payments'"
+        : "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purepay_allocated_payments'")->fetchColumn();
+}
+
+/** New allocation receipts and historical attempts share one ownership boundary. */
+function purepayAllocationConflictsWithLegacy(PDO $pdo,int $tenant,array $link,string $paymentId): bool
+{
+    if(!purepayAllocatedSchemaAvailable($pdo))return false;
+    $suffix=$pdo->inTransaction() && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql'?' FOR UPDATE':'';
+    $q=$pdo->prepare('SELECT core_payment_id FROM purepay_payment_allocations WHERE tenant_id=?
+        AND (provider_payment_id=? OR (?=1 AND provider_bill_id=?)) LIMIT 1'.$suffix);
+    $q->execute([$tenant,$paymentId,empty($link['purepay_payment_id'])?1:0,(string)($link['purepay_bill_id']??'')]);
+    return $q->fetchColumn()!==false;
+}
+
 /** A valid receipt cannot be counted against two Core payments, including legacy rows. */
 function purepayPaymentEvidenceOwned(PDO $pdo, int $tenantId, array $link): bool
 {
     $paymentId = (string)($link['purepay_payment_id'] ?? '');
     $sourceRef = (string)($link['source_ref'] ?? '');
     if ($tenantId <= 0 || $paymentId === '' || $sourceRef === '') return false;
+    if(purepayAllocationConflictsWithLegacy($pdo,$tenantId,$link,$paymentId))return false;
     // Locking reads see current owners even in an existing repeatable-read AP transaction.
     $locking = $pdo->inTransaction() && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
     $query = $pdo->prepare('SELECT source_ref FROM purepay_payment_links

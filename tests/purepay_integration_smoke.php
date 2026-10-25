@@ -8,14 +8,9 @@ $migration=$read('core/migrations/146_purepay_rail.sql');
 foreach(['purepay_connections','purepay_vendor_mappings','purepay_payment_links','purepay_webhook_events'] as $table)$check("migration creates {$table}",str_contains($migration,"CREATE TABLE IF NOT EXISTS {$table}"));
 $check('API key ciphertext sized to 1024',str_contains($migration,'api_key_ct            VARBINARY(1024)'));
 $check('durable source ref is tenant-unique',str_contains($migration,'uq_pppl_source (tenant_id, source_ref)'));
+// Real SQL dispatch/replay tests replace the old substitute-bill source checks:
+// purepay_allocated_payments_mariadb.php and purepay_delivery_mariadb.php.
 $driver=$read('core/payment_rails/purepay_driver.php');
-$check('durable claim distinguishes new operation',str_contains($driver,'$row[\'__fresh\'] = $fresh'));
-$historyRead=strpos($driver,'$paymentsBefore = purepayCompleteBillPayments($apiKey, $billId)');
-$check('retry fence requires complete remote payments before POST pay',$historyRead!==false && $historyRead<strpos($driver,'$paid = purepayPayBill('));
-$check('bill create uses stable provider idempotency key',str_contains($driver,"purepayIdempotencyKey(\$tenantId, 'bill', \$sourceRef)"));
-$check('wallet payment uses stable provider idempotency key',str_contains($driver,"purepayIdempotencyKey(\$tenantId, 'pay', \$sourceRef)"));
-$check('driver rejects non-USD payouts',str_contains($driver,'only USD payouts are supported'));
-$check('driver verifies vendor identity by detail before paying',str_contains($driver,'purepayGetVendor($apiKey, $vendorId)')&&str_contains($driver,'assertVendorIdentity'));
 
 $registry=$read('core/payment_rails.php');
 $check('registry resolves purepay driver',str_contains($registry,"case 'purepay'"));

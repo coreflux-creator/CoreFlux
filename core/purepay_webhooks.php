@@ -109,6 +109,10 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
     $paymentId = $evidence['payment_id'];
     $remoteStatus = $evidence['status'];
     $pdo = getDB();
+    if(purepayAllocatedSchemaAvailable($pdo)){
+        $allocation=purepayAllocatedWebhook($pdo,$tenantId,$data,$billId,$paymentId,$remoteStatus,$verifiedConnectionFingerprint);
+        if($allocation!==null)return $allocation;
+    }
     $ownsTransaction=!$pdo->inTransaction();
     if ($ownsTransaction) $pdo->beginTransaction();
     try {
@@ -138,6 +142,7 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
         return ['outcome'=>'needs_review','reason'=>'provider_identity_conflict'];
     }
     $moneyEvidence = purepayPaymentEvidence($data, (int)$link['amount_cents'], $billId, $paymentId);
+    if(purepayAllocationConflictsWithLegacy($pdo,$tenantId,$link,$paymentId))return ['outcome'=>'needs_review','reason'=>'allocation_receipt_already_owned'];
     if (!$moneyEvidence['ok']) {
         purepayHoldPaymentEvidence($pdo, $tenantId, (string)$link['source_ref'], $moneyEvidence['reason']);
         return ['outcome'=>'needs_review','reason'=>$moneyEvidence['reason']];
@@ -193,6 +198,30 @@ function purepayApplyPaymentStatus(int $tenantId, int $corePaymentId, string $re
         $load->execute(['t'=>$tenantId,'id'=>$corePaymentId]);
         $payment = $load->fetch(\PDO::FETCH_ASSOC);
         if ($payment) {
+            if(purepayAllocatedSchemaAvailable($pdo)){
+                require_once __DIR__.'/purepay_allocated_payments.php';
+                $parent=purepayAllocationParent($pdo,$tenantId,$corePaymentId,true);
+                if($parent){
+                    $binding=purepayFinancialRequire($pdo,$tenantId);
+                    $connection=purepayFinancialConnection($pdo,$tenantId,true);
+                    if($parent['organization_id']!==$binding['remote_organization_id']
+                        || $parent['connection_fingerprint']!==purepayConnectionFingerprint($tenantId,purepayFinancialKey($connection)))
+                        throw new DomainException('Reconfirm the original PurePay company before projecting this payment.');
+                    $aggregate=purepayAllocationAggregate($parent,purepayAllocationChildren($pdo,$tenantId,$corePaymentId,true));
+                    $expected=match($aggregate){'settled'=>'settled','cancelled'=>'cancelled','submitted'=>'submitted','prepared'=>'pending',default=>'unknown'};
+                    if($aggregate!==$parent['status'] || $remoteStatus!==$expected)throw new DomainException('The payment result differs from its original bill allocations.');
+                    if(in_array($remoteStatus,['settled','cancelled'],true) && $payment['status']==='sent'){
+                        require_once __DIR__.'/../modules/ap/lib/ap.php';
+                        purepayAllocationAssertAction($pdo,$tenantId,$payment,$remoteStatus==='settled'?'clear':'void');
+                    }
+                    // Even a released claim is not a failed payout. Cancellation
+                    // remains the explicit AP void action; no GL or AP release here.
+                    $pdo->prepare('UPDATE ap_payments SET rail_status=? WHERE tenant_id=? AND id=? AND disbursement_rail="purepay"')
+                        ->execute([$remoteStatus,$tenantId,$corePaymentId]);
+                    if($ownsTransaction)$pdo->commit();
+                    return;
+                }
+            }
             // Polling and callbacks both reach this path. Recheck the durable
             // receipt under the AP lock before a terminal result can release bills.
             if (in_array($remoteStatus, ['settled','paid','completed','cleared','failed','returned','cancelled'], true)) {
@@ -226,6 +255,35 @@ function purepayApplyPaymentStatus(int $tenantId, int $corePaymentId, string $re
         if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+}
+
+/** Signed events wake reconciliation of a known allocation; they cannot adopt a new payment. */
+function purepayAllocatedWebhook(PDO $pdo,int $tenant,array $data,string $billId,string $paymentId,string $status,string $fingerprint): ?array
+{
+    require_once __DIR__.'/purepay_allocated_payments.php';
+    $q=$pdo->prepare('SELECT * FROM purepay_payment_allocations WHERE tenant_id=? AND provider_payment_id=? LIMIT 2');
+    $q->execute([$tenant,$paymentId]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+    if(!$rows)return null;
+    if(count($rows)!==1)return ['outcome'=>'needs_review','reason'=>'ambiguous_allocation_receipt'];
+    $child=$rows[0];$payment=(int)$child['core_payment_id'];$bill=(int)$child['core_bill_id'];
+    if($pdo->inTransaction())return ['outcome'=>'needs_review','reason'=>'allocation_reconciliation_requires_committed_request'];
+    $connection=purepayFinancialConnection($pdo,$tenant);
+    if(!$connection || !hash_equals($fingerprint,purepayConnectionFingerprint($tenant,purepayFinancialKey($connection))))
+        return ['outcome'=>'needs_review','reason'=>'connection_changed'];
+    $e=purepayPaymentEvidence($data,(int)$child['amount_cents'],$child['provider_bill_id'],$paymentId);
+    if($billId!==$child['provider_bill_id'] || !$e['ok']){
+        purepayAllocationHold($pdo,$tenant,$payment,$bill);
+        return ['outcome'=>'needs_review','reason'=>$e['reason']??'provider_identity_conflict'];
+    }
+    $result=purepayAllocationReconcile($pdo,$tenant,$payment);
+    $updated=purepayAllocationChildren($pdo,$tenant,$payment);
+    foreach($updated as$row)if((int)$row['core_bill_id']===$bill && purepayPaymentStatus($status)!==$row['payment_status']){
+        purepayAllocationHold($pdo,$tenant,$payment,$bill,true);
+        return ['outcome'=>'needs_review','reason'=>'terminal_allocation_result_disagrees'];
+    }
+    purepayApplyPaymentStatus($tenant,$payment,$result,$pdo);
+    return ['outcome'=>$result==='unknown'?'needs_review':'updated','reason'=>$result==='unknown'?'allocation_reconciliation_required':null,
+        'source_ref'=>'ap_payment:'.$payment,'status'=>$result];
 }
 
 function purepayWebhookMarkProcessed(int $tenantId, string $eventId, ?string $error = null): void

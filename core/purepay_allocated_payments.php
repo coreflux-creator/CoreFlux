@@ -45,7 +45,7 @@ function purepayAllocationSource(PDO $pdo,int $tenant,int $payment,array $item,s
         || $item['amount_cents']>9999999999999 || purepayMoneyCents($p['amount'])!==$item['amount_cents'] || ($item['currency']??null)!=='USD'
         || $p['pay_date']!==$date
         || ($item['external_ref']??null)!=='ap_payment:'.$payment
-        || trim((string)($item['recipient_name']??''))!==$p['vendor_name']) {
+        || trim((string)($item['recipient_full_name']??$item['recipient_name']??''))!==$p['vendor_name']) {
         throw new PurePayApiException('Review the fully allocated USD AP payment before dispatch.');
     }
     $connection=purepayFinancialConnection($pdo,$tenant,true);
@@ -189,7 +189,7 @@ function purepayAllocationAggregate(array $parent,array $children): string
     $total=0;$settled=true;$released=true;$prepared=true;
     foreach($children as$c){
         $total+=(int)$c['amount_cents'];
-        if(!empty($c['last_error']))return 'needs_review';
+        if(!empty($c['last_error']) || !empty($c['terminal_review']))return 'needs_review';
         $state=$c['provider_state'];$status=$c['payment_status'];
         if($state==='needs_review' || in_array($status,['failed','returned','cancelled'],true))return 'needs_review';
         $settled=$settled && $state==='completed' && $status==='settled' && !empty($c['receipt_json']);
@@ -235,9 +235,9 @@ function purepayAllocationSave(PDO $pdo,int $tenant,int $payment,int $bill,array
         if($child['payment_status']==='settled' && $status!=='settled')$error='A settled allocation changed. Review accounting before changing the parent payment.';
         if(in_array($child['payment_status'],['returned','failed','cancelled'],true) && $status!==$child['payment_status'])$error='A terminal allocation changed. Review the original payment.';
         $pdo->prepare('UPDATE purepay_payment_allocations SET provider_state=?,provider_payment_id=COALESCE(?,provider_payment_id),payment_status=?,
-            reservation_json=?,receipt_json=COALESCE(?,receipt_json),last_error=?,updated_at=NOW() WHERE tenant_id=? AND core_payment_id=? AND core_bill_id=?')
+            reservation_json=?,receipt_json=COALESCE(?,receipt_json),last_error=?,terminal_review=GREATEST(terminal_review,?),updated_at=NOW() WHERE tenant_id=? AND core_payment_id=? AND core_bill_id=?')
             ->execute([$verified['provider_state'],$providerPayment,$status,purepayAllocationJson($remote),
-                $e?purepayAllocationJson(['version'=>1,'source'=>'reservation','payment'=>$e]):null,$error,$tenant,$payment,$bill]);
+                $e?purepayAllocationJson(['version'=>1,'source'=>'reservation','payment'=>$e]):null,$error,$error!==null?1:0,$tenant,$payment,$bill]);
         $status=purepayAllocationAggregate($parent,purepayAllocationChildren($pdo,$tenant,$payment,true));
         $pdo->prepare('UPDATE purepay_allocated_payments SET status=?,last_error=?,updated_at=NOW() WHERE tenant_id=? AND core_payment_id=?')
             ->execute([$status,$status==='needs_review'?'Reconcile every original bill allocation before changing this payment.':null,$tenant,$payment]);
@@ -245,15 +245,15 @@ function purepayAllocationSave(PDO $pdo,int $tenant,int $payment,int $bill,array
     } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
 
-function purepayAllocationHold(PDO $pdo,int $tenant,int $payment,int $bill): void
+function purepayAllocationHold(PDO $pdo,int $tenant,int $payment,int $bill,bool $terminalReview=false): void
 {
     $pdo->beginTransaction();
     try {
         $q=$pdo->prepare('SELECT id FROM ap_payments WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$tenant,$payment]);
         $parent=purepayAllocationParent($pdo,$tenant,$payment,true);
         if($parent){
-            $pdo->prepare('UPDATE purepay_payment_allocations SET last_error="Original reservation needs reconciliation",updated_at=NOW()
-                WHERE tenant_id=? AND core_payment_id=? AND core_bill_id=?')->execute([$tenant,$payment,$bill]);
+            $pdo->prepare('UPDATE purepay_payment_allocations SET last_error="Original reservation needs reconciliation",terminal_review=GREATEST(terminal_review,?),updated_at=NOW()
+                WHERE tenant_id=? AND core_payment_id=? AND core_bill_id=?')->execute([$terminalReview?1:0,$tenant,$payment,$bill]);
             $pdo->prepare('UPDATE purepay_allocated_payments SET status="needs_review",last_error="Reconcile the original bill allocations",updated_at=NOW()
                 WHERE tenant_id=? AND core_payment_id=?')->execute([$tenant,$payment]);
         }
@@ -290,7 +290,7 @@ function purepayAllocationCall(PDO $pdo,int $tenant,int $payment,int $bill,strin
         if(!$child)throw new PurePayApiException('Unknown original bill allocation.');
         if($action==='execute') {
             foreach($children as$row)
-                if(!in_array($row['provider_state'],['held','executing','submitted','completed'],true) || !empty($row['last_error']))
+                if(!in_array($row['provider_state'],['held','executing','submitted','completed'],true) || !empty($row['last_error']) || !empty($row['terminal_review']))
                     throw new PurePayApiException('Reserve and reconcile every bill before executing any allocation.');
         }
         $key=purepayFinancialKey(purepayFinancialConnection($pdo,$tenant,true));
@@ -316,6 +316,24 @@ function purepayAllocationDispatch(PDO $pdo,int $tenant,int $payment,array $item
     $parent=purepayAllocationParent($pdo,$tenant,$payment);
     return ['external_ref'=>'ap_payment:'.$payment,'rail_external_ref'=>'purepay:allocation:'.$payment,
         'status'=>$parent['status']==='settled'?'settled':($parent['status']==='submitted'?'submitted':'unknown')];
+}
+
+/** Reconcile only the saved original reservations; never reserve or execute here. */
+function purepayAllocationReconcile(PDO $pdo,int $tenant,int $payment): string
+{
+    if($pdo->inTransaction())throw new LogicException('Reconciliation cannot run inside a caller transaction.');
+    $parent=purepayAllocationParent($pdo,$tenant,$payment);
+    if(!$parent)return 'unknown';
+    $failed=false;
+    foreach(purepayAllocationChildren($pdo,$tenant,$payment)as$child){
+        try{purepayAllocationCall($pdo,$tenant,$payment,(int)$child['core_bill_id'],'reconcile');}
+        catch(Throwable $e){purepayAllocationHold($pdo,$tenant,$payment,(int)$child['core_bill_id']);$failed=true;}
+    }
+    if($failed)return 'unknown';
+    $parent=purepayAllocationParent($pdo,$tenant,$payment);
+    $status=purepayAllocationAggregate($parent,purepayAllocationChildren($pdo,$tenant,$payment));
+    if($status!==$parent['status'])return 'unknown';
+    return match($status){'settled'=>'settled','cancelled'=>'cancelled','submitted'=>'submitted','prepared'=>'pending',default=>'unknown'};
 }
 
 /** AP guard runs with the caller's payment lock and never makes provider calls. */

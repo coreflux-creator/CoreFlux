@@ -77,6 +77,8 @@ function paymentRailsBuildItem(array $row, bool $providerVault = false): array
     if (!$providerVault) {
         $item['account_routing'] = (string) $row['routing'];
         $item['account_number'] = (string) $row['account'];
+    } elseif (isset($row['effective_date'])) {
+        $item['effective_date'] = (string)$row['effective_date'];
     }
     return $item;
 }
@@ -115,7 +117,7 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
         'company_id'      => (string) ($settings['nacha_company_id']      ?? '1234567890'),
         'origin_routing'  => (string) ($settings['nacha_origin_routing']  ?? ''),
         'service_class'   => 'credits_only',
-        'effective_date'  => (string) ($sourceRow['effective_date'] ?? date('Y-m-d', strtotime('+1 day'))),
+        'effective_date'  => (string) ($sourceRow['effective_date'] ?? ($rail==='purepay' ? ($sourceRow['pay_date']??date('Y-m-d')) : date('Y-m-d', strtotime('+1 day')))),
         'tenant_id'       => isset($sourceRow['tenant_id']) ? (int) $sourceRow['tenant_id']
                               : (isset($settings['tenant_id']) ? (int) $settings['tenant_id']
                               : (function_exists('currentTenantContext') ? (int) (currentTenantContext()['tenant_id'] ?? 0) : 0)),
