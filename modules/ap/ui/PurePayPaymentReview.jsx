@@ -93,7 +93,7 @@ export default function PurePayPaymentReview({ paymentId, onClose, onChanged }) 
           </div>}
           {!!review.history.length && <details style={{ marginTop: 24 }}><summary>Operator history</summary>
             <ul>{review.history.map(event => <li key={`${event.operation_id}-${event.phase}`} style={{ margin: '8px 0' }}>
-              {label(event.action)} · {label(event.phase)} · {event.recorded_at}<br />{event.reason}
+              {label(event.action)} · {event.phase === 'completed' ? 'Completed' : label(event.phase)} · {event.recorded_at}<br />{event.reason}
             </li>)}</ul>
           </details>}
         </>}

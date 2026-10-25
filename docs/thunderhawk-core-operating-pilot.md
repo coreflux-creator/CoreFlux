@@ -1,3 +1,11 @@
+## 2026-10-25 — Audited payment review and recovery candidate (not deployed)
+
+Core backend candidate `208ce25a4f67792e114c9c584612c3853be18591` adds per-bill review, explicit resume, cancellation and immutable operator events. Migration 179 commits cancellation intent before provider access; every later reserve/execute checks it. PurePay candidate `cff7b26013d9b820a2a3c7d13ddf24b63e7fb713` records the original request as permanently released when cancellation arrives before reserve, without changing native or other reservation locks. A contradictory execution after cancellation remains held for review.
+
+All nine jobs passed in [CI 40180313598](https://github.com/coreflux-creator/CoreFlux/actions/runs/40180313598), including 74 allocation/recovery MariaDB checks. PurePay passed 171 isolated actual-app tests with memory Mongo and zero external network attempts. Six React component checks cover confirmation, reasons, read-only viewers, company changes and lost responses; the actual screen was also exercised in Chrome using local synthetic responses. An operator-history wording correction followed the CI run and passed all six component checks again. Evidence: `deploy/purepay-operator-recovery-candidate-20261025.json`.
+
+No hosted deployment, production change or live financial execution occurred. Next: complete uncertain-funding and credential-rebinding recovery, audit concurrent origination across other Core rails, then verify the combined candidate against the held preview and real Mongo contention. The full Thunderhawk staffing/onboarding/time/payroll/financial round trip, key consumer verification and publication remain incomplete. Arabella remains separate.
+
 ## 2026-10-25 — Core original-bill dispatch candidate (not deployed)
 
 Core source `eea4aa215ecfe405ab278629516b8b1c757043cf` now consumes PurePay's original-bill reservation contract. Fresh payments use the reviewed supplier bills, with a separate durable allocation and receipt for each bill. The parent settles only when every allocation settles; partial outcomes and later terminal conflicts remain held. Polling and signed callbacks reconcile the original reservations without executing another payment or posting accounting entries. Historical attempts retain their separate read and reconciliation path.

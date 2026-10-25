@@ -1,6 +1,6 @@
 # Core payment result evidence
 
-## Current source candidate and release boundary
+## Original-bill consumer and release boundary
 
 Core source `eea4aa215ecfe405ab278629516b8b1c757043cf` consumes PurePay candidate `ed40d8dbb5581730136b9563d37c02871262c730`; neither candidate has been installed in the held environments. Migration 178 records a parent AP payment, immutable original-bill allocations, and append-only reservation receipts. New dispatch uses the already reviewed provider bill IDs rather than creating substitute bills or vendors. It checks the fully allocated USD AP payment, pay date, legal entity, remit identity, released balance and competing reservations under SQL locks. Provider reads occur outside those locks and local evidence is checked again before committing the claim.
 
@@ -9,6 +9,14 @@ Each reservation binds Core instance/tenant/payment/bill IDs, provider origin/or
 A parent settles only when every original allocation has matching completed transfer evidence. Released, never-executed claims can authorize the explicit AP void action; failed, mixed and uncertain outcomes stay held. Terminal conflicts latch a review requirement, so repeated older settlement evidence cannot erase a return/failure conflict. Receipt ownership is checked across both the new allocations and historical attempts. Unique provider-origin/organization/payment identities arbitrate concurrent new receipt bindings. Polling revisits settled parents for later returns. Signed events can wake reconciliation of a known payment, but cannot adopt an unknown payment into an allocation or clear accounting directly.
 
 All nine jobs passed in CI `40178001665`: 51 allocation, 105 historical-receipt, 31 financial-company, 37 bill-identity and 87 money-evidence checks. Tests use actual Core code and isolated MariaDB, including two independent SQL sessions; provider RPC is synthetic. Evidence: `deploy/purepay-core-allocations-candidate-20261025.json`. Operator review/resume/release controls, abandoned-reservation/uncertain-funding recovery, credential rebinding, real Mongo contention and combined hosted acceptance remain required before release. No live financial action or production cutover occurred.
+
+## Operator review and recovery candidate
+
+The additional operator candidate is recorded in `deploy/purepay-operator-recovery-candidate-20261025.json`: Core backend `208ce25a4f67792e114c9c584612c3853be18591` and PurePay `cff7b26013d9b820a2a3c7d13ddf24b63e7fb713` are still unpublished. All nine Core CI jobs passed (`40180313598`, including 74 allocation/recovery MariaDB checks); the provider passed 171 isolated actual-app checks with memory Mongo. Six component tests and a local synthetic Chrome walkthrough cover the review screen. This supersedes the earlier operator-work TODO above; uncertain funding, credential rebinding, concurrent origination across other Core rails and hosted real-Mongo verification remain open.
+
+The AP list now exposes saved per-bill results and operator history after a lost dispatch response. Refresh, resume and cancellation require `ap.payment.send`, an authenticated actor, a reason and the current review hash. Creators cannot resume their own payment. The browser pins the reviewed company; a company switch cannot retarget the operation. Standalone CoreAccounting does not expose these provider mutations.
+
+Migration 179 adds mandatory append-only requested/outcome events and an irreversible cancellation flag. Audit failure prevents provider access. Cancellation commits its flag before contacting any bill, then sends the immutable original request to each release route. A missing provider reservation becomes permanently released, preventing a delayed reserve from opening it. Late held receipts cannot replace releases. If execution wins the provider race, AP remains held; a contradictory execution after confirmed cancellation latches a review requirement. Resume reuses the saved item, date and identities. Refresh never reserves or executes. Confirmed cancellation may permit the separate guarded AP void action, but these controls do not post journals or void AP themselves.
 
 ## Isolated financial preview routing
 

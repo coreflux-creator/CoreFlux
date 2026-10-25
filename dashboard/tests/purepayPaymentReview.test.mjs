@@ -82,7 +82,9 @@ test('switching the selected company cannot send an old review into the new comp
   } finally { f.close(); }
 });
 test('completed cancellation has no resume or finish-cancellation action', async () => {
-  const f = await fixture({ ...review, status: 'cancelled', release_requested: true, can_resume: false, can_release: false });
-  try { assert.ok(!f.button('Review resume')); assert.ok(!f.button('Finish cancellation')); assert.ok(!text(f.tree.root).includes('An attempt already in progress')); }
+  const f = await fixture({ ...review, status: 'cancelled', release_requested: true, can_resume: false, can_release: false,
+    history: [{operation_id: 'cancel', phase: 'completed', action: 'release', reason: 'Duplicate', recorded_at: '2026-10-25'}] });
+  try { assert.ok(!f.button('Review resume')); assert.ok(!f.button('Finish cancellation')); assert.ok(!text(f.tree.root).includes('An attempt already in progress'));
+    assert.ok(text(f.tree.root).includes('Cancel unexecuted bills · Completed')); assert.ok(!text(f.tree.root).includes('Payment result received')); }
   finally { f.close(); }
 });
