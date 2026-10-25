@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_payroll_input, pilot_payroll_reservation, pilot_payroll_result, pilot_onboarding, pilot_time_review, pilot_time_approver, pilot_time_approval, pilot_time_approval_verify, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
+        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_payroll_input, pilot_payroll_reservation, pilot_payroll_result, pilot_payroll_cancellation, pilot_onboarding, pilot_time_review, pilot_time_approver, pilot_time_approval, pilot_time_approval_verify, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   reserve-demo-payroll-source:
-    if: inputs.integration_staging == 'pilot_payroll_reservation' || inputs.integration_staging == 'pilot_payroll_result'
+    if: inputs.integration_staging == 'pilot_payroll_reservation' || inputs.integration_staging == 'pilot_payroll_result' || inputs.integration_staging == 'pilot_payroll_cancellation'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -59,6 +59,8 @@ jobs:
             cd "$ROOT"
             if [ '${{ inputs.integration_staging }}' = 'pilot_payroll_result' ]; then
               COREFLUX_ENV=staging php "$PACKAGE/deploy/observe_synthetic_payroll_result.php" --observe-demo-draft
+            elif [ '${{ inputs.integration_staging }}' = 'pilot_payroll_cancellation' ]; then
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/observe_synthetic_payroll_result.php" --cancel-demo-draft
             else
               COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_payroll_reservation.php" --reserve-demo-hours
             fi
