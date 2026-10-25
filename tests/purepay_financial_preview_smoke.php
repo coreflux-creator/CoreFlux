@@ -2,6 +2,9 @@
 /** Exercise actual financial routing and origin binding; no database or network. */
 declare(strict_types=1);
 putenv('COREFLUX_DISABLE_DATABASE=1');
+// These transport-only fixtures must not load a developer/CI database config
+// or inherit its staging mode. Each child defines its own staging boundary.
+foreach (['COREFLUX_ENV','COREFLUX_ACCOUNTING_DB_CONFIG_PATH','COREFLUX_DB_CONFIG_PATH'] as $name) putenv($name);
 foreach (['PUREPAY_API_BASE','PUREPAY_CORE_API_BASE','COREFLUX_PUREPAY_PREVIEW_API_BASE',
     'COREFLUX_PUREPAY_FINANCIAL_PREVIEW_API_BASE'] as $name) putenv($name);
 $mode = $argv[1] ?? null;
@@ -20,13 +23,15 @@ if ($mode === null) {
     exit;
 }
 if (!in_array($mode,$scenarios,true)) throw new RuntimeException('Unknown fixture');
-$preview = 'https://pure-pay-support.preview.emergentagent.com/api/v1';
-$live = 'https://purepay.online/api/v1';
-$setting = 'COREFLUX_PUREPAY_FINANCIAL_PREVIEW_API_BASE';
 if ($mode === 'false-staging') define('COREFLUX_STAGING',false);
 elseif ($mode === 'string-staging') define('COREFLUX_STAGING','true');
 elseif ($mode !== 'production') define('COREFLUX_STAGING',true);
 require_once __DIR__.'/../core/purepay_service.php';
+// Config bootstrap uses global temporary variables; initialize fixture values
+// after loading the real service so its local setup cannot rename this setting.
+$preview = 'https://pure-pay-support.preview.emergentagent.com/api/v1';
+$live = 'https://purepay.online/api/v1';
+$setting = 'COREFLUX_PUREPAY_FINANCIAL_PREVIEW_API_BASE';
 $originalFingerprint = purepayConnectionFingerprint(999,'fixture-financial-key');
 if (!in_array($mode,['default','legacy'],true)) putenv($setting.'='.$preview);
 if ($mode === 'legacy') putenv('PUREPAY_API_BASE=https://legacy.fixture.test/api/v1');
