@@ -1,3 +1,30 @@
+## Stable custom-field identities installed in the pilot - October 24, 2026
+
+Runtime b3013ea847b724cb043cf09b9bd0ed3c5d6f2782 corrects the integration
+field dictionary's legacy fallback from an editable label to a mapping key.
+Every custom definition now carries its owning directory, entity, definition
+table and original definition ID. Dedicated field_key/field_name paths remain
+available; a missing or invalid key has a null lookup path and an explicit
+review requirement. Duplicate or renamed labels cannot redefine the identity.
+Existing custom values, provider IDs, visibility and PII restrictions are retained.
+
+All nine CI jobs passed in 40152568293, including 60 real MariaDB checks; the
+local field/number suite passed 304 checks. Staging deployment 40152721273
+installed seven changed files, applied no migrations and passed native
+accounting, billing, 61 rollback-finance and 17 onboarding HTTP checks. Private
+configuration and integration identity were retained; payroll authority remains
+disabled. Read-only inspection 40152948009 reports dictionary 2026-10-24.2,
+1,345 standard/workflow fields and HTTP 200 from the expected Quanta workspace
+and onboarding context. P-15/PL-13, case version 5/confirmed plan 4, the eight
+pending hours and Meridian binding revision 3 remain intact. No independent
+eligible time reviewer exists for that entry; document transfer/intake stay off.
+
+Evidence: deploy/staffing-custom-field-identities-staging-20261024.json. Legacy
+custom-field behavior is verified in disposable database fixtures; the hosted
+inspection verifies the installed version and existing demo records. Complete
+actual Thunderhawk field alignment, worker login, independent review, the
+payroll round trip and production release remain open. Production is unchanged.
+
 ## Native PurePayroll read and capture verified in the hosted pilot - October 24, 2026
 
 Core runtime ca97741738d8c4a3bd543ce99c533cea3ffa7572 passed CI 40149282370
