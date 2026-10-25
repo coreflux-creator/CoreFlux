@@ -26,6 +26,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
+require_once __DIR__ . '/dates.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/assignment_contract.php';
 require_once __DIR__ . '/contract_projection.php';
@@ -423,61 +424,6 @@ function jobdivaEndClientNameFromPayload(array $item): string
         if ($v !== '') return $v;
     }
     return '';
-}
-
-/**
- * Normalise a JobDiva date value into MySQL DATE (YYYY-MM-DD) format.
- *
- * JobDiva V2 BI is inconsistent: some endpoints return formatted strings
- * ("2026-05-22", "5/22/2026"), others return raw epoch milliseconds
- * (Java/Spring default JSON serialisation of `java.util.Date`, e.g.
- * `1779231290000`). Passing the latter straight into a prepared
- * statement against a DATE column produces:
- *   SQLSTATE[22007]: Incorrect date value: '1779231290000' for column 'start_date'
- * which silently fails 100% of placement inserts.
- *
- * This helper accepts every shape we've seen in the wild and returns a
- * MySQL-safe `Y-m-d` string, or null when the input is blank/uninterpretable.
- * Numeric thresholds:
- *   - ≥ 10^12 → epoch milliseconds (~year 2001+ in ms)
- *   - ≥ 10^8  → epoch seconds       (~year 1973+ in s, sane lower bound)
- */
-function jobdivaNormaliseDate(mixed $raw): ?string
-{
-    if ($raw === null) return null;
-    if (is_scalar($raw)) $raw = trim((string) $raw);
-    else return null;
-    if ($raw === '' || $raw === '0' || $raw === 'null') return null;
-
-    // JobDiva assignment dates are account-local business dates. Preserve
-    // the explicit calendar component instead of converting a 23:59:59
-    // end-of-day value through the web server timezone into the next UTC day.
-    if (preg_match('/^\d{4}-\d{2}-\d{2}(?:[T\s]|$)/', $raw)) {
-        return substr($raw, 0, 10);
-    }
-
-    // Numeric — epoch ms or s. ctype_digit on the trimmed string avoids
-    // accepting floats / negatives (JobDiva never sends those for dates).
-    if (ctype_digit($raw)) {
-        $n = (int) $raw;
-        // Java Date.getTime() values are 13 digits since the early 2000s.
-        // Below 10^12 we assume epoch seconds (10 digits ≈ 1973+).
-        if ($n >= 1_000_000_000_000) {
-            $n = (int) ($n / 1000);
-        }
-        if ($n >= 100_000_000) {
-            return gmdate('Y-m-d', $n);
-        }
-        // Fall through — too small to be a sensible epoch.
-        return null;
-    }
-
-    // String — try strtotime first (handles ISO-8601, "5/22/2026",
-    // "2026-05-22T08:32:43.000+0000", "Wed, 22 May 2026 ...", etc).
-    $ts = strtotime($raw);
-    if ($ts !== false) return gmdate('Y-m-d', $ts);
-
-    return null;
 }
 
 /**

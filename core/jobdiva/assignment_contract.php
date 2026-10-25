@@ -9,6 +9,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/classification.php';
+require_once __DIR__ . '/dates.php';
 
 /** JobDiva uses zero for an absent subcontract company; other provider IDs stay opaque. */
 function jobdivaAssignmentCompanyId(mixed $value): string
@@ -624,7 +625,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $salaryBlocked = !$salaryReady;
     $censusScope = strtolower(trim((string) ($fallback['__cf_jobdiva_census_scope'] ?? '')));
     $enforceSalaryLifecycle = true;
-    $endDate = function_exists('jobdivaNormaliseDate') ? jobdivaNormaliseDate($endDateRaw) : null;
+    $endDate = jobdivaNormaliseDate($endDateRaw);
     if ($closed === true
         || ($enforceSalaryLifecycle && $salaryClosed === true)
         || $actualEnd === true

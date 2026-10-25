@@ -43,10 +43,30 @@ $check($diagnostic['person_echo']==='missing'&&!$diagnostic['assignment_row_reco
     &&$diagnostic['lifecycle_reason']==='missing_assignment_state'&&$result['contract']===null&&count($calls)===1,
     'generic ID diagnostics never promote an incomplete row into a verified assignment');
 $unknown=$start;$unknown['startStatus']='PRIVATE-STATUS-SENTINEL';$unknown['PRIVATE-FIELD-NAME']='PRIVATE-VALUE';
-$result=$run([$ok([$unknown])],$calls);
+$result=$run([$ok([$unknown]),$ok([$detail])],$calls);
 $check($result['report']['start_diagnostics']['expected_id_checks'][0]['lifecycle_reason']==='unqualified_assignment_state'
-    &&!str_contains(json_encode($result['report']),'PRIVATE-'),
+    &&!str_contains(json_encode($result['report']),'PRIVATE-')&&!$result['report']['import_authorized'],
     'unrecognized lifecycle and field names are reduced to fixed diagnostics without exposing values');
+$sparse=$start;unset($sparse['startStatus']);
+$result=$run([$ok([$sparse]),$ok([$detail])],$calls);
+$check($result['report']['source_refreshed']&&$result['report']['start_lifecycle']===['qualified'=>false,'reason'=>'missing_assignment_state']
+    &&!$result['report']['import_authorized']&&$result['contract']['placement_status']==='active',
+    'exact source detail can be inspected despite a missing Start status without authorizing an import');
+$rejected=$start;$rejected['startStatus']='Cancelled';
+$result=$run([$ok([$rejected]),$ok([$detail])],$calls);
+$check($result['report']['start_lifecycle']===['qualified'=>false,'reason'=>'rejected_assignment_state']
+    &&!$result['report']['import_authorized'],
+    'source lifecycle rejection remains explicit when read-only detail inspection succeeds');
+$expired=$detail;$expired['BILLING'][0]['END_DATE']='2001-01-01T23:59:59-0500';
+$result=$run([$ok([$sparse]),$ok([$expired])],$calls);
+$check($result['contract']['placement_status']==='ended',
+    'standalone source inspection honors the assignment end date without loading the sync driver');
+$conflicting=$start;$conflicting['employeeId']='999';
+$result=$run([$ok([$conflicting])],$calls);
+$check($result['contract']===null&&count($calls)===1,'conflicting person aliases stop before detail inspection');
+$conflicting=$start;$conflicting['JOB_ID']='999';
+$result=$run([$ok([$conflicting])],$calls);
+$check($result['contract']===null&&count($calls)===1,'conflicting job aliases stop before detail inspection');
 $result=$run([$ok([])],$calls);
 $check($result['report']['start_diagnostics']['parsed_rows']===0
     &&$result['report']['start_diagnostics']['expected_id_checks']===[]&&count($calls)===1,

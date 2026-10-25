@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/jobdiva/assignment_identity.php';
 require_once __DIR__ . '/../core/jobdiva/assignment_contract.php';
 
-function fullCoreJobdivaDetailHasExactIdentity(array $row, array $ids): bool
+function fullCoreJobdivaDetailIdentity(array $row, array $ids): array
 {
     $labels = ['placement'=>['startid','assignmentid'], 'person'=>['candidateid','employeeid'], 'job'=>['jobid']];
     $observed = array_fill_keys(array_keys($labels), []);
@@ -13,10 +13,46 @@ function fullCoreJobdivaDetailHasExactIdentity(array $row, array $ids): bool
             if (in_array($entry['norm_key'], $keys, true)) $observed[$entity][] = trim((string)$entry['value']);
         }
     }
+    $result=[];
     foreach ($observed as $entity=>$values) {
-        if (array_values(array_unique($values)) !== [$ids[$entity]]) return false;
+        $values=array_values(array_unique($values));
+        $result[$entity]=$values===[$ids[$entity]]?'exact_match':($values===[]?'missing':(count($values)>1?'ambiguous':'mismatch'));
     }
-    return true;
+    return $result;
+}
+
+function fullCoreJobdivaDetailHasExactIdentity(array $row, array $ids): bool
+{
+    return array_values(array_unique(fullCoreJobdivaDetailIdentity($row,$ids)))===['exact_match'];
+}
+
+function fullCoreJobdivaStartHasExactIdentity(array $row, array $ids): bool
+{
+    if (jobdivaAssignmentRowId($row)!==$ids['placement']
+        || jobdivaAssignmentIdentityValues($row,true)!==[$ids['placement']]) return false;
+    // The searchStart generic ID is unambiguous only after the structural check above.
+    $row['START_ID']=$ids['placement'];
+    return fullCoreJobdivaDetailHasExactIdentity($row,$ids);
+}
+
+function fullCoreJobdivaDetailDiagnostics(array $rows, array $ids): array
+{
+    return array_map(static function($row)use($ids):array {
+        if (!is_array($row)) return ['shape'=>'non_record'];
+        $sections=[];
+        foreach (['BILLING','SALARY','JOB'] as $section) {
+            $sectionRows=jobdivaAssignmentContractSectionRows([$row],$section);
+            if ($sectionRows!==[]) {
+                $sections[$section]=['rows'=>count($sectionRows),'generic_id_matches_selected_assignment'=>false];
+                foreach ($sectionRows as $sectionRow) {
+                    if (jobdivaAssignmentIdentityPluck($sectionRow,['id'])===$ids['placement']) {
+                        $sections[$section]['generic_id_matches_selected_assignment']=true;
+                    }
+                }
+            }
+        }
+        return ['identity'=>fullCoreJobdivaDetailIdentity($row,$ids),'sections'=>$sections];
+    },$rows);
 }
 
 /** Counts and fixed reason codes only: never serialize provider values or field names. */
@@ -62,7 +98,8 @@ function fullCoreJobdivaReadPilot(array $ids, callable $request): array
         }
     }
     $report = ['status'=>'source_unavailable','source_refreshed'=>false,'record_writes'=>false,
-        'provider_calls'=>[], 'exact_assignment_verified'=>false, 'exact_detail_verified'=>false];
+        'provider_calls'=>[], 'exact_assignment_verified'=>false, 'exact_detail_verified'=>false,
+        'import_authorized'=>false];
     $call = static function(string $label, string $method, string $path, ?array $body, ?array $query) use ($request, &$report): array {
         try { $response = $request($method, $path, $body, $query); }
         catch (Throwable $e) {
@@ -90,10 +127,7 @@ function fullCoreJobdivaReadPilot(array $ids, callable $request): array
     $report['start_diagnostics']=fullCoreJobdivaStartDiagnostics($starts,$ids);
     $exact = [];
     foreach ($starts as $row) {
-        if (!is_array($row) || jobdivaAssignmentRowId($row) !== $ids['placement']) continue;
-        if (jobdivaAssignmentIdentityPluck($row,['candidate id','candidateId','employeeId']) !== $ids['person']
-            || jobdivaAssignmentIdentityPluck($row,['job id','jobId']) !== $ids['job']) continue;
-        if (empty(jobdivaAssignmentValidate($row,$ids['placement'],'searchStart:criteria_exact')['valid'])) continue;
+        if (!is_array($row) || !fullCoreJobdivaStartHasExactIdentity($row,$ids)) continue;
         $exact[] = $row;
     }
     if (count($exact) !== 1) {
@@ -101,9 +135,14 @@ function fullCoreJobdivaReadPilot(array $ids, callable $request): array
         return ['report'=>$report, 'contract'=>null];
     }
     $report['exact_assignment_verified'] = true;
-    $start = jobdivaAssignmentMarkVerified($exact[0],$ids['placement'],'searchStart:criteria_exact');
+    // Reading a known source record is separate from authorizing an import.
+    // Preserve the source lifecycle hold; never synthesize a trusted/eligible marker.
+    $start=$exact[0];
+    $lifecycle=jobdivaAssignmentLifecycleEvidence($start,'searchStart:criteria_exact');
+    $report['start_lifecycle']=['qualified'=>(bool)$lifecycle['qualified'],'reason'=>$lifecycle['reason']];
     $rows = $call('assignment_detail_by_start','GET','/apiv2/bi/EmployeeAssignmentRecordsDetail',null,
         ['startId'=>$ids['placement'],'userFieldsName'=>'']);
+    $report['detail_diagnostics']['by_start']=fullCoreJobdivaDetailDiagnostics($rows,$ids);
     $select = static fn(array $values):array => array_values(array_filter($values,
         static fn($row):bool => is_array($row) && fullCoreJobdivaDetailHasExactIdentity($row,$ids)));
     $matching = $select($rows);
@@ -111,6 +150,7 @@ function fullCoreJobdivaReadPilot(array $ids, callable $request): array
         || in_array($report['provider_calls'][1]['http_status'] ?? 0, [400,404], true))) {
         $rows = $call('assignment_detail_by_employee','GET','/apiv2/bi/EmployeeAssignmentRecordsDetail',null,
             ['employeeId'=>$ids['person'],'userFieldsName'=>'']);
+        $report['detail_diagnostics']['by_employee']=fullCoreJobdivaDetailDiagnostics($rows,$ids);
         $matching = $select($rows);
     }
     if (count($matching) !== 1) {
