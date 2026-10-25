@@ -61,12 +61,21 @@ function jobdivaStaffingFieldMappings(): array
                     'Existing email matches require the candidate/person identity review; linking preserves existing contact fields.']]);
     }
 
-    foreach (['placements.end_client_company_id', 'placements.client_id', 'staffing_clients.company_id'] as $key) {
+    foreach (['placements.client_id', 'staffing_clients.company_id'] as $key) {
         $assignment($key, 'BILLING[].COMPANY[].ID', 'client_company_id',
-            'Resolve the canonical company, then its staffing-client role; retain distinct CO and CL numbers. Never copy the provider ID into a Core foreign key.');
+            'Resolve the bill-to company, then its staffing-client role; retain distinct CO and CL numbers. This identifies the debtor, independently of the work recipient. Never copy the provider ID into a Core foreign key.');
     }
-    $assignment('placements.end_client_name', 'BILLING[].COMPANY[].COMPANYNAME', 'client_company_name',
-        'Trim the exact assignment billing-company label; a requisition company label cannot override it.');
+    $recipientDetails=[
+        'source_evidence'=>['core'=>'core/jobdiva/assignment_parties.php','contract'=>'core/jobdiva/assignment_contract.php'],
+        'additional_source_paths'=>['Explicit end-client aliases in the selected Start or its exact assignment detail'],
+        'missing_value_policy'=>'Missing recipient evidence does not infer the billing company or clear an existing recipient. Conflicting explicit identities require review.',
+        'known_limitations'=>['A billing company, requisition company, worker employer or generic customer enrichment does not establish the company receiving the work.']];
+    $assignment('placements.end_client_company_id','END_CLIENT.ID','end_client_company_id',
+        'Resolve only explicit work-recipient evidence to its scoped company identity; preserve the separate billing-client role.',
+        $recipientDetails+['accepted_aliases'=>['endClientCompanyId','endClientId','END_CLIENT_COMPANY.ID']]);
+    $assignment('placements.end_client_name','END_CLIENT.NAME','end_client_company_name',
+        'Preserve the unambiguous explicit recipient name from the selected assignment; never substitute the bill-to label.',
+        $recipientDetails+['accepted_aliases'=>['endClientCompanyName','endClientName','END_CLIENT_COMPANY.COMPANYNAME']]);
     $assignment('placements.engagement_type', 'SALARY[].EMPLOYMENT_CATEGORY', 'engagement_type',
         'Hourly/Salaried Employee -> w2; Subcontract -> c2c; independent/1099 -> 1099; explicit referral/direct-hire categories remain separate. Assignment evidence precedes candidate classification.',
         ['known_limitations' => ['Legacy placement fallback can default an unresolved classification to w2; downstream reviewed delivery must require verified classification.']]);

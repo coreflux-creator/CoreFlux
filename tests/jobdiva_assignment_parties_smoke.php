@@ -40,4 +40,20 @@ $bill=['client_company_id'=>10,'client_name'=>'Billing Co','payment_terms'=>'NET
 $check(billingReceivableGroupingKey($bill)===billingReceivableGroupingKey($bill+['end_client_name'=>'Different Recipient']),'Different work recipients can share the same bill-to invoice group');
 $check(billingReceivableGroupingKey($bill)!==billingReceivableGroupingKey(array_replace($bill,['client_company_id'=>11])),'Different debtors never merge through a shared end-client name');
 $check(billingReceivableGroupingKey($bill)!==billingReceivableGroupingKey(array_replace($bill,['payment_terms'=>'NET90'])),'Different approved payment terms remain separate invoice groups');
+require_once __DIR__.'/../core/jobdiva/staffing_field_mappings.php';
+$dictionary=jobdivaStaffingFieldMappings();
+$mapped=static function(string $key,array $source)use($dictionary):mixed{
+    $path=$dictionary[$key]['jobdiva'][0]['normalized_contract_path'];
+    if(!str_starts_with($path,'_jd_contract.'))throw new RuntimeException('Unexpected mapping path');
+    return $source[substr($path,strlen('_jd_contract.'))]??null;
+};
+$check($mapped('placements.client_id',$contract)===$roles['bill_to_client']['external_id']
+    &&$mapped('staffing_clients.company_id',$contract)===$roles['bill_to_client']['external_id'],
+    'field dictionary resolves billing identity to the actual receivable party');
+$check($mapped('placements.end_client_company_id',$contract)===$roles['end_client']['external_id']
+    &&$mapped('placements.end_client_name',$contract)===$fields['end_client_name']['proposed'],
+    'field dictionary resolves recipient fields to the actual separate work recipient');
+$check($mapped('placements.end_client_company_id',$weak['_jd_contract'])===null
+    &&$mapped('placements.end_client_name',$weak['_jd_contract'])===null,
+    'field dictionary cannot relabel billing-only evidence as a work recipient');
 echo "Assignment party evidence: {$passed} checks passed\n";
