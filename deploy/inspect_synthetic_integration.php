@@ -96,6 +96,29 @@ if (purepayCoreApiBase()==='https://pure-pay-support.preview.emergentagent.com/a
             'assignment_location_supported'=>($review['assignment_input_contract_version'] ?? null)==='2026-10-25.1',
             'provider_record_writes'=>false,
         ];
+        if ($review['verified']) {
+            try {
+                require_once PILOT_ROOT.'/core/integrations/purepay_assignment_inputs.php';
+                $source=purepayAssignmentInputSource($pdo,PILOT_INSTANCE,
+                    ['people'=>999,'placements'=>999,'ap'=>999],'PL-13');
+                $report['synthetic_commercial_source']=[
+                    'complete'=>true,'contract_version'=>$source['body']['contract_version'],
+                    'approved_term_periods'=>count($source['body']['terms']),
+                    'worksite_city'=>$source['body']['work_context']['worksite_city'],
+                    'source_revision'=>$source['body']['source_revision'],
+                    'provider_record_writes'=>false,
+                ];
+                unset($source);
+            } catch (Throwable $e) {
+                $report['synthetic_commercial_source']=['complete'=>false,'reason'=>match($e->getMessage()) {
+                    'Approved commercial terms do not cover the full placement.'=>'approved_terms_incomplete',
+                    'Approved terms must cover the placement without gaps or overlaps.'=>'approved_terms_gaps_or_overlaps',
+                    'The approved billing client no longer matches its frozen company identity.'=>'frozen_billing_company_changed',
+                    'A commercial party has no current canonical number in its authorized directory. Review its mapping first.'=>'commercial_party_identity_missing',
+                    default=>'commercial_source_requires_review',
+                },'provider_record_writes'=>false];
+            }
+        }
         unset($review);
     } catch (Throwable $e) {
         $report['purepay_assignment_context']['reason']='context_or_configuration_check_failed';
@@ -155,6 +178,22 @@ if ($report['quanta_binding']['available']) {
     $report['quanta_assignment_location'] = $probe(static function() use ($access): void {
         quantaAssignmentLocationRequire($access['api_key'], PILOT_QUANTA_WORKSPACE);
     });
+    try {
+        $reference=integrationRecordReference(PILOT_INSTANCE,999,'placement','PL-13');
+        $remote=quantaContractRecord($access['api_key'],PILOT_QUANTA_WORKSPACE,$reference);
+        $location=$pdo->query('SELECT worksite_city AS city,worksite_state AS state,worksite_country AS country
+            FROM placements WHERE tenant_id=999 AND id=13 AND person_id=15 AND deleted_at IS NULL')->fetch(PDO::FETCH_ASSOC);
+        $report['synthetic_assignment_location']=[
+            'core'=>$location,'quanta_assignment_found'=>$remote!==null,
+            'quanta_location_present'=>isset($remote['work_location']),
+            'quanta_matches_core'=>isset($remote['work_location'])
+                && integrationDeliveryHash($remote['work_location'])===integrationDeliveryHash($location),
+            'provider_record_writes'=>false,
+        ];
+        unset($remote,$location);
+    } catch(Throwable $e) {
+        $report['synthetic_assignment_location']=['available'=>false,'reason'=>'assignment_read_failed'];
+    }
     $report['quanta_onboarding'] = $probe(static function() use ($access): void {
         quantaOnboardingContext($access['api_key'], PILOT_QUANTA_WORKSPACE);
     });
