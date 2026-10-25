@@ -125,7 +125,9 @@ try {
     if($protected()!==$protectedBefore||$timeBefore!==$pdo->query('SELECT * FROM time_entries WHERE tenant_id=999 AND id<>1 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
         ||$sheetsBefore!==$sheetStmt->fetchAll(PDO::FETCH_ASSOC))throw new RuntimeException('Unrelated records changed');
     $report['protected_records_unchanged']=true;$report['payroll_or_financial_writes']=false;
-    $report['reviewer_cleanup_pending']=true;$report['passed']=true;
+    $phase='retire_test_reviewer';
+    $report['reviewer_retirement']=syntheticTimeReviewerRetire($pdo,51);
+    $report['reviewer_cleanup_pending']=false;$report['passed']=true;
 }catch(Throwable $e){
     if($pdo->inTransaction())$pdo->rollBack();
     $report['passed']=false;$report['failed_phase']=$phase;$report['failure_class']=get_class($e);

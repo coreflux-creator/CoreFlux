@@ -100,3 +100,26 @@ function syntheticTimeReviewerProvision(PDO $pdo): array
         if ($locked) $pdo->query("SELECT RELEASE_LOCK('core_sim_999_time_reviewer_20261025')");
     }
 }
+
+/** Retire only this verified temporary principal after the caller has reconciled the synthetic review. */
+function syntheticTimeReviewerRetire(PDO $pdo,int $id): array
+{
+    if($pdo!==getDB()||$pdo->inTransaction())throw new RuntimeException('Dedicated native connection required');
+    $pdo->beginTransaction();
+    try {
+        $st=$pdo->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');$st->execute([$id]);
+        $verified=syntheticTimeReviewerVerify($pdo,$id);$mid=$verified['membership_id'];
+        RBACResolver::revokeModule($mid,'time',4);
+        if(deactivateMembership($id,999)!==1)throw new RuntimeException('Unexpected membership retirement');
+        $pdo->prepare('UPDATE users SET is_active=0 WHERE id=? AND tenant_id=999 AND is_active=1')->execute([$id]);
+        $pdo->prepare('INSERT INTO membership_audit (tenant_id,membership_id,action,actor_user_id,target_user_id,detail)
+            VALUES (999,?,"synthetic_time_reviewer_retired",4,?,?)')->execute([$mid,$id,
+                json_encode(['scope'=>'synthetic_time_review_only','credentials_issued'=>false,'audit_identity_preserved'=>true],JSON_THROW_ON_ERROR)]);
+        RBACResolver::resetCache();
+        $st=$pdo->prepare('SELECT is_active FROM users WHERE id=?');$st->execute([$id]);
+        $grants=$pdo->prepare('SELECT COUNT(*) FROM membership_module_access WHERE membership_id=?');$grants->execute([$mid]);
+        if((int)$st->fetchColumn()!==0 || membershipTenantCountForUser($id)!==0 || RBACResolver::activeMembership($id,999)!==null
+            ||(int)$grants->fetchColumn()!==0)throw new RuntimeException('Reviewer retirement did not persist');
+        $pdo->commit();return ['user_id'=>$id,'account_inactive'=>true,'active_memberships'=>0,'module_grants'=>0,'audit_identity_preserved'=>true];
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();RBACResolver::resetCache();throw $e;}
+}

@@ -70,6 +70,18 @@ try {
     $pdo->exec('DELETE FROM membership_module_access WHERE membership_id='.$mid.' AND module_key="payroll"');
     $pdo->exec('INSERT INTO tenant_memberships(user_id,tenant_id,persona_type,persona_label,is_primary,status) VALUES('.$id.',2,"manager","Other",0,"active")');
     $state=$all();$check($fails(fn()=>syntheticTimeReviewerProvision($pdo))&&$all()===$state,'second company membership cannot be adopted');
+    $pdo->exec('DELETE FROM tenant_memberships WHERE user_id='.$id.' AND tenant_id=2');
+    $state=$all();
+    $pdo->exec("CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON membership_audit FOR EACH ROW
+        BEGIN IF NEW.action='synthetic_time_reviewer_retired' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced retirement receipt failure'; END IF; END");
+    $check($fails(fn()=>syntheticTimeReviewerRetire($pdo,$id))&&$all()===$state,'retirement audit failure restores the original active account, membership and time grant');
+    $pdo->exec('DROP TRIGGER reject_retirement_receipt');
+    $retired=syntheticTimeReviewerRetire($pdo,$id);
+    $check($retired['account_inactive']&&$retired['active_memberships']===0&&$retired['module_grants']===0,'retirement disables the test account and removes its active access');
+    $check((int)$pdo->query('SELECT COUNT(*) FROM users WHERE id='.$id)->fetchColumn()===1
+        &&(int)$pdo->query("SELECT COUNT(*) FROM membership_audit WHERE target_user_id=$id AND action='synthetic_time_reviewer_retired'")->fetchColumn()===1,
+        'retirement preserves the original user identity and mandatory audit receipt');
+    $state=$all();$check($fails(fn()=>syntheticTimeReviewerProvision($pdo))&&$all()===$state,'provisioning replay cannot reactivate a retired reviewer');
     echo "$passed synthetic reviewer integration checks passed\n";
 } finally {
     if ($pdo->inTransaction())$pdo->rollBack();
