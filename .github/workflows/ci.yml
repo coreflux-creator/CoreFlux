@@ -202,6 +202,7 @@ jobs:
           php tests/purepay_core_connection_mariadb.php
           php tests/purepay_preview_continuity_smoke.php
           php tests/purepay_core_endpoint_smoke.php
+          php tests/purepay_financial_preview_smoke.php
           php tests/purepay_preview_origin_smoke.php
           php tests/purepay_preview_origin_mariadb.php
           php tests/purepay_people_scope_smoke.php

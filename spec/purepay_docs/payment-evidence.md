@@ -1,5 +1,11 @@
 # Core payment result evidence
 
+## Isolated financial preview routing
+
+Financial reads and signed callbacks use the separate `purepay_connections` setup; a reviewed staffing binding alone does not configure them. The optional private PHP constant or environment setting `COREFLUX_PUREPAY_FINANCIAL_PREVIEW_API_BASE` admits only `https://pure-pay-support.preview.emergentagent.com/api/v1` and only when `COREFLUX_STAGING === true`. The constant takes precedence on hosts where `putenv()` is disabled. Before enabling this application-wide setting, verify the isolated installation and all existing financial connections; changing the origin invalidates prior payment connection fingerprints.
+
+This observation mode blocks outbound financial POST/PUT/PATCH/DELETE requests before transmission, including payouts and bill/vendor creation. Existing staffing writes retain their explicit, separately reviewed destination and operation controls. Signed inbound callbacks still require their own tenant connection, stored secret and valid payment evidence. Enabling routing alone does not establish a provider organization, subscribe an endpoint, authorize payment execution or prove callback delivery. The pilot setup remains a separate guarded deployment action.
+
 Core's vendor-payment rail reserves one USD obligation for each durable attempt. A provider bill ID and terminal status alone cannot settle or release that reservation. A $40 payment against its bill must not settle a $125 Core payment.
 
 The Core consumer requires the following evidence from an authenticated payment-detail read or verified signed callback. Complete bill-specific history only locates a payment; Core then reads its full detail so the compact history projection cannot conceal allocation semantics:

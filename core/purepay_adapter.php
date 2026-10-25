@@ -16,8 +16,24 @@ class PurePayApiException extends \RuntimeException
     public bool $outcomeUncertain = false;
 }
 
+/** Explicit financial observation lane; independent of staffing exchange routing. */
+function purepayFinancialPreviewBase(): ?string
+{
+    $name = 'COREFLUX_PUREPAY_FINANCIAL_PREVIEW_API_BASE';
+    $configured = defined($name);
+    $value = $configured ? constant($name) : getenv($name);
+    if (!$configured && ($value === false || $value === '')) return null;
+    if (!is_string($value) || !defined('COREFLUX_STAGING') || COREFLUX_STAGING !== true
+        || $value !== 'https://pure-pay-support.preview.emergentagent.com/api/v1') {
+        throw new RuntimeException('PurePay financial preview requires the reviewed isolated staging destination.');
+    }
+    return $value;
+}
+
 function purepayApiBase(): string
 {
+    $preview = purepayFinancialPreviewBase();
+    if ($preview !== null) return $preview;
     $override = trim((string) (getenv('PUREPAY_API_BASE') ?: ''));
     return rtrim($override !== '' ? $override : 'https://purepay.online/api/v1', '/');
 }
@@ -30,6 +46,12 @@ function purepayCall(string $apiKey, string $method, string $path, array $body =
 {
     if ($apiKey === '' || preg_match('/[\r\n]/',$apiKey)) throw new PurePayApiException('Pure//Pay: valid API key required');
     $method = strtoupper($method);
+    // The pilot accepts signed result callbacks, but never originates a payout
+    // or another financial write. Staffing input writes use their own explicit
+    // API base and their existing reviewed company/operation authorization.
+    if ($apiBase === null && purepayFinancialPreviewBase() !== null && $method !== 'GET') {
+        throw new PurePayApiException('PurePay financial preview is read-only.');
+    }
     if ($collection !== null && ($method !== 'GET' || !in_array($collection, ['vendors','bills','payments','bill_payments'], true))) {
         throw new InvalidArgumentException('Collection response validation requires a supported read');
     }
