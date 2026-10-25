@@ -1,3 +1,13 @@
+## Native candidate review installed and exact source verified - October 25, 2026
+
+Core staging is installed at `25fc1a252becac610202827fb29287a1ea44742d`. All nine CI jobs passed (`40217833015`), including 35 native-source checks, 65 bounded source-inspection checks and 45 database-backed candidate-review checks. Deployment `40218133956` verified runtime/schema and served assets and passed the existing full-Core accounting, credit, delivery and onboarding acceptance. No production runtime was installed.
+
+The app's candidate-link review now shares the exact-candidate reader used in the pilot. An unavailable or empty candidate search uses the existing BI route for the same single candidate. Provider authorization/service failures, wrong or conflicting identities, malformed responses and conflicting contacts remain held. BI previews and source-drift rejection, unchanged people/provider IDs, one durable receipt and offline replay passed in the database fixture.
+
+Read-only actual Thunderhawk inspection `40218143253` exercised that shared reader and native review projection against Alexander's exact candidate. First name, last name and email match P-358 / PL-864; no supported primary-phone alias was returned. The native profile is ready for review, but this is not an actual browser link submission, approval or provider round trip. It changed no production business records, credentials or saved source snapshots.
+
+Evidence: `deploy/jobdiva-native-person-review-staging-20261025.json`. Remaining actual pilot requirements and existing human handoffs remain open; the goal is not complete.
+
 ## Exact candidate fallback and current contact evidence - October 25, 2026
 
 Read-only production inspection `40217104289` passed at `5ac3bd16`, including the existing `primary email` and `phone 1` aliases. Alexander's exact JobDiva candidate matches Core P-358 / PL-864 on first name, last name and returned email. No primary phone was returned under the supported aliases; that is missing evidence, not a verified phone match or proof about every custom field. No business records, saved source snapshot, credentials or production runtime changed. This supersedes the incomplete phone interpretation below.
