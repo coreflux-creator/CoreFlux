@@ -1,3 +1,15 @@
+## Demo assignment location delivered and replayed - October 25, 2026
+
+Core staging runs `e34e413e9fbc57003bda8b164ceb4690e5672a55` after nine CI jobs (`40212056417`) and deployment `40212296171` passed. The real Quanta publication first exposed a null-location compatibility bug in older assignments; the comparison now handles absent/null provider locations. Seventy-one contract checks cover old and current records, including unchanged replay and preservation when older sources omit location.
+
+Quanta run `40212818094` sent only the existing P-15/PL-13 assignment's location (`city=null`, `state=NJ`, `country=US`) and repeated it without another update. Original provider receipt reads were identical, worker/person relationships and all other assignment fields remained unchanged, and Core business/connection rows plus completed and non-pilot delivery history were preserved.
+
+PurePay run `40211912453` delivered and replayed location-contract revision 2026-10-25.1 as delivery 12, retaining the same draft assignment and all commercial values. The new input is `revision_ready`; the native assignment has not accepted it. Browser review compared the prior and proposed identities, dates, approved economic graph and current work details. The Apply revised terms control remains disabled by the existing provisioning hold. No persistent flag was changed. This distinguishes successful input delivery from native acceptance.
+
+Before that delivery, PurePay's unchanged backend was resumed in host-bound review mode. Protected source/settings and records across 144 collections were unchanged; background jobs, migrations, scheduled operations and the webhook scheduler remain held. This resolves the temporary PurePay unavailability in the metadata-readiness observation below; its fresh commercial-source check passed during publication.
+
+Evidence: `deploy/assignment-refresh-preview-20261025.json`. Actual Thunderhawk acceptance, native demo revision acceptance, independent time approval, worker/document submission, financial callback/recovery and production release remain open. No credentials, real financial execution, production cutover or Arabella records changed.
+
 ## Original metadata receipt recovery installed - October 25, 2026
 
 Core staging now runs `b064dcb26a839ebd21f89fd3a1112beb188f6029` after all nine CI jobs passed (`40209561098`) and deployment `40209772738` passed the five staging acceptance suites and verified four served assets. Quanta's held preview runs metadata-receipt candidate `bf1ce7d34cf82c2a33fb2b72e3a40738b9d05ad3`. Its frontend and full-application/startup checks passed; installation preserved protected configuration and all records across 80 collections. Waking the editor restarted its webhook scheduler; the preflight stopped it again before acceptance and installation, and the final check confirmed it stopped.
