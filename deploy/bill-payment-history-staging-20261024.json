@@ -1,0 +1,328 @@
+{
+  "scope": "Bill-specific payment history in the existing isolated Core/PurePay pilot, with retained staffing receipt continuity",
+  "core_runtime": "ab61b0ba949171f545c1306dcac3056878c9f832",
+  "core_ci": {
+    "run": 40155184240,
+    "jobs_passed": 9,
+    "purepay_delivery_mariadb_checks": 114
+  },
+  "core_deployment": {
+    "run": 40156210579,
+    "job": 121058057541,
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40156210579",
+    "acceptance_completed_at": "2026-10-25T02:56:49Z",
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/ab61b0ba949171f545c1306dcac3056878c9f832-20261025025620"
+  },
+  "provider_source_commit": "01515145805ee30054e25e77c06538adfa68db14",
+  "provider_evidence_commit": "8e01ad6",
+  "contract": {
+    "version": "2026-10-25.1",
+    "route": "GET /api/v1/bills/{bill_id}/payments",
+    "max_items": 10000,
+    "ambiguous_oversized_or_observed_change_status": 409,
+    "legacy_fallback": "Only 404 permits the prior list read; a list at its 1000-row cap is still rejected as incomplete.",
+    "consistency": "rechecked_read_not_transactional_snapshot",
+    "null_amount_currency_status_preserved": true,
+    "payment_or_settlement_authority_granted": false
+  },
+  "provider_installation": {
+    "at": "2026-10-25T02:54:51.778366+00:00",
+    "installed": true,
+    "source_hashes": {
+      "server.py": "7cf91f98b64f9c43bed10904f7f3785f2c579a025b870f2b112478b0ae6ae72f",
+      "integration_payment_history.py": "aca849278e2b01f3cd8beac527708ac2d19afd28e15f0f9afb78bae5e5fda743"
+    },
+    "protected_unchanged_during_install": true,
+    "post_install": {
+      "at": "2026-10-25T02:54:51.256603+00:00",
+      "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+      "health": {
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      },
+      "source_files_verified": 6320,
+      "head_and_configuration_unchanged": true,
+      "protected_differences": {
+        "index": {
+          "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+          "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+        }
+      },
+      "demo_unchanged": true,
+      "demo_counts": {
+        "pay_runs": 50,
+        "coreflux_payroll_inputs": 0,
+        "coreflux_payroll_authorities": 0
+      },
+      "demo_run_count": 50,
+      "published": false,
+      "credential_changes": false,
+      "candidate_installed": true,
+      "index_semantics": {
+        "equals_current_head": true,
+        "entries": 6256,
+        "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+        "historical_byte_equivalence_proven": false
+      }
+    },
+    "http_route_registered": true,
+    "unauthenticated_status": 401,
+    "production_published": false,
+    "business_records_written": false,
+    "backup_directory": "/app/audit/core-bill-payment-history-2026-10-24"
+  },
+  "installed_provider_acceptance": {
+    "full_application": true,
+    "passed": 24,
+    "skipped": 1,
+    "skip_reason": "Companion Core PHP executable is not present on this host; this response-preservation case passed locally.",
+    "network_attempts": 0,
+    "runtime_hashes": {
+      "server.py": "7cf91f98b64f9c43bed10904f7f3785f2c579a025b870f2b112478b0ae6ae72f",
+      "integration_payment_results.py": "42d9d0cee2f98c1da1e3134fd6e9d5891f4637371e3c9748f68fdc3a332461e4",
+      "integration_payment_history.py": "aca849278e2b01f3cd8beac527708ac2d19afd28e15f0f9afb78bae5e5fda743"
+    },
+    "source_overrides": {},
+    "live_database_used": false
+  },
+  "native_core_purepay_replay": {
+    "source": {
+      "run": 40156432983,
+      "job": 121058773827,
+      "marker": "PUREPAY_NATIVE_REPLAY=",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40156432983"
+    },
+    "bare_masked_values_replaced_with_null": 0,
+    "report": {
+      "verified": true,
+      "tenant_id": 999,
+      "organization_id": "org_purepay_demo",
+      "deliveries": [
+        {
+          "delivery_id": 2,
+          "operation": "people.inputs",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 5,
+          "operation": "assignments.inputs",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 7,
+          "operation": "record.link",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 8,
+          "operation": "record.link",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 9,
+          "operation": "record.link",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        }
+      ],
+      "native_lookups": 10,
+      "original_deliveries_unchanged": true,
+      "connection_unchanged": true,
+      "ap_connection_unchanged": true,
+      "provider_record_writes": false,
+      "payroll_or_payments_executed": false,
+      "native_payroll_observation": {
+        "available": true,
+        "contract_version": "2026-10-25.1",
+        "page_size": 1,
+        "more_runs": true,
+        "capture_saved": false,
+        "detail_verified": true,
+        "empty_collection": false,
+        "observation_hash": "db95cf444407b8bd786028bf7fedf05e624fd09a4aced1c2bc6dd147e4b3c8c9",
+        "line_count": 2,
+        "linked_people": 0,
+        "repeated_review_identical": true,
+        "core_time_match_evaluated": false,
+        "settlement_evaluated": false
+      }
+    }
+  },
+  "final_core_readiness": {
+    "source": {
+      "run": 40156884220,
+      "job": 121060053125,
+      "marker": "CORE_PILOT_READINESS=",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40156884220"
+    },
+    "bare_masked_values_replaced_with_null": 1,
+    "report": {
+      "checked_at": "2026-10-25T03:05:48+00:00",
+      "mode": "read_only_synthetic_integration",
+      "tenant_id": 999,
+      "database_identity_verified": true,
+      "private_identity_verified": true,
+      "local_writes": false,
+      "provider_record_writes": false,
+      "configuration_changed": false,
+      "onboarding_delivery_enabled": false,
+      "document_intake_enabled": false,
+      "private_document_storage_ready": true,
+      "field_dictionary": {
+        "contract_version": "2026-10-24.2",
+        "metadata_only": true,
+        "activates_sync": false,
+        "field_count": 1345,
+        "workflow_fields": {
+          "quanta_time_review": 11,
+          "quanta_onboarding_publication": 24,
+          "quanta_onboarding_submission": null,
+          "purepayroll_result": 104,
+          "purepayroll_native_observation": 131
+        },
+        "unverified_workflow_containers": []
+      },
+      "synthetic_records": {
+        "person": {
+          "id": 15,
+          "status": "active"
+        },
+        "placement": {
+          "id": 13,
+          "person_id": 15,
+          "status": "active"
+        }
+      },
+      "onboarding_cases": [
+        {
+          "id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+          "version": 5,
+          "plan_version": 4,
+          "confirmed_plan_version": 4
+        }
+      ],
+      "synthetic_time": [
+        {
+          "id": 1,
+          "hours": "8.00",
+          "status": "pending_review",
+          "approved_by_user_id": null,
+          "timesheet_id": 2,
+          "quanta_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676"
+        }
+      ],
+      "saved_purepay_binding": {
+        "id": 1,
+        "status": "active",
+        "revision": 3,
+        "remote_organization_id": "org_purepay_demo"
+      },
+      "quanta_binding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_onboarding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_document_transfer": {
+        "available": false,
+        "reason": "contract_or_configuration_check_failed"
+      },
+      "quanta_document_context": {
+        "http_status": 200,
+        "workspace_matches": true,
+        "contract_matches": true,
+        "transfer_enabled": false,
+        "approval_stays_in_core": true,
+        "size_limit_matches": true
+      },
+      "existing_operator": {
+        "found": true,
+        "active_membership": true,
+        "permissions": {
+          "people.onboarding.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.manage": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.review": {
+            "legacy": true,
+            "membership": true
+          },
+          "placements.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.docs.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "integrations.quanta.manage": {
+            "legacy": true,
+            "membership": true
+          }
+        }
+      },
+      "time_review_gate": {
+        "eligible_in_both_permission_models": 1,
+        "entries": [
+          {
+            "entry_id": 1,
+            "status": "pending_review",
+            "independent_eligible_reviewers": 0,
+            "existing_operator_is_creator": true
+          }
+        ]
+      }
+    }
+  },
+  "quanta_preview_recovery": {
+    "checked_at": "2026-10-25T03:04:06.172437+00:00",
+    "host": "agent-env-14a1f661-002e-4d95-969e-ebcfd6ce88ba",
+    "source_matches": {
+      "backend/server.py": true,
+      "backend/app/indexes.py": true,
+      "backend/app/routers/tenant.py": true,
+      "backend/app/coreflux_contract.py": true,
+      "backend/app/routers/v1/coreflux.py": true,
+      "backend/app/routers/v1/time_entries.py": true,
+      "backend/app/routers/core_assignments.py": true,
+      "backend/app/coreflux_time_reviews.py": true,
+      "frontend/src/pages/CoreAssignmentsPage.jsx": true,
+      "frontend/src/pages/CoreTimeReviewPanel.jsx": true
+    },
+    "background_hold": true,
+    "document_transfer_disabled": true,
+    "scheduler_stopped": true,
+    "health_status": 200,
+    "production_published": false,
+    "provider_record_writes": false
+  },
+  "limits": [
+    "The bill-history route was tested with isolated data in the actual application and checked for registered routing and rejected anonymous access on the preview; no real Thunderhawk bill was read through this new route.",
+    "Stored payment history is neither a cross-system obligation reservation nor bank settlement evidence.",
+    "PurePay index bytes differed after environment wake. All current staged paths, modes and blobs equalled HEAD, and the index remained unchanged throughout this install. Historical byte equivalence was not proven or overwritten.",
+    "Emergent previews sleep; waking them can restart their platform scheduler. Existing scheduler holds were restored and verified.",
+    "Actual Thunderhawk exchange, worker login/document submission, independent Core approval, payroll input/result attribution and production cutover remain incomplete."
+  ],
+  "production_published": false,
+  "real_payroll_or_payment_executed": false,
+  "real_financial_postings_executed": false,
+  "arabella_pilot_changed": false
+}

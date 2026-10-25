@@ -1,3 +1,33 @@
+## Bill payment history installed in the integration pilot - October 24, 2026
+
+Core runtime ab61b0ba949171f545c1306dcac3056878c9f832 and PurePay source
+01515145805ee30054e25e77c06538adfa68db14 now support a complete, bounded
+bill-specific payment read. Histories beyond the organization list's 1,000-row
+cap can be reconciled without treating a truncated list as empty. Ambiguous,
+oversized or changing reads retain the hold; missing evidence stays unknown.
+The observation does not reserve an obligation or prove bank settlement.
+
+All nine Core CI jobs passed in 40155184240, including 114 MariaDB delivery
+checks. Staging deployment 40156210579 passed acceptance and retained its
+file/database backup. The installed PurePay application passed 24 isolated
+checks without source overlays or network access. Its prior 50 payroll runs,
+inactive employee, draft assignment and execution holds remained unchanged.
+The new anonymous endpoint returns 401; no real Thunderhawk bill was read.
+
+Native replay 40156432983 recovered the same five existing delivery receipts
+twice and read the same payroll observation twice. Its two lines remain
+unlinked to Core; it establishes no time, settlement or tax-remittance match.
+Quanta was asleep during the initial readiness read. The same preview was
+resumed, its ten reviewed source files checked, and its scheduler hold restored.
+Final readiness 40156884220 confirms the original Quanta workspace, person,
+placement, onboarding plan and pending time. Independent approval is still open.
+
+The PurePay index-byte discrepancy after waking is recorded separately from
+the verified current staged-content equality; no index reset or historical
+baseline replacement occurred. Production publication, the real Thunderhawk
+round trip and the remaining release requirements below are still open.
+Evidence: deploy/bill-payment-history-staging-20261024.json.
+
 ## Real Thunderhawk pilot identity and setup inspection - October 24, 2026
 
 Read-only production inspection 40154202080, using inspector revision
