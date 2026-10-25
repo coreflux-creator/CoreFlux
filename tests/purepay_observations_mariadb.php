@@ -118,7 +118,7 @@ $check($fails($history),'damaged stored evidence is refused');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/174_payroll_native_observations.sql')) as $sql)$pdo->exec($sql);
 $check($count()===3,'migration replay retains captures');
 $tables=$pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);sort($tables);
-$check($tables===['core_record_numbers','integration_deliveries','payroll_native_observations','people','purepay_core_connections'],'observation works without time, payroll, authority, payment or ledger tables');
+$check($tables===['core_record_numbers','integration_deliveries','integration_delivery_subjects','payroll_native_observations','people','purepay_core_connections'],'observation works without time, payroll, authority, payment or ledger tables');
 $check(count(array_filter($requests,static fn($r)=>$r[0]!=='GET'))===0,'all provider operations are read-only');
 unset($GLOBALS['__purepay_transport']);
 echo "PurePayroll native observations MariaDB: {$passed} passed\n";

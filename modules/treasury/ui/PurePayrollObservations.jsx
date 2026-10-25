@@ -18,6 +18,9 @@ function SourceReference({ entry, index }) {
 
 export function PurePayrollObservationView({ capture, savedAt }) {
   const data = capture.observation;
+  const [linePage, setLinePage] = useState(0);
+  useEffect(() => setLinePage(0), [data.run_id, data.observation_hash]);
+  const offset = linePage * 50;
   const people = new Map(capture.comparison.people.map(person => [person.employee_id, person]));
   return <section aria-label="Payroll observation details">
     {savedAt && <p role="status">Saved capture from {savedAt}. This shows the records reviewed then; refresh the run for current figures and links.</p>}
@@ -32,7 +35,8 @@ export function PurePayrollObservationView({ capture, savedAt }) {
     <h5>Employees and source details</h5>
     <p>Core person numbers appear only for completed identity links. Payroll source references remain as recorded by the provider.</p>
     {data.lines.length === 0 && <p>No payroll lines were recorded.</p>}
-    {data.lines.map(line => {
+    {data.lines.length > 50 && <p>Showing lines {offset + 1}–{Math.min(offset + 50, data.lines.length)} of {data.lines.length}.</p>}
+    {data.lines.slice(offset, offset + 50).map(line => {
       const person = people.get(line.employee_id);
       return <details key={line.line_index} style={{ marginTop: 8 }}><summary>Line {line.line_index + 1} · {line.employee_id || 'Employee unknown'} · {person?.person?.number || personLabels[person?.link_status] || 'No Core link'} · Gross {amount(line.amounts.gross, line.unavailable_amounts.gross)}</summary>
         <p>Regular hours {amount(line.hours, line.unavailable_fields.hours)} · Overtime hours {amount(line.ot_hours, line.unavailable_fields.ot_hours)}</p>
@@ -41,6 +45,7 @@ export function PurePayrollObservationView({ capture, savedAt }) {
         {line.source_time_lineage.entries.map((entry, index) => <SourceReference key={index} entry={entry} index={index} />)}
       </details>;
     })}
+    {data.lines.length > 50 && <p><button className="btn" disabled={linePage === 0} onClick={() => setLinePage(previous => previous - 1)}>Previous employee lines</button>{' '}<button className="btn" disabled={offset + 50 >= data.lines.length} onClick={() => setLinePage(previous => previous + 1)}>Next employee lines</button></p>}
     <p>Provider observed {data.observed_at}. The provider rechecked these records; this is not a simultaneous accounting snapshot.</p>
   </section>;
 }

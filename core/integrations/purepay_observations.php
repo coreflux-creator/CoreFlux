@@ -127,6 +127,8 @@ function purepayObservationSave(PDO $pdo,int $tenant,int $actor,string $instance
     if($actor<=0 || !preg_match('/^[a-f0-9]{64}$/D',$reviewHash) || $pdo->inTransaction())throw new InvalidArgumentException('A current payroll observation review is required.');
     $read=purepayObservationRead($pdo,$tenant,$instance,$owners,$runId);
     if(!hash_equals($read['review_hash'],$reviewHash))throw new RuntimeException('The payroll observation, Core link, or connection changed. Review it again before saving.');
+    $serialized=integrationDeliveryJson($read);
+    if(strlen($serialized)>8*1024*1024)throw new RuntimeException('This payroll observation exceeds Core\'s capture size limit. No partial capture was saved.');
     $pdo->beginTransaction();
     try {
         $connection=purepayCoreConnection($pdo,$tenant,true);
@@ -145,7 +147,7 @@ function purepayObservationSave(PDO $pdo,int $tenant,int $actor,string $instance
         } else {
             $pdo->prepare('INSERT INTO payroll_native_observations(tenant_id,connection_id,organization_id,run_id,observation_hash,core_source_hash,payload_ct,observed_by) VALUES(?,?,?,?,?,?,?,?)')
                 ->execute([$tenant,$connection['id'],$read['context']['organization_id'],$runId,$read['observation']['observation_hash'],
-                    $read['source_hash'],encryptField(integrationDeliveryJson($read)),$actor]);
+                    $read['source_hash'],encryptField($serialized),$actor]);
             $id=(int)$pdo->lastInsertId();$saved=$read;
             if($audit)$audit();
         }

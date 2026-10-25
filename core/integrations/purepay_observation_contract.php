@@ -60,14 +60,14 @@ function purepayObservationTimestamp(mixed $value): bool
     return $errors===false || (!$errors['warning_count'] && !$errors['error_count']);
 }
 
-/** Keep the precision/zone actually stored by the provider; never invent UTC. */
+/** Opaque provider-validated source text; Python ISO formats exceed PHP's parser.
+ * Only observed_at is parsed for freshness. Never infer a source timestamp zone.
+ */
 function purepayObservationSourceTimestamp(mixed $value): bool
 {
-    if(!is_string($value) || strlen($value)>40
-        || !preg_match('/^\d{4}-?\d{2}-?\d{2}(?:[T ]\d{2}(?::?\d{2})?(?::?\d{2}(?:[.,]\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/D',$value))return false;
-    try {new DateTimeImmutable($value);$errors=DateTimeImmutable::getLastErrors();}
-    catch(Throwable $e){return false;}
-    return $errors===false || (!$errors['warning_count'] && !$errors['error_count']);
+    if(!is_string($value))return false;
+    $length=preg_match_all('/./us',$value);
+    return $length!==false && $length<=40;
 }
 
 /** An absent value must carry a reason; valid zero is never confused with absence. */

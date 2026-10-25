@@ -73,6 +73,19 @@ test('unlinked employees never receive an invented Core number', async () => {
   finally { f.close(); }
 });
 
+test('large runs keep employee detail bounded and every page reachable', async () => {
+  const variant = structuredClone(capture);
+  variant.observation.lines = Array.from({ length: 101 }, (_, line_index) => ({ ...structuredClone(observation.lines[0]), line_index }));
+  const f = await fixture(async action => action === 'read' ? variant : standard(action));
+  try {
+    await f.open(); assert.equal(f.tree.root.findAllByType('details').length, 50);
+    await f.click('Next employee lines'); assert.ok(text(f.tree.root).includes('Showing lines 51–100 of 101'));
+    await f.click('Next employee lines'); assert.equal(f.tree.root.findAllByType('details').length, 1);
+    assert.equal(button(f, 'Next employee lines').props.disabled, true);
+    await f.click('Previous employee lines'); assert.equal(f.tree.root.findAllByType('details').length, 50);
+  } finally { f.close(); }
+});
+
 test('repeated listing cursor is rejected and smaller page size resets the old list', async () => {
   const f = await fixture(async action => action === 'page' ? { ...structuredClone(page), next_cursor: 'same' } : standard(action));
   try {

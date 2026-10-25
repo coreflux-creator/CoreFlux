@@ -27,6 +27,10 @@ $changed=$full;$changed['observed_at']='2026-10-26T00:00:00+00:00';
 $check(purepayObservationHash($changed)===$full['observation_hash'],'observation timestamp does not create a new ledger version');
 $changed=$full;$changed['record_version']=str_repeat('f',64);
 $check(purepayObservationHash($changed)!==$full['observation_hash'],'delete and recreate incarnation changes the observation hash');
+foreach(['2026-10-15','20261015','2026-10-15T14:00:00','2026-W42-4T14:00:00+05:30:30'] as $stamp) {
+    $changed=$full;$changed['created_at']=$stamp;$changed=$rehash($changed);
+    $check(purepayObservationValidate($changed,$org)['created_at']===$stamp,'provider source timestamp precision and zone preserved: '.$stamp);
+}
 $check($fails(fn()=>purepayObservationValidate($full,'org-other')),'another organization is rejected');
 $check($fails(fn()=>purepayObservationValidate($full,$org,'another-run')),'another requested run is rejected');
 $mutations=[
@@ -45,6 +49,7 @@ $mutations=[
     'oversized amount'=>static function(&$v){$v['totals']['gross']='100000000000.00';},
     'invalid calendar day'=>static function(&$v){$v['pay_date']='2026-02-30';},
     'invalid timestamp'=>static function(&$v){$v['observed_at']='2026-02-30T00:00:00+00:00';},
+    'oversized source timestamp'=>static function(&$v){$v['created_at']=str_repeat('0',41);},
     'duplicate line index'=>static function(&$v){$v['lines'][]=$v['lines'][0];},
     'duplicate missing source marker'=>static function(&$v){$v['lines'][0]['source_time_lineage']['unavailable_entries']=[1,1];},
 ];
@@ -66,4 +71,11 @@ $large=$rehash($large);purepayObservationValidate($large,$org);
 $check(purepayObservationTotals($large)['gross']['line_total']==='499999999999950.00','maximum-size page uses exact signed integer cents without float rounding');
 $line=$large['lines'][0];$line['line_index']=5000;$large['lines'][]=$line;
 $check($fails(fn()=>purepayObservationValidate($rehash($large),$org)),'oversized run is refused without truncation');
+$missing=$full;$missing['lines']=[];
+for($i=0;$i<21;$i++) {
+    $line=$full['lines'][0];$line['line_index']=$i;
+    $line['source_time_lineage']=['status'=>'partial','entries'=>[],'unavailable_entries'=>[499]];
+    $missing['lines'][]=$line;
+}
+$check($fails(fn()=>purepayObservationValidate($rehash($missing),$org)),'omitted invalid references still count toward the source size bound');
 echo "PurePayroll observation contract: $passed passed\n";
