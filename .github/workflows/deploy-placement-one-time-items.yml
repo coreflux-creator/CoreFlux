@@ -6,7 +6,7 @@ on:
       integration_staging:
         description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
         type: choice
-        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_onboarding, pilot_time_review, pilot_time_approver, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
+        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_onboarding, pilot_time_review, pilot_time_approver, pilot_time_approval, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
         default: none
 
 permissions:
@@ -18,6 +18,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve-demo-time:
+    if: inputs.integration_staging == 'pilot_time_approval'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact bounded approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the guarded approval and native source comparison files
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/approve_synthetic_time_review.php,deploy/synthetic_time_approval_guard.php,deploy/synthetic_time_reviewer.php,modules/time/lib/time.php,core/quanta/time_current.php,core/quanta/time_review_delivery.php,core/quanta/time_review_contract.php,core/quanta/core_contract.php,core/quanta/sync.php,core/quanta/workspace.php,core/integrations/delivery.php,core/memberships.php,core/RBAC.php,core/rbac_config.php,core/rbac/permissions.php,core/rbac/legacy_map.php,core/audit.php
+          target: /tmp/core-time-approval-${{ github.run_id }}
+      - name: Approve and reconcile only the named existing eight-hour demo
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 5m
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-time-approval-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            cleanup() {
+              for FILE in deploy/approve_synthetic_time_review.php deploy/synthetic_time_approval_guard.php deploy/synthetic_time_reviewer.php modules/time/lib/time.php core/quanta/time_current.php core/quanta/time_review_delivery.php core/quanta/time_review_contract.php core/quanta/core_contract.php core/quanta/sync.php core/quanta/workspace.php core/integrations/delivery.php core/memberships.php core/RBAC.php core/rbac_config.php core/rbac/permissions.php core/rbac/legacy_map.php core/audit.php; do rm -f -- "$PACKAGE/$FILE"; done
+              rmdir -- "$PACKAGE/deploy" "$PACKAGE/modules/time/lib" "$PACKAGE/modules/time" "$PACKAGE/modules" "$PACKAGE/core/quanta" "$PACKAGE/core/integrations" "$PACKAGE/core/rbac" "$PACKAGE/core" "$PACKAGE"
+            }
+            trap cleanup EXIT
+            php -l "$PACKAGE/deploy/approve_synthetic_time_review.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/approve_synthetic_time_review.php" --approve-demo-time-review
+
   provision-demo-time-approver:
     if: inputs.integration_staging == 'pilot_time_approver'
     runs-on: ubuntu-latest
