@@ -1,3 +1,13 @@
+## Staffing company-to-vendor identity correction - October 25, 2026
+
+Core staging is installed at `4aa62cba50c77085985c64cb13a7c3b632730253`. All nine CI jobs passed (`40219118096`), including 20 new database checks against the fully migrated disposable database. Deployment `40219400566` verified runtime/schema and served assets and passed the full-Core accounting, credit, billing-delivery and onboarding acceptance.
+
+Company-role inspection exposed a native resolver bug: when an explicit company had no linked vendor, the name fallback could return a vendor already owned by another company. Resolution now requires the exact active company in the authorized company directory, holds duplicate company vendors and conflicting or unreviewed name matches, and never assigns a company based on a vendor name alone. A person-only payee cannot adopt a company-bound vendor by name. Existing company-bound vendors keep their IDs, canonical numbers, tax settings, terms and paid-when-paid defaults when source labels change. New resolution uses a company lock and vendor row locks; writes are atomic and preserve an enclosing caller transaction.
+
+Tests verified conflicts, unlinked-name holds, foreign/deleted companies, exact-company reuse after a label change, duplicate-company holds, new-vendor numbering, replay and rollback. Separate multi-process contention has not been exercised. This correction does not establish the remaining actual Thunderhawk company/custom-field alignment or a live operational round trip. No production runtime, business records, credentials or Arabella records changed; no payroll, payment or posting ran.
+
+Evidence: `deploy/staffing-vendor-identity-staging-20261025.json`. The remaining company comparison and live pilot handoffs remain open.
+
 ## Native candidate review installed and exact source verified - October 25, 2026
 
 Core staging is installed at `25fc1a252becac610202827fb29287a1ea44742d`. All nine CI jobs passed (`40217833015`), including 35 native-source checks, 65 bounded source-inspection checks and 45 database-backed candidate-review checks. Deployment `40218133956` verified runtime/schema and served assets and passed the existing full-Core accounting, credit, delivery and onboarding acceptance. No production runtime was installed.
