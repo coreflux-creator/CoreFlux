@@ -1,3 +1,17 @@
+## Synthetic time approver created - October 25, 2026
+
+The user-authorized Core Pilot Test Approver now exists only in isolated simulation workspace 999. Native membership provisioning wrote both permission models; the account has time-review access, no other module grants, no global-admin status and no other active workspace membership. Its identity differs from the pilot time creators. A mandatory audit receipt identifies the automation test and records that it is not independent human sign-off. No password or invitation was issued.
+
+All nine CI jobs passed for `3744d2d60f1d3c78eaf07eb7b9c98560d80742f9`; the MariaDB fixture covered creation, replay, audit-failure rollback, foreign membership and permission drift. Hosted provisioning and repeat verification passed in run 40223461462, reusing the same account without additional grants or audit rows. Existing time, identity and operator records were unchanged. No time was approved and no payroll, payment, posting, production or Arabella record changed. The next step is the native synthetic approval and Quanta status reconciliation, followed by disabling this temporary reviewer. Actual Thunderhawk human approval remains open.
+
+Evidence: `deploy/synthetic-time-approver-created-20261025.json`.
+
+## Company directory ownership installed in staging - October 25, 2026
+
+Core staging runtime `daf386d0a40ff08f11a0934beef4517a6bfe6314` passed all nine CI jobs and full staging deployment/acceptance in runs 40221830453 and 40222049319. Quanta/PurePayroll assignment company references, company numbering and custom values now resolve the explicit Companies directory independently from People. Legacy receipt reads preserve their original body and require compatible ownership; changed/deleted companies and directory drift hold new sends. Tests exercise separate owners and unchanged receipt recovery.
+
+Hosted PurePay replay run 40222301303 failed at the provider company-context read before any send or original receipt comparison. That hosted proof remains open pending preview recovery; staging installation alone does not establish the actual Thunderhawk round trip. Native Companies UI joins were not part of this correction. Production runtime and Arabella were unchanged. Evidence: `deploy/company-directory-exchange-staging-20261025.json`.
+
 ## Actual Thunderhawk party alignment - October 25, 2026
 
 [Read-only inspection 40220845582](https://github.com/coreflux-creator/CoreFlux/actions/runs/40220845582) compared the actual P-358 / PL-864 source and Core identities using candidate `6ecdf6a7176af63cccd117b1225f6090a0901cbd`. [All nine CI jobs passed](https://github.com/coreflux-creator/CoreFlux/actions/runs/40220584649), including 54 new database checks and 44 comparison variations that preserved all fixture rows; the combined directory fixture passed 169 checks. The initial candidate stopped on an incorrect test-case count assertion; the corrected exact candidate passed before inspection.

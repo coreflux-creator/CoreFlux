@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-25T18:55:24.894515+00:00",
+  "installed_core_sha": "daf386d0a40ff08f11a0934beef4517a6bfe6314",
+  "ci": {
+    "run_id": 40221830453,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40221830453",
+    "all_nine_jobs_passed": true
+  },
+  "staging_deployment": {
+    "run_id": 40222049319,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40222049319",
+    "conclusion": "success"
+  },
+  "behavior": [
+    "Company record numbers and custom-value metadata resolve the Companies directory.",
+    "Quanta and PurePayroll assignment company references use their explicit Companies owner.",
+    "Legacy saved receipts remain readable only while their original company ownership still matches.",
+    "New sends remain held when directory ownership or source company state changes."
+  ],
+  "validation": [
+    "Separate People and Companies owners",
+    "Missing/deleted companies",
+    "Scope drift before delivery and receipt read",
+    "Original receipt preservation"
+  ],
+  "hosted_purepay_replay": {
+    "run_id": 40222301303,
+    "conclusion": "failure",
+    "phase": "company_binding",
+    "send_called": false,
+    "interpretation": "Provider company-context read failed before receipt comparisons; hosted proof remains open."
+  },
+  "limitations": [
+    "This does not establish a complete actual Thunderhawk operational round trip.",
+    "Native Companies UI and other unrelated company joins were not included in this connector correction.",
+    "Production runtime and Arabella records were not changed."
+  ]
+}
