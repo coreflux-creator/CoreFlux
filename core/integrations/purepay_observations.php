@@ -178,12 +178,19 @@ function purepayObservationHistory(PDO $pdo,int $tenant,string $instance,array $
     $access=purepayObservationAccess($pdo,$tenant,$instance);
     $context=['tenant_id'=>$tenant,'instance_id'=>$instance,'owners'=>$owners,'connection_id'=>(int)$access['connection']['id'],
         'organization_id'=>$access['review']['organization']['id'],'api_base'=>purepayCoreApiBase()];
-    $s=$pdo->prepare('SELECT * FROM payroll_native_observations WHERE tenant_id=? AND connection_id=? AND run_id=?'
-        .($before===null?'':' AND id<?').' ORDER BY id DESC LIMIT 26');
+    // Captures can be large. Page identities first so even the look-ahead row
+    // does not load another encrypted payroll into memory.
+    $s=$pdo->prepare('SELECT id FROM payroll_native_observations WHERE tenant_id=? AND connection_id=? AND run_id=?'
+        .($before===null?'':' AND id<?').' ORDER BY id DESC LIMIT 2');
     $params=[$tenant,$access['connection']['id'],$runId];if($before!==null)$params[]=$before;
-    $s->execute($params);$rows=$s->fetchAll(PDO::FETCH_ASSOC);$items=[];
-    foreach(array_slice($rows,0,25) as $row)$items[]=['id'=>(int)$row['id'],'saved_at'=>$row['created_at'],'saved'=>purepayObservationSaved($row,$context)];
+    $s->execute($params);$ids=$s->fetchAll(PDO::FETCH_COLUMN);$items=[];
+    if($ids) {
+        $s=$pdo->prepare('SELECT * FROM payroll_native_observations WHERE tenant_id=? AND connection_id=? AND run_id=? AND id=?');
+        $s->execute([$tenant,$access['connection']['id'],$runId,$ids[0]]);$row=$s->fetch(PDO::FETCH_ASSOC);
+        if(!$row)throw new RuntimeException('The saved observation changed. Refresh its history.');
+        $items[]=['id'=>(int)$row['id'],'saved_at'=>$row['created_at'],'saved'=>purepayObservationSaved($row,$context)];
+    }
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
     return ['tenant_id'=>$tenant,'organization'=>$access['review']['organization'],'run_id'=>$runId,
-        'items'=>$items,'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
+        'items'=>$items,'next_before'=>count($ids)>1?(int)$ids[0]:null];
 }

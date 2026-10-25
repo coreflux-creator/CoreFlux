@@ -110,11 +110,15 @@ $foreign=purepayObservationRead($pdo,1,$instance,['people'=>11,'placements'=>20,
 $check($foreign['comparison']['people'][0]['person']===null,'authorized different directory never borrows another directory identity');
 $context['capabilities']=['read:coreflux'];$check($fails($read) && $fails($history),'revoked payroll scope blocks live and saved payroll');
 $context['capabilities']=['read:coreflux','read:payroll'];$connect('synthetic-rotated-observation-key');
-$check(count($history()['items'])===3,'reviewed rotation preserves saved history for the same company');
+$historyFirst=$history();$historySecond=$history($historyFirst['next_before']);$historyThird=$history($historySecond['next_before']);
+$check(count($historyFirst['items'])===1 && count($historySecond['items'])===1 && count($historyThird['items'])===1
+    && [$historyFirst['items'][0]['id'],$historySecond['items'][0]['id'],$historyThird['items'][0]['id']]===[$third['id'],$mapped['id'],$first['id']]
+    && $historyThird['next_before']===null,'reviewed rotation preserves every capture through bounded history pages');
 $context['payroll_observation_contract_version']='future';$check($fails($read) && $fails($history),'unknown observation contract blocks new and saved observations');
 $context['payroll_observation_contract_version']=PUREPAY_OBSERVATION_VERSION;
 $pdo->prepare('UPDATE payroll_native_observations SET payload_ct=? WHERE id=?')->execute([encryptField('{"unexpected":"changed"}'),$first['id']]);
-$check($fails($history),'damaged stored evidence is refused');
+$check($history()['items'][0]['id']===$third['id'],'opening current history does not decrypt an unrequested older capture');
+$check($fails(fn()=>$history($mapped['id'])),'damaged requested evidence is refused on its own history page');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/174_payroll_native_observations.sql')) as $sql)$pdo->exec($sql);
 $check($count()===3,'migration replay retains captures');
 $tables=$pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);sort($tables);
