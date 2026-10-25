@@ -29,6 +29,21 @@ function purepayPaymentStatus(string $status): string
     };
 }
 
+/** Bookkeeping can coexist with real rail evidence, but cannot substitute for it. */
+function purepayDeliveryStateAgrees(array $data, string $status): bool
+{
+    if (!empty($data['mercury_request_id']) || in_array($data['method'] ?? null, ['quickbooks','mercury'], true)) return false;
+    if (!empty($data['qbo_billpayment_id']) || isset($data['moov_transfer_id']) || isset($data['moov_status'])) {
+        $id=$data['moov_transfer_id'] ?? null;
+        $rail=$data['moov_status'] ?? null;
+        $states=['completed'=>'settled','failed'=>'failed','reversed'=>'returned','canceled'=>'cancelled','cancelled'=>'cancelled',
+            'pending'=>'submitted','queued'=>'submitted','created'=>'submitted'];
+        return is_string($id) && $id!=='' && strlen($id)<=200 && !preg_match('/[\x00-\x20\x7f]/',$id)
+            && is_string($rail) && isset($states[$rail]) && $states[$rail]===purepayPaymentStatus($status);
+    }
+    return true;
+}
+
 function purepayPaymentIdentity(array $data, string $billId, string $paymentId = ''): array
 {
     $bad = static fn(string $reason): array => ['ok'=>false, 'reason'=>$reason];
@@ -93,7 +108,7 @@ function purepayPaymentEvidence(array $data, int $expectedCents, string $billId,
         $status = strtolower(trim($data[$field]));
     }
     if ($status === null) return $bad('payment_status_missing');
-    if (!empty($data['qbo_billpayment_id']) || !empty($data['mercury_request_id'])) return $bad('payment_delivery_unconfirmed');
+    if (!purepayDeliveryStateAgrees($data, $status)) return $bad('payment_delivery_unconfirmed');
     if (purepayPaymentStatus($status) === 'settled' && ($data['ok'] ?? null) === false) return $bad('payment_status_conflict');
     return ['ok'=>true, 'payment_id'=>$identity['payment_id'], 'bill_id'=>$identity['bill_id'], 'status'=>$status,
         'amount_cents'=>$amount, 'currency'=>'USD'];

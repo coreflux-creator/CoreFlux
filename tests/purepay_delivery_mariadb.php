@@ -411,8 +411,23 @@ purepayWebhookRecordOutcome(1,'review-event',$hook($reviewPayload['data'],'payme
 $event=$pdo->query('SELECT processed_at,processing_error FROM purepay_webhook_events WHERE tenant_id=1 AND event_id="review-event"')->fetch(PDO::FETCH_ASSOC);
 $check($event['processed_at']===null && $event['processing_error']==='payment_status_conflict','inconsistent payment evidence remains visible for review rather than marked successful');
 $check(purepayWebhookRecord(1,'review-event','payment.failed',true,null,time(),$reviewPayload,json_encode($reviewPayload)), 'held event remains available for reconciliation');
+try {
+    purepayWebhookRecord(1,'review-event','payment.failed',true,null,time(),$reviewPayload,json_encode($reviewPayload).' ');
+    throw new RuntimeException('Conflicting event replay was accepted');
+} catch (DomainException $expectedConflict) {
+    $check(true,'same event ID cannot replace its originally signed content');
+}
 purepayWebhookRecordOutcome(1,'review-event',['outcome'=>'updated']);
 $event=$pdo->query('SELECT processed_at,processing_error FROM purepay_webhook_events WHERE tenant_id=1 AND event_id="review-event"')->fetch(PDO::FETCH_ASSOC);
 $check($event['processed_at']!==null && $event['processing_error']===null,'successful reconciliation marks the event processed');
+$check(!purepayWebhookRecord(1,'review-event','payment.failed',true,null,time(),$reviewPayload,json_encode($reviewPayload)), 'completed identical replay is acknowledged without projection');
+$pdo->prepare('UPDATE purepay_payment_links SET status="submitted" WHERE source_ref=?')->execute([$item['external_ref']]);
+$confirmedRail=['bill_id'=>$hookBill,'payment_id'=>$hookPayment,'qbo_billpayment_id'=>'ledger-copy','moov_transfer_id'=>'moov-confirmed','moov_status'=>'completed'];
+$check($hook($confirmedRail)['status']==='settled','rail-confirmed settlement remains valid with a QuickBooks bookkeeping reference');
+$returned=$confirmedRail; $returned['pay_status']='returned'; $returned['moov_status']='reversed';
+$check($hook($returned,'payment.returned')['status']==='settled_failed_review','a late return preserves the settled obligation for review');
+$pdo->prepare('UPDATE purepay_payment_links SET status="submitted" WHERE source_ref=?')->execute([$item['external_ref']]);
+$cancelled=$confirmedRail; $cancelled['pay_status']='cancelled'; $cancelled['moov_status']='canceled';
+$check($hook($cancelled,'payment.cancelled')['status']==='cancelled','cancellation before settlement projects its distinct state');
 unset($GLOBALS['__purepay_transport']);
 echo "PurePay delivery MariaDB: {$passed} passed\n";

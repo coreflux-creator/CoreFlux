@@ -53,17 +53,20 @@ function purepayWebhookRecord(int $tenantId, string $eventId, ?string $eventType
     ]);
     if ($stmt->rowCount() > 0) return true;
     $existing = getDB()->prepare(
-        'SELECT verified, processed_at FROM purepay_webhook_events WHERE tenant_id=:t AND event_id=:id LIMIT 1'
+        'SELECT verified, processed_at, event_type, raw_body FROM purepay_webhook_events WHERE tenant_id=:t AND event_id=:id LIMIT 1'
     );
     $existing->execute(['t'=>$tenantId, 'id'=>$eventId]);
     $row = $existing->fetch(\PDO::FETCH_ASSOC);
+    if ($row && ((string)$row['event_type'] !== (string)$eventType || !hash_equals((string)$row['raw_body'], substr($rawBody,0,1048576)))) {
+        throw new DomainException('Webhook event ID was reused with different content');
+    }
     return $row && (int) $row['verified'] === 1 && $row['processed_at'] === null;
 }
 
 /** An event name alone is not evidence of failure or settlement. */
 function purepayWebhookPaymentEvidence(string $eventType, array $data): array
 {
-    $expected = ['payment.settled'=>'settled', 'payment.failed'=>'failed'][$eventType] ?? null;
+    $expected = ['payment.settled'=>'settled', 'payment.failed'=>'failed', 'payment.returned'=>'returned', 'payment.cancelled'=>'cancelled'][$eventType] ?? null;
     if ($expected === null) return ['ok'=>false,'reason'=>'event_type'];
     $statusSeen = false;
     foreach (['pay_status', 'status'] as $field) {
@@ -74,7 +77,7 @@ function purepayWebhookPaymentEvidence(string $eventType, array $data): array
         }
     }
     if (!$statusSeen) return ['ok'=>false,'reason'=>'payment_status_missing'];
-    if (!empty($data['qbo_billpayment_id']) || !empty($data['mercury_request_id'])) {
+    if (!purepayDeliveryStateAgrees($data, $expected)) {
         return ['ok'=>false,'reason'=>'payment_delivery_unconfirmed'];
     }
     if ($expected === 'settled' && ($data['ok'] ?? null) === false) {
@@ -98,7 +101,7 @@ function purepayWebhookPaymentEvidence(string $eventType, array $data): array
 
 function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType, array $payload, string $verifiedConnectionFingerprint): array
 {
-    if (!in_array($eventType,['payment.settled','payment.failed'],true)) return ['outcome'=>'ignored','reason'=>'event_type'];
+    if (!in_array($eventType,['payment.settled','payment.failed','payment.returned','payment.cancelled'],true)) return ['outcome'=>'ignored','reason'=>'event_type'];
     $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
     $evidence = purepayWebhookPaymentEvidence($eventType, $data);
     if (!$evidence['ok']) return ['outcome'=>'needs_review','reason'=>$evidence['reason']];
@@ -139,7 +142,7 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
     }
     if ($link['status']==='settled_failed_review' || in_array($link['status'],['returned','reversed'],true)) return ['outcome'=>'needs_review','reason'=>'terminal_result_requires_review'];
     if (in_array(strtolower((string) $link['status']), ['settled', 'paid', 'completed', 'cleared'], true)
-        && $remoteStatus === 'failed') {
+        && in_array($remoteStatus, ['failed','returned','cancelled'], true)) {
         $remoteStatus = 'settled_failed_review';
     }
 
@@ -149,7 +152,7 @@ function purepayWebhookProcess(int $tenantId, string $eventId, string $eventType
                 last_synced_at=NOW(), updated_at=NOW() WHERE tenant_id=:t AND id=:id'
     )->execute([
         'p'=>$paymentId,'s'=>$remoteStatus,'j'=>purepayPaymentReceipt($moneyEvidence, 'signed_webhook'),
-        'e'=>$remoteStatus === 'settled_failed_review' ? 'Provider sent a failure after settlement; review before changing the AP or GL state.' : null,
+        'e'=>$remoteStatus === 'settled_failed_review' ? 'Provider reversed a settled result; review before changing the AP or GL state.' : null,
         't'=>$tenantId,'id'=>$link['id'],
     ]);
 

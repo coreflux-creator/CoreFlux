@@ -10,6 +10,7 @@ if (api_method() !== 'POST') api_error('POST expected', 405);
 $tenantId = (int) ($_GET['t'] ?? 0);
 if ($tenantId <= 0) api_error('Invalid tenant', 404);
 $raw = (string) file_get_contents('php://input');
+if (strlen($raw) > 1048576) api_error('Webhook payload is too large', 413);
 $headers = function_exists('getallheaders') ? array_change_key_case(getallheaders(), CASE_LOWER) : [];
 $headers += [
     'x-webhook-id' => (string) ($_SERVER['HTTP_X_WEBHOOK_ID'] ?? ''),
@@ -33,16 +34,21 @@ if ($eventId === '' || $eventIdHeader === '' || !hash_equals($eventId, $eventIdH
 $eventType = (string) ($payload['type'] ?? '');
 try {
     $fresh = purepayWebhookRecord($tenantId, $eventId, $eventType ?: null, true, null, $check['timestamp'], $payload, $raw);
+} catch (\DomainException $e) {
+    api_error('Webhook event ID conflicts with its saved content', 409);
 } catch (\Throwable $e) {
     api_error('Webhook persistence failed', 503);
 }
 $rollup = null;
 if ($fresh) {
     try {
-        $rollup = in_array($eventType, ['payment.settled', 'payment.failed'], true)
+        $rollup = in_array($eventType, ['payment.settled', 'payment.failed', 'payment.returned', 'payment.cancelled'], true)
             ? purepayWebhookProcess($tenantId, $eventId, $eventType, $payload, purepayConnectionFingerprint($tenantId,(string)$conn['api_key']))
             : ['outcome' => 'ignored', 'reason' => 'event_type'];
         purepayWebhookRecordOutcome($tenantId, $eventId, $rollup);
+        if (in_array($rollup['outcome'] ?? '', ['needs_review','unmatched'], true)) {
+            api_error('Payment callback awaits reconciliation; retry this event', 503);
+        }
     } catch (\Throwable $e) {
         purepayWebhookMarkProcessed($tenantId, $eventId, $e->getMessage());
         api_error('Webhook processing failed', 503);

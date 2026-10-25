@@ -18,6 +18,15 @@ $payment=['id'=>'payment-1','bill_id'=>'bill-1','amount'=>'125.00','currency'=>'
 $verify=static fn(array $data):array=>purepayPaymentEvidence($data,12500,'bill-1','payment-1');
 $valid=$verify($payment);
 $check($valid['ok'] && $valid['amount_cents']===12500,'exact full payment is evidence');
+$rail=['moov_transfer_id'=>'transfer-1','moov_status'=>'completed','qbo_billpayment_id'=>'bookkeeping-1'];
+$check($verify($payment+$rail)['ok'],'confirmed Moov payment may also have a QuickBooks receipt');
+foreach ([['moov_transfer_id'=>null],['moov_transfer_id'=>''],['moov_status'=>'pending'],['moov_status'=>[]],
+    ['moov_status'=>'failed'],['method'=>'quickbooks'],['method'=>'mercury']] as $badRail) {
+    $check(!$verify(array_replace($payment+$rail,$badRail))['ok'],'bookkeeping cannot hide missing or contradictory rail evidence');
+}
+foreach (['failed'=>'failed','returned'=>'reversed','cancelled'=>'canceled'] as $status=>$railStatus) {
+    $check($verify(array_replace($payment+$rail,['status'=>$status,'moov_status'=>$railStatus]))['ok'],'matching terminal rail states agree');
+}
 $cases=[
     ['amount'=>'40.00'], ['amount'=>'126.00'], ['amount'=>null], ['amount'=>'125.001'], ['amount'=>true],
     ['currency'=>null], ['currency'=>'CAD'], ['currency'=>'usd'], ['currency'=>['USD']],
