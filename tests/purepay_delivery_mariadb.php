@@ -94,7 +94,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         // The provider uses its own $40 plan when the caller leaves amount out.
         // The real driver must pin its reserved $125 instead of accepting that default.
         $requestedAmount=$body['amount']??40;
-        $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing','amount'=>$requestedAmount,'currency'=>'USD'];
+        $id='payment-'.(count($payments)+1);$payments[$id]=['id'=>$id,'bill_id'=>$m[1],'pay_status'=>'processing','amount'=>number_format((float)$requestedAmount,2,'.',''),'currency'=>'USD'];
         if($mode==='payment_timeout'){ $e=new PurePayApiException('Synthetic lost payment response');$e->outcomeUncertain=true;throw $e; }
         if($mode==='post_id_missing')return ['status'=>200,'body'=>'{"ok":true,"pay_status":"settled"}'];
         return ['status'=>200,'body'=>json_encode(['payment'=>$payments[$id]])];
