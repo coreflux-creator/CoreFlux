@@ -1,3 +1,10 @@
+## 2026-10-25 Durable payment callbacks installed in the pilot
+
+- Core runtime `8fd81fc550232c2582dd7bd645e65f4d42458053` passed all nine CI jobs ([40161581668](https://github.com/coreflux-creator/CoreFlux/actions/runs/40161581668)), including 87 money-evidence and 278 MariaDB delivery checks. Its isolated staging deployment and acceptance passed ([40161770960](https://github.com/coreflux-creator/CoreFlux/actions/runs/40161770960)).
+- PurePay source `41805a6317f6cda38fa59766c0adcea2df4c1cb7` is installed in the existing held preview. Payment callbacks now recover missed enqueue attempts, retry with stable event IDs, validate current company/payment/endpoint evidence and distinguish returns/cancellations. Core rejects changed-content reuse and holds later reversals for reconciliation. Genuine Moov delivery can coexist with a bookkeeping reference.
+- The actual installed provider sources passed 84 isolated full-application checks, including mock signed HTTP retries and review startup. All five changed source hashes match; 6,321 source files and unchanged demo counts were verified. The callback worker remains disabled. This is not live Thunderhawk callback evidence.
+- Receipt: `deploy/purepay-payment-callbacks-staging-20261025.json`. Existing endpoint subscriptions and a real cross-system callback/replay remain to be verified. Historical missing currency remains unresolved. Production publication, actual Thunderhawk setup/worker/time-review gates and the complete round trip remain open.
+
 ## 2026-10-25 PurePay wallet evidence preview increment
 
 - Provider source `30ccb2a` is installed in the existing held PurePay preview. New wallet records store the execution contract currency and gross cents; immediate terminal callbacks require matching current stored money and identity.
