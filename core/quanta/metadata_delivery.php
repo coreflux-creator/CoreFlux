@@ -66,6 +66,7 @@ function quantaMetadataSnapshot(int $tenantId,string $kind,int $id,?string $work
 {
     $verified=quantaWorkspaceForDelivery($tenantId);
     $key=$verified['api_key']; $workspace=$verified['context']['workspace']['id'];
+    quantaMetadataReceiptRequire($key,$workspace);
     $owners=[];
     foreach (['people','placements','ap'] as $module) $owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
     $source=quantaMetadataSource(getDB(),$verified['instance_id'],$owners,$kind,$id);
@@ -110,6 +111,14 @@ function quantaMetadataSnapshot(int $tenantId,string $kind,int $id,?string $work
 
 function quantaMetadataPreview(int $tenantId,int $actorId,string $kind,int $id,?string $worksiteId): array
 {
+    if (!in_array($kind,['person','placement'],true) || $id<=0) throw new InvalidArgumentException('Choose a person or placement');
+    $owner=effectiveTenantIdForModule($kind==='person'?'people':'placements',$tenantId)??$tenantId;
+    $pending=getDB()->prepare('SELECT * FROM integration_deliveries WHERE tenant_id=:t AND provider="quanta"
+        AND operation IN ("person.link","assignment.create","assignment.update") AND entity_type=:k
+        AND entity_tenant_id=:o AND entity_id=:i AND state IN ("sending","uncertain") ORDER BY id LIMIT 1');
+    $pending->execute(['t'=>$tenantId,'k'=>$kind,'o'=>$owner,'i'=>$id]);
+    if ($row=$pending->fetch(PDO::FETCH_ASSOC)) return ['status'=>'reconciliation_required','receipt_only'=>true,
+        'delivery_enabled'=>quantaMetadataDeliveryEnabled(),'delivery'=>integrationDeliverySummary($row)];
     $snapshot=quantaMetadataSnapshot($tenantId,$kind,$id,$worksiteId);
     $result=['status'=>$snapshot['plan']['status'],'operation'=>$snapshot['plan']['operation'],
         'workspace'=>$snapshot['verified']['context']['workspace'],'reference'=>$snapshot['source']['reference'],
@@ -152,4 +161,121 @@ function quantaMetadataSend(int $tenantId,int $actorId,int $id,string $reviewHas
     platformAuditLogWrite($tenantId,$actorId,'quanta.metadata.delivered',null,
         ['delivery_id'=>$id,'remote_id'=>$record['id'],'provider_receipt'=>$record['delivery_id'],'operation'=>$row['operation']],['source'=>'quanta']);
     return integrationDeliverySummary(integrationDeliveryGet($pdo,$tenantId,$id));
+}
+
+/** Local pending attempts remain discoverable after deletion or a provider outage. */
+function quantaMetadataPending(int $tenantId,?int $before=null): array
+{
+    if ($before!==null && $before<=0) throw new InvalidArgumentException('Invalid delivery page');
+    $people=effectiveTenantIdForModule('people',$tenantId)??$tenantId;
+    $placements=effectiveTenantIdForModule('placements',$tenantId)??$tenantId;
+    $s=getDB()->prepare('SELECT * FROM integration_deliveries WHERE tenant_id=:t AND provider="quanta"
+        AND operation IN ("person.link","assignment.create","assignment.update") AND state IN ("sending","uncertain")
+        AND ((entity_type="person" AND entity_tenant_id=:people) OR (entity_type="placement" AND entity_tenant_id=:placements))'
+        .($before!==null?' AND id<:before':'').' ORDER BY id DESC LIMIT 51');
+    $params=['t'=>$tenantId,'people'=>$people,'placements'=>$placements];if($before!==null)$params['before']=$before;
+    $s->execute($params);$all=$s->fetchAll(PDO::FETCH_ASSOC);$rows=array_slice($all,0,50);
+    return ['rows'=>array_map(static fn($row)=>['delivery'=>integrationDeliverySummary($row)],$rows),
+        'next_before'=>count($all)>50?(int)end($rows)['id']:null];
+}
+
+function quantaMetadataEnvelope(int $tenantId,int $id,string $reviewHash): array
+{
+    $row=integrationDeliveryGet(getDB(),$tenantId,$id);
+    if ($row['provider']!=='quanta' || !in_array($row['operation'],['person.link','assignment.create','assignment.update'],true)
+        || !hash_equals($row['review_hash'],$reviewHash)) throw new InvalidArgumentException('Choose the original metadata delivery');
+    $kind=$row['operation']==='person.link'?'person':'placement';
+    $owners=[];foreach(['people','placements','ap'] as $module)$owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
+    if ($row['entity_type']!==$kind || (int)$row['entity_tenant_id']!==$owners[$kind==='person'?'people':'placements']) {
+        throw new RuntimeException('Restore the original directory before checking this receipt');
+    }
+    $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
+    $instance=integrationInstanceId();
+    $references=$kind==='person'?['person'=>['person','people']]:[
+        'person'=>['person','people'],'placement'=>['placement','placements'],
+        'client'=>['client','placements'],'vendor'=>['vendor','ap'],'end_client'=>['company','people']];
+    foreach($references as $field=>[$type,$module]) {
+        if (!array_key_exists($field,$payload['expected']??[])) throw new RuntimeException('Incomplete original metadata identity');
+        $reference=$payload['expected'][$field];
+        if ($reference===null && !in_array($field,['person','placement'],true)) continue;
+        if (!is_array($reference)) throw new RuntimeException('Invalid original metadata identity');
+        $reference=quantaCoreReferenceValidate($reference,$type);
+        if ($reference['instance_id']!==$instance || $reference['directory_tenant_id']!==$owners[$module]) {
+            throw new RuntimeException('Restore the original directory before checking this receipt');
+        }
+    }
+    return [$row,$payload];
+}
+
+/** Correlate the immutable original request, not the provider's current mutable record. */
+function quantaMetadataReceiptOutcome(array $row,array $payload,string $workspace,array $receipt): array
+{
+    $kind=$row['operation']==='person.link'?'person':'placement';
+    $remoteId=quantaCoreRemoteId($workspace,$payload['expected'][$kind]);
+    $path='/api/v1'.QUANTA_CORE_CONTRACT_PATH.($kind==='person'?'/person-links':'/assignments');
+    if($row['operation']==='assignment.update')$path.='/'.$remoteId;
+    if (!preg_match('/^cfd_[a-f0-9]{64}$/D',(string)($receipt['id']??''))
+        || ($receipt['request_path']??null)!==$path
+        || ($receipt['request_hash']??null)!==quantaMetadataRequestHash($payload['body'])) {
+        throw new RuntimeException('Receipt does not match the original metadata request');
+    }
+    if (in_array($receipt['state']??null,['in_progress','uncertain'],true)) return ['state'=>'unconfirmed'];
+    if (($receipt['state']??null)!=='complete') throw new RuntimeException('Unknown provider receipt state');
+    $codes=match($row['operation']){'person.link'=>[200,201],'assignment.create'=>[201],'assignment.update'=>[200]};
+    $success=in_array($receipt['status_code']??null,$codes,true);
+    if (!$success && !in_array($receipt['status_code']??null,[400,401,403,404,409,422],true)) {
+        throw new RuntimeException('Provider result remains uncertain');
+    }
+    $response=$receipt['response']??null;
+    if (!is_array($response) || ($response['delivery_id']??null)!==$receipt['id']) throw new RuntimeException('Receipt identity differs');
+    if ($success) {
+        if (($response['id']??null)!==$remoteId || ($response['tenant_id']??null)!==$workspace) throw new RuntimeException('Receipt belongs to a different workspace or record');
+        $expected=$payload['expected'];
+        if ($row['operation']==='assignment.create')$expected['version']=1;
+        foreach($expected as $field=>$value) {
+            if(!array_key_exists($field,$response) || integrationDeliveryHash([$response[$field]])!==integrationDeliveryHash([$value])) {
+                throw new RuntimeException('Receipt differs from the reviewed metadata');
+            }
+        }
+    }
+    return ['state'=>$success?'confirmed':'rejected','remote_id'=>$success?$remoteId:null,'receipt_id'=>$receipt['id']];
+}
+
+/** GET only at the provider. Neither a missing receipt nor a lost GET releases the send hold. */
+function quantaMetadataReceipt(int $tenantId,int $actorId,int $id,string $reviewHash): array
+{
+    [$row,$payload]=quantaMetadataEnvelope($tenantId,$id,$reviewHash);
+    if (!in_array($row['state'],['sending','uncertain'],true)) return ['delivery'=>integrationDeliverySummary($row),'receipt_state'=>$row['state']];
+    $access=quantaWorkspaceForDelivery($tenantId);$workspace=$access['context']['workspace']['id'];
+    if ((string)$access['connection']['id']!==(string)$row['connection_ref'] || !hash_equals($row['binding_hash'],$access['binding_hash'])) {
+        throw new RuntimeException('Restore the reviewed connection before checking its receipt');
+    }
+    quantaMetadataReceiptRequire($access['api_key'],$workspace);
+    $query=['operation'=>$row['operation']];
+    if($row['operation']==='assignment.update')$query['record_id']=quantaCoreRemoteId($workspace,$payload['expected']['placement']);
+    try{$receipt=quantaGet($access['api_key'],QUANTA_CORE_CONTRACT_PATH.'/metadata-deliveries/'.$row['idempotency_key'].'?'.http_build_query($query));}
+    catch(QuantaApiException $e){if($e->httpStatus===404)return ['delivery'=>integrationDeliverySummary($row),'receipt_state'=>'not_found'];throw $e;}
+    $outcome=quantaMetadataReceiptOutcome($row,$payload,$workspace,$receipt);
+    if($outcome['state']==='unconfirmed')return ['delivery'=>integrationDeliverySummary($row),'receipt_state'=>'unconfirmed'];
+    $success=$outcome['state']==='confirmed';$pdo=getDB();$pdo->beginTransaction();
+    try {
+        quantaWorkspaceAssertCurrent($pdo,$tenantId,$access,true);
+        $s=$pdo->prepare('SELECT * FROM integration_deliveries WHERE tenant_id=:t AND id=:id FOR UPDATE');
+        $s->execute(['t'=>$tenantId,'id'=>$id]);$live=$s->fetch(PDO::FETCH_ASSOC);
+        foreach(['payload_ct','binding_hash','review_hash','idempotency_key'] as $field) {
+            if(!$live || $live[$field]!==$row[$field])throw new RuntimeException('Original delivery changed during receipt lookup');
+        }
+        if (in_array($live['state'],['sending','uncertain'],true)) {
+            $pdo->prepare('UPDATE integration_deliveries SET state=:s,remote_id=:r,remote_receipt_id=:receipt,error_code=:e,
+                claim_hash=NULL,finished_at=NOW() WHERE tenant_id=:t AND id=:id')->execute([
+                's'=>$success?'delivered':'failed','r'=>$outcome['remote_id'],'receipt'=>$outcome['receipt_id'],
+                'e'=>$success?null:'metadata_rejected','t'=>$tenantId,'id'=>$id]);
+            platformAuditLogWrite($tenantId,$actorId,'quanta.metadata.receipt_reconciled',null,
+                ['delivery_id'=>$id,'provider_receipt'=>$outcome['receipt_id'],'outcome'=>$outcome['state']],['source'=>'quanta']);
+        } elseif ($live['state']!==($success?'delivered':'failed') || $live['remote_receipt_id']!==$outcome['receipt_id']) {
+            throw new RuntimeException('Delivery resolution changed during receipt lookup');
+        }
+        $pdo->commit();
+    } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+    return ['delivery'=>integrationDeliverySummary(integrationDeliveryGet($pdo,$tenantId,$id)),'receipt_state'=>$outcome['state']];
 }

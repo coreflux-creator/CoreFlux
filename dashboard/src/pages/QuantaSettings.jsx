@@ -5,7 +5,7 @@ import { api, getPinnedTenantId, useApi } from '../lib/api';
 import QuantaIdentityReview from './QuantaIdentityReview';
 import QuantaPublicationPanel from './QuantaPublicationPanel';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
-import QuantaMetadataPanel from './QuantaMetadataPanel';
+import QuantaMetadataPanel, { QuantaMetadataRecovery } from './QuantaMetadataPanel';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
 import QuantaTimeReview, { QuantaTimeReviewRecovery } from './QuantaTimeReview';
 
@@ -307,7 +307,7 @@ export default function QuantaSettings() {
           setIdentityReview(null); setCreateDraft(null); setLinkDrafts({}); setPreview(null); setSelected([]);
           run('refresh-identities', async () => { await loadCatalog(); setNotice(`Recorded in Core: ${result.people.map(person => person.person_number).join(', ')}. Review placement routing next.`); });
         }} />}
-      {catalog && <QuantaMetadataPanel key={`metadata-${status.data?.workspace?.id}-${status.data?.connection_revision}`} people={people} placements={catalog.metadata_placements || placements} worksites={catalog.worksites || []} />}
+      {catalog && <QuantaMetadataPanel key={`metadata-${status.data?.workspace?.id}-${status.data?.connection_revision}`} people={people} placements={catalog.metadata_placements || placements} worksites={catalog.worksites || []} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'start' }}>
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Worker identities</h2>
@@ -439,6 +439,7 @@ export default function QuantaSettings() {
         </tr>)}</tbody></table></div>
       </div>}
     </>}
+    <QuantaMetadataRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaTimeReviewRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
   </div>;
 }

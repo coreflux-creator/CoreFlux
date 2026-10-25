@@ -159,12 +159,20 @@ try {
         api_ok(quantaMetadataPreview($tenantId,$actorId,$kind,$body['entity_id'],$site));
     }
 
-    if ($action === 'metadata_send') {
+    if ($action === 'metadata_pending') {
+        foreach(['people.view','placements.view'] as $permission)rbac_legacy_require($user,$permission);
+        if(isset($body['before']) && (!is_int($body['before']) || $body['before']<=0))throw new InvalidArgumentException('Invalid delivery page');
+        api_ok(quantaMetadataPending($tenantId,$body['before']??null));
+    }
+
+    if (in_array($action,['metadata_send','metadata_receipt'],true)) {
         rbac_legacy_require($user, 'people.view');
-        if (($body['confirm_metadata']??null)!==true || !is_int($body['delivery_id']??null) || $body['delivery_id']<=0
-            || !is_string($body['review_hash']??null)) throw new InvalidArgumentException('Confirm the reviewed metadata before sending');
+        if (!is_int($body['delivery_id']??null) || $body['delivery_id']<=0
+            || !is_string($body['review_hash']??null)) throw new InvalidArgumentException('Choose the original metadata delivery');
         $delivery=integrationDeliveryGet(getDB(),$tenantId,$body['delivery_id']);
         if ($delivery['entity_type']==='placement') rbac_legacy_require($user, 'placements.view');
+        if($action==='metadata_receipt')api_ok(quantaMetadataReceipt($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
+        if (($body['confirm_metadata']??null)!==true)throw new InvalidArgumentException('Confirm the reviewed metadata before sending');
         api_ok(quantaMetadataSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
     }
 

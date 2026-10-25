@@ -23,24 +23,27 @@ $pdo->exec('CREATE TABLE audit_log (id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_
 $fixtureKey='synthetic-metadata-key'; $workspace='workspace-pilot';
 $context['workspace']=['id'=>$workspace,'name'=>'Synthetic pilot'];
 $context['assignment_location_contract_version']=QUANTA_ASSIGNMENT_LOCATION_VERSION;
+$context['metadata_receipt_contract_version']=QUANTA_METADATA_RECEIPT_VERSION;
 $pdo->prepare('INSERT INTO quanta_connections(id,tenant_id,status,api_key_ct,binding_revision) VALUES(11,11,"active",?,1)')->execute([encryptField($fixtureKey)]);
 $bindingHash=quantaWorkspaceBindingHash(11,11,$fixtureKey,$instance,$context);
 quantaWorkspaceBind($pdo,11,7,['id'=>11,'binding_revision'=>1],$fixtureKey,$instance,$context,$bindingHash);
 putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);
 putenv('COREFLUX_QUANTA_METADATA_DELIVERY');
 $worker=['id'=>'worker-1','full_name'=>'Synthetic Worker','email'=>'worker@example.test','active'=>true,'external_id'=>'purepay-employee-88','employee_id'=>'provider-worker-99','roles'=>['worker']];
-$providerRows=[];$writes=[];$mode='ok';
-$GLOBALS['__quanta_transport']=static function($method,$url,$headers)use(&$providerRows,&$worker,&$context){
+$providerRows=[];$providerReceipts=[];$writes=[];$mode='ok';
+$GLOBALS['__quanta_transport']=static function($method,$url,$headers)use(&$providerRows,&$providerReceipts,&$worker,&$context){
     $path=parse_url($url,PHP_URL_PATH);
     if($path==='/api/v1/integrations/coreflux/context')$result=$context;
     elseif($path==='/api/v1/workers')$result=['items'=>[$worker],'has_more'=>false];
     elseif($path==='/api/v1/worksites')$result=['items'=>[['id'=>'site-1','name'=>'Synthetic site','active'=>true]],'has_more'=>false];
+    elseif(str_contains($path,'/metadata-deliveries/')) { $id=basename($path); if(!isset($providerReceipts[$id]))return ['status'=>404,'body'=>'{}']; $result=$providerReceipts[$id]; }
     else { $id=basename($path); if(!isset($providerRows[$id]))return ['status'=>404,'body'=>'{}']; $result=$providerRows[$id]; }
     return ['status'=>200,'body'=>json_encode($result)];
 };
-$GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,$json)use(&$providerRows,&$writes,&$mode,$pdo,$workspace,$check){
+$GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,$json)use(&$providerRows,&$providerReceipts,&$writes,&$mode,$pdo,$workspace,$check){
     $check(!$pdo->inTransaction(),'metadata claim commits before provider IO');
     $body=json_decode($json,true);$writes[]=[$method,$url,$headers,$body];
+    $requestHash=quantaMetadataRequestHash($body);
     $idempotency=substr(array_values(array_filter($headers,static fn($h)=>str_starts_with($h,'Idempotency-Key: ')))[0],17);
     $stmt=$pdo->prepare('SELECT state FROM integration_deliveries WHERE idempotency_key=?');$stmt->execute([$idempotency]);
     $check($stmt->fetchColumn()==='sending','provider receives only a durably claimed delivery');
@@ -57,6 +60,9 @@ $GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,
         unset($body['expected_version']);$row=array_replace($row,$body,['version'=>$row['version']+1]);$status=200;
     }
     $row['delivery_id']=$receipt;$providerRows[$id]=$row;
+    $providerReceipts[$idempotency]=['id'=>$receipt,'request_hash'=>$requestHash,'request_path'=>parse_url($url,PHP_URL_PATH),
+        'state'=>'complete','status_code'=>$status,'response'=>$row];
+    if($mode==='timeout_after')throw new RuntimeException('Lost successful provider reply');
     return ['status'=>$status,'body'=>json_encode($row)];
 };
 $source=quantaMetadataSource($pdo,$instance,['people'=>10,'placements'=>10,'ap'=>11],'placement',201);
@@ -110,7 +116,7 @@ quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash']);
 $check($providerRows[$remoteId]['version']===3 && count($writes)===3,'fresh conditional update increments the provider version once');
 $pdo->exec("UPDATE placements SET status='ended',actual_end_date='2026-10-20' WHERE id=201");
 $p=quantaMetadataPreview(11,7,'placement',201,'site-1');$aid=(int)$p['delivery']['id'];
-$mode='timeout';
+$mode='timeout_after';
 $check($fails(fn()=>quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash'])),'interrupted assignment attempt is reported');
 $check(integrationDeliveryGet($pdo,11,$aid)['state']==='uncertain','interrupted attempt requires reconciliation');
 $count=count($writes);$mode='ok';
@@ -119,6 +125,44 @@ $pdo->exec("UPDATE placements SET title='Changed after timeout' WHERE id=201");
 $next=quantaMetadataPreview(11,7,'placement',201,'site-1');
 $check($fails(fn()=>quantaMetadataSend(11,7,(int)$next['delivery']['id'],$next['delivery']['review_hash'])) && count($writes)===$count,'a new preview cannot bypass an uncertain prior attempt');
 $check((int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE tenant_id=11 AND event='quanta.metadata.delivered'")->fetchColumn()===3,'confirmed writes retain provider receipt lineage in the audit trail');
+$savedRow=integrationDeliveryGet($pdo,11,$aid);$key=$savedRow['idempotency_key'];$savedReceipt=$providerReceipts[$key];
+$check($next['receipt_only'] && (int)$next['delivery']['id']===$aid,'a fresh preview preserves the original uncertain envelope');
+$check(count(quantaMetadataPending(11)['rows'])===1 && quantaMetadataPending(12)['rows']===[],'local pending recovery is company scoped');
+$pdo->exec("UPDATE placements SET deleted_at=NOW() WHERE id=201");
+$check(count(quantaMetadataPending(11)['rows'])===1,'deleted source remains recoverable without a provider read');
+$context['metadata_receipt_contract_version']='unsupported';
+$check(count(quantaMetadataPending(11)['rows'])===1,'local recovery listing remains available when provider capabilities are unavailable');
+$check($fails(fn()=>quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])),'unsupported provider receipt capability cannot release a held attempt');
+$context['metadata_receipt_contract_version']=QUANTA_METADATA_RECEIPT_VERSION;
+$pdo->exec('UPDATE quanta_connections SET binding_revision=2 WHERE tenant_id=11');
+$check($fails(fn()=>quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])),'connection rotation cannot read or resolve a receipt from the old binding');
+$pdo->exec('UPDATE quanta_connections SET binding_revision=1 WHERE tenant_id=11');
+$check($fails(fn()=>quantaMetadataReceipt(11,7,$aid,str_repeat('0',64))),'wrong review hash cannot recover a different envelope');
+unset($providerReceipts[$key]);
+$check(quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])['receipt_state']==='not_found','missing receipt does not clear the delivery hold');
+$providerReceipts[$key]=$savedReceipt;
+foreach(['in_progress','uncertain'] as $receiptState) {
+    $providerReceipts[$key]['state']=$receiptState;
+    $check(quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])['receipt_state']==='unconfirmed','unfinished original receipt stays held');
+}
+$providerReceipts[$key]=$savedReceipt;
+foreach(['request_hash'=>str_repeat('f',64),'request_path'=>'/api/v1/integrations/coreflux/onboarding'] as $field=>$value) {
+    $providerReceipts[$key][$field]=$value;
+    $check($fails(fn()=>quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])),'unrelated receipt cannot resolve original attempt');
+    $providerReceipts[$key]=$savedReceipt;
+}
+$providerReceipts[$key]['response']['tenant_id']='foreign-workspace';
+$check($fails(fn()=>quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])),'foreign response cannot confirm a delivery');
+$providerReceipts[$key]=$savedReceipt;
+$check($fails(fn()=>quantaMetadataReceipt(12,7,$aid,$savedRow['review_hash'])),'foreign Core tenant cannot check another receipt');
+$providerRows[$remoteId]['title']='Later provider edit';$providerRows[$remoteId]['version']++;
+$recovered=quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash']);
+$check($recovered['delivery']['state']==='delivered' && $recovered['receipt_state']==='confirmed','lost reply resolves from original receipt after source deletion and later provider edits');
+$check(count($writes)===$count && $providerRows[$remoteId]['title']==='Later provider edit','recovery does not resend or overwrite the current provider record');
+$check(quantaMetadataReceipt(11,7,$aid,$savedRow['review_hash'])['delivery']===$recovered['delivery'],'recovery replay retains the original delivery');
+$check((int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='quanta.metadata.receipt_reconciled'")->fetchColumn()===1,'receipt recovery has one audit event');
+$check(quantaMetadataPending(11)['rows']===[],'confirmed receipt leaves the pending queue');
+$pdo->exec('UPDATE placements SET deleted_at=NULL WHERE id=201 AND tenant_id=10');
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../../core/migrations/162_integration_delivery_receipt.sql'))as$sql)$pdo->exec($sql);
 $check(integrationDeliveryGet($pdo,11,$pid)['remote_receipt_id']===$providerRows[quantaCoreRemoteId($workspace,$source['person'])]['delivery_id'],'receipt migration replay preserves confirmed lineage');
 unset($GLOBALS['__quanta_transport'],$GLOBALS['__quanta_core_write_transport']);

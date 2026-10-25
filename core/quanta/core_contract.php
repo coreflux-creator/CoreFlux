@@ -5,6 +5,23 @@ require_once __DIR__.'/workspace.php';
 require_once __DIR__.'/../integrations/source_values.php';
 
 const QUANTA_ASSIGNMENT_LOCATION_VERSION = '2026-10-25.1';
+const QUANTA_METADATA_RECEIPT_VERSION = '2026-10-25.1';
+
+function quantaMetadataReceiptRequire(string $apiKey,string $workspace): void
+{
+    $raw=quantaGet($apiKey,QUANTA_CORE_CONTRACT_PATH.'/context');
+    $base=quantaContractContextValidate($raw);
+    if ($base['workspace']['id']!==$workspace
+        || ($raw['metadata_receipt_contract_version']??null)!==QUANTA_METADATA_RECEIPT_VERSION) {
+        throw new RuntimeException('This Quanta environment needs metadata receipt recovery before publishing or checking this delivery.');
+    }
+}
+
+/** The provider hashes normalized metadata using sorted ASCII JSON. */
+function quantaMetadataRequestHash(array $body): string
+{
+    return hash('sha256',json_encode(integrationDeliveryCanonical($body),JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES));
+}
 
 function quantaAssignmentLocationValidate(mixed $location): array
 {
