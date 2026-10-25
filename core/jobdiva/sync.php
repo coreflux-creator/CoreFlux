@@ -5976,7 +5976,7 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
             $snapshot['placement'] = $pick($row, [
                 'id', 'external_id', 'person_id', 'end_client_company_id', 'client_id', 'staffing_job_id',
                 'title', 'start_date', 'end_date', 'actual_end_date', 'due_date', 'status', 'engagement_type',
-                'worksite_state', 'worksite_country', 'remote_policy', 'notes', 'end_client_name',
+                'worksite_city', 'worksite_state', 'worksite_country', 'remote_policy', 'notes', 'end_client_name',
                 'branch', 'service_line', 'workers_comp_class', 'department', 'cost_center', 'accounting_entity_id',
                 'client_approver_name', 'client_approver_email', 'jobdiva_job_id',
                 'recruiter_name', 'recruiter_email', 'account_manager_name', 'account_manager_email',
@@ -6170,6 +6170,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     }
     // Validate before identity repair or any placement mutation.
     jobdivaSyncUpsertPlacementRates($tid, 0, '', $jd, true);
+    $worksiteCity = placementsNormalizeWorksiteCity(tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'worksite_city', $jd,
+        static fn() => $assignmentContract['worksite_city'] ?? jobdivaPluckFieldDeep(
+            $jd, ['worksiteCity', 'worksite_city', 'workingCity', 'working_city']
+        )
+    ));
     $worksiteCountryRaw = (string) ($assignmentContract['worksite_country'] ?? '');
     if ($worksiteCountryRaw === '') {
         $worksiteCountryRaw = (string) tenantIntegrationFieldMapPluckInternal(
@@ -6723,6 +6729,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'due_date'             => ['dd',    $dueDate ?: null],
             'status'               => ['st',    $status],
             'engagement_type'      => ['eng',   $engagement],
+            'worksite_city'        => ['city',  $worksiteCity],
             'worksite_state'       => ['ws',    $worksiteState ?: null],
             'worksite_country'     => ['wc',    $worksiteCountry],
             'remote_policy'        => ['rp',    $remote],
@@ -6768,6 +6775,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'status' => $statusRaw !== ''
                 || ($endDateNorm !== null && $endDateNorm < date('Y-m-d')),
             'engagement_type' => $engagement !== '',
+            'worksite_city' => $worksiteCity !== null,
             'worksite_state' => trim($worksiteState) !== '',
             'worksite_country' => $worksiteCountry !== null,
             'remote_policy' => trim($remoteRaw) !== '' && $remote !== null,
@@ -6868,7 +6876,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     }
     $pdo->prepare(
         'INSERT INTO placements (tenant_id, person_id, external_id, jobdiva_job_id, status, start_date, end_date,
-                                  actual_end_date, due_date, engagement_type, worksite_state, worksite_country,
+                                  actual_end_date, due_date, engagement_type, worksite_city, worksite_state, worksite_country,
                                   remote_policy, branch, service_line, workers_comp_class, department, cost_center,
                                   notes, end_client_name, end_client_company_id, client_id, staffing_job_id,
                                   client_approver_name, client_approver_email, title,
@@ -6878,7 +6886,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                                    client_payment_terms_override,
                                    vendor_pay_cycle, vendor_pay_cycle_anchor,
                                   vendor_payment_terms_override, vendor_pwp_enabled, accounting_entity_id)
-         VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
+         VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :city, :ws, :wc,
                   :rp, :br, :sl, :wcc, :dept, :cc, :notes, :ecn, :ecc, :cli, :sji, :can, :cae, :ti,
                  :rn, :re, :amn, :ame,
                   :cbc, :cbca, :cpto, :vpc, :vpca, :vpto, :vpwp, :aeid)'
@@ -6893,6 +6901,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         'aed'   => $actualEnd ?: null,
         'dd'    => $dueDate ?: null,
         'eng'   => $engagement,
+        'city'  => $worksiteCity,
         'ws'    => $worksiteState ?: null,
         'wc'    => $worksiteCountry,
         'rp'    => $remote,

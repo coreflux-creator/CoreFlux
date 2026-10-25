@@ -10,7 +10,7 @@ function purepayAssignmentFixtureRows(string $employment='w2'): array
         'start_date'=>'2026-10-01','end_date'=>null,'actual_end_date'=>null,'status'=>'active','engagement_type'=>'w2',
         'billing_operating_cycle_id'=>1,'payroll_operating_cycle_id'=>2,'ap_operating_cycle_id'=>3,
         'external_id'=>'jd:fixture-901','jobdiva_job_id'=>'00702','end_client_name'=>'Synthetic Work Recipient',
-        'staffing_job_id'=>7,'accounting_entity_id'=>9,'due_date'=>null,'worksite_country'=>'US','worksite_state'=>'NY',
+        'staffing_job_id'=>7,'accounting_entity_id'=>9,'due_date'=>null,'worksite_city'=>'San José','worksite_country'=>'US','worksite_state'=>'CA',
         'branch'=>'North','service_line'=>'Staffing','workers_comp_class'=>'8810','department'=>null,'cost_center'=>'A-1','remote_policy'=>'hybrid'];
     $person=['id'=>9001,'first_name'=>'Synthetic','last_name'=>'Worker'];
     $party=['id'=>1,'source_ref'=>'placement:bill_to','source_type'=>'placement','role'=>'bill_to_client','display_name'=>'Synthetic Client',

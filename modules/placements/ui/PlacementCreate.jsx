@@ -62,7 +62,7 @@ export default function PlacementCreate() {
     title: '', engagement_type: fromQuanta ? '' : 'w2',
     start_date: fromQuanta ? '' : new Date().toISOString().slice(0, 10),
     end_date: '', due_date: '', client_id: '',
-    worksite_state: '', worksite_country: 'US',
+    worksite_city: '', worksite_state: '', worksite_country: 'US',
     remote_policy: '', external_id: '', notes: '',
     staffing_job_id: '', branch: '', service_line: '', workers_comp_class: '',
     department: '', cost_center: '', accounting_entity_id: '',
@@ -479,6 +479,7 @@ export default function PlacementCreate() {
                 <Field label="Client approver email"><input className="input" type="email" value={form.client_approver_email} onChange={set('client_approver_email')} data-testid="placement-create-approver-email" placeholder="approver@client.com" /></Field>
               </Row>
               <Row>
+                <Field label="Worksite city"><input className="input" maxLength={255} value={form.worksite_city} onChange={set('worksite_city')} data-testid="placement-create-city" /></Field>
                 <Field label="Worksite state"><input className="input" value={form.worksite_state} onChange={set('worksite_state')} data-testid="placement-create-state" placeholder="CA" /></Field>
                 <Field label="Worksite country"><input className="input" maxLength={2} value={form.worksite_country} onChange={set('worksite_country')} data-testid="placement-create-country" /></Field>
                 <Field label="Remote policy">

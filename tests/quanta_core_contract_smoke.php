@@ -17,6 +17,11 @@ $desired=['placement'=>$placement,'person'=>$person,'client'=>$ref('client','CL-
     'end_client'=>$ref('company','CO-13'),'worksite_id'=>'site-1','title'=>'Synthetic assignment','engagement_type'=>'c2c',
     'start_date'=>'2026-10-01','end_date'=>null,'status'=>'draft'];
 $plan=quantaAssignmentPlan('a',$desired,null);
+$located=$desired+['work_location'=>['city'=>'Montréal','state'=>'QC','country'=>'CA']];
+$check(quantaAssignmentPlan('a',$located,null)['body']['work_location']===$located['work_location'],'assignment metadata retains Unicode location');
+foreach ([['city'=>'A','country'=>'US'],['city'=>"A\nB",'state'=>'NJ','country'=>'US'],['city'=>'A','state'=>'NJ','country'=>'USA']] as $bad) {
+    $check($fails(fn()=>quantaAssignmentPlan('a',$desired+['work_location'=>$bad],null)),'invalid location fails before delivery');
+}
 $check($plan['operation']==='assignment.create' && $plan['body']===$desired,'new assignment carries typed relationships and exact dates');
 foreach (['external_id','employee_id','pay_rate','bill_rate','roles','password','approver_user_id'] as $field) {
     $check($fails(fn()=>quantaAssignmentPayloadValidate($desired+[$field=>'not-allowed'])),$field.' cannot enter metadata exchange');

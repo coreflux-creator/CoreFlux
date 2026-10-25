@@ -2,6 +2,17 @@
 /** Shared, fail-closed source-value normalization. No inferred country or money basis. */
 declare(strict_types=1);
 
+/** Assignment city is text evidence; never infer it from a worker or company address. */
+function integrationSourceWorksiteCity(mixed $value): ?string
+{
+    if ($value === null || $value === '') return null;
+    if (!is_string($value) || preg_match('/[\x00-\x1f\x7f]/', $value)
+        || ($length = preg_match_all('/./us', $value)) === false || $length > 255) {
+        throw new InvalidArgumentException('Worksite city must be printable text of at most 255 characters.');
+    }
+    return trim($value) ?: null;
+}
+
 function integrationSourceCodes(): array
 {
     static $codes;

@@ -244,7 +244,7 @@ if ($method === 'POST') {
         $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
         $field = (string) ($body['field'] ?? '');
         $value = $body['value'] ?? null;
-        $allowedFields = ['engagement_type','end_client_company_id','remote_policy','worksite_state','worksite_country'];
+        $allowedFields = ['engagement_type','end_client_company_id','remote_policy','worksite_city','worksite_state','worksite_country'];
         if (!$ids) api_error('ids[] required', 422);
         if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
         if (!in_array($field, $allowedFields, true)) {
@@ -262,6 +262,9 @@ if ($method === 'POST') {
             if ($raw !== '' && $value === null) {
                 api_error('Invalid remote_policy', 422, ['allowed' => ALLOWED_REMOTE]);
             }
+        } elseif ($field === 'worksite_city') {
+            try { $value = placementsNormalizeWorksiteCity($value); }
+            catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
         } elseif ($field === 'end_client_company_id') {
             $value = (int) $value;
             if ($value <= 0 || !companiesGet($value)) api_error('Client company not found', 422);
@@ -383,6 +386,8 @@ if ($method === 'POST') {
     // Default POST = create
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
+    try { $body['worksite_city'] = placementsNormalizeWorksiteCity($body['worksite_city'] ?? null); }
+    catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
     api_require_fields($body, ['title', 'start_date', 'engagement_type']);
     if (!in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
         api_error('Invalid engagement_type', 422, ['allowed' => ALLOWED_ETYPE]);
@@ -499,6 +504,7 @@ if ($method === 'POST') {
             'end_date'         => $body['end_date']         ?? null,
             'due_date'         => $body['due_date']         ?? null,
             'engagement_type'  => $body['engagement_type'],
+            'worksite_city'    => placementsNormalizeWorksiteCity($body['worksite_city'] ?? null),
             'worksite_state'   => $body['worksite_state']   ?? null,
             'worksite_country' => $body['worksite_country'] ?? null,
             'remote_policy'    => placementsNormalizeRemotePolicy($body['remote_policy'] ?? null),
@@ -582,6 +588,10 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
     foreach (['id','tenant_id','created_at','created_by_user_id','deleted_at','coreflux_overridden_fields'] as $k) unset($body[$k]);
+    if (array_key_exists('worksite_city', $body)) {
+        try { $body['worksite_city'] = placementsNormalizeWorksiteCity($body['worksite_city']); }
+        catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
+    }
     if (isset($body['engagement_type']) && !in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
         api_error('Invalid engagement_type', 422);
     }

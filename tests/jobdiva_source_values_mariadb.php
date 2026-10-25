@@ -22,6 +22,14 @@ $pdo->exec('CREATE TABLE placement_rates(id BIGINT AUTO_INCREMENT PRIMARY KEY,te
 $passed=0;
 $check=static function($ok,$label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
 $failure=static function($fn):string{try{$fn();return '';}catch(Throwable $e){return $e->getMessage();}};
+$pdo->exec('ALTER TABLE placements ADD engagement_type VARCHAR(30)');
+$apply('core/migrations/078_integration_writable_targets.sql');
+$beforeCity=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
+$apply('core/migrations/181_placement_worksite_city.sql');
+$apply('core/migrations/181_placement_worksite_city.sql');
+$afterCity=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
+$check($afterCity[0]['worksite_city']===null&&array_diff_key($afterCity[0],['worksite_city'=>true])===$beforeCity[0],'City migration is repeatable and does not fabricate existing location data');
+$check((int)$pdo->query("SELECT COUNT(*) FROM integration_writable_targets WHERE tenant_id IS NULL AND target_table='placements' AND target_column='worksite_city'")->fetchColumn()===1,'City has exactly one global mapping target after migration replay');
 $contract=['start_id'=>'101','engagement_type'=>'w2','start_date'=>'2026-10-01','bill_rate'=>70,'pay_rate'=>40,'bill_rate_unit'=>'H','pay_rate_unit'=>'H','currency'=>'USD','worksite_country'=>'United States'];
 $payload=['startId'=>'101','candidateId'=>'201','jobId'=>'301','startDate'=>'2026-10-01','status'=>'active','_jd_contract'=>$contract];
 $snapshot=static fn()=> $pdo->query('SELECT * FROM placement_rates ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
@@ -40,6 +48,10 @@ foreach ([['currency'=>null],['pay_currency'=>'CAD'],['bill_rate_unit'=>'mystery
 }
 $bad=$payload; $bad['_jd_contract']['worksite_country']='United nonsense';
 $check(str_contains($failure(fn()=>jobdivaSyncUpsertPlacement(10,1,null,$bad,'101')),'country is not recognized')&&$snapshot()===$rows,'country rejects before placement or rate writes');
+$bad=$payload;$bad['_jd_contract']['worksite_city']="Hamilton\nNJ";
+$beforeCity=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
+$check(str_contains($failure(fn()=>jobdivaSyncUpsertPlacement(10,1,null,$bad,'101')),'Worksite city')
+    &&$snapshot()===$rows&&$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC)===$beforeCity,'Invalid assignment city rejects before any placement or rate writes');
 $pdo->exec('UPDATE placement_rates SET approved_at="2026-10-01 12:00:00"');
 $approved=$snapshot()[0];
 $changed=$payload; $changed['_jd_contract']['bill_rate']=75;

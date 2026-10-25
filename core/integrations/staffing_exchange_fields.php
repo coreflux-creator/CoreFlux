@@ -45,6 +45,11 @@ function staffingExchangeFieldMappings(): array
         'placements.actual_end_date' => ['end_date', 'COALESCE(actual_end_date,end_date); nullable_calendar_date', 'conditional_versioned_update'],
         'placements.status' => ['status', 'pending_start_to_draft; explicit_lifecycle_transitions; reject_unmapped_enum', 'conditional_versioned_update'],
     ] as $key => [$path, $transform, $policy]) $quanta($key, $path, $transform, $policy);
+    foreach (['worksite_city'=>'city','worksite_state'=>'state','worksite_country'=>'country'] as $column=>$path) {
+        $add('placements.'.$column,'quanta','/api/v1/integrations/coreflux/assignments','work_location.'.$path,
+            'explicit_assignment_location; nullable; never_infer_residence_or_grant_worksite_access',
+            'conditional_versioned_update; provider_location_capability_required', '2026-10-25.1', $quantaEvidence);
+    }
     $add('people.person_number', 'quanta', '/api/v1/integrations/coreflux/person-links', 'person',
         'resolve_authorized_directory; typed_reference:person; reviewed_existing_worker_required',
         'immutable_link', '2026-10-20.1', $quantaEvidence);
@@ -124,7 +129,7 @@ function staffingExchangeFieldMappings(): array
     $commercial=static function(string $key,string $path,string $transform)use($add):void {
         $add($key,'purepayroll','/api/v1/integrations/coreflux/assignments/inputs',$path,$transform,
             'immutable_commercial_review_packet; separate_native_create_revise_activate; no_automatic_billing_or_payroll',
-            '2026-10-22.2',['core'=>'core/integrations/purepay_assignment_contract.php','provider'=>'PurePay:backend/coreflux_assignments.py']);
+            '2026-10-25.1',['core'=>'core/integrations/purepay_assignment_contract.php','provider'=>'PurePay:backend/coreflux_assignments.py']);
     };
     foreach(['placements.placement_number'=>'placement','people.person_number'=>'person','placements.person_id'=>'person',
         'placements.client_id'=>'client','staffing_clients.client_number'=>'client'] as $key=>$path)$commercial($key,$path,'resolve_canonical_number_in_authorized_module_directory; preserve_instance_and_owner');
@@ -133,7 +138,7 @@ function staffingExchangeFieldMappings(): array
         'end_date'=>'end_date','actual_end_date'=>'end_date'] as $column=>$path)$commercial('placements.'.$column,$path,
             'w2_or_c2c; pending_start_active_ended; approved_period_coverage_required; end_uses_actual_end_date_when_present');
     foreach(['external_id','jobdiva_job_id','end_client_name','staffing_job_id','accounting_entity_id','due_date','worksite_country',
-        'worksite_state','branch','service_line','workers_comp_class','department','cost_center','remote_policy'] as $column)
+        'worksite_city','worksite_state','branch','service_line','workers_comp_class','department','cost_center','remote_policy'] as $column)
         $commercial('placements.'.$column,'work_context.'.$column,'preserve_source_value_and_null; no_name_based_identity_guess');
     $commercial('placements.end_client_company_id','work_context.end_client','authorized_typed_company_reference_or_null');
     $commercial('companies.company_number','work_context.end_client','authorized_typed_company_reference_or_null');

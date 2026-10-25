@@ -53,6 +53,7 @@ CsvImportService::registerSchema('placements', [
         'end_client_company_id' => ['label' => 'End client company ID', 'type' => 'integer', 'reference_type' => 'company', 'aliases' => ['end_client_company_number', 'End Client Company Number']],
         'end_client_name'   => ['label' => 'End client name'],
         'client_id' => ['label' => 'Bill-to client ID', 'type' => 'integer', 'reference_type' => 'client', 'aliases' => ['client_number', 'Bill-to Client Number']],
+        'worksite_city'     => ['label' => 'Worksite city', 'aliases' => ['Working City']],
         'worksite_state'    => ['label' => 'Worksite state'],
         'worksite_country'  => ['label' => 'Worksite country (2-letter)'],
         'remote_policy'     => ['label' => 'Remote policy',    'enum' => ['onsite','hybrid','remote']],
@@ -1017,6 +1018,7 @@ if ($method === 'POST' && $action === 'commit') {
             'actual_end_date'  => $row['actual_end_date'] ?? null,
             'due_date'         => $row['due_date']        ?? null,
             'engagement_type'  => $row['engagement_type'],
+            'worksite_city'    => placementsNormalizeWorksiteCity($row['worksite_city'] ?? null),
             'worksite_state'   => $row['worksite_state']  ?? null,
             'worksite_country' => $row['worksite_country']?? null,
             'remote_policy'    => placementsNormalizeRemotePolicy($row['remote_policy'] ?? null),
@@ -1056,6 +1058,13 @@ if ($method === 'POST' && $action === 'commit') {
         ));
 
         if ($existing) {
+            if (str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:')
+                && array_key_exists('worksite_city', $payload)
+                && $payload['worksite_city'] !== ($existing['worksite_city'] ?? null)) {
+                $overrides = json_decode((string) ($existing['coreflux_overridden_fields'] ?? ''), true);
+                $overrides = is_array($overrides) ? $overrides : [];
+                $payload['coreflux_overridden_fields'] = json_encode(array_values(array_unique([...$overrides, 'worksite_city'])));
+            }
             scopedUpdate('placements', (int) $existing['id'], $payload);
             $pid = (int) $existing['id'];
         } else {

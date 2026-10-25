@@ -18,9 +18,19 @@ foreach (['H'=>'hour','USD/Hour'=>'hour','$62.04 / Hour'=>'hour','CAD per day'=>
 }
 foreach (['','annual','biweekly','per diem','hourly or daily','hourly bonus','mystery','USD/hour/day'] as $raw) $check(integrationSourceRateUnit($raw) === null, "unknown unit '$raw' is held");
 foreach (['','PER','XXX','XTS','USD/CAD','USD nonsense','USD/hour/day','$50/hour'] as $raw) $check(integrationSourceCurrency($raw) === null, "ambiguous currency '$raw' is held");
-$base = ['start_id'=>'101','engagement_type'=>'w2','start_date'=>'2026-10-01','client_company_name'=>'Synthetic client','worksite_country'=>'United States','bill_rate'=>70,'pay_rate'=>40,'bill_rate_unit'=>'H','pay_rate_unit'=>'H','currency'=>'USD'];
+$check(integrationSourceWorksiteCity('  Montréal  ')==='Montréal', 'assignment city preserves Unicode and trims whitespace');
+$check(integrationSourceWorksiteCity(null)===null&&integrationSourceWorksiteCity('   ')===null, 'missing city remains unknown');
+foreach ([true,123,[],"New\nYork",str_repeat('a',256),"\xC3\x28"] as $raw) {
+    $rejected=false;try{integrationSourceWorksiteCity($raw);}catch(InvalidArgumentException){$rejected=true;}
+    $check($rejected,'invalid city cannot be silently coerced or truncated');
+}
+$check(integrationSourceWorksiteCity(str_repeat('é',255))===str_repeat('é',255),'city length is measured in Unicode characters');
+$check(integrationFieldMapCoerceTargetValue("New\nYork",['target_table'=>'placements','target_column'=>'worksite_city'])===null,'mapped city uses the same validation');
+$base = ['start_id'=>'101','engagement_type'=>'w2','start_date'=>'2026-10-01','client_company_name'=>'Synthetic client','worksite_city'=>'Hamilton','worksite_country'=>'United States','bill_rate'=>70,'pay_rate'=>40,'bill_rate_unit'=>'H','pay_rate_unit'=>'H','currency'=>'USD'];
 $project = static fn(array $c): array => jobdivaContractProjectionBuild(['candidateId'=>'201','jobId'=>'301','_jd_contract'=>$c], [], '101');
 $good = $project($base);
+$cityFields=array_values(array_filter($good['fields'],static fn($row)=>$row['field']==='worksite_city'));
+$check(count($cityFields)===1&&$cityFields[0]['proposed']==='Hamilton','assignment city is visible in the source comparison');
 $check($good['complete'] && $good['placement']['worksite_country'] === 'US' && $good['economics']['gross_margin'] === 30.0, 'valid hourly projection normalizes country and margin');
 foreach ([['currency'=>null],['bill_rate_unit'=>null],['pay_rate_unit'=>'mystery'],['pay_currency'=>'CAD'],['bill_rate_unit'=>'day']] as $override) {
     $p = $project(array_replace($base,$override));

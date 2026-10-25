@@ -187,7 +187,7 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'start_date', 'end_date', 'actual_end_date', 'due_date',
             // Engagement metadata
             'engagement_type', 'remote_policy',
-            'worksite_state', 'worksite_country',
+            'worksite_city', 'worksite_state', 'worksite_country',
             'branch', 'service_line', 'workers_comp_class',
             'department', 'cost_center', 'accounting_entity_id',
             // Client / approval

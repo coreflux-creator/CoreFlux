@@ -38,6 +38,7 @@ function staffingFieldContractRules(string $table, string $field): array
         'placement_rates.bill_rate' => ['Client charge in currency per bill_rate_unit; effective dated.', 'currency/bill_rate_unit'],
         'placement_rates.pay_rate' => ['Worker pay in currency per pay_rate_unit; effective dated.', 'currency/pay_rate_unit'],
         'placement_rates.currency' => ['Explicit source currency of this rate agreement; missing or conflicting JobDiva currencies require review.', 'ISO-4217'],
+        'placements.worksite_city' => ['City where this assignment is performed; independent of worker residence and company address. Missing source values preserve the existing city.', 'printable-text-max-255'],
         'placements.worksite_country' => ['Recognized country or territory where the assignment is performed; source names are normalized, never truncated.', 'recognized-alpha-2'],
         'placement_rates.bill_rate_unit' => ['Explicit billing basis. Automatic JobDiva economics require hourly rates; other bases require reviewed conversion.', 'hour|day|week|month|project'],
         'placement_rates.pay_rate_unit' => ['Explicit pay basis, independent of billing basis. No hourly default is inferred for JobDiva.', 'hour|day|week|month|project'],
@@ -125,7 +126,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-10-24.2', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-25.1', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

@@ -168,6 +168,7 @@ export default function List() {
       key: 'remote_policy', label: 'Remote policy', type: 'select', placeholder: 'Choose policy',
       options: ['onsite', 'hybrid', 'remote'].map(value => ({ value, label: REMOTE_LABELS[value] })),
     },
+    { key: 'worksite_city', label: 'Worksite city', type: 'text', placeholder: 'Assignment city' },
     { key: 'worksite_state', label: 'Worksite state', type: 'text', placeholder: 'State or province' },
     { key: 'worksite_country', label: 'Worksite country', type: 'text', placeholder: 'Country code' },
   ], [activeClients]);

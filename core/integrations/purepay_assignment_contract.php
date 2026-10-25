@@ -3,7 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/delivery.php';
 
-const PUREPAY_ASSIGNMENT_INPUT_VERSION = '2026-10-22.2';
+const PUREPAY_ASSIGNMENT_INPUT_VERSION = '2026-10-25.1';
 
 function purepayAssignmentRequired(array $row,string $key): mixed
 {
@@ -293,7 +293,7 @@ function purepayAssignmentBuild(array $placement,array $person,array $rates,arra
     }
     if(!$terms || $terms[array_key_last($terms)]['end_date']!==$end)throw new RuntimeException('Approved commercial terms do not cover the full placement.');
     $work=[];
-    foreach(['external_id','jobdiva_job_id','end_client_name','worksite_country','worksite_state','branch','service_line','workers_comp_class','department','cost_center'] as $field)$work[$field]=purepayAssignmentText(purepayAssignmentRequired($placement,$field),true);
+    foreach(['external_id','jobdiva_job_id','end_client_name','worksite_city','worksite_country','worksite_state','branch','service_line','workers_comp_class','department','cost_center'] as $field)$work[$field]=purepayAssignmentText(purepayAssignmentRequired($placement,$field),true);
     foreach(['staffing_job_id','accounting_entity_id'] as $field)$work[$field]=purepayAssignmentId(purepayAssignmentRequired($placement,$field),true);
     $work['due_date']=purepayAssignmentDate($placement['due_date'],true);
     $work['end_client']=$placement['end_client_company_id']===null?null:$resolve('company',purepayAssignmentId($placement['end_client_company_id']));

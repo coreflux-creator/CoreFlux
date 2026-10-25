@@ -28,6 +28,7 @@ function jobdivaReconciliationSchema(): array
             'start_date'           => ['label' => 'Start Date'],
             'end_date'             => ['label' => 'End Date'],
             'end_client_name'      => ['label' => 'End Client'],
+            'worksite_city'        => ['label' => 'Worksite City'],
             'worksite_state'       => ['label' => 'Worksite State'],
             'worksite_country'     => ['label' => 'Worksite Country'],
             'remote_policy'        => ['label' => 'Remote Policy'],
@@ -74,6 +75,7 @@ function jobdivaReconciliationHeaderAliases(): array
             'end client', 'end client name', 'client name', 'customer name',
             'company name', 'companyname',
         ],
+        'worksite_city' => ['worksite city', 'working city', 'job city'],
         'worksite_state' => ['worksite state', 'state', 'job state'],
         'worksite_country' => ['worksite country', 'country', 'job country'],
         'remote_policy' => ['remote policy', 'remote', 'work arrangement'],
@@ -324,6 +326,10 @@ function jobdivaReconciliationNormaliseRow(array $row, array $mappedHeaders, arr
         $remote = in_array($remote, ['onsite','hybrid','remote'], true) ? $remote : null;
         if ($remote === null) $errors[] = "remote_policy: unrecognised '{$out['remote_policy']}'";
         else $out['remote_policy'] = $remote;
+    }
+    if (isset($out['worksite_city'])) {
+        try { $out['worksite_city'] = integrationSourceWorksiteCity($out['worksite_city']); }
+        catch (InvalidArgumentException $e) { $errors[] = $e->getMessage(); }
     }
     if (isset($out['worksite_country'])) {
         $country = integrationSourceCountry($out['worksite_country']);
@@ -660,6 +666,7 @@ function jobdivaReconciliationBuildRowPlan(
         'start_date' => 'Start Date',
         'end_date' => 'End Date',
         'end_client_name' => 'End Client',
+        'worksite_city' => 'Worksite City',
         'worksite_state' => 'Worksite State',
         'worksite_country' => 'Worksite Country',
         'remote_policy' => 'Remote Policy',

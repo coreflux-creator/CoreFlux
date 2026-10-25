@@ -20,8 +20,9 @@ try{
     $run=gmdate('YmdHis').'-'.bin2hex(random_bytes(3));
     $person=qaRequest('/modules/people/api/people.php','POST',['first_name'=>'Synthetic','last_name'=>'Onboarding '.$run,'email_primary'=>'onboarding-'.$run.'@example.test','classification'=>'1099','status'=>'inactive'],$cookies[0]);
     $personId=(int)($person['id']??$person['person']['id']??0);$check($personId>0,'native People API creates only the synthetic onboarding person');
-    $placement=qaRequest('/modules/placements/api/placements.php','POST',['person_id'=>$personId,'title'=>'Synthetic onboarding '.$run,'engagement_type'=>'1099','status'=>'draft','start_date'=>gmdate('Y-m-d'),'worksite_country'=>'US','worksite_state'=>'NJ'],$cookies[0]);
+    $placement=qaRequest('/modules/placements/api/placements.php','POST',['person_id'=>$personId,'title'=>'Synthetic onboarding '.$run,'engagement_type'=>'1099','status'=>'draft','start_date'=>gmdate('Y-m-d'),'worksite_city'=>'Hamilton','worksite_country'=>'US','worksite_state'=>'NJ'],$cookies[0]);
     $placementId=(int)($placement['id']??$placement['placement']['id']??0);$check($placementId>0,'native Placement API creates a draft synthetic assignment');
+    $check(qaOne($pdo,'SELECT worksite_city,worksite_state,worksite_country FROM placements WHERE tenant_id=:t AND id=:id',['t'=>QA_TENANT,'id'=>$placementId])===['worksite_city'=>'Hamilton','worksite_state'=>'NJ','worksite_country'=>'US'],'native Placement API persists the explicit assignment location');
     $baselinePerson=qaOne($pdo,'SELECT status FROM people WHERE tenant_id=:t AND id=:id',['t'=>QA_TENANT,'id'=>$personId]);
     $baselinePlacement=qaOne($pdo,'SELECT status FROM placements WHERE tenant_id=:t AND id=:id',['t'=>QA_TENANT,'id'=>$placementId]);
     $path='/modules/people/api/onboarding.php';

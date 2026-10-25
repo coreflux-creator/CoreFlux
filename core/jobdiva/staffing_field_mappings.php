@@ -82,9 +82,9 @@ function jobdivaStaffingFieldMappings(): array
             ['null_policy' => 'Missing Salary approval does not establish an active assignment.',
                 'source_approval_scope' => 'JobDiva assignment lifecycle only; never Core rate/time/payroll approval.']);
     }
-    foreach (['worksite_state' => 'WORKING_STATE', 'worksite_country' => 'WORKING_COUNTRY'] as $column => $path) {
+    foreach (['worksite_city' => 'WORKING_CITY', 'worksite_state' => 'WORKING_STATE', 'worksite_country' => 'WORKING_COUNTRY'] as $column => $path) {
         $assignment('placements.' . $column, 'BILLING[].' . $path, $column,
-            $column === 'worksite_country' ? 'Normalize recognized country names and aliases through the shared country dictionary to ISO alpha-2; unrecognized source values require review before any placement or rate write.' : 'Preserve the assignment working-state value.');
+            $column === 'worksite_country' ? 'Normalize recognized country names and aliases through the shared country dictionary to ISO alpha-2; unrecognized source values require review before any placement or rate write.' : 'Preserve explicit assignment working-location text; city is printable Unicode up to 255 characters. Never infer from worker residence or a company address.');
     }
     foreach (['branch' => 'Branch', 'service_line' => 'Service Line',
         'department' => 'Department', 'cost_center' => 'Cost Center'] as $column => $path) {

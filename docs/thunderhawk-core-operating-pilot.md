@@ -1,3 +1,17 @@
+## Assignment location extension prepared - October 25, 2026
+
+The current source adds explicit placement city across JobDiva ingestion, Core
+editing/CSV and provider assignment packets. Quanta receives city/state/country
+as reviewed assignment metadata and displays them in worker/staff views and CSV.
+PurePayroll receives city in a new 2026-10-25.1 commercial packet; older versions
+remain unchanged. This does not infer a worker address, grant worksite access,
+or authorize payroll. Quanta requires its new additive capability; PurePayroll
+requires company-context review again because its advertised version changed.
+
+Local contract, PHP bridge, portal, commercial, full-application and startup
+checks passed. Migration 181, hosted provider install and the Core staging release
+remain pending. Evidence: deploy/assignment-location-local-20261025.json.
+
 ## 2026-10-25 - Separate billing client and work recipient installed in Core staging
 
 Release `ae5af205a73df3f56aabe73615a6b85fd6c3afd1` is installed in isolated Core staging by run `40202029104`. The JobDiva adapter, manual/API/CSV placement edits and repair paths now retain separate bill-to and end-client identities. AR participants, invoice grouping, time-approval dimensions and accounting counterparties use the bill-to company. Explicit recipient evidence cannot silently retarget a billing mapping. New approved snapshots retain the billing profile; existing approved snapshots and obligations remain unchanged. Legacy user-reviewed debtor terms survive for review, and conflicting receivables block a new contract.

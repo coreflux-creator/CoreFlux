@@ -28,9 +28,11 @@ $linked=quantaWriteContract($key,'a','person.link',$body,$body,str_repeat('1',64
 $check(quantaContractRecord($key,'a',$person)['id']===$linked['id'],'Person link readback');
 $desired=['placement'=>$placement,'person'=>$person,'client'=>$ref('client','CL-11'),'vendor'=>$ref('vendor','V-12'),
     'end_client'=>$ref('company','CO-13'),'worksite_id'=>'site-1','title'=>'Synthetic assignment','engagement_type'=>'c2c',
-    'start_date'=>'2026-10-01','end_date'=>null,'status'=>'draft'];
+    'start_date'=>'2026-10-01','end_date'=>null,'status'=>'draft',
+    'work_location'=>['city'=>'Montréal','state'=>'QC','country'=>'CA']];
+quantaAssignmentLocationRequire($key,'a');
 $created=quantaWriteContract($key,'a','assignment.create',$desired,$desired,str_repeat('2',64));
-$check($created['version']===1,'Assignment created at version one');
+$check($created['version']===1&&$created['work_location']===$desired['work_location'],'Assignment created at version one with exact location');
 $check(quantaContractRecord($key,'a',$placement)['id']===$created['id'],'Assignment readback');
 $replay=quantaWriteContract($key,'a','assignment.create',$desired,$desired,str_repeat('2',64));
 $check($replay['delivery_id']===$created['delivery_id'],'Create replay uses the durable receipt');

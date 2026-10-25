@@ -42,6 +42,13 @@ function placementsNormalizeRemotePolicy($v): ?string
     return in_array($v, PLACEMENTS_ALLOWED_REMOTE, true) ? $v : null;
 }
 
+/** City is source text, never inferred from a person's home or a company's address. */
+function placementsNormalizeWorksiteCity(mixed $value): ?string
+{
+    require_once __DIR__ . '/../../../core/integrations/source_values.php';
+    return integrationSourceWorksiteCity($value);
+}
+
 /** Resolve only the company roles explicitly edited; neither role supplies the other. */
 function placementsResolveCompanyRoles(int $tenantId, array $input, array $existing = [], ?int $userId = null): array
 {
@@ -79,7 +86,7 @@ function placementsResolveCompanyRoles(int $tenantId, array $input, array $exist
 function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
-             'actual_end_date','due_date','engagement_type','worksite_state','worksite_country',
+             'actual_end_date','due_date','engagement_type','worksite_city','worksite_state','worksite_country',
              'remote_policy','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id',
              'title','end_client_name','end_client_company_id','client_id','staffing_job_id','notes',
              'recruiter_name','recruiter_email','account_manager_name','account_manager_email',
@@ -192,11 +199,12 @@ function placementsList(array $filters = []): array
                   OR CAST(p.start_date AS CHAR) LIKE :q_start
                   OR CAST(p.due_date AS CHAR) LIKE :q_due
                   OR CAST(p.end_date AS CHAR) LIKE :q_end
+                  OR p.worksite_city LIKE :q_city
                   OR p.worksite_state LIKE :q_state
                   OR p.worksite_country LIKE :q_country OR ' . coreRecordNumberSearchSql('placement', 'p', 'qnumber') . ')';
         $params['qnumber'] = strtoupper(trim((string) $filters['q']));
         $like = '%' . trim((string) $filters['q']) . '%';
-        foreach (['q_id','q_title','q_job_title','q_person_id','q_first','q_last','q_person','q_email','q_client','q_external','q_status','q_type','q_start','q_due','q_end','q_state','q_country'] as $key) {
+        foreach (['q_id','q_title','q_job_title','q_person_id','q_first','q_last','q_person','q_email','q_client','q_external','q_status','q_type','q_start','q_due','q_end','q_city','q_state','q_country'] as $key) {
             $params[$key] = $like;
         }
     }

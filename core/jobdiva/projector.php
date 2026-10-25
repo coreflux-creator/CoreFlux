@@ -75,17 +75,20 @@ function jobdivaProjectorSourceContractDrift(
     string $expectedStartId = ''
 ): array {
     $projection = jobdivaContractProjectionBuild($payload, $currentGraph, $expectedStartId);
+    $overrides = json_decode((string) ($currentGraph['placement']['coreflux_overridden_fields'] ?? ''), true);
+    $overrides = is_array($overrides) ? $overrides : [];
     $owned = [
         'engagement_type', 'status', 'start_date', 'end_date',
         'end_client_name', 'billing_client_name',
-        'bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit', 'currency', 'worksite_country',
+        'bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit', 'currency', 'worksite_country', 'worksite_city',
         'client_bill_cycle', 'vendor_pay_cycle',
         'vendor_payment_terms', 'paid_when_paid',
     ];
 
     return array_values(array_filter(
         $projection['fields'] ?? [],
-        static function (array $field) use ($owned): bool {
+        static function (array $field) use ($owned, $overrides): bool {
+            if (in_array((string) ($field['field'] ?? ''), $overrides, true)) return false;
             if (empty($field['changes']) || !in_array((string) ($field['field'] ?? ''), $owned, true)) {
                 return false;
             }

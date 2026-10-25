@@ -318,6 +318,7 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Placement', 'billing_client_name', 'Bill-to client', $currentGraph['billing_client']['name'] ?? null, $clientName ?: null, $sourceFor('client_company_name', 'Assignment.BILLING.COMPANY.COMPANYNAME')),
         jobdivaContractProjectionField('Placement', 'end_client_name', 'End client', $currentPlacement['end_client_name'] ?? null, $endClient['status'] === 'ambiguous' ? null : ($endClient['name'] ?: null), $endClient['source']),
         jobdivaContractProjectionField('Placement', 'worksite_country', 'Worksite country', $currentPlacement['worksite_country'] ?? null, $country, 'Assignment.BILLING.WORKING_COUNTRY'),
+        jobdivaContractProjectionField('Placement', 'worksite_city', 'Worksite city', $currentPlacement['worksite_city'] ?? null, $contract['worksite_city'] ?? null, 'Assignment.BILLING.WORKING_CITY'),
         jobdivaContractProjectionField('Rate', 'bill_rate_unit', 'Bill rate unit', $currentRate['bill_rate_unit'] ?? null, $basis['bill_rate_unit'], 'Assignment bill rate / unit'),
         jobdivaContractProjectionField('Rate', 'pay_rate_unit', 'Pay rate unit', $currentRate['pay_rate_unit'] ?? null, $basis['pay_rate_unit'], 'Assignment salary / unit'),
         jobdivaContractProjectionField('Rate', 'currency', 'Currency', $currentRate['currency'] ?? null, $basis['currency'], 'Assignment currency / rate descriptor'),
@@ -425,6 +426,7 @@ function jobdivaContractProjectionBuild(
             'start_date' => $startDate,
             'end_date' => $endDate,
             'worksite_country' => $country,
+            'worksite_city' => $contract['worksite_city'] ?? null,
         ],
         'economics' => [
             'gross_client_rate' => round($grossBill, 4),

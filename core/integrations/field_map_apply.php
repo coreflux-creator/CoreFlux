@@ -922,6 +922,12 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
     $col = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     if ($table === '' || $col === '') return $val;
 
+    if ($table === 'placements' && $col === 'worksite_city') {
+        require_once __DIR__ . '/source_values.php';
+        try { return integrationSourceWorksiteCity($val); }
+        catch (InvalidArgumentException) { return null; }
+    }
+
     if ($table === 'placements' && $col === 'engagement_type') {
         return integrationFieldMapEngagementValue($val);
     }
@@ -1142,13 +1148,14 @@ function integrationFieldMapJobDivaContractOwnsTarget(
     $column = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     $owned = [
         'placements' => [
-            'end_client_name' => ['client_company_name'],
-            'end_client_company_id' => ['client_company_id'],
+            'end_client_name' => ['end_client_company_name'],
+            'end_client_company_id' => ['end_client_company_id'],
             'client_id' => ['client_company_id', 'client_company_name'],
             'start_date' => ['start_date'],
             'end_date' => ['end_date'],
             'status' => ['placement_status'],
             'engagement_type' => ['engagement_type'],
+            'worksite_city' => ['worksite_city'],
             'worksite_state' => ['worksite_state'],
             'worksite_country' => ['worksite_country'],
             'remote_policy' => ['remote_policy'],

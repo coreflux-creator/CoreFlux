@@ -84,4 +84,13 @@ if (in_array('paid_when_paid', array_column($missingPwpDrift, 'field'), true)) {
     exit(1);
 }
 
+$cityPayload=$payload;$cityPayload['_jd_contract']['worksite_city']='Hamilton';
+$cityGraph=$aligned;$cityGraph['placement']['worksite_city']='Newark';
+if (!in_array('worksite_city',array_column(jobdivaProjectorSourceContractDrift($cityPayload,$cityGraph,'57612620'),'field'),true)) {
+    throw new RuntimeException('Missing city projection was not detected');
+}
+$cityGraph['placement']['coreflux_overridden_fields']='["worksite_city"]';
+if (in_array('worksite_city',array_column(jobdivaProjectorSourceContractDrift($cityPayload,$cityGraph,'57612620'),'field'),true)) {
+    throw new RuntimeException('Manual city ownership was mistaken for source projection failure');
+}
 echo "JobDiva projector postcondition smoke: ok\n";

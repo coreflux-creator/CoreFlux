@@ -8,6 +8,8 @@ $pdo->exec('CREATE TABLE people (id BIGINT,tenant_id BIGINT,first_name VARCHAR(1
 $pdo->exec("INSERT INTO people VALUES (101,10,'Synthetic','Worker','worker@example.test','active',NULL),(102,12,'Other','Worker','other@example.test','active',NULL)");
 $pdo->exec('CREATE TABLE placements (id BIGINT,tenant_id BIGINT,person_id BIGINT,title VARCHAR(200),engagement_type VARCHAR(30),status VARCHAR(30),start_date DATE,end_date DATE NULL,actual_end_date DATE NULL,client_id BIGINT,end_client_company_id BIGINT,deleted_at DATETIME NULL)');
 $pdo->exec("INSERT INTO placements VALUES (201,10,101,'Synthetic assignment','c2c','active','2026-10-01',NULL,NULL,301,401,NULL)");
+$pdo->exec('ALTER TABLE placements ADD worksite_city VARCHAR(255),ADD worksite_state VARCHAR(100),ADD worksite_country CHAR(2)');
+$pdo->exec("UPDATE placements SET worksite_city='Hamilton',worksite_state='NJ',worksite_country='US'");
 $pdo->exec('CREATE TABLE placement_corp_details (placement_id BIGINT,tenant_id BIGINT,ap_vendor_id BIGINT)');
 $pdo->exec('INSERT INTO placement_corp_details VALUES (201,10,501)');
 $pdo->exec('CREATE TABLE staffing_clients (id BIGINT,tenant_id BIGINT)');$pdo->exec('INSERT INTO staffing_clients VALUES (301,10)');
@@ -20,6 +22,7 @@ $pdo->exec("INSERT INTO quanta_worker_links(id,tenant_id,worker_id,person_id) VA
 $pdo->exec('CREATE TABLE audit_log (id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT,actor_user_id BIGINT,event VARCHAR(100),meta_json TEXT)');
 $fixtureKey='synthetic-metadata-key'; $workspace='workspace-pilot';
 $context['workspace']=['id'=>$workspace,'name'=>'Synthetic pilot'];
+$context['assignment_location_contract_version']=QUANTA_ASSIGNMENT_LOCATION_VERSION;
 $pdo->prepare('INSERT INTO quanta_connections(id,tenant_id,status,api_key_ct,binding_revision) VALUES(11,11,"active",?,1)')->execute([encryptField($fixtureKey)]);
 $bindingHash=quantaWorkspaceBindingHash(11,11,$fixtureKey,$instance,$context);
 quantaWorkspaceBind($pdo,11,7,['id'=>11,'binding_revision'=>1],$fixtureKey,$instance,$context,$bindingHash);
@@ -58,6 +61,7 @@ $GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,
 };
 $source=quantaMetadataSource($pdo,$instance,['people'=>10,'placements'=>10,'ap'=>11],'placement',201);
 $check($source['reference']['number']==='PL-9002' && $source['person']['number']==='P-9001','source uses registry numbers rather than database primary keys');
+$check($source['assignment']['work_location']===['city'=>'Hamilton','state'=>'NJ','country'=>'US'],'source retains the assignment city, state and country independently of the Quanta worksite');
 $check($source['assignment']['vendor']['directory_tenant_id']===11 && $source['assignment']['client']['directory_tenant_id']===10,'shared staffing and isolated vendor directories stay distinct');
 require_once __DIR__.'/../../core/integrations/staffing_exchange_fields.php';
 foreach (staffingExchangeFieldMappings() as $field => $providers) {
