@@ -1,3 +1,9 @@
+## 2026-10-25 Saved payment recovery follow-up
+
+- PurePay source `20b21f9bf0939a9479adfb5329d3edc8fe591e46` is installed in the held preview. A bounded cyclic scan now recovers valid saved terminal results when the separate event-log write was lost. It also revisits older changed rows and later subscriptions; stable event identity prevents duplicate delivery.
+- All 88 isolated checks passed against the installed sources, including missing-log recovery, bounded cursor wrap, interrupted enqueue and late subscription. The source hash matches, 6,321 source files and unchanged demo counts were checked, and the worker remains disabled. Receipt: `deploy/purepay-payment-recovery-preview-20261025.json`.
+- Core runtime remains `8fd81fc5`. The callback-evidence documentation commit passed all nine CI jobs in [40162460733](https://github.com/coreflux-creator/CoreFlux/actions/runs/40162460733). No live callback, payment, payroll, posting or production publication occurred. An incoming rail result that was never saved is outside this recovery and still requires replay hardening; actual Thunderhawk round-trip gates remain open.
+
 ## 2026-10-25 Durable payment callbacks installed in the pilot
 
 - Core runtime `8fd81fc550232c2582dd7bd645e65f4d42458053` passed all nine CI jobs ([40161581668](https://github.com/coreflux-creator/CoreFlux/actions/runs/40161581668)), including 87 money-evidence and 278 MariaDB delivery checks. Its isolated staging deployment and acceptance passed ([40161770960](https://github.com/coreflux-creator/CoreFlux/actions/runs/40161770960)).
