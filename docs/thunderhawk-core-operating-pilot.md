@@ -1,3 +1,11 @@
+## Reviewed financial company connection — October 25, 2026
+
+Core pilot runtime `ebf75db102ad118d91178aa2755e1b9dfd2b8d21` requires an explicit review of the financial API key’s company. The read-only provider context reports its stable organization ID, name and actual key permissions. Core checks this against the chosen local access. Wallet reads, financial attempts and callback consumption require confirmation. One provider origin/organization has one permanent Core-company owner; disconnecting or rotating keys does not free that claim. Rotation requires fresh confirmation and does not automatically rebind old AP receipts.
+
+All nine CI jobs passed (40170974024), including 31 company-binding and 301 payment-delivery MariaDB checks. Staging deployment 40171311811 applied migration 176 and passed acceptance. PurePay’s held preview installed the matching identity endpoint; 23 installed-source full-app checks passed with isolated data and zero network attempts. The new UI was exercised with synthetic companies. Read-only readiness 40172042291 confirms the original Quanta workspace, Meridian staffing binding revision 3 and unchanged private configuration. Evidence: `deploy/purepay-financial-company-staging-20261025.json`.
+
+The financial preview still needs its dedicated read-only credential and hosted callback test. The production Thunderhawk replacement key remains a separate pending user handoff. Actual Thunderhawk values, independent time review, shared supplier-obligation reservations and reviewed AP rebinding remain incomplete. No production cutover or live financial action occurred.
+
 ## Provider payment receipt ownership — October 25, 2026
 
 Core pilot runtime `098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d` reserves each provider payment receipt to one Core AP attempt per company. An existing provider bill/payment cannot be adopted by a second attempt to clear another bill. Receipt validation also refuses historical shared receipts before replay, clearance or reservation release. Migration 175 adds a case-sensitive unique owner and stops on existing conflicts without choosing a winner or changing evidence. Credential rotation does not create another receipt namespace.
