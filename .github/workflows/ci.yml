@@ -192,6 +192,11 @@ jobs:
           fi
           php tests/quanta_time_provenance_mariadb.php
           php tests/quanta_time_review_mariadb.php
+          php tests/synthetic_time_reviewer_mariadb.php
+          php -l deploy/provision_synthetic_time_reviewer.php
+          if COREFLUX_ENV=staging php deploy/provision_synthetic_time_reviewer.php --create-demo-time-reviewer; then
+            echo 'Reviewer provisioning accepted an unapproved filesystem root'; exit 1
+          fi
           php tests/quanta_payroll_inputs_mariadb.php
 
       - name: Verify PurePay attempts and company isolation
