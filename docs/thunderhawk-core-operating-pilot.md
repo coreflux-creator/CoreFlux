@@ -1,3 +1,11 @@
+## Assignment location installed in the three pilot environments - October 25, 2026
+
+Core staging run `40205505707` installed `adc8b1e9f48d2dc762e0c42f34d724dfaead252b`, applied migration 181, verified four served assets and passed the five acceptance suites, including 18 onboarding HTTP checks and explicit city/state/country persistence. All nine CI jobs passed before deployment.
+
+The existing Quanta and PurePay previews now have the reviewed location extension from `3e253563ac5205537fdd31b08929605dc09ae885` and `f921ed5eaa182f0735e574a878b97bbd4b42170d`, respectively. Both frontend builds and isolated full-application/startup tests passed with external sockets blocked. Installation verified all four changed files per provider, unchanged protected settings and unchanged records across 80 Quanta and 144 PurePay collections. Both services are running; webhook schedulers remain stopped. The first PurePay attempt safely restored its prior source after an incorrect installer health URL; the corrected installation passed.
+
+This supersedes the pending-install status below. Fresh hosted capability/company review and location-delivery acceptance remain next; the new PurePay assignment version requires company-context review again. Actual Thunderhawk acceptance, independent approval, documents, financial callbacks/recovery and production release remain open. No credentials, production, real financial execution or Arabella data changed. Evidence: `deploy/assignment-location-preview-release-20261025.json`.
+
 ## Assignment location extension prepared - October 25, 2026
 
 The current source adds explicit placement city across JobDiva ingestion, Core

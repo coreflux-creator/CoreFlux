@@ -80,9 +80,27 @@ $report['onboarding_cases'] = $pdo->query('SELECT id,version,plan_version,confir
 $report['synthetic_time'] = $pdo->query('SELECT t.id,t.hours,t.status,t.approved_by_user_id,i.timesheet_id,i.quanta_entry_id
     FROM time_entries t JOIN quanta_time_imports i ON i.tenant_id=t.tenant_id AND i.time_entry_id=t.id
     WHERE t.tenant_id=999 AND t.person_id=15 AND t.placement_id=13 ORDER BY t.id')->fetchAll(PDO::FETCH_ASSOC);
-// Inspect saved binding only; never wake or contact the separately managed PurePay preview.
+// Saved identity remains visible even when a provider context requires a new review.
 $report['saved_purepay_binding'] = $pdo->query('SELECT id,status,revision,remote_organization_id
     FROM purepay_core_connections WHERE tenant_id=999')->fetch(PDO::FETCH_ASSOC);
+require_once PILOT_ROOT.'/core/integrations/purepay_core.php';
+$report['purepay_assignment_context'] = ['available'=>false, 'provider_record_writes'=>false];
+if (purepayCoreApiBase()==='https://pure-pay-support.preview.emergentagent.com/api/v1'
+    && ($report['saved_purepay_binding']['remote_organization_id'] ?? null)==='org_purepay_demo') {
+    try {
+        $review=purepayCoreReview($pdo,PILOT_TENANT,PILOT_INSTANCE);
+        $report['purepay_assignment_context'] = [
+            'available'=>true, 'organization_matches'=>$review['organization']['id']==='org_purepay_demo',
+            'binding_verified'=>$review['verified'],
+            'assignment_contract_version'=>$review['assignment_input_contract_version'] ?? null,
+            'assignment_location_supported'=>($review['assignment_input_contract_version'] ?? null)==='2026-10-25.1',
+            'provider_record_writes'=>false,
+        ];
+        unset($review);
+    } catch (Throwable $e) {
+        $report['purepay_assignment_context']['reason']='context_or_configuration_check_failed';
+    }
+}
 
 // Staffing exchange and financial callbacks have separate saved connections.
 // Report configuration presence only; never load/decrypt credentials or send a callback.
@@ -133,6 +151,10 @@ $report['quanta_binding'] = $probe(static function() use (&$access): void {
     }
 });
 if ($report['quanta_binding']['available']) {
+    require_once PILOT_ROOT.'/core/quanta/core_contract.php';
+    $report['quanta_assignment_location'] = $probe(static function() use ($access): void {
+        quantaAssignmentLocationRequire($access['api_key'], PILOT_QUANTA_WORKSPACE);
+    });
     $report['quanta_onboarding'] = $probe(static function() use ($access): void {
         quantaOnboardingContext($access['api_key'], PILOT_QUANTA_WORKSPACE);
     });
