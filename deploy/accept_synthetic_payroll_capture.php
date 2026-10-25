@@ -67,11 +67,12 @@ try {
         $rows=[];
         foreach(['integration_deliveries','time_entries','staffing_timesheets','payroll_runs',
             'payroll_source_authorities','payroll_provider_results'] as $table) {
-            $rows[$table]=integrationDeliveryHash($pdo->query('SELECT * FROM '.$table.' WHERE tenant_id=999 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+            // Stored encrypted BLOBs are binary; do not pass them through JSON normalization.
+            $rows[$table]=hash('sha256',serialize($pdo->query('SELECT * FROM '.$table.' WHERE tenant_id=999 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)));
         }
-        $rows['payroll_source_claims']=integrationDeliveryHash($pdo->query('SELECT * FROM payroll_source_claims WHERE time_tenant_id=999 ORDER BY time_entry_id')->fetchAll(PDO::FETCH_ASSOC));
+        $rows['payroll_source_claims']=hash('sha256',serialize($pdo->query('SELECT * FROM payroll_source_claims WHERE time_tenant_id=999 ORDER BY time_entry_id')->fetchAll(PDO::FETCH_ASSOC)));
         foreach(['purepay_connections','purepay_core_connections'] as $table)
-            $rows[$table]=integrationDeliveryHash($pdo->query('SELECT * FROM '.$table.' ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC));
+            $rows[$table]=hash('sha256',serialize($pdo->query('SELECT * FROM '.$table.' ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC)));
         return $rows;
     };
     $phase='unchanged_state';$before=$snapshot();
