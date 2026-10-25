@@ -194,6 +194,11 @@ jobs:
           php tests/quanta_time_review_mariadb.php
           php tests/synthetic_time_reviewer_mariadb.php
           php tests/synthetic_time_approval_guard_smoke.php
+          php tests/synthetic_payroll_input_guard_smoke.php
+          php -l deploy/accept_synthetic_payroll_input.php
+          if COREFLUX_ENV=staging php deploy/accept_synthetic_payroll_input.php --receive-approved-demo-hours; then
+            echo 'Payroll input runner accepted an unapproved filesystem root'; exit 1
+          fi
           php -l deploy/approve_synthetic_time_review.php
           php -l deploy/verify_synthetic_time_approval.php
           if COREFLUX_ENV=staging php deploy/verify_synthetic_time_approval.php --verify-approved-demo-time; then
