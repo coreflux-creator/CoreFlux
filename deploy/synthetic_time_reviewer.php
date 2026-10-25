@@ -19,7 +19,8 @@ function syntheticTimeReviewerVerify(PDO $pdo, int $id): array
         throw new RuntimeException('Synthetic reviewer identity differs');
     }
     unset($user['password'],$user['password_hash']);
-    $st=$pdo->prepare('SELECT * FROM tenant_memberships WHERE user_id=? ORDER BY id');$st->execute([$id]);
+    // tenant-leak-allow: inspect every membership of the already verified reserved simulation user, to reject any foreign-company grant rather than hide it with a tenant filter.
+    $st=$pdo->prepare('SELECT id,tenant_id,persona_type,persona_label,status,is_primary,linked_entity_type,linked_entity_id FROM tenant_memberships WHERE user_id=? ORDER BY id');$st->execute([$id]);
     $rows=$st->fetchAll(PDO::FETCH_ASSOC);$m=$rows[0]??[];
     if (count($rows)!==1 || (int)$m['tenant_id']!==999 || $m['persona_type']!=='manager'
         || $m['persona_label']!=='Pilot time reviewer' || $m['status']!=='active' || (int)$m['is_primary']!==1
