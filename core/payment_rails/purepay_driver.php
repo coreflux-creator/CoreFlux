@@ -112,7 +112,8 @@ class PurePayRailDriver implements PaymentRailsDriver
             // An existing row is never authority for another provider POST. The
             // original claim may still be executing or its response may be lost.
             $confirmedStates=['submitted','processing','in_transit','initiated','posted','sent','settled','paid','completed','cleared','returned','reversed','cancelled','canceled','void','voided'];
-            if (($billId==='' && $paymentId==='') || !in_array($rawStatus,$confirmedStates,true) || !purepayStoredPaymentEvidence($link)) {
+            if (($billId==='' && $paymentId==='') || !in_array($rawStatus,$confirmedStates,true) || !purepayStoredPaymentEvidence($link)
+                || !purepayPaymentEvidenceOwned(getDB(), $tenantId, $link)) {
                 throw new PaymentRailsOriginateException('This Pure//Pay attempt already exists. Reconcile its bill and payment before another payout; no request was repeated.');
             }
             return [
@@ -393,6 +394,16 @@ class PurePayRailDriver implements PaymentRailsDriver
                 throw new PaymentRailsOriginateException('Pure//Pay result conflicts with the recorded provider identity');
             }
         }
+        $paymentId = (string)($fields['purepay_payment_id'] ?? $current['purepay_payment_id'] ?? '');
+        if ($paymentId !== '') {
+            $owner = $pdo->prepare('SELECT source_ref FROM purepay_payment_links
+                WHERE tenant_id=:t AND purepay_payment_id=:p AND source_ref<>:s LIMIT 1');
+            $owner->execute(['t'=>$tenantId, 'p'=>$paymentId, 's'=>$sourceRef]);
+            if ($owner->fetchColumn() !== false) {
+                throw new PaymentRailsOriginateException('This PurePay payment already belongs to another Core payment. Reconcile both attempts; no receipt was reassigned.');
+            }
+            // The database unique key arbitrates concurrent first bindings.
+        }
         $status=(string)($fields['status']??$current['status']);
         $prior=$this->normalizeStatus((string)$current['status']);$next=$this->normalizeStatus($status);
         if ($current['status']==='settled_failed_review' || ($prior==='returned' && $next!=='returned')
@@ -452,7 +463,8 @@ class PurePayRailDriver implements PaymentRailsDriver
         $stmt = getDB()->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s');
         $stmt->execute(['t'=>$tenantId, 's'=>$sourceRef]);
         $link = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $link && purepayStoredPaymentEvidence($link) ? $this->normalizeStatus((string)$link['status']) : 'unknown';
+        return $link && purepayStoredPaymentEvidence($link) && purepayPaymentEvidenceOwned(getDB(), $tenantId, $link)
+            ? $this->normalizeStatus((string)$link['status']) : 'unknown';
     }
 
     private function readPaymentDetail(string $apiKey, string $billId, string $paymentId): ?array

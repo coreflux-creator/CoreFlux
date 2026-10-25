@@ -13,7 +13,7 @@ require_once __DIR__.'/../modules/ap/lib/ap.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_purepay_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
-foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
+foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql','175_purepay_payment_receipt_owner.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
 foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/ap/migrations/001_init.sql'))as$sql) {
     if(preg_match('/CREATE TABLE IF NOT EXISTS (ap_bills|ap_payments|ap_payment_allocations)\s*\(/',$sql))$pdo->exec($sql);
 }
@@ -47,8 +47,8 @@ $vendor=['id'=>'vendor-1','display_name'=>'Synthetic Vendor','email'=>'vendor@ex
 $item=['external_ref'=>'ap_payment:101','recipient_name'=>'Synthetic Vendor','recipient_ref'=>'vendor:1','recipient_email'=>'vendor@example.test','amount_cents'=>12500,'currency'=>'USD','invoice_number'=>'SYNTH-101'];
 $opts=['tenant_id'=>1,'effective_date'=>'2026-10-21'];
 $driver=new PurePayRailDriver();
-$calls=[];$bills=[];$payments=[];$vendors=[$vendor];$mode='ok';$interleave=null;$preexisting=null;$detailOverride=[];
-$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$calls,&$bills,&$payments,&$vendors,&$mode,&$interleave,&$preexisting,&$detailOverride,$vendor,$pdo,$check){
+$calls=[];$bills=[];$payments=[];$vendors=[$vendor];$mode='ok';$interleave=null;$preexisting=null;$detailOverride=[];$reusedBillId=null;
+$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$calls,&$bills,&$payments,&$vendors,&$mode,&$interleave,&$preexisting,&$detailOverride,&$reusedBillId,$vendor,$pdo,$check){
     $path=parse_url($url,PHP_URL_PATH);$body=$json===null?[]:json_decode($json,true);$calls[]=[$method,$path,$body,$headers];
     if($method==='POST')$check(!$pdo->inTransaction(),'each provider mutation follows a committed durable claim');
     if($interleave!==null){$callback=$interleave;$interleave=null;$callback($method,$path);}
@@ -69,6 +69,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         return ['status'=>200,'body'=>json_encode($new)];
     }
     if($method==='POST' && $path==='/api/v1/bills'){
+        if($reusedBillId!==null)return ['status'=>200,'body'=>json_encode(['bill'=>$bills[$reusedBillId]])];
         $id='bill-'.(count($bills)+1);$bills[$id]=$body+['id'=>$id];
         if($preexisting!==null){$payment='existing-'.count($payments);$payments[$payment]=$preexisting+['id'=>$payment,'bill_id'=>$id];}
         if($mode==='bill_timeout'){ $e=new PurePayApiException('Synthetic lost bill response');$e->outcomeUncertain=true;throw $e; }
@@ -435,5 +436,81 @@ $check($hook($returned,'payment.returned')['status']==='settled_failed_review','
 $pdo->prepare('UPDATE purepay_payment_links SET status="submitted" WHERE source_ref=?')->execute([$item['external_ref']]);
 $cancelled=$confirmedRail; $cancelled['pay_status']='cancelled'; $cancelled['moov_status']='canceled';
 $check($hook($cancelled,'payment.cancelled')['status']==='cancelled','cancellation before settlement projects its distinct state');
+
+// A provider may return its existing bill. Its payment cannot settle a second
+// Core payment merely because the amount, bill and provider detail all match.
+$seedAp(190);$ownerItem=array_replace($item,['external_ref'=>'ap_payment:190']);$send($ownerItem);
+$owner=$link('ap_payment:190');$ownerId=$owner['purepay_payment_id'];
+$payments[$ownerId]['pay_status']='settled';
+$check($driver->getStatusForTenant(1,'purepay:payment:'.$ownerId)==='settled','first receipt owner retains verified settlement');
+$owner=$link('ap_payment:190');$seedAp(191);$secondItem=array_replace($item,['external_ref'=>'ap_payment:191']);
+$reusedBillId=$owner['purepay_bill_id'];$before=$payCount();
+$check($fails(fn()=>$send($secondItem)) && $payCount()===$before,'a second Core payment cannot adopt an already owned provider payment or originate another');
+$second=$link('ap_payment:191');
+$check($second['purepay_payment_id']===null && $second['status']==='needs_review'
+    && $link('ap_payment:190')===$owner,'conflict preserves the original receipt and leaves the second attempt held');
+$held(fn()=>apVoidPayment(1,191,'Synthetic ownership conflict'),'receipt ownership conflict cannot release the second bill reservation');
+$held(fn()=>apClearPayment(1,191,'2026-10-21',null,null),'receipt ownership conflict cannot clear the second AP payment');
+$reusedBillId=null;
+
+// Simulate pre-migration duplicate evidence in this disposable fixture. Both
+// legacy receipts must be refused, and migration must preserve them for review.
+$pdo->exec('ALTER TABLE purepay_payment_links DROP INDEX uq_pppl_payment_owner');
+$pdo->prepare('UPDATE purepay_payment_links SET purepay_payment_id=?,status="settled",response_json=?,last_synced_at=NOW(),last_error=NULL,last_error_json=NULL WHERE tenant_id=1 AND source_ref="ap_payment:191"')
+    ->execute([$ownerId,$owner['response_json']]);
+$check(!purepayPaymentEvidenceOwned($pdo,1,$link('ap_payment:190')) && !purepayPaymentEvidenceOwned($pdo,1,$link('ap_payment:191')),
+    'legacy duplicate receipts do not choose either owner');
+$before=count($calls);
+$check($fails(fn()=>$send($ownerItem)) && $fails(fn()=>$send($secondItem)) && count($calls)===$before,
+    'legacy duplicate receipt cannot replay either Core attempt as successful');
+foreach([190,191]as$id){
+    $held(fn()=>apClearPayment(1,$id,'2026-10-21',null,null),'legacy shared settlement cannot clear either AP reservation');
+}
+$failedEvidence=purepayPaymentEvidence(['id'=>$ownerId,'bill_id'=>$owner['purepay_bill_id'],'status'=>'failed','amount'=>'125.00','currency'=>'USD'],12500,$owner['purepay_bill_id'],$ownerId);
+$pdo->prepare('UPDATE purepay_payment_links SET status="failed",response_json=? WHERE tenant_id=1 AND source_ref IN ("ap_payment:190","ap_payment:191")')
+    ->execute([purepayPaymentReceipt($failedEvidence,'detail')]);
+foreach([190,191]as$id){
+    $held(fn()=>apVoidPayment(1,$id,'Synthetic shared failure'),'legacy shared failure cannot release either AP reservation');
+}
+$pdo->prepare('UPDATE purepay_payment_links SET status="settled",response_json=? WHERE tenant_id=1 AND source_ref IN ("ap_payment:190","ap_payment:191")')
+    ->execute([$owner['response_json']]);
+$migration=coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/175_purepay_payment_receipt_owner.sql'));
+$applyOwnerMigration=static function()use($pdo,$migration):void{foreach($migration as$sql)$pdo->exec($sql);};
+$databaseError=static function(callable $action):int{try{$action();return 0;}catch(PDOException $error){return (int)($error->errorInfo[1]??0);}};
+$legacyRows=$pdo->query('SELECT * FROM purepay_payment_links ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$check($databaseError($applyOwnerMigration)===1062 && $pdo->query('SELECT * FROM purepay_payment_links ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$legacyRows,
+    'migration stops on historical duplicate receipts without rewriting evidence');
+// This is fixture repair only, not automatic production reconciliation.
+$pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id=NULL,status="needs_review" WHERE tenant_id=1 AND source_ref="ap_payment:191"');
+$applyOwnerMigration();$applyOwnerMigration();
+$check(purepayPaymentEvidenceOwned($pdo,1,$owner),'migration is replayable after an explicit fixture conflict repair');
+$check($databaseError(fn()=>$pdo->prepare('UPDATE purepay_payment_links SET purepay_payment_id=? WHERE tenant_id=1 AND source_ref="ap_payment:191"')->execute([$ownerId]))===1062,
+    'database rejects a second owner even when application validation is bypassed');
+
+// Two independent database sessions cannot race the same first receipt binding.
+$otherPdo=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),
+    [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
+$otherPdo->exec('SET SESSION innodb_lock_wait_timeout=1');
+$pdo->prepare('INSERT INTO purepay_payment_links(tenant_id,source_ref,amount_cents,status,request_fingerprint) VALUES(1,"race-owner-a",12500,"creating",?)')
+    ->execute([str_repeat('a',64)]);
+$pdo->prepare('INSERT INTO purepay_payment_links(tenant_id,source_ref,amount_cents,status,request_fingerprint) VALUES(1,"race-owner-b",12500,"creating",?)')
+    ->execute([str_repeat('b',64)]);
+$pdo->beginTransaction();
+try{
+    $pdo->exec('UPDATE purepay_payment_links SET purepay_payment_id="race-receipt" WHERE tenant_id=1 AND source_ref="race-owner-a"');
+    $check($databaseError(fn()=>$otherPdo->exec('UPDATE purepay_payment_links SET purepay_payment_id="race-receipt" WHERE tenant_id=1 AND source_ref="race-owner-b"'))===1205,
+        'second session cannot bind a provider receipt while its first owner is committing');
+    $pdo->commit();
+}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}
+$check($databaseError(fn()=>$otherPdo->exec('UPDATE purepay_payment_links SET purepay_payment_id="race-receipt" WHERE tenant_id=1 AND source_ref="race-owner-b"'))===1062,
+    'committed owner remains exclusive across sessions');
+$otherPdo->exec('UPDATE purepay_payment_links SET purepay_payment_id="RACE-RECEIPT" WHERE tenant_id=1 AND source_ref="race-owner-b"');
+$check($otherPdo->query('SELECT purepay_payment_id FROM purepay_payment_links WHERE source_ref="race-owner-b"')->fetchColumn()==='RACE-RECEIPT',
+    'provider receipt identity remains case sensitive');
+$pdo->prepare('INSERT INTO purepay_payment_links(tenant_id,source_ref,purepay_payment_id,amount_cents,status,request_fingerprint) VALUES(2,"separate-company","race-receipt",12500,"creating",?)')
+    ->execute([str_repeat('c',64)]);
+$check(purepayPaymentEvidenceOwned($pdo,2,['source_ref'=>'separate-company','purepay_payment_id'=>'race-receipt']),
+    'receipt namespace remains isolated by Core company');
+$check((int)$pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn()===0,'receipt ownership checks never post a journal');
 unset($GLOBALS['__purepay_transport']);
 echo "PurePay delivery MariaDB: {$passed} passed\n";

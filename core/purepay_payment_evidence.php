@@ -142,6 +142,21 @@ function purepayStoredPaymentEvidence(array $link): bool
     return $evidence['ok'] && purepayPaymentStatus($evidence['status']) === purepayPaymentStatus((string)($link['status'] ?? ''));
 }
 
+/** A valid receipt cannot be counted against two Core payments, including legacy rows. */
+function purepayPaymentEvidenceOwned(PDO $pdo, int $tenantId, array $link): bool
+{
+    $paymentId = (string)($link['purepay_payment_id'] ?? '');
+    $sourceRef = (string)($link['source_ref'] ?? '');
+    if ($tenantId <= 0 || $paymentId === '' || $sourceRef === '') return false;
+    // Locking reads see current owners even in an existing repeatable-read AP transaction.
+    $locking = $pdo->inTransaction() && $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    $query = $pdo->prepare('SELECT source_ref FROM purepay_payment_links
+        WHERE tenant_id=:t AND purepay_payment_id=:p ORDER BY id LIMIT 2'.($locking ? ' FOR UPDATE' : ''));
+    $query->execute(['t'=>$tenantId, 'p'=>$paymentId]);
+    $owners = $query->fetchAll(PDO::FETCH_COLUMN);
+    return count($owners) === 1 && $owners[0] === $sourceRef;
+}
+
 /** Preserve the original receipt and reservation, but prevent a stale result from authorizing action. */
 function purepayHoldPaymentEvidence(PDO $pdo, int $tenantId, string $sourceRef, string $reason): void
 {

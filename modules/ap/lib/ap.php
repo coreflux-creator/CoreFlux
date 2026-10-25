@@ -1078,6 +1078,9 @@ function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, 
     if (!purepayStoredPaymentEvidence($attempt)) {
         throw new DomainException('This PurePay result lacks verified payment amount and currency. Reconcile it before changing the payment.');
     }
+    if (!purepayPaymentEvidenceOwned($pdo, $tenantId, $attempt)) {
+        throw new DomainException('This PurePay payment is claimed by another Core attempt. Reconcile both records before changing either reservation.');
+    }
     $q = $pdo->prepare('SELECT api_key_ct,status FROM purepay_connections WHERE tenant_id=:t'.($mysql ? ' FOR UPDATE' : ''));
     $q->execute(['t'=>$tenantId]); $connection=$q->fetch(PDO::FETCH_ASSOC);
     $key=$connection ? (string)decryptField($connection['api_key_ct']) : '';
