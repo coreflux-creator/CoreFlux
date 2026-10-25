@@ -138,6 +138,7 @@ function purepayBillConfirm(PDO $pdo,int $tenant,int $actor,int $billId,string $
         if ($local!==$s['core'] || $binding['binding_hash']!==$s['connection_review_hash']) throw new PurePayApiException('The Core bill or connection changed before confirmation.');
         $existing=purepayBillMapping($pdo,$tenant,$billId,true);purepayBillAssertExisting($existing,$s);
         $json=json_encode($s,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+        $changed=!$existing || !hash_equals($existing['review_hash'],$hash);
         if (!$existing) {
             $pdo->prepare('INSERT INTO purepay_bill_mappings
                 (tenant_id,core_bill_id,core_vendor_id,entity_id,origin_hash,organization_id,purepay_bill_id,purepay_vendor_id,review_hash,review_json,reviewed_by,reviewed_at)
@@ -152,8 +153,10 @@ function purepayBillConfirm(PDO $pdo,int $tenant,int $actor,int $billId,string $
         if ($q->fetchColumn()===false) {
             $pdo->prepare('INSERT INTO purepay_bill_mapping_reviews(tenant_id,core_bill_id,review_hash,review_json,reviewed_by,reviewed_at)
                 VALUES(?,?,?,?,?,NOW())')->execute([$tenant,$billId,$hash,$json,$actor]);
-            $audit(['core_bill_id'=>$billId,'provider_bill_id'=>$remoteId,'review_hash'=>$hash]);
         }
+        // Reconfirming a previously seen snapshot is still an audited change
+        // when it replaces a different current review. Only exact replay is silent.
+        if ($changed) $audit(['core_bill_id'=>$billId,'provider_bill_id'=>$remoteId,'review_hash'=>$hash]);
         $pdo->commit();return ['linked'=>true,'review_hash'=>$hash,'payment_authority'=>false,'reservation_created'=>false];
     } catch (PDOException $e) {
         if ($pdo->inTransaction())$pdo->rollBack();

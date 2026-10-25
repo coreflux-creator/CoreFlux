@@ -80,6 +80,10 @@ try {
     $confirm($r);$original=purepayBillMapping($pdo,1,1);$confirm($r);
     $check(purepayBillMapping($pdo,1,1)===$original && count($audits)===1
         && (int)$pdo->query('SELECT COUNT(*) FROM purepay_bill_mapping_reviews')->fetchColumn()===1,'identical confirmation replay preserves the original reviewer and one history record');
+    $remote['status']='processing';$confirm($review());$remote=$baseline;$confirm($review());
+    $check(count($audits)===3 && purepayBillMapping($pdo,1,1)['review_hash']===$original['review_hash']
+        && (int)$pdo->query('SELECT COUNT(*) FROM purepay_bill_mapping_reviews')->fetchColumn()===2,
+        'returning to an earlier snapshot records a new confirmation audit without duplicating snapshot history');
     $check($fails(fn()=>$confirm($review(2),2)) && purepayBillMapping($pdo,1,2)===null,'one provider bill cannot represent two Core bills');
     $remote['id']='bill-b';$check($fails(fn()=>$review(1,'bill-b')),'saved Core bill cannot be retargeted to another provider bill');$remote=$baseline;
     $before=count($calls);$summary=purepayBillSummary($pdo,1,1);
@@ -90,7 +94,7 @@ try {
     $check(!purepayBillSummary($pdo,1,1)['local_review_current'] && $fails(fn()=>$confirm($r)),'rotation invalidates displayed review while preserving the bill identity');
     $confirm($review());$next=purepayBillMapping($pdo,1,1);
     $check($next['purepay_bill_id']===$original['purepay_bill_id'] && $next['purepay_vendor_id']===$original['purepay_vendor_id']
-        && (int)$pdo->query('SELECT COUNT(*) FROM purepay_bill_mapping_reviews')->fetchColumn()===2,'same-company rotation records a new review without replacing original identities or history');
+        && (int)$pdo->query('SELECT COUNT(*) FROM purepay_bill_mapping_reviews')->fetchColumn()===3,'same-company rotation records a new review without replacing original identities or history');
     purepayRevokeConnection(1);$check(purepayBillSummary($pdo,1,1)['linked'] && $fails(fn()=>$review()),'disconnect retains the permanent bill claim and prevents new provider reads');$connect($rotated);
     $failure=true;try{$review();throw new RuntimeException('Expected failure');}catch(PurePayApiException $e){$check(!str_contains($e->getMessage(),'private provider error'),'provider error payload is not exposed');}$failure=false;
 
