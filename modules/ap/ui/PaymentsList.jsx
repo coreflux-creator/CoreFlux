@@ -6,6 +6,7 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import VendorTypeahead from './VendorTypeahead';
+import PurePayPaymentReview from './PurePayPaymentReview';
 import { BookOpen, ChevronLeft, ChevronRight, CircleX, Landmark, RotateCcw, Search, Send } from 'lucide-react';
 
 const statusLabel = (value) => String(value || '—').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
@@ -45,6 +46,7 @@ export default function PaymentsList({ session }) {
   const canCorrectManualPayment = !!data?.can_correct_manual_payment;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
+  const [purepayReview, setPurepayReview] = useState(null);
   const [batching, setBatching]   = useState(false);
   const [batchErr, setBatchErr]   = useState(null);
   const [batchInfo, setBatchInfo] = useState(null);
@@ -101,7 +103,7 @@ export default function PaymentsList({ session }) {
   const [purepayRow, setPurepayRow] = useState({});
   const purepayEligible = (p) => purepayConnected && ['ach', 'plaid'].includes(p.method)
     && String(p.currency || 'USD').toUpperCase() === 'USD'
-    && p.status === 'sent' && !p.rail_external_ref;
+    && p.status === 'sent' && !p.rail_external_ref && !p.purepay_allocation_status;
   const sendViaPurepay = async (p) => {
     if (!confirm(`Pay ${p.vendor_name} ${Number(p.amount).toFixed(2)} ${p.currency} through Pure//Pay now? This releases money from your Pure//Pay wallet.`)) return;
     setPurepayRow(s => ({ ...s, [p.id]: 'busy' }));
@@ -111,6 +113,7 @@ export default function PaymentsList({ session }) {
       await reload();
     } catch (e) {
       setPurepayRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
+      await reload();
     }
   };
   // Eligibility for the per-row "Send via Plaid" button — must be a sent
@@ -120,14 +123,14 @@ export default function PaymentsList({ session }) {
     plaidTransferLinked &&
     p.method === 'plaid' &&
     p.status === 'sent' &&
-    !p.rail_external_ref;
+    !p.rail_external_ref && !p.purepay_allocation_status;
 
   // Eligibility for "Send via Mercury" — sent + not yet attached to any rail
   // + Mercury is connected. Recipient mapping is validated server-side.
   const mercuryEligible = (p) =>
     mercuryConnected &&
     p.status === 'sent' &&
-    !p.rail_external_ref;
+    !p.rail_external_ref && !p.purepay_allocation_status;
 
   const [mercuryRow, setMercuryRow] = useState({});
   const sendViaMercury = async (p) => {
@@ -143,6 +146,7 @@ export default function PaymentsList({ session }) {
 
   // Eligibility for NACHA batch: ach|plaid method, status draft|queued|sent (without rail_external_ref).
   const isOriginatable = (p) =>
+    !p.purepay_allocation_status &&
     ['ach','plaid'].includes(p.method) &&
     Number(p.unallocated_amount) <= 0.005 &&
     (!['draft', 'queued'].includes(p.status) || !createdByCurrentUser(p)) &&
@@ -155,7 +159,7 @@ export default function PaymentsList({ session }) {
     && Number(p.unallocated_amount) <= 0.005 && !createdByCurrentUser(p)
   ));
   const mercurySelected = rows.filter(p => (
-    sel.has(p.id) && p.method === 'mercury' && p.status === 'sent' && !p.rail_external_ref
+    sel.has(p.id) && p.method === 'mercury' && p.status === 'sent' && !p.rail_external_ref && !p.purepay_allocation_status
   ));
   const purepaySelected = rows.filter(p => sel.has(p.id) && purepayEligible(p));
 
@@ -506,7 +510,7 @@ export default function PaymentsList({ session }) {
                     ✓ Queued as {mercuryRow[p.id].ref}
                   </div>
                 )}
-                {purepayEligible(p) && (
+                {purepayEligible(p) && !p.purepay_allocation_status && (
                   <button className="btn btn--primary" style={{ marginLeft: 6 }}
                     onClick={() => sendViaPurepay(p)} disabled={purepayRow[p.id] === 'busy'}
                     data-testid={`ap-send-via-purepay-${p.id}`} title="Release this approved AP payment through Pure//Pay">
@@ -515,6 +519,8 @@ export default function PaymentsList({ session }) {
                 )}
                 {purepayRow[p.id]?.error && <div className="error" data-testid={`ap-send-via-purepay-error-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>{purepayRow[p.id].error}</div>}
                 {purepayRow[p.id]?.ok && <div className="success" data-testid={`ap-send-via-purepay-ok-${p.id}`} style={{ fontSize: 11, marginTop: 4 }}>Submitted via Pure//Pay ({purepayRow[p.id].ref})</div>}
+                {!standaloneAccounting && p.purepay_allocation_status && <button type="button" className="btn btn--ghost" style={{ marginLeft: 6 }}
+                  onClick={() => setPurepayReview(p.id)}>Review PurePay delivery</button>}
                 {canCorrectManualPayment && p.status === 'cleared'
                   && !p.disbursement_rail && !p.rail_external_ref && !p.plaid_transfer_id && (
                     <button className="btn btn--ghost" type="button"
@@ -568,6 +574,7 @@ export default function PaymentsList({ session }) {
       )}
 
       {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} standaloneAccounting={standaloneAccounting} entityId={activeEntityId} />}
+      {purepayReview && <PurePayPaymentReview paymentId={purepayReview} onClose={() => setPurepayReview(null)} onChanged={reload} />}
       {showAllocate && <AllocateModal payment={showAllocate} onClose={() => setShowAllocate(null)} onDone={() => { setShowAllocate(null); reload(); }} />}
       {paymentAction && <PaymentActionModal
         payment={paymentAction.payment}

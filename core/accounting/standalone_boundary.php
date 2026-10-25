@@ -36,7 +36,8 @@ function coreAccountingAllowsApPaymentAction(string $method, string $action, str
 {
     return $environment !== 'coreaccounting'
         || $method !== 'POST'
-        || !in_array($action, ['originate', 'originate_batch', 'send_via_mercury'], true);
+        || !in_array($action, ['originate', 'originate_batch', 'send_via_mercury',
+            'purepay_resume', 'purepay_release', 'purepay_reconcile'], true);
 }
 
 /** Standalone records manual vendor payment preferences, not provider rails. */

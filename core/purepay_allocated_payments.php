@@ -44,6 +44,7 @@ function purepayAllocationSource(PDO $pdo,int $tenant,int $payment,array $item,s
         || !is_int($item['amount_cents']??null) || $item['amount_cents']<=0
         || $item['amount_cents']>9999999999999 || purepayMoneyCents($p['amount'])!==$item['amount_cents'] || ($item['currency']??null)!=='USD'
         || $p['pay_date']!==$date
+        || (!empty($p['rail_external_ref']) && $p['rail_external_ref']!=='purepay:allocation:'.$payment)
         || ($item['external_ref']??null)!=='ap_payment:'.$payment
         || trim((string)($item['recipient_full_name']??$item['recipient_name']??''))!==$p['vendor_name']) {
         throw new PurePayApiException('Review the fully allocated USD AP payment before dispatch.');
@@ -129,6 +130,9 @@ function purepayAllocationPrepare(PDO $pdo,int $tenant,int $payment,array $item,
             (tenant_id,core_payment_id,core_bill_id,origin_hash,organization_id,provider_bill_id,provider_vendor_id,reservation_id,amount_cents,request_hash,request_json)
             VALUES(?,?,?,?,?,?,?,?,?,?,?)')->execute([$tenant,$payment,$a['core_bill_id'],$source['origin_hash'],$source['organization_id'],$a['provider_bill_id'],
                 $a['provider_vendor_id'],$a['reservation_id'],$a['amount_cents'],purepayAllocationHash($a['request']),purepayAllocationJson($a['request'])]);
+        // A response loss must not make this payment appear available on another rail.
+        $pdo->prepare('UPDATE ap_payments SET disbursement_rail="purepay",rail_external_ref=?,rail_status="pending"
+            WHERE tenant_id=? AND id=?')->execute(['purepay:allocation:'.$payment,$tenant,$payment]);
         $result=purepayAllocationParent($pdo,$tenant,$payment);
         $pdo->commit();return $result;
     } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
@@ -197,6 +201,7 @@ function purepayAllocationAggregate(array $parent,array $children): string
         $prepared=$prepared && in_array($state,['unreserved','held'],true);
     }
     if($total!==(int)$parent['amount_cents'])return 'needs_review';
+    if(!empty($parent['release_requested']) && !$released)return 'needs_review';
     return $settled?'settled':($released?'cancelled':($prepared?'prepared':'submitted'));
 }
 
@@ -227,6 +232,10 @@ function purepayAllocationSave(PDO $pdo,int $tenant,int $payment,int $bill,array
             if($q->fetchColumn()!==false)throw new PurePayApiException('This receipt already belongs to a historical Core payment.');
         }
         $status=$verified['payment_status'];$error=null;
+        if($child['provider_state']==='released' && $verified['provider_state']==='held') {
+            // The held response may have been delayed until after cancellation.
+            $pdo->commit();return $parent['status'];
+        }
         if(in_array($child['payment_status'],['settled','returned','failed','cancelled'],true)
             && !in_array($status,['settled','returned','failed','cancelled'],true)) {
             // A delayed pre-settlement response cannot replace the terminal receipt.
@@ -251,6 +260,8 @@ function purepayAllocationHold(PDO $pdo,int $tenant,int $payment,int $bill,bool 
     try {
         $q=$pdo->prepare('SELECT id FROM ap_payments WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$tenant,$payment]);
         $parent=purepayAllocationParent($pdo,$tenant,$payment,true);
+        if(!empty($parent['release_requested']) && in_array($action,['reserve','execute'],true))
+            throw new PurePayApiException('Cancellation has been requested. This payment cannot resume.');
         if($parent){
             $pdo->prepare('UPDATE purepay_payment_allocations SET last_error="Original reservation needs reconciliation",terminal_review=GREATEST(terminal_review,?),updated_at=NOW()
                 WHERE tenant_id=? AND core_payment_id=? AND core_bill_id=?')->execute([$terminalReview?1:0,$tenant,$payment,$bill]);
@@ -297,7 +308,7 @@ function purepayAllocationCall(PDO $pdo,int $tenant,int $payment,int $bill,strin
         $pdo->commit();
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
     $path='/bills/'.rawurlencode($child['provider_bill_id']).'/reservations';
-    $body=$action==='reserve'?json_decode($child['request_json'],true,512,JSON_THROW_ON_ERROR):[];
+    $body=in_array($action,['reserve','release'],true)?json_decode($child['request_json'],true,512,JSON_THROW_ON_ERROR):[];
     if($action!=='reserve')$path.='/'.$child['reservation_id'].'/'.$action;
     try {
         // Provider claim IDs, not the optional response cache, make retry safe.

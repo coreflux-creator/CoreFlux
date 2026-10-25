@@ -27,6 +27,40 @@ if (!coreAccountingAllowsApPaymentAction($method, (string) $action, (string) get
     api_error('Payment-provider origination is not available in CoreAccounting', 403);
 }
 
+if (in_array($action, ['purepay_review', 'purepay_resume', 'purepay_release', 'purepay_reconcile'], true)) {
+    rbac_legacy_require($user, 'ap.view');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('Payment id required', 400);
+    require_once __DIR__ . '/../../../core/purepay_allocation_operations.php';
+    $permitted = rbac_legacy_can($user, 'ap.payment.send');
+    $actor = (int) ($user['id'] ?? 0);
+    try {
+        if ($method === 'GET' && $action === 'purepay_review') {
+            api_ok(['review' => purepayAllocationReview(getDB(), $tid, $id, $actor, $permitted)]);
+        }
+        if ($method !== 'POST' || $action === 'purepay_review') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'ap.payment.send');
+        // Require the app's JSON request and reject cross-origin session writes.
+        $requestOrigin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
+        if (!str_starts_with(strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? '')), 'application/json')
+            || ($requestOrigin !== '' && strcasecmp((string) parse_url($requestOrigin, PHP_URL_HOST),
+                (string) parse_url('https://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST)) !== 0)) {
+            api_error('Use the payment review in Core to perform this action', 403);
+        }
+        if ($action === 'purepay_resume') {
+            $payment = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+            if (!$payment) api_error('Payment not found', 404);
+            apPaymentReleaseGateOrError($tid, $payment, $actor, 'purepay_resume');
+        }
+        $body = api_json_body();
+        $review = purepayAllocationOperate(getDB(), $tid, $id, $actor, $permitted, substr($action, 8),
+            (string) ($body['review_hash'] ?? ''), (string) ($body['reason'] ?? ''));
+        api_ok(['review' => $review]);
+    } catch (\DomainException|\PurePayApiException $e) {
+        api_error($e->getMessage(), 409);
+    }
+}
+
 if ($method === 'GET' && $action === 'correction_check') {
     rbac_legacy_require($user, 'ap.view');
     $id = (int) ($_GET['id'] ?? 0);
@@ -165,6 +199,16 @@ if ($method === 'GET') {
             }
             unset($row);
         }
+    }
+    require_once __DIR__ . '/../../../core/purepay_payment_evidence.php';
+    if ($rows && purepayAllocatedSchemaAvailable(getDB())) {
+        $ids = array_column($rows, 'id');
+        $q = getDB()->prepare('SELECT core_payment_id,status FROM purepay_allocated_payments WHERE tenant_id=? AND core_payment_id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $q->execute(array_merge([$tid], $ids));
+        $deliveries = $q->fetchAll(\PDO::FETCH_KEY_PAIR);
+        foreach ($rows as &$row) $row['purepay_allocation_status'] = $deliveries[$row['id']] ?? null;
+        unset($row);
     }
     $journalIds = array_values(array_unique(array_filter(array_map(
         static fn(array $row): int => (int) ($row['journal_entry_id'] ?? 0), $rows
@@ -357,6 +401,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
 
     // Validate state transitions up-front so we never half-originate a batch.
     foreach ($rows as $r) {
+        apPaymentRequireFreshRailOrError($tid, (int) $r['id']);
         if ($r['status'] === 'sent' && empty($r['rail_external_ref'])) {
             // OK — already sent, just hasn't been originated yet.
         } elseif ($r['status'] === 'draft' || $r['status'] === 'queued') {
@@ -583,6 +628,7 @@ if ($method === 'POST' && $action === 'send_via_mercury') {
     require_once __DIR__ . '/../../../core/mercury_payments.php';
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    apPaymentRequireFreshRailOrError($tid, $id);
     try {
         $instr = mpCreateFromApPayment($tid, $id, $user['id'] ?? null);
     } catch (\Throwable $e) {
@@ -598,6 +644,7 @@ if ($method === 'POST' && $action === 'originate') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['status'] !== 'sent') api_error('Originate requires status=sent', 409);
+    apPaymentRequireFreshRailOrError($tid, $id);
     if (!in_array($row['method'], ['ach','plaid'], true)) api_error('Originate only supports ach/plaid methods', 422);
     if (!empty($row['rail_external_ref']))      api_error('Already originated on rail ' . $row['disbursement_rail'], 409);
     apPaymentReleaseGateOrError($tid, $row, null, 'originate');
@@ -777,6 +824,15 @@ if ($method === 'POST' && $action === 'void') {
         'after' => $voided,
     ]);
     api_ok(['ok' => true]);
+}
+
+function apPaymentRequireFreshRailOrError(int $tenantId, int $paymentId): void
+{
+    require_once __DIR__ . '/../../../core/purepay_payment_evidence.php';
+    if (!purepayAllocatedSchemaAvailable(getDB())) return;
+    $q = getDB()->prepare('SELECT 1 FROM purepay_allocated_payments WHERE tenant_id=? AND core_payment_id=?');
+    $q->execute([$tenantId, $paymentId]);
+    if ($q->fetchColumn()) api_error('This payment has an original PurePay delivery. Open Review PurePay delivery to reconcile, resume or cancel it.', 409);
 }
 
 function apPaymentReleaseGateOrError(int $tenantId, array $payment, ?int $userId, string $surface): void

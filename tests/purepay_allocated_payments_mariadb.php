@@ -7,6 +7,7 @@ if(!$ci&&!$local)throw new RuntimeException('Explicit disposable fixture require
 putenv('COREFLUX_DISABLE_DATABASE=1');putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));
 putenv('COREFLUX_INTEGRATION_INSTANCE_ID=00000000-0000-4000-8000-000000000001');
 require_once __DIR__.'/../core/purepay_allocated_payments.php';
+require_once __DIR__.'/../core/purepay_allocation_operations.php';
 require_once __DIR__.'/../core/migrate.php';
 require_once __DIR__.'/../modules/ap/lib/ap.php';
 require_once __DIR__.'/../core/payment_rails/purepay_driver.php';
@@ -18,10 +19,10 @@ $database='coreflux_allocations_'.getmypid();$pdo->exec('CREATE DATABASE '.$data
 $checks=0;$check=static function(bool $ok,string $label)use(&$checks){if(!$ok)throw new RuntimeException($label);$checks++;echo "PASS $label\n";};
 $fails=static function(callable $fn):bool{try{$fn();return false;}catch(Throwable $e){return true;}};
 $key='fixture-allocation-key';$calls=[];$reservations=[];$executeCount=0;$lose=null;$patch=[];$interleave=null;
-$remoteBills=[];
+$remoteBills=[];$reservationInterleave=null;
 $vendor=['id'=>'vendor-a','organization_id'=>'org-a','display_name'=>'Synthetic supplier','email'=>'supplier@example.test'];
 $context=['contract_version'=>'2026-10-25.1','organization'=>['id'=>'org-a','name'=>'Synthetic company'],'key_scope'=>'write','execution_authority'=>false];
-$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use($pdo,&$calls,&$remoteBills,&$reservations,&$executeCount,&$lose,&$patch,&$interleave,$vendor,$context){
+$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use($pdo,&$calls,&$remoteBills,&$reservations,&$executeCount,&$lose,&$patch,&$interleave,&$reservationInterleave,$vendor,$context){
     if($pdo->inTransaction())throw new RuntimeException('Provider IO inside SQL transaction');
     $path=parse_url($url,PHP_URL_PATH);$body=$json?json_decode($json,true):[];$calls[]=[$method,$path];
     if($interleave){$fn=$interleave;$interleave=null;$fn();}
@@ -32,6 +33,7 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
         $bill=$m[1];$action=$m[3]??'reserve';
         $rid=$m[2]??purepayAllocationHash(['bill_id'=>$bill,'organization_id'=>$body['organization_id'],'core_instance_id'=>$body['core_instance_id'],
             'core_tenant_id'=>$body['core_tenant_id'],'core_payment_id'=>$body['core_payment_id'],'core_bill_id'=>$body['core_bill_id']]);
+        if($reservationInterleave){$fn=$reservationInterleave;$reservationInterleave=null;$fn($action);}
         if($action==='reserve'){
             if(!isset($reservations[$rid]))$reservations[$rid]=['contract_version'=>'2026-10-25.1','organization_id'=>'org-a','bill_id'=>$bill,
                 'reservation_id'=>$rid,'request'=>$body,'request_hash'=>purepayAllocationHash($body),'state'=>'held','payment'=>null];
@@ -43,6 +45,9 @@ $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(
                 'amount'=>intdiv($amount,100).'.'.str_pad((string)($amount%100),2,'0',STR_PAD_LEFT),'currency'=>'USD','gross_cents'=>$amount,
                 'moov_transfer_id'=>'transfer-'.$rid,'moov_status'=>'completed'];
         } elseif($action==='release'){
+            if(!isset($reservations[$rid]))$reservations[$rid]=['contract_version'=>'2026-10-25.1','organization_id'=>'org-a','bill_id'=>$bill,
+                'reservation_id'=>$rid,'request'=>$body,'request_hash'=>purepayAllocationHash($body),'state'=>'released','payment'=>null];
+            if($reservations[$rid]['request']!==$body)throw new RuntimeException('Cancellation must keep the original request');
             if($reservations[$rid]['state']!=='held' && $reservations[$rid]['state']!=='released')throw new RuntimeException('Provider refuses consumed reservation release');
             $reservations[$rid]['state']='released';
         }
@@ -56,7 +61,7 @@ try{
     $check(purepayAllocationHash(['z'=>"caf\u{00e9} / \u{5408}\u{540c} \u{1f600}",
         'a'=>[['vendor_name'=>'A&B / partners','amount_cents'=>12500]],'core_instance_id'=>'00000000-0000-4000-8000-000000000001'])
         ==='8971700621b26d8eeb9dcc40ed5c5ec455c4c45272409666ab4572c34305ccc7','PHP request digest matches the provider Python Unicode and slash contract');
-    foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql','175_purepay_payment_receipt_owner.sql','176_purepay_financial_company.sql','177_purepay_bill_identity.sql','178_purepay_allocated_payments.sql','178_purepay_allocated_payments.sql']as$file)
+    foreach(['146_purepay_rail.sql','163_purepay_attempt_binding.sql','175_purepay_payment_receipt_owner.sql','176_purepay_financial_company.sql','177_purepay_bill_identity.sql','178_purepay_allocated_payments.sql','178_purepay_allocated_payments.sql','179_purepay_allocation_operations.sql','179_purepay_allocation_operations.sql']as$file)
         foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/ap/migrations/001_init.sql'))as$sql)
         if(preg_match('/CREATE TABLE IF NOT EXISTS (ap_bills|ap_vendors_index|ap_payments|ap_payment_allocations)\s*\(/',$sql))$pdo->exec($sql);
@@ -201,6 +206,89 @@ try{
         'allocation receipt identity remains case sensitive');
     $check(!array_filter($calls,static fn($call)=>$call[0]==='POST' && in_array($call[1],['/api/v1/bills','/api/v1/vendors'],true))
         && (int)$pdo->query('SELECT COUNT(*) FROM accounting_journal_entries')->fetchColumn()===0,'dispatch preserves original provider records and never posts journals');
+    $operatorItem=$seed(20);purepayAllocationPrepare($pdo,1,20,$operatorItem,$date);
+    $before=count($calls);$review=purepayAllocationReview($pdo,1,20,8,true);
+    $check($review['can_resume'] && $review['can_release'] && count($review['bills'])===2 && count($calls)===$before,
+        'operator review reads the complete saved bill set without provider IO');
+    $check(!str_contains(json_encode($review),$key) && !str_contains(json_encode($review),'connection_fingerprint'),
+        'operator review does not expose credentials or connection fingerprints');
+    $readOnly=purepayAllocationReview($pdo,1,20,8,false);
+    $check(!$readOnly['can_resume'] && !$readOnly['can_release'] && !$readOnly['can_reconcile']
+        && $fails(fn()=>purepayAllocationOperate($pdo,1,20,8,false,'release',$review['review_hash'],'No authority')),
+        'view permission cannot perform recovery actions');
+    $check($fails(fn()=>purepayAllocationReview($pdo,2,20,8,true)) && count($calls)===$before,
+        'review and operations are scoped to the payment company');
+    $pdo->exec('UPDATE ap_payments SET created_by_user_id=8 WHERE id=20');
+    $creator=purepayAllocationReview($pdo,1,20,8,true);
+    $check(!$creator['can_resume'] && $fails(fn()=>purepayAllocationOperate($pdo,1,20,8,true,'resume',$creator['review_hash'],'Own payment')),
+        'creator cannot resume their own payment even through the direct operation function');
+    $pdo->exec('UPDATE ap_payments SET created_by_user_id=7 WHERE id=20');
+    $check($fails(fn()=>purepayAllocationOperate($pdo,1,20,8,true,'release',$review['review_hash'],'Stale review'))
+        && (int)$pdo->query('SELECT COUNT(*) FROM purepay_allocation_operations')->fetchColumn()===0 && count($calls)===$before,
+        'stale displayed evidence cannot authorize an operation or provider call');
+    $review=purepayAllocationReview($pdo,1,20,8,true);$before=$executeCount;
+    $out=purepayAllocationOperate($pdo,1,20,8,true,'release',$review['review_hash'],'Duplicate draft detected');
+    $check($out['status']==='cancelled' && $out['release_requested'] && !$out['can_resume'] && $executeCount===$before
+        && count($out['history'])===2 && $guard(20,'void'),'cancelling never-reserved bills records every original release and an immutable audit');
+    $check($pdo->query('SELECT rail_external_ref FROM ap_payments WHERE id=20')->fetchColumn()==='purepay:allocation:20',
+        'the AP payment retains its original rail claim after cancellation');
+    $check($fails(fn()=>purepayAllocationCall($pdo,1,20,200,'reserve')) && $fails(fn()=>purepayAllocationCall($pdo,1,20,200,'execute'))
+        && $executeCount===$before,'permanent cancellation blocks both a reserve retry and execution');
+    $child=purepayAllocationChildren($pdo,1,20)[0];$delayed=$reservations[$child['reservation_id']];$delayed['state']='held';
+    purepayAllocationSave($pdo,1,20,200,$delayed);
+    $check(purepayAllocationParent($pdo,1,20)['status']==='cancelled' && $guard(20,'void'),
+        'a late held receipt cannot reopen a cancelled original request');
+    $operatorItem=$seed(21);purepayAllocationPrepare($pdo,1,21,$operatorItem,$date);$review=purepayAllocationReview($pdo,1,21,8,true);$lose='release';
+    $out=purepayAllocationOperate($pdo,1,21,8,true,'release',$review['review_hash'],'Stop before payment');
+    $check($out['status']==='needs_review' && $out['release_requested'] && !$out['can_resume'] && $fails(fn()=>$guard(21,'void')),
+        'lost cancellation response retains the cancellation intent and AP hold');
+    $out=purepayAllocationOperate($pdo,1,21,8,true,'release',$out['review_hash'],'Finish original cancellation');
+    $check($out['status']==='cancelled' && count($out['history'])===4 && $guard(21,'void'),
+        'cancellation retry confirms the original releases with separate audit events');
+    $operatorItem=$seed(22,1);purepayAllocationPrepare($pdo,1,22,$operatorItem,$date);$review=purepayAllocationReview($pdo,1,22,8,true);
+    $pdo->exec("CREATE TRIGGER reject_recovery_audit BEFORE INSERT ON purepay_allocation_operations FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic audit failure'");
+    $before=count($calls);
+    $check($fails(fn()=>purepayAllocationOperate($pdo,1,22,8,true,'release',$review['review_hash'],'Audit required'))
+        && !purepayAllocationParent($pdo,1,22)['release_requested'] && count($calls)===$before,
+        'audit failure rolls back cancellation and prevents every provider call');
+    $pdo->exec('DROP TRIGGER reject_recovery_audit');
+    $reservationInterleave=static function($action)use($pdo,$check){
+        $check($action==='reserve','race occurs after local authorization and before the delayed reserve');
+        $review=purepayAllocationReview($pdo,1,22,8,true);
+        purepayAllocationOperate($pdo,1,22,8,true,'release',$review['review_hash'],'Cancel while reservation is in flight');
+    };
+    $before=$executeCount;purepayAllocationCall($pdo,1,22,220,'reserve');
+    $check(purepayAllocationParent($pdo,1,22)['status']==='cancelled' && $executeCount===$before && $guard(22,'void'),
+        'cancellation that wins the in-flight reserve race cannot later execute');
+    $operatorItem=$seed(23);purepayAllocationPrepare($pdo,1,23,$operatorItem,$date);$review=purepayAllocationReview($pdo,1,23,8,true);$before=$executeCount;
+    $out=purepayAllocationOperate($pdo,1,23,8,true,'resume',$review['review_hash'],'Approved independent review');
+    $check($out['status']==='settled' && $executeCount===$before+2 && count($out['history'])===2
+        && !$out['can_resume'] && !$out['can_release'],'authorized resume uses both immutable original allocations exactly once');
+    $out=purepayAllocationOperate($pdo,1,23,8,true,'reconcile',$out['review_hash'],'Confirm receipt');
+    $check($out['status']==='settled' && $executeCount===$before+2 && count($out['history'])===4,
+        'audited refresh reconciles saved claims without resending money');
+    $operatorItem=$seed(24,1);purepayAllocationPrepare($pdo,1,24,$operatorItem,$date);purepayAllocationCall($pdo,1,24,240,'reserve');
+    $review=purepayAllocationReview($pdo,1,24,8,true);$lose='execute';$before=$executeCount;
+    $out=purepayAllocationOperate($pdo,1,24,8,true,'resume',$review['review_hash'],'Continue approved original request');
+    $check($out['status']==='needs_review' && !$out['can_resume'] && $executeCount===$before+1,
+        'uncertain execution requires reconciliation before another resume');
+    $out=purepayAllocationOperate($pdo,1,24,8,true,'reconcile',$out['review_hash'],'Recover lost result');
+    $check($out['status']==='settled' && $executeCount===$before+1,'lost execution is recovered using the original receipt without a second attempt');
+    $operatorItem=$seed(25,1);purepayAllocationPrepare($pdo,1,25,$operatorItem,$date);purepayAllocationCall($pdo,1,25,250,'reserve');
+    $review=purepayAllocationReview($pdo,1,25,8,true);$child=purepayAllocationChildren($pdo,1,25)[0];
+    $reservationInterleave=static function($action)use($pdo,$check,$child,&$reservations){
+        $check($action==='release' && (bool)purepayAllocationParent($pdo,1,25)['release_requested']
+            && (int)$pdo->query('SELECT COUNT(*) FROM purepay_allocation_operations WHERE core_payment_id=25 AND phase="requested"')->fetchColumn()===1,
+            'the cancellation flag and operator intent are durable before provider cancellation');
+        // A previously authorized execution wins the provider compare-and-set.
+        $reservations[$child['reservation_id']]['state']='executing';
+    };
+    $out=purepayAllocationOperate($pdo,1,25,8,true,'release',$review['review_hash'],'Cancel racing execution');
+    $check($out['status']==='needs_review' && $out['release_requested'] && !$out['can_resume'] && $fails(fn()=>$guard(25,'void')),
+        'execution that wins the provider race keeps Core held instead of voiding or freeing money');
+    $out=purepayAllocationOperate($pdo,1,25,8,true,'reconcile',$out['review_hash'],'Inspect original in-flight attempt');
+    $check($out['status']==='needs_review' && !$out['can_release'] && !$out['can_resume'],
+        'reconciliation of an executing cancelled request preserves the hold');
     $pdo->exec('UPDATE purepay_connections SET key_scope="read_only" WHERE tenant_id=1');$before=$executeCount;$callsBefore=count($calls);
     $check($fails(fn()=>purepayAllocationCall($pdo,1,4,40,'execute')) && $executeCount===$before
         && !array_filter(array_slice($calls,$callsBefore),static fn($call)=>$call[0]==='POST'),'read-only connection cannot execute');
