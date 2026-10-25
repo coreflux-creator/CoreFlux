@@ -65,6 +65,7 @@ require_once $package . '/core/migration_hash.php';
 require_once $package . '/core/accounting/schema_contract.php';
 require_once $package . '/deploy/full_core_migration_plan.php';
 require_once $package . '/deploy/staffing_directory_inventory.php';
+require_once $package . '/deploy/staffing_pilot_alignment.php';
 $db = getDB();
 if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) {
     throw new RuntimeException('Production database does not match the app identity.');
@@ -124,6 +125,11 @@ try {
         'candidate_bundle' => $candidateBundle[0] ?? null, 'client_counts' => $clients,
         'staffing_directories' => fullCoreStaffingDirectoryInventory($db, ['Thunderhawk', "charge d'Affaires"]),
         'thunderhawk_pilot' => fullCoreStaffingPilotInventory($db, [
+            'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2, 'accounting_directory_id'=>2,
+            'person_id'=>358, 'placement_id'=>864,
+            'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],
+        ]),
+        'thunderhawk_stored_field_alignment' => fullCoreStaffingPilotAlignment($db, [
             'tenant_id'=>2, 'workspace_name'=>'Thunderhawk', 'person_directory_id'=>2, 'accounting_directory_id'=>2,
             'person_id'=>358, 'placement_id'=>864,
             'jobdiva_ids'=>['person'=>'18424007240614','placement'=>'57862243','job'=>'27926305'],

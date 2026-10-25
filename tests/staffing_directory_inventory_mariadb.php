@@ -4,6 +4,7 @@ $ci=getenv('GITHUB_ACTIONS')==='true'&&getenv('CI')==='true';
 $local=getenv('COREFLUX_DELIVERY_LOCAL_FIXTURE')==='1'&&in_array('--confirm-disposable-fixture',$argv,true)&&(string)getenv('COREFLUX_DELIVERY_TEST_PASSWORD')!=='';
 if (!$ci&&!$local) throw new RuntimeException('Explicit disposable fixture configuration required');
 require_once __DIR__.'/../deploy/staffing_directory_inventory.php';
+require_once __DIR__.'/../deploy/staffing_pilot_alignment.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db='coreflux_directory_inventory_'.($ci?'ci':gmdate('YmdHis').'_'.getmypid());
 $pdo->exec('CREATE DATABASE '.$db); $pdo->exec('USE '.$db);
@@ -32,6 +33,12 @@ try {
     $pdo->exec('UPDATE people SET entity_id=88 WHERE id=1');
     $pilot=['tenant_id'=>11,'workspace_name'=>'Synthetic child','person_directory_id'=>10,'accounting_directory_id'=>11,'person_id'=>1,'placement_id'=>1,
         'jobdiva_ids'=>['person'=>'candidateAlpha','placement'=>'start001','job'=>'job001']];
+    $pdo->exec('ALTER TABLE external_entity_mappings ADD COLUMN payload_snapshot JSON, ADD COLUMN last_synced_at DATETIME');
+    $snapshot=['_jd_contract'=>['start_id'=>'start001','branch'=>'Reviewed division','workers_comp_class'=>'0',
+        'worksite_country'=>'United States','start_date'=>'05/18/2026','end_date'=>null,'end_date_present'=>true,
+        'engagement_type'=>'w2','placement_status'=>'active','private_sentinel'=>'DO-NOT-EMIT-WORKER-DATA']];
+    $s=$pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=:p,last_synced_at="2026-10-24 12:00:00" WHERE tenant_id=11 AND internal_entity_type="placement"');
+    $s->execute(['p'=>json_encode($snapshot)]);
     $pdo->exec('SET TRANSACTION READ ONLY'); $pdo->beginTransaction();
     $result=fullCoreStaffingDirectoryInventory($pdo,['Synthetic child']); $row=$result['workspaces'][0];
     $check($result['status']==='available'&&count($result['workspaces'])===1&&(int)$row['id']===11,'only the explicitly named pilot workspace is reported');
@@ -70,16 +77,55 @@ try {
     $invalid=$pilot; $invalid['placement_id']='1'; $rejected=false;
     try { fullCoreStaffingPilotInventory($pdo,$invalid); } catch (InvalidArgumentException $e) { $rejected=true; }
     $check($rejected,'ambiguous numeric input is rejected before querying');
+    $alignment=fullCoreStaffingPilotAlignment($pdo,$pilot);
+    $check($alignment['status']==='compared'&&$alignment['fields']['branch']==='matches_stored_source',
+        'read-only alignment compares a verified assignment snapshot with current values');
+    $check($alignment['fields']['end_date']==='matches_explicit_open_end',
+        'explicit source open end is distinguished from missing end-date evidence');
+    $check($alignment['fields']['workers_comp_class']==='source_value_unrecognized',
+        'source WC zero does not certify a compensation class');
+    $check($alignment['fields']['start_date']==='core_column_unavailable'&&$alignment['source_last_synced_at']==='2026-10-24 12:00:00',
+        'missing Core schema and stored source freshness remain visible');
+    $check(!$alignment['records_changed']&&!$alignment['source_refreshed']
+        &&!str_contains(json_encode($alignment),'DO-NOT-EMIT')&&!str_contains(json_encode($alignment),'Reviewed division'),
+        'alignment emits no source values or false live-refresh evidence');
+    $current=['branch'=>'Core override','workers_comp_class'=>'8810','worksite_country'=>'US','worksite_city'=>null,
+        'worksite_state'=>'NJ','start_date'=>'2026-05-18','end_date'=>'2026-12-31','engagement_type'=>'w2','status'=>'active'];
+    $comparison=fullCorePilotSnapshotFieldComparison($current,$snapshot,'start001');
+    $check($comparison['fields']['branch']==='differs_from_stored_source', 'Core override is reported as a difference without proposing an overwrite');
+    $check($comparison['fields']['worksite_country']==='matches_stored_source'&&$comparison['fields']['start_date']==='matches_stored_source',
+        'recognized country aliases and explicit dates compare canonically');
+    $check($comparison['fields']['end_date']==='differs_from_explicit_open_end', 'obsolete Core end date differs from an explicit source open end');
+    $check($comparison['fields']['worksite_city']==='source_value_missing'&&$comparison['fields']['worksite_state']==='source_value_missing',
+        'missing source data cannot be treated as a verified match');
+    $conflicted=$snapshot; $conflicted['_jd_contract']['classification_review']=['status'=>'conflict'];
+    $check(fullCorePilotSnapshotFieldComparison($current,$conflicted,'start001')['fields']['engagement_type']==='source_classification_needs_review',
+        'matching classification text cannot hide conflicting source classification evidence');
+    $bad=$snapshot; $bad['_jd_contract']['start_date']='02/30/2026';$bad['_jd_contract']['worksite_country']='United nonsense';
+    $badComparison=fullCorePilotSnapshotFieldComparison($current,$bad,'start001');
+    $check($badComparison['fields']['start_date']==='source_value_unrecognized'&&$badComparison['fields']['worksite_country']==='source_value_unrecognized',
+        'invalid source dates and countries are not normalized into valid matches');
+    $bad=$snapshot;unset($bad['_jd_contract']['end_date_present']);
+    $check(fullCorePilotSnapshotFieldComparison($current,$bad,'start001')['fields']['end_date']==='source_value_missing',
+        'a null end date without presence evidence is not an explicit open end');
+    $check(fullCorePilotSnapshotFieldComparison($current,$snapshot,'START001')['status']==='contract_assignment_mismatch',
+        'source contract identity requires the exact opaque assignment ID');
+    $check(fullCorePilotSnapshotFieldComparison($current,[],'start001')['status']==='contract_unavailable',
+        'missing source contract is not inferred from other records');
+    $check(fullCoreStaffingPilotAlignment($pdo,array_replace($pilot,['person_id'=>4]))['status']==='identity_not_verified',
+        'field comparison cannot bypass the original person and placement identity check');
     $pdo->rollBack();
     $pdo->exec("UPDATE placements SET accounting_entity_id=77,workers_comp_class='8810' WHERE id=1");
     $pdo->exec("UPDATE placements SET jobdiva_job_id='job002' WHERE id=1");
     $pdo->exec('UPDATE people SET entity_id=77 WHERE id=1');
     $pdo->exec("UPDATE core_record_numbers SET canonical_record_id=99 WHERE entity_type='placement'");
-    $pdo->exec("INSERT INTO external_entity_mappings VALUES(11,'jobdiva','person',3,'candidateAlpha')");
+    $pdo->exec("INSERT INTO external_entity_mappings(tenant_id,source_system,internal_entity_type,internal_entity_id,external_id) VALUES(11,'jobdiva','person',3,'candidateAlpha')");
     $changed=fullCoreStaffingPilotInventory($pdo,$pilot);
     $check($changed['placement_fields']['accounting_entity_id']==='present'&&$changed['placement_fields']['workers_comp_class']==='present','nonempty dimensions report presence without certifying their correctness');
     $check($changed['persisted_numbers']['placement']==='alias_requires_review','aliased record is not silently accepted as the canonical pilot');
     $check($changed['jobdiva_identity']['person']['status']==='mismatch_or_ambiguous','conflicting reverse mapping is not accepted');
+    $check(fullCoreStaffingPilotAlignment($pdo,$pilot)['status']==='identity_not_verified',
+        'ambiguous source mapping blocks all field comparison');
     $check($changed['jobdiva_identity']['job']['status']==='mismatch','a different source job cannot be inferred from the matching placement identity');
     $check($changed['employer_references']['placement']==='active_in_expected_directory'
         &&$changed['employer_references']['person']==='active_in_expected_directory','both employer reference paths check the active entity in the explicit accounting owner');
