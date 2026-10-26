@@ -28,13 +28,15 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
-The revised candidate `cab0ded` passes the independently reproduced original
+The revised candidate `a0a2406` passes the independently reproduced original
 import, company-scoped invoice, credit selection/application and payer workflow.
-Two additional explicit-conflict cases remain: an older invoice can resolve to a
-local customer whose provider ID contradicts its reference, and a partially
-recorded company can enter that same fallback. Both were reproduced in the actual
+It also rejects two explicit-conflict cases found in its predecessor `cab0ded`:
+an older invoice whose provider reference contradicts its local customer, and an
+invoice with partially recorded company provenance. These checks use the actual
 application with an in-memory database, no startup and zero external IO. The
-release owner is correcting that boundary; this candidate is not staged.
+dedicated Core customer contract files are unchanged by this correction. Exact
+hosted acceptance and the separate deployment review remain open; it is not staged.
+Evidence: `deploy/purepay-customer-correction-review-20261026.json`.
 
 **Publication is held after independent review.** Candidate `a83819f` retains its
 236 passing local backend checks, but additional actual-application reproductions
