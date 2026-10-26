@@ -28,6 +28,31 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
+**Publication is held after independent review.** Candidate `a83819f` retains its
+236 passing local backend checks, but additional actual-application reproductions
+found a release-breaking legacy billing transition: bare QuickBooks customer IDs
+would lose write access, new invoice imports lack company/environment provenance,
+confirmed customers cannot use credits against those invoices, and the payer
+fallback can create a duplicate customer. The PurePay release owner is correcting
+these paths in a separate candidate based on `a83819f`. Historical provider IDs
+must be reviewed without assigning their ownership from today's connection.
+
+The exact sign-in source `480cf149` is now published as `ba2986f`, and its shared
+preview was restored before the customer source-only check. That check stopped
+before any tests ran because the first disposable Mongo database filled `/app`.
+The owned fixture was stopped and removed. Candidate source, shared source/config,
+Git state and service states were verified unchanged. Replacement test wrappers
+are prepared locally to keep databases, copied test source, builds and caches in
+`/tmp`; they have not been run against the forthcoming corrected candidate.
+
+Read-only Core preflight confirmed that simulation client `CL-1` still maps to
+PurePay customer `cus_2851af69d9` through delivered link 8. There are no new customer
+creation attempts, and delivery remains disabled. Hosted acceptance must preserve
+that existing identity and use a separate fictional client for new creation.
+Evidence: `deploy/purepay-customer-review-hold-20261026.json`.
+
+The following records describe earlier local acceptance, not publication approval.
+
 The latest combined customer candidate is
 `a83819fe86d25f1d83f7aabfeb079d251df435f5`. Review reproduced two cases where
 QuickBooks linking succeeded after a native deletion/merge had already acquired

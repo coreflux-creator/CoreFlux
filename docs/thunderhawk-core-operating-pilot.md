@@ -1,3 +1,25 @@
+## October 26 customer review and preview recovery
+
+The Quanta worker page still shows demo P-15 / PL-13 with all three synthetic
+onboarding requirements approved. The prior Core intake/review/return receipt
+remains the evidence; no new submission or real employment approval occurred.
+
+The customer candidate a83819f is held after independent actual-app review found
+legacy QuickBooks billing, invoice provenance, credit selection and payer duplicate
+failures. The PurePay release owner is correcting a separate candidate. The live
+sign-in release is verified at source 480cf149 / publisher ba2986f.
+
+Hosted customer tests stopped before execution because the first disposable Mongo
+fixture exhausted /app storage. Its process and directory were cleaned up; shared
+source, configuration, Git and service states match the preserved baseline. The
+next isolated check will put temporary databases, source and builds in /tmp.
+
+Core's read-only simulation preflight confirms CL-1 retains provider customer
+cus_2851af69d9, with zero new customer attempts and customer delivery disabled.
+No customer publication, credential change, payroll/payment, or Core cutover was
+performed. Cloudways ticket 999748 remains open without a human procedure response.
+Evidence: deploy/purepay-customer-review-hold-20261026.json.
+
 ## October 26 QuickBooks/native customer race corrected locally
 
 Further combined-source review reproduced QuickBooks linking racing with native deletion or merge: both operations could succeed and leave a dangling link. PurePay candidate a83819fe86d25f1d83f7aabfeb079d251df435f5 now shares the durable native-ID protection across Core, QuickBooks selection and saved binding/import recovery. It rechecks original native rows and changed mappings before provider access or binding writes.
