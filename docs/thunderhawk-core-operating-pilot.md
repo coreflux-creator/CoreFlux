@@ -1,3 +1,15 @@
+## Scoped customer exchange installed in Core staging - October 26, 2026
+
+Read-only production preflight 40346520387 completed for the same candidate. It found 77 pending migrations and three applied migration variants retained by the reviewed plan, with no migration-plan blockers. Fresh fingerprints for nine differing runtime/migration files all match known repository history; preservation review, current backup/recovery, web/worker controls and explicit production cutover authorization still apply. Production remained unchanged. Evidence: `deploy/core-production-preflight-20261026.json`.
+
+Core staging now runs `81779d0d8ec1831140019f0a78e394d76890d0a7`. All nine CI jobs passed in 40345346110, including 32 customer identity/recovery checks, 49 disposable-MariaDB delivery checks, and nine focused UI checks. Deployment 40345947763 and standard staging acceptance passed. Six installed runtime hashes match the committed build; a fresh runtime check confirms customer creation remains disabled. Evidence: `deploy/purepay-customer-core-staging-20261026.json`.
+
+The native Core connection now has a version-gated client review/create/recovery workflow. It preserves the installation/directory/client-number namespace, checks the existing Core link ledger first, retains generated provider IDs, and recovers lost responses through an exact read without another write. The dedicated connection never falls back to general customer APIs or the separate AP credential. Successful replay snapshots are followed by a current identity read; banking, QuickBooks linking, invoice actions and payroll execution are outside this customer operation.
+
+The matching PurePay scoped routes and new capability are agreed but not yet implemented or deployed. The provider does not advertise the required contract, so this panel cannot activate against its older runtime. Fixture tests and a Core staging install do not establish a hosted customer round trip or actual Thunderhawk acceptance. Full production cutover, actual pilot source/commercial and worker/time evidence, and financial-result acceptance remain open.
+
+The separate Thunderhawk API-key rotation completed on October 25: the old key ending q9eE was revoked, replacement be2c passed a subsequent Core connection probe, Core remains read-only, and the webhook was preserved. This supersedes pending key-rotation statements in older checkpoints below. The synthetic payroll round trip and cancellation below are also complete; neither proves the actual Thunderhawk workflow. No production runtime, real financial execution or Arabella change occurred in this staging release.
+
 ## Synthetic payroll round trip accepted - October 25, 2026
 
 The authorized Acme / Core simulation 999 / Meridian demo completed source reservation, native PurePayroll held-draft creation, Core result reconciliation and permanent cancellation. P-15 / PL-13 retained the original October 19 Quanta time, eight regular hours and USD 30 hourly snapshot, producing USD 240 gross. The native UI used an October 30 pay date and the existing biweekly demo group. This supersedes earlier pending demo-key and held-result checkpoints below.

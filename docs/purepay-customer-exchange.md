@@ -30,6 +30,10 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 The matching PurePay scoped routes/capability were agreed with its owner but are not yet implemented or deployed at this checkpoint. Core transport and UI are implemented against fixtures. Nothing here establishes hosted acceptance or authorizes enabling a production key, making real financial entries, or publishing a production cutover.
 
+Core commit `81779d0d8ec1831140019f0a78e394d76890d0a7` passed all nine CI jobs (40345346110) and is installed in isolated staging (40345947763). The runtime flag is verified false. Thirty-two contract checks, 49 database checks and nine focused UI checks passed. Evidence: `deploy/purepay-customer-core-staging-20261026.json`.
+
+Read-only production preflight 40346520387 found 77 pending migrations and a reviewed plan retaining three deployed migration variants, with no unresolved migration-plan blockers. Nine runtime/migration files differ from both the comparison base and candidate; fresh fingerprints match known repository history. This is provenance, not permission to replace them. Fresh backup/recovery, web/worker controls and cutover authorization remain required. Evidence: `deploy/core-production-preflight-20261026.json`.
+
 Validation covers identity namespace separation, request/response field boundaries, scoped company ownership, held response-loss recovery, source/access drift, legacy link adoption, duplicate identity recovery, audit rollback, UI confirmation, company switching and repeated clicks. The database suite uses disposable MariaDB with an in-process provider fixture; it cannot prove real PurePay route behavior. Hosted provider implementation and cross-application acceptance remain required before activation.
 
 Relevant checks: `tests/purepay_customer_contract_smoke.php`, `tests/purepay_customer_inputs_mariadb.php`, `dashboard/tests/pureCustomerInputReview.test.mjs`, and `dashboard/tests/purePayCoreContracts.test.mjs`.

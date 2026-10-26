@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-26",
+  "kind": "scoped_core_customer_consumer_staging_acceptance",
+  "runtime_commit": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+  "ci": {
+    "run_id": 40345346110,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40345346110",
+    "conclusion": "success",
+    "jobs_passed": 9
+  },
+  "deployment": {
+    "run_id": 40345947763,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40345947763",
+    "scope": "isolated_full_core_staging",
+    "conclusion": "success",
+    "standard_staging_acceptance": "passed"
+  },
+  "validation": {
+    "identity_and_recovery_contract_checks": 32,
+    "disposable_mariadb_delivery_checks": 49,
+    "focused_ui_component_checks": 9,
+    "provider_transport": "in_process_fixtures_only",
+    "dashboard_build": "passed",
+    "hook_lint": "no_errors_existing_warnings",
+    "six_installed_runtime_hashes_match_commit": true,
+    "runtime_identity_configured": true,
+    "runtime_customer_delivery_enabled": false
+  },
+  "runtime_hashes": {
+    "core/integrations/purepay_customer_contract.php": "1cb43f4757c5627e1f0081b93400edf18b1817c3c894f378408f0a93fcb225bd",
+    "core/integrations/purepay_customer_inputs.php": "c0fdd090ca102f4d38eaadb4c8349ba60e57778480251a072647a21c4bec8419",
+    "api/purepay_core.php": "40cdeb0c7d88558e9b3e27f26201ce6cf0635b86a82834208de157bb87e67b8b",
+    "core/integrations/delivery.php": "afcdcd0df0d3e99a022afd127a941a48a977c88714800a87b8cc2b11cdbb9632",
+    "core/integrations/purepay_core.php": "8791718a0b45a49d2a7f046f7bb35e6c2ce9b5ca7351ee944e675bb979fe010e",
+    "index.html": "f2624c15168063ff7cf8c07f6326171791813fed9c7d9000fec2a69af4224bbb"
+  },
+  "provider_contract": {
+    "version": "2026-10-26.1",
+    "scoped_routes_agreed_with_owner": true,
+    "provider_implementation_confirmed": false,
+    "provider_hosted_acceptance": false,
+    "general_customer_api_fallback": false,
+    "ap_credential_fallback": false
+  },
+  "boundaries": {
+    "production_runtime_changed": false,
+    "actual_thunderhawk_business_records_changed": false,
+    "provider_customer_records_changed": false,
+    "credentials_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "full_thunderhawk_round_trip_proven": false
+  },
+  "remaining": [
+    "Implement and verify the matching dedicated Core customer routes in PurePay.",
+    "Run hosted customer creation, existing-link adoption, response-loss and isolation acceptance before activation.",
+    "Complete actual Thunderhawk source/commercial evidence, worker/onboarding and independently reviewed time workflows.",
+    "Verify actual pilot payroll and financial-result exchange with execution held.",
+    "Resolve production release prerequisites and obtain required cutover authorization."
+  ]
+}
