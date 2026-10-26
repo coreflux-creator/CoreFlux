@@ -1,3 +1,38 @@
+## October 26 native demo customer creation and recovery verified
+
+The human completed the approved Meridian demo key replacement. Core's existing
+company pairing is verified at revision 5; only customer creation was added to
+the existing permissions. The previous demo key remains active. Synthetic CL-2
+/ CO-709 now maps to customer `cus_07d433e2de0384bb516d13dea8eed6f7` through
+native deliveries 22 and 23. The original CL-1 mapping remains intact. The
+browser shows both synthetic customers.
+
+The provider created one customer. Core held the deliberately interrupted local
+audit as uncertain, reconciled it, and reused the original attempt on replay.
+Two test-helper errors were corrected: binary history fingerprinting before any
+customer write, then link-send argument order after creation/recovery. The final
+continuation preserved 333 local protected sets and the other provider records;
+that proof does not cover an independently saved baseline before initial creation.
+Network-response loss was not injected. Persistent delivery settings were restored;
+no payroll, payment, invoice or production action occurred.
+
+The exact combined PurePay candidate 0a053481 was restored after testing: all
+1,012 managed paths, protected settings, Git state, modes and prior service states
+matched. Its scheduler unexpectedly restarted during the test. The actual schedule
+targeted this preview at 00:00 and 11:00 UTC, outside the test window. Preserved
+logs contain zero cron requests and the database has zero new cron-run receipts;
+both handlers also reject review mode before launching work. The restart initiator
+is unknown, and this is not a provider-wide financial mutation audit. The shared
+host was released at 22:25 UTC with that limitation and the private logs preserved.
+
+Core's field dictionary now describes all five customer source mappings and all
+eight outbound fields, including the fully scoped CL- identity. Its metadata grants
+no sync authority. Six local contract suites passed 236 checks. This dictionary
+change is not yet deployed; staging remains on 6613a8e4. Actual Thunderhawk
+acceptance, financial reconciliation, supported production recovery and an explicit
+cutover remain open. Evidence: deploy/purepay-native-customer-acceptance-20261026.json.
+
+
 ## October 26 workflow correction installed and preserved in staging
 
 Core staging now runs `6613a8e42eedd52b87fb83676be61cb4dbeee0e0`. All nine

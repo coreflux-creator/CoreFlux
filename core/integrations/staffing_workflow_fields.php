@@ -14,7 +14,7 @@ function staffingWorkflowPayloadFields(array $columns): array
     $rows = [];
     $add = static function (string $workflow, string $container, string $storagePrefix, string $provider,
         string $route, string $direction, string $version, string $evidence, array $fields,
-        string $owner, string $policy, string $remotePrefix = '') use (&$rows, $columns): void {
+        string $owner, string $policy, string $remotePrefix = '', ?string $sensitivity = null) use (&$rows, $columns): void {
         foreach ($fields as $path => [$type, $definition]) {
             $storagePath = $storagePrefix . $path;
             $contracts = array_fill_keys(['jobdiva', 'quanta', 'purepay', 'purepayroll'], [
@@ -34,7 +34,7 @@ function staffingWorkflowPayloadFields(array $columns): array
                 'core_schema_status'=>isset($columns[$container]) ? 'verified_container_present' : 'container_unverified',
                 'definition'=>$definition, 'definition_status'=>'reviewed_core_definition',
                 'owner'=>$owner, 'disposition'=>$direction==='core_to_quanta' ? 'specialized_workflow' : 'restricted',
-                'sensitivity'=>$provider==='purepayroll' ? 'payroll_financial' : ($direction==='core_to_quanta' ? 'permissioned_portal_projection' : 'worker_evidence'),
+                'sensitivity'=>$sensitivity ?? ($provider==='purepayroll' ? 'payroll_financial' : ($direction==='core_to_quanta' ? 'permissioned_portal_projection' : 'worker_evidence')),
                 'write_policy'=>'specialized_workflow_only', 'required_stage'=>$workflow,
                 'missing_value_policy'=>'validator_rejects_missing_required_fields',
                 'null_policy'=>'preserve_explicit_null; never_infer_a_value',
@@ -48,6 +48,20 @@ function staffingWorkflowPayloadFields(array $columns): array
         'directory_tenant_id'=>['integer','Owning directory, separate from the operating workspace.'],
         'entity_type'=>['enum','Typed canonical person or placement reference.'],
         'number'=>['string','Immutable canonical business number; never a provider ID or credential.']];
+    $customer = [
+        'contract_version'=>['string','Exact customer creation contract version; requires separate customer-input permission.'],
+        'name'=>['string','Trimmed client legal name, falling back to display name only when legal name is empty; maximum 500 Unicode characters.'],
+        'email'=>['string','Optional trimmed client contact email, maximum 254 characters; empty stays empty and never selects identity.'],
+        'phone'=>['string|null','Optional trimmed contact phone, maximum 40 Unicode characters; empty becomes null and never selects identity.'],
+    ];
+    foreach ($reference as $field=>$description) $customer['reference.'.$field]=$description;
+    $customer['reference.entity_type']=['client','Canonical client role; never a company, person or provider ID.'];
+    $customer['reference.number']=['string','Immutable CL- client number, scoped by installation and owning directory.'];
+    $add('purepay_customer_input','integration_deliveries.payload_ct','body.','purepay',
+        '/api/v1/integrations/coreflux/customers','core_to_purepay','2026-10-26.1',
+        'core/integrations/purepay_customer_inputs.php',$customer,'core_client_directory',
+        'reviewed_local_customer_create; preserve_original_attempt_and_provider_id; no_banking_QuickBooks_invoices_or_payments',
+        '', 'permissioned_business_contact');
     $timeReview=[
         'contract_version'=>['string','Exact time-review observation contract version.'],
         'assignment_id'=>['string','Existing Quanta assignment, derived from the typed Core placement and provider workspace.'],

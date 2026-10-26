@@ -89,6 +89,18 @@ function staffingExchangeFieldMappings(): array
             'reviewed_provisional_person_create_only; existing_core_fields_and_provider_ids_preserved',
             '2026-10-22.1',['core'=>'core/quanta/worker_intake.php','provider'=>'Quanta:backend/app/routers/v1/workers.py'],'quanta_to_core');
     }
+    foreach ([
+        'staffing_clients.client_number'=>['reference','authorized_typed_client_reference; instance_directory_type_number; never_match_by_contact'],
+        'staffing_clients.legal_name'=>['name','trimmed_legal_name_preferred; printable_unicode_max_500'],
+        'staffing_clients.name'=>['name','trimmed_display_name_only_when_legal_name_empty; printable_unicode_max_500'],
+        'staffing_clients.primary_contact_email'=>['email','trimmed_valid_optional_email_max_254; empty_string_preserved; never_identity_match'],
+        'staffing_clients.primary_contact_phone'=>['phone','trimmed_printable_unicode_max_40; empty_to_null; never_identity_match'],
+    ] as $key=>[$path,$transform]) {
+        $add($key,'purepay','/api/v1/integrations/coreflux/customers',$path,$transform,
+            'reviewed_local_customer_creation_only; dedicated_capability; existing_provider_ids_preserved; no_financial_or_QuickBooks_write',
+            '2026-10-26.1',['core'=>'core/integrations/purepay_customer_contract.php',
+                'provider'=>'PurePay:backend/coreflux_customers.py']);
+    }
     $inputEvidence = ['core' => 'core/integrations/purepay_payroll_inputs.php',
         'provider' => 'PurePay:backend/coreflux_payroll_inputs.py'];
     foreach ([
