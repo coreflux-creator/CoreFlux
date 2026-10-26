@@ -1,3 +1,38 @@
+## 2026-10-26 - Actual Thunderhawk source refreshed; remaining field evidence identified
+
+A read-only inspection at 22:46 UTC reverified Alexander P-358 / PL-864 against
+the exact JobDiva candidate, Start and job. Seven placement dimensions, the
+billing-client link, five draft-rate fields and the person's name/email match
+the fresh source. WC and explicit end-client identity remain absent; the phone
+is also absent. Core still has one draft rate version and no approved version.
+Production still lacks the tested city and canonical-number schema.
+
+Additional scoped reads found zero current commission/referral facet rows and
+zero corresponding active graph roles. Recruiter and sales allocation roles
+exist; those attributions do not establish commission payment terms. No native
+people or legacy people/placement custom-field definitions or saved values were
+found, and no enabled JobDiva mappings target commissions, referrals or custom
+fields. This does not prove the provider has no custom fields. One other active
+graph role remains unclassified in this inspection. The stored economics
+snapshot dates to September 21; its field-presence counts are not fresh-value
+verification. The original staffing sheet and headings were requested to resolve
+the user's unlabeled additional amounts without inventing their meaning.
+
+The retained CI-passed 6613a8e4 package was manifest-verified; its pilot readers
+are unchanged in current branch 9ad8ac89, whose CI 40413755660 also passed.
+The first attempt stopped before database access because the later staging
+upload package no longer existed. Both completed inspections used an enforced
+read-only transaction. No import, rate approval, source-cache write, production
+runtime change, provider-record change, financial execution or Arabella change
+occurred. Evidence: deploy/thunderhawk-operational-readiness-20261026.json.
+
+Cloudways ticket 999748 remains Open with only its automated reply and the
+existing request for a human procedure. The staging customer exchange and field
+dictionary remain verified at 829fbe12. Actual Thunderhawk operational
+acceptance, separate financial-preview callback acceptance, supported production
+recovery and explicit cutover remain unfinished.
+
+
 ## October 26 native demo customer creation and recovery verified
 
 The human completed the approved Meridian demo key replacement. Core's existing
