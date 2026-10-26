@@ -1,3 +1,13 @@
+## October 26 Core review returned to the demo worker
+
+The native Core review and return path now passes for the existing synthetic P-15 / PL-13 case. The installed onboarding services verified the private sample PDF, approved both worker submissions, completed the TEST staff requirement, and advanced case version 7 to 11. All three requirements are satisfied for this demo. The same test operator performed the service acceptance; this does not establish independent human review or actual employment approval.
+
+Core publication 20 delivered the decisions to the same Acme worker and current assignment. Quanta retained Core version 11 in publication version 5, and the native worker portal shows three Approved by employer labels. Review/publication replays matched, a stale review was rejected without changing the case, and all 334 protected Core table sets matched. The process-only publication flag was restored; document intake remains disabled. Evidence: `deploy/synthetic-onboarding-review-return-20261026.json`.
+
+The browser check found obsolete upload guidance after approval. Quanta candidate 87b14b9 corrects that display and hides recovery prompts when submission is unavailable. Twenty mounted UI tests and the hosted frontend build passed. The one-file preview install preserved shared Git state, unrelated source and protected configuration, without database access or a service restart. The original worker session retained all three approvals and no longer asks for the approved document. Evidence: `deploy/quanta-onboarding-review-status-preview-20261026.json`.
+
+This completes the synthetic worker submission, private Core intake, service review and decision-return loop. Real invitation email delivery, actual Thunderhawk source/commercial setup and human operational acceptance, customer/financial exchange, and production cutover remain open. Cloudways ticket 999748 still has no human answer. Production, payroll execution, financial postings and Arabella are unchanged.
+
 ## October 26 worker onboarding round trip accepted in the demo
 
 The user completed password setup for the existing synthetic P-15 worker. The worker-only Quanta session shows exactly PL-13 in Acme. A stale checklist correctly refused submission until Core republished its requirements against assignment version 3 (delivery 19). The worker then submitted the acknowledgement and a harmless 1,907-byte sample PDF through the native portal.

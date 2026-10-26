@@ -1,0 +1,75 @@
+{
+  "checked_at": "2026-10-26T17:08:05+00:00",
+  "mode": "synthetic_onboarding_review_return",
+  "tenant_id": 999,
+  "person_number": "P-15",
+  "placement_number": "PL-13",
+  "production_changed": false,
+  "financial_or_payroll_writes": false,
+  "real_employment_approval": false,
+  "independent_human_review": false,
+  "permissions_changed": false,
+  "persistent_configuration_changed": false,
+  "case_version_before": 7,
+  "required_count": 3,
+  "satisfied_before": 0,
+  "private_sample_verified": true,
+  "native_source_files_verified": 6,
+  "protected_table_sets": 334,
+  "stale_review_rejected": true,
+  "publication": {
+    "id": 20,
+    "state": "delivered",
+    "remote_id": "cfo_5b1a321d6a94717b873ac0606d70d876c5b240a4aa1ec5d4f7cc7213008e476c",
+    "remote_receipt_id": "cfd_9db9db6c11426d2b9c8c9d7b0f7c7427c6230decbb9d9a65c5da20f3c1c9890f"
+  },
+  "native_reviews": [
+    {
+      "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+      "case_version": 8,
+      "task_id": "0998a264-6b69-4fab-a41e-59329bc547e7",
+      "action": "review"
+    },
+    {
+      "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+      "case_version": 9,
+      "task_id": "34002a90-6c88-4df8-a266-0f38885256a4",
+      "action": "review"
+    },
+    {
+      "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+      "case_version": 10,
+      "task_id": "95d87325-0294-463f-b586-25186a8b6ff2",
+      "action": "submit"
+    },
+    {
+      "case_id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+      "case_version": 11,
+      "task_id": "95d87325-0294-463f-b586-25186a8b6ff2",
+      "action": "review"
+    }
+  ],
+  "review_replay_verified": true,
+  "publication_replay_verified": true,
+  "fresh_publication_comparison": "unchanged",
+  "protected_data_unchanged": true,
+  "case_version_after": 11,
+  "readiness": "complete",
+  "satisfied_count": 3,
+  "provider_core_version": 11,
+  "provider_version": 5,
+  "passed": true,
+  "publication_flag_restored": true,
+  "document_intake_enabled_after": false,
+  "browser_verified": true,
+  "browser_review_labels": [
+    "Approved by employer",
+    "Approved by employer",
+    "Approved by employer"
+  ],
+  "display_issue_found": "Disabled document transfer guidance still appeared after approval.",
+  "display_issue_corrected": true,
+  "display_candidate": "87b14b9d7e532abb3c50167cd9be2721769a9e96",
+  "display_verification_receipt": "deploy/quanta-onboarding-review-status-preview-20261026.json",
+  "worker_approval_screenshot": "output/worker-onboarding-approved-20261026.png"
+}
