@@ -28,6 +28,23 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
+The latest combined customer candidate is
+`a83819fe86d25f1d83f7aabfeb079d251df435f5`. Review reproduced two cases where
+QuickBooks linking succeeded after a native deletion/merge had already acquired
+the customer, allowing removal of the newly linked record. QuickBooks selection
+and saved binding now share Core's durable native-ID authority, check the original
+Mongo row, and recheck mapping changes before writing. The corrected suite passed
+236 backend checks, including nine new race/identity-change checks and the existing
+13 Core PHP checks, with zero external network attempts. Test databases stopped.
+
+The unchanged frontend and scope code retains its prior 65 interface/handler,
+12 scope and build passes. A verified 32-file source-only hosted review packet is
+prepared. It contains no credentials or runtime staging/publication action and has
+not been run on the hosted preview. The separate sign-in release/restoration must
+finish before its shared environment is used. Customer publication, reviewed key
+capability and the actual cross-application customer round trip remain open.
+Evidence: `deploy/purepay-customer-qbo-lifecycle-20261026.json`.
+
 The subsequent native lifecycle increment `508894f` protects Core-linked customer
 IDs through delete, merge and undo, including simultaneous requests and historical
 links. It uses durable company/native-ID claims, retains uncertain operations for

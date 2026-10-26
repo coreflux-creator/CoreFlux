@@ -1,3 +1,11 @@
+## October 26 QuickBooks/native customer race corrected locally
+
+Further combined-source review reproduced QuickBooks linking racing with native deletion or merge: both operations could succeed and leave a dangling link. PurePay candidate a83819fe86d25f1d83f7aabfeb079d251df435f5 now shares the durable native-ID protection across Core, QuickBooks selection and saved binding/import recovery. It rechecks original native rows and changed mappings before provider access or binding writes.
+
+All 236 combined backend checks passed, including nine new race/identity-change cases and the existing 13 actual Core PHP checks. External network attempts were zero and owned test databases stopped. Unchanged frontend/scope code retains its prior 65 interface/handler checks, 12 scope checks and build pass. A verified 32-file source-only hosted review packet is prepared with no credentials or staging/publication action.
+
+The separate PurePay sign-in chat reports publication complete and is restoring payroll sync and the shared preview. This customer work has not changed that runtime or production. Its exact restored baseline, independent review, hosted customer exchange and reviewed demo-key capability remain open. The worker portal was rechecked and still shows all three synthetic P-15 / PL-13 requirements approved. Actual Thunderhawk acceptance, financial reconciliation, real email delivery and authorized Core cutover remain open; Cloudways ticket 999748 still has no human answer. Evidence: deploy/purepay-customer-qbo-lifecycle-20261026.json.
+
 ## October 26 native customer lifecycle and single-login combination verified locally
 
 PurePay customer candidate 508894f now protects legacy Core-only links and pending bindings from deletion, merge and undo through a shared durable native-ID authority. Both race orderings have one winner; normal unlinked merge/undo restores original IDs. Interrupted/audit-failed writes remain held for explicit reconciliation. Merge/undo is company-scoped, including overlapping native IDs, and rejects inconsistent restoration snapshots. Blocked UI actions explain the hold and retain the visible record/review.
