@@ -63,6 +63,15 @@ try {
     $token = bin2hex(random_bytes(32));
     $probeSource = fullCoreSettingsProbeSource($receipt, $database, $token, time() + 60, '127.0.0.1');
     file_put_contents($temporary . '/http/probe.php', $probeSource);
+    file_put_contents($temporary . '/http/enabled.php', <<<'PHP'
+<?php
+putenv('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY=1');
+putenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS=1');
+define('COREFLUX_PUREPAY_CUSTOMER_DELIVERY', true);
+putenv('COREFLUX_QUANTA_WORKER_DELIVERY=1');
+define('COREFLUX_QUANTA_WORKER_DELIVERY', false);
+require __DIR__ . '/probe.php';
+PHP);
     file_put_contents($temporary . '/http/expired.php', fullCoreSettingsProbeSource($receipt, $database, $token, time() - 1, '127.0.0.1'));
     file_put_contents($temporary . '/http/inert.php', file_get_contents(__DIR__ . '/../deploy/full_core_settings_web_probe.php'));
     $check(!str_contains($probeSource, $secret) && !str_contains($probeSource, $token) && !str_contains($probeSource, $settings['SMTP_PASS']), 'public probe source contains no connection secrets or reusable access token');
@@ -103,10 +112,19 @@ try {
         $web = json_decode($body, true);
         $check($status === 200 && $web['web_verification'] && $web['database_connected'] && $web['read_only_probe']
             && $web['production_mode'] && !$web['activation_performed'], 'HTTP bootstrap reads private settings and connects with SELECT-only credentials');
-        $check(count($web['outbound_flags_from_web_configuration']) === 8
+        $check(count($web['outbound_flags_from_web_configuration']) === 11
             && ($web['outbound_flags_from_web_configuration']['COREFLUX_QUANTA_ONBOARDING_DELIVERY'] ?? null) === false
-            && !in_array(true, $web['outbound_flags_from_web_configuration'], true), 'web verification reports all eight provider and authority controls disabled');
+            && !in_array(true, $web['outbound_flags_from_web_configuration'], true), 'web verification reports all eleven provider, intake and authority controls disabled');
         $check(!str_contains($body, $secret) && !str_contains($body, $user) && !str_contains($body, $settings['SMTP_PASS']), 'web response excludes connection identity and secrets');
+        [$enabledStatus, $enabledBody] = $request('enabled.php', 'POST', $token);
+        $enabledFlags = json_decode($enabledBody, true)['outbound_flags_from_web_configuration'] ?? [];
+        $check($enabledStatus === 200 && count($enabledFlags) === 11
+            && ($enabledFlags['COREFLUX_QUANTA_TIME_REVIEW_DELIVERY'] ?? null) === true
+            && ($enabledFlags['COREFLUX_QUANTA_ONBOARDING_DOCUMENTS'] ?? null) === true
+            && ($enabledFlags['COREFLUX_PUREPAY_CUSTOMER_DELIVERY'] ?? null) === true,
+            'web probe detects enabled time review, document intake and customer delivery from runtime settings');
+        $check(($enabledFlags['COREFLUX_QUANTA_WORKER_DELIVERY'] ?? null) === false,
+            'explicit disabled constant overrides an enabled environment variable exactly as runtime does');
         rename($receipt['private_directory'] . '/candidate/core/db.local.php', $receipt['private_directory'] . '/candidate/core/db.local.php.saved');
         try {
             [$status, $body] = $request('probe.php', 'POST', $token);

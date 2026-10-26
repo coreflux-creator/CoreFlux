@@ -1,3 +1,11 @@
+## October 26 release preparation
+
+The production pending-migration fixture was stale at 60 files. It now covers all 77 files from preflight 40346520387, pins their reviewed bytes, and parses 729 statements (99 assertions). This proves parser coverage, not execution against a production clone. The nine known production source differences have been reviewed against candidate 81779d0d; the three historical migration files must retain their deployed bytes and successful ledger history. The country-save fix remains in the candidate.
+
+Private connection settings for 81779d0d were prepared outside the webroot and verified through both CLI and PHP-FPM using read-only database queries. The temporary web probe was removed and production configuration was unchanged. Its original eight-control inventory is being expanded to include time-review delivery, document intake and customer delivery.
+
+A fresh ownership check still shows deployment UID 1003 versus application-file UID 1004, with no supported owner identity available to the deployment account. The user authorized an advice-only Cloudways support request; no permission reset, ownership change, scheduler pause or production upgrade is authorized by that request. Evidence: `deploy/core-release-preparation-20261026.json`.
+
 ## Scoped customer exchange installed in Core staging - October 26, 2026
 
 Read-only production preflight 40346520387 completed for the same candidate. It found 77 pending migrations and three applied migration variants retained by the reviewed plan, with no migration-plan blockers. Fresh fingerprints for nine differing runtime/migration files all match known repository history; preservation review, current backup/recovery, web/worker controls and explicit production cutover authorization still apply. Production remained unchanged. Evidence: `deploy/core-production-preflight-20261026.json`.
