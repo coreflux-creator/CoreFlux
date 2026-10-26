@@ -35,9 +35,19 @@ function fullCoreMigrationHistory(): array
                 || ($record['preserve_deployed_source'] ?? null) !== true)) {
                 throw new RuntimeException('Historical migration successor is invalid.');
             }
+            if (isset($record['recorded_crlf_sha256']) && ($kind !== 'retired'
+                || !preg_match('/^[a-f0-9]{64}$/D', $record['recorded_crlf_sha256']))) {
+                throw new RuntimeException('Historical line-ending fingerprint is invalid.');
+            }
         }
     }
     return $history;
+}
+
+function fullCoreRetiredRecordedHashVerified(array $record, string $recorded): bool
+{
+    return hash_equals($record['recorded_sha256'], $recorded)
+        || (isset($record['recorded_crlf_sha256']) && hash_equals($record['recorded_crlf_sha256'], $recorded));
 }
 
 /** A known applied retired file may remain installed, but must never be rerun or rewritten. */
@@ -175,7 +185,7 @@ function fullCoreMigrationPlan(array $manifest, string $package, string $live,
         $path = str_contains($key, '/') ? $key : 'core/migrations/' . $key;
         $reviewed = $history['retired'][$path] ?? null;
         $deployedRetired = $reviewed ? fullCoreMigrationRead($live, $path, true) : null;
-        if ($reviewed && !$row['failed'] && hash_equals($reviewed['recorded_sha256'], $row['sha256'])
+        if ($reviewed && !$row['failed'] && fullCoreRetiredRecordedHashVerified($reviewed, $row['sha256'])
             && fullCoreRetiredSourceVerified($reviewed, $deployedRetired, $manifestFiles)
             && (!isset($legacyLedger[$path]) || hash_equals($row['sha256'], $legacyLedger[$path]))) {
             $retired[] = ['path' => $path, 'ledger_key' => $key, 'recorded_sha256' => $row['sha256'],

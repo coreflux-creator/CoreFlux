@@ -110,6 +110,10 @@ $workflowRows = $rows;
 $workflowRows[] = ['filename'=>basename($workflowPath), 'sha256'=>$history['retired'][$workflowPath]['recorded_sha256'], 'last_error'=>null];
 $write($live, $workflowPath, $workflowOld);
 $workflowPlan = $make($workflowManifest, $workflowRows);
+$workflowCrlfRows = $workflowRows;
+$workflowCrlfRows[count($workflowCrlfRows)-1]['sha256'] = hash('sha256', str_replace("\n", "\r\n", str_replace("\r\n", "\n", $workflowOld)));
+$assert($workflowCrlfRows[count($workflowCrlfRows)-1]['sha256'] === $history['retired'][$workflowPath]['recorded_crlf_sha256']
+    && $make($workflowManifest, $workflowCrlfRows)['source_review_ready'], 'known staging CRLF ledger identity remains valid with normalized deployed source');
 $assert($workflowPlan['source_review_ready'] && count($workflowPlan['retired_history']) === 1
     && $workflowPlan['retired_history'][0]['deployed_sha256'] === hash('sha256', $workflowOld),
     'known applied workflow source and successful history remain pinned while its successor is pending');
@@ -123,6 +127,7 @@ $write($live, $workflowPath, str_replace("\n", "\r\n", $workflowOld));
 $assert($make($workflowManifest, $workflowRows)['source_review_ready'], 'known applied retired workflow source accepts deployment line endings');
 unlink($live.'/'.$workflowPath); unset($created[$live.'/'.$workflowPath]);
 $assert($make($workflowManifest, $workflowRows)['source_review_ready'], 'removed retired workflow source retains its successful ledger history');
+$assert($make($workflowManifest, $workflowCrlfRows)['source_review_ready'], 'known CRLF ledger identity survives source retirement without rewriting its history');
 unlink($package.'/'.$workflowSuccessor); unset($created[$package.'/'.$workflowSuccessor]);
 $unknown = $rows; $unknown[] = ['filename' => '099_missing.sql', 'sha256' => str_repeat('c', 64), 'last_error' => null];
 $blocked($make($manifest, $unknown), 'recorded_migration_not_packaged');

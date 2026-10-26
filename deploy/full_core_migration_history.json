@@ -162,6 +162,7 @@
     },
     "core/migrations/156_billing_invoice_approval_attempts.sql": {
       "recorded_sha256": "04fdd6550cc3ba61c3edcf920e47e17c3081d1ce96fefaed12a48bd8522106f3",
+      "recorded_crlf_sha256": "dba46125929147bfa0bc4284fb2e7a54e7260c2eac3b25eb17600345ae63708f",
       "source_git_blob": "1b6e4c018c8f9a92d243efa859715676b3d3e0e4",
       "normalized_sha256": "04fdd6550cc3ba61c3edcf920e47e17c3081d1ce96fefaed12a48bd8522106f3",
       "preserve_deployed_source": true,

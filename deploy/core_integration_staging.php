@@ -61,7 +61,7 @@ foreach (fullCoreMigrationHistory()['retired'] as $relative => $reviewed) {
     $deployed = fullCoreMigrationRead(INTEGRATION_STAGE_ROOT, $relative, true);
     if ($deployed === null && !isset($ledger[$key])) continue;
     if (!isset($ledger[$key]) || ($ledgerErrors[$key] ?? null) !== null
-        || !hash_equals($reviewed['recorded_sha256'], $ledger[$key])
+        || !fullCoreRetiredRecordedHashVerified($reviewed, $ledger[$key])
         || (isset($legacyLedger[$relative]) && !hash_equals($ledger[$key], $legacyLedger[$relative]))
         || !fullCoreRetiredSourceVerified($reviewed, $deployed, $manifest['files'])) {
         throw new RuntimeException('Retired workflow migration requires recovery review: ' . $key);
