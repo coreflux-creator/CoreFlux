@@ -28,9 +28,13 @@ host was released at 22:25 UTC with that limitation and the private logs preserv
 Core's field dictionary now describes all five customer source mappings and all
 eight outbound fields, including the fully scoped CL- identity. Its metadata grants
 no sync authority. Six local contract suites passed 236 checks. This dictionary
-change is not yet deployed; staging remains on 6613a8e4. Actual Thunderhawk
-acceptance, financial reconciliation, supported production recovery and an explicit
-cutover remain open. Evidence: deploy/purepay-native-customer-acceptance-20261026.json.
+change is installed in staging at 829fbe1221f23ee5ed9d3d1d4fe90d159f4536fd.
+All nine CI jobs passed (40412674370), and deployment plus standard accounting/
+onboarding acceptance passed (40413207070). No migrations were pending. Fresh
+readback verified all eight dictionary fields and unchanged fingerprints of the
+customer, company, connection and both deliveries. Actual Thunderhawk acceptance,
+financial reconciliation, supported production recovery and explicit cutover remain
+open. Evidence: deploy/purepay-native-customer-acceptance-20261026.json.
 
 
 ## October 26 workflow correction installed and preserved in staging

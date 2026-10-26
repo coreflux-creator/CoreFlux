@@ -1,7 +1,6 @@
 {
   "checked_at": "2026-10-26T22:25:28Z",
   "scope": "Core isolated simulation tenant 999 and PurePay Meridian demo; actual Thunderhawk acceptance remains pending",
-  "core_staging_commit": "6613a8e42eedd52b87fb83676be61cb4dbeee0e0",
   "purepay_preview_commit": "0a0534818f574c6e4b85cc309ede156cbb4da138",
   "customer_contract_version": "2026-10-26.1",
   "connection": {
@@ -80,11 +79,25 @@
     "sync_enabled": false,
     "local_checks_passed": 236,
     "local_suites": 6,
-    "deployed": false
+    "deployed": true
   },
   "remaining": [
     "Actual Thunderhawk operational round trip and financial reconciliation",
     "Supported Core production ownership/scheduler/recovery procedure",
     "Separate explicit production cutover authorization and maintenance window"
-  ]
+  ],
+  "customer_acceptance_core_commit": "6613a8e42eedd52b87fb83676be61cb4dbeee0e0",
+  "latest_core_staging_commit": "829fbe1221f23ee5ed9d3d1d4fe90d159f4536fd",
+  "staging_release": {
+    "commit": "829fbe1221f23ee5ed9d3d1d4fe90d159f4536fd",
+    "ci_run": 40412674370,
+    "ci_jobs_passed": 9,
+    "deployment_run": 40413207070,
+    "deployment_and_standard_acceptance": "passed",
+    "migrations_applied": [],
+    "customer_company_connection_and_both_deliveries_preserved": true,
+    "installed_dictionary_version": "2026-10-26.1",
+    "verified_customer_payload_fields": 8,
+    "production_changed": false
+  }
 }
