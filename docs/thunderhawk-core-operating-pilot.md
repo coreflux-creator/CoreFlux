@@ -1,3 +1,11 @@
+## October 26 native customer lifecycle and single-login combination verified locally
+
+PurePay customer candidate 508894f now protects legacy Core-only links and pending bindings from deletion, merge and undo through a shared durable native-ID authority. Both race orderings have one winner; normal unlinked merge/undo restores original IDs. Interrupted/audit-failed writes remain held for explicit reconciliation. Merge/undo is company-scoped, including overlapping native IDs, and rejects inconsistent restoration snapshots. Blocked UI actions explain the hold and retain the visible record/review.
+
+Customer acceptance passed 137 backend checks and 23 interface/handler checks. The isolated combination 57ee8f7bf91aaa2e95c0126ceb2974e3d7cf095d includes the peer's exact single-login source 480cf14964c3c377ebcc9a7134739376e8841595 without source conflicts: 227 backend checks including 13 actual Core PHP checks, 65 interface/handler checks and the frontend build passed. Twenty-five sign-in files and four changed server definitions were preserved exactly. External network attempts were zero and owned test Mongo processes stopped.
+
+The shared preview/runtime/publisher remains reserved for the separate sign-in release. This combined customer branch is unpublished and has not changed hosted data, credentials, production, payroll/payments/postings or Arabella. Final published-baseline verification, independent review, hosted exchange and demo-key capability review are next. Actual Thunderhawk acceptance, financial reconciliation, real invitation delivery and authorized Core production cutover remain open. Evidence: deploy/purepay-customer-lifecycle-and-login-20261026.json.
+
 ## October 26 combined customer identity compatibility verified locally
 
 An isolated PurePay branch now combines scoped Core customer creation with the pending general customer/QuickBooks candidate. Two actual-app tests reproduced a duplicate beside a legacy Core link and a lookup choosing a conflicting external record. Candidate 66827504473b93b8d31841fa02d6636b0ce1f209 makes both APIs respect the same durable Core reference ownership, preserving original IDs and pending/deleted-record holds. Historical opaque external IDs remain readable; new Core IDs must be canonical.

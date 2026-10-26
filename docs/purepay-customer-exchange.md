@@ -28,6 +28,23 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
+The subsequent native lifecycle increment `508894f` protects Core-linked customer
+IDs through delete, merge and undo, including simultaneous requests and historical
+links. It uses durable company/native-ID claims, retains uncertain operations for
+reconciliation, and restores removed IDs only through their original merge. Native
+merge/undo updates are company-scoped, and malformed restoration snapshots are held.
+Blocked actions show readable messages without announcing success or removing rows.
+
+This increment passed 137 backend checks and 23 interface/handler checks. An isolated
+combination with the peer's exact single-login source `480cf14964c3c377ebcc9a7134739376e8841595`
+is recorded as `57ee8f7bf91aaa2e95c0126ceb2974e3d7cf095d`. It passed 227 backend checks
+(including 13 actual Core PHP checks), 65 interface/handler checks and the complete
+frontend build. All 25 non-server sign-in files and four changed server definitions
+are preserved. External network attempts were zero; owned Mongo processes stopped.
+Shared hosted source and credentials were not changed. The peer's final published
+baseline, review, hosted acceptance and demo-key capability remain required.
+Evidence: `deploy/purepay-customer-lifecycle-and-login-20261026.json`.
+
 The isolated combined customer candidate `66827504473b93b8d31841fa02d6636b0ce1f209`
 now combines the dedicated Core routes with pending general customer candidate
 `7930546` on coordinated source `84042fde`. Tests reproduced a general-create
