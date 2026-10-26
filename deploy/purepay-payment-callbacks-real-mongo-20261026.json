@@ -1,0 +1,145 @@
+{
+  "scope": "Reviewed callback modules on the existing preview Mongo engine, fresh synthetic database only",
+  "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+  "harness_sha256": "efefd455a7b09d3e37985af5959d217a6359f8b2bed148b888118dbaeba079b2",
+  "driver_sha256": "05883b19beeb5bae975b606843deb5341f2cb967c83d4f3d0998536d87b491a8",
+  "receipt": {
+    "checked_at": "2026-10-26T23:13:09.268096+00:00",
+    "scratch": "/tmp/core-callback-mongo-20261026-cuvo6h4y",
+    "exit_code": 0,
+    "source_config_git_services_unchanged": true,
+    "file_count": 6459,
+    "services_before": {
+      "backend": [
+        "STOPPED"
+      ],
+      "code-server": [
+        "RUNNING",
+        "pid",
+        "530,"
+      ],
+      "frontend": [
+        "RUNNING",
+        "pid",
+        "5367,"
+      ],
+      "mongodb": [
+        "RUNNING",
+        "pid",
+        "283,"
+      ],
+      "nginx-code-proxy": [
+        "RUNNING",
+        "pid",
+        "280,"
+      ],
+      "webhook-crond": [
+        "RUNNING",
+        "pid",
+        "10395,"
+      ]
+    },
+    "services_after": {
+      "backend": [
+        "STOPPED"
+      ],
+      "code-server": [
+        "RUNNING",
+        "pid",
+        "530,"
+      ],
+      "frontend": [
+        "RUNNING",
+        "pid",
+        "5367,"
+      ],
+      "mongodb": [
+        "RUNNING",
+        "pid",
+        "283,"
+      ],
+      "nginx-code-proxy": [
+        "RUNNING",
+        "pid",
+        "280,"
+      ],
+      "webhook-crond": [
+        "RUNNING",
+        "pid",
+        "10395,"
+      ]
+    },
+    "snapshot_before_sha256": "6849fee31f773fd6635bfb7522d2d5a0e8874ef100ff1c7ef943356b60d24d26",
+    "snapshot_after_sha256": "6849fee31f773fd6635bfb7522d2d5a0e8874ef100ff1c7ef943356b60d24d26",
+    "bundle_sha256": "43e122bfa499809f0d1ab3bef9263caa1bb7df45425e34743fb35b17b0b446f5",
+    "wall_limit_seconds": 180,
+    "kill_after_seconds": 10,
+    "test": {
+      "checked_at": "2026-10-26T23:13:07.738325+00:00",
+      "passed": true,
+      "checks": [
+        "Twenty-four concurrent enqueues persist one callback identity",
+        "Simultaneous independent workers initialize one batch lease and deliver once",
+        "Lost HTTP response leaves a retryable durable callback",
+        "Another Mongo client recovers the same callback",
+        "Retry retains exact event bytes and uses a fresh timestamp",
+        "Native delivery signs the persisted identity and body",
+        "Native delivery signs the persisted identity and body",
+        "Both failed and successful native delivery attempts remain recorded",
+        "Callback recovery does not alter financial result records",
+        "Scoped recovery preserves the global cursor and another company queue",
+        "Separate worker process exits after durable lease claim and before delivery",
+        "Worker death leaves its original sending receipt",
+        "Recovery respects the still-live batch lease",
+        "A surviving client delivers after the dead worker lease expires",
+        "Process recovery reuses the original event and creates no duplicate callback",
+        "No accounting entries or external socket attempts occurred"
+      ],
+      "real_database_used": true,
+      "hard_process_exit_recovered": true,
+      "database": "core_callback_test_350d729ac221424e8f37a0385620a35a",
+      "independent_clients": 2,
+      "source_manifest": {
+        "candidate": "0a0534818f574c6e4b85cc309ede156cbb4da138",
+        "server_sha256": "e2ccfad7a54ad955b4e5343f7eff435c8d220112e901455d8e27bd4c0e37f2f1",
+        "files": {
+          "integration_payment_outbox.py": "e920b3753d986b77c43ac4d91b96d6830fc053725aa12cd6723f0e7502c7efa5",
+          "integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+          "delivery.py": "988d4dc548a45a655e659cc42c4c9330c8aea6753ee26f30402f7631186679bb"
+        }
+      },
+      "application_started": false,
+      "existing_database_accessed": false,
+      "financial_provider_calls": 0,
+      "external_socket_attempts": 0,
+      "synthetic_database_retained": true,
+      "http_receiver": "in-process synthetic sink; native Core callback endpoint not contacted"
+    }
+  },
+  "completion": {
+    "owned_test_processes_remaining": 0,
+    "terminal_returned_to_idle": true,
+    "reservation_released_at": "2026-10-26T23:14:00Z",
+    "database_cleanup_performed": false
+  },
+  "transfer_recovery": {
+    "initial_transfer_aborted_before_execution": true,
+    "initial_test_processes": 0,
+    "initial_scratch_directories": 0,
+    "cause": "NUL in transfer-driver string; reviewed harness unchanged",
+    "corrected_transfer_checksum_verified_before_execution": true
+  },
+  "limits": [
+    "Exact source modules plus AST-extracted native delivery function; application was not imported, started, or deployed.",
+    "HTTP response loss was simulated in-process; native Core callback endpoint was not contacted.",
+    "Application database collections were not selected or read/written by the harness. Mongo authentication may consult its authentication database.",
+    "TCP connect/connect_ex guard is not OS-wide network isolation.",
+    "File/config/Git/service equality is not a provider-wide business-record mutation audit.",
+    "Synthetic settlement/ledger references do not establish actual payment execution or accounting settlement.",
+    "Actual Thunderhawk operational acceptance, separate hosted financial callback exchange, supported production recovery and authorized cutover remain open."
+  ],
+  "production_runtime_changed": false,
+  "credentials_changed": false,
+  "real_payroll_or_payment_executed": false,
+  "arabella_pilot_changed": false
+}

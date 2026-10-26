@@ -1,3 +1,31 @@
+## October 26 callback contention and crash recovery verified with real Mongo
+
+The reviewed PurePay candidate 0a053481 callback modules passed 16 assertions
+against a fresh synthetic database using two independent Mongo clients. Twenty-four
+concurrent enqueues persisted one callback identity; competing workers initialized
+one batch lease and delivered once. A simulated lost response retried the exact
+event body with a fresh native signature. A separate worker process exited after
+claiming its lease; a surviving client waited for expiry and delivered the same
+event without a duplicate identity. Another company queue and the global cursor
+were preserved.
+
+The test imported no application and used an in-process HTTP receiver. It did not
+contact Core's callback endpoint or any financial provider. The 6,459-path source,
+configuration and Git snapshot and service states matched before/after; the backend
+remained stopped. This is not an all-provider business-data audit. The new random
+database and private evidence were retained; all owned test processes exited and
+the shared preview reservation was released at 23:14 UTC. An initial malformed
+transfer was interrupted before execution and verified to have created no test
+process or scratch directory. The corrected transfer passed its checksum.
+
+This closes the real-database callback contention/process-recovery check only.
+Actual Thunderhawk operational acceptance, the separately credentialed hosted Core
+financial callback exchange, supported production recovery and authorized cutover
+remain open. No application deployment, credential change, real payroll/payment,
+financial posting or Arabella change occurred. Evidence:
+deploy/purepay-payment-callbacks-real-mongo-20261026.json.
+
+
 ## 2026-10-26 - Actual Thunderhawk source refreshed; remaining field evidence identified
 
 A read-only inspection at 22:46 UTC reverified Alexander P-358 / PL-864 against
