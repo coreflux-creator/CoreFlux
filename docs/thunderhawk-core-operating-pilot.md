@@ -1,3 +1,38 @@
+## October 26 original staffing source located; commission meaning preserved
+
+The original local Placements.xlsx resolves the previously unlabeled Alexander
+row: Active Billables headings are on row 2 and its data is B37:AB37. Q37 is
+derived margin, 98 - (65 * 1.2) = 20, not a referral payment. W37 is recruiter
+commission 7,500 in INR, established by its rupee number format. X37 displays
+Aug-26; its underlying August 1 value does not establish an exact due day.
+B37 is a sequential row ordinal, not a canonical placement number. AB37 is
+Centurion Category Full, not full-time employment. Blank referral fields remain
+missing. The workbook dates to September 17 and was read without modification;
+its full SHA-256 and targeted cell receipt are retained.
+
+A scoped production read at 23:29 UTC identifies the existing recruiter allocation
+as JobDiva 1602627, Puneet Arneja. It has no linked Core user or person and remains
+informational with no settlement channel. The stored source snapshot is September
+21, not a new provider read. This corroborates an attribution, not a payable
+recipient. Commission frequency and payable identity still require review.
+
+Legacy commission rows cannot preserve separate currency, payment frequency,
+due-month precision or approval state. Existing one-time items do not implement
+foreign-currency commission settlement. The native commission API now rejects
+unsupported fields and bases on create/update before writing, instead of silently
+discarding source terms. Supported legacy edits remain available. The dictionary
+version 2026-10-26.2 documents ten economic fields and this remaining workflow
+gap; it enables no exchange. Connector imports are outside this API guard.
+
+Local validation passed 73 commission checks, 314 identity/dictionary checks,
+54 JobDiva graph checks and 99 placement checks. Commission route tests run the
+actual API source with isolated authentication/database adapters; they are not
+live HTTP/database acceptance. This candidate has not yet been deployed. No
+production/provider record, source workbook, rate approval, commission, payroll,
+payment or Arabella data changed. Evidence:
+deploy/thunderhawk-staffing-source-review-20261026.json.
+
+
 ## October 26 callback contention and crash recovery verified with real Mongo
 
 The reviewed PurePay candidate 0a053481 callback modules passed 16 assertions

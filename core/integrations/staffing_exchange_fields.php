@@ -216,5 +216,6 @@ function staffingExchangeWorkflowGaps(): array
         'jobdiva_field_alignment' => 'Existing adapter paths, precedence and transformations are inventoried. Live Thunderhawk cohort/source observations and tenant overrides still require verification; no sync is enabled by this dictionary.',
         'jobdiva_identity_review' => 'Email/spreadsheet matches require reviewed candidate/person linking, with source/target drift checks and durable receipts. Competing links cannot be replaced. Shared-directory JobDiva projection and the live round trip remain pending.',
         'jobdiva_source_defaults' => 'Legacy country truncation and hour/USD/classification fallbacks are disclosed in their mappings. These defaults must not be treated as verified source facts.',
+        'commission_source_terms' => 'Legacy commission rows lack separate currency, payment frequency, due-month precision and approval state. Preserve the source amount, currency, recipient, basis and timing for review; do not infer these from placement currency, a row ordinal, allocation percentages or effective dates. The native commission API rejects unsupported fields; connector imports require separate review. Foreign-currency commission settlement remains unimplemented.',
     ];
 }

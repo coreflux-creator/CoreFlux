@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
+require_once __DIR__ . '/../lib/commission_input.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -23,7 +24,8 @@ if ($method === 'POST') {
     rbac_legacy_require($user, 'placements.commissions.manage');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
-    $body = api_json_body();
+    try { $body = placementCommissionInput(api_json_body()); }
+    catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
     api_require_fields($body, ['role', 'effective_from']);
     if (!in_array($body['role'], ['account_manager','lead','recruiter','team','other'], true)) {
         api_error('Invalid role', 422);
@@ -62,8 +64,8 @@ if ($method === 'PATCH') {
         ['id' => $id]
     );
     if (!$existing) api_error('Not found', 404);
-    $body = api_json_body();
-    unset($body['id'], $body['tenant_id'], $body['placement_id']);
+    try { $body = placementCommissionInput(api_json_body()); }
+    catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
     if (array_key_exists('user_id', $body)) {
         $recipientUserId = (int) $body['user_id'];
         if ($recipientUserId <= 0) api_error('Commission recipient is required', 422);

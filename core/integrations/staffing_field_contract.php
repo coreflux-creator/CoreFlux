@@ -42,6 +42,16 @@ function staffingFieldContractRules(string $table, string $field): array
         'placements.worksite_country' => ['Recognized country or territory where the assignment is performed; source names are normalized, never truncated.', 'recognized-alpha-2'],
         'placement_rates.bill_rate_unit' => ['Explicit billing basis. Automatic JobDiva economics require hourly rates; other bases require reviewed conversion.', 'hour|day|week|month|project'],
         'placement_rates.pay_rate_unit' => ['Explicit pay basis, independent of billing basis. No hourly default is inferred for JobDiva.', 'hour|day|week|month|project'],
+        'placement_commissions.user_id' => ['Reviewed recipient in the owning Core tenant. A recruiter name, provider ID or source allocation alone does not establish a payable recipient.', 'reference:user'],
+        'placement_commissions.role' => ['Recipient role in the commission rule; distinct from the linked recipient identity.', 'account_manager|lead|recruiter|team|other'],
+        'placement_commissions.split_pct' => ['Decimal fraction of the selected calculation basis. Source allocation of a commission pool is informational until a payable rule is reviewed.', 'fraction'],
+        'placement_commissions.basis' => ['Legacy calculation selector. Flat is not a one-time or recurring schedule. Payroll currently calculates both net_margin and gross_margin from bill amount less pay amount, without other modeled costs.', 'net_margin|gross_margin|bill_rate|flat'],
+        'placement_commissions.flat_amount' => ['Legacy flat amount with no independent currency or payment frequency column. Do not map a foreign-currency or unqualified source amount here; retain its full terms for review.', 'amount; currency-and-frequency-not-stored'],
+        'placement_commissions.effective_from' => ['Date the commission rule starts applying; not the commission payment due date or due month.', 'date'],
+        'placement_commissions.effective_to' => ['Date the commission rule stops applying; not a payment date or evidence of settlement.', 'date'],
+        'placement_commissions.notes' => ['Source context only. Notes do not provide enforceable currency, payment frequency, due date or approval.', 'text'],
+        'placement_economic_items.currency' => ['Currency of the one-time item. Where a placement rate exists, the native item workflow requires matching contract currency; this field is not an FX conversion or a foreign-currency commission workflow.', 'ISO-4217'],
+        'placement_economic_items.apply_on' => ['Exact date from which an active one-time item is eligible for settlement. A month-only source cannot supply an exact day without review.', 'date'],
         'time_entries.hours' => ['Decimal hours for the work date and category, not minutes.', 'hours'],
         'time_entries.status' => ['Core review status; source approval does not itself approve Core time.', 'enum'],
         'people_employees.employee_number' => ['Legacy employment number; separate from the canonical person number.', 'source_reference'],
@@ -126,7 +136,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-10-26.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-10-26.2', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
