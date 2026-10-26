@@ -22,7 +22,7 @@
     "AB37": "Centurion Category Full; not full-time employment"
   },
   "recipient_read": {
-    "checked_at": "2026-10-26T23:29:50+00:00",
+    "checked_at": "2026-10-26T19:29:50-04:00",
     "mode": "enforced_read_only_transaction_rolled_back",
     "source_refreshed": false,
     "stored_jobdiva_snapshot_date": "2026-09-21 10:02:10",
@@ -42,7 +42,7 @@
     "foreign_currency_commission_settlement_implemented": false,
     "connector_imports_covered_by_new_api_guard": false,
     "source_workbook_imported": false,
-    "staging_deployed": false
+    "staging_deployed": true
   },
   "local_validation": {
     "commission_input_checks": 73,
@@ -66,5 +66,30 @@
     "real_payroll_payments_or_financial_postings": false,
     "arabella_changed": false,
     "full_thunderhawk_round_trip_proven": false
+  },
+  "staging_release": {
+    "commit": "ee3edad5b177a64a2878699e0e806a18de282a1c",
+    "ci_run": 40420932771,
+    "ci_jobs_passed": 9,
+    "deployment_run": 40421251045,
+    "deployment_conclusion": "success",
+    "standard_acceptance": "passed",
+    "migrations_applied": [],
+    "readback_at": "2026-10-26T19:42:45-04:00",
+    "dictionary_version": "2026-10-26.2",
+    "verified_economic_definitions": 10,
+    "native_validator_rejects_foreign_currency": true,
+    "runtime_hashes_match": 4,
+    "protected_demo_sets_unchanged": [
+      "connection",
+      "deliveries_22_23",
+      "client_2",
+      "company_709"
+    ],
+    "customer_payload_fields_preserved": 8,
+    "production_changed": false,
+    "readback_http_api_test": false,
+    "installed_changed_files": 9,
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/ee3edad5b177a64a2878699e0e806a18de282a1c-20261026234153"
   }
 }

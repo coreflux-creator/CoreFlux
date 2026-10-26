@@ -27,9 +27,15 @@ gap; it enables no exchange. Connector imports are outside this API guard.
 Local validation passed 73 commission checks, 314 identity/dictionary checks,
 54 JobDiva graph checks and 99 placement checks. Commission route tests run the
 actual API source with isolated authentication/database adapters; they are not
-live HTTP/database acceptance. This candidate has not yet been deployed. No
-production/provider record, source workbook, rate approval, commission, payroll,
-payment or Arabella data changed. Evidence:
+live HTTP/database acceptance. All nine CI jobs passed for ee3edad5b177a64a2878699e0e806a18de282a1c
+(run 40420932771). Staging deployment 40421251045 installed nine changed files
+with no pending/applied migrations; standard acceptance passed. Independent
+readback verified four runtime hashes, all ten definitions, and rejection of an
+unsupported INR input by the installed validator. Customer, company, connection
+and delivery fingerprints were unchanged; all eight customer payload fields remain
+verified. The readback did not invoke the authenticated commission HTTP route.
+Production and provider business records, the workbook, commercial approvals,
+real financial execution and Arabella were unchanged. Evidence:
 deploy/thunderhawk-staffing-source-review-20261026.json.
 
 
