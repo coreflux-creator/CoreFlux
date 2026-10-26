@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-26",
+  "kind": "isolated_combined_customer_identity_acceptance",
+  "provider_commit": "66827504473b93b8d31841fa02d6636b0ce1f209",
+  "provider_checkout": "../PurePay-core-customer-compat",
+  "provider_branch": "codex/core-customer-compatibility",
+  "coordinated_live_base": "84042fde01d47f4e4ea2e40fcc23f9b54528cc71",
+  "scoped_customer_candidate": "d86ac2b2c2a43a33f95494811cb1899de02a13ff",
+  "general_customer_candidate": "7930546",
+  "general_candidate_cherry_pick": "6fb4cde",
+  "original_candidate_checkouts_changed": false,
+  "reproduced_before_fix": [
+    "General create made a duplicate beside an existing legacy Core customer link",
+    "General exact lookup selected a conflicting external record despite the Core link"
+  ],
+  "backend_contract_tests_passed": 117,
+  "actual_core_php_loopback_checks_included": 13,
+  "mounted_ui_tests_passed": 18,
+  "key_scope_tests_passed": 12,
+  "frontend_build_exit": 0,
+  "frontend_build_compiled": true,
+  "frontend_main_asset": "main.40c37595.js",
+  "external_network_attempts": 0,
+  "owned_disposable_mongo_processes_stopped": true,
+  "verified": [
+    "General and dedicated customer create share the Core reference authority",
+    "Existing legacy IDs are preserved without relabeling external fields",
+    "Concurrent create/link and mixed API creates cannot choose different customer IDs",
+    "Deleted customer and interrupted request holds remain effective across both APIs",
+    "General exact lookup holds conflicting Core links",
+    "New Core external IDs are canonical; legacy opaque IDs remain readable",
+    "Audit failure is recoverable by reads without another create",
+    "Dedicated Core access does not grant general API permissions"
+  ],
+  "existing_notices": [
+    "Development visual-editor instrumentation warns about option nesting in mounted tests",
+    "Frontend build retains the existing large-bundle notice"
+  ],
+  "shared_preview_changed": false,
+  "provider_published": false,
+  "core_staging_runtime_changed": false,
+  "core_customer_delivery_enabled": false,
+  "production_changed": false,
+  "credentials_changed": false,
+  "real_payroll_payments_postings": false,
+  "arabella_changed": false,
+  "remaining": [
+    "Protect native customer deletion/merge of legacy Core-only links; existing generic guards cover external/QuickBooks identities",
+    "Reconcile the independent unified-sign-in update against its next exact baseline",
+    "Independent review and hosted combined acceptance",
+    "Review dedicated demo-key customer capability before hosted exchange",
+    "Actual Thunderhawk source/commercial setup and independent operational acceptance",
+    "Financial callback and reconciliation acceptance",
+    "Authorized production release"
+  ]
+}

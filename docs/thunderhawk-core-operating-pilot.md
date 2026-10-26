@@ -1,3 +1,11 @@
+## October 26 combined customer identity compatibility verified locally
+
+An isolated PurePay branch now combines scoped Core customer creation with the pending general customer/QuickBooks candidate. Two actual-app tests reproduced a duplicate beside a legacy Core link and a lookup choosing a conflicting external record. Candidate 66827504473b93b8d31841fa02d6636b0ce1f209 makes both APIs respect the same durable Core reference ownership, preserving original IDs and pending/deleted-record holds. Historical opaque external IDs remain readable; new Core IDs must be canonical.
+
+Combined acceptance passed 117 backend tests including 13 actual Core PHP checks, 18 mounted interface tests, 12 key-scope checks and the production frontend build. No external network attempts occurred. Both owned disposable Mongo processes stopped. Original candidate checkouts, shared hosted source, credentials, production systems and Arabella were unchanged.
+
+The user-prioritized unified-sign-in work continues in the separate PurePay chat. This combined branch remains isolated and unpublished pending its exact baseline, review and hosted acceptance. Native delete/merge protection for legacy Core-only links is a remaining implementation item; current Core reads hold dangling references rather than recreate them. Actual Thunderhawk operational acceptance, financial reconciliation, real invitation delivery and authorized production cutover remain open. Evidence: deploy/purepay-customer-compatibility-20261026.json.
+
 ## October 26 scoped PurePay customer provider implemented and tested
 
 PurePay candidate d86ac2b2c2a43a33f95494811cb1899de02a13ff is based on the coordinated live source 84042fde, in a separate local checkout. It implements the agreed customer contract 2026-10-26.1 with exact Core-reference lookup, local profile creation, explicit write:customer_inputs access, issuer permission and a separate key-form choice. Existing linked customer IDs and nullable legacy fields are preserved. A shared reference authority prevents competing scoped create and Core client-link requests from choosing different native customers.

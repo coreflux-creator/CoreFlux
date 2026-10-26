@@ -28,6 +28,22 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
+The isolated combined customer candidate `66827504473b93b8d31841fa02d6636b0ce1f209`
+now combines the dedicated Core routes with pending general customer candidate
+`7930546` on coordinated source `84042fde`. Tests reproduced a general-create
+duplicate beside a legacy Core link and a general lookup returning a conflicting
+record. Both paths now share Core reference ownership. New Core external IDs must
+be canonical; historical opaque IDs remain readable. A legacy Core-only link is
+reported with its existing ID without relabeling its null external fields.
+
+Combined acceptance passed 117 backend tests (including 13 actual PHP transport
+checks), 18 mounted interface tests, 12 key-scope checks and the frontend build.
+External network attempts were zero and both owned disposable Mongo processes were
+stopped. This is local acceptance, with no shared-preview or production change.
+Native deletion/merge protection for legacy Core-only links, reconciliation with
+the independent unified-sign-in update, review, hosted acceptance and the demo-key
+capability remain open. Evidence: `deploy/purepay-customer-compatibility-20261026.json`.
+
 The matching provider routes and capability are implemented in isolated PurePay candidate `d86ac2b2c2a43a33f95494811cb1899de02a13ff`, based on the coordinated live source `84042fde01d47f4e4ea2e40fcc23f9b54528cc71`. Fifty-eight backend/contract checks passed, including the actual app with disposable MongoDB and existing exchange fixtures. The actual Core PHP client passed 13 loopback HTTP checks against that provider app. Seven mounted UI tests, 12 key-scope checks and a frontend build passed. No external network attempt occurred. Evidence: `deploy/purepay-customer-provider-candidate-20261026.json`.
 
 The provider preserves legacy links and coordinates creation with normal Core client linking through a durable reference authority. Its future generic external-identity API candidate must respect that same authority for the reserved Core namespace; that separate pending candidate is not included here. The reviewed patch has been handed to the PurePay chat for preview coordination. It is not installed or published, and does not establish hosted or actual Thunderhawk acceptance. No production key, financial entry or cutover has been authorized by these tests.
