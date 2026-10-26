@@ -1,3 +1,23 @@
+## October 26 workflow correction installed and preserved in staging
+
+Core staging now runs `6613a8e42eedd52b87fb83676be61cb4dbeee0e0`. All nine
+CI jobs passed (40407295457); deployment and standard accounting/onboarding
+acceptance passed (40408066556). Migration 182 was the only newly applied
+migration. All original 508 workflow instances, 507 actions, four definitions,
+328 canonical migration rows and five legacy migration rows matched their
+predeployment fingerprints. Acceptance added five expected simulation-999
+reviews and actions. Existing histories were neither rewritten nor removed.
+
+The fresh complete-package production preflight passed (40407584081) with the
+corrected 76-file plan. Its 103 divergent paths comprise 94 tests and the same
+nine application source paths; fresh fingerprints of all nine still match the
+prior source review. Production was inspected only. Its runtime, migrations,
+real payroll/payments and the separate Arabella pilot remain unchanged.
+
+Customer permission/key setup, actual Thunderhawk operational acceptance and
+supported production deployment/recovery remain open. Evidence:
+deploy/workflow-history-staging-release-20261026.json.
+
 ## October 26 production-structure rehearsal passed after workflow repair
 
 The original 77-file upgrade failed on a local reconstruction of the current
