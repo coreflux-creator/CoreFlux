@@ -1,3 +1,27 @@
+## October 26 worker portal report and time status verified
+
+The signed-in Acme demo worker can download its one assignment report. All 14
+Core-owned fields in the 19-column CSV match the current native Core projection,
+including P-15, PL-13, CL-1 and CO-449. The first download returned 404 while the
+preview was unavailable; it returned 200 after the existing preview resumed.
+No report-code change was needed. Scheduled work remains held in the preview.
+
+The portal initially withheld an old time status because the authorized mailbox
+setup changed worker_email. Exact source hashes prove it was the only change.
+Native Core delivery 21 refreshed the existing eight-hour approval; the browser
+now shows Accepted in Core. Replay preserved one delivery, 334 protected table
+sets stayed unchanged, and the temporary delivery flag was restored. No new
+approval, payroll/payment, permission, credential or production change occurred.
+
+Core simulation CL-2 / CO-709 is prepared for the separate customer-creation
+test; CL-1's existing PurePay identity is preserved. Customer delivery stays off.
+The revised PurePay customer candidate cab0ded fixes the earlier import, credit
+and payer failures, but independent review found two unresolved explicit
+customer-reference conflicts. Its release owner is correcting those before
+staging. Actual Thunderhawk acceptance and production cutover remain open.
+Evidence: deploy/synthetic-worker-portal-acceptance-20261026.json and
+deploy/synthetic-customer-fixture-20261026.json.
+
 ## October 26 customer review and preview recovery
 
 The Quanta worker page still shows demo P-15 / PL-13 with all three synthetic

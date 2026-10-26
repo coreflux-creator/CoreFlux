@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "scope": "Core simulation 999 / Quanta Acme preview, P-15 PL-13; not actual Thunderhawk acceptance",
+  "core_runtime_revision": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+  "quanta_reviewed_source": "70c05eb",
+  "worker_portal": {
+    "user_set_password": true,
+    "signed_in_as_synthetic_worker": true,
+    "visible_assignments": 1,
+    "assignment_numbers": [
+      "P-15",
+      "PL-13",
+      "CL-1",
+      "CO-449"
+    ],
+    "three_synthetic_onboarding_requirements": "Approved by employer"
+  },
+  "download": {
+    "downloaded_at_local": "2026-10-26T15:27:46-04:00",
+    "filename": "core-assignments (3).csv",
+    "bytes": 436,
+    "sha256": "824ecf98d81490fa6833c68b3e5436e688ffe2ab878d6506c0652a5f9b81f072",
+    "rows": 1,
+    "columns": 19,
+    "core_owned_fields_compared": 14,
+    "matches_current_native_core_projection": true,
+    "provider_worksite_active": true,
+    "provider_worksite_assigned": true,
+    "assignment_version": 3,
+    "initial_attempt_http_status": 404,
+    "retry_after_preview_resumed_http_status": 200,
+    "application_code_changed": false,
+    "contains_rates_banking_or_private_review_fields": false
+  },
+  "time_status": {
+    "observed_before": "Source changed - review again",
+    "core_entry_id": 1,
+    "date": "2026-10-19",
+    "hours": 8,
+    "prior_core_approval_preserved": true,
+    "cause": "The authorized demo mailbox setup changed only worker_email in the source snapshot.",
+    "email_only_change_proven_by_exact_old_and_new_source_hashes": true,
+    "old_source_revision": "0aa498c313b8dab46992f2a0d73da21a9e7f0ba316ab0e12931c1313ca8e2b5c",
+    "new_source_revision": "bbcffc5649a2ae9f42e058854e6ab0dd8c73a2516dc170e74fbe7a3f2689b239",
+    "native_refresh": {
+      "checked_at": "2026-10-26T19:36:39+00:00",
+      "tenant_id": 999,
+      "mode": "synthetic_approved_status_after_mailbox_setup",
+      "application_deployed": false,
+      "persistent_configuration_changed": false,
+      "permissions_changed": false,
+      "time_approved": false,
+      "payroll_or_financial_writes": false,
+      "source_identity_verified": true,
+      "reason": "Demo mailbox setup changed only the worker email in the published source snapshot",
+      "protected_table_sets": 334,
+      "delivery": {
+        "id": 21,
+        "state": "delivered",
+        "remote_id": "cft_69c49f524c64eb334f606207297b17731492977693bc1c4e3e2cf8b8a5a62273",
+        "remote_receipt_id": "cfd_bbdeaab7a8b087491273163a117147ae957ff89d9d1ad482bb15dc4fc4e8d250"
+      },
+      "native_replay_verified": true,
+      "remote": {
+        "id": "cft_69c49f524c64eb334f606207297b17731492977693bc1c4e3e2cf8b8a5a62273",
+        "assignment_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+        "source_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676",
+        "version": 3,
+        "state": "accepted"
+      },
+      "fresh_comparison": "unchanged",
+      "existing_time_and_identity_unchanged": true,
+      "new_delivery_count": 1,
+      "passed": true,
+      "publication_flag_restored": true
+    },
+    "worker_browser_verified_after": "2026-10-19 / 8.00 hours / Accepted in Core",
+    "worker_browser_shared_at": "2026-10-26T19:36:41.495412+00:00"
+  },
+  "preview": {
+    "backend": "RUNNING",
+    "frontend": "RUNNING",
+    "webhook-crond": "STOPPED",
+    "background_workers_disabled": true,
+    "document_transfer_disabled": true,
+    "environment_configuration_changed": false,
+    "source_hashes_match_reviewed_checkout": true,
+    "all_database_state_across_platform_resume_compared": false
+  },
+  "boundaries": {
+    "production_changed": false,
+    "published": false,
+    "new_time_approval": false,
+    "real_payroll_payments_or_postings": false,
+    "real_employee_data_submitted": false,
+    "credentials_changed": false
+  },
+  "remaining": [
+    "Actual Thunderhawk operational acceptance",
+    "Real invitation email delivery",
+    "PurePay corrected customer release and hosted exchange",
+    "Financial callbacks and reconciliation",
+    "Authorized Core production cutover"
+  ]
+}

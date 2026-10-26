@@ -28,6 +28,14 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
+The revised candidate `cab0ded` passes the independently reproduced original
+import, company-scoped invoice, credit selection/application and payer workflow.
+Two additional explicit-conflict cases remain: an older invoice can resolve to a
+local customer whose provider ID contradicts its reference, and a partially
+recorded company can enter that same fallback. Both were reproduced in the actual
+application with an in-memory database, no startup and zero external IO. The
+release owner is correcting that boundary; this candidate is not staged.
+
 **Publication is held after independent review.** Candidate `a83819f` retains its
 236 passing local backend checks, but additional actual-application reproductions
 found a release-breaking legacy billing transition: bare QuickBooks customer IDs
@@ -50,6 +58,13 @@ PurePay customer `cus_2851af69d9` through delivered link 8. There are no new cus
 creation attempts, and delivery remains disabled. Hosted acceptance must preserve
 that existing identity and use a separate fictional client for new creation.
 Evidence: `deploy/purepay-customer-review-hold-20261026.json`.
+
+The separate creation fixture is now prepared in Core simulation tenant 999 as
+`CL-2` (company `CO-709`). Native services assigned the numbers and wrote the
+creation audit. Repeat fixture creation was rejected; 335 protected table sets
+and the existing `CL-1` provider link were unchanged. No provider request or
+customer delivery has occurred for `CL-2`, and the delivery switch stays off.
+Evidence: `deploy/synthetic-customer-fixture-20261026.json`.
 
 The following records describe earlier local acceptance, not publication approval.
 
