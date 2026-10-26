@@ -68,7 +68,7 @@ $report['field_dictionary'] = [
 unset($dictionary);
 
 $person = $pdo->query("SELECT id,status FROM people WHERE tenant_id=999 AND id=15
-    AND email_primary='core-integration-20261023@example.com' AND deleted_at IS NULL")->fetch(PDO::FETCH_ASSOC);
+    AND first_name='Synthetic' AND last_name='Core Integration' AND deleted_at IS NULL")->fetch(PDO::FETCH_ASSOC);
 $placement = $pdo->query("SELECT id,person_id,status FROM placements WHERE tenant_id=999 AND id=13
     AND person_id=15 AND title='Synthetic Core Integration 20261023' AND deleted_at IS NULL")->fetch(PDO::FETCH_ASSOC);
 if (!$person || !$placement) {

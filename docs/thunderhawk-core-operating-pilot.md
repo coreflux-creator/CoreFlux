@@ -1,3 +1,13 @@
+## October 26 worker onboarding round trip accepted in the demo
+
+The user completed password setup for the existing synthetic P-15 worker. The worker-only Quanta session shows exactly PL-13 in Acme. A stale checklist correctly refused submission until Core republished its requirements against assignment version 3 (delivery 19). The worker then submitted the acknowledgement and a harmless 1,907-byte sample PDF through the native portal.
+
+Native Core intake imported both verified receipts into simulation 999, with one private S3-backed document and two history events. Replays created no duplicate documents, objects or imports. All 334 protected table sets matched. Case version advanced from 5 to 7; both worker tasks remain submitted, the staff task remains requested, and readiness remains incomplete (0 of 3 requirements approved). The Acme-only document window was closed and the original preview environment restored byte-for-byte; Core's process-only intake flags were also restored. This proves the synthetic worker-to-Core intake, not employer approval or actual Thunderhawk acceptance.
+
+The missing invitation email was captured in the preview outbox because its email service key was absent. The user used that original invitation securely; no replacement password was handled by the agent. The incorrect sent message was corrected in the Quanta preview from candidate d3d7ada: 37 local backend, 12 UI and 120 hosted full-app checks passed, along with the frontend build. All 13 protected provider collections matched across the restart, and the worker session/submissions were retained. Real email delivery remains unproven. Evidence: `deploy/quanta-worker-invitation-preview-20261026.json`.
+
+Cloudways ticket 999748 received an automated response that did not establish the required deployment procedure. The authorized human clarification was submitted and verified Open, advice only. The separate PurePay chat reports its narrow messaging/recipient-login release published; customer mapping remains excluded and Core customer delivery stays disabled. Production Core cutover, actual Thunderhawk source/commercial setup and operational acceptance remain open.
+
 ## October 26 release preparation
 
 The production pending-migration fixture was stale at 60 files. It now covers all 77 files from preflight 40346520387, pins their reviewed bytes, and parses 729 statements (99 assertions). This proves parser coverage, not execution against a production clone. The nine known production source differences have been reviewed against candidate 81779d0d; the three historical migration files must retain their deployed bytes and successful ledger history. The country-save fix remains in the candidate.

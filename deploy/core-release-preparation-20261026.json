@@ -155,7 +155,11 @@
     "status": "Open",
     "confirmed_at": "2026-10-26T15:46:00Z",
     "scope": "Advice only; no permission reset, ownership change, access grant, service pause, data change or deployment requested.",
-    "confirmation_screenshot": "output/core-release-preparation-20261026/cloudways-ticket-999748.png"
+    "confirmation_screenshot": "output/core-release-preparation-20261026/cloudways-ticket-999748.png",
+    "human_followup_sent": true,
+    "human_followup_confirmed_at": "2026-10-26T15:53:00Z",
+    "automated_reply_established_supported_owner_procedure": false,
+    "human_response_pending": true
   },
   "activation_authorized": false,
   "production_migrations_run": false,
