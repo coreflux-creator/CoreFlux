@@ -28,7 +28,9 @@ Customer-specific errors use `detail.code`. Core recognizes the agreed payload-c
 
 ## Release status and acceptance
 
-The matching PurePay scoped routes/capability were agreed with its owner but are not yet implemented or deployed at this checkpoint. Core transport and UI are implemented against fixtures. Nothing here establishes hosted acceptance or authorizes enabling a production key, making real financial entries, or publishing a production cutover.
+The matching provider routes and capability are implemented in isolated PurePay candidate `d86ac2b2c2a43a33f95494811cb1899de02a13ff`, based on the coordinated live source `84042fde01d47f4e4ea2e40fcc23f9b54528cc71`. Fifty-eight backend/contract checks passed, including the actual app with disposable MongoDB and existing exchange fixtures. The actual Core PHP client passed 13 loopback HTTP checks against that provider app. Seven mounted UI tests, 12 key-scope checks and a frontend build passed. No external network attempt occurred. Evidence: `deploy/purepay-customer-provider-candidate-20261026.json`.
+
+The provider preserves legacy links and coordinates creation with normal Core client linking through a durable reference authority. Its future generic external-identity API candidate must respect that same authority for the reserved Core namespace; that separate pending candidate is not included here. The reviewed patch has been handed to the PurePay chat for preview coordination. It is not installed or published, and does not establish hosted or actual Thunderhawk acceptance. No production key, financial entry or cutover has been authorized by these tests.
 
 Core commit `81779d0d8ec1831140019f0a78e394d76890d0a7` passed all nine CI jobs (40345346110) and is installed in isolated staging (40345947763). The runtime flag is verified false. Thirty-two contract checks, 49 database checks and nine focused UI checks passed. Evidence: `deploy/purepay-customer-core-staging-20261026.json`.
 

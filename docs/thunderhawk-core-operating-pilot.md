@@ -1,3 +1,11 @@
+## October 26 scoped PurePay customer provider implemented and tested
+
+PurePay candidate d86ac2b2c2a43a33f95494811cb1899de02a13ff is based on the coordinated live source 84042fde, in a separate local checkout. It implements the agreed customer contract 2026-10-26.1 with exact Core-reference lookup, local profile creation, explicit write:customer_inputs access, issuer permission and a separate key-form choice. Existing linked customer IDs and nullable legacy fields are preserved. A shared reference authority prevents competing scoped create and Core client-link requests from choosing different native customers.
+
+Fifty-eight backend/contract tests passed, including actual application routes with disposable MongoDB and the existing exchange suite. Core's actual PHP client passed 13 loopback HTTP checks against that provider app, covering Unicode contact fields, original retry results, error decoding, company isolation, reviewed linking and legacy IDs. Seven mounted UI tests, 12 key-scope checks and the frontend build passed. External network attempts were zero; the dedicated local database process was stopped after acceptance.
+
+The exact patch and commit were handed to the authorized PurePay chat for preview coordination. Shared preview source/settings and all production systems remain unchanged; Core customer delivery stays disabled. The future generic external-ID API candidate must honor the same Core-reference authority before the two candidates are combined. Hosted combined acceptance, demo-key capability review, actual Thunderhawk setup and human operational acceptance, financial reconciliation, email delivery and authorized production cutover remain open. Evidence: `deploy/purepay-customer-provider-candidate-20261026.json`.
+
 ## October 26 Core review returned to the demo worker
 
 The native Core review and return path now passes for the existing synthetic P-15 / PL-13 case. The installed onboarding services verified the private sample PDF, approved both worker submissions, completed the TEST staff requirement, and advanced case version 7 to 11. All three requirements are satisfied for this demo. The same test operator performed the service acceptance; this does not establish independent human review or actual employment approval.
