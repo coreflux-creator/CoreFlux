@@ -1,3 +1,37 @@
+## October 26 production-structure rehearsal passed after workflow repair
+
+The original 77-file upgrade failed on a local reconstruction of the current
+production schema: migration 156 tried to remove an index that deployed migration
+118 had already removed. Production was unchanged. The correction retires the
+incompatible 156/158 files from new packages, preserves their successful installed
+source and ledger records, and adds migration 182. Completed reviews remain intact;
+only one pending review may occupy a tenant/subject slot. Existing duplicate
+pending reviews cause an explicit hold before schema changes.
+
+Candidate `3ca517137489a54d558d74f5ce4b6d4900952151` passed all 76 pending
+migrations (734 SQL statements) on MariaDB 10.11.18 against 393 production schema
+objects, 19 triggers and both migration histories. No business rows were copied.
+The original 269 canonical and 255 legacy history rows remained unchanged. Four
+workflow layouts passed 26 actual-database checks; the source/history planner
+passed 50 Windows checks, including staging's known CRLF ledger fingerprint.
+Read-only live inspection found zero duplicate pending subjects in production
+and staging. The local fixture was stopped after completion.
+
+This is structural compatibility evidence, not a populated-data upgrade or
+production recovery proof. Core staging remains on 81779d0d; production is
+unchanged. Cloudways ticket 999748 still needs a supported ownership and scheduler
+procedure. Actual Thunderhawk acceptance and explicit production cutover remain
+open. Evidence: deploy/core-production-structure-rehearsal-20261026.json.
+
+The full PurePay integration candidate 0a053481 also passed exact hosted source,
+review-mode health and native Core customer-contract reads in a bounded preview
+window, then restored the prior preview source and configuration. This supersedes
+the earlier customer-candidate blockers for that combined source. Customer writes
+remain off pending the separately requested demo permission and human key setup;
+no customer creation or production publication is claimed. Evidence:
+deploy/purepay-full-native-customer-readiness-20261026.json.
+
+
 ## October 26 worker portal report and time status verified
 
 The signed-in Acme demo worker can download its one assignment report. All 14
