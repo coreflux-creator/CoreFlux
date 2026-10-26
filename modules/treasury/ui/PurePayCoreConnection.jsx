@@ -5,9 +5,10 @@ import PurePeopleInputReview from './PurePeopleInputReview';
 import PureAssignmentInputReview from './PureAssignmentInputReview';
 import PurePeopleSetup from './PurePeopleSetup';
 import PurePayrollObservations from './PurePayrollObservations';
+import PureCustomerInputReview from './PureCustomerInputReview';
 
 const endpoint = '/api/purepay_core.php?action=';
-const capabilityNames = { 'read:coreflux': 'View records', 'write:coreflux': 'Link existing records', 'read:payroll': 'View employees and payroll', 'read:people_setup': 'View employee setup indicators', 'write:payroll_inputs': 'Send payroll inputs for review', 'write:payroll_authority': 'Reserve reviewed payroll sources', 'write:people_inputs': 'Send people for profile review', 'write:assignment_inputs': 'Send placements for commercial review' };
+const capabilityNames = { 'read:coreflux': 'View records', 'write:coreflux': 'Link existing records', 'read:payroll': 'View employees and payroll', 'read:people_setup': 'View employee setup indicators', 'write:payroll_inputs': 'Send payroll inputs for review', 'write:payroll_authority': 'Reserve reviewed payroll sources', 'write:people_inputs': 'Send people for profile review', 'write:assignment_inputs': 'Send placements for commercial review', 'write:customer_inputs': 'Create customer profiles' };
 const card = { border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, padding: 16, marginBottom: 16 };
 
 export default function PurePayCoreConnection() {
@@ -75,6 +76,8 @@ export default function PurePayCoreConnection() {
         })}>Confirm company</button>
       </>}
       {review.verified && <>
+        {review.customer_input_contract_version === '2026-10-26.1' && <PureCustomerInputReview key={`customers-${review.tenant_id}-${review.review_hash}`} tenantId={review.tenant_id} canCreate={review.capabilities.includes('write:customer_inputs')} canLink={review.capabilities.includes('write:coreflux')}
+          onChooseExisting={(id, clientNumber) => { setKind('client'); setPage(null); setSeenCursors([]); setHistory(null); setLink(null); setLinkConfirmed(false); setProviderId(id); setNumber(clientNumber); }} />}
         {review.payroll_observation_contract_version === '2026-10-25.1' && review.capabilities.includes('read:payroll') && <PurePayrollObservations key={`observations-${review.tenant_id}-${review.review_hash}`} tenantId={review.tenant_id} connectionRevision={review.review_hash} />}
         {review.people_setup_contract_version === '2026-10-22.1' && review.capabilities.includes('read:people_setup') && <PurePeopleSetup key={`setup-${review.review_hash}`} />}
         {review.payroll_input_contract_version === '2026-10-21.1' && review.capabilities.includes('read:payroll') && <PurePayrollInputReview key={review.review_hash} tenantId={review.tenant_id} canSend={review.capabilities.includes('write:payroll_inputs')} />}

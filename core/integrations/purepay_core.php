@@ -49,7 +49,7 @@ function purepayCoreContextValidate(array $data): array
         || !in_array('read:coreflux',$caps,true)) {
         throw new RuntimeException('PurePay has not provided the required Core organization contract.');
     }
-    $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll','read:people_setup','write:payroll_inputs','write:payroll_authority','write:people_inputs','write:assignment_inputs'],$caps)); sort($caps);
+    $caps=array_values(array_intersect(['read:coreflux','write:coreflux','read:payroll','read:people_setup','write:payroll_inputs','write:payroll_authority','write:people_inputs','write:assignment_inputs','write:customer_inputs'],$caps)); sort($caps);
     if(in_array('read:people_setup',$caps,true) && !in_array('read:payroll',$caps,true))throw new RuntimeException('Employee setup access requires employee read access.');
     if(in_array('write:payroll_inputs',$caps,true) && !in_array('read:payroll',$caps,true))throw new RuntimeException('Payroll input access requires payroll read access.');
     if(in_array('write:people_inputs',$caps,true) && !in_array('read:payroll',$caps,true))throw new RuntimeException('People input access requires employee read access.');
@@ -68,6 +68,8 @@ function purepayCoreContextValidate(array $data): array
     if($setup!==null && (!is_string($setup) || !preg_match('/^[0-9.-]{1,32}$/D',$setup)))throw new RuntimeException('Invalid provider employee setup contract.');
     $observation=$data['payroll_observation_contract_version']??null;
     if($observation!==null && (!is_string($observation) || !preg_match('/^[0-9.-]{1,32}$/D',$observation)))throw new RuntimeException('Invalid provider payroll observation contract.');
+    $customer=$data['customer_input_contract_version']??null;
+    if($customer!==null && (!is_string($customer) || !preg_match('/^[0-9.-]{1,32}$/D',$customer)))throw new RuntimeException('Invalid provider customer input contract.');
     return ['organization'=>['id'=>$org['id'],'name'=>$org['name']], 'capabilities'=>$caps,'link_contract_version'=>$link,
         'contract_version'=>PUREPAY_CORE_VERSION,'execution_side_effects'=>false]
         + ($input===null?[]:['payroll_input_contract_version'=>$input])
@@ -75,7 +77,8 @@ function purepayCoreContextValidate(array $data): array
         + ($people===null?[]:['people_input_contract_version'=>$people])
         + ($assignment===null?[]:['assignment_input_contract_version'=>$assignment])
         + ($setup===null?[]:['people_setup_contract_version'=>$setup])
-        + ($observation===null?[]:['payroll_observation_contract_version'=>$observation]);
+        + ($observation===null?[]:['payroll_observation_contract_version'=>$observation])
+        + ($customer===null?[]:['customer_input_contract_version'=>$customer]);
 }
 
 /** Never pass provider response text or credentials to the browser or audit trail. */
@@ -115,7 +118,7 @@ function purepayCoreHash(array $row,string $key,string $instance,array $context)
     // This optional read-schema hint grants no access. New consumers check it
     // afresh; its addition must not invalidate an unchanged company/key/scope
     // binding or the receipts already tied to that binding.
-    unset($bindingContext['payroll_observation_contract_version']);
+    unset($bindingContext['payroll_observation_contract_version'],$bindingContext['customer_input_contract_version']);
     return integrationDeliveryHash(['tenant_id'=>(int)$row['tenant_id'],'connection_id'=>(int)$row['id'],
         'revision'=>(int)$row['revision'],'instance'=>$instance,'base'=>purepayCoreApiBase(),
         'credential_digest'=>hash('sha256',$key),'context'=>$bindingContext]);
@@ -168,7 +171,8 @@ function purepayCoreReview(PDO $pdo,int $tenantId,string $instance): array
         + (isset($context['people_input_contract_version'])?['people_input_contract_version'=>$context['people_input_contract_version']]:[])
         + (isset($context['assignment_input_contract_version'])?['assignment_input_contract_version'=>$context['assignment_input_contract_version']]:[])
         + (isset($context['people_setup_contract_version'])?['people_setup_contract_version'=>$context['people_setup_contract_version']]:[])
-        + (isset($context['payroll_observation_contract_version'])?['payroll_observation_contract_version'=>$context['payroll_observation_contract_version']]:[]);
+        + (isset($context['payroll_observation_contract_version'])?['payroll_observation_contract_version'=>$context['payroll_observation_contract_version']]:[])
+        + (isset($context['customer_input_contract_version'])?['customer_input_contract_version'=>$context['customer_input_contract_version']]:[]);
 }
 
 function purepayCoreConfirm(PDO $pdo,int $tenantId,int $actor,string $instance,string $reviewHash,string $organizationId,?callable $audit=null): array

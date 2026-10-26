@@ -18,3 +18,15 @@ test('verified current assignment contract opens commercial review; unknown vers
     }finally{act(()=>tree.unmount());}
   }
 });
+
+test('customer controls require the exact advertised scoped contract',async()=>{
+  for(const version of [undefined,'future','2026-10-26.1']){
+    const module={exports:{}};
+    const api={getPinnedTenantId:()=>999,useApi:()=>({data:{connected:true},loading:false}),api:{post:async()=>({verified:true,tenant_id:999,review_hash:'review',organization:{name:'Demo'},customer_input_contract_version:version,capabilities:['read:coreflux']})}};
+    new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='fixture-api'?api:require(id),module,module.exports);
+    let tree;await act(async()=>{tree=create(React.createElement(module.exports.default));});
+    try{const check=tree.root.findAllByType('button').find(b=>text(b)==='Check company and access');await act(async()=>check.props.onClick());
+      assert.equal(tree.root.findAll(n=>n.props['data-testid']==='purepay-customer-input').length,version==='2026-10-26.1'?1:0);
+    }finally{act(()=>tree.unmount());}
+  }
+});

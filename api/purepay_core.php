@@ -10,6 +10,7 @@ require_once __DIR__.'/../core/integrations/purepay_observations.php';
 require_once __DIR__.'/../core/integrations/purepay_people_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_assignment_inputs.php';
 require_once __DIR__.'/../core/integrations/purepay_people_setup.php';
+require_once __DIR__.'/../core/integrations/purepay_customer_inputs.php';
 require_once __DIR__.'/../core/sub_tenants.php';
 $ctx=api_require_auth();
 $user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
@@ -61,7 +62,7 @@ try {
     $audit=static function()use($pdo,$tenantId,$user,$action,$body):void {
         // Action and company only; credentials and employee payloads never enter audit metadata.
         $metadata=['action'=>$action];
-        if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile','payroll_result_refresh','people_input_send','people_input_status','assignment_input_send','assignment_input_status'],true))$metadata['delivery_id']=$body['delivery_id'];
+        if(in_array($action,['link_send','link_reconcile','payroll_input_send','payroll_input_reconcile','payroll_result_refresh','people_input_send','people_input_status','assignment_input_send','assignment_input_status','customer_input_send','customer_input_reconcile'],true))$metadata['delivery_id']=$body['delivery_id'];
         if($action==='payroll_observation_save')$metadata['provider_run_id']=$body['run_id'];
         $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(:t,:u,:e,NULL,:m,:ip,NOW())')
             ->execute(['t'=>$tenantId,'u'=>(int)$user['id'],'e'=>'purepay.core.'.$action,'m'=>json_encode($metadata),'ip'=>$_SERVER['REMOTE_ADDR']??null]);
@@ -88,6 +89,23 @@ try {
             rbac_legacy_require($user,'people.docs.view');
             header('Cache-Control: no-store, private');
             $result=purepayPeopleSetupRead($pdo,$tenantId,$instance,$owner,strtoupper(trim($body['person_number'])));break;
+        case 'customer_input_preview':
+            if(!is_string($body['client_number']??null))api_error('Choose a Core client number.',422);
+            $owner=purepayCoreApiRecordOwner($user,$tenantId,'client');
+            header('Cache-Control: no-store, private');
+            $result=purepayCustomerInputPreview($pdo,$tenantId,(int)$user['id'],$instance,$owner,strtoupper(trim($body['client_number'])));
+            $result['can_create']=$result['can_create']&&rbac_legacy_can($user,'placements.manage');break;
+        case 'customer_input_send':
+        case 'customer_input_reconcile':
+            if(!is_int($body['delivery_id']??null)||$body['delivery_id']<=0||!is_string($body['review_hash']??null))api_error('Choose the original customer review.',422);
+            $owner=purepayCoreApiRecordOwner($user,$tenantId,'client');
+            header('Cache-Control: no-store, private');
+            if($action==='customer_input_send') {
+                rbac_legacy_require($user,'placements.manage');
+                if(($body['confirmed']??null)!==true)api_error('Confirm this customer before sharing.',422);
+                $result=['delivery'=>purepayCustomerInputSend($pdo,$tenantId,(int)$user['id'],$instance,$owner,$body['delivery_id'],$body['review_hash'],$audit)];
+            }else $result=purepayCustomerInputReconcile($pdo,$tenantId,$instance,$owner,$body['delivery_id'],$body['review_hash'],$audit);
+            break;
         case 'link_preview':
             if(!is_string($body['kind']??null) || !is_string($body['number']??null) || !is_string($body['provider_id']??null))api_error('Select a provider record and enter its Core number.',422);
             $owner=purepayCoreApiRecordOwner($user,$tenantId,$body['kind']);

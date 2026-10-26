@@ -57,7 +57,8 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     // Every operation added here needs a reviewed adapter and fixture before it can be queued.
     $operations=['person'=>['worker.create','worker.update','person.link','worker.profile.create','worker.profile.update'],'placement'=>['assignment.create','assignment.update','onboarding.publish','time.review']];
     $quanta=$context['provider']==='quanta' && in_array($context['operation'],$operations[$context['entity_type']]??[],true);
-    $purepay=$context['provider']==='purepay' && $context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true);
+    $purepay=$context['provider']==='purepay' && (($context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true))
+        || ($context['operation']==='customer.create' && $context['entity_type']==='client'));
     $payroll=$context['provider']==='purepayroll' && $context['entity_type']==='person' && in_array($context['operation'],['payroll.inputs','people.inputs'],true);
     $assignment=$context['provider']==='purepayroll' && $context['entity_type']==='placement' && $context['operation']==='assignments.inputs';
     if (!$quanta && !$purepay && !$payroll && !$assignment) {
@@ -137,7 +138,7 @@ function integrationDeliveryClaim(PDO $pdo, int $tenantId, int $id, array $curre
         $pending=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND state IN ("sending","uncertain") LIMIT 1');
         $pending->execute(['t'=>$tenantId,'s'=>$row['subject_hash']]);
         if ($pending->fetchColumn()) throw new RuntimeException('Reconcile the previous attempt before sending another change for this record');
-        if (in_array($row['operation'],['worker.create','worker.profile.create','person.link','assignment.create','record.link'],true)) {
+        if (in_array($row['operation'],['worker.create','worker.profile.create','person.link','assignment.create','record.link','customer.create'],true)) {
             $created=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=:t AND subject_hash=:s AND operation=:o AND state="delivered" LIMIT 1');
             $created->execute(['t'=>$tenantId,'s'=>$row['subject_hash'],'o'=>$row['operation']]);
             if ($created->fetchColumn()) throw new RuntimeException('This record was already published; reconcile its identity before publishing an update');

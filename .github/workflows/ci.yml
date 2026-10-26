@@ -241,6 +241,8 @@ jobs:
       - name: Verify reviewed Core record links and response-loss reconciliation
         run: |
           php tests/purepay_core_links_mariadb.php
+          php tests/purepay_customer_contract_smoke.php
+          php tests/purepay_customer_inputs_mariadb.php
           php tests/purepay_people_setup_receipt.php
 
       - name: Verify employer-reviewed onboarding and evidence isolation
