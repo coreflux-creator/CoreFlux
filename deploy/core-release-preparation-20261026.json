@@ -122,16 +122,19 @@
     "scope": "SQL parser and exact pending-byte verification only; not execution against a production clone"
   },
   "private_settings": {
-    "candidate_commit": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+    "candidate_commit": "e5521a4fb04d89f88fabc80852d4c25a6ceaccc9",
     "prepared": true,
     "settings_preserved": true,
     "cli_read_only_database_probe": true,
     "php_fpm_read_only_database_probe": true,
     "temporary_probe_removed": true,
     "live_config_unchanged": true,
-    "reported_controls": 8,
+    "reported_controls": 11,
     "reported_controls_disabled": true,
-    "limitation": "This receipt precedes the addition of time-review, document-intake and customer-delivery controls to the release probes."
+    "limitation": "No worker process environment or all-writer maintenance proof is implied by CLI and PHP-FPM checks.",
+    "run_id": 40351607472,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40351607472",
+    "conclusion": "success"
   },
   "hosting_check": {
     "checked_at": "2026-10-26T15:28:16+00:00",
@@ -146,15 +149,28 @@
   "support": {
     "request_prepared": true,
     "user_authorized_advice_only": true,
-    "sent": false
+    "sent": true,
+    "ticket_id": 999748,
+    "url": "https://tickets.cloudways.com/hc/en-us/requests/999748",
+    "status": "Open",
+    "confirmed_at": "2026-10-26T15:46:00Z",
+    "scope": "Advice only; no permission reset, ownership change, access grant, service pause, data change or deployment requested.",
+    "confirmation_screenshot": "output/core-release-preparation-20261026/cloudways-ticket-999748.png"
   },
   "activation_authorized": false,
   "production_migrations_run": false,
   "remaining": [
     "Owner-preserving deployment/recovery and complete scheduler control",
     "Candidate-bound matching backup and tested recovery with writers held",
-    "Updated eleven-control PHP-FPM probe",
     "Matching PurePay customer interface and hosted acceptance",
     "Actual Thunderhawk operational round trip and explicit cutover authorization"
-  ]
+  ],
+  "release_check_commit": "e5521a4fb04d89f88fabc80852d4c25a6ceaccc9",
+  "ci": {
+    "run_id": 40351079908,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40351079908",
+    "conclusion": "success",
+    "jobs_passed": 9,
+    "private_settings_checks": 37
+  }
 }
