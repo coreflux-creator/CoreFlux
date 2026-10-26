@@ -50,7 +50,23 @@ if (!defined('COREFLUX_STAGING') || !COREFLUX_STAGING
     || $mail->default_driver_name() !== 'log' || $mail->driver('resend') !== null) {
     throw new RuntimeException('Staging must have log-only mail before deployment.');
 }
-$ledger = $pdo->query('SELECT filename, sha256 FROM _migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
+$ledgerRows = $pdo->query('SELECT filename, sha256, last_error FROM _migrations')->fetchAll(PDO::FETCH_ASSOC);
+$ledger = array_column($ledgerRows, 'sha256', 'filename');
+$ledgerErrors = array_column($ledgerRows, 'last_error', 'filename');
+$legacyLedger = $pdo->query('SELECT file_path, checksum_sha FROM coreflux_migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
+require_once $package . '/deploy/full_core_migration_plan.php';
+foreach (fullCoreMigrationHistory()['retired'] as $relative => $reviewed) {
+    if (($reviewed['preserve_deployed_source'] ?? false) !== true) continue;
+    $key = basename($relative);
+    $deployed = fullCoreMigrationRead(INTEGRATION_STAGE_ROOT, $relative, true);
+    if ($deployed === null && !isset($ledger[$key])) continue;
+    if (!isset($ledger[$key]) || ($ledgerErrors[$key] ?? null) !== null
+        || !hash_equals($reviewed['recorded_sha256'], $ledger[$key])
+        || (isset($legacyLedger[$relative]) && !hash_equals($ledger[$key], $legacyLedger[$relative]))
+        || !fullCoreRetiredSourceVerified($reviewed, $deployed, $manifest['files'])) {
+        throw new RuntimeException('Retired workflow migration requires recovery review: ' . $key);
+    }
+}
 $pending = [];
 foreach (array_keys($manifest['files']) as $relative) {
     if (!preg_match('~^(core/migrations|modules/[^_/][^/]*/migrations)/[^/]+\.sql$~D', $relative)) continue;

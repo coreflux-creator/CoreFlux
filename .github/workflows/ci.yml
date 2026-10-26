@@ -436,6 +436,9 @@ jobs:
       - name: Rehearse exact full-Core upgrade failure and process-loss recovery markers
         run: php tests/full_core_upgrade_executor_mariadb.php --confirm-disposable-fixture
 
+      - name: Preserve workflow review history across installed schema variants
+        run: php tests/workflow_pending_identity_mariadb.php --confirm-disposable-fixture
+
       - name: Restore a native MariaDB backup after committed partial upgrade changes
         env:
           COREFLUX_RECOVERY_MARIADB_CONTAINER: ${{ job.services.mariadb.id }}

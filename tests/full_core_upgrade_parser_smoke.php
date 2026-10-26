@@ -26,7 +26,7 @@ foreach (["SELECT 'unfinished", 'SELECT `unfinished', 'SELECT 1 /* unfinished',
     $assert(false, 'incomplete or unsafe migration refused');
 }
 $fixture = json_decode((string) file_get_contents(__DIR__ . '/fixtures/full-core-upgrade-pending.json'), true, 512, JSON_THROW_ON_ERROR);
-$assert(count($fixture['pending_paths']) === 77 && count(array_unique($fixture['pending_paths'])) === 77, 'fixture is the exact 77-file production pending set from preflight 40346520387');
+$assert(count($fixture['pending_paths']) === 76 && count(array_unique($fixture['pending_paths'])) === 76, 'reviewed production pending set replaces incompatible workflow migrations with their successor');
 $assert(array_keys($fixture['pending_sha256']) === $fixture['pending_paths'], 'each pending file has its reviewed candidate digest');
 $count = 0;
 foreach ($fixture['pending_paths'] as $path) {
@@ -35,5 +35,5 @@ foreach ($fixture['pending_paths'] as $path) {
     $parts = fullCoreUpgradeStatements($sql);
     $count += count($parts);
 }
-$assert($count > 77, 'all current pending migration files compile before any database work');
+$assert($count > count($fixture['pending_paths']), 'all current pending migration files compile before any database work');
 echo "Upgrade parser: $checks checks passed; $count pending statements parsed.\n";

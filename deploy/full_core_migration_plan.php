@@ -2,7 +2,7 @@
 /** Read-only, revision-bound migration plan for the populated full Core release. */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../core/migration_hash.php';
+if (!function_exists('corefluxMigrationHashMatches')) require_once __DIR__ . '/../core/migration_hash.php';
 
 // Reviewed deployed Git blobs. This is deliberately not a caller-provided skip list.
 const FULL_CORE_RETAINED_MIGRATION_BLOBS = [
@@ -30,9 +30,25 @@ function fullCoreMigrationHistory(): array
                 || !preg_match('/^[a-f0-9]{40}$/D', $record['source_git_blob'] ?? '')) {
                 throw new RuntimeException('Historical migration fingerprint is invalid.');
             }
+            if (isset($record['superseded_by']) && ($kind !== 'retired'
+                || !fullCoreMigrationPath($record['superseded_by'])
+                || ($record['preserve_deployed_source'] ?? null) !== true)) {
+                throw new RuntimeException('Historical migration successor is invalid.');
+            }
         }
     }
     return $history;
+}
+
+/** A known applied retired file may remain installed, but must never be rerun or rewritten. */
+function fullCoreRetiredSourceVerified(array $record, ?string $deployed, array $manifestFiles): bool
+{
+    if (isset($record['superseded_by']) && !isset($manifestFiles[$record['superseded_by']])) return false;
+    if ($deployed === null) return true;
+    if (($record['preserve_deployed_source'] ?? false) !== true) return false;
+    $normalized = str_replace("\r\n", "\n", $deployed);
+    return corefluxMigrationHashMatches($record['recorded_sha256'], $deployed)
+        && hash_equals($record['source_git_blob'], hash('sha1', 'blob ' . strlen($normalized) . "\0" . $normalized));
 }
 
 function fullCoreMigrationRead(string $root, string $path, bool $optional = false): ?string
@@ -158,12 +174,21 @@ function fullCoreMigrationPlan(array $manifest, string $package, string $live,
         if (isset($seen[$key])) continue;
         $path = str_contains($key, '/') ? $key : 'core/migrations/' . $key;
         $reviewed = $history['retired'][$path] ?? null;
+        $deployedRetired = $reviewed ? fullCoreMigrationRead($live, $path, true) : null;
         if ($reviewed && !$row['failed'] && hash_equals($reviewed['recorded_sha256'], $row['sha256'])
-            && fullCoreMigrationRead($live, $path, true) === null
+            && fullCoreRetiredSourceVerified($reviewed, $deployedRetired, $manifestFiles)
             && (!isset($legacyLedger[$path]) || hash_equals($row['sha256'], $legacyLedger[$path]))) {
             $retired[] = ['path' => $path, 'ledger_key' => $key, 'recorded_sha256' => $row['sha256'],
-                'source_git_blob' => $reviewed['source_git_blob'], 'action' => 'preserve_retired_history'];
+                'source_git_blob' => $reviewed['source_git_blob'], 'action' => 'preserve_retired_history',
+                'deployed_sha256' => $deployedRetired === null ? null : hash('sha256', $deployedRetired)];
         } else $blockers[] = ['ledger_key' => $key, 'reason' => 'recorded_migration_not_packaged'];
+    }
+    foreach ($history['retired'] as $path => $reviewed) {
+        $key = str_starts_with($path, 'core/') ? basename($path) : $path;
+        if (($reviewed['preserve_deployed_source'] ?? false) === true && !isset($ledger[$key])
+            && fullCoreMigrationRead($live, $path, true) !== null) {
+            $blockers[] = ['path' => $path, 'reason' => 'unrecorded_retired_source_requires_review'];
+        }
     }
     $plan = ['version' => 1, 'candidate_commit' => $manifest['commit'],
         'manifest_files_sha256' => hash('sha256', json_encode($manifestFiles, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),

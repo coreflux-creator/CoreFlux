@@ -10,12 +10,10 @@
     "core/migrations/153_coreone_accounting_credentials.sql",
     "core/migrations/154_coreone_document_requests.sql",
     "core/migrations/155_people_graph_approval_runtime.sql",
-    "core/migrations/156_billing_invoice_approval_attempts.sql",
     "core/migrations/156_record_numbers.sql",
     "core/migrations/157_mail_cc_audit.sql",
     "core/migrations/157_record_number_export_presets.sql",
     "core/migrations/158_integration_deliveries.sql",
-    "core/migrations/158_payroll_workflow_review_attempts.sql",
     "core/migrations/159_coreone_bill_issuer_attribution.sql",
     "core/migrations/159_quanta_workspace_binding.sql",
     "core/migrations/160_password_reset_tokens.sql",
@@ -40,6 +38,7 @@
     "core/migrations/179_purepay_allocation_operations.sql",
     "core/migrations/180_ap_bank_dispatches.sql",
     "core/migrations/181_placement_worksite_city.sql",
+    "core/migrations/182_workflow_pending_subject_identity.sql",
     "modules/accounting/migrations/032_customer_deposits.sql",
     "modules/accounting/migrations/033_customer_deposit_refunds.sql",
     "modules/accounting/migrations/034_customer_deposit_corrections.sql",
@@ -89,12 +88,10 @@
     "core/migrations/153_coreone_accounting_credentials.sql": "d5695e91a2d6be2c65228df1888915019a806fb26abb28c2cb0acf14754771d9",
     "core/migrations/154_coreone_document_requests.sql": "449f69d243b8f698b2f5e1f323d059d8bbe56899ec846731d54e18c038323c0b",
     "core/migrations/155_people_graph_approval_runtime.sql": "55db9e4126415ce5af767a87c0f9fb42f24a5b35f399e0b990469bfece5e6381",
-    "core/migrations/156_billing_invoice_approval_attempts.sql": "04fdd6550cc3ba61c3edcf920e47e17c3081d1ce96fefaed12a48bd8522106f3",
     "core/migrations/156_record_numbers.sql": "72dbcc98a67c9bc3c372011b4bb49d046c56e6917dee7b8ec7038f0fe18825c3",
     "core/migrations/157_mail_cc_audit.sql": "e69c82d3d48860a63e6bbd9816bf374b59c04e7a161ccdf89e3d8e9f60db1587",
     "core/migrations/157_record_number_export_presets.sql": "7d80898b3fb1b0ce29c29e3670a44348ebdc4d524a5431549abc9b9facd5a4e7",
     "core/migrations/158_integration_deliveries.sql": "01fc86f56b6f3847bfb732c212e295cc427f927542dcaea7bde9795461f504fa",
-    "core/migrations/158_payroll_workflow_review_attempts.sql": "011dd07f2b65567ac2d8bce7e4ba5606abcf8951fed1addb4b9eaf828972664d",
     "core/migrations/159_coreone_bill_issuer_attribution.sql": "3070d4d0f7530d710b3d5991f1f4499445441fb15a1dd0e7e6cf1eb3399d435c",
     "core/migrations/159_quanta_workspace_binding.sql": "618d23116093849f4beb0c4a1c71e075d1873630a1d809bef4cf1477bf1d442c",
     "core/migrations/160_password_reset_tokens.sql": "cfadc3db8ac62da7c5189a4501b5fd90beeed997682cd2a4046a61eb0e3fa3cd",
@@ -119,6 +116,7 @@
     "core/migrations/179_purepay_allocation_operations.sql": "427641239f0901970919cd7f04c32d2b0264479f16336c20b04264c7af95e0ac",
     "core/migrations/180_ap_bank_dispatches.sql": "dea282ed824a7bc2f524fd16383263dd50e1c9474f0845fcaf663b95638bd412",
     "core/migrations/181_placement_worksite_city.sql": "e118caaea65e8aa37df99b48a1e195a3a65793eb26a5753da4b42e6c79a9cd14",
+    "core/migrations/182_workflow_pending_subject_identity.sql": "75c04cd858a00225cf93b9451c7c3869ed44712e7a9406e785ccb880ed6fffa3",
     "modules/accounting/migrations/032_customer_deposits.sql": "d0ba7ec17186d384b6dd123e0ecd518e123cf07d5c16154805d3d6272d4ffe97",
     "modules/accounting/migrations/033_customer_deposit_refunds.sql": "8d33c79b1895974ae8ece3dc1c9b64ecaa13c535150488aceea01f1eab2e7145",
     "modules/accounting/migrations/034_customer_deposit_corrections.sql": "6de3bd143a852ffd4a0593dbca35bb68b07c94790bf86ca654bbdbee70992d2f",
@@ -158,5 +156,14 @@
     "modules/time/migrations/012_quanta_source_enums.sql": "9030f7ebb7b43627e10c186d6b0ce486e5bfeae277ae9e036e53480df3fefcd1",
     "modules/treasury/migrations/008_statement_corrections.sql": "0c7f34238a234261f8315b813e1864bb52364ca559dde2549fb55de278cd72c3",
     "modules/treasury/migrations/009_bank_line_reviews.sql": "2ceed4c4d9cd028a67976e2b574e5e1dfc62b89a7a19b8683fcb71003b3665fb"
+  },
+  "review_adjustment": {
+    "schema_snapshot_sha256": "c1692fec6f760524f48d9df417ec3c69245c587ecde8961f2c8eac0dd79737a9",
+    "removed_pending_paths": [
+      "core/migrations/156_billing_invoice_approval_attempts.sql",
+      "core/migrations/158_payroll_workflow_review_attempts.sql"
+    ],
+    "successor": "core/migrations/182_workflow_pending_subject_identity.sql",
+    "reason": "Production already removed the old unique index in retired 118; preserve completed review history and enforce uniqueness only for pending reviews."
   }
 }

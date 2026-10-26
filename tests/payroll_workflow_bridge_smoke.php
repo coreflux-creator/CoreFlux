@@ -28,7 +28,7 @@ $runs = file_get_contents("{$root}/modules/payroll/api/runs.php");
 $workflow = file_get_contents("{$root}/modules/payroll/lib/workflow.php");
 $sync = file_get_contents("{$root}/modules/payroll/lib/workflow_sync.php");
 $migration = file_get_contents("{$root}/modules/payroll/migrations/006_run_enterprise_controls.sql");
-$reviewMigration = file_get_contents("{$root}/core/migrations/158_payroll_workflow_review_attempts.sql");
+$reviewMigration = file_get_contents("{$root}/core/migrations/182_workflow_pending_subject_identity.sql");
 $manifest = file_get_contents("{$root}/modules/payroll/manifest.php");
 $approvalSettings = file_get_contents("{$root}/modules/payroll/lib/approval_settings.php");
 $approvalApi = file_get_contents("{$root}/modules/payroll/api/approval_settings.php");
@@ -69,9 +69,7 @@ $checks = [
     'workflow sync updates payroll-owned records' => str_contains($sync, "UPDATE payroll_runs") && str_contains($sync, "UPDATE payroll_pay_periods"),
     'schema migration adds workflow evidence' => str_contains($migration, 'workflow_instance_id') && str_contains($migration, 'computed_by_user_id'),
     'cancelled payroll reviews release the unique workflow slot' =>
-        str_contains($reviewMigration, "subject_type = 'payroll_run'")
-        && str_contains($reviewMigration, "'cancelled', 'rejected', 'expired'")
-        && str_contains($reviewMigration, 'THEN NULL'),
+        str_contains($reviewMigration, "CASE WHEN status = 'pending' THEN subject_id ELSE NULL END"),
     'manifest declares create and compute permissions' => str_contains($manifest, "'payroll.run.create'") && str_contains($manifest, "'payroll.run.compute'"),
     'legacy RBAC maps create and compute permissions' => str_contains($legacyMap, "'payroll.run.create'") && str_contains($legacyMap, "'payroll.run.compute'"),
     'legacy RBAC maps payroll list permissions to read access' =>
