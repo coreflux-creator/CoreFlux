@@ -141,6 +141,88 @@ final class FullCoreMaintenanceHost
         fullCoreMaintenanceDigest($this->crontab(), $nextHash);
     }
 
+    private function schedulerPath(string $operation): string
+    {
+        fullCoreMaintenanceWebRule($operation);
+        return $this->privateParent . '/scheduler-' . $operation;
+    }
+
+    /**
+     * Hold this user's reviewed schedule when it has a different owner from the web files.
+     * No web file is read or replaced. A release coordinator must separately hold web ingress,
+     * other schedules and running work; this receipt never proves a complete maintenance hold.
+     * All controllers of this account's crontab must reuse the same privateParent lock.
+     */
+    public function pauseScheduler(string $operation, string $expectedCronHash, array $review): array
+    {
+        $cron = $this->crontab();
+        if (preg_match('/^# coreflux-maintenance-[a-f0-9]{32} /m', $cron)) {
+            throw new RuntimeException('Unresolved scheduler maintenance; recover its original operation first.');
+        }
+        $plan = fullCoreMaintenanceCron($cron, $expectedCronHash, $this->root, $review, $operation);
+        $private = $this->schedulerPath($operation);
+        if (file_exists($private) || is_link($private) || !mkdir($private, 0700)) {
+            throw new RuntimeException('New scheduler operation required; recover existing maintenance explicitly.');
+        }
+        $receipt = ['version' => 1, 'scope' => 'current-user-scheduler', 'operation' => $operation,
+            'root' => $this->root, 'cli_uid' => posix_geteuid(),
+            'original_cron_sha256' => $expectedCronHash, 'held_cron_sha256' => $plan['held_sha256'],
+            'review' => $review, 'paused_jobs' => $plan['paused_jobs'], 'retained_jobs' => $plan['retained_jobs']];
+        $this->privateWrite($private . '/original.crontab', $cron);
+        $this->privateWrite($private . '/held.crontab', $plan['held_bytes']);
+        $this->privateWrite($private . '/receipt.json', json_encode($receipt, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
+        $this->replaceCron($expectedCronHash, $private . '/held.crontab', $plan['held_sha256']);
+        return $this->assertSchedulerHeld($operation);
+    }
+
+    private function schedulerReceipt(string $operation): array
+    {
+        $private = $this->schedulerPath($operation);
+        if (realpath($private) !== $private || is_link($private) || fileowner($private) !== posix_geteuid()
+            || (fileperms($private) & 0777) !== 0700) throw new RuntimeException('Private scheduler recovery operation required.');
+        $receipt = json_decode($this->privateRead($private . '/receipt.json'), true, 512, JSON_THROW_ON_ERROR);
+        if (($receipt['version'] ?? null) !== 1 || ($receipt['scope'] ?? '') !== 'current-user-scheduler'
+            || ($receipt['operation'] ?? '') !== $operation || ($receipt['root'] ?? '') !== $this->root
+            || ($receipt['cli_uid'] ?? null) !== posix_geteuid()
+            || !is_string($receipt['original_cron_sha256'] ?? null) || !is_string($receipt['held_cron_sha256'] ?? null)
+            || !is_array($receipt['review'] ?? null)) throw new RuntimeException('Scheduler recovery identity differs.');
+        $plan = fullCoreMaintenanceCron($this->privateRead($private . '/original.crontab'),
+            $receipt['original_cron_sha256'], $this->root, $receipt['review'], $operation);
+        fullCoreMaintenanceDigest($plan['held_bytes'], $receipt['held_cron_sha256']);
+        fullCoreMaintenanceDigest($this->privateRead($private . '/held.crontab'), $receipt['held_cron_sha256']);
+        if (($receipt['paused_jobs'] ?? null) !== $plan['paused_jobs']
+            || ($receipt['retained_jobs'] ?? null) !== $plan['retained_jobs']) {
+            throw new RuntimeException('Scheduler recovery counts differ from the reviewed commands.');
+        }
+        return $receipt;
+    }
+
+    /** Fresh native readback, scoped only to this account's schedule. */
+    public function assertSchedulerHeld(string $operation): array
+    {
+        $receipt = $this->schedulerReceipt($operation);
+        fullCoreMaintenanceDigest($this->crontab(), $receipt['held_cron_sha256']);
+        return ['operation' => $operation, 'root' => $this->root, 'cli_uid' => posix_geteuid(),
+            'scope' => 'current-user-scheduler', 'held_cron_sha256' => $receipt['held_cron_sha256'],
+            'paused_jobs' => $receipt['paused_jobs'], 'retained_jobs' => $receipt['retained_jobs'],
+            'web_ingress_held' => false, 'business_writers_drained' => false];
+    }
+
+    /** Explicitly resume after independently verified release or recovery; never automatic on process exit. */
+    public function restoreScheduler(string $operation): void
+    {
+        $receipt = $this->schedulerReceipt($operation);
+        $currentHash = hash('sha256', $this->crontab());
+        if (!in_array($currentHash, [$receipt['original_cron_sha256'], $receipt['held_cron_sha256']], true)) {
+            throw new RuntimeException('Concurrent scheduler edit; recovery must not overwrite it.');
+        }
+        if ($currentHash !== $receipt['original_cron_sha256']) {
+            $this->replaceCron($receipt['held_cron_sha256'], $this->schedulerPath($operation) . '/original.crontab',
+                $receipt['original_cron_sha256']);
+        }
+        fullCoreMaintenanceDigest($this->crontab(), $receipt['original_cron_sha256']);
+    }
+
     /** Deliberately leaves recovery material/any installed hold on error. The release adapter decides recovery. */
     public function pause(string $operation, array $expectedWeb, string $expectedCronHash, array $review): array
     {

@@ -7,12 +7,13 @@ image="core-maintenance-host:${GITHUB_RUN_ID:-local}-${RANDOM}"
 trap 'docker image rm "$image" >/dev/null 2>&1 || true' EXIT
 mkdir -p "$fixture/deploy" "$fixture/tests"
 cp deploy/full_core_maintenance.php deploy/full_core_maintenance_host.php "$fixture/deploy/"
-cp tests/full_core_maintenance_host_linux.php "$fixture/tests/"
+cp tests/full_core_maintenance_host_linux.php tests/full_core_maintenance_scheduler_linux.php tests/full_core_maintenance_scheduler_linux.sh "$fixture/tests/"
 cat > "$fixture/Dockerfile" <<'DOCKER'
 FROM php:8.2-cli
-RUN apt-get update && apt-get install -y --no-install-recommends cron \
+RUN apt-get update && apt-get install -y --no-install-recommends cron util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd coremaintweb && useradd --create-home --groups coremaintweb coremaintfixture \
+    && useradd --create-home --groups coremaintweb coremaintscheduler \
     && touch /run/core-maintenance-fixture
 COPY deploy /app/deploy
 COPY tests /app/tests
@@ -22,3 +23,4 @@ CMD ["bash", "-c", "export CORE_MAINTENANCE_HOST_FIXTURE=/tmp/coreflux-host-main
 DOCKER
 docker build --quiet --tag "$image" "$fixture"
 docker run --rm --network none "$image"
+docker run --rm --network none --user root "$image" bash /app/tests/full_core_maintenance_scheduler_linux.sh

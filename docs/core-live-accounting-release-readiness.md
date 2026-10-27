@@ -1170,9 +1170,12 @@ deployment CLI runs as UID 1003/GID 33. The webroot and live configuration also
 belong to UID 1004. All nine active scheduler lines contain the Core root.
 The [identity check](https://github.com/coreflux-creator/CoreFlux/actions/runs/39711612315)
 confirmed the CLI cannot run a noninteractive identity command as that file
-owner. A later read-only comparison (39711831712) also found that Cloudways'
-existing listed application login is not the file owner. No credentials or
-permissions were changed. The Cloudways Web Rules form offers only 301, 302
+owner. The later name comparison (39711831712) incorrectly treated Cloudways'
+listed login as a different file owner. Live `id`/`getent` inspection on October
+26 established that `kunalverma2` and `grcudkpvcd` both map to UID 1004/GID 33.
+Application SSH is disabled; enabling and verifying that existing login awaits
+approval. See `deploy/core-application-owner-access-20261026.json`. No credentials
+or permissions were changed. The Cloudways Web Rules form offers only 301, 302
 and internal rewrites; its empty form was closed without saving.
 
 The current primitive deliberately refuses a file owned by another UID instead
@@ -1188,6 +1191,33 @@ activate the reviewed candidate routing when reopening. The primitive's
 `restore()` restores the original routing for recovery; it is not a successful
 release activation step. Recovery after database changes must use the matching
 database/files snapshot before restoring ingress or scheduled jobs.
+
+#### Scheduler owned by a different account
+
+`pauseScheduler()`, `assertSchedulerHeld()` and `restoreScheduler()` handle a
+reviewed current-user crontab without reading or replacing web configuration.
+For Core, this allows the master account (UID 1003) to control its nine jobs
+separately from application-owned web files (UID 1004). Each scheduler receipt
+binds the target root, operation ID, executing UID, exact original/held bytes and
+reviewed job dispositions. An unresolved hold cannot become a new baseline.
+Recovery refuses owner/root/scope mismatches, damaged receipts and concurrent
+schedule edits. A process exit leaves the hold in place for explicit recovery.
+
+Every controller of the same account's crontab must use the same private parent
+and lock. The returned evidence proves only that account's schedule state; it
+explicitly does not prove web ingress is held or running work is drained. The
+release coordinator must use one operation ID across accounts, independently
+hold/verify application ingress and any application-owned jobs, inspect other
+writers, and drain in-flight work before taking the cutover backup. Resume the
+master schedule only after the complete release or matching recovery is verified.
+Do not substitute an empty application schedule for the master schedule check.
+
+The network-isolated Linux fixture now also runs with separate application and
+scheduler users. It exercises real native cron changes, exact restoration,
+conflicts, receipt tampering, lock contention and child-process loss while
+checking that the other user's crontab and web-file UID/GID/mode remain intact.
+The existing combined web/scheduler fixture still runs. These helpers remain
+libraries; no production execution entry point or maintenance approval is added.
 
 ### Native database recovery rehearsal
 
