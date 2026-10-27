@@ -1,3 +1,35 @@
+## October 26 payment callback setup guard deployed to Core staging
+
+Core staging now runs 98d1d8f7ed9d860a638b67cdf78afeecd6b7a391. A missing,
+invalid or production public origin no longer produces a production callback URL
+in staging. The screen disables Copy and explains the missing setup. Its event
+instructions now include settled, failed, returned and cancelled outcomes. The
+production default remains intact. All 89 focused PHP checks, the frontend build,
+nine CI jobs and staging deployment passed; 12 files changed and no migrations
+were pending. Installed source hashes matched the commit. Eight protected demo
+financial/customer sets and the inspected production files were unchanged.
+
+PurePay's local full-candidate commit 54207120 adds explicit event selection to
+the native subscription form, defaults new forms to four payment events, rejects
+an empty selection and displays existing selections. Existing subscriptions,
+backend defaults and customer-key controls are preserved. It passed 12 UI tests,
+12 key-scope tests, five native-route fixture tests, a full build and an isolated
+Chrome visual review. The owner found no code blocker. This change is unpublished.
+
+The shared preview showed only Emergent's static landing page and required a
+server wake. The frontend-only reservation was released unused: no remote file,
+config, service, credential or subscription changed. The native form was not
+verified on that host. The separate Meridian financial connection remains absent;
+the COUM staffing/customer connection and completed native customer exchange are
+separate and preserved.
+
+Source review confirms review startup holds automatic work but leaves normal
+manual business routes callable. Do not use the broadcast test endpoint or the
+company-wide payment scan for callback acceptance. A reviewed per-fixture delivery
+guard, controlled preview window and human credential handoff are the next steps.
+No real payroll, payment, financial posting or production cutover occurred.
+Evidence: deploy/purepay-callback-setup-preparation-20261026.json.
+
 ## October 26 original staffing source located; commission meaning preserved
 
 The original local Placements.xlsx resolves the previously unlabeled Alexander
