@@ -234,6 +234,7 @@ jobs:
           php tests/purepay_financial_preview_smoke.php
           php tests/purepay_financial_preview_config_smoke.php
           php tests/purepay_callback_url_smoke.php
+          php tests/purepay_demo_callback_contract_smoke.php
           php tests/purepay_preview_origin_smoke.php
           php tests/purepay_demo_location_review_smoke.php
           php tests/purepay_preview_origin_mariadb.php

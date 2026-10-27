@@ -1,6 +1,6 @@
 {
   "date": "2026-10-26",
-  "status": "Single-payment recovery and isolated hosted test runner implemented; hosted receipt pending",
+  "status": "Core synthetic fixture validated locally and inspected on staging; hosted receipt pending",
   "provider_commits": {
     "single_payment_runtime": "47c82f62cfdeadedbdf8b9551927633b70c37ab7",
     "reviewed_destination_and_payload": "ae69ba56a3620bcef385b2d148b73a1f838a74ca",
@@ -15,7 +15,10 @@
     "hard_process_exit_and_recovery": true,
     "destination_and_body_cases": 26,
     "hosted_runner_local_cases": 8,
-    "real_core_callback_contacted": false
+    "real_core_callback_contacted": false,
+    "core_fixture_contract_checks": 17,
+    "core_fixture_mariadb_steps": 18,
+    "core_fixture_negative_integrity_cases": 3
   },
   "scope": {
     "single_payment_filter": "Discovery, reconciliation and claims require the selected company, endpoint and exactly one owned payment",
@@ -33,10 +36,10 @@
     "runner_correction_review": "Peer review found the source-level corrections addressed; clarified 200-second maximum supervision and separate integrity verification after timeout. No hosted window taken"
   },
   "remaining": [
-    "Complete and review Core synthetic payment fixture and protected-data verification",
-    "Prepare a reversible native preview setup window and human financial-key/webhook-secret handoff",
-    "Verify hosted signed receipt, duplicate replay, AP provider status and unchanged cash/ledger",
-    "Complete actual Thunderhawk operational acceptance and separately authorize production cutover"
+    "Separate human-created and human-entered Meridian read-only financial key and callback secret",
+    "Fresh PurePay preview service/source/config evidence and a coordinated reversible setup window; do not infer state from disconnected editor",
+    "Native hosted HTTP receipt, lost-response replay, AP status and protected-data verification",
+    "Actual Thunderhawk acceptance and separately authorized production release"
   ],
   "publication": {
     "provider_changes": "Local integration branch only",
@@ -49,5 +52,6 @@
     "quanta_peer_warning": "A separate chat reported editor navigation automatically starting Quanta preview services; that chat is containing and auditing the preview",
     "quanta_access_by_this_task": false,
     "current_remote_service_state": "Must be freshly verified before any hosted window"
-  }
+  },
+  "core_fixture_evidence": "deploy/purepay-demo-callback-fixture-validation-20261026.json"
 }

@@ -1,3 +1,32 @@
+## October 26 Core callback fixture validation
+
+Core's CLI-only synthetic payment fixture passed 17 contract checks and an
+18-step local MariaDB 10.11.18 walkthrough. Native company binding, signature
+verification and settlement processing reconciled one USD 1 test payment.
+Duplicate delivery reused the receipt; changed replay content was rejected.
+AP remained sent, with no bank account, clearing date or journal entry.
+
+All 19 protected tenant-999 data sets stayed unchanged. Deliberately changing a
+ledger line, neighbouring AP payment or fixture bank account caused verification
+to fail. Restoring each synthetic change restored successful verification. The
+local database was stopped. Host/authentication adapters and in-process receipt
+handling mean this is not proof of hosted HTTP acceptance.
+
+A private copy of the helper passed its exact-host, database, operator and
+simulation-company guards on Core staging. Eighteen native source hashes matched
+the reviewed checkout. The inspection was read-only: the dedicated financial
+connection, callback secret, payment links and receipts are still absent. No
+application runtime files or database records changed.
+
+The hosted test still needs safe preview access and the separate human financial
+key/secret handoff. The existing PurePay editor is disconnected; its cached
+terminal is not a service snapshot. Merely reading the existing Emergent control
+page showed a loading screen, without opening or restarting the preview. No
+hosted callback, payment, cash posting or production deployment occurred.
+
+Evidence: deploy/purepay-demo-callback-fixture-validation-20261026.json.
+Core staging remains 98d1d8f7ed9d860a638b67cdf78afeecd6b7a391.
+
 ## October 26 single-payment callback recovery and commission clarification
 
 The user confirmed Alexander's INR 7,500 recruiter commission is a one-time
