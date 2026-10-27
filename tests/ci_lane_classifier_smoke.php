@@ -41,7 +41,7 @@ $unclassified = [];
 function ciLaneSmokeFallback(string $name): string {
     $patterns = [
         'harness' => [
-            'sim_harness_*','purepay_financial_preview_config_smoke.php','purepay_demo_location_review_smoke.php','module_emission_discipline_smoke.php','phase_2a_event_discipline_smoke.php',
+            'sim_harness_*','purepay_financial_preview_config_smoke.php','purepay_demo_location_review_smoke.php','purepay_demo_callback_contract_smoke.php','module_emission_discipline_smoke.php','phase_2a_event_discipline_smoke.php',
             'phase_1b_*','phase_1c_*','phase_1d_*','phase_1e_*',
             'event_registry_contract_*','accounting_bank_rule_learning_*','ai_rule_competition_*',
             'sprint7b_event_layer_*','sprint7b_formula_engine_*','sprint7b_rule_sandbox_*',
