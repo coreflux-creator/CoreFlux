@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-26",
+  "status": "Single-payment recovery and isolated hosted test runner implemented; hosted receipt pending",
+  "provider_commits": {
+    "single_payment_runtime": "47c82f62cfdeadedbdf8b9551927633b70c37ab7",
+    "reviewed_destination_and_payload": "ae69ba56a3620bcef385b2d148b73a1f838a74ca",
+    "isolated_runner": "5f2b0d0d2ec020460a8b2a15e53c4366e643ff63",
+    "bounded_finalization_correction": "d7223f6020b462ae2079aba2b40324265b471d05",
+    "timeout_evidence": "1086ca7aef8ef648971c0ac6b82745c6f0bdfd01"
+  },
+  "checks": {
+    "runtime_contract_cases": 80,
+    "real_local_mongo_cases": 24,
+    "mongo_version": "8.0.34",
+    "hard_process_exit_and_recovery": true,
+    "destination_and_body_cases": 26,
+    "hosted_runner_local_cases": 8,
+    "real_core_callback_contacted": false
+  },
+  "scope": {
+    "single_payment_filter": "Discovery, reconciliation and claims require the selected company, endpoint and exactly one owned payment",
+    "existing_global_and_pair_modes": "Preserved",
+    "hosted_runner": "Exact native delivery function and outbox, fresh synthetic database, selected application webhook read only",
+    "secret": "Remains in memory; not copied to the fixture database",
+    "test": "Two sends of one USD 1 fixture event; simulated response loss after first verified receipt, then duplicate replay",
+    "execution": "45-second exercise within a 180-second worker deadline; 10-second TERM and 10-second kill/reap stages, maximum 200 seconds of supervision. Timeout requires separate integrity verification",
+    "financial_execution": false,
+    "production_changes": false
+  },
+  "review": {
+    "runtime_and_boundary_helper": "Peer review found no blocker",
+    "runner_first_review": "Caught premature success publication and missing whole-process bound; corrected in d7223f6",
+    "runner_correction_review": "Peer review found the source-level corrections addressed; clarified 200-second maximum supervision and separate integrity verification after timeout. No hosted window taken"
+  },
+  "remaining": [
+    "Complete and review Core synthetic payment fixture and protected-data verification",
+    "Prepare a reversible native preview setup window and human financial-key/webhook-secret handoff",
+    "Verify hosted signed receipt, duplicate replay, AP provider status and unchanged cash/ledger",
+    "Complete actual Thunderhawk operational acceptance and separately authorize production cutover"
+  ],
+  "publication": {
+    "provider_changes": "Local integration branch only",
+    "core_runtime": "Staging remains 98d1d8f7ed9d860a638b67cdf78afeecd6b7a391",
+    "new_deployment": false
+  },
+  "preview_observation": {
+    "purepay_existing_editor": "Remained disconnected after one Reconnect Now action; cached terminal is not current service evidence",
+    "remote_commands_or_installation": false,
+    "quanta_peer_warning": "A separate chat reported editor navigation automatically starting Quanta preview services; that chat is containing and auditing the preview",
+    "quanta_access_by_this_task": false,
+    "current_remote_service_state": "Must be freshly verified before any hosted window"
+  }
+}

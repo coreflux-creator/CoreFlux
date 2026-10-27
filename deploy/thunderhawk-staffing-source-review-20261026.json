@@ -34,6 +34,18 @@
     "settlement_channel": "none",
     "private_receipt": "output/thunderhawk-remaining-alignment-20261026/recipient.json"
   },
+  "user_clarification": {
+    "date": "2026-10-26",
+    "source": "User answered the placement commission clarification with onetime",
+    "commission_amount": "7500.00",
+    "commission_currency": "INR",
+    "commission_timing": "one_time_placement",
+    "due_month": "2026-08",
+    "exact_due_date_confirmed": false,
+    "payable_recipient_confirmed": false,
+    "payment_authorized": false,
+    "operational_records_changed": false
+  },
   "implementation": {
     "native_commission_api": "Reject unsupported fields and unsupported bases before either create or update writes; do not discard currency or timing and accept the amount",
     "dictionary_version": "2026-10-26.2",
@@ -54,7 +66,7 @@
     "php_syntax": "passed"
   },
   "remaining": [
-    "Confirm one-time versus recurring commission terms and the actual payable recipient",
+    "One-time placement basis confirmed by the user; confirm the actual payable recipient",
     "Implement reviewed currency, timing and approval semantics before using the source commission in settlement",
     "Resolve WC and explicit end-client evidence; complete normal rate approval and actual Thunderhawk operational acceptance",
     "Complete the separate hosted financial callback exchange and reconciliation",

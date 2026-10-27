@@ -1,3 +1,41 @@
+## October 26 single-payment callback recovery and commission clarification
+
+The user confirmed Alexander's INR 7,500 recruiter commission is a one-time
+placement commission. Preserve the source due month, August 2026. The recipient's
+payable account and exact due day remain unconfirmed. No commission approval,
+payable creation or foreign-currency settlement occurred.
+
+PurePay's local candidate now limits manual callback recovery to one selected
+company, endpoint and payment. Discovery, reconciliation and queued claims are
+all constrained; existing global and company/endpoint modes retain their cursor
+identities. Eighty contract cases and 24 fresh local Mongo cases passed, including
+worker-process termination and recovery without duplicate delivery or changes to
+neighbouring queues. Mongo 8.0.34 was shut down with its fixture evidence retained.
+
+The reviewed destination/body guard passed 26 cases. The hosted test runner has
+eight locally exercised cases for native signed response-loss retry, duplicate
+receipt, rejected responses, network restrictions, final evidence publication and
+timeout metadata. It reads only the selected Meridian endpoint from the app DB;
+its writes use a fresh synthetic database, and the secret stays in memory. The
+callback exercise is bounded to 45 seconds within a 180-second worker deadline,
+plus separate 10-second termination and reap stages. A timeout leaves integrity
+unverified until a separate comparison with the saved outer baseline.
+
+Provider HEAD is 1086ca7aef8ef648971c0ac6b82745c6f0bdfd01, local only. Core staging
+still runs 98d1d8f7ed9d860a638b67cdf78afeecd6b7a391. No new deployment, provider
+credential, subscription, real financial execution or hosted Core callback occurred.
+The existing PurePay editor stayed disconnected after one reconnect attempt, so
+cached terminal state is not current service evidence. A separate chat reported
+automatic Quanta preview startup on editor navigation and is containing/auditing
+it; this task did not access Quanta.
+
+Next: finish Core's synthetic payment fixture/protected-data verification, prepare
+the native financial-key and webhook-secret handoff in a coordinated preview
+window, then prove hosted receipt/replay and AP provider status without a cash
+posting. Actual Thunderhawk acceptance and production cutover remain open.
+Evidence: deploy/purepay-single-payment-callback-preparation-20261026.json and
+deploy/thunderhawk-staffing-source-review-20261026.json.
+
 ## October 26 payment callback setup guard deployed to Core staging
 
 Core staging now runs 98d1d8f7ed9d860a638b67cdf78afeecd6b7a391. A missing,
