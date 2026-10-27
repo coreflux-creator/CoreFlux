@@ -10,6 +10,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/purepay_service.php';
 require_once __DIR__ . '/../core/purepay_webhooks.php';
+require_once __DIR__ . '/../core/purepay_callback_url.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -19,8 +20,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 $base = trim((string) (getenv('APP_PUBLIC_URL') ?: (defined('APP_URL') ? constant('APP_URL') : '')));
-if ($base === '') $base = 'https://www.corefluxapp.com';
-$deliveryUrl = rtrim($base, '/') . '/api/webhooks/purepay.php?t=' . $tenantId;
+$deliveryUrl = purepayCallbackUrl($tenantId, $base, defined('COREFLUX_STAGING') && COREFLUX_STAGING);
 
 function ppAudit(string $event, array $meta, int $tenantId, ?int $userId, bool $required=false): void
 {
@@ -52,6 +52,7 @@ if ($method === 'GET' && ($action === '' || $action === 'status')) {
         'webhook_configured' => !empty($row['webhook_secret']),
         'webhook_secret_last4' => $row['webhook_secret_last4'] ?? null,
         'delivery_url' => $deliveryUrl,
+        'delivery_url_error' => $deliveryUrl === null ? 'Configure this installation’s HTTPS public address before adding a PurePay webhook.' : null,
         'recent_events' => purepayWebhookRecent($tenantId, 30),
     ]);
 }

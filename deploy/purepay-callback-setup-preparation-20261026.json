@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-26",
+  "scope": "Core callback setup guard and coordinated PurePay form change; no callback credentials or subscription created",
+  "core_change": {
+    "staging_missing_or_production_origin": "Callback URL unavailable; never fall back to production",
+    "staging_origin_policy": "Matches Core trusted staging HTTPS origins",
+    "invalid_origin": "No callback URL; copy disabled and configuration message displayed",
+    "production_default": "Preserved",
+    "instructions": ["payment.settled", "payment.failed", "payment.returned", "payment.cancelled"],
+    "checks": {"callback_url": 23, "financial_preview": 14, "configuration": 12, "webhook_evidence": 40},
+    "full_frontend_build": "passed"
+  },
+  "purepay_change": {
+    "commit": "54207120cc7aea73abaa1aa4b61e38122da118f9",
+    "branch": "codex/full-core-integration",
+    "publication": "local only",
+    "explicit_event_selection": true,
+    "payment_only_default": true,
+    "existing_subscriptions_and_api_defaults_preserved": true,
+    "checks": {"ui": 12, "key_scopes": 12, "native_route_fixtures": 5},
+    "full_frontend_build": "passed",
+    "chrome_visual_review": "Isolated localhost mock only; outbound connections disabled",
+    "owner_review": "No code blocker found; shared release remains separate"
+  },
+  "hosted_preview_check": {
+    "url": "https://pure-pay-support.preview.emergentagent.com/settings",
+    "result": "Emergent static CDN landing page; Frontend Preview Only, wake servers required",
+    "native_form_available": false,
+    "frontend_only_reservation": "Released unused",
+    "remote_file_or_service_operation": false,
+    "server_wake_clicked": false
+  },
+  "remaining": [
+    "Coordinate a guarded backend preview window before native form and hosted callback acceptance.",
+    "Review the dedicated read-only Meridian financial connection and exact staging callback destination/events; human completes credential creation and entry.",
+    "Test signed hosted receipt, response-loss replay and financial reconciliation without executing real payments.",
+    "Actual Thunderhawk round trip and production cutover requirements remain open."
+  ]
+}

@@ -29,7 +29,7 @@ export default function PurePaySettings() {
         <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>Admin · Integrations · Payment rails</p>
         <h2 style={{ margin: '4px 0' }}>Pure//Pay</h2>
         <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-          Release approved AP bills through the Pure//Pay wallet and receive signed settlement/failure events.
+          Release approved AP bills through the Pure//Pay wallet and receive signed payment outcomes.
           Vendor bank onboarding remains in Pure//Pay; CoreFlux sends vendor identity, bill, and amount only.
         </p>
       </header>
@@ -88,11 +88,12 @@ export default function PurePaySettings() {
 
       <div style={card}>
         <strong>Signed webhooks</strong>
-        <p style={hint}>In Pure//Pay → Settings → Developer API, add this HTTPS endpoint and subscribe to payment.settled and payment.failed.</p>
+        <p style={hint}>In Pure//Pay → Settings → Developer API, add this HTTPS endpoint and select Payment updates only: payment.settled, payment.failed, payment.returned and payment.cancelled.</p>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-          <code data-testid="purepay-webhook-url" style={{ flex: 1, overflowWrap: 'anywhere', background: '#f8fafc', padding: 8, borderRadius: 4 }}>{data.delivery_url}</code>
-          <button className="btn" onClick={() => navigator.clipboard?.writeText(data.delivery_url)} data-testid="purepay-copy-webhook">Copy</button>
+          <code data-testid="purepay-webhook-url" style={{ flex: 1, overflowWrap: 'anywhere', background: '#f8fafc', padding: 8, borderRadius: 4 }}>{data.delivery_url || 'Callback address unavailable'}</code>
+          <button className="btn" disabled={!data.delivery_url} onClick={() => data.delivery_url && navigator.clipboard?.writeText(data.delivery_url)} data-testid="purepay-copy-webhook">Copy</button>
         </div>
+        {data.delivery_url_error && <p className="error" role="alert">{data.delivery_url_error}</p>}
         <p style={hint}>Paste the <code>whsec_…</code> secret Pure//Pay shows for that endpoint. It is encrypted at rest and only its last four characters return here.</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <input className="input" type="password" autoComplete="new-password" value={secret} onChange={e => setSecret(e.target.value)} placeholder={data.webhook_configured ? `Configured ••••${data.webhook_secret_last4}` : 'whsec_…'} data-testid="purepay-webhook-secret" />
