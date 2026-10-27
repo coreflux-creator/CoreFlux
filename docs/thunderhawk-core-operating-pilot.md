@@ -1,3 +1,32 @@
+## October 26 populated Core upgrade rehearsal
+
+The exact 4b1b7a2e candidate completed all 76 pending migrations / 734 SQL
+statements on a private, encrypted copy of 4,043,709 production rows across 387
+tables. Production was inspected read-only and kept running. No application or
+provider execution was started against the copy.
+
+Retained original values matched in 381 tables. Each of the six changed tables
+was reconciled against a separately restored original reference: 76 migration
+receipts, seven missing deposit accounts, six default rule/template label pairs,
+three platform export templates and one worksite-city mapping target. Original
+chart accounts, provider records, ledger entries and tenant customizations stayed
+unchanged. All 4,737 person, company, placement, client and vendor numbers matched
+their source IDs. Raw invoice-link tokens were intentionally removed; their
+hashes and other fields were preserved. Local database processes are stopped.
+
+This proves local populated conversion, not hosted Thunderhawk acceptance or
+cutover recovery. The data-only rehearsal did not preserve source auto-increment
+high-water marks beyond imported IDs. Matching files/database backups, writer
+control, recovery proof and explicit production authorization remain required.
+
+Emergent support reports no held-resume mechanism: resuming starts pod services
+and reconciles scheduled work. Its account-status reply does not independently
+prove current service state. Hosted testing remains held pending startup
+containment and fresh service/effect evidence. No preview was opened by this
+rehearsal, and no production cutover occurred.
+
+Evidence: deploy/full-core-populated-rehearsal-20261026.json.
+
 ## October 26 Core callback fixture validation
 
 Core's CLI-only synthetic payment fixture passed 17 contract checks and an
