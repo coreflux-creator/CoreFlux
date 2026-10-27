@@ -1,3 +1,22 @@
+## October 26 application-owner access correction
+
+The existing application login kunalverma2 and file-owner name grcudkpvcd both
+map to Unix UID 1004, group 33. Live id/getent inspection corrects the earlier
+name-based conclusion in the October 24 preflight: the login is an alias for
+the correct owner. Cloudways currently disables application SSH shell access.
+Approval has been requested to enable that existing access and verify it;
+no permission or credential change has been made.
+
+The application cron screens are empty and Cloudways reports Supervisord is not
+installed. The separate master user (UID 1003) still has nine active cron entries,
+all referencing Core production. Application-owner access alone will not pause
+those jobs. The current host maintenance adapter controls only its current user's
+crontab, so deployment needs coordinated control of both owners plus running-work
+drain and external-writer checks before any cutover. No schedule was changed.
+
+Evidence: deploy/core-application-owner-access-20261026.json. Production and
+both disconnected previews remain unchanged by this inspection.
+
 ## October 26 native recovery numbering check
 
 The synthetic native MariaDB dump/restore fixture now verifies record-number
