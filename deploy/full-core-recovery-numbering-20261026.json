@@ -1,0 +1,36 @@
+{
+  "observed_at": "2026-10-27T03:05:15.137223+00:00",
+  "scope": "Synthetic native MariaDB 10.11.18 recovery after interrupted upgrade",
+  "baseline_commit": "4f75c3a3e978a1ccf7bb5b727e23e4ee9cd29251",
+  "test": "tests/full_core_upgrade_recovery_mariadb.php",
+  "test_sha256": "e7e2e9c9f8e09aa0cda7853a75ed73d3b6d1a499d4c3e1cc57386a84b6448aa4",
+  "local_checks_passed": 17,
+  "verified": [
+    "Deleted person ID 14007 remains reserved; the first post-restore person receives 14008",
+    "Empty audit table retains its reserved next ID 7001 and the restored trigger uses it",
+    "Native backup restores original rows, exact decimals, text, binary values, both migration histories, views and triggers",
+    "Partial DDL, business writes and failed migration receipts are removed by exact empty-target recovery",
+    "Restored source/history reproduces the original reviewed migration plan"
+  ],
+  "local_database_stopped": true,
+  "active_client_credential_removed": true,
+  "production_changed": false,
+  "application_runtime_changed": false,
+  "limitations": [
+    "Synthetic full-schema native backup/restore, not a new populated production restore",
+    "The earlier data-only populated rehearsal still did not preserve source auto-increment high-water marks",
+    "A cutover still requires matching file/database backups and writer control, plus explicit authorization"
+  ],
+  "hosting_observations": {
+    "existing_key_application_owner_login": "Rejected by SSH authentication; only read-only id was attempted",
+    "owner_access_or_permission_changes": false,
+    "cloudways_ticket": 999748,
+    "cloudways_last_visible_activity": "2026-10-26T21:15:00-04:00",
+    "owner_and_scheduler_followup_answered": false,
+    "emergent_supported_held_resume": false,
+    "purepay_review_mode_source": "1086ca7aef8ef648971c0ac6b82745c6f0bdfd01",
+    "review_mode_scope": "Holds startup background jobs and authenticated cron routes; ordinary manual API routes remain available",
+    "fresh_hosted_service_state_verified": false,
+    "preview_reopened": false
+  }
+}

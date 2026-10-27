@@ -8,7 +8,10 @@ if (PHP_SAPI !== 'cli' || (!$ci && !$local) || !in_array('--confirm-disposable-f
 }
 require_once __DIR__ . '/../deploy/full_core_upgrade_executor.php';
 $password = $ci ? 'root' : (string)getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
-$db = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', $password,
+$port = $ci ? 3306 : filter_var(getenv('COREFLUX_RECOVERY_TEST_PORT') ?: '3306', FILTER_VALIDATE_INT,
+    ['options' => ['min_range' => 1024, 'max_range' => 65535]]);
+if ($port === false) throw new RuntimeException('Valid local fixture port required.');
+$db = new PDO('mysql:host=127.0.0.1;port=' . $port . ';charset=utf8mb4', 'root', $password,
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]);
 $name = 'coreflux_upgrade_fixture_recovery_' . gmdate('YmdHis') . '_' . getmypid();
 if (!preg_match('/^coreflux_upgrade_fixture_recovery_[0-9_]+$/D', $name) || strlen($name) > 64) exit(2);
@@ -40,7 +43,7 @@ $client = static function (bool $dump) use ($ci, $container, $containerIni, $bin
         : [$bin . ($dump ? '/mariadb-dump.exe' : '/mysql.exe'), '--defaults-extra-file=' . $ini];
 };
 try {
-    file_put_contents($ini, "[client]\nhost=127.0.0.1\nport=3306\nuser=root\npassword=" . $quote($password) . "\n"); chmod($ini, 0600);
+    file_put_contents($ini, "[client]\nhost=127.0.0.1\nport=" . $port . "\nuser=root\npassword=" . $quote($password) . "\n"); chmod($ini, 0600);
     if ($ci) { $command(['docker', 'cp', $ini, $container . ':' . $containerIni], $null, $private . '/copy.log'); $copied = true; }
     $db->exec('CREATE DATABASE ' . $name); $created = true; $db->exec('USE ' . $name);
     $assert(str_contains((string)$db->query('SELECT VERSION()')->fetchColumn(), 'MariaDB'), 'native recovery uses MariaDB');
@@ -49,6 +52,12 @@ try {
     $baseline = 'CREATE TABLE balances(id INT PRIMARY KEY, tenant_id INT, amount DECIMAL(18,2), memo VARCHAR(100), evidence BLOB) ENGINE=InnoDB;';
     $db->exec($baseline);
     $db->exec('CREATE TABLE change_audit(id INT AUTO_INCREMENT PRIMARY KEY, balance_id INT, before_amount DECIMAL(18,2), after_amount DECIMAL(18,2)) ENGINE=InnoDB');
+    // A restore must retain allocated IDs, including gaps left by removed rows
+    // and an empty table whose next ID was deliberately reserved above one.
+    $db->exec('ALTER TABLE change_audit AUTO_INCREMENT=7001');
+    $db->exec('CREATE TABLE people(id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, person_number VARCHAR(30) NOT NULL UNIQUE) ENGINE=InnoDB');
+    $db->exec("INSERT INTO people VALUES(7,'P-7'),(14007,'P-14007')");
+    $db->exec('DELETE FROM people WHERE id=14007');
     $db->exec('CREATE TRIGGER balances_changed AFTER UPDATE ON balances FOR EACH ROW INSERT INTO change_audit(balance_id,before_amount,after_amount) VALUES(OLD.id,OLD.amount,NEW.amount)');
     $db->exec('CREATE VIEW balance_totals AS SELECT tenant_id,SUM(amount) AS total FROM balances GROUP BY tenant_id');
     $insert = $db->prepare('INSERT INTO balances VALUES(?,?,?,?,?)');
@@ -64,12 +73,18 @@ try {
     $snapshot = static function () use ($db): array {
         return ['rows' => $db->query('SELECT id,tenant_id,amount,memo,HEX(evidence) AS evidence FROM balances ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
             'audit' => $db->query('SELECT * FROM change_audit ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+            'people' => $db->query('SELECT * FROM people ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
             'view' => $db->query('SELECT * FROM balance_totals ORDER BY tenant_id')->fetchAll(PDO::FETCH_ASSOC),
             'canonical' => $db->query('SELECT * FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC),
             'legacy' => $db->query('SELECT * FROM coreflux_migrations ORDER BY file_path')->fetchAll(PDO::FETCH_ASSOC),
             'columns' => $db->query('SHOW COLUMNS FROM balances')->fetchAll(PDO::FETCH_ASSOC)];
     };
+    $counters = static fn(): array => $db->query("SELECT TABLE_NAME,CAST(AUTO_INCREMENT AS CHAR) FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('people','change_audit') ORDER BY TABLE_NAME")->fetchAll(PDO::FETCH_KEY_PAIR);
     $before = $snapshot();
+    $beforeCounters = $counters();
+    $assert($beforeCounters === ['change_audit' => '7001', 'people' => '14008'],
+        'backup fixture includes deleted-row and empty-table ID high-water marks');
     $ledger = fullCoreUpgradeLedger($db); $legacy = $db->query('SELECT file_path,checksum_sha FROM coreflux_migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
     $plan = fullCoreMigrationPlan($manifest, $directory . '/candidate', $directory . '/live', $ledger, $legacy);
     $assert($plan['source_review_ready'], 'exact populated fixture upgrade plan is ready');
@@ -96,12 +111,19 @@ try {
     $command(array_merge($client(false), ['--default-character-set=utf8mb4', $name]), $dump, $private . '/restore.log');
     $db->exec('USE ' . $name);
     $assert($snapshot() === $before, 'native restore recovers exact decimals binary text views both ledgers and original columns');
+    $assert($counters() === $beforeCounters, 'native restore preserves ID high-water marks beyond surviving rows');
     $assert((int)$db->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='interrupted_only'")->fetchColumn() === 0,
         'empty-target recovery removes objects created by the interrupted upgrade');
     $assert((int)$db->query("SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE() AND trigger_name='balances_changed'")->fetchColumn() === 1,
         'database trigger definition is restored');
-    $db->beginTransaction(); $db->exec('UPDATE balances SET amount=amount+0.01 WHERE id=1');
-    $assert((int)$db->query('SELECT COUNT(*) FROM change_audit')->fetchColumn() === 1, 'restored trigger actually executes'); $db->rollBack();
+    $db->beginTransaction();
+    $db->exec("INSERT INTO people(person_number) VALUES('P-14008')");
+    $assert($db->lastInsertId() === '14008', 'first post-restore person does not reuse a previously allocated ID');
+    $db->exec('UPDATE balances SET amount=amount+0.01 WHERE id=1');
+    $assert($db->query('SELECT CAST(id AS CHAR) FROM change_audit')->fetchColumn() === '7001',
+        'restored trigger uses the reserved empty-table ID'); $db->rollBack();
+    // InnoDB allocation itself is not transactional; the probe above consumes
+    // IDs even though its rows roll back. Compare counters before that probe.
     $assert($snapshot() === $before && is_file($private . '/partial.jsonl'), 'rollback of the trigger check preserves restored baseline and failed-upgrade journal');
     $recoveredPlan = fullCoreMigrationPlan($manifest, $directory . '/candidate', $directory . '/live', fullCoreUpgradeLedger($db),
         $db->query('SELECT file_path,checksum_sha FROM coreflux_migrations')->fetchAll(PDO::FETCH_KEY_PAIR));

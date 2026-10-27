@@ -1,3 +1,23 @@
+## October 26 native recovery numbering check
+
+The synthetic native MariaDB dump/restore fixture now verifies record-number
+allocation after an interrupted upgrade, including deleted higher IDs and an
+empty table with a reserved next ID. All 17 Windows checks passed. A restored
+person insert received 14008 instead of reusing a previously allocated number;
+the restored audit trigger received its reserved ID 7001. The local database is
+stopped and temporary client credentials were removed.
+
+This adds recovery coverage; it does not change the earlier data-only populated
+rehearsal's counter limitation or establish a production cutover backup.
+
+The existing SSH key was rejected for application-owner login. Cloudways ticket
+999748 still shows the unanswered owner/scheduler follow-up. Emergent reports
+no supported held-resume. PurePay's review startup holds background jobs and
+cron calls, but permits ordinary manual API routes. Current hosted state remains
+unverified; neither preview was reopened and production remains unchanged.
+
+Evidence: deploy/full-core-recovery-numbering-20261026.json.
+
 ## October 26 populated Core upgrade rehearsal
 
 The exact 4b1b7a2e candidate completed all 76 pending migrations / 734 SQL
