@@ -1,0 +1,222 @@
+{
+  "verified_at": "2026-10-29T23:53:53.460873+00:00",
+  "kind": "independent_core_provider_pilot_running",
+  "host": "142.93.20.44",
+  "root": "/srv/core-integration-pilot/20261029",
+  "backend_source_commits": {
+    "pure": "2b26a2ec810110527f8085e96947c8a6c7136c17",
+    "quanta": "b31607b9bd133cf680c45b382cfc5546a7259acf"
+  },
+  "pure_release_stamp": {
+    "release_id": "pure-core-isolated-pilot-20261029",
+    "deployment_id": "203c0f1e-0e7e-447f-ba35-ebe489b1a1ac",
+    "source_digest": "3d0943861338cd1d277e58845f398e7f20e2ad5967ef408a4657297ef3ba8b8f"
+  },
+  "archive_sha256": "9915123eb72ae2d7e3ff6ee39d0856ef3452f0a2ac4f6fdedab9b268cc14b82f",
+  "health": {
+    "health": {
+      "pure": {
+        "status": 200,
+        "body": {
+          "maintenance": false,
+          "state": "active",
+          "message": "Pure//Pay is completing a release. Please try again shortly.",
+          "startup_mode": "isolated_pilot",
+          "background_jobs": false,
+          "startup_migrations": false,
+          "scheduled_operations": false,
+          "provider_egress_enabled": false
+        }
+      },
+      "quanta": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "service": "quanta",
+          "version": "0.1.0",
+          "startup_mode": "web",
+          "usage_recording": false,
+          "tenant_automations": {
+            "running": false,
+            "job_count": 0
+          },
+          "migration_hold": false
+        }
+      }
+    },
+    "containers": {
+      "pure-pilot-web": {
+        "status": "running",
+        "networks": [
+          "core-provider-pilot-20261029_pure-private"
+        ],
+        "ports": {
+          "8001/tcp": null
+        }
+      },
+      "quanta-pilot-web": {
+        "status": "running",
+        "networks": [
+          "core-provider-pilot-20261029_quanta-private"
+        ],
+        "ports": {
+          "8001/tcp": null
+        }
+      },
+      "pure-pilot-mongo": {
+        "status": "running",
+        "networks": [
+          "core-provider-pilot-20261029_pure-private"
+        ],
+        "ports": {
+          "27017/tcp": null
+        }
+      },
+      "quanta-pilot-mongo": {
+        "status": "running",
+        "networks": [
+          "core-provider-pilot-20261029_quanta-private"
+        ],
+        "ports": {
+          "27017/tcp": null
+        }
+      },
+      "pure-pilot-site": {
+        "status": "running",
+        "networks": [
+          "core-provider-pilot-20261029_ingress",
+          "core-provider-pilot-20261029_pure-private"
+        ],
+        "ports": {
+          "80/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "19180"
+            }
+          ]
+        }
+      },
+      "quanta-pilot-site": {
+        "status": "running",
+        "networks": [
+          "core-provider-pilot-20261029_ingress",
+          "core-provider-pilot-20261029_quanta-private"
+        ],
+        "ports": {
+          "80/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "19181"
+            }
+          ]
+        }
+      }
+    },
+    "networks": {
+      "pure-private": {
+        "internal": true
+      },
+      "quanta-private": {
+        "internal": true
+      }
+    },
+    "execution_holds": {
+      "/api/payroll/runs/test/pay": {
+        "status": 409,
+        "body": {
+          "detail": "This isolated pilot permits staffing exchange and held drafts only.",
+          "code": "isolated_pilot_operation_held"
+        }
+      },
+      "/api/payroll/runs/test/approve": {
+        "status": 409,
+        "body": {
+          "detail": "This isolated pilot permits staffing exchange and held drafts only.",
+          "code": "isolated_pilot_operation_held"
+        }
+      },
+      "/api/cron/pwp-auto-batch": {
+        "status": 409,
+        "body": {
+          "detail": "This isolated pilot permits staffing exchange and held drafts only.",
+          "code": "isolated_pilot_operation_held"
+        }
+      },
+      "/api/organization/email-preview/send": {
+        "status": 409,
+        "body": {
+          "detail": "This isolated pilot permits staffing exchange and held drafts only.",
+          "code": "isolated_pilot_operation_held"
+        }
+      }
+    },
+    "production_containers_unchanged": true
+  },
+  "database_and_network_probes": {
+    "pure": {
+      "database": "corepilot_pure_20261029",
+      "external_connections": {
+        "1.1.1.1": "blocked",
+        "138.197.121.111": "blocked"
+      },
+      "business_record_counts": {
+        "organizations": 0,
+        "tenants": 0,
+        "users": 0,
+        "employees": 0,
+        "workers": 0,
+        "payments": 0,
+        "pay_runs": 0
+      }
+    },
+    "quanta": {
+      "database": "corepilot_quanta_20261029",
+      "external_connections": {
+        "1.1.1.1": "blocked",
+        "138.197.121.111": "blocked"
+      },
+      "business_record_counts": {
+        "organizations": 0,
+        "tenants": 0,
+        "users": 0,
+        "employees": 0,
+        "workers": 0,
+        "payments": 0,
+        "pay_runs": 0
+      }
+    }
+  },
+  "https": {
+    "pure": "https://purepay.online:19443/api/v1",
+    "quanta": "https://helloquanta.app:19443/api/v1",
+    "core_host": "138.197.121.111",
+    "tls_verified_from_core": true,
+    "health_http_status_from_core": 200,
+    "outside_client_status": 403,
+    "production_reverse_proxy_changed": false
+  },
+  "deployment_files": {
+    "compose-https.yaml": "9522935c4ce5c27a9bf6fdbd133fcf8baf9ffcd6ec679bf18902859d8da2ef95",
+    "compose.yaml": "6933782e761c7304a8bdbc9c2319bc1d52f86754b58b60612e43dfe53e6ea290",
+    "package.py": "6a6986e5d9eba8698595f56cc303efd32767455139a456f9032cd476aa1b4207",
+    "prepare.py": "5df99ab6bfb34b9b5de35e2ac398abe1470670262beb851bb3217d47f6cbdfb8",
+    "prepare_https.py": "c7a7c975162fe0492fb872df6f161aa1057d161a89081f17882f27a817873ac1"
+  },
+  "validation": {
+    "startup_release_vendor_pilot_backend_tests": 91,
+    "vendor_ui_tests": 7,
+    "pure_ui_build": "passed",
+    "quanta_ui_build": "passed with existing lint warnings",
+    "core_endpoint_scenarios": 48
+  },
+  "production_cutover_performed": false,
+  "real_payroll_or_payments_executed": false,
+  "external_email_sent": false,
+  "limitations": [
+    "Pilot companies and user access are not provisioned yet.",
+    "Core application connections are not yet configured to these destinations.",
+    "Core staging tenant 2 is Beta Industries (Sandbox); it must not be mistaken for production Thunderhawk tenant 2.",
+    "Actual Thunderhawk onboarding, time, held payroll result and reconciliation round trip remains outstanding.",
+    "The source package was augmented by reviewed deployment-only mount-target and HTTPS setup files; their hashes are recorded separately."
+  ]
+}

@@ -12,7 +12,10 @@ function quantaApiBase(): string
         : getenv('COREFLUX_QUANTA_PREVIEW_API_BASE');
     if ($configured === false || $configured === '') return QUANTA_API_BASE;
     if (!is_string($configured) || !defined('COREFLUX_STAGING') || COREFLUX_STAGING !== true
-        || $configured !== 'https://clockin-hub-16.preview.emergentagent.com/api/v1') {
+        || !in_array($configured, [
+            'https://clockin-hub-16.preview.emergentagent.com/api/v1',
+            'https://helloquanta.app:19443/api/v1',
+        ], true)) {
         throw new RuntimeException('Quanta preview access requires the reviewed isolated staging destination.');
     }
     return $configured;

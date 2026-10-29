@@ -4,10 +4,11 @@ declare(strict_types=1);
 putenv('COREFLUX_DISABLE_DATABASE=1');
 putenv('COREFLUX_QUANTA_PREVIEW_API_BASE');
 $preview='https://clockin-hub-16.preview.emergentagent.com/api/v1';
+$hosted='https://helloquanta.app:19443/api/v1';
 $live='https://helloquanta.app/api/v1';
 $mode=$argv[1]??null;
 if ($mode===null) {
-    foreach (['default','production','false-staging','string-staging','foreign','http','suffix','constant-invalid','constant','staging'] as $scenario) {
+    foreach (['default','production','false-staging','string-staging','foreign','http','suffix','constant-invalid','constant','staging','hosted','hosted-production','hosted-port','hosted-switch'] as $scenario) {
         $process=proc_open([PHP_BINARY,__FILE__,$scenario],[1=>['pipe','w'],2=>['pipe','w']],$pipes);
         if (!is_resource($process)) throw new RuntimeException('Cannot start isolated endpoint check');
         $out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);
@@ -15,13 +16,15 @@ if ($mode===null) {
         if ($status!==0) throw new RuntimeException($scenario.': '.$out.$err);
         echo $out;
     }
-    echo "PASS 10 isolated Quanta endpoint scenarios\n";
+    echo "PASS 14 isolated Quanta endpoint scenarios\n";
     exit;
 }
 if ($mode!=='default') putenv('COREFLUX_QUANTA_PREVIEW_API_BASE='.$preview);
 if ($mode==='false-staging') define('COREFLUX_STAGING',false);
 elseif ($mode==='string-staging') define('COREFLUX_STAGING','true');
-elseif (!in_array($mode,['default','production'],true)) define('COREFLUX_STAGING',true);
+elseif (!in_array($mode,['default','production','hosted-production'],true)) define('COREFLUX_STAGING',true);
+if (in_array($mode,['hosted','hosted-production'],true)) putenv('COREFLUX_QUANTA_PREVIEW_API_BASE='.$hosted);
+if ($mode==='hosted-port') putenv('COREFLUX_QUANTA_PREVIEW_API_BASE=https://helloquanta.app:19444/api/v1');
 if ($mode==='foreign') putenv('COREFLUX_QUANTA_PREVIEW_API_BASE=https://foreign.example/api/v1');
 if ($mode==='http') putenv('COREFLUX_QUANTA_PREVIEW_API_BASE=http://clockin-hub-16.preview.emergentagent.com/api/v1');
 if ($mode==='suffix') putenv('COREFLUX_QUANTA_PREVIEW_API_BASE='.$preview.'/');
@@ -53,7 +56,7 @@ $operations=[
     ['POST',QUANTA_CORE_CONTRACT_PATH.'/worker-profiles',static fn()=>quantaWriteWorkerProfile('fixture-key','a',$profile,$idem)],
     ['GET',QUANTA_CORE_CONTRACT_PATH.'/onboarding/'.$receipt['case_id'].'/documents/'.$receipt['id'],static fn()=>quantaOnboardingDocumentBytes('fixture-key',$receipt,['size_bytes'=>10])],
 ];
-$allowed=in_array($mode,['default','constant','staging'],true);
+$allowed=in_array($mode,['default','constant','staging','hosted','hosted-switch'],true);
 foreach ($operations as [$method,$path,$call]) {
     try {$call();throw new LogicException('Fixture unexpectedly accepted');}
     catch (RuntimeException $e) {
@@ -65,15 +68,16 @@ foreach ($operations as [$method,$path,$call]) {
 if (!$allowed) {
     if ($calls!==[]) throw new RuntimeException('Invalid endpoint transmitted a request');
 } else {
-    $base=$mode==='default'?$live:$preview;
+    $base=match($mode){'default'=>$live,'hosted'=>$hosted,default=>$preview};
     $expected=array_map(static fn($operation)=>[$operation[0],$base.$operation[1]],$operations);
     if ($calls!==$expected) throw new RuntimeException('Read, write or document request escaped its configured destination');
 }
-if ($mode==='staging') {
+if (in_array($mode,['staging','hosted-switch'],true)) {
     $context=['workspace'=>['id'=>'a','name'=>'Synthetic A'],'contract_version'=>QUANTA_CORE_CONTRACT_VERSION,
         'capabilities'=>['person_links','assignment_metadata','conditional_assignment_updates','durable_delivery_receipts'],'execution_side_effects'=>false];
     $previewHash=quantaWorkspaceBindingHash(999,1,'fixture-key',$person['instance_id'],$context);
-    putenv('COREFLUX_QUANTA_PREVIEW_API_BASE');
+    if ($mode==='hosted-switch') putenv('COREFLUX_QUANTA_PREVIEW_API_BASE='.$hosted);
+    else putenv('COREFLUX_QUANTA_PREVIEW_API_BASE');
     $liveHash=quantaWorkspaceBindingHash(999,1,'fixture-key',$person['instance_id'],$context);
     if ($previewHash===$liveHash || quantaWorkspaceBindingMatches(['state'=>'verified','binding_hash'=>$previewHash],$liveHash)) {
         throw new RuntimeException('A preview binding authorized a different provider origin');

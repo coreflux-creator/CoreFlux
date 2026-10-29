@@ -1,3 +1,30 @@
+## October 29 isolated provider pilot is running
+
+Quanta b31607b and PurePay 2b26a2e are installed in independent pilot containers
+on the current host. PurePay includes the newer vendor-access release 7b226d0.
+Both applications returned healthy responses from Core over verified HTTPS on
+port 19443. The pilot admits the Core host and local verification; a separate
+client received HTTP 403. Production proxy configuration and production
+containers were unchanged by deployment.
+
+The pilot has independent empty databases, fresh credentials, separate file
+storage, internal backend networks and no recurring workers. Actual outbound
+connection probes were blocked. PurePay rejects execution, payroll approval,
+funding, external messages and scheduled work before business-route handling.
+Source exchange and reviewed held drafts remain available with normal
+authentication and company checks. Evidence: deploy/core-provider-pilot-20261029.json.
+
+Core endpoint admission now recognizes the new origins only in staging. Its
+48 endpoint scenarios passed, including existing-origin review invalidation
+and separation of the payment rail. These source changes still require CI
+and installation before changing the saved Core connections.
+
+The next step is an explicitly identified Thunderhawk pilot company and source
+packet. Core staging tenant 2 is Beta Industries (Sandbox), not Thunderhawk;
+only tenant 999 currently contains staffing test records. Preserve those demo
+records and their existing links while establishing a separate Thunderhawk
+identity. The actual Thunderhawk round trip remains unproven.
+
 ## October 29 current host integration status
 
 The SSH access issue is resolved. Cloudways application SSH was enabled on

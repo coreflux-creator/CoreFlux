@@ -22,6 +22,7 @@ function purepayCoreApiBase(): string
             || !in_array($preview,[
                 'https://beautiful-kalam-6.preview.emergentagent.com/api/v1',
                 'https://pure-pay-support.preview.emergentagent.com/api/v1',
+                'https://purepay.online:19443/api/v1',
             ],true)) {
             throw new RuntimeException('PurePay preview access requires the reviewed isolated staging destination.');
         }
