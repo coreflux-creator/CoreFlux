@@ -13,9 +13,13 @@ DigitalOcean. Do not reopen or deploy the old preview snapshots. Quanta's Core
 work is now rebased onto the current hosting source and published as draft
 [Quanta PR #2](https://github.com/coreflux-creator/Quanta/pull/2), commit d24ba1b.
 Its 298 offline backend checks, 32 portal checks and frontend build passed.
-PurePay's integration is being reconciled with the October 29 payroll settlement
-release; its focused callback checks and frontend build pass, while the broad
-regression run is still being corrected and completed.
+PurePay's merge is published as draft
+[PurePay PR #5](https://github.com/coreflux-creator/PurePay/pull/5), commit aba06e8,
+based on the current payroll settlement release. Its 1,295 backend tests,
+91 UI checks and frontend build passed, plus 43 startup/handover checks after
+issuing a fresh candidate release identity. These tests included actual Core PHP
+payloads and synthetic records in an owned local MongoDB, which was shut down.
+Both candidates remain undeployed.
 
 There is no persistent isolated provider pilot on the new host yet. The next
 release gate is a separate pilot with independent data and credentials and held
