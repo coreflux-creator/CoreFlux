@@ -1,3 +1,33 @@
+## October 29 current host integration status
+
+The SSH access issue is resolved. Cloudways application SSH was enabled on
+October 27 and the existing application password authenticated as UID 1004,
+matching Core's file owner. The application account could create and replace
+private probe files without changing ownership; the probe was removed. On
+October 29, a read-only check reconfirmed the application account, shell and
+webroot ownership through the reachable server. No production deployment or
+schedule change occurred. Evidence: deploy/core-ssh-enabled-20261027.json.
+
+Quanta and PurePay have moved from the disconnected Emergent previews to
+DigitalOcean. Do not reopen or deploy the old preview snapshots. Quanta's Core
+work is now rebased onto the current hosting source and published as draft
+[Quanta PR #2](https://github.com/coreflux-creator/Quanta/pull/2), commit d24ba1b.
+Its 298 offline backend checks, 32 portal checks and frontend build passed.
+PurePay's integration is being reconciled with the October 29 payroll settlement
+release; its focused callback checks and frontend build pass, while the broad
+regression run is still being corrected and completed.
+
+There is no persistent isolated provider pilot on the new host yet. The next
+release gate is a separate pilot with independent data and credentials and held
+background work, then actual Thunderhawk acceptance. Local tests and the earlier
+demo-company round trip do not satisfy that gate. Core's production maintenance
+adapter must also preserve an absent application crontab while coordinating the
+separate master scheduler before any production cutover. Production cutover and
+real payroll, payment or posting actions remain outside this pilot authorization.
+
+The older entries below retain their original observation dates; their Emergent
+and disabled-SSH statuses are historical.
+
 ## October 26 application-owner access correction
 
 The existing application login kunalverma2 and file-owner name grcudkpvcd both
