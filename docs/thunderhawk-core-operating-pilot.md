@@ -1,3 +1,34 @@
+## October 30 Quanta team reporting and onboarding summaries installed
+
+Quanta isolated pilot now runs portal revision 95e2eb9. Approvers can choose My
+team to see active/ended assignments for active workers they currently approve.
+Direct assignment takes precedence over the workspace default; native self-
+approval fallback is preserved. Current roles and worker relationships are read
+again for each list, detail, time-status and report request. Team access does not
+grant administrator controls, private onboarding submissions or document access.
+
+Assignment cards and CSVs now include version-checked Core onboarding requirement
+counts. Missing or stale publications stay unknown/needs-refresh. Reports carry a
+generation timestamp separately from the last Core assignment/onboarding update.
+No readiness observation grants employment, worksite or payroll authority.
+
+Validation: 335 offline full-application checks, 14 rendered interface checks and
+the frontend build passed. Twenty-eight hosted native HTTP checks passed for the
+existing pilot worker, approver and administrator, including the foreign-company
+and private-document denials. All provider records remained unchanged by those
+reads. In Chrome, P-358 / PL-864 shows three satisfied requirements and both the
+eight-hour and one-hour entries accepted in Core. Its CSV was downloaded and
+parsed successfully. Manager/admin interactive browser acceptance remains open.
+
+The first install guard comparison failed and restored the prior runtime; its
+specific diff was not retained. The installer now saves before/after fingerprints.
+The next exact-baseline installation passed with unchanged collections and other
+services. Production, monetary execution and Arabella remained outside this work.
+
+Evidence: deploy/thunderhawk-team-portal-20261030.json. The original full-plan
+financial lineage/reconciliation, field-disposition and reverse-change acceptance
+requirements remain open; this checkpoint does not declare the integration done.
+
 ## October 30 native financial review deployed and accepted over HTTP
 
 Core staging now runs 5bd0645a with the native AP/AR review panel and encrypted
