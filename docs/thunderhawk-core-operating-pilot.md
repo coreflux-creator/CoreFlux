@@ -1,3 +1,39 @@
+## October 30 worker browser, worksite revision and time return verified
+
+Core staging runs ea23c280 (workflow 40987824641); the isolated Quanta backend
+now includes 3f0ebd3. All 331 offline backend checks passed. The public static
+assets needed their directory/file modes corrected before the browser could
+load them; private files and enclosing directories retained their permissions.
+
+The worker browser shows P-358 / PL-864 / CL-1280 / CO-1902, the active TEST
+Rockefeller - Hamilton, NJ worksite, and three approved onboarding requirements.
+Core delivered the reviewed worksite revision (36), retaining assignment ID and
+history, and refreshed onboarding (37) without changing the original evidence.
+Assignment version is 2; Core case version remains 11 and Quanta case version is 5.
+The historical eight hours still show Accepted in Core. A defect that compared
+only the latest worksite is fixed: an existing review may use its exact original
+assignment revision, with unchanged identity and valid current dates. New time
+cannot borrow an arbitrary historical route; changed hours or withdrawn source
+approval still invalidate the review.
+
+Through Chrome, the worker entered one explicitly synthetic hour for October 26
+and submitted the October 24 week. Quanta's separate test approver approved it.
+Core imported source 69f7fc04-ce35-497b-ad2d-589eabca1455 as entry 3 / timesheet 4,
+using reviewed worksite route 3. Replay inserted no duplicate. Delivery 38 returned
+Awaiting Core review to the actual worker screen. This hour remains pending Core
+review and has not been sent to payroll. The original time, held payroll result,
+identity and onboarding records were preserved. No independent human sign-off,
+real payroll, payment, financial posting or production cutover is claimed.
+
+Next: enable bounded persistent Core pilot UI access, run staff browser and hosted
+second-company/ownership checks, then complete the browser hour's Core review and
+held payroll return. The worker week also exposes two display defects: duration
+entries say still open, and Total paid can imply completed payment. Missing WC
+class and the commission due-date/payable-recipient questions remain unresolved.
+Evidence: deploy/thunderhawk-hosted-worker-browser-acceptance-20261030.json.
+
+The dated entries below are earlier checkpoints, not current inventories.
+
 ## October 30 hosted worker evidence and employer review return passed
 
 Core staging now runs ce14a127, deployed by workflow 40985695250 after all

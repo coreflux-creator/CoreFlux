@@ -1,0 +1,189 @@
+{
+  "observed_at": "2026-10-30T02:10:14.531576+00:00",
+  "scope": "Thunderhawk isolated company and synthetic worker hours only",
+  "core_tenant_id": 2002,
+  "core_runtime_revision": "ea23c280846e822780b3bcbd0d132830a71f35e2",
+  "quanta_runtime_revision": "3f0ebd3",
+  "quanta_backend_checks": 331,
+  "offline_application_acceptance": {
+    "pytest_exit": 0,
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true
+  },
+  "receipts": {
+    "worksite_setup": {
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "production_changed": false,
+      "real_worker_email_sent": false,
+      "core_assignment_changed": false,
+      "passed": true,
+      "worksite_id": "1bc9011d-12df-458e-b79d-c31f09b9ee09",
+      "worksite_code": "CORE-PL-864-PILOT",
+      "worksite_name": "TEST Rockefeller - Hamilton, NJ",
+      "worksite_membership_id": "8fb4c583-77aa-4230-9cf9-d98030475fa0",
+      "worksite_membership_replay_verified": true,
+      "allow_worker_duration_entry": true,
+      "prior_time_policy": {
+        "allow_worker_duration_entry": false,
+        "max_daily_minutes": 960
+      },
+      "max_daily_minutes": 960,
+      "existing_time_assignments_and_onboarding_unchanged": true,
+      "worker_roles_unchanged": true,
+      "location_source": "User-provided PL-864 staffing row: Hamilton, NJ"
+    },
+    "worksite_and_onboarding_reconciliation": {
+      "checked_at": "2026-10-30T02:01:39+00:00",
+      "tenant_id": 2002,
+      "worksite_id": "1bc9011d-12df-458e-b79d-c31f09b9ee09",
+      "production_changed": false,
+      "payroll_or_financial_postings": false,
+      "passed": true,
+      "assignment_version": 2,
+      "assignment_id": "cfa_871bbe898ab463057f86d3ef6b135de333e88f3e5595f4b6b23028d9da66453a",
+      "onboarding_case_version": 11,
+      "portal_onboarding_version": 5,
+      "prior_time_accepted": true,
+      "source_time_payroll_routes_and_local_checklist_unchanged": true,
+      "replays_verified": true
+    },
+    "worker_hour_approval": {
+      "checked_at": "2026-10-30T02:06:15.008417+00:00",
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "entry_id": "69f7fc04-ce35-497b-ad2d-589eabca1455",
+      "timesheet_id": "0c5accda-db6f-4d24-b5ba-960b9be0018d",
+      "production_changed": false,
+      "payroll_executed": false,
+      "independent_human_review": false,
+      "recovered_existing_approval": true,
+      "passed": true,
+      "date": "2026-10-26",
+      "minutes": 60,
+      "browser_created_and_worker_submitted": true,
+      "source": "manual_worker",
+      "submitted_by": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "approved_by": "ff6fdfe9-291c-4fac-91aa-51782ba5585f",
+      "separate_test_approver_verified": true,
+      "duplicate_approval_rejected": true,
+      "source_status": "approved",
+      "other_time_identity_onboarding_and_access_unchanged": true
+    },
+    "worker_hour_import_and_status_return": {
+      "checked_at": "2026-10-30T02:07:43+00:00",
+      "tenant_id": 2002,
+      "source_entry_id": "69f7fc04-ce35-497b-ad2d-589eabca1455",
+      "mode": "isolated_test_hours",
+      "production_changed": false,
+      "core_time_approved": false,
+      "payroll_or_financial_postings": false,
+      "route_id": 3,
+      "entry_id": 3,
+      "timesheet_id": 4,
+      "import": {
+        "inserted": 1,
+        "updated": 0,
+        "already_imported": 0,
+        "source_verified": 0,
+        "source_workspace": {
+          "id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+          "name": "Thunderhawk \u2014 isolated pilot"
+        },
+        "timesheets": [
+          {
+            "id": 4,
+            "display_id": "TS-4",
+            "artifact_id": "4c66b7dd-898e-4f75-b252-85eb603552b4",
+            "status": "submitted"
+          }
+        ]
+      },
+      "replay": {
+        "inserted": 0,
+        "updated": 0,
+        "already_imported": 1,
+        "source_verified": 0,
+        "source_workspace": {
+          "id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+          "name": "Thunderhawk \u2014 isolated pilot"
+        },
+        "timesheets": []
+      },
+      "source_approval_preserved": true,
+      "delivery": {
+        "id": 38,
+        "state": "delivered",
+        "remote_id": "cft_9cb1964dc6b6b23daf99833916cb14a6ff7a6d47a83a5d45ae18a72846c391d7",
+        "remote_receipt_id": "cfd_0bfb8b626fdf03fcf2fb20b3cc54175a3a1106277d991ed652f1ab7c4d40c03d"
+      },
+      "provider_core_review_status": "pending_review",
+      "prior_records_unchanged": true,
+      "passed": true
+    },
+    "quanta_runtime_patch": {
+      "passed": true,
+      "quanta_revision": "3f0ebd3",
+      "changed_files": [
+        {
+          "path": "app/coreflux_time_reviews.py",
+          "sha256": "a1ffad30a7960ab43af42e447d5515f2a6859824154649615c6ab806cf53d983"
+        }
+      ],
+      "private_backup_retained": true,
+      "isolated_health_verified": true,
+      "background_work_held": true,
+      "outbound_mail": "devoutbox",
+      "production_changed": false
+    },
+    "frontend_filesystem_access": {
+      "passed": true,
+      "static_frontends": {
+        "pure": {
+          "files": 42,
+          "changed_modes": 9,
+          "contents_unchanged": true
+        },
+        "quanta": {
+          "files": 56,
+          "changed_modes": 9,
+          "contents_unchanged": true
+        }
+      },
+      "private_modes_unchanged": true,
+      "production_changed": false,
+      "public_network_access_added": false
+    }
+  },
+  "production_cutover": false,
+  "real_payroll_payments_or_postings": false,
+  "browser_verification": {
+    "worker_created_and_submitted_hour": true,
+    "date": "2026-10-26",
+    "minutes": 60,
+    "assignment": "PL-864",
+    "person": "P-358",
+    "client": "CL-1280",
+    "end_client": "CO-1902",
+    "historical_hours": 8,
+    "historical_status": "Accepted in Core",
+    "new_hour_status": "Awaiting Core review",
+    "onboarding_requirements_approved": 3,
+    "screenshots": [
+      "output/hosted-thunderhawk-pilot-20261030/quanta-worker-worksite-review.png",
+      "output/hosted-thunderhawk-pilot-20261030/quanta-worker-hour-submitted.png",
+      "output/hosted-thunderhawk-pilot-20261030/quanta-worker-time-return.png"
+    ]
+  },
+  "recovery_notes": [
+    "Native Quanta approval succeeded on the first attempt. The initial verification compared the approver last_login_at field; excluding that expected authentication metadata allowed readback and duplicate rejection to be verified without repeating the approval."
+  ],
+  "remaining": [
+    "Persistent Core pilot UI access and staff browser flow",
+    "Hosted second-company isolation and field ownership conflicts",
+    "Finish Core review and held payroll round trip for the browser-created hour",
+    "Worker duration display incorrectly says still open; total paid label can be mistaken for payment status",
+    "Missing WC class and unresolved one-time commission due date/payable recipient",
+    "Production release and cutover remain separate and pending"
+  ]
+}
