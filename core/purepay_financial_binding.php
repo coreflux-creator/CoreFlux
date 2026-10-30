@@ -27,9 +27,12 @@ function purepayFinancialReadContext(string $key): array
 /** Internal rows only; do not serialize credentials or binding internals. */
 function purepayFinancialConnection(PDO $pdo,int $tenant,bool $lock=false): ?array
 {
+    purepayAssertFinancialPreviewConnection($tenant);
     if ($tenant<=0) throw new PurePayApiException('A Core company is required.');
     $q=$pdo->prepare('SELECT * FROM purepay_connections WHERE tenant_id=?'.($lock?' FOR UPDATE':''));
-    $q->execute([$tenant]); return $q->fetch(PDO::FETCH_ASSOC) ?: null;
+    $q->execute([$tenant]); $connection=$q->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($connection) purepayAssertFinancialPreviewConnection($tenant,(string)$connection['key_scope']);
+    return $connection;
 }
 
 function purepayFinancialBinding(PDO $pdo,int $tenant,bool $lock=false): ?array
@@ -40,6 +43,7 @@ function purepayFinancialBinding(PDO $pdo,int $tenant,bool $lock=false): ?array
 
 function purepayFinancialKey(array $connection): string
 {
+    purepayAssertFinancialPreviewConnection((int)($connection['tenant_id']??0),$connection['key_scope']??null);
     return isset($connection['api_key']) ? (string)$connection['api_key'] : (string)decryptField($connection['api_key_ct']??null);
 }
 

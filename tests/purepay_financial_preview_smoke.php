@@ -32,6 +32,14 @@ if ($mode === 'false-staging') define('COREFLUX_STAGING',false);
 elseif ($mode === 'string-staging') define('COREFLUX_STAGING','true');
 elseif (!in_array($mode,['production','isolated-production'],true)) define('COREFLUX_STAGING',true);
 require_once __DIR__.'/../core/purepay_service.php';
+// A forbidden company must stop before querying/decrypting a stored credential.
+$noDatabase = new class extends PDO {
+    public function __construct() {}
+    public function inTransaction(): bool { return false; }
+    public function prepare(string $query,array $options=[]): PDOStatement|false {
+        throw new LogicException('Forbidden company reached credential storage');
+    }
+};
 // Config bootstrap uses global temporary variables; initialize fixture values
 // after loading the real service so its local setup cannot rename this setting.
 $preview = 'https://pure-pay-support.preview.emergentagent.com/api/v1';
@@ -116,6 +124,10 @@ if ($allowed) {
             static fn()=>purepayStoreConnection($tenantId,'fixture-key','Wrong scope',4,'read_write'),
             static fn()=>purepaySaveWebhookSecret(2,'whsec_fixture'),
             static fn()=>purepayConnectionFingerprint(2,'fixture-key'),
+            static fn()=>purepayFinancialConnection($noDatabase,2),
+            static fn()=>purepayFinancialReview($noDatabase,2),
+            static fn()=>purepayFinancialKey(['tenant_id'=>2,'key_scope'=>'read_only','api_key'=>'fixture-other-key']),
+            static fn()=>purepayFinancialKey(['tenant_id'=>$tenantId,'key_scope'=>'read_write','api_key'=>'fixture-write-key']),
         ] as $forbiddenConnection) {
             try {
                 $forbiddenConnection();
