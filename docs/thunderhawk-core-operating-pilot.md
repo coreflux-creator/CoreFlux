@@ -1,3 +1,30 @@
+## October 30 native financial review deployed and accepted over HTTP
+
+Core staging now runs 5bd0645a with the native AP/AR review panel and encrypted
+observation history. All nine CI jobs passed (41073528969); the isolated staging
+release passed (41074018437). The earlier implementation-only checkpoint below
+is superseded by this deployment and acceptance evidence.
+
+One historical Thunderhawk bill and two invoices were captured in native Core
+company 2002. Source hashes, all 45 lines and the two stored outgoing payments
+match the frozen pilot source projection. Encryption, history and replay passed;
+protected business records and other companies remained unchanged.
+
+Fourteen native login/API checks passed, including independently missing
+accounting/AP/billing grants, foreign-company refusal, explicit confirmation,
+stale-review refusal, replay, history and revoked access. The test actor used
+legacy admin plus the non-wildcard admin persona with explicit module grants;
+no application access policy was widened. The actor was retired, both password
+fields cleared, both memberships disabled and its private cookie file removed.
+
+This verifies native HTTP, not staff-browser acceptance. Source currency remains
+unknown, no Core bill/invoice identity link was established, and no bank delivery
+or complete financial reconciliation is claimed. No production release, payroll,
+payment or ledger posting occurred. Preserve the separate PurePay production AP
+correction a154525 when assembling any later production release.
+
+Evidence: deploy/thunderhawk-native-financial-review-20261030.json.
+
 ## October 30 native Core financial review implementation
 
 Core now has a versioned AP/AR observation validator, encrypted immutable
