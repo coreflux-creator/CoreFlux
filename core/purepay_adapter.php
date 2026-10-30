@@ -24,10 +24,35 @@ function purepayFinancialPreviewBase(): ?string
     $value = $configured ? constant($name) : getenv($name);
     if (!$configured && ($value === false || $value === '')) return null;
     if (!is_string($value) || !defined('COREFLUX_STAGING') || COREFLUX_STAGING !== true
-        || $value !== 'https://pure-pay-support.preview.emergentagent.com/api/v1') {
+        || !in_array($value, [
+            'https://pure-pay-support.preview.emergentagent.com/api/v1',
+            'https://purepay.online:19443/api/v1',
+        ], true)) {
         throw new RuntimeException('PurePay financial preview requires the reviewed isolated staging destination.');
     }
+    // Invalid company configuration must fail before even a read transmits a key.
+    purepayFinancialPreviewTenantForBase($value);
     return $value;
+}
+
+/** Server configuration only. The legacy demo retains its original default. */
+function purepayFinancialPreviewTenantForBase(string $base): int
+{
+    $name = 'COREFLUX_PUREPAY_FINANCIAL_PREVIEW_TENANT_ID';
+    $configured = defined($name);
+    $value = $configured ? constant($name) : getenv($name);
+    if (!$configured && $value === false
+        && $base === 'https://pure-pay-support.preview.emergentagent.com/api/v1') return 999;
+    if (is_int($value) && $value > 0) return $value;
+    if (is_string($value) && preg_match('/^[1-9][0-9]{0,18}$/D', $value)
+        && (string)(int)$value === $value && (int)$value > 0) return (int)$value;
+    throw new RuntimeException('PurePay financial preview requires an explicit simulation company.');
+}
+
+function purepayFinancialPreviewTenant(): ?int
+{
+    $base = purepayFinancialPreviewBase();
+    return $base === null ? null : purepayFinancialPreviewTenantForBase($base);
 }
 
 function purepayApiBase(): string

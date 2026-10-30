@@ -8,11 +8,12 @@ require_once __DIR__ . '/encryption.php';
 require_once __DIR__ . '/purepay_adapter.php';
 require_once __DIR__ . '/purepay_financial_binding.php';
 
-/** The named financial preview is exclusively the approved tenant-999 pilot. */
+/** Only the server-configured simulation company may use the financial preview. */
 function purepayAssertFinancialPreviewConnection(int $tenantId, ?string $keyScope = null): void
 {
-    if (purepayFinancialPreviewBase() !== null
-        && ($tenantId !== 999 || ($keyScope !== null && $keyScope !== 'read_only'))) {
+    $previewTenant = purepayFinancialPreviewTenant();
+    if ($previewTenant !== null
+        && ($tenantId !== $previewTenant || ($keyScope !== null && $keyScope !== 'read_only'))) {
         throw new PurePayApiException('The financial preview requires the approved simulation company and a read-only connection.');
     }
 }
@@ -45,7 +46,8 @@ function purepayWalletBalanceCents(array $response): ?int
 
 function purepayGetConnection(int $tenantId): ?array
 {
-    if (purepayFinancialPreviewBase() !== null && $tenantId !== 999) return null;
+    $previewTenant = purepayFinancialPreviewTenant();
+    if ($previewTenant !== null && $tenantId !== $previewTenant) return null;
     try {
         $stmt = getDB()->prepare(
         'SELECT id, tenant_id, label, api_key_ct, api_key_last4, key_scope,
