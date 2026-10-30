@@ -1,3 +1,29 @@
+## Native populated upgrade and exact recovery passed - October 30, 2026
+
+Candidate `569c55d2` passed a fresh native full-schema/data recovery rehearsal.
+The protected source archive contains 6,608,622,495 SQL bytes. Its first restore
+loaded 4,045,222 rows into 387 encrypted tables, with 393 schema objects and
+19 triggers. All 359 AUTO_INCREMENT values matched the native captured values,
+closing the earlier data-only export's next-ID limitation.
+
+The full 78-migration plan executed 736 statements successfully. The isolated
+database was then replaced from the same verified archive. Every original row,
+column, primary key, table/view definition, trigger and SQL mode, both migration
+histories, database defaults and next-ID value matched the pre-upgrade baseline.
+The full-state digest was identical before upgrade and after recovery. No
+business INSERT bytes were rewritten; only schema definitions were adapted to
+the isolated database name and local definer. The original archive is unchanged.
+
+The local process stopped and its temporary plaintext database credentials were
+removed. The planned cache increase was not applied because recovery completed
+first. Evidence: `deploy/core-native-populated-recovery-20261030.json`. The
+protected data and keys remain outside the repository and cloud sync.
+
+This establishes populated native backup/recovery for the tested candidate,
+not a live cutover recovery point: production writers remained active during
+capture. Coordinated writer hold, matching real private file/database backups,
+publication, and remaining Thunderhawk operational acceptance are still open.
+
 ## Complete two-owner file-layout rehearsal passed - October 30, 2026
 
 The current full Core candidate `569c55d2` passed production preflight

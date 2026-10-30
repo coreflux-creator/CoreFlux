@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-30T17:46:26.814790+00:00",
+  "candidate_commit": "569c55d2a57fa68349737396374ec057d1f37f5f",
+  "status": "Native populated backup, full migration execution and exact empty-target recovery passed in an isolated local database",
+  "source_backup": {
+    "capture_started_at": "2026-10-30T17:11:32.898491+00:00",
+    "capture_finished_at": "2026-10-30T17:14:53.494327+00:00",
+    "sql_bytes": 6608622495,
+    "sql_sha256": "de1d8af8d3cfc77800c37efd750b792a4a494b5546acdac4216b5c962224a960",
+    "protected_archive_bytes": 401765898,
+    "archive_verified": true,
+    "native_schema_and_data": true,
+    "read_only_innodb_snapshot": true,
+    "surrounding_schema_and_history_unchanged": true,
+    "source_writers_paused": false,
+    "production_config_or_encryption_key_exported": false
+  },
+  "storage": {
+    "outside_repository_and_cloud_sync": true,
+    "acl": "Current Windows user and SYSTEM only",
+    "archive": "Windows user-bound DPAPI with ordered authenticated chunks and final digest",
+    "database": "Forced table, redo-log and temporary-data encryption",
+    "all_387_destination_tables_encrypted": true,
+    "loopback_only": true,
+    "event_scheduler": "OFF",
+    "application_started": false,
+    "provider_contacted": false,
+    "server_stopped": true,
+    "plaintext_fixture_credentials_removed": true
+  },
+  "baseline": {
+    "candidate_commit": "569c55d2a57fa68349737396374ec057d1f37f5f",
+    "tables": 387,
+    "rows": 4045222,
+    "schema_objects": 393,
+    "triggers": 19,
+    "auto_increment_tables": 359,
+    "encrypted_tables": 387,
+    "captured_auto_increment_values_preserved": true,
+    "full_state_sha256": "ff5291a03d3ff1ee248335e28bcb73d1d1cd7c90055c5f48d256a912476d49d8",
+    "passed": true
+  },
+  "upgrade": {
+    "candidate_commit": "569c55d2a57fa68349737396374ec057d1f37f5f",
+    "plan_sha256": "218e10c8c68865192594b708d17b1bd0528b099aa5d14767fe1dde06915789d3",
+    "applied_files": 78,
+    "executed_statements": 736,
+    "passed": true
+  },
+  "recovery": {
+    "candidate_commit": "569c55d2a57fa68349737396374ec057d1f37f5f",
+    "tables": 387,
+    "rows": 4045222,
+    "schema_objects": 393,
+    "triggers": 19,
+    "auto_increment_tables": 359,
+    "encrypted_tables": 387,
+    "captured_auto_increment_values_preserved": true,
+    "full_state_sha256": "ff5291a03d3ff1ee248335e28bcb73d1d1cd7c90055c5f48d256a912476d49d8",
+    "matches_pre_upgrade_baseline": true,
+    "passed": true
+  },
+  "restore_stream": {
+    "insert_bytes_preserved": 6608103346,
+    "insert_bytes_sha256": "bca05dcc75321ba0871e4361caa9c60f8bf997ec71117fe67c29c5e56ad14eeb",
+    "same_stream_results_for_both_restores": true,
+    "captured_auto_increment_tables": 359,
+    "local_isolation_adaptations": [
+      "Definition-only qualified database references remapped to the explicitly named local fixture",
+      "Definition-only DEFINER clauses remapped to the local restoring account"
+    ],
+    "business_insert_values_modified": false,
+    "source_archive_modified": false
+  },
+  "acceptance": [
+    "All 4,045,222 original rows in 387 tables match their pre-upgrade ordered full-row hashes after recovery.",
+    "All original table/view definitions, trigger definitions and modes, database defaults, columns and primary keys match the baseline.",
+    "Both migration histories are recovered through the full-row/table comparison.",
+    "All 359 native AUTO_INCREMENT values match the captured dump, including values above surviving row IDs.",
+    "Objects and data introduced by all 78 migrations are absent after empty-target restoration."
+  ],
+  "runtime": {
+    "started_at": "2026-10-30T17:16:35.693762+00:00",
+    "finished_at": "2026-10-30T17:44:05.946418+00:00",
+    "buffer_pool_bytes": 536870912,
+    "planned_cache_adjustment_applied": false,
+    "production_timing_claim": false
+  },
+  "artifacts": {
+    "snapshot-receipt.json": {
+      "path": "output/native-populated-recovery-20261030/snapshot-receipt.json",
+      "sha256": "ad40713c383a8838c81ce2906ec52a252d8bf8263c47918a536a65f864fafbee"
+    },
+    "production-structure.json": {
+      "path": "output/native-populated-recovery-20261030/production-structure.json",
+      "sha256": "d51116b88ccd8645b3e94b386ec11152d206be1afbc66d479e3aabe4cd5d213a"
+    },
+    "preparation.json": {
+      "path": "output/native-populated-recovery-20261030/preparation.json",
+      "sha256": "0a820194c05a71bedad88d66cb26debb2ac4dc5e6c5288046276bfa2f5fc6f37"
+    },
+    "manifest.json": {
+      "path": "output/native-populated-recovery-20261030/manifest.json",
+      "sha256": "56cff69f599cb77ee40e6930d2fee744a417a16a1e688e5f1f01e4d5a0bab31c"
+    },
+    "expected-pending.json": {
+      "path": "output/native-populated-recovery-20261030/expected-pending.json",
+      "sha256": "95772646d9df063724dd0adcc65ccec924c57f6bc88c12fff14c80dd7d622892"
+    },
+    "recovery-receipt.json": {
+      "path": "output/native-populated-recovery-20261030/recovery-receipt.json",
+      "sha256": "3e1efdbf317ed7dd4576f8cc1f909b1cf2a67ada8af01277724efd55fe46e820"
+    },
+    "phase.php": {
+      "path": "output/native-populated-recovery-20261030/phase.php",
+      "sha256": "fe2a7ec91bfff2fab4d8d2187d8a5f83f7bdf2a560b241ecb8452ed690b0c8e6"
+    }
+  },
+  "harness_sha256": {
+    "capture_native_populated_recovery.py": "23caea419ba4b3a14dd1e74905a8dd658ce5177f6b018d83d51893d245029e9e",
+    "run_native_populated_recovery.py": "f69f421cc494df083b3a6555caf3a9d1720506ae3b45faf4432753c007a56386",
+    "native_dump_stream.py": "89f96402c873243ebf58173bdbca716fc30156547b912a44a1ad8e4ca1c92961",
+    "private_rehearsal_store.py": "dc29ece40796f3ee490b32a193a18d9ea025928e0663401f931b6272688a77a9"
+  },
+  "production_changed": false,
+  "production_cutover_performed": false,
+  "limitations": [
+    "This is a rehearsal backup captured while production remained live; no DDL-free maintenance window or paused-source cutover consistency is claimed.",
+    "Local schema definitions use the fixture database and local definer; original native SQL remains unmodified in the protected archive.",
+    "The native backup covers the Core application database, not host users/grants or other applications.",
+    "The file-layout rehearsal uses synthetic contents; a coordinated release still needs matching real private file/database backups with all writers held.",
+    "Actual Thunderhawk operational and financial-source acceptance remains open; no real payroll, payment or financial posting was executed."
+  ]
+}
