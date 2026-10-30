@@ -1,3 +1,42 @@
+## Confirmed historical invoice lines linked to PL-864 — October 30, 2026
+
+The user's confirmation is now applied to the five identified historical
+invoice lines in isolated Core company 2002. Each links to canonical P-358 /
+PL-864 under the pilot installation and retains its original invoice ID, line
+ID, complete encrypted capture, reviewer, and dated review evidence. These are
+Core associations; the source invoices and provider IDs remain unchanged.
+
+Core staging runs `d8ecb77b`, including migration 184 and the native source-line
+review API and controls under saved financial captures. All nine CI jobs and
+staging release `41086182701` passed. The application resolves the authorized
+People and Placements directories on the server, requires financial and source
+module access, checks the fresh provider document against the saved capture,
+locks the connection and canonical target, and saves an encrypted association
+with a mandatory audit. Source/target edits invalidate review. Replay reuses
+its receipt; a conflicting placement cannot silently replace it. A reviewed
+revision of the same placement appends evidence. History is bounded and paged.
+The dictionary covers every stored association field and grants no sync rights.
+
+The five associations are IDs 1–5, based on source captures 4–8. All replayed
+without duplication and read back through history. Protected Core business
+records, including the captures themselves, stayed unchanged. Nineteen native
+HTTP checks passed for financial/People/Placements permissions, company scope,
+server-selected owners, confirmation, stale reviews, replay, history and access
+revocation. Synthetic reviewer 59 was retired and its session removed. Local
+verification passed 54 MariaDB checks and 13 interface tests; the dashboard
+build passed. This does not claim interactive browser acceptance.
+
+Evidence: `deploy/thunderhawk-confirmed-invoice-links-20261030.json` and the two
+bounded application/HTTP runners beside it. The earlier invoice-context
+checkpoint's pending user confirmation has therefore been resolved.
+
+The association applies to these source lines only: it creates no future-item
+rule, time match, currency conclusion, financial posting, payroll or payment.
+Source period labels still lack structured service dates, and source currency
+is absent. Matching historical time/payroll periods and reconciling amounts
+remain required; a different-placement correction needs its own reviewed
+correction workflow. The full integration goal remains incomplete.
+
 ## Historical invoice context retained and captured — October 30, 2026
 
 Core staging now runs `5166232e`; the isolated PurePay observation module is
