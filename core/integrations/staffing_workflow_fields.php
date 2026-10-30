@@ -5,7 +5,7 @@ declare(strict_types=1);
 function staffingWorkflowFieldTables(): array
 {
     return ['integration_deliveries', 'staffing_onboarding_cases', 'staffing_onboarding_events',
-        'quanta_onboarding_document_transfers', 'payroll_provider_results', 'payroll_native_observations'];
+        'quanta_onboarding_document_transfers', 'payroll_provider_results', 'payroll_native_observations', 'purepay_financial_observations'];
 }
 
 /** Logical fields inside stored workflow envelopes, separately from physical SQL columns. */
@@ -196,5 +196,26 @@ function staffingWorkflowPayloadFields(array $columns): array
         '/api/v1/integrations/coreflux/payroll/observations/{run_id}','purepayroll_to_core','2026-10-25.1',
         'core/integrations/purepay_observations.php',$observation,'purepayroll_observed_ledger',
         'immutable_encrypted_capture; missing_values_explicit; no_authority_creation_or_time_rate_match_or_posting');
+    // Enumerate the exact versioned AP/AR contract, including nested amounts and references.
+    $schemas=json_decode(file_get_contents(__DIR__.'/contracts/purepay_financial_observations.json'),true,64,JSON_THROW_ON_ERROR);
+    foreach($schemas as $kind=>$schema) {
+        $fields=[];
+        $walk=static function(array $node,string $path='')use(&$walk,&$fields):void {
+            if($node['type']==='object')foreach($node['properties'] as $key=>$child)$walk($child,$path===''?$key:$path.'.'.$key);
+            elseif($node['type']==='array')$walk($node['items']??['type'=>'string'],$path.'[]');
+            else {
+                $type=$node['type'].(($node['nullable']??false)?'|null':'');
+                $units=str_ends_with($path,'_cents')?'Integer cents; never a decimal currency amount.':
+                    (str_contains($node['pattern']??'','{2}')?'Exact decimal currency amount, two places.':
+                    (str_contains($node['pattern']??'','{8}')?'Exact rate, quantity or hours, eight decimal places.':'Stored source value.'));
+                $fields[$path]=[$type,$units.' Source-only evidence; no identity, settlement or posting authority. Null stays unknown.'];
+            }
+        };
+        $walk($schema);
+        $add('purepay_financial_'.$kind.'_observation','purepay_financial_observations.payload_ct','observation.','purepay',
+            '/financial-observations/'.($kind==='bill'?'bills':'invoices').'/{document_id}','purepay_to_core','2026-10-30.1',
+            'core/integrations/purepay_financial_observation_contract.php',$fields,'purepay',
+            'reviewed_read_only_evidence; preserve_unknown_currency_and_original_units; no_execution','','financial_evidence');
+    }
     return $rows;
 }

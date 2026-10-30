@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import PurePayCoreConnection from './PurePayCoreConnection';
+import PurePayFinancialObservations from './PurePayFinancialObservations';
 
 export default function PurePaySettings() {
   const status = useApi('/api/purepay_connection.php?action=status');
@@ -85,6 +86,8 @@ export default function PurePaySettings() {
           <div style={{ marginTop: 10 }}><button className="btn btn--primary" disabled={!!busy || !companyChecked} data-testid="purepay-confirm-company" onClick={() => run('confirm', async () => { await api.post('/api/purepay_connection.php?action=confirm_company', { review_hash: review.review_hash, organization_id: review.organization.id }); setReview(null); setCompanyChecked(false); })}>Confirm company</button></div>
         </div>}
       </div>
+
+      {data.connected && <PurePayFinancialObservations tenantId={data.core_company?.id} connectionVersion={`${data.financial_company?.reviewed_at}:${data.api_key_last4}:${data.status}`} />}
 
       <div style={card}>
         <strong>Signed webhooks</strong>

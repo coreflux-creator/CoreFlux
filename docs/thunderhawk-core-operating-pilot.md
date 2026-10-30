@@ -1,3 +1,31 @@
+## October 30 native Core financial review implementation
+
+Core now has a versioned AP/AR observation validator, encrypted immutable
+captures, company-scoped history and a financial review panel under PurePay
+settings. An optional existing Core bill or invoice can be selected for precise
+amount comparison. Selection does not create an identity link; missing or
+different currency prevents subtraction. Source line links, payments, collection
+records and embedded receipts retain their original values and units.
+
+The save path refreshes provider evidence, rejects stale reviews and connection
+or Core-record changes, locks the company connection, and commits the encrypted
+capture with its audit entry. Retrying reuses the capture. No obligation, payment,
+payroll or journal state is changed. Permission requires accounting administration
+and both AP and billing reads because source documents include cross-references.
+The field dictionary now describes every AP/AR contract leaf as restricted
+source evidence; the dictionary grants no write authority.
+
+Local validation: 56 provider-contract/malformed-input checks, 29 real MariaDB
+transaction/history/isolation checks, and seven rendered React interaction tests
+pass. The dashboard builds with the repository's existing warnings. Hosted
+release and actual-source product capture are the next checks; this paragraph
+does not claim deployment or staff-browser acceptance.
+
+Production coordination: the PurePay review chat reports production AP correction
+a154525 on codex/qbo-partial-payment-repair, based on b786f4e. Future production
+assembly must preserve its server.py edits and new qbo_bill_balance.py. The
+isolated provider is separate and has not been replaced by that production fix.
+
 ## October 30 existing AP/AR source observations verified through Core
 
 PurePay now exposes dedicated read-only bill and invoice observation routes in

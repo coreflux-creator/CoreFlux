@@ -278,6 +278,11 @@ jobs:
           php tests/purepay_observations_mariadb.php
           php -l deploy/accept_synthetic_payroll_capture.php
 
+      - name: Read-only AP and AR observation contract and encrypted review history
+        run: |
+          php tests/purepay_financial_observation_contract.php
+          php tests/purepay_financial_observations_mariadb.php
+
       - name: Run full sim execution
         run: bash scripts/ci_sim_full.sh
 
