@@ -1,3 +1,27 @@
+## Complete two-owner file-layout rehearsal passed - October 30, 2026
+
+The current full Core candidate `569c55d2` passed production preflight
+41097858926 without activation. A complete byte/ownership inventory assigns
+its 5,418 file changes to the existing accounts: 72 to the master and 5,346 to
+the application owner. The plan preserves 1,696 unchanged files, defers root
+routing until activation, and retains the three reviewed historical migration
+files. It adds 4,980 files and replaces 438, with no existing directory mode or
+ownership reset.
+
+A synthetic layout outside every application root reproduced all 7,118 file
+paths and 2,103 directory paths. Native rsync under the two actual SSH accounts
+passed full installation and complete recovery with exact bytes, UID, GID,
+mode and mtime preservation. Recovery removed only the reviewed added files
+and empty new directories. A separate interruption between the accounts'
+batches also recovered; all 9,221 paths matched their original state. The root
+routing file and retained migrations stayed untouched.
+
+Evidence: `deploy/core-full-file-owner-rehearsal-20261030.json`. Synthetic
+contents prove the full layout and native copying/recovery behavior, not an
+actual production cutover. Live writer hold, matching private source/database
+backups, and coordinated publication remain required. The separate populated
+native recovery test is still running and is not claimed complete here.
+
 ## Application-owner SSH and private file rehearsal passed - October 30, 2026
 
 Core's existing deployment key now authenticates as `kunalverma2`, resolving to
