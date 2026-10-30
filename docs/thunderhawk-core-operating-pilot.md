@@ -1,3 +1,41 @@
+## October 30 hosted worker evidence and employer review return passed
+
+Core staging now runs ce14a127, deployed by workflow 40985695250 after all
+nine CI groups passed on that revision. The live receipt test exposed a Core
+validation mismatch: Quanta accepts canonical submission UUIDs beyond version
+4, while Core incorrectly treated provider request IDs as its own command IDs.
+Core now validates the provider UUID shape and bound receipt without relaxing
+its local case, task or command identities. Regression checks reproduced the
+failure before the fix. The same original worker evidence imported afterward.
+
+The isolated Thunderhawk worker now has a private test login. Its sign-in
+message was captured locally; Alexander was not emailed. The native worker
+workflow submitted one explicitly synthetic PDF and one acknowledgment. Core
+imported both, verified the PDF bytes in its private S3 vault (document 2),
+reviewed the two worker tasks and one staff task, and published case version
+11 back to Quanta. The worker API showed all three approved decisions and
+retained the two original receipts. Replays created no duplicates, changed
+request bodies and stale reviews were rejected, and worker access to staff
+submission, team management and workspace onboarding was denied. Quanta is
+at case version 4; Core review delivery is 35. This was an operator-driven
+integration test, not independent human approval of employment evidence.
+
+A fresh read-only JobDiva query also verified the exact person, assignment
+and job identities. Names/email, dates, work state/country, engagement type,
+division, bill/pay rates and billing client matched the production source
+records used for the pilot. JobDiva still has no WC class or phone value.
+The source comparison did not import data or approve production draft rates.
+
+Next: verify actual cross-company isolation and field ownership conflicts on
+this host, configure the bounded pilot's persistent UI access, and exercise
+the worker and staff browser flows. Core's onboarding flags were temporary for
+this test; the normal UI is not yet persistently enabled. The INR commission
+and missing WC class remain separate unresolved setup items. Production
+cutover is still pending. No real payroll, payment or financial posting ran.
+Evidence: deploy/thunderhawk-hosted-onboarding-acceptance-20261030.json.
+
+The dated entries below are earlier checkpoints, not current inventories.
+
 ## October 30 hosted assignment, time approval and held payroll round trip passed
 
 The isolated Thunderhawk copy (Core tenant 2002) now has PL-864 published in
