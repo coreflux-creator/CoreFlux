@@ -1,3 +1,26 @@
+## Fresh Core production structure rehearsal passed - October 30, 2026
+
+Candidate `07ca035e` passed CI and the read-only production preflight. A fresh
+production structure-and-migration snapshot was replayed locally against all
+78 pending migrations: 736 statements completed, the original migration history
+was preserved, and the disposable database process stopped cleanly. The two
+additions since the October 26 structure rehearsal are financial observation
+captures (183) and confirmed invoice-line associations (184). No production
+files, data, or runtime activation were changed by this rehearsal.
+
+The evidence is recorded in
+`deploy/core-production-structure-rehearsal-20261030.json`. Its local plan uses a
+migration-only manifest and is distinct from the full release-package plan.
+The complete private production-preflight report has also been recovered and
+hash-recorded, avoiding redacted action-log fields. Existing-key SSH now works
+as application owner UID 1004, matching the webroot and `.htaccess` ownership.
+The application has no active crontab lines and its listing returns exit 1;
+maintenance must distinguish an absent crontab from other scheduler failures.
+This result does not establish populated conversion or production recovery
+readiness. Full writer pause/drain, owner-preserving deployment rehearsal, and
+matched backup/recovery still need to be completed with the coordinating
+production publisher.
+
 ## Authoritative invoice currency verified; retention fix released — October 30, 2026
 
 QuickBooks production company Thunderhawk Technology Partners LLC, realm
