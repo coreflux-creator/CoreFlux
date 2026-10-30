@@ -1,3 +1,36 @@
+## October 30 existing AP/AR source observations verified through Core
+
+PurePay now exposes dedicated read-only bill and invoice observation routes in
+the isolated pilot. They preserve stored lines, links, payment states and missing
+values, detect source changes, and avoid invoice read paths that backfill data.
+The contract names its stored sources and makes no external receipt-completeness
+or bank-delivery claim. Production has not received these new routes.
+
+One existing Thunderhawk bill, two linked invoices and two recorded payments
+were copied as bounded source projections into the isolated provider. Native
+HTTP hashes match the unchanged production source projections. Core's reviewed
+company-2002 reader verifies the same hashes and retains an encrypted private
+packet. Provider and Core replay both reuse existing evidence; protected records
+remain unchanged. No payroll, payment or journal execution occurred.
+
+This is a source-contract and transport checkpoint. Core product observation
+persistence, comparison and staff review UI still need implementation. The
+historical source assignment is unlinked to Core. Currency is missing from all
+selected documents and payments; it remains missing pending source evidence or
+explicitly attributed user confirmation. Recorded settled statuses do not prove
+bank settlement, and no invoice receipt is inferred from a zero balance.
+
+PurePay contract checks passed: 68 passed/1 existing optional skip in the first
+related suite, then 32 observation tests and 57 isolation/release checks passed
+in the final 89-test suite with network access blocked. Only the isolated backend
+was restarted; other containers and provider business records were unchanged.
+The Core private JSON envelope explicitly base64-encodes binary ciphertext;
+authenticated readback and unchanged replay passed after that correction.
+
+Next: implement native Core AP/AR observation review, complete staff-browser
+acceptance and audit the original integration plan. SSH is enabled and reachable.
+Evidence: deploy/thunderhawk-financial-observations-20261030.json.
+
 ## October 30 isolated financial reader connected and verified
 
 Core's financial preview now selects the isolated PurePay host on port 19443 and
