@@ -98,6 +98,7 @@ function quantaMetadataSnapshot(int $tenantId,string $kind,int $id,?string $work
             $site=$found[0];
         }
         $assignment=quantaContractRecord($key,$workspace,$source['reference']);
+        if ($assignment && ($assignment['worksite_id']??null)!==$worksiteId) quantaAssignmentWorksiteRequire($key,$workspace);
         $plan=quantaAssignmentPlan($workspace,$source['assignment']+['worksite_id'=>$worksiteId],$assignment);
         if ($assignment && (($assignment['worker_id']??null)!==$workerId || ($assignment['person_link_id']??null)!==$link['id'])) throw new RuntimeException('Assignment worker identity requires reconciliation');
         $remote+=['assignment'=>$assignment,'worksite'=>$site];

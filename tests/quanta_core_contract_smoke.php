@@ -8,6 +8,16 @@ $fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable 
 $instance='381e452a-5d11-4e2e-9daa-e9427501898a';
 $ref=static fn($type,$number,$owner=1)=>integrationRecordReference($instance,$owner,$type,$number);
 $person=$ref('person','P-333'); $placement=$ref('placement','PL-810');
+$siteContext=['workspace'=>['id'=>'a','name'=>'Synthetic A'],'contract_version'=>QUANTA_CORE_CONTRACT_VERSION,
+    'capabilities'=>['person_links','assignment_metadata','conditional_assignment_updates','durable_delivery_receipts'],
+    'execution_side_effects'=>false,'assignment_worksite_contract_version'=>QUANTA_ASSIGNMENT_WORKSITE_VERSION];
+$GLOBALS['__quanta_transport']=static function()use(&$siteContext){return ['status'=>200,'body'=>json_encode($siteContext)];};
+quantaAssignmentWorksiteRequire('fixture-key','a');$check(true,'provider advertises the reviewed worksite revision contract');
+unset($siteContext['assignment_worksite_contract_version']);
+$check($fails(fn()=>quantaAssignmentWorksiteRequire('fixture-key','a')),'older provider cannot receive a worksite revision');
+$siteContext['assignment_worksite_contract_version']=QUANTA_ASSIGNMENT_WORKSITE_VERSION;
+$check($fails(fn()=>quantaAssignmentWorksiteRequire('fixture-key','b')),'worksite capability must belong to the bound company');
+unset($GLOBALS['__quanta_transport']);
 $personId=quantaCoreRemoteId('a',$person);
 $check($personId==='cfl_71c672ffc3411d0705bc4e7e294464c77e16eb5d81504f9129a589648d248362','canonical identity agrees with Quanta Python reference_id');
 $check($personId!==quantaCoreRemoteId('b',$person),'remote organizations have separate identities');
@@ -49,9 +59,18 @@ $check(quantaAssignmentPlan('a',$relocated,$remoteLocated)['body']===['expected_
 $changed=array_replace($desired,['title'=>'Reviewed title','status'=>'active']);
 $update=quantaAssignmentPlan('a',$changed,$remote);
 $check($update['body']===['expected_version'=>1,'title'=>'Reviewed title','status'=>'active'],'update transmits only conditional reviewed fields');
-foreach (['client'=>null,'vendor'=>null,'worksite_id'=>null,'person'=>$ref('person','P-334'),'start_date'=>'2026-10-02'] as $field=>$value) {
+foreach (['client'=>null,'vendor'=>null,'person'=>$ref('person','P-334'),'start_date'=>'2026-10-02'] as $field=>$value) {
     $check($fails(fn()=>quantaAssignmentPlan('a',array_replace($desired,[$field=>$value]),$remote)),'immutable '.$field.' cannot be silently replaced');
 }
+$worksiteUpdate=quantaAssignmentPlan('a',array_replace($desired,['worksite_id'=>'site-2']),$remote);
+$check($worksiteUpdate['body']===['expected_version'=>1,'worksite_id'=>'site-2'],
+    'worksite change is a conditional revision of the same assignment');
+$check(quantaAssignmentPlan('a',array_replace($desired,['worksite_id'=>null]),$remote)['body']===['expected_version'=>1,'worksite_id'=>null],
+    'explicit worksite clearing remains visible in the review');
+$check(quantaAssignmentPlan('a',$desired,array_replace($remote,['worksite_id'=>null]))['body']===['expected_version'=>1,'worksite_id'=>'site-1'],
+    'an initially unlinked assignment can receive a worksite');
+$missingSite=$remote;unset($missingSite['worksite_id']);
+$check($fails(fn()=>quantaAssignmentPlan('a',$desired,$missingSite)),'missing provider worksite field is not treated as reviewed null');
 $check($fails(fn()=>quantaAssignmentPlan('a',$changed,array_replace($remote,['tenant_id'=>'b']))),'wrong provider organization rejected');
 $check($fails(fn()=>quantaAssignmentPlan('a',$changed,array_replace($remote,['version'=>'1']))),'non-integer remote version rejected');
 $check($fails(fn()=>quantaAssignmentPlan('a',$desired,array_replace($remote,['status'=>'ended','end_date'=>'2026-10-10']))),'closed assignment cannot reopen');
@@ -73,6 +92,12 @@ $check(quantaWriteContract('fixture-key','a','assignment.create',$desired,$desir
 $http=200;$response=array_replace($remote,$changed,['version'=>2,'delivery_id'=>$receipt]);
 $check(quantaWriteContract('fixture-key','a','assignment.update',$update['body'],$update['expected'],$idem)['version']===2,'conditional update response verifies full assignment');
 $last=$calls[count($calls)-1];$check($last[0]==='PATCH' && str_ends_with($last[1],'/assignments/'.$plan['remote_id']),'update route cannot target another assignment');
+$response=array_replace($remote,['worksite_id'=>'site-2','version'=>2,'delivery_id'=>$receipt]);
+$check(quantaWriteContract('fixture-key','a','assignment.update',$worksiteUpdate['body'],$worksiteUpdate['expected'],$idem)['worksite_id']==='site-2',
+    'worksite revision confirms the complete assignment and preserves identity');
+$response['worksite_id']='site-other';
+$check($fails(fn()=>quantaWriteContract('fixture-key','a','assignment.update',$worksiteUpdate['body'],$worksiteUpdate['expected'],$idem)),
+    'provider worksite mismatch is not accepted');
 $before=count($calls);
 foreach (['payroll.execute','worker.create','assignment.delete'] as $operation) $check($fails(fn()=>quantaWriteContract('fixture-key','a',$operation,$desired,$desired,$idem)),'unimplemented operation cannot write');
 $check($fails(fn()=>quantaWriteContract("bad\nkey",'a','person.link',$link,$link,$idem)),'header injection rejected');

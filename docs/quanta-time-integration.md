@@ -8,6 +8,22 @@ reviewed outbound worker preparation, person links and assignment metadata.
 Those additions are described below and in the pilot plan; they do not mirror
 all fields or approve/correct source time in both systems.
 
+## Reviewed assignment worksite revisions — October 30, 2026
+
+An existing assignment can receive, change or explicitly clear its Quanta
+worksite reference through the same preview and confirmed metadata delivery.
+Core requires the additive `assignment_worksite_contract_version=2026-10-30.1`
+capability before proposing a changed reference. It validates an active site in
+the connected workspace, and Quanta rechecks that identity before applying the
+version-conditional update. The assignment keeps its Core/provider IDs and full
+revision history; its person, client, vendor and company relationships remain
+immutable. Existing time and worksite membership are unchanged. Quanta's native
+worksite assignment workflow separately grants the worker access to clock time.
+
+An assignment revision also changes the version bound by an onboarding
+publication. Review and republish the existing Core checklist before expecting
+the worker to use that checklist against the revised assignment.
+
 ## Reviewed worker intake — October 22, 2026
 
 The existing inbound worker creation/linking flow now requires a separate

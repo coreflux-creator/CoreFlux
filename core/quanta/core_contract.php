@@ -5,6 +5,7 @@ require_once __DIR__.'/workspace.php';
 require_once __DIR__.'/../integrations/source_values.php';
 
 const QUANTA_ASSIGNMENT_LOCATION_VERSION = '2026-10-25.1';
+const QUANTA_ASSIGNMENT_WORKSITE_VERSION = '2026-10-30.1';
 const QUANTA_METADATA_RECEIPT_VERSION = '2026-10-25.1';
 
 function quantaMetadataReceiptRequire(string $apiKey,string $workspace): void
@@ -51,6 +52,17 @@ function quantaAssignmentLocationRequire(string $apiKey, string $workspace): voi
     if ($base['workspace']['id']!==$workspace
         || ($raw['assignment_location_contract_version']??null)!==QUANTA_ASSIGNMENT_LOCATION_VERSION) {
         throw new RuntimeException('This Quanta environment needs the assignment-location update before publishing this placement.');
+    }
+}
+
+/** A later worksite reference requires a provider that supports reviewed revisions. */
+function quantaAssignmentWorksiteRequire(string $apiKey, string $workspace): void
+{
+    $raw=quantaGet($apiKey,QUANTA_CORE_CONTRACT_PATH.'/context');
+    $base=quantaContractContextValidate($raw);
+    if ($base['workspace']['id']!==$workspace
+        || ($raw['assignment_worksite_contract_version']??null)!==QUANTA_ASSIGNMENT_WORKSITE_VERSION) {
+        throw new RuntimeException('This Quanta environment needs the worksite revision update before changing this assignment worksite.');
     }
 }
 
@@ -119,13 +131,14 @@ function quantaAssignmentPlan(string $workspaceId, array $desired, ?array $remot
     $id=quantaCoreRemoteId($workspaceId,$desired['placement']);
     if ($remote===null) return ['operation'=>'assignment.create','remote_id'=>$id,'body'=>$desired,'expected'=>$desired,'status'=>'preview'];
     if (($remote['id']??null)!==$id || ($remote['tenant_id']??null)!==$workspaceId || !is_int($remote['version']??null) || $remote['version']<1) throw new RuntimeException('Quanta returned an invalid assignment identity or version');
-    foreach (['placement','person','engagement_type','start_date','worksite_id','client','vendor','end_client'] as $field) {
+    foreach (['placement','person','engagement_type','start_date','client','vendor','end_client'] as $field) {
         if (!array_key_exists($field,$remote) || integrationDeliveryHash([$remote[$field]])!==integrationDeliveryHash([$desired[$field]])) {
             throw new RuntimeException('Assignment relationships changed. Review the existing assignment before publishing.');
         }
     }
     $changes=[];
-    foreach (['title','end_date','status'] as $field) if (!array_key_exists($field,$remote) || $desired[$field]!==$remote[$field]) $changes[$field]=$desired[$field];
+    if (!array_key_exists('worksite_id',$remote)) throw new RuntimeException('Quanta returned an incomplete assignment worksite reference.');
+    foreach (['title','end_date','status','worksite_id'] as $field) if (!array_key_exists($field,$remote) || $desired[$field]!==$remote[$field]) $changes[$field]=$desired[$field];
     if (array_key_exists('work_location',$desired)
         && integrationDeliveryHash([$desired['work_location']])!==integrationDeliveryHash([$remote['work_location']??null])) {
         $changes['work_location']=$desired['work_location'];
@@ -166,7 +179,7 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
         if (integrationDeliveryHash($body)!==integrationDeliveryHash($expected)) throw new InvalidArgumentException('Assignment confirmation differs from the request');
         $id=quantaCoreRemoteId($workspaceId,$body['placement']); $path='/assignments'; $codes=[201]; $expected['version']=1;
     } elseif ($operation==='assignment.update') {
-        if (array_diff(array_keys($body),['expected_version','title','end_date','status','work_location']) || count($body)<2
+        if (array_diff(array_keys($body),['expected_version','title','end_date','status','work_location','worksite_id']) || count($body)<2
             || !is_int($body['expected_version']??null) || $body['expected_version']<1
             || ($expected['version']??null)!==$body['expected_version']+1) throw new InvalidArgumentException('A conditional assignment revision is required');
         $version=$expected['version']; unset($expected['version']);
