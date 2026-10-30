@@ -1,3 +1,33 @@
+## October 30 existing payroll actuals captured and compared in Core
+
+The isolated provider now contains an exact observation-contract projection of
+Thunderhawk's existing October 23 payroll run run_54dde5d17c05 (October 5-18,
+18 employee lines). Production was read-only. Its native ID and observation
+hash are preserved; provider HTTP returns the same source projection. This is
+historical provider data, not another payroll execution or a synthetic paid event.
+The production app does not yet contain the new observation module, so the source
+capture used a bounded read-only database query. The new API was tested on the
+isolated service; this is not evidence of a production publication.
+
+Core encrypted native observation 2 preserves all 18 lines and replays without
+a second record. Alexander matches P-358; the other 17 employees remain visibly
+unlinked. Nine available totals match the full line totals. Seven amount categories
+lack line values and one lacks its provider total. Currency, paid timestamp and
+source-time references remain missing; they were not replaced with defaults.
+Cash delivery and time-to-payroll matching are not established by this receipt.
+
+Sixteen protected Core business/history sets across all tenants stayed unchanged,
+including payroll, time, AP/AR and ledger tables. Both original held drafts remain
+held; the browser-hour replay reused its draft and still rejected execution.
+The previously downloaded worker assignment report was also checked: one row,
+P-358 / PL-864, correct dates/client/worksite, and no private contact/payroll fields.
+
+The next financial lane is PurePay AP/AR and payment-result acceptance. Its Core
+financial-preview adapter still pins the former Emergent origin and needs a
+reviewed isolated-host migration before that test. Core staff-browser acceptance
+and the broader original-plan audit remain open. Production is unchanged.
+Evidence: deploy/thunderhawk-hosted-payroll-actual-20261030.json.
+
 ## October 30 hosted provider company-isolation and conflict checks passed
 
 105 native HTTP and data-integrity checks passed on the isolated Quanta and

@@ -39,7 +39,7 @@ from pymongo import MongoClient
 assert os.environ['DB_NAME']=='corepilot_pure_20261029'
 assert os.environ['PUREPAY_STARTUP_MODE']=='isolated_pilot'
 d=MongoClient(os.environ['MONGO_URL'])[os.environ['DB_NAME']]
-runs=list(d.pay_runs.find({'organization_id':__ORG__},{'_id':0,'id':1,'status':1,'core_execution_hold':1,'core_allocation_ready':1,'totals':1,'core_allocation':1}))
+runs=list(d.pay_runs.find({'organization_id':__ORG__},{'_id':0,'id':1,'status':1,'core_execution_hold':1,'core_allocation_ready':1,'totals':1,'core_allocation':1,'source':1,'pilot_source':1}))
 print(json.dumps({'runs':runs,'counts':{c:d[c].count_documents({'organization_id':__ORG__}) for c in ['payments','bills','invoices']}}))
 '''.replace('__ORG__', repr(ORG))
     result = subprocess.run(['docker', 'exec', '-i', CONTAINER, 'python', '-'],
@@ -74,13 +74,25 @@ def main():
     phase = 'guard'
     try:
         before = check_records()
-        assert len(before['runs']) <= 2
+        # The existing October 23 provider ledger is a separately verified,
+        # immutable observation copy. It is not a third pilot payroll draft.
+        historical = [run for run in before['runs'] if run['id'] == 'run_54dde5d17c05']
+        assert len(historical) <= 1
+        for run in historical:
+            assert run['status'] == 'paid' and run['source'] == 'provider_history'
+            assert run['pilot_source'] == {
+                'purpose': 'read_only_existing_payroll_observation',
+                'source_run_id': 'run_54dde5d17c05',
+                'source_document_sha256': '5235ee542f7c5288161a54dac0e6800732c849505245e412bc8f2550c4f4ba5f',
+            }
+        drafts = [run for run in before['runs'] if run['id'] != 'run_54dde5d17c05']
+        assert len(drafts) <= 2
         allowed_authorities = {
             'cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961',
             'cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357',
         }
         assert all(run['status'] == 'draft' and run['core_execution_hold'] is True
-            and run['core_allocation']['authority_id'] in allowed_authorities for run in before['runs'])
+            and run['core_allocation']['authority_id'] in allowed_authorities for run in drafts)
         assert all(v == 0 for v in before['counts'].values())
         plan = json.loads((PRIVATE / 'thunderhawk-bootstrap-plan.private.json').read_text())
         phase = 'native_login'
