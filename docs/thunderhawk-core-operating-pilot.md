@@ -1,3 +1,41 @@
+## October 30 hosted Thunderhawk identity exchange passed
+
+Core staging now contains a separate Thunderhawk isolated pilot (tenant 2002),
+with source person P-358, placement PL-864 and job 1972. Its native numbering
+triggers preserved the existing record numbers. The source graph keeps the
+job's Thunderhawk company/client relationship separate from the placement's
+Rockefeller billing client. Existing staging companies and connections were
+verified unchanged during provisioning.
+
+The private Quanta and PurePay pilots contain separate Thunderhawk source-copy
+companies. Native Core review verified both company identities over TLS.
+Core linked P-358 to existing PurePay employee emp_ea232efec736 and CL-1280 to
+customer cus_e25f880f86. Core published one disabled Quanta worker using its
+normal reviewed delivery path. Repeating the native sends retained the same
+identities; replaying the actual Quanta provider request returned the same
+worker and receipt. A fresh preview reports the worker profile unchanged.
+
+Provider readback found two PurePay identity links, one employee, one customer,
+and one disabled Quanta worker. There are no pilot payroll runs, payments,
+payables, invoices, time entries or timesheets. Production Quanta still has
+zero Thunderhawk workers. No employee login identity or invitation was created.
+The separate test operator and approver accounts use private pilot credentials.
+
+Staging's metadata endpoints now use https://helloquanta.app:19443/api/v1 and
+https://purepay.online:19443/api/v1. The prior private configuration was backed
+up with ownership and modes preserved. Existing demo bindings retain their
+permanent identities and need explicit migration before use with these origins;
+the separate financial payment-rail configuration was unchanged.
+
+Next: review and publish the assignment, complete onboarding and controlled
+time approval, create only a held payroll draft, and reconcile results. Source
+rates remain unapproved and workers compensation class remains missing. This
+is a stored-source snapshot, not a fresh JobDiva fetch or a completed end-to-end
+Thunderhawk acceptance. Production release remains pending. Evidence:
+deploy/thunderhawk-hosted-identity-acceptance-20261030.json.
+
+The dated entries below describe earlier checkpoints.
+
 ## October 29 isolated provider pilot is running
 
 Quanta b31607b and PurePay 2b26a2e are installed in independent pilot containers
