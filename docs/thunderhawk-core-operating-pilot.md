@@ -1,3 +1,41 @@
+## Authoritative invoice currency verified; retention fix prepared — October 30, 2026
+
+QuickBooks production company Thunderhawk Technology Partners LLC, realm
+9341453235663641, confirms USD on all five invoices whose selected lines were
+associated with P-358 / PL-864. GET-only reads used the installed PurePay
+connection and its usage/backoff handling with explicit organization, realm,
+environment and path guards. The fresh token was retained; the reader could not
+refresh credentials, start background work or write invoices/payments. Stored
+invoices had identical before/after hashes. Every selected line matched the
+stored customer, item, quantity, rate, amount, description and invoice SyncToken.
+
+The five selected lines total USD 72,128 for 736 source invoice units. All five
+lack structured ServiceDate values. Descriptive May–September labels remain
+source prose; they do not establish a reviewed service period or approved time.
+The existing Core captures 4–8 and associations 1–5 remain unchanged, including
+their original unknown-currency evidence. This new external source packet does
+not silently upgrade those historical snapshots or establish payroll matching.
+
+PurePay's invoice importer discarded CurrencyRef. Commit `e51e0d1` now retains
+an explicit three-letter source currency in the invoice and its QuickBooks facts.
+Absent currency stays null and clears a stale value on refresh; malformed values
+refuse before invoice changes. The fix neither infers service dates nor changes
+amounts, links or payment history. Eighty-six offline checks passed, with zero
+network attempts. The narrow delta was pushed and handed to the authorized
+publishing chat; this checkpoint does not claim that currency fix is deployed or
+that historical production invoices have been refreshed.
+
+The publishing chat separately reported verified production PurePay `94efa5c`
+(read-only financial observations, preserving the earlier AP balance repair) and
+Quanta `92b662e` (time display corrections). The full Core foundation upgrade and
+dependent Quanta team portal remain outside that publication. Do not replace
+these production releases with the older integration branches.
+
+Evidence: `deploy/thunderhawk-qbo-invoice-currency-20261030.json`, the bounded
+GET-only reader beside it, and its private source packet on the provider host.
+Matching-period time/payroll reconciliation and the full production Core upgrade
+remain open; the overall integration goal is incomplete.
+
 ## Confirmed historical invoice lines linked to PL-864 — October 30, 2026
 
 The user's confirmation is now applied to the five identified historical
