@@ -1,3 +1,38 @@
+## Historical invoice context retained and captured — October 30, 2026
+
+Core staging now runs `5166232e`; the isolated PurePay observation module is
+`c9a2db6`. All nine Core CI jobs and staging release `41081878180` passed.
+The production PurePay AP/QBO correction remains unchanged.
+
+The financial observation contract is now `2026-10-30.2`. It preserves source
+item names, QuickBooks item IDs, and bounded multiline line descriptions. Core
+accepts both versions; existing v1 captures are unchanged and remain readable.
+The review UI searches all source lines by item, description, assignment or
+line ID with bounded display pages. Source labels do not assign worker identity
+or infer service dates.
+
+Five existing invoices (112 complete source lines, five selected item lines)
+were copied into the held provider pilot after read-only source checks. Native
+provider HTTP matched every source hash. Core encrypted captures 4–8 retained
+the full projections, replayed without duplicates, and passed three wrong-company
+denials. All protected Core business tables and other pilot records stayed
+unchanged. Seventeen native API checks passed, including permissions, v1 history,
+v2 source labels, replay, and revocation. Synthetic HTTP actor 58 was retired and
+its private session removed. This is not interactive staff-browser acceptance.
+
+Local verification: 41 provider route tests; 80 PHP contract checks; 33 real
+MariaDB capture checks; eight interface tests; dashboard build passed.
+Evidence: `deploy/thunderhawk-invoice-context-20261030.json` and private source
+packet on the isolated provider host. Source PII is not committed here.
+
+The user has confirmed that the five selected source item lines belong to
+PL-864. Their reviewed Core associations are the next implementation step and
+are not yet applied by this checkpoint. The earlier captured AP bill belongs
+to a different item; no matching person or JobDiva mirror was found in Core,
+so it must not be used as PL-864 evidence. Currency and structured service dates
+remain absent from the invoice source; period descriptions remain plain text.
+No payroll, payment, ledger posting, or production cutover occurred.
+
 ## October 30 Quanta team reporting and onboarding summaries installed
 
 Quanta isolated pilot now runs portal revision 95e2eb9. Approvers can choose My
