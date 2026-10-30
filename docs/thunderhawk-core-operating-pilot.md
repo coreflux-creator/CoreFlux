@@ -1,3 +1,33 @@
+## October 30 persistent isolated operational controls verified
+
+Core staging runs 43007a5a (deployment 40993604583), after all nine CI groups
+passed in 40993314297. SSH remains enabled; the master connection was verified
+and application account kunalverma2 retains its enabled shell.
+
+Operational Quanta and PurePay controls are now persistent for Core's isolated
+Thunderhawk company 2002 only. This covers metadata, people, customers,
+assignments, onboarding/document intake, time-review return, and held payroll
+input/reservation handling. It grants no additional user/provider permissions,
+payroll execution or payment capability. Companies 2, 999 and 2003 remain denied.
+Twenty-four real send/reservation boundary attempts from unlisted companies were
+rejected, with connection and business-record snapshots unchanged.
+
+The first environment-based configuration passed CLI but failed the PHP-FPM web
+check because Cloudways disables putenv. Its prior configuration was restored
+and verified over HTTPS. Private string/boolean constants now support the same
+company limits without that function. Three restricted-host subprocess cases,
+nine focused local suites and full CI passed. Fresh CLI and authenticated HTTPS
+web checks both confirm all eleven controls enabled only for 2002. The temporary
+web verifier denied unauthenticated access and was removed. No production
+runtime, real payroll, payment or financial posting changed.
+
+Actual staff-browser acceptance and hosted provider second-company/ownership
+checks remain. The browser-created October 26 hour (entry 3 / timesheet 4) still
+awaits independent Core review and its held payroll return. Duration-entry and
+unpaid-hours display corrections, missing WC classification and commission
+source questions are also open. Production publishing is not complete.
+Evidence: deploy/thunderhawk-hosted-operational-enablement-20261030.json.
+
 ## October 30 worker browser, worksite revision and time return verified
 
 Core staging runs ea23c280 (workflow 40987824641); the isolated Quanta backend

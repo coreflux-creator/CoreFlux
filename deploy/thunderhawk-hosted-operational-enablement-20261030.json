@@ -1,0 +1,493 @@
+{
+  "observed_at": "2026-10-30T02:51:02.3988623Z",
+  "scope": "Isolated Core staging operational settings for Thunderhawk test company 2002",
+  "core_runtime_revision": "43007a5a38f8d1c4273f5db4c5dd000665be730a",
+  "core_tenant_id": 2002,
+  "production_changed": false,
+  "payroll_or_payment_execution": false,
+  "ssh": {
+    "master_ssh_reachable": true,
+    "application_login": "kunalverma2",
+    "uid": 1004,
+    "gid": 33,
+    "application_shell": "/usr/bin/mysecureshell",
+    "webroot_owner_uid": 1004,
+    "webroot_owner_gid": 33,
+    "webroot_mode": "775",
+    "application_password_authentication_repeated": false,
+    "last_application_authentication_date": "2026-10-27"
+  },
+  "ci": {
+    "conclusion": "success",
+    "databaseId": 40993314297,
+    "headSha": "43007a5a38f8d1c4273f5db4c5dd000665be730a",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40993314297"
+  },
+  "deployment": {
+    "conclusion": "success",
+    "databaseId": 40993604583,
+    "headSha": "43007a5a38f8d1c4273f5db4c5dd000665be730a",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40993604583"
+  },
+  "local_checks": {
+    "focused_smoke_suites": 9,
+    "delivery_gate_checks": 132,
+    "restricted_host_cases": 3,
+    "assertions_per_restricted_host_case": 46,
+    "disabled_function": "putenv"
+  },
+  "initial_environment_configuration": {
+    "web_check_passed": false,
+    "cause": "Cloudways PHP-FPM disables putenv",
+    "previous_configuration_restored": true,
+    "restoration_web_http_status": 200,
+    "corrected_using": "private PHP constants"
+  },
+  "enablement": {
+    "checked_at": "2026-10-29T22:49:39-04:00",
+    "mode": "--enable",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "provider_permissions_changed": false,
+    "payroll_or_payment_execution": false,
+    "already_installed": false,
+    "before": {
+      "quantaMetadataDeliveryEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaWorkerDeliveryEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDeliveryEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaTimeReviewEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCoreLinkEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPeopleInputEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCustomerInputEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayAssignmentInputEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollInputsEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollAuthorityEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDocumentsEnabled": {
+        "2002": false,
+        "2": false,
+        "999": false,
+        "2003": false
+      }
+    },
+    "after": {
+      "quantaMetadataDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaWorkerDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaTimeReviewEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCoreLinkEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPeopleInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCustomerInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayAssignmentInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollInputsEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollAuthorityEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDocumentsEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      }
+    },
+    "unlisted_company_send_checks": 24,
+    "persistent_configuration_installed": true,
+    "connection_and_business_records_unchanged": true,
+    "passed": true
+  },
+  "fresh_process": {
+    "checked_at": "2026-10-29T22:49:52-04:00",
+    "mode": "--verify",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "provider_permissions_changed": false,
+    "payroll_or_payment_execution": false,
+    "already_installed": true,
+    "before": {
+      "quantaMetadataDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaWorkerDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaTimeReviewEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCoreLinkEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPeopleInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCustomerInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayAssignmentInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollInputsEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollAuthorityEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDocumentsEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      }
+    },
+    "after": {
+      "quantaMetadataDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaWorkerDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDeliveryEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaTimeReviewEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCoreLinkEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPeopleInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayCustomerInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayAssignmentInputEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollInputsEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "purepayPayrollAuthorityEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      },
+      "quantaOnboardingDocumentsEnabled": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      }
+    },
+    "unlisted_company_send_checks": 24,
+    "persistent_configuration_installed": true,
+    "connection_and_business_records_unchanged": true,
+    "passed": true
+  },
+  "web": {
+    "checked_at": "2026-10-29T22:49:52-04:00",
+    "production_changed": false,
+    "business_write_requested": false,
+    "unauthenticated_http_status": 404,
+    "unauthenticated_body_bytes": 0,
+    "authenticated_http_status": 200,
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi",
+      "staging": true,
+      "gates": {
+        "quantaMetadataDeliveryEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "quantaWorkerDeliveryEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "quantaOnboardingDeliveryEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "quantaTimeReviewEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "quantaOnboardingDocumentsEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "purepayCoreLinkEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "purepayPeopleInputEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "purepayCustomerInputEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "purepayAssignmentInputEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "purepayPayrollInputsEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        },
+        "purepayPayrollAuthorityEnabled": {
+          "2002": true,
+          "2": false,
+          "999": false,
+          "2003": false
+        }
+      },
+      "app_url": "https://phpstack-1516771-6707602.cloudwaysapps.com"
+    },
+    "unauthenticated_request_denied": true,
+    "passed": true,
+    "temporary_probe_removed": true
+  },
+  "remaining": [
+    "Actual staff browser acceptance and authenticated staging entrypoint",
+    "Hosted provider second-company isolation and field-ownership conflicts",
+    "Independent Core test review and held payroll return for browser-created entry 3 / timesheet 4",
+    "Worker duration-entry and unpaid-hours display corrections",
+    "Unresolved source WC class and one-time commission due-date/payable-recipient details",
+    "Separate approval and readiness for production publishing"
+  ]
+}
