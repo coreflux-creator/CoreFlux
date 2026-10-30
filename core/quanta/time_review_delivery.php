@@ -1,13 +1,14 @@
 <?php
 /** Reviewed status return for one original imported Quanta entry and all its components. */
 declare(strict_types=1);
+require_once __DIR__.'/../integrations/delivery_enablement.php';
 require_once __DIR__.'/time_review_contract.php';
 require_once __DIR__.'/metadata_delivery.php';
 require_once __DIR__.'/sync.php';
 
-function quantaTimeReviewEnabled(): bool
+function quantaTimeReviewEnabled(?int $tenant=null): bool
 {
-    return defined('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY') ? constant('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY')===true : getenv('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY')==='1';
+    return (defined('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY') ? constant('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY')===true : getenv('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function quantaTimeReviewProof(array $entry,array $route,array $imports,string $workspace): array
@@ -104,13 +105,13 @@ function quantaTimeReviewPreview(int $tenantId,int $actorId,string $entryId): ar
     foreach($rows as $row) {
         $saved=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
         if(($saved['body']['source_entry_id']??null)===$entryId) return ['status'=>'reconciliation_required',
-            'receipt_only'=>true,'delivery_enabled'=>quantaTimeReviewEnabled(),'delivery'=>integrationDeliverySummary($row)];
+            'receipt_only'=>true,'delivery_enabled'=>quantaTimeReviewEnabled($tenantId),'delivery'=>integrationDeliverySummary($row)];
     }
     if(count($rows)>200) throw new RuntimeException('Reconcile pending time deliveries before preparing more statuses');
     $s=quantaTimeReviewSnapshot($tenantId,$entryId);
     $result=['status'=>$s['status'],'workspace'=>$s['access']['context']['workspace'],'placement_number'=>$s['placement_number'],
         'work_date'=>$s['entry']['work_date'],'state'=>$s['payload']['expected']['state'],
-        'components'=>$s['payload']['body']['components'],'delivery_enabled'=>quantaTimeReviewEnabled()];
+        'components'=>$s['payload']['body']['components'],'delivery_enabled'=>quantaTimeReviewEnabled($tenantId)];
     if($s['status']==='preview') $result['delivery']=integrationDeliverySummary(integrationDeliveryPreview(getDB(),$tenantId,$actorId,$s['context'],$s['payload']));
     return $result;
 }
@@ -130,7 +131,7 @@ function quantaTimeReviewEnvelope(int $tenantId,int $id,string $reviewHash): arr
 
 function quantaTimeReviewSend(int $tenantId,int $actorId,int $id,string $reviewHash): array
 {
-    if(!quantaTimeReviewEnabled()) throw new RuntimeException('Time review sharing has not been enabled for this environment');
+    if(!quantaTimeReviewEnabled($tenantId)) throw new RuntimeException('Time review sharing has not been enabled for this environment');
     [$row,$payload]=quantaTimeReviewEnvelope($tenantId,$id,$reviewHash);
     if($row['state']==='delivered') return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true)) throw new RuntimeException('Check the original receipt before preparing another status');

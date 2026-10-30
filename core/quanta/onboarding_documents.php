@@ -1,6 +1,7 @@
 <?php
 /** Private provider file reads and employer-reviewed vault intake. Never grants approval. */
 declare(strict_types=1);
+require_once __DIR__.'/../integrations/delivery_enablement.php';
 require_once __DIR__.'/onboarding_contract.php';
 require_once __DIR__.'/../StorageService.php';
 require_once __DIR__.'/onboarding_transfers.php';
@@ -10,7 +11,7 @@ const QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES=25*1024*1024;
 
 function quantaOnboardingDocumentsEnabled(int $tenant): bool {
     $tenants=array_map('trim',explode(',',(string)getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS')));
-    return $tenant>0&&getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS')==='1'&&in_array((string)$tenant,$tenants,true);
+    return $tenant>0&&integrationDeliveryTenantAllowed($tenant)&&getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS')==='1'&&in_array((string)$tenant,$tenants,true);
 }
 
 function quantaOnboardingDocumentAuthority(array $scope): void {

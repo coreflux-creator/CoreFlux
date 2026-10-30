@@ -1,14 +1,15 @@
 <?php
 /** Reviewed Core -> Quanta metadata. Identities come from authorized Core directories. */
 declare(strict_types=1);
+require_once __DIR__.'/../integrations/delivery_enablement.php';
 require_once __DIR__.'/core_contract.php';
 require_once __DIR__.'/identity.php';
 require_once __DIR__.'/../record_numbers.php';
 require_once __DIR__.'/../audit.php';
 
-function quantaMetadataDeliveryEnabled(): bool
+function quantaMetadataDeliveryEnabled(?int $tenant=null): bool
 {
-    return defined('COREFLUX_QUANTA_METADATA_DELIVERY') ? constant('COREFLUX_QUANTA_METADATA_DELIVERY')===true : getenv('COREFLUX_QUANTA_METADATA_DELIVERY')==='1';
+    return (defined('COREFLUX_QUANTA_METADATA_DELIVERY') ? constant('COREFLUX_QUANTA_METADATA_DELIVERY')===true : getenv('COREFLUX_QUANTA_METADATA_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function quantaMetadataReference(PDO $pdo,string $instance,int $owner,string $kind,int $id): array
@@ -119,12 +120,12 @@ function quantaMetadataPreview(int $tenantId,int $actorId,string $kind,int $id,?
         AND entity_tenant_id=:o AND entity_id=:i AND state IN ("sending","uncertain") ORDER BY id LIMIT 1');
     $pending->execute(['t'=>$tenantId,'k'=>$kind,'o'=>$owner,'i'=>$id]);
     if ($row=$pending->fetch(PDO::FETCH_ASSOC)) return ['status'=>'reconciliation_required','receipt_only'=>true,
-        'delivery_enabled'=>quantaMetadataDeliveryEnabled(),'delivery'=>integrationDeliverySummary($row)];
+        'delivery_enabled'=>quantaMetadataDeliveryEnabled($tenantId),'delivery'=>integrationDeliverySummary($row)];
     $snapshot=quantaMetadataSnapshot($tenantId,$kind,$id,$worksiteId);
     $result=['status'=>$snapshot['plan']['status'],'operation'=>$snapshot['plan']['operation'],
         'workspace'=>$snapshot['verified']['context']['workspace'],'reference'=>$snapshot['source']['reference'],
         'proposed'=>$snapshot['plan']['body'],'current'=>$kind==='person'?$snapshot['remote']['person_link']:$snapshot['remote']['assignment'],
-        'delivery_enabled'=>quantaMetadataDeliveryEnabled()];
+        'delivery_enabled'=>quantaMetadataDeliveryEnabled($tenantId)];
     if ($result['status']==='preview') {
         $row=integrationDeliveryPreview(getDB(),$tenantId,$actorId,$snapshot['context'],$snapshot['payload']);
         $result['delivery']=integrationDeliverySummary($row);
@@ -135,7 +136,7 @@ function quantaMetadataPreview(int $tenantId,int $actorId,string $kind,int $id,?
 /** A successful repeat returns the receipt; an uncertain attempt is never sent again. */
 function quantaMetadataSend(int $tenantId,int $actorId,int $id,string $reviewHash): array
 {
-    if (!quantaMetadataDeliveryEnabled()) throw new RuntimeException('Metadata delivery has not been enabled for this environment');
+    if (!quantaMetadataDeliveryEnabled($tenantId)) throw new RuntimeException('Metadata delivery has not been enabled for this environment');
     $pdo=getDB(); $row=integrationDeliveryGet($pdo,$tenantId,$id);
     if ($row['provider']!=='quanta' || !in_array($row['operation'],['person.link','assignment.create','assignment.update'],true)
         || !hash_equals($row['review_hash'],$reviewHash)) throw new InvalidArgumentException('This delivery does not match the reviewed metadata');

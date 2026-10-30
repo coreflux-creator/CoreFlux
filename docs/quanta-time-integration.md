@@ -8,6 +8,20 @@ reviewed outbound worker preparation, person links and assignment metadata.
 Those additions are described below and in the pilot plan; they do not mirror
 all fields or approve/correct source time in both systems.
 
+## Company-specific pilot enablement
+
+`COREFLUX_INTEGRATION_DELIVERY_TENANTS` is an optional hard boundary for the
+operational Quanta and PurePay feature flags. Set it to a comma-separated list
+of Core company IDs, such as `2002`, in the server's private configuration.
+Each feature must also be enabled independently. An unset list preserves the
+existing flag behavior; an explicitly empty or malformed list denies all.
+Preview controls and actual send/reservation operations use the authorized
+connection company, independently of any shared people or placement directory.
+Document intake additionally requires its existing document-specific list.
+This setting grants no user permissions, provider credentials, time approval,
+payroll execution or payment authority. Receipt inspection and reconciliation
+remain available when new delivery is held.
+
 ## Reviewed assignment worksite revisions — October 30, 2026
 
 An existing assignment can receive, change or explicitly clear its Quanta

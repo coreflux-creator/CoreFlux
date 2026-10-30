@@ -1,6 +1,7 @@
 <?php
 /** Reviewed contact snapshots for inactive PurePayroll employee provisioning. No activation or pay setup. */
 declare(strict_types=1);
+require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_links.php';
 
 const PUREPAY_PEOPLE_INPUT_VERSION = '2026-10-22.1';
@@ -22,9 +23,9 @@ function purepayPeopleInputOwners(array $owners): array
     return ['people'=>$owners['people'],'placements'=>$owners['placements']];
 }
 
-function purepayPeopleInputEnabled(): bool
+function purepayPeopleInputEnabled(?int $tenant=null): bool
 {
-    return defined('COREFLUX_PUREPAY_PEOPLE_DELIVERY') ? constant('COREFLUX_PUREPAY_PEOPLE_DELIVERY')===true : getenv('COREFLUX_PUREPAY_PEOPLE_DELIVERY')==='1';
+    return (defined('COREFLUX_PUREPAY_PEOPLE_DELIVERY') ? constant('COREFLUX_PUREPAY_PEOPLE_DELIVERY')===true : getenv('COREFLUX_PUREPAY_PEOPLE_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayPeopleInputSource(PDO $pdo,string $instance,array $owners,string $personNumber,string $placementNumber): array
@@ -82,7 +83,7 @@ function purepayPeopleInputPreview(PDO $pdo,int $tenant,int $actor,string $insta
     $snapshot=purepayPeopleInputSnapshot($pdo,$tenant,$instance,$owners,$personNumber,$placementNumber);
     $delivery=integrationDeliveryPreview($pdo,$tenant,$actor,$snapshot['context'],$snapshot['payload']);
     return ['packet'=>$snapshot['source']['body'],'placement'=>$snapshot['source']['placement']['reference'],
-        'organization'=>$snapshot['access']['review']['organization'],'delivery_enabled'=>purepayPeopleInputEnabled(),
+        'organization'=>$snapshot['access']['review']['organization'],'delivery_enabled'=>purepayPeopleInputEnabled($tenant),
         'delivery'=>integrationDeliverySummary($delivery)];
 }
 
@@ -110,7 +111,7 @@ function purepayPeopleInputReceipt(array $receipt,string $org,array $body): arra
 
 function purepayPeopleInputSend(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,int $id,string $hash,?callable $audit=null): array
 {
-    if(!purepayPeopleInputEnabled())throw new RuntimeException('People input delivery is not enabled in this environment.');
+    if(!purepayPeopleInputEnabled($tenant))throw new RuntimeException('People input delivery is not enabled in this environment.');
     [$row,$payload]=purepayPeopleInputEnvelope($pdo,$tenant,$id,$hash,$instance,$owners);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check this attempt’s receipt before sending again.');
@@ -166,7 +167,7 @@ function purepayPeopleInputHistory(PDO $pdo,int $tenant,string $instance,array $
         [$row,$payload]=purepayPeopleInputEnvelope($pdo,$tenant,(int)$row['id'],$row['review_hash'],$instance,$owners);
         if($payload['organization_id']!==$access['review']['organization']['id'])throw new RuntimeException('This history belongs to a different provider company.');
         $items[]=['packet'=>$payload['body'],'placement'=>$payload['placement'],'organization'=>$access['review']['organization'],
-            'delivery_enabled'=>purepayPeopleInputEnabled(),'delivery'=>integrationDeliverySummary($row)];
+            'delivery_enabled'=>purepayPeopleInputEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
     }
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
     return ['items'=>$items,'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];

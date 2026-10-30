@@ -1,12 +1,13 @@
 <?php
 /** Reviewed identity links only. Delivered envelopes are the immutable local mapping ledger. */
 declare(strict_types=1);
+require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_core.php';
 require_once __DIR__.'/../record_numbers.php';
 
-function purepayCoreLinkEnabled(): bool
+function purepayCoreLinkEnabled(?int $tenant=null): bool
 {
-    return defined('COREFLUX_PUREPAY_CORE_LINK_DELIVERY') ? constant('COREFLUX_PUREPAY_CORE_LINK_DELIVERY')===true : getenv('COREFLUX_PUREPAY_CORE_LINK_DELIVERY')==='1';
+    return (defined('COREFLUX_PUREPAY_CORE_LINK_DELIVERY') ? constant('COREFLUX_PUREPAY_CORE_LINK_DELIVERY')===true : getenv('COREFLUX_PUREPAY_CORE_LINK_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 /** The API resolves the owner using module scope; the client can supply neither owner nor number assignment. */
@@ -110,7 +111,7 @@ function purepayCoreLinkPreview(PDO $pdo,int $tenant,int $actor,string $instance
         $row=$previous;
     } else $row=integrationDeliveryPreview($pdo,$tenant,$actor,$snapshot['context'],$snapshot['payload']);
     return ['source'=>$snapshot['source'],'provider_record'=>$snapshot['remote'],'organization'=>$snapshot['access']['review']['organization'],
-        'existing_provider_link'=>$snapshot['receipt']!==null,'delivery_enabled'=>purepayCoreLinkEnabled(),'delivery'=>integrationDeliverySummary($row)];
+        'existing_provider_link'=>$snapshot['receipt']!==null,'delivery_enabled'=>purepayCoreLinkEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
 }
 
 /** Paginated recovery surface, independent of whether the native provider record is still listed. */
@@ -168,7 +169,7 @@ function purepayCoreLinkComplete(PDO $pdo,int $tenant,array $row,array $receipt,
 
 function purepayCoreLinkSend(PDO $pdo,int $tenant,int $actor,string $instance,int $owner,int $id,string $hash,?callable $audit=null): array
 {
-    if(!purepayCoreLinkEnabled())throw new RuntimeException('Record linking has not been enabled for this environment.');
+    if(!purepayCoreLinkEnabled($tenant))throw new RuntimeException('Record linking has not been enabled for this environment.');
     [$row,$payload,$source]=purepayCoreLinkEnvelope($pdo,$tenant,$id,$hash,$instance,$owner);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check the provider receipt for this attempt before doing anything else.');

@@ -1,14 +1,15 @@
 <?php
 /** Reviewed worker profiles, durable delivery and receipt-backed local identity linkage. */
 declare(strict_types=1);
+require_once __DIR__.'/../integrations/delivery_enablement.php';
 require_once __DIR__.'/worker_profile_contract.php';
 require_once __DIR__.'/identity.php';
 require_once __DIR__.'/../record_numbers.php';
 require_once __DIR__.'/../audit.php';
 
-function quantaWorkerDeliveryEnabled(): bool
+function quantaWorkerDeliveryEnabled(?int $tenant=null): bool
 {
-    return defined('COREFLUX_QUANTA_WORKER_DELIVERY') ? constant('COREFLUX_QUANTA_WORKER_DELIVERY')===true : getenv('COREFLUX_QUANTA_WORKER_DELIVERY')==='1';
+    return (defined('COREFLUX_QUANTA_WORKER_DELIVERY') ? constant('COREFLUX_QUANTA_WORKER_DELIVERY')===true : getenv('COREFLUX_QUANTA_WORKER_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function quantaWorkerDeliveryAccess(int $tenant): array
@@ -92,8 +93,8 @@ function quantaWorkerProfilesPreview(int $tenant,int $actor,array $personIds): a
             $rows[]=$base+['status'=>'blocked','message'=>$e->getMessage(),'payload'=>[]];
         }
     }
-    return ['rows'=>$rows,'workspace'=>$access['context']['workspace'],'delivery_enabled'=>quantaWorkerDeliveryEnabled(),
-        'hold_reason'=>quantaWorkerDeliveryEnabled()?'Review each person before sending. Quanta activation and invitations are separate.':'Worker delivery has not been enabled for this environment.'];
+    return ['rows'=>$rows,'workspace'=>$access['context']['workspace'],'delivery_enabled'=>quantaWorkerDeliveryEnabled($tenant),
+        'hold_reason'=>quantaWorkerDeliveryEnabled($tenant)?'Review each person before sending. Quanta activation and invitations are separate.':'Worker delivery has not been enabled for this environment.'];
 }
 
 function quantaWorkerDeliveryEnvelope(int $tenant,int $id,string $reviewHash): array
@@ -162,7 +163,7 @@ function quantaWorkerDeliveryComplete(int $tenant,int $actor,array $row,array $p
 
 function quantaWorkerProfilesSend(int $tenant,int $actor,int $id,string $reviewHash): array
 {
-    if(!quantaWorkerDeliveryEnabled())throw new RuntimeException('Worker delivery has not been enabled for this environment');
+    if(!quantaWorkerDeliveryEnabled($tenant))throw new RuntimeException('Worker delivery has not been enabled for this environment');
     [$row,$payload]=quantaWorkerDeliveryEnvelope($tenant,$id,$reviewHash);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check this delivery’s receipt before another attempt');

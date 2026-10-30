@@ -5,6 +5,11 @@ require_once __DIR__.'/purepay_payroll_inputs.php';
 
 const PUREPAY_PAYROLL_AUTHORITY_VERSION='2026-10-21.1';
 
+function purepayPayrollAuthorityEnabled(?int $tenant=null): bool
+{
+    return getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')==='1' && integrationDeliveryTenantAllowed($tenant);
+}
+
 function purepayPayrollAuthoritySchema(PDO $pdo): void
 {
     $names=['cf_payroll_source_time_update','cf_payroll_source_time_delete','cf_payroll_source_rate_update','cf_payroll_source_rate_delete'];
@@ -35,7 +40,7 @@ function purepayPayrollAuthorityView(array $row): array
  */
 function purepayPayrollAuthorityReserve(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,int $deliveryId,string $reviewHash,string $requestId,?callable $audit=null): array
 {
-    if(getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')!=='1')throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
+    if(!purepayPayrollAuthorityEnabled($tenant))throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
     if($actor<=0 || !preg_match('/^[a-f0-9]{64}$/D',$requestId))throw new InvalidArgumentException('A reviewed payroll source request is required.');
     if($pdo->inTransaction())throw new LogicException('Source reservation requires its own committed transaction.');
     purepayPayrollAuthoritySchema($pdo);
@@ -158,7 +163,7 @@ function purepayPayrollAuthorityAccess(PDO $pdo,int $tenant,string $instance,arr
 /** Idempotent delivery; failure or an unknown response never frees Core's claims. */
 function purepayPayrollAuthoritySend(PDO $pdo,int $tenant,string $instance,string $id): array
 {
-    if(getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')!=='1')throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
+    if(!purepayPayrollAuthorityEnabled($tenant))throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
     if($pdo->inTransaction())throw new LogicException('Commit the source reservation before provider delivery.');
     $row=purepayPayrollAuthorityRead($pdo,$tenant,$id);$body=purepayPayrollAuthorityBody($row);
     if($row['instance_id']!==$instance)throw new RuntimeException('This reservation belongs to another Core installation.');
@@ -184,7 +189,7 @@ function purepayPayrollAuthorityReconcile(PDO $pdo,int $tenant,string $instance,
 /** Internal service: caller authorizes payroll approval. Provider tombstone commits first. */
 function purepayPayrollAuthorityRelease(PDO $pdo,int $tenant,int $actor,string $instance,string $id,?callable $audit=null): array
 {
-    if(getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')!=='1')throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
+    if(!purepayPayrollAuthorityEnabled($tenant))throw new RuntimeException('Core payroll source reservations are not enabled in this environment.');
     if($actor<=0)throw new InvalidArgumentException('An authorized payroll reviewer is required.');
     if($pdo->inTransaction())throw new LogicException('Cancellation requires its own transaction.');
     $row=purepayPayrollAuthorityRead($pdo,$tenant,$id);$body=purepayPayrollAuthorityBody($row);

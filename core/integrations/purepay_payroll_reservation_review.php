@@ -12,7 +12,7 @@ function purepayPayrollReservationAccess(PDO $pdo,int $tenant,string $instance,a
         throw new RuntimeException('Restore the original provider company connection.');
     if(($access['review']['payroll_authority_contract_version']??null)!==PUREPAY_PAYROLL_AUTHORITY_VERSION)
         throw new RuntimeException('The provider source reservation contract is unavailable.');
-    if($write&&(getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')!=='1'||!in_array('write:payroll_authority',$access['review']['capabilities'],true)))
+    if($write&&(!purepayPayrollAuthorityEnabled($tenant)||!in_array('write:payroll_authority',$access['review']['capabilities'],true)))
         throw new RuntimeException('Source reservation changes are not enabled for this connection.');
     return [$delivery,$payload,$access];
 }
@@ -33,7 +33,7 @@ function purepayPayrollReservationHistory(PDO $pdo,int $tenant,string $instance,
     $s->execute([$tenant,$deliveryId]);$hasHeld=(int)$s->fetchColumn()>0;
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
     return ['tenant_id'=>$tenant,'delivery_id'=>$deliveryId,'organization'=>$access['review']['organization'],
-        'changes_enabled'=>getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')==='1'&&in_array('write:payroll_authority',$access['review']['capabilities'],true),
+        'changes_enabled'=>purepayPayrollAuthorityEnabled($tenant)&&in_array('write:payroll_authority',$access['review']['capabilities'],true),
         'has_held'=>$hasHeld,'items'=>$items,'next_before'=>count($rows)>25?$rows[24]:null];
 }
 

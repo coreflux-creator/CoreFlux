@@ -1,13 +1,14 @@
 <?php
 /** Approved source snapshots for PurePayroll review; never creates payroll or marks time extracted. */
 declare(strict_types=1);
+require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_links.php';
 
 const PUREPAY_PAYROLL_INPUT_VERSION='2026-10-21.1';
 
-function purepayPayrollInputsEnabled(): bool
+function purepayPayrollInputsEnabled(?int $tenant=null): bool
 {
-    return getenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY')==='1';
+    return (getenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayPayrollInputDate(string $value): DateTimeImmutable
@@ -123,7 +124,7 @@ function purepayPayrollInputPreview(PDO $pdo,int $tenant,int $actor,string $inst
     $snapshot=purepayPayrollInputSnapshot($pdo,$tenant,$instance,$owners,$number,$start,$end);
     $row=integrationDeliveryPreview($pdo,$tenant,$actor,$snapshot['context'],$snapshot['payload']);
     return ['person'=>$snapshot['person']['reference'],'packet'=>$snapshot['body'],'organization'=>$snapshot['access']['review']['organization'],
-        'delivery_enabled'=>purepayPayrollInputsEnabled(),'delivery'=>integrationDeliverySummary($row)];
+        'delivery_enabled'=>purepayPayrollInputsEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
 }
 
 function purepayPayrollInputEnvelope(PDO $pdo,int $tenant,int $id,string $hash,string $instance,array $owners): array
@@ -160,7 +161,7 @@ function purepayPayrollInputHistory(PDO $pdo,int $tenant,string $instance,array 
         [$row,$payload]=purepayPayrollInputEnvelope($pdo,$tenant,(int)$row['id'],$row['review_hash'],$instance,$owners);
         if($payload['organization_id']!==$access['review']['organization']['id'])throw new RuntimeException('Input history belongs to another provider organization.');
         $items[]=['person'=>$person['reference'],'packet'=>$payload['body'],'organization'=>$access['review']['organization'],
-            'delivery_enabled'=>purepayPayrollInputsEnabled(),'delivery'=>integrationDeliverySummary($row)];
+            'delivery_enabled'=>purepayPayrollInputsEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
     }
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
     return ['items'=>$items,'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
@@ -174,7 +175,7 @@ function purepayPayrollInputComplete(PDO $pdo,int $tenant,array $row,array $rece
 
 function purepayPayrollInputSend(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,int $id,string $hash,?callable $audit=null): array
 {
-    if(!purepayPayrollInputsEnabled())throw new RuntimeException('Payroll input delivery is not enabled in this environment.');
+    if(!purepayPayrollInputsEnabled($tenant))throw new RuntimeException('Payroll input delivery is not enabled in this environment.');
     [$row,$payload,$number]=purepayPayrollInputEnvelope($pdo,$tenant,$id,$hash,$instance,$owners);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check the receipt for this input attempt before continuing.');

@@ -1,14 +1,15 @@
 <?php
 /** Reviewed local customer creation using the dedicated Core connection. */
 declare(strict_types=1);
+require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_links.php';
 require_once __DIR__.'/purepay_customer_contract.php';
 
 const PUREPAY_CUSTOMER_INPUT_VERSION='2026-10-26.1';
 
-function purepayCustomerInputEnabled(): bool
+function purepayCustomerInputEnabled(?int $tenant=null): bool
 {
-    return defined('COREFLUX_PUREPAY_CUSTOMER_DELIVERY') ? constant('COREFLUX_PUREPAY_CUSTOMER_DELIVERY')===true : getenv('COREFLUX_PUREPAY_CUSTOMER_DELIVERY')==='1';
+    return (defined('COREFLUX_PUREPAY_CUSTOMER_DELIVERY') ? constant('COREFLUX_PUREPAY_CUSTOMER_DELIVERY')===true : getenv('COREFLUX_PUREPAY_CUSTOMER_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayCustomerInputSource(PDO $pdo,string $instance,int $owner,string $number): array
@@ -122,7 +123,7 @@ function purepayCustomerInputPreview(PDO $pdo,int $tenant,int $actor,string $ins
     }
     return ['source'=>$source,'contact'=>$snapshot['input']['contact'],'organization'=>$snapshot['access']['review']['organization'],
         'existing_customer'=>$snapshot['remote'],'delivery'=>$row?integrationDeliverySummary($row):null,
-        'delivery_enabled'=>purepayCustomerInputEnabled(),'can_create'=>in_array('write:customer_inputs',$snapshot['access']['review']['capabilities'],true)];
+        'delivery_enabled'=>purepayCustomerInputEnabled($tenant),'can_create'=>in_array('write:customer_inputs',$snapshot['access']['review']['capabilities'],true)];
 }
 
 function purepayCustomerInputEnvelope(PDO $pdo,int $tenant,string $instance,int $owner,int $id,string $hash): array
@@ -140,7 +141,7 @@ function purepayCustomerInputEnvelope(PDO $pdo,int $tenant,string $instance,int 
 
 function purepayCustomerInputSend(PDO $pdo,int $tenant,int $actor,string $instance,int $owner,int $id,string $hash,?callable $audit=null): array
 {
-    if(!purepayCustomerInputEnabled())throw new RuntimeException('Customer sharing has not been enabled for this environment.');
+    if(!purepayCustomerInputEnabled($tenant))throw new RuntimeException('Customer sharing has not been enabled for this environment.');
     [$row,$payload,$source]=purepayCustomerInputEnvelope($pdo,$tenant,$instance,$owner,$id,$hash);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check the original customer attempt before making another change.');

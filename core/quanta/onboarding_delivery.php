@@ -1,12 +1,14 @@
 <?php
 /** Reviewed portal publication and authenticated evidence intake. No approval, access or payroll writes. */
 declare(strict_types=1);
+require_once __DIR__.'/../integrations/delivery_enablement.php';
 require_once __DIR__.'/onboarding_contract.php';
 require_once __DIR__.'/onboarding_documents.php';
 require_once __DIR__.'/identity.php';
 
-function quantaOnboardingDeliveryEnabled(): bool {
-    return defined('COREFLUX_QUANTA_ONBOARDING_DELIVERY')?constant('COREFLUX_QUANTA_ONBOARDING_DELIVERY')===true:getenv('COREFLUX_QUANTA_ONBOARDING_DELIVERY')==='1';
+function quantaOnboardingDeliveryEnabled(?int $tenant=null): bool
+{
+    return (defined('COREFLUX_QUANTA_ONBOARDING_DELIVERY')?constant('COREFLUX_QUANTA_ONBOARDING_DELIVERY')===true:getenv('COREFLUX_QUANTA_ONBOARDING_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 function quantaOnboardingSourceHash(array $case): string {
     return onboardingHash(array_intersect_key($case,array_flip(['id','tenant_id','people_tenant_id','placements_tenant_id',
@@ -77,7 +79,7 @@ function quantaOnboardingPreview(array $scope,string $caseId,string $state,calla
     onboardingScope($scope,'manage');$snapshot=quantaOnboardingBuild(quantaOnboardingSnapshot($scope,$caseId,$head),$state);
     $same=$snapshot['remote']&&$snapshot['remote']['projection_hash']===$snapshot['plan']['expected']['projection_hash'];
     $result=['status'=>$same?'unchanged':'preview','workspace'=>$snapshot['access']['context']['workspace'],
-        'proposed'=>$snapshot['plan']['body'],'delivery_enabled'=>quantaOnboardingDeliveryEnabled()];
+        'proposed'=>$snapshot['plan']['body'],'delivery_enabled'=>quantaOnboardingDeliveryEnabled($scope['tenant_id'])];
     if(!$same)$result['delivery']=integrationDeliverySummary(integrationDeliveryPreview(getDB(),$scope['tenant_id'],$scope['actor_user_id'],$snapshot['context'],$snapshot['payload']));
     return $result;
 }
@@ -100,7 +102,7 @@ function quantaOnboardingLock(PDO $pdo,array $scope,array $snapshot,callable $he
     return $case;
 }
 function quantaOnboardingSend(array $scope,string $caseId,int $id,string $reviewHash,callable $head): array {
-    onboardingScope($scope,'manage');if(!quantaOnboardingDeliveryEnabled())throw new OnboardingConflict('Onboarding delivery has not been enabled for this environment');
+    onboardingScope($scope,'manage');if(!quantaOnboardingDeliveryEnabled($scope['tenant_id']))throw new OnboardingConflict('Onboarding delivery has not been enabled for this environment');
     $pdo=getDB();[$row,$payload]=quantaOnboardingEnvelope($pdo,$scope,$caseId,$id,$reviewHash);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new OnboardingConflict('Check the receipt for this attempt before another publication');
@@ -234,6 +236,6 @@ function quantaOnboardingStatus(array $scope,string $caseId,callable $head): arr
         'state'=>$snapshot['remote']['publication']['state'],'core_version'=>$snapshot['remote']['publication']['core_version'],
         'assignment_current'=>$snapshot['remote']['assignment_current']??false,'source_current'=>$snapshot['remote']['publication']['source_revision']===$case['source_revision']]:null,
         'receipts'=>$receipts,'deliveries'=>array_slice($history,0,20),'history_has_more'=>count($history)>20||count($rows)>200,
-        'delivery_enabled'=>quantaOnboardingDeliveryEnabled(),'document_transfer'=>$documents,
+        'delivery_enabled'=>quantaOnboardingDeliveryEnabled($scope['tenant_id']),'document_transfer'=>$documents,
         'document_transfers'=>quantaOnboardingTransfers($pdo,$scope,$caseId)];
 }

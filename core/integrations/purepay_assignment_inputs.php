@@ -1,6 +1,7 @@
 <?php
 /** Scoped commercial source reads. Delivery and native activation are separate review steps. */
 declare(strict_types=1);
+require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_links.php';
 require_once __DIR__.'/purepay_assignment_contract.php';
 
@@ -75,9 +76,9 @@ function purepayAssignmentInputSource(PDO $pdo,string $instance,array $owners,st
     return ['placement'=>$placement,'body'=>$body,'source_hash'=>integrationDeliveryHash([$owners,$row,$person,$rates,$parties,$cycles,$items,$refs])];
 }
 
-function purepayAssignmentInputEnabled(): bool
+function purepayAssignmentInputEnabled(?int $tenant=null): bool
 {
-    return getenv('COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY')==='1';
+    return (getenv('COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayAssignmentInputAccess(PDO $pdo,int $tenant,string $instance,bool $write): array
@@ -109,7 +110,7 @@ function purepayAssignmentInputPreview(PDO $pdo,int $tenant,int $actor,string $i
     $snapshot=purepayAssignmentInputSnapshot($pdo,$tenant,$instance,$owners,$number,$previous);
     $delivery=integrationDeliveryPreview($pdo,$tenant,$actor,$snapshot['context'],$snapshot['payload']);
     return ['packet'=>$snapshot['source']['body'],'organization'=>$snapshot['access']['review']['organization'],
-        'delivery_enabled'=>purepayAssignmentInputEnabled(),'delivery'=>integrationDeliverySummary($delivery)];
+        'delivery_enabled'=>purepayAssignmentInputEnabled($tenant),'delivery'=>integrationDeliverySummary($delivery)];
 }
 
 function purepayAssignmentInputEnvelope(PDO $pdo,int $tenant,int $id,string $hash,string $instance,array $owners): array
@@ -135,7 +136,7 @@ function purepayAssignmentInputReceipt(array $receipt,string $org,array $body): 
 
 function purepayAssignmentInputSend(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,int $id,string $hash,?callable $audit=null): array
 {
-    if(!purepayAssignmentInputEnabled())throw new RuntimeException('Placement delivery is not enabled in this environment.');
+    if(!purepayAssignmentInputEnabled($tenant))throw new RuntimeException('Placement delivery is not enabled in this environment.');
     [$row,$payload]=purepayAssignmentInputEnvelope($pdo,$tenant,$id,$hash,$instance,$owners);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check this attempt’s receipt before sending again.');
@@ -193,7 +194,7 @@ function purepayAssignmentInputHistory(PDO $pdo,int $tenant,string $instance,arr
     foreach(array_slice($rows,0,25) as $row) {
         [$row,$payload]=purepayAssignmentInputEnvelope($pdo,$tenant,(int)$row['id'],$row['review_hash'],$instance,$owners);
         if($payload['organization_id']!==$access['review']['organization']['id'])throw new RuntimeException('This history belongs to a different provider company.');
-        $items[]=['packet'=>$payload['body'],'organization'=>$access['review']['organization'],'delivery_enabled'=>purepayAssignmentInputEnabled(),'delivery'=>integrationDeliverySummary($row)];
+        $items[]=['packet'=>$payload['body'],'organization'=>$access['review']['organization'],'delivery_enabled'=>purepayAssignmentInputEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
     }
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
     return ['items'=>$items,'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
