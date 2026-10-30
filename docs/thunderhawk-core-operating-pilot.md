@@ -1,3 +1,33 @@
+## October 30 isolated financial reader connected and verified
+
+Core's financial preview now selects the isolated PurePay host on port 19443 and
+explicit simulation company 2002. A dedicated read-only provider key is stored
+privately and encrypted in Core. Native company review confirms Thunderhawk's
+organization org_0369a63ff2cb; retry reuses connection 1 / binding revision 1.
+No bill, payment, payroll or journal transaction was created by this setup.
+
+The preview rejects other companies before credential storage/decryption and
+before any provider request. This also closes the financial-review path that
+previously checked the preview company only after an identity request. All four
+financial write methods remain blocked. Production routing is unchanged; the old
+demo configuration and company records were retained in private recovery/history.
+
+All 34 preview scenarios and 12 legacy configuration checks pass. Runtime
+be4bb1ee passed all nine CI jobs and staging release 41002423229. The actual
+PHP web process confirms the company binding, denies three other-company reviews
+and all four financial write methods, and retains the 2002-only staffing gates.
+The expiring authenticated probe returned 200, rejected unauthenticated access,
+and was removed. Protected Core business and other-company records are unchanged.
+
+Core SSH was already enabled. A fresh master-key connection succeeded; the Core
+application user kunalverma2 still has its SSH shell and correct webroot ownership.
+Application-password authentication was last verified October 27, not repeated.
+
+Next: existing AP/AR and payment-result acceptance, Core staff-browser acceptance,
+and the original-plan completion audit. This checkpoint is not a production
+publication or evidence of financial-result reconciliation.
+Evidence: deploy/thunderhawk-financial-reader-20261030.json.
+
 ## October 30 existing payroll actuals captured and compared in Core
 
 The isolated provider now contains an exact observation-contract projection of

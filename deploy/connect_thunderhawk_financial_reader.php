@@ -49,7 +49,20 @@ try{
     $before=$protected();$base=purepayApiBase();
     if(!in_array($base,[TH_FIN_OLD_BASE,TH_FIN_BASE],true))throw new RuntimeException('Unreviewed current financial origin');
     $report['financial_origin']=$base;$report['selected_company']=purepayFinancialPreviewTenant();
+    if($mode!=='--inspect'){
+        $packetPath=TH_FIN_PRIVATE.'/financial-reader.private.json';
+        if(realpath($packetPath)!==$packetPath||(fileperms($packetPath)&0777)!==0600)throw new RuntimeException('Private reader material unavailable');
+        $packet=json_decode((string)file_get_contents($packetPath),true,512,JSON_THROW_ON_ERROR);
+        if(($packet['purpose']??'')!=='isolated_thunderhawk_financial_read_only'||($packet['tenant_id']??null)!==2002
+            ||($packet['organization_id']??'')!==TH_FIN_ORG||($packet['scope']??'')!=='read')throw new RuntimeException('Reader identity differs');
+        $key=$packet['api_key'];
+    }
     if($mode==='--configure'){
+        $phase='destination_preflight';
+        $context=purepayFinancialContext(purepayCall($key,'GET','/context',[],25,null,TH_FIN_BASE));
+        if($context['organization']['id']!==TH_FIN_ORG||$context['key_scope']!=='read'
+            ||!str_contains($context['organization']['name'],'isolated pilot'))throw new RuntimeException('Destination identity differs');
+        $report['destination_tls_company_scope_verified']=true;
         $phase='private_configuration';
         $path=TH_FIN_ROOT.'/core/db.local.php';
         $backup=TH_FIN_PRIVATE.'/db.local.before-financial-reader.private.php';
@@ -89,12 +102,7 @@ try{
     }elseif(in_array($mode,['--connect','--verify'],true)){
         $phase='native_company_review';
         if($base!==TH_FIN_BASE||purepayFinancialPreviewTenant()!==2002)throw new RuntimeException('Exact financial preview selection required');
-        $packetPath=TH_FIN_PRIVATE.'/financial-reader.private.json';
-        if(realpath($packetPath)!==$packetPath||(fileperms($packetPath)&0777)!==0600)throw new RuntimeException('Private reader material unavailable');
-        $packet=json_decode((string)file_get_contents($packetPath),true,512,JSON_THROW_ON_ERROR);
-        if(($packet['purpose']??'')!=='isolated_thunderhawk_financial_read_only'||($packet['tenant_id']??null)!==2002
-            ||($packet['organization_id']??'')!==TH_FIN_ORG||($packet['scope']??'')!=='read')throw new RuntimeException('Reader identity differs');
-        $key=$packet['api_key'];$context=purepayFinancialReadContext($key);
+        $context=purepayFinancialReadContext($key);
         if($context['organization']['id']!==TH_FIN_ORG||$context['key_scope']!=='read'
             ||!str_contains($context['organization']['name'],'isolated pilot'))throw new RuntimeException('Provider company or permission differs');
         $connection=purepayFinancialConnection($pdo,2002);
@@ -110,7 +118,12 @@ try{
         }
         $binding=purepayFinancialRequire($pdo,2002,null,true);
         if($binding['remote_organization_id']!==TH_FIN_ORG||$binding['provider_key_scope']!=='read')throw new RuntimeException('Final binding differs');
+        $current=purepayFinancialConnection($pdo,2002);
+        if(!hash_equals($key,purepayFinancialKey($current))||str_contains($current['api_key_ct'],$key))
+            throw new RuntimeException('Encrypted connection verification failed');
         $report['company_confirmed']=true;$report['organization_id']=TH_FIN_ORG;$report['key_scope']='read_only';
+        $report['connection_id']=(int)$current['id'];$report['binding_revision']=(int)$binding['revision'];
+        $report['existing_connection_reused']=$connection!==null;$report['credential_encrypted_at_rest']=true;
         foreach([2,999,2003]as$tenant)if(purepayGetConnection($tenant)!==null)throw new RuntimeException('Another company can use the preview');
         $report['other_companies_denied']=true;
         foreach(['POST','PUT','PATCH','DELETE']as$method){

@@ -1,0 +1,125 @@
+{
+  "observed_at": "2026-10-30T04:33:16.919645+00:00",
+  "scope": "Isolated Thunderhawk financial read connection and reviewed company binding",
+  "runtime_commit": "be4bb1ee004ff7bf5c028cf33d97f135589796ea",
+  "ci": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41002162898",
+    "all_jobs_passed": 9
+  },
+  "staging_release": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41002423229",
+    "passed": true
+  },
+  "ssh": {
+    "checked_at": "2026-10-30T04:22:46.2347170Z",
+    "application": "CoreFlux",
+    "host": "138.197.121.111",
+    "application_login": "kunalverma2",
+    "application_shell": "/usr/bin/mysecureshell",
+    "application_uid": 1004,
+    "application_gid": 33,
+    "application_webroot_owner": "1004:33",
+    "application_webroot_mode": "775",
+    "live_master_key_connection_verified": true,
+    "application_password_authentication_repeated": false,
+    "last_application_password_authentication": "2026-10-27",
+    "ssh_already_enabled": true,
+    "server_setting_changes": false,
+    "production_deployed": false
+  },
+  "provider_reader": {
+    "created": false,
+    "scope": "read",
+    "integration_scopes": [],
+    "other_keys_and_provider_business_records_unchanged": true,
+    "passed": true,
+    "organization_id": "org_0369a63ff2cb",
+    "tenant_id": 2002,
+    "context_verified": true,
+    "payment_write_denied": true,
+    "payment_denial_http_status": 409,
+    "payment_denial_boundary": "isolation_hold",
+    "production_changed": false,
+    "payroll_or_payment_execution": false
+  },
+  "core_reader": {
+    "checked_at": "2026-10-30T04:26:10+00:00",
+    "mode": "--connect",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "payroll_or_payment_execution": false,
+    "financial_postings": false,
+    "financial_origin": "https://purepay.online:19443/api/v1",
+    "selected_company": 2002,
+    "company_confirmed": true,
+    "organization_id": "org_0369a63ff2cb",
+    "key_scope": "read_only",
+    "connection_id": 1,
+    "binding_revision": 1,
+    "existing_connection_reused": true,
+    "credential_encrypted_at_rest": true,
+    "other_companies_denied": true,
+    "all_financial_write_methods_denied": true,
+    "protected_business_and_other_company_records_unchanged": true,
+    "passed": true
+  },
+  "configuration": {
+    "checked_at": "2026-10-30T04:25:14+00:00",
+    "mode": "--configure",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "payroll_or_payment_execution": false,
+    "financial_postings": false,
+    "financial_origin": "https://pure-pay-support.preview.emergentagent.com/api/v1",
+    "selected_company": 999,
+    "destination_tls_company_scope_verified": true,
+    "new_config_sha256": "62aa8ec9e92fce46fca738e6af105bba2342755f9cec6ee843d6b3a1607129c8",
+    "old_config_sha256": "35a662c7362fe7344590c472c8393a1cc1d8c369021133fd8b7685f89bf2663c",
+    "fresh_process_verification_required": true,
+    "protected_business_and_other_company_records_unchanged": true,
+    "passed": true
+  },
+  "web": {
+    "passed": true,
+    "sapi": "fpm-fcgi",
+    "financial_reader": {
+      "tenant_id": 2002,
+      "organization_id": "org_0369a63ff2cb",
+      "scope": "read_only",
+      "company_confirmed": true,
+      "other_company_reviews_denied": 3,
+      "write_methods_denied": 4,
+      "provider_contacted": false
+    },
+    "unauthenticated_request_denied": true,
+    "temporary_probe_removed": true
+  },
+  "source_hashes": {
+    "core/purepay_adapter.php": "aa0659f03f8f3e2d52c98b7335325f03374b55e534423039fd6a7f3d8cc6f0d1",
+    "core/purepay_service.php": "04ed6c97b97cdc1253d0ea5937df136299abdb194ce53a2fe12104466ea4422b",
+    "core/purepay_financial_binding.php": "1b1d0246de295bbff3073fd693d83cf0a31a00dbde2a501048d427e412393b54",
+    "tests/purepay_financial_preview_smoke.php": "ffc9574add64f05e04d3a3f69a6dfa52d02813aa53581174ce09217f900e5a63",
+    "deploy/connect_thunderhawk_financial_reader.php": "88cb84508d2782dbc6d211b9a843905be7668459105b54dd1207d8cb43770926",
+    "deploy/provision_thunderhawk_financial_reader.py": "d32b23b1d18de39f6e1c19e6b1a1b2ca0831d24f31d6c24ef5b57242679cb9cb",
+    "deploy/verify_thunderhawk_operational_web.php": "6c6f5f5d815a3a1dac9cdb857a5c8368314ae37f9188d0910838c1a7cb843d81"
+  },
+  "local_validation": {
+    "financial_preview_scenarios": 34,
+    "legacy_configuration_checks": 12,
+    "rendered_web_probe_php_lint": true
+  },
+  "production_cutover": false,
+  "real_payroll_executed": false,
+  "payments_executed": false,
+  "financial_postings": false,
+  "remaining": [
+    "AP/AR bill and payment-result acceptance",
+    "Core staff browser acceptance",
+    "Original integration plan completion audit"
+  ],
+  "limitations": [
+    "This proves the connection and isolation boundaries, not receipt of bill or payment results.",
+    "The provider execution hold returns 409 before route authorization; its context explicitly reports read-only key scope.",
+    "Core application SSH password authentication was last verified October 27; this check used the existing master key and inspected the application shell."
+  ]
+}

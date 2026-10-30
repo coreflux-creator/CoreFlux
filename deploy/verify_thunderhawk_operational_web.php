@@ -3,8 +3,9 @@
 declare(strict_types=1);
 const TH_WEB_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html';
 const TH_WEB_HOST='phpstack-1516771-6707602.cloudwaysapps.com';
-$enabled=($argv[1]??'')==='--verify-pilot-web';
-if(PHP_SAPI!=='cli'||!in_array($argv[1]??'',['--verify-pilot-web','--verify-disabled-web'],true)||getenv('COREFLUX_ENV')!=='staging'
+$financial=($argv[1]??'')==='--verify-financial-reader-web';
+$enabled=$financial||($argv[1]??'')==='--verify-pilot-web';
+if(PHP_SAPI!=='cli'||!in_array($argv[1]??'',['--verify-pilot-web','--verify-disabled-web','--verify-financial-reader-web'],true)||getenv('COREFLUX_ENV')!=='staging'
     ||realpath(getcwd())!==TH_WEB_ROOT||!extension_loaded('curl'))exit(2);
 $token=bin2hex(random_bytes(32));
 $name='thunderhawk_gate_check_'.bin2hex(random_bytes(16)).'.php';
@@ -44,8 +45,35 @@ try{
             $states[$function][(string)$tenant]=$enabled;
         }
     }
+    $financial=null;
+    if(__FINANCIAL__){
+        require_once $root.'/core/purepay_service.php';
+        if(purepayApiBase()!=='https://purepay.online:19443/api/v1'||purepayFinancialPreviewTenant()!==2002)
+            throw new RuntimeException('Financial preview selection differs');
+        $pdo=getDB();$binding=purepayFinancialRequire($pdo,2002);
+        $connection=purepayFinancialConnection($pdo,2002);
+        if($binding['remote_organization_id']!=='org_0369a63ff2cb'||$binding['provider_key_scope']!=='read'
+            ||$connection['key_scope']!=='read_only')throw new RuntimeException('Financial reader binding differs');
+        // No provider request may leave this local web configuration check.
+        $GLOBALS['__purepay_transport']=static function(){throw new LogicException('Unexpected provider request');};
+        foreach([2,999,2003]as$tenant){
+            if(purepayGetConnection($tenant)!==null)throw new RuntimeException('Other company connection visible');
+            $denied=false;
+            try{purepayFinancialReview($pdo,$tenant);}
+            catch(PurePayApiException $error){$denied=$error->getMessage()==='The financial preview requires the approved simulation company and a read-only connection.';}
+            if(!$denied)throw new RuntimeException('Other company review not denied');
+        }
+        foreach(['POST','PUT','PATCH','DELETE']as$method){
+            $denied=false;
+            try{purepayCall('fixture-no-provider-credential',$method,'/bills/nonexistent-financial-reader-proof/pay');}
+            catch(PurePayApiException $error){$denied=$error->getMessage()==='PurePay financial preview is read-only.';}
+            if(!$denied)throw new RuntimeException('Financial write not denied');
+        }
+        $financial=['tenant_id'=>2002,'organization_id'=>'org_0369a63ff2cb','scope'=>'read_only',
+            'company_confirmed'=>true,'other_company_reviews_denied'=>3,'write_methods_denied'=>4,'provider_contacted'=>false];
+    }
     header('Content-Type: application/json');
-    echo json_encode(['passed'=>true,'sapi'=>PHP_SAPI,'staging'=>true,'gates'=>$states,'app_url'=>APP_URL],JSON_THROW_ON_ERROR);
+    echo json_encode(['passed'=>true,'sapi'=>PHP_SAPI,'staging'=>true,'gates'=>$states,'app_url'=>APP_URL,'financial_reader'=>$financial],JSON_THROW_ON_ERROR);
 }catch(Throwable $error){
     http_response_code(500);header('Content-Type: application/json');
     echo json_encode(['passed'=>false,'failure_class'=>get_class($error),
@@ -53,7 +81,8 @@ try{
 }
 PHP;
 $source=strtr($template,['__HOST__'=>var_export(TH_WEB_HOST,true),'__ROOT__'=>var_export(TH_WEB_ROOT,true),
-    '__EXPIRY__'=>(string)(time()+180),'__TOKEN__'=>var_export($token,true),'__ENABLED__'=>$enabled?'true':'false']);
+    '__EXPIRY__'=>(string)(time()+180),'__TOKEN__'=>var_export($token,true),'__ENABLED__'=>$enabled?'true':'false',
+    '__FINANCIAL__'=>$financial?'true':'false']);
 $report=['checked_at'=>gmdate('c'),'production_changed'=>false,'business_write_requested'=>false];
 $oldMask=umask(0022);
 try{$stream=fopen($path,'x');}finally{umask($oldMask);}
