@@ -1,3 +1,28 @@
+## Application-owner SSH and private file rehearsal passed - October 30, 2026
+
+Core's existing deployment key now authenticates as `kunalverma2`, resolving to
+UID 1004/GID 33, the live web-file owner. Candidate `523c37c6` fixes the maintenance
+helper's treatment of an absent application crontab: only the exact native
+missing-table response is accepted, while permission and other failures remain
+fatal. Identical reviewed schedule bytes skip installation, preserving both
+absent and installed-empty tables. All nine CI jobs passed, including 54 native
+host checks, 29 separate-owner scheduler checks, and preservation of the
+unrelated account's schedule; 31 preparation checks passed locally.
+
+Using that application account, synthetic routing files under a new private
+fixture were paused, restored, replaced with reviewed synthetic routing, and
+restored again. UID, GID and 0664 mode were preserved, the application's native
+absent schedule stayed absent, and the live routing file stayed unchanged.
+No database was opened. This exercises routing-file operations outside the live
+website, not a full package deployment or live HTTP maintenance window.
+
+A fresh read-only master-account inventory still has the same nine Core jobs
+and schedule hash recorded on October 26. No running process referenced Core's
+root during this single snapshot; that does not prove a complete writer drain.
+Full writer control, matched backup/recovery, full package deployment/recovery
+and coordinated publication remain open. Evidence:
+`deploy/core-owner-file-rehearsal-20261030.json`.
+
 ## Fresh Core production structure rehearsal passed - October 30, 2026
 
 Candidate `07ca035e` passed CI and the read-only production preflight. A fresh

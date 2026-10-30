@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-30T17:06:21+00:00",
+  "candidate_commit": "523c37c6720bff25c66a13519d4132b398c3d4ab",
+  "scope": "Core application-owner SSH, native absent-scheduler handling, and synthetic private file replacement/recovery",
+  "implementation": {
+    "missing_crontab_result": "Only exit 1, empty stdout and the exact C-locale diagnostic for the effective account are accepted as absent.",
+    "other_scheduler_errors": "Remain fatal; diagnostic is retained privately.",
+    "unchanged_schedule": "After digest verification, skip scheduler installation when reviewed bytes do not change. Native absent and installed-empty states remain untouched."
+  },
+  "ci": {
+    "run_id": 41095529966,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41095529966",
+    "conclusion": "success",
+    "jobs_passed": 9,
+    "native_host_checks": 54,
+    "separate_owner_scheduler_checks": 29,
+    "unrelated_account_schedule_preserved": true,
+    "local_preparation_checks": 31
+  },
+  "host_rehearsal": {
+    "checked_at": "2026-10-30T17:06:21+00:00",
+    "candidate_commit": "523c37c6720bff25c66a13519d4132b398c3d4ab",
+    "fixture": "/home/1516771.cloudwaysapps.com/grcudkpvcd/private_html/core-owner-files-20261030-f3976cdff924191a",
+    "scope": "Synthetic routing files under private_html, outside the live webroot",
+    "uid": 1004,
+    "gid": 33,
+    "web_before": {
+      "sha256": "171f3dd6fe3b0123c22c585789538c645b1987c86b950446b0b10990bab9a13e",
+      "uid": 1004,
+      "gid": 33,
+      "mode": 436
+    },
+    "held_fixture": {
+      "sha256": "d4ef6ff349e596efcc49f9c6d977093b958b97beb4be55f1ac52e87ba89ed55c",
+      "uid": 1004,
+      "gid": 33,
+      "mode": 436
+    },
+    "activated_fixture": {
+      "sha256": "e2cdea6e822532efa156a81985f5d4e0c05dda958c381346a2ba0b60aefe8c57",
+      "uid": 1004,
+      "gid": 33,
+      "mode": 436
+    },
+    "source_hashes": {
+      "full_core_maintenance.php": "ea91d456f2fa2b98001fd919ce3c70c9bc16a825d2c51d109d6176eddfde7684",
+      "full_core_maintenance_host.php": "284b07f2ca936d97268bab675657700bc258880023398597827ebcbb10209fcf"
+    },
+    "native_application_schedule_absent_before_and_after": true,
+    "scheduler_install_or_remove_performed": false,
+    "pause_and_repeated_restore_passed": true,
+    "candidate_activation_and_restore_passed": true,
+    "uid_gid_mode_preserved": true,
+    "live_htaccess_unchanged": true,
+    "database_opened": false,
+    "production_cutover_performed": false,
+    "passed": true,
+    "limitations": [
+      "Synthetic routing-file replacement only; not a full application package deployment or HTTP maintenance rehearsal.",
+      "Master-account schedules, running writers and external schedulers were not held.",
+      "No database backup, upgrade or recovery was performed."
+    ]
+  },
+  "master_schedule_inventory": {
+    "checked_at": "2026-10-30T17:07:09+00:00",
+    "ssh_uid": 1003,
+    "master_crontab": {
+      "sha256": "f7fbd8130fde0b15b31e54ebfba41bf2152288908275ecaef43f174b952c2183",
+      "active_entries": 9,
+      "all_entries_reference_core_production": true,
+      "jobs": [
+        {
+          "line": 2,
+          "sha256": "b1e3da213dcd8c322df1932717f4887bef374ee8f09ac6365612db869404f73e",
+          "references_core_production": true
+        },
+        {
+          "line": 3,
+          "sha256": "fd1d8326607f85f13daebaaf223a6c8d3322a3014fd6899b648c990380284245",
+          "references_core_production": true
+        },
+        {
+          "line": 4,
+          "sha256": "a7cfe4a049c83e70d5e0a4d2f63766eadf68039713fbdd273823725f76c304f0",
+          "references_core_production": true
+        },
+        {
+          "line": 5,
+          "sha256": "86db153453669b34edce8cd5d553cc5e87b5e2cd0cc0d4e84d2d9db098a98105",
+          "references_core_production": true
+        },
+        {
+          "line": 6,
+          "sha256": "f4fbd69424e17c5b2ac5ff8024b55c5191507a87123d7c356f9b992d6a6d919a",
+          "references_core_production": true
+        },
+        {
+          "line": 7,
+          "sha256": "e498ee887ec4b4ca1853f9617442867f0cf2e2637535cf0c030147e2d81dbf5e",
+          "references_core_production": true
+        },
+        {
+          "line": 8,
+          "sha256": "dcdbe80c398832ddbd8af15b4c1b09d4ed793f87d4383854e1adcbdd1b86b951",
+          "references_core_production": true
+        },
+        {
+          "line": 10,
+          "sha256": "5e5f3ac31828cb7bb91b8d2c376e26a69c62005e7f405ed81ae593b2e7cf092f",
+          "references_core_production": true
+        },
+        {
+          "line": 11,
+          "sha256": "eab6c4a4258655f5f78119e0c6477b540e856aeb9dac3db53c8fff8f7dc8eef8",
+          "references_core_production": true
+        }
+      ],
+      "proposed_review": {
+        "2": {
+          "sha256": "b1e3da213dcd8c322df1932717f4887bef374ee8f09ac6365612db869404f73e",
+          "action": "pause"
+        },
+        "3": {
+          "sha256": "fd1d8326607f85f13daebaaf223a6c8d3322a3014fd6899b648c990380284245",
+          "action": "pause"
+        },
+        "4": {
+          "sha256": "a7cfe4a049c83e70d5e0a4d2f63766eadf68039713fbdd273823725f76c304f0",
+          "action": "pause"
+        },
+        "5": {
+          "sha256": "86db153453669b34edce8cd5d553cc5e87b5e2cd0cc0d4e84d2d9db098a98105",
+          "action": "pause"
+        },
+        "6": {
+          "sha256": "f4fbd69424e17c5b2ac5ff8024b55c5191507a87123d7c356f9b992d6a6d919a",
+          "action": "pause"
+        },
+        "7": {
+          "sha256": "e498ee887ec4b4ca1853f9617442867f0cf2e2637535cf0c030147e2d81dbf5e",
+          "action": "pause"
+        },
+        "8": {
+          "sha256": "dcdbe80c398832ddbd8af15b4c1b09d4ed793f87d4383854e1adcbdd1b86b951",
+          "action": "pause"
+        },
+        "10": {
+          "sha256": "5e5f3ac31828cb7bb91b8d2c376e26a69c62005e7f405ed81ae593b2e7cf092f",
+          "action": "pause"
+        },
+        "11": {
+          "sha256": "eab6c4a4258655f5f78119e0c6477b540e856aeb9dac3db53c8fff8f7dc8eef8",
+          "action": "pause"
+        }
+      },
+      "changed": false
+    },
+    "process_snapshot": {
+      "readable_cmdlines": 152,
+      "unreadable_cmdlines": 0,
+      "core_matches": [],
+      "complete_writer_inventory": false
+    },
+    "production_changed": false,
+    "commands_disclosed": false,
+    "limitations": [
+      "Snapshot only; an idle or externally scheduled writer may not be running.",
+      "Other user schedules and service wrappers require independent review.",
+      "No scheduled jobs or running work were paused."
+    ]
+  },
+  "artifacts": {
+    "run_rehearsal.py": {
+      "path": "output/core-owner-file-rehearsal-20261030/run_rehearsal.py",
+      "sha256": "1c7969747aea118a505ccd3f64d769eef3a7332e43d03a5778021dc182011f3e"
+    },
+    "remote-rehearsal.php": {
+      "path": "output/core-owner-file-rehearsal-20261030/remote-rehearsal.php",
+      "sha256": "f21454d25dc0d9b31a2d01752c817607caa242370d52d21faad5a4871b17b36a"
+    },
+    "receipt.json": {
+      "path": "output/core-owner-file-rehearsal-20261030/receipt.json",
+      "sha256": "1e2dbd1751f52ff70973f9ec4f02d0b36f086c2ebe7d0c04954d903f32ff43d1"
+    },
+    "master-schedule-inventory.json": {
+      "path": "output/core-owner-file-rehearsal-20261030/master-schedule-inventory.json",
+      "sha256": "580a5e42ebe2c4d742211b5d6f4c1e2568369d593bb3d86931bf324440e2818c"
+    },
+    "native-maintenance-ci.log": {
+      "path": "output/core-owner-file-rehearsal-20261030/native-maintenance-ci.log",
+      "sha256": "139a2339bebd54a525df4c0b1d8d47b0a6b20f313e977364ce691df693511c8b"
+    }
+  },
+  "production_application_changed": false,
+  "production_database_opened": false,
+  "production_jobs_paused": false,
+  "production_cutover_performed": false,
+  "remaining_release_gates": [
+    "Complete writer inventory and coordinated web/master-job hold and drain.",
+    "Candidate-bound populated backup, restore and recovery acceptance.",
+    "Full application-file deployment/recovery rehearsal preserving metadata, beyond the routing-file check.",
+    "Coordinated publication authorization and actual Thunderhawk operational acceptance."
+  ]
+}
