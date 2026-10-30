@@ -8,7 +8,7 @@ require_once __DIR__.'/identity.php';
 
 function quantaOnboardingDeliveryEnabled(?int $tenant=null): bool
 {
-    return (defined('COREFLUX_QUANTA_ONBOARDING_DELIVERY')?constant('COREFLUX_QUANTA_ONBOARDING_DELIVERY')===true:getenv('COREFLUX_QUANTA_ONBOARDING_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_QUANTA_ONBOARDING_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 function quantaOnboardingSourceHash(array $case): string {
     return onboardingHash(array_intersect_key($case,array_flip(['id','tenant_id','people_tenant_id','placements_tenant_id',

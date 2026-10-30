@@ -10,8 +10,9 @@ const QUANTA_ONBOARDING_DOCUMENT_VERSION='2026-10-23.1';
 const QUANTA_ONBOARDING_DOCUMENT_MAX_BYTES=25*1024*1024;
 
 function quantaOnboardingDocumentsEnabled(int $tenant): bool {
-    $tenants=array_map('trim',explode(',',(string)getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS')));
-    return $tenant>0&&integrationDeliveryTenantAllowed($tenant)&&getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS')==='1'&&in_array((string)$tenant,$tenants,true);
+    $raw=defined('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS')?constant('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS'):getenv('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS');
+    $tenants=is_string($raw)?array_map('trim',explode(',',$raw)):[];
+    return $tenant>0&&integrationDeliveryTenantAllowed($tenant)&&integrationDeliveryFlagEnabled('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS')&&in_array((string)$tenant,$tenants,true);
 }
 
 function quantaOnboardingDocumentAuthority(array $scope): void {

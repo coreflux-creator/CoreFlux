@@ -1,7 +1,8 @@
 <?php
 /** Company-specific feature gates reject writes before database or provider access. */
 declare(strict_types=1);
-putenv('COREFLUX_DISABLE_DATABASE=1');
+if(function_exists('putenv'))putenv('COREFLUX_DISABLE_DATABASE=1');
+elseif(getenv('COREFLUX_DISABLE_DATABASE')!=='1')throw new RuntimeException('Database access must be disabled');
 require_once __DIR__.'/../core/quanta/metadata_delivery.php';
 require_once __DIR__.'/../core/quanta/worker_delivery.php';
 require_once __DIR__.'/../core/quanta/onboarding_delivery.php';
@@ -28,6 +29,22 @@ $gates=[
     'purepayPayrollInputsEnabled'=>'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY',
     'purepayPayrollAuthorityEnabled'=>'COREFLUX_PUREPAY_PAYROLL_AUTHORITY',
 ];
+if(($argv[1]??'')==='--constant-config'){
+    $list=json_decode($argv[2],true,512,JSON_THROW_ON_ERROR);
+    define('COREFLUX_INTEGRATION_DELIVERY_TENANTS',$list);
+    foreach($gates as$flag)define($flag,true);
+    define('COREFLUX_QUANTA_ONBOARDING_DOCUMENTS',true);
+    define('COREFLUX_QUANTA_ONBOARDING_DOCUMENT_TENANTS','2002,999');
+    $check(!function_exists('putenv'),'Production hosting restriction is reproduced');
+    foreach(array_merge(array_keys($gates),['quantaOnboardingDocumentsEnabled'])as$function){
+        foreach([2002,2,999,2003]as$tenant)
+            $check($function($tenant)===($list==='2002'&&$tenant===2002),'Private constants preserve the company boundary');
+    }
+    define('COREFLUX_TEST_DISABLED_FEATURE',false);
+    $check(!integrationDeliveryFlagEnabled('COREFLUX_TEST_DISABLED_FEATURE'),'False constant wins over enabled environment');
+    echo "Constant configuration without putenv: $passed passed\n";
+    exit;
+}
 putenv('COREFLUX_INTEGRATION_DELIVERY_TENANTS');
 foreach($gates as$function=>$flag){
     putenv($flag);$check(!$function(2002),'Flag still required: '.$function);
@@ -79,4 +96,14 @@ define('COREFLUX_QUANTA_METADATA_DELIVERY',true);putenv('COREFLUX_QUANTA_METADAT
 $check(quantaMetadataDeliveryEnabled(2002)&&!quantaMetadataDeliveryEnabled(999),'Constant precedence retains company isolation');
 define('COREFLUX_PUREPAY_CORE_LINK_DELIVERY',false);
 $check(!purepayCoreLinkEnabled(2002),'Disabled server constant remains authoritative');
+putenv('COREFLUX_TEST_DISABLED_FEATURE=1');
+putenv('COREFLUX_INTEGRATION_DELIVERY_TENANTS=999');
+foreach(['2002',false,'2002,broken']as$list){
+    $process=proc_open([PHP_BINARY,'-d','disable_functions=putenv',__FILE__,'--constant-config',json_encode($list,JSON_THROW_ON_ERROR)],
+        [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);
+    if(!is_resource($process))throw new RuntimeException('Cannot test restricted web configuration');
+    fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);
+    fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($process);
+    $check($exit===0&&$stderr===''&&str_contains($stdout,'46 passed'),'Restricted host constant configuration: '.$stderr);
+}
 echo "Integration delivery enablement: $passed passed\n";

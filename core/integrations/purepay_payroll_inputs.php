@@ -8,7 +8,7 @@ const PUREPAY_PAYROLL_INPUT_VERSION='2026-10-21.1';
 
 function purepayPayrollInputsEnabled(?int $tenant=null): bool
 {
-    return (getenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayPayrollInputDate(string $value): DateTimeImmutable

@@ -22,6 +22,13 @@ This setting grants no user permissions, provider credentials, time approval,
 payroll execution or payment authority. Receipt inspection and reconciliation
 remain available when new delivery is held.
 
+Hosts that disable PHP's `putenv` can define the company lists as string
+constants and each feature as a boolean constant in private configuration.
+Constants take precedence over environment settings. A malformed company-list
+constant denies delivery, including a boolean `false`; only an absent setting
+retains the prior unrestricted feature-flag behavior. Verify the web process
+as well as the command line before activating the pilot.
+
 ## Reviewed assignment worksite revisions — October 30, 2026
 
 An existing assignment can receive, change or explicitly clear its Quanta

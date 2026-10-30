@@ -78,7 +78,7 @@ function purepayAssignmentInputSource(PDO $pdo,string $instance,array $owners,st
 
 function purepayAssignmentInputEnabled(?int $tenant=null): bool
 {
-    return (getenv('COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayAssignmentInputAccess(PDO $pdo,int $tenant,string $instance,bool $write): array

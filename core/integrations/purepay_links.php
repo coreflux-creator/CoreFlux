@@ -7,7 +7,7 @@ require_once __DIR__.'/../record_numbers.php';
 
 function purepayCoreLinkEnabled(?int $tenant=null): bool
 {
-    return (defined('COREFLUX_PUREPAY_CORE_LINK_DELIVERY') ? constant('COREFLUX_PUREPAY_CORE_LINK_DELIVERY')===true : getenv('COREFLUX_PUREPAY_CORE_LINK_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_PUREPAY_CORE_LINK_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 /** The API resolves the owner using module scope; the client can supply neither owner nor number assignment. */

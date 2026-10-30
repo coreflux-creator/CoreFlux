@@ -9,7 +9,7 @@ require_once __DIR__.'/../audit.php';
 
 function quantaWorkerDeliveryEnabled(?int $tenant=null): bool
 {
-    return (defined('COREFLUX_QUANTA_WORKER_DELIVERY') ? constant('COREFLUX_QUANTA_WORKER_DELIVERY')===true : getenv('COREFLUX_QUANTA_WORKER_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_QUANTA_WORKER_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function quantaWorkerDeliveryAccess(int $tenant): array

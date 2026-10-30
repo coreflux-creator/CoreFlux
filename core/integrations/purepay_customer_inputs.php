@@ -9,7 +9,7 @@ const PUREPAY_CUSTOMER_INPUT_VERSION='2026-10-26.1';
 
 function purepayCustomerInputEnabled(?int $tenant=null): bool
 {
-    return (defined('COREFLUX_PUREPAY_CUSTOMER_DELIVERY') ? constant('COREFLUX_PUREPAY_CUSTOMER_DELIVERY')===true : getenv('COREFLUX_PUREPAY_CUSTOMER_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_PUREPAY_CUSTOMER_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayCustomerInputSource(PDO $pdo,string $instance,int $owner,string $number): array

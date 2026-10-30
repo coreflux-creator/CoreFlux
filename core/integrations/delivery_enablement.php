@@ -2,11 +2,18 @@
 /** Optional company boundary for operational integration delivery flags. */
 declare(strict_types=1);
 
+function integrationDeliveryFlagEnabled(string $name): bool
+{
+    return defined($name) ? constant($name)===true : getenv($name)==='1';
+}
+
 function integrationDeliveryTenantAllowed(?int $tenant): bool
 {
-    $raw=getenv('COREFLUX_INTEGRATION_DELIVERY_TENANTS');
+    $configured=defined('COREFLUX_INTEGRATION_DELIVERY_TENANTS');
+    $raw=$configured?constant('COREFLUX_INTEGRATION_DELIVERY_TENANTS'):getenv('COREFLUX_INTEGRATION_DELIVERY_TENANTS');
     // Existing installations retain their feature-flag behavior until configured.
-    if($raw===false)return true;
+    if(!$configured&&$raw===false)return true;
+    if(!is_string($raw))return false;
     if($tenant===null||$tenant<=0||trim($raw)==='')return false;
     $ids=array_map('trim',explode(',',$raw));
     if(count($ids)>128)return false;

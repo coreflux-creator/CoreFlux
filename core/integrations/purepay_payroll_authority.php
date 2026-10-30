@@ -7,7 +7,7 @@ const PUREPAY_PAYROLL_AUTHORITY_VERSION='2026-10-21.1';
 
 function purepayPayrollAuthorityEnabled(?int $tenant=null): bool
 {
-    return getenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY')==='1' && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_PUREPAY_PAYROLL_AUTHORITY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayPayrollAuthoritySchema(PDO $pdo): void

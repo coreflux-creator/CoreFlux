@@ -25,7 +25,7 @@ function purepayPeopleInputOwners(array $owners): array
 
 function purepayPeopleInputEnabled(?int $tenant=null): bool
 {
-    return (defined('COREFLUX_PUREPAY_PEOPLE_DELIVERY') ? constant('COREFLUX_PUREPAY_PEOPLE_DELIVERY')===true : getenv('COREFLUX_PUREPAY_PEOPLE_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_PUREPAY_PEOPLE_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function purepayPeopleInputSource(PDO $pdo,string $instance,array $owners,string $personNumber,string $placementNumber): array

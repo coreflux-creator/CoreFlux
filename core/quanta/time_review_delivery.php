@@ -8,7 +8,7 @@ require_once __DIR__.'/sync.php';
 
 function quantaTimeReviewEnabled(?int $tenant=null): bool
 {
-    return (defined('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY') ? constant('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY')===true : getenv('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY')==='1') && integrationDeliveryTenantAllowed($tenant);
+    return integrationDeliveryFlagEnabled('COREFLUX_QUANTA_TIME_REVIEW_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
 function quantaTimeReviewProof(array $entry,array $route,array $imports,string $workspace): array
