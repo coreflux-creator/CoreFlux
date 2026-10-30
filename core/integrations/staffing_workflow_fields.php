@@ -197,7 +197,7 @@ function staffingWorkflowPayloadFields(array $columns): array
         'core/integrations/purepay_observations.php',$observation,'purepayroll_observed_ledger',
         'immutable_encrypted_capture; missing_values_explicit; no_authority_creation_or_time_rate_match_or_posting');
     // Enumerate the exact versioned AP/AR contract, including nested amounts and references.
-    $schemas=json_decode(file_get_contents(__DIR__.'/contracts/purepay_financial_observations.json'),true,64,JSON_THROW_ON_ERROR);
+    $schemas=json_decode(file_get_contents(__DIR__.'/contracts/purepay_financial_observations_v2.json'),true,64,JSON_THROW_ON_ERROR);
     foreach($schemas as $kind=>$schema) {
         $fields=[];
         $walk=static function(array $node,string $path='')use(&$walk,&$fields):void {
@@ -213,7 +213,7 @@ function staffingWorkflowPayloadFields(array $columns): array
         };
         $walk($schema);
         $add('purepay_financial_'.$kind.'_observation','purepay_financial_observations.payload_ct','observation.','purepay',
-            '/financial-observations/'.($kind==='bill'?'bills':'invoices').'/{document_id}','purepay_to_core','2026-10-30.1',
+            '/financial-observations/'.($kind==='bill'?'bills':'invoices').'/{document_id}','purepay_to_core','2026-10-30.2',
             'core/integrations/purepay_financial_observation_contract.php',$fields,'purepay',
             'reviewed_read_only_evidence; preserve_unknown_currency_and_original_units; no_execution','','financial_evidence');
     }

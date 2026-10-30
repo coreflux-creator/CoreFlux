@@ -49,5 +49,21 @@ foreach(['bill','invoice'] as $kind) {
     $check($fails(fn()=>$validate($bad)),'missing '.$kind.' null markers rejected');
     $bad=$data;$bad['observed_at']='2026-02-30T00:00:00+00:00';$check($fails(fn()=>$validate($bad)),'invalid '.$kind.' observation timestamp rejected');
     $unicode=$data;$unicode['document']['doc_number']='SYN-é/₹-2026';$unicode=$rehash($unicode);$check($validate($unicode)===$unicode,'unicode source reference retained');
+    $v2=json_decode(file_get_contents(__DIR__.'/fixtures/purepay_financial_observations/'.$kind.'-v2.json'),true,64,JSON_THROW_ON_ERROR);
+    $check($validate($v2)===$v2,'v2 '.$kind.' labels and multiline descriptions retain Python hash');
+    staffingDictionaryAssertPayload('purepay_financial_'.$kind.'_observation','purepay',$v2);
+    $check($validate($data)===$data,'v1 '.$kind.' history remains readable alongside v2');
+    foreach([null,'',"a\tb\r\nc",str_repeat('é',4000)] as $value){
+        $changed=$v2;$changed['document']['line_items'][0]['description']=$value;$changed=$rehash($changed);
+        $check($validate($changed)===$changed,'valid v2 plain text retained exactly');
+    }
+    foreach([str_repeat('a',4001),"a\0b","a\x1bb",35] as $value){
+        $bad=$v2;$bad['document']['line_items'][0]['description']=$value;$bad=$rehash($bad);
+        $check($fails(fn()=>$validate($bad)),'invalid v2 description refused');
+    }
+    $bad=$v2;$bad['document']['line_items'][0]['item_name']="invalid\nlabel";$bad=$rehash($bad);
+    $check($fails(fn()=>$validate($bad)),'multiline exception is restricted to description');
+    $bad=$data;$bad['document']['line_items'][0]['description']='unexpected v1 extension';$bad=$rehash($bad);
+    $check($fails(fn()=>$validate($bad)),'v1 still rejects unversioned fields');
 }
 echo "Financial observation contract: $passed passed\n";

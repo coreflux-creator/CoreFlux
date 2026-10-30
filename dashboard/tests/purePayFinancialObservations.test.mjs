@@ -70,3 +70,22 @@ test('large payment sets remain fully reachable in bounded pages', async () => {
     assert.ok(text(f.tree.root).includes('Showing 51–51 of 51')); assert.ok(button(f, 'Next outgoing payments').props.disabled);
   } finally { f.close(); }
 });
+
+test('source labels can be searched across all pages without inferring identity or service dates', async () => {
+  const variant = structuredClone(capture);
+  variant.observation.document.line_items = Array.from({ length: 51 }, (_, i) => ({ ...observation.document.line_items[0],
+    line_id: `line-${i}`, item_name: i === 50 ? 'Synthetic worker' : `Item ${i}`, description: i === 50 ? "Sep'26\nSource description" : 'Other period', service_start: null, service_end: null }));
+  const f = await fixture(async () => variant); try {
+    await f.open(); assert.ok(text(f.tree.root).includes('Showing 1–25 of 51'));
+    await f.click('Next lines'); await f.click('Next lines'); assert.ok(text(f.tree.root).includes('Synthetic worker'));
+    const search = f.tree.root.findAllByType('input').find(n => n.props.placeholder === 'Item, description, assignment or line ID');
+    await act(async () => search.props.onChange({ target: { value: 'synthetic WORKER' } }));
+    assert.ok(text(f.tree.root).includes('1 of 51 source lines match.')); assert.ok(!button(f, 'Next lines'));
+    assert.ok(text(f.tree.root).includes("Sep'26\nSource description"));
+    assert.ok(text(f.tree.root).includes('Service dates: Unknown → Unknown'));
+    assert.ok(text(f.tree.root).includes('do not establish a Core person, placement or service date'));
+    await act(async () => search.props.onChange({ target: { value: 'missing' } }));
+    assert.ok(text(f.tree.root).includes('0 of 51 source lines match.'));
+    assert.ok(!text(f.tree.root).includes('Synthetic worker'));
+  } finally { f.close(); }
+});

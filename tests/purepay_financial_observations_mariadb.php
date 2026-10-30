@@ -74,6 +74,12 @@ try {
     $pdo->prepare('UPDATE purepay_financial_observations SET payload_ct=? WHERE id=?')->execute([encryptField('{"changed":true}'),$first['id']]);
     $check($history()['items'][0]['id']===$third['id'],'history does not load unrequested damaged old capture');
     $check($fails(fn()=>$history($second['id'])),'damaged requested evidence is refused');
+    $wire['bill']=json_decode(file_get_contents(__DIR__.'/fixtures/purepay_financial_observations/bill-v2.json'),true,64,JSON_THROW_ON_ERROR);
+    $modern=$save($read());
+    $check($modern['saved']['observation']['contract_version']==='2026-10-30.2'&&$count()===5,'v2 source prose appends a separate encrypted capture');
+    $check($save($read())['replayed']&&$count()===5,'unchanged v2 labels replay without duplicate evidence');
+    $check($history()['items'][0]['saved']['observation']['document']['line_items'][0]['description']==="Sep’26\nService — synthetic only",'v2 source prose survives encrypted history');
+    $check($history($modern['id'])['items'][0]['id']===$third['id'],'v1 evidence remains reachable after a v2 capture');
     $check((int)$pdo->query('SELECT COUNT(*) FROM purepay_payment_links')->fetchColumn()===0,'capture creates no payment links');
     $check(!in_array('accounting_journal_entries',$pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN),true),'capture needs no posting or payroll tables');
     echo "Financial observations MariaDB: $passed passed\n";

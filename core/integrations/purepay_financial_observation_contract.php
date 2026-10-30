@@ -42,8 +42,9 @@ function purepayFinancialObservationSchema(mixed $value,array $schema): void
             foreach($value as $v)if(isset($schema['items']))purepayFinancialObservationSchema($v,$schema['items']);
             break;
         case 'string':
-            if(!is_string($value) || $value==='' || !mb_check_encoding($value,'UTF-8')
-                || mb_strlen($value)>($schema['maxLength']??1000) || preg_match('/[\x00-\x1f\x7f]/u',$value))purepayFinancialObservationRefuse();
+            $controls=($schema['format']??null)==='plain-text'?'/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/u':'/[\x00-\x1f\x7f]/u';
+            if(!is_string($value) || mb_strlen($value)<($schema['minLength']??1) || !mb_check_encoding($value,'UTF-8')
+                || mb_strlen($value)>($schema['maxLength']??1000) || preg_match($controls,$value))purepayFinancialObservationRefuse();
             if(isset($schema['pattern']) && preg_match('~'.$schema['pattern'].'~uD',$value)!==1)purepayFinancialObservationRefuse();
             if(($schema['format']??null)==='date' && !purepayObservationDate($value))purepayFinancialObservationRefuse();
             if(($schema['format']??null)==='date-time' && !purepayObservationTimestamp($value))purepayFinancialObservationRefuse();
@@ -72,9 +73,11 @@ function purepayFinancialObservationMissing(mixed $value,string $path=''): array
 function purepayFinancialObservationValidate(array $data,string $organization,string $kind,string $id): array
 {
     static $schemas;
-    $schemas??=json_decode(file_get_contents(__DIR__.'/contracts/purepay_financial_observations.json'),true,64,JSON_THROW_ON_ERROR);
-    if(!isset($schemas[$kind]) || strlen(purepayFinancialObservationJson($data))>4100000) purepayFinancialObservationRefuse();
-    purepayFinancialObservationSchema($data,$schemas[$kind]);
+    $version=$data['contract_version']??null;
+    if(!is_string($version) || !in_array($version,['2026-10-30.1','2026-10-30.2'],true))purepayFinancialObservationRefuse();
+    $schemas[$version]??=json_decode(file_get_contents(__DIR__.'/contracts/purepay_financial_observations'.($version==='2026-10-30.2'?'_v2':'').'.json'),true,64,JSON_THROW_ON_ERROR);
+    if(!isset($schemas[$version][$kind]) || strlen(purepayFinancialObservationJson($data))>4100000) purepayFinancialObservationRefuse();
+    purepayFinancialObservationSchema($data,$schemas[$version][$kind]);
     if($data['organization_id']!==$organization || $data['document_id']!==$id || $data['document']['id']!==$id
         || !hash_equals($data['observation_hash'],purepayFinancialObservationHash($data)))purepayFinancialObservationRefuse();
     $missing=purepayFinancialObservationMissing($data);$given=$data['unavailable_fields'];sort($missing);sort($given);

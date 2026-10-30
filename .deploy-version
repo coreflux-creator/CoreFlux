@@ -330,9 +330,9 @@ sentinels:
 - tests/staffing_dimensions_smoke.php
 - tests/treasury_dimension_integrity_smoke.php
 expected_bundle:
-- spa-assets/index-XBEQrREE.js
+- spa-assets/index-DH3C0Rjo.js
 - spa-assets/index-CYcM0MSD.css
-- spa-assets/index-BF9YcDTy.js
+- spa-assets/index-5BFHQ8bS.js
 - spa-assets/index-SRkxIh9x.css
 last_known_features:
 - placements.economics.one_time_items

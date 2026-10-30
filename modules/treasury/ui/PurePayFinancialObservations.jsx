@@ -21,6 +21,26 @@ function Rows({ rows, label }) {
   </section>;
 }
 
+function FinancialLines({ rows }) {
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState('');
+  const selected = rows.filter(row => [row.line_id, row.item_id, row.item_name, row.description, row.assignment_id]
+    .some(value => typeof value === 'string' && value.toLowerCase().includes(search.trim().toLowerCase())) || !search.trim());
+  const start = page * 25;
+  return <section aria-label="Source document lines"><h5>Lines ({rows.length})</h5>
+    <p>Item names and descriptions are source labels. They do not establish a Core person, placement or service date. Missing dates remain unknown.</p>
+    <label>Find a source line<input className="input" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="Item, description, assignment or line ID" /></label>
+    <p>{selected.length} of {rows.length} source lines match.</p>
+    {selected.slice(start, start + 25).map((row, index) => <details key={start + index}>
+      <summary>{row.item_name || row.item_id || 'Unlabelled item'} · Line {row.line_id || 'ID unknown'} · Amount {display(row.amount)}</summary>
+      {row.description !== undefined && <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>Source description: {display(row.description)}</p>}
+      <p>Service dates: {display(row.service_start)} → {display(row.service_end)}. Hours: {display(row.hours)}. Bill rate: {display(row.bill_rate)}. Pay rate: {display(row.pay_rate)}.</p>
+      <Facts value={row} />
+    </details>)}
+    {selected.length > 25 && <p>Showing {start + 1}–{Math.min(start + 25, selected.length)} of {selected.length}. <button className="btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous lines</button>{' '}<button className="btn" disabled={start + 25 >= selected.length} onClick={() => setPage(p => p + 1)}>Next lines</button></p>}
+  </section>;
+}
+
 export function PurePayFinancialObservationView({ capture, savedAt }) {
   const source = capture.observation;
   const { line_items: lines, invoice_line_splits: splits, recorded_receipts: receipts, quickbooks_receipts: qboReceipts, ...document } = source.document;
@@ -32,7 +52,7 @@ export function PurePayFinancialObservationView({ capture, savedAt }) {
     <p>{capture.comparison.core_record ? `Selected Core record ${capture.comparison.core_record.number} (#${capture.comparison.core_record.id}), ${capture.comparison.core_record.currency}.` : 'No Core record selected.'} Selecting a record or finding equal amounts does not establish that the records represent the same obligation.</p>
     <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>Provider figure</th><th>Stored value</th><th>Core figure</th><th>Core value</th><th>Provider − Core</th><th>Review</th></tr></thead><tbody>{capture.comparison.amounts.map(row => <tr key={row.provider_field}><td>{title(row.provider_field)}</td><td>{display(row.provider_value)}</td><td>{title(row.core_field)}</td><td>{display(row.core_value)}</td><td>{display(row.difference)}</td><td>{reviewLabels[row.status]}</td></tr>)}</tbody></table></div>
     <details><summary>Document amounts and source references</summary><Facts value={document} /></details>
-    <Rows key={`lines-${source.observation_hash}`} rows={lines} label="Lines" />
+    <FinancialLines key={`lines-${source.observation_hash}`} rows={lines} />
     <Rows key={`split-${source.observation_hash}`} rows={splits} label="Invoice allocations" />
     <p>Payment amounts are in the recorded currency where available. Fields labelled cents retain that unit; gross, net and fees are shown separately.</p>
     <Rows key={`payments-${source.observation_hash}`} rows={source.outgoing_payments} label="Outgoing payments" />
