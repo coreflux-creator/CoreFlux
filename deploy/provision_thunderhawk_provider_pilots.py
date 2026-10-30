@@ -74,7 +74,10 @@ assert db.pilot_bindings.find_one({'_id':'core-provider-pilot-20261029','purpose
 for c in db.list_collection_names():
     if c!='pilot_bindings':assert db[c].count_documents({})==0, 'Pilot must be empty'
 org=source['organization'];org={**org,'name':org['name']+' — isolated pilot',
-    'features':{'payroll':True},'payroll_processing':{'calculation_method':'MANUAL'},
+    'features':{'payroll':True},
+    'payroll':{**(org.get('payroll') or {}),'processing':{
+        **((org.get('payroll') or {}).get('processing') or {}),
+        'calculation':'MANUAL','payments':'RECORD_ONLY'}},
     'pilot_source':{'organization_id':org['id'],'origin':'https://purepay.online','execution_held':True}}
 employee={**source['employee'],'pay_method':'record_only',
     'pilot_source':{'employee_id':source['employee']['id'],'payment_details_excluded':True}}

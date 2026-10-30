@@ -1,3 +1,46 @@
+## October 30 hosted assignment, time approval and held payroll round trip passed
+
+The isolated Thunderhawk copy (Core tenant 2002) now has PL-864 published in
+Quanta and an active native PurePay assignment. Core approved the copied
+commercial terms only in this pilot: USD 98 bill / 65 pay per hour, the stored
+20% employer load, and the source operating cycles and party roles. Production
+rate approval and placement data were unchanged. The missing workers
+compensation class remains visible. The INR 7,500 one-time recruiter commission
+has not been converted into a USD charge or assigned an invented due date.
+
+Quanta recorded eight explicitly synthetic hours on October 19 and submitted
+them through the native admin workflow. A separate test approver approved them.
+Core imported exactly one entry (2, timesheet 3) as pending review, retaining
+the original Quanta timesheet and workspace. Re-importing created no duplicate.
+Core's separate limited test approver (52) approved the entry; self-approval and
+repeat approval were rejected. The temporary Core approver was then retired.
+Quanta received and reconciled both pending-review and accepted return states.
+The worker directory profile is active but has no login identity or invitation.
+
+PurePayroll received the approved source packet and reservation, then created
+one held draft for USD 520.00. Repeating the request returned that same draft;
+an execution attempt was rejected by the isolated environment's hold. Core
+reconciled the original source components and USD 520 gross, retained an
+encrypted result observation (3), and reused it on replay. This uses manual
+calculation: it validates source gross, not taxes, withholding, YTD, filing,
+funding, or real employee payroll. The source time remains unchanged and its
+reservation remains held. No payment, invoice, bill, or financial posting was
+created. Draft: run_core_792fd19f59a1a78e389b3885a4ebbf5d13e2690e223126af839f8378826045ab.
+
+Core also published a three-task sample onboarding checklist and verified
+publication replay. Document/attestation intake and employer review are still
+incomplete. The draft test exposed an unused bootstrap payroll configuration
+field; the pilot bootstrap now uses payroll.processing.calculation=MANUAL and
+payments=RECORD_ONLY. Only the isolated company's configuration was repaired.
+
+Next: complete portal onboarding and document review, validate field ownership
+and conflict/isolation behavior on the current host, refresh JobDiva source,
+and verify the user-facing operational flows. Production deployment remains
+pending; the current Core runtime remains 3d9ca8a. Evidence:
+deploy/thunderhawk-hosted-time-payroll-acceptance-20261030.json.
+
+The dated entries below are earlier checkpoints, not current inventories.
+
 ## October 30 hosted Thunderhawk identity exchange passed
 
 Core staging now contains a separate Thunderhawk isolated pilot (tenant 2002),
