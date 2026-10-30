@@ -16,14 +16,27 @@ authentication and company checks. Evidence: deploy/core-provider-pilot-20261029
 
 Core endpoint admission now recognizes the new origins only in staging. Its
 48 endpoint scenarios passed, including existing-origin review invalidation
-and separation of the payment rail. These source changes still require CI
-and installation before changing the saved Core connections.
+and separation of the payment rail. CI 40976204647 passed for 3d9ca8a3, and
+staging deployment 40976611628 completed with native acceptance on October 30
+at 00:01 UTC (October 29 locally). Independent installed-file hashes match.
+The saved company connections still retain their previous reviewed destinations.
 
 The next step is an explicitly identified Thunderhawk pilot company and source
 packet. Core staging tenant 2 is Beta Industries (Sandbox), not Thunderhawk;
 only tenant 999 currently contains staffing test records. Preserve those demo
 records and their existing links while establishing a separate Thunderhawk
 identity. The actual Thunderhawk round trip remains unproven.
+
+
+A fresh read-only source check verified Alexander's Core person 358, placement
+864 and exact JobDiva source identifiers. PurePay already has employee
+emp_ea232efec736 (Alex Serebriiskii) under org_0369a63ff2cb; normalized email
+comparison matched Core without exposing the address. Preserve that employee
+ID. Quanta workspace 4f93d4e7-af74-4765-b812-3464bb6d974b has zero workers.
+Core's legal entity is now populated; workers compensation class remains blank.
+See deploy/thunderhawk-hosted-source-identities-20261029.json. This check reads
+current stored records and does not certify a fresh JobDiva response or approved
+compensation.
 
 ## October 29 current host integration status
 

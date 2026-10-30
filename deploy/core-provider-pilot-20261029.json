@@ -218,5 +218,18 @@
     "Core staging tenant 2 is Beta Industries (Sandbox); it must not be mistaken for production Thunderhawk tenant 2.",
     "Actual Thunderhawk onboarding, time, held payroll result and reconciliation round trip remains outstanding.",
     "The source package was augmented by reviewed deployment-only mount-target and HTTPS setup files; their hashes are recorded separately."
-  ]
+  ],
+  "core_staging_release": {
+    "commit": "3d9ca8a35d350a1136cccaf81b210571a4dfb9ef",
+    "ci_run": 40976204647,
+    "ci_result": "success",
+    "deployment_run": 40976611628,
+    "deployment_job": 123806105154,
+    "deployment_result": "success",
+    "completed_at": "2026-10-30T00:01:46Z",
+    "native_acceptance_passed": true,
+    "installed_endpoint_sources_independently_match": true,
+    "connection_destinations_changed": false
+  },
+  "source_identity_evidence": "deploy/thunderhawk-hosted-source-identities-20261029.json"
 }
