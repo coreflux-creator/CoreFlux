@@ -1,3 +1,34 @@
+## October 30 browser-created hour completed its held payroll round trip
+
+The actual Quanta worker-browser hour for October 26 completed native Core
+approval, returned Accepted in Core, reached PurePayroll as a held USD 65.00
+draft and reconciled into Core's encrypted result observation 4. Person P-358,
+placement PL-864 and every existing provider identity were preserved. The
+original eight-hour draft and source records stayed unchanged.
+
+Core used a separate synthetic time approver (user 53, membership 39), rejected
+self-approval and duplicate approval, then revoked its access. Recovery verified
+the retired identity without reactivating it; the earlier test approver 52 also
+remains retired. Return delivery 39, payroll input delivery 40 and source
+reservation cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357
+were reconciled. PurePayroll's duplicate request reused the same draft; its
+execution endpoint rejected processing. The synthetic pay date is November 6.
+This is automated test review, not independent human approval or real payroll.
+
+Chrome verified both source hours as Accepted in Core, and the PurePayroll
+operator screen displayed the matching Core IDs, original source entry, frozen
+USD 65/hour rate, USD 65 gross preview and explicit approval/funding hold.
+Quanta frontend 9d828dc also fixes duration entries falsely appearing still open
+and replaces Total paid with Total hours in worker and approver views. Its build
+passed and only isolated static assets were updated; the backend remains 3f0ebd3.
+The worker screenshot confirms the corrected one-hour display.
+
+Core runtime remains 43007a5a. Staff browser acceptance is still pending: Chrome
+blocks the staging hostname before rendering, and the Cloudways sign-in handoff
+remains open. Hosted provider second-company and ownership-conflict tests, source
+WC/commission questions and production publishing remain incomplete.
+Evidence: deploy/thunderhawk-browser-hour-roundtrip-20261030.json.
+
 ## October 30 persistent isolated operational controls verified
 
 Core staging runs 43007a5a (deployment 40993604583), after all nine CI groups

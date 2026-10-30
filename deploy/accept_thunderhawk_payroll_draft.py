@@ -57,8 +57,16 @@ def checkpoint(state):
 
 
 def main():
-    if sys.argv[1:] != ['--create-isolated-held-draft'] or not PRIVATE.is_dir():
+    global INPUT, AUTHORITY, STATE
+    browser_hour = sys.argv[1:] == ['--create-browser-hour-held-draft']
+    if sys.argv[1:] not in (['--create-isolated-held-draft'], ['--create-browser-hour-held-draft']) or not PRIVATE.is_dir():
         raise RuntimeError('Explicit isolated draft argument and private host directory required')
+    expected_gross, expected_hours, pay_date = 520.0, '8.00', '2026-10-30'
+    if browser_hour:
+        INPUT = 'cpi_390401c8dcc2bc7b7e979232c4c294ad6347d42e4a920bd0777dd693572a399b'
+        AUTHORITY = 'cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357'
+        STATE = PRIVATE / 'thunderhawk-browser-hour-payroll-draft-acceptance.json'
+        expected_gross, expected_hours, pay_date = 65.0, '1.00', '2026-11-06'
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
     report = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'organization_id': ORG, 'input_id': INPUT, 'authority_id': AUTHORITY,
@@ -66,7 +74,13 @@ def main():
     phase = 'guard'
     try:
         before = check_records()
-        assert len(before['runs']) <= 1
+        assert len(before['runs']) <= 2
+        allowed_authorities = {
+            'cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961',
+            'cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357',
+        }
+        assert all(run['status'] == 'draft' and run['core_execution_hold'] is True
+            and run['core_allocation']['authority_id'] in allowed_authorities for run in before['runs'])
         assert all(v == 0 for v in before['counts'].values())
         plan = json.loads((PRIVATE / 'thunderhawk-bootstrap-plan.private.json').read_text())
         phase = 'native_login'
@@ -77,13 +91,13 @@ def main():
         base = f'/payroll/core-inputs/{INPUT}'
         phase = 'draft_review'
         if 'request' not in state:
-            options = {'authority_id': AUTHORITY, 'pay_date': '2026-10-30', 'pay_group_id': None}
+            options = {'authority_id': AUTHORITY, 'pay_date': pay_date, 'pay_group_id': None}
             status, review = request(base + '/draft-review', token, options)
             if status != 200:
                 state['private_error'] = review
                 raise RuntimeError(f'Draft review HTTP {status}; details retained privately')
             assert review['execution_enabled'] is False and review['payroll_created'] is False
-            assert float(review['totals']['gross']) == 520.0
+            assert float(review['totals']['gross']) == expected_gross
             state['request'] = {**options, 'review_hash': review['review_hash']}
             state['request_key'] = review['request_key']
             state['expected_run_id'] = review['run_id']
@@ -102,13 +116,19 @@ def main():
         assert status == 409 and denied.get('code') == 'isolated_pilot_operation_held'
         phase = 'readback'
         after = check_records()
-        assert len(after['runs']) == 1 and after['counts'] == before['counts']
-        run = after['runs'][0]
+        assert after['counts'] == before['counts']
+        other_before = {run['id']: run for run in before['runs'] if run['id'] != draft['run_id']}
+        other_after = {run['id']: run for run in after['runs'] if run['id'] != draft['run_id']}
+        assert other_after == other_before
+        selected = [run for run in after['runs'] if run['id'] == draft['run_id']]
+        assert len(selected) == 1
+        run = selected[0]
         assert run['id'] == draft['run_id'] and run['status'] == 'draft'
         assert run['core_execution_hold'] is True and run['core_allocation_ready'] is True
-        assert float(run['totals']['gross']) == 520.0 and run['core_allocation']['authority_id'] == AUTHORITY
-        report.update({'passed': True, 'run_id': run['id'], 'status': 'draft', 'gross': '520.00',
-            'hours': '8.00', 'pay_rate': '65.0000', 'currency': 'USD', 'execution_hold': True,
+        assert float(run['totals']['gross']) == expected_gross and run['core_allocation']['authority_id'] == AUTHORITY
+        report.update({'passed': True, 'run_id': run['id'], 'status': 'draft', 'gross': f'{expected_gross:.2f}',
+            'hours': expected_hours, 'pay_rate': '65.0000', 'currency': 'USD', 'execution_hold': True,
+            'pay_date': pay_date, 'prior_drafts_unchanged': True,
             'duplicate_request_same_draft': True, 'execution_rejected': True,
             'payments_bills_invoices_unchanged': True})
         state.pop('private_error', None)

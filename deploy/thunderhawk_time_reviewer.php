@@ -6,13 +6,24 @@ const THUNDERHAWK_REVIEWER_EMAIL = 'thunderhawk-time-reviewer-20261030@example.i
 const THUNDERHAWK_REVIEWER_NAME = 'Thunderhawk Pilot Test Approver';
 const THUNDERHAWK_REVIEWER_MARKER = 'synthetic_time_reviewer_20261030';
 
-function thunderhawkTimeReviewerVerify(PDO $pdo, int $id): array
+function thunderhawkTimeReviewerIdentity(string $case): array
 {
+    return match($case){
+        'initial'=>['email'=>THUNDERHAWK_REVIEWER_EMAIL,'name'=>THUNDERHAWK_REVIEWER_NAME,'marker'=>THUNDERHAWK_REVIEWER_MARKER],
+        'browser-hour'=>['email'=>'thunderhawk-browser-hour-reviewer-20261030@example.invalid',
+            'name'=>'Thunderhawk Browser Hour Test Approver','marker'=>'synthetic_browser_hour_reviewer_20261030'],
+        default=>throw new RuntimeException('Unknown isolated reviewer case'),
+    };
+}
+
+function thunderhawkTimeReviewerVerify(PDO $pdo, int $id,string $case='initial'): array
+{
+    $identity=thunderhawkTimeReviewerIdentity($case);
     RBACResolver::resetCache();
     $st=$pdo->prepare('SELECT id,tenant_id,name,email,role,is_active,is_global_admin,password,password_hash FROM users WHERE id=?');
     $st->execute([$id]);$user=$st->fetch(PDO::FETCH_ASSOC);
-    if (!$user || $id===4 || (int)$user['tenant_id']!==2002 || $user['email']!==THUNDERHAWK_REVIEWER_EMAIL
-        || $user['name']!==THUNDERHAWK_REVIEWER_NAME || $user['role']!=='manager'
+    if (!$user || $id===4 || (int)$user['tenant_id']!==2002 || $user['email']!==$identity['email']
+        || $user['name']!==$identity['name'] || $user['role']!=='manager'
         || (int)$user['is_active']!==1 || (int)$user['is_global_admin']!==0
         || !is_string($user['password_hash']) || ($user['password_hash']!==$user['password'])
         || (password_get_info($user['password_hash'])['algoName']??'unknown')==='unknown') {
@@ -51,17 +62,18 @@ function thunderhawkTimeReviewerVerify(PDO $pdo, int $id): array
         if (RBAC::hasPermission($user,$permission)) throw new RuntimeException('Unexpected legacy execution permission');
     }
     $st=$pdo->prepare('SELECT detail FROM membership_audit WHERE tenant_id=2002 AND membership_id=? AND target_user_id=? AND actor_user_id=4 AND action=?');
-    $st->execute([$mid,$id,THUNDERHAWK_REVIEWER_MARKER]);$audits=$st->fetchAll(PDO::FETCH_COLUMN);
+    $st->execute([$mid,$id,$identity['marker']]);$audits=$st->fetchAll(PDO::FETCH_COLUMN);
     if (count($audits)!==1 || (json_decode($audits[0],true)['scope']??null)!=='synthetic_time_review_only') {
         throw new RuntimeException('Synthetic reviewer audit receipt missing');
     }
-    return ['user_id'=>$id,'membership_id'=>$mid,'display_name'=>THUNDERHAWK_REVIEWER_NAME,
+    return ['user_id'=>$id,'membership_id'=>$mid,'display_name'=>$identity['name'],
         'tenant_id'=>2002,'time_review_allowed_in_both_models'=>true,'other_modules_denied'=>true,
         'global_admin'=>false,'other_active_tenant_memberships'=>0,'audit_verified'=>true];
 }
 
-function thunderhawkTimeReviewerProvision(PDO $pdo): array
+function thunderhawkTimeReviewerProvision(PDO $pdo,string $case='initial'): array
 {
+    $identity=thunderhawkTimeReviewerIdentity($case);
     if ($pdo!==getDB() || $pdo->inTransaction()) throw new RuntimeException('Dedicated native connection required');
     $locked=false;
     try {
@@ -72,7 +84,7 @@ function thunderhawkTimeReviewerProvision(PDO $pdo): array
             || !$pdo->query("SELECT id FROM users WHERE id=4 AND email='stage-admin@coreflux.test' AND is_active=1")->fetchColumn()) {
             throw new RuntimeException('Simulation workspace or operator differs');
         }
-        $st=$pdo->prepare('SELECT id FROM users WHERE email=? FOR UPDATE');$st->execute([THUNDERHAWK_REVIEWER_EMAIL]);
+        $st=$pdo->prepare('SELECT id FROM users WHERE email=? FOR UPDATE');$st->execute([$identity['email']]);
         $ids=$st->fetchAll(PDO::FETCH_COLUMN);
         if (count($ids)>1) throw new RuntimeException('Ambiguous reviewer identity');
         $created=count($ids)===0;
@@ -81,17 +93,17 @@ function thunderhawkTimeReviewerProvision(PDO $pdo): array
             // This is not a claim that all passwordless/SSO login paths are disabled.
             $hash=password_hash(bin2hex(random_bytes(48)),PASSWORD_DEFAULT);
             $pdo->prepare('INSERT INTO users (tenant_id,name,email,password,password_hash,role,is_active,is_global_admin,created_at)
-                VALUES (2002,?,?,?, ?,"manager",1,0,NOW())')->execute([THUNDERHAWK_REVIEWER_NAME,THUNDERHAWK_REVIEWER_EMAIL,$hash,$hash]);
+                VALUES (2002,?,?,?, ?,"manager",1,0,NOW())')->execute([$identity['name'],$identity['email'],$hash,$hash]);
             unset($hash);$id=(int)$pdo->lastInsertId();
             $m=provisionMembership($id,2002,'manager',['is_primary'=>true,'persona_label'=>'Pilot time reviewer','status'=>'active']);
             RBACResolver::grantModule((int)$m['membership_id'],'time','admin',[2002],4);
             // Unlike the native best-effort audits, this receipt is mandatory and transactional.
             $pdo->prepare('INSERT INTO membership_audit (tenant_id,membership_id,action,actor_user_id,target_user_id,detail)
-                VALUES (2002,?,?,4,?,?)')->execute([(int)$m['membership_id'],THUNDERHAWK_REVIEWER_MARKER,$id,
+                VALUES (2002,?,?,4,?,?)')->execute([(int)$m['membership_id'],$identity['marker'],$id,
                     json_encode(['scope'=>'synthetic_time_review_only','automation_test'=>true,
                         'independent_human_review'=>false,'credentials_issued'=>false,'invitation_sent'=>false],JSON_THROW_ON_ERROR)]);
         } else $id=(int)$ids[0];
-        $report=thunderhawkTimeReviewerVerify($pdo,$id);
+        $report=thunderhawkTimeReviewerVerify($pdo,$id,$case);
         $pdo->commit();return $report+['created'=>$created,'credentials_issued'=>false,'invitation_sent'=>false];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -102,13 +114,13 @@ function thunderhawkTimeReviewerProvision(PDO $pdo): array
 }
 
 /** Retire only this verified temporary principal after the caller has reconciled the synthetic review. */
-function thunderhawkTimeReviewerRetire(PDO $pdo,int $id): array
+function thunderhawkTimeReviewerRetire(PDO $pdo,int $id,string $case='initial'): array
 {
     if($pdo!==getDB()||$pdo->inTransaction())throw new RuntimeException('Dedicated native connection required');
     $pdo->beginTransaction();
     try {
         $st=$pdo->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');$st->execute([$id]);
-        $verified=thunderhawkTimeReviewerVerify($pdo,$id);$mid=$verified['membership_id'];
+        $verified=thunderhawkTimeReviewerVerify($pdo,$id,$case);$mid=$verified['membership_id'];
         RBACResolver::revokeModule($mid,'time',4);
         if(deactivateMembership($id,2002)!==1)throw new RuntimeException('Unexpected membership retirement');
         $pdo->prepare('UPDATE users SET is_active=0 WHERE id=? AND tenant_id=2002 AND is_active=1')->execute([$id]);
@@ -125,11 +137,12 @@ function thunderhawkTimeReviewerRetire(PDO $pdo,int $id): array
 }
 
 /** Read-only terminal-state verification; never repair or reactivate this account. */
-function thunderhawkTimeReviewerVerifyRetired(PDO $pdo,int $id): array
+function thunderhawkTimeReviewerVerifyRetired(PDO $pdo,int $id,string $case='initial'): array
 {
+    $identity=thunderhawkTimeReviewerIdentity($case);
     $st=$pdo->prepare('SELECT tenant_id,email,name,role,is_active,is_global_admin FROM users WHERE id=?');$st->execute([$id]);
     $u=$st->fetch(PDO::FETCH_ASSOC);
-    if(!$u||$id===4||(int)$u['tenant_id']!==2002||$u['email']!==THUNDERHAWK_REVIEWER_EMAIL||$u['name']!==THUNDERHAWK_REVIEWER_NAME
+    if(!$u||$id===4||(int)$u['tenant_id']!==2002||$u['email']!==$identity['email']||$u['name']!==$identity['name']
         ||$u['role']!=='manager'||(int)$u['is_active']!==0||(int)$u['is_global_admin']!==0)throw new RuntimeException('Retired reviewer identity differs');
     // tenant-leak-allow: inspect only the verified reserved test identity to reject any foreign membership, including inactive ones.
     $st=$pdo->prepare('SELECT id,tenant_id,status,persona_type,persona_label FROM tenant_memberships WHERE user_id=?');$st->execute([$id]);
