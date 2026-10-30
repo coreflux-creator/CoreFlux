@@ -53,6 +53,13 @@ person/placement nor grants portal access, checks payroll setup or authorizes a
 payroll run. The existing workflow engine handles multi-step financial approvals;
 these per-task evidence revisions and case history are not financial approvals.
 
+Quanta submission request IDs use Quanta's canonical UUID representation,
+including deterministic UUIDs. Core retains that exact request ID in the
+authenticated receipt and checks its worker/publication-bound receipt hash.
+This does not relax the separate UUIDv4 constraints for native Core case,
+task, and command IDs. Reusing a submission request with different evidence
+conflicts; imported receipts retain their existing local retry identity.
+
 Cases belong to the operating tenant independently of their People and Placement
 directory owners. Every operation re-resolves those owners and checks the current
 person/placement relationship. UUIDs identify cases, tasks and retry requests;

@@ -87,7 +87,13 @@ function quantaOnboardingSubmissionValidate(array $case,array $publication,array
         ||$case['source_changed']||$case['confirmed_plan_version']!==$case['plan_version']
         ||!$task||$task['version']!==$receipt['task_version']||$task['assignee']!=='worker'||$task['evidence_kind']!==$kind
         ||!in_array($task['effective_state'],['requested','rejected','needs_review','expired','evidence_unavailable'],true))throw new OnboardingConflict('Quanta evidence is stale or belongs to a different worker or requirement');
-    onboardingId($receipt['request_id']);onboardingId($receipt['task_id']);
+    // This is Quanta's canonical UUID idempotency key, not a Core case/task ID.
+    // Its UUID version carries no authority; the receipt hash below binds it to
+    // the authenticated worker and publication. Quanta also accepts v5/v7 keys.
+    if(!is_string($receipt['request_id'])
+        ||!preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$receipt['request_id']))
+        throw new OnboardingConflict('Invalid provider submission request identifier');
+    onboardingId($receipt['task_id']);
     foreach(['request_hash','projection_hash','source_revision']as$key)if(!is_string($receipt[$key])||!preg_match('/^[a-f0-9]{64}$/D',$receipt[$key]))throw new OnboardingConflict('Invalid evidence revision');
     $expectedId='cfs_'.onboardingHash([$publication['id'],$workerId,$receipt['request_id']]);
     if($receipt['id']!==$expectedId||!is_string($receipt['submitted_at'])

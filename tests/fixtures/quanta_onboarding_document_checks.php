@@ -39,7 +39,7 @@ $GLOBALS['__quanta_document_transport']=static function($method,$url,$headers,$b
 $newDocReceipt=static function()use(&$docReceipt,&$docDelivery,&$docTask,$docScope,$qId,$docHead,&$qRemote,$docBytes,$docView){
     $p=quantaOnboardingPreview($docScope,$qId,'published',$docHead);
     if($p['status']!=='unchanged')$docDelivery=(int)quantaOnboardingSend($docScope,$qId,(int)$p['delivery']['id'],$p['delivery']['review_hash'],$docHead)['id'];
-    $request=onboardingUuid();$publication=$qRemote['publication'];
+    $request=substr_replace(onboardingUuid(),'7',14,1);$publication=$qRemote['publication'];
     $task=array_values(array_filter($publication['tasks'],static fn($t)=>$t['id']===$docTask))[0];
     $docReceipt=['id'=>'cfs_'.onboardingHash([$qRemote['id'],'worker-2',$request]),'request_id'=>$request,'request_hash'=>str_repeat('d',64),
         'worker_id'=>'worker-2','identity_id'=>'identity-2','case_id'=>$qRemote['id'],'core_case_id'=>$qId,'core_version'=>$publication['core_version'],

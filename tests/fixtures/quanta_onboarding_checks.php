@@ -64,7 +64,7 @@ $check($sent['state']==='delivered'&&$sent['remote_receipt_id']!==null,'publicat
 $check($qSend($p)['state']==='delivered'&&$qWrites===1,'replayed publication does not resend');
 $check($qPreview()['status']==='unchanged','identical publication is unchanged');
 $check($qView()['readiness']==='incomplete','publication cannot approve an employer requirement');
-$makeReceipt=static function()use(&$qRemote,$qTask){$request=onboardingUuid();$p=$qRemote['publication'];$task=array_values(array_filter($p['tasks'],static fn($t)=>$t['id']===$qTask))[0];return [
+$makeReceipt=static function()use(&$qRemote,$qTask){$request=substr_replace(onboardingUuid(),'5',14,1);$p=$qRemote['publication'];$task=array_values(array_filter($p['tasks'],static fn($t)=>$t['id']===$qTask))[0];return [
     'id'=>'cfs_'.onboardingHash([$qRemote['id'],'worker-2',$request]),'request_id'=>$request,'request_hash'=>str_repeat('a',64),
     'worker_id'=>'worker-2','identity_id'=>'identity-2','case_id'=>$qRemote['id'],'core_case_id'=>$p['core_case_id'],'core_version'=>$p['core_version'],
     'source_revision'=>$p['source_revision'],'projection_hash'=>$qRemote['projection_hash'],'task_id'=>$qTask,'task_version'=>$task['version'],

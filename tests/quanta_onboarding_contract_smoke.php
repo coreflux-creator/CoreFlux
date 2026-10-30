@@ -29,6 +29,19 @@ $request=onboardingUuid();$receipt=['id'=>'cfs_'.onboardingHash([$record['id'],'
     'task_version'=>1,'kind'=>'attestation','acknowledged'=>true,'submitted_at'=>'2026-10-22T23:00:00.123456+00:00','status'=>'awaiting_core_review'];
 $validate=static fn($c,$r,$p=null)=>quantaOnboardingSubmissionValidate($c,$p??$record,$r,'worker-1',$instance,'a');
 $check($validate($case,$receipt)===$receipt,'authenticated matching receipt validates without granting approval');
+// Quanta's UUID request field is canonicalized by Pydantic, without a v4-only constraint.
+foreach(['5f3a8450-956d-5c5f-970f-91fb70a61973','019a30c0-0000-7000-8000-000000000001'] as $providerRequest) {
+    $providerReceipt=array_replace($receipt,['request_id'=>$providerRequest,
+        'id'=>'cfs_'.onboardingHash([$record['id'],'worker-1',$providerRequest])]);
+    $check($validate($case,$providerReceipt)===$providerReceipt,'provider UUID request survives without changing case or task identity');
+    $fails(fn()=>$validate($case,array_replace($receipt,['request_id'=>$providerRequest])),
+        'provider request change still requires its matching bound receipt identity');
+}
+foreach(['','not-a-uuid','5f3a8450-956d-5c5f-970f-91fb70a61973/other',
+    '5F3A8450-956D-5C5F-970F-91FB70A61973',null,[]] as $invalidRequest)
+    $fails(fn()=>$validate($case,array_replace($receipt,['request_id'=>$invalidRequest])),
+        'noncanonical provider request identifier rejected');
+$fails(fn()=>onboardingId('5f3a8450-956d-5c5f-970f-91fb70a61973'),'native Core case and task identifiers remain v4');
 foreach([['worker_id'=>'worker-2'],['identity_id'=>''],['task_version'=>2],['kind'=>'document'],['acknowledged'=>1],['status'=>'approved'],
     ['submitted_at'=>'2026-02-30T00:00:00+00:00'],['decision'=>'approve']]as$change)
     $fails(fn()=>$validate($case,array_replace($receipt,$change)),'spoofed, stale or unsupported evidence rejected');
