@@ -12,7 +12,7 @@ jobs:
   maintenance-http:
     name: Full-Core maintenance Apache rehearsal
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -25,6 +25,8 @@ jobs:
           bash tests/full_core_maintenance_apache.sh
       - name: Rehearse native scheduler pause and process-loss recovery in an isolated container
         run: bash tests/full_core_maintenance_host_linux.sh
+      - name: Verify guarded status, finishing-request drain and Core-only cache refresh
+        run: bash tests/full_core_maintenance_channel_http.sh
 
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).

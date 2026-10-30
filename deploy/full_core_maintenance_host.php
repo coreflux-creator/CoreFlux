@@ -235,7 +235,8 @@ final class FullCoreMaintenanceHost
     }
 
     /** Deliberately leaves recovery material/any installed hold on error. The release adapter decides recovery. */
-    public function pause(string $operation, array $expectedWeb, string $expectedCronHash, array $review): array
+    public function pause(string $operation, array $expectedWeb, string $expectedCronHash, array $review,
+        ?string $diagnosticPath = null): array
     {
         $this->assertWeb($expectedWeb);
         $original = file_get_contents($this->root . '/.htaccess');
@@ -245,10 +246,11 @@ final class FullCoreMaintenanceHost
         $plan = fullCoreMaintenanceCron($cron, $expectedCronHash, $this->root, $review, $operation);
         $private = $this->operationPath($operation);
         if (file_exists($private) || is_link($private) || !mkdir($private, 0700)) throw new RuntimeException('New operation required; recover existing maintenance explicitly.');
-        $held = fullCoreMaintenanceWebRule($operation);
+        $held = fullCoreMaintenanceWebRule($operation, $diagnosticPath);
         $receipt = ['version' => 1, 'operation' => $operation, 'root' => $this->root, 'cli_uid' => posix_geteuid(),
             'original_web' => $expectedWeb, 'held_web_sha256' => hash('sha256', $held),
             'original_cron_sha256' => $expectedCronHash, 'held_cron_sha256' => $plan['held_sha256'],
+            'diagnostic_path' => $diagnosticPath,
             'review' => $review, 'paused_jobs' => $plan['paused_jobs'], 'retained_jobs' => $plan['retained_jobs']];
         $this->privateWrite($private . '/original.htaccess', $original);
         $this->privateWrite($private . '/original.crontab', $cron);
@@ -274,7 +276,7 @@ final class FullCoreMaintenanceHost
             throw new RuntimeException('Recovery operation identity differs.');
         }
         fullCoreMaintenanceDigest($this->privateRead($private . '/original.htaccess'), $receipt['original_web']['sha256']);
-        fullCoreMaintenanceDigest(fullCoreMaintenanceWebRule($operation), $receipt['held_web_sha256']);
+        fullCoreMaintenanceDigest(fullCoreMaintenanceWebRule($operation, $receipt['diagnostic_path'] ?? null), $receipt['held_web_sha256']);
         $plan = fullCoreMaintenanceCron($this->privateRead($private . '/original.crontab'),
             $receipt['original_cron_sha256'], $this->root, $receipt['review'], $operation);
         fullCoreMaintenanceDigest($plan['held_bytes'], $receipt['held_cron_sha256']);

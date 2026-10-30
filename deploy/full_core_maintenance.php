@@ -18,13 +18,26 @@ function fullCoreMaintenanceCrontabAbsent(int $exit, string $output, string $dia
 }
 
 /** The original file belongs in a private recovery receipt, never in this public replacement. */
-function fullCoreMaintenanceWebRule(string $operation): string
+function fullCoreMaintenanceWebRule(string $operation, ?string $diagnosticPath = null): string
 {
     if (!preg_match('/^[a-f0-9]{32}$/D', $operation)) throw new RuntimeException('Invalid maintenance operation.');
+    $channel = '';
+    if ($diagnosticPath !== null) {
+        if (!preg_match('/^core-maintenance-' . $operation . '-[a-f0-9]{32}\\.php$/D', $diagnosticPath)) {
+            throw new RuntimeException('Invalid operation-bound diagnostic path.');
+        }
+        $pattern = str_replace('.', '\\.', $diagnosticPath);
+        // Only the inert diagnostic script is exempt. Its own authentication, exact path and
+        // hold checks remain mandatory. END prevents descendant/front-controller rewrites.
+        $channel = "RewriteCond %{REQUEST_METHOD} =POST\n"
+            . "RewriteCond %{REQUEST_URI} ^/$pattern$\nRewriteCond %{QUERY_STRING} ^$\n"
+            . "RewriteRule ^$pattern$ - [END]\n";
+    }
     // InheritDownBefore covers the API and dashboard's own per-directory rewrite rules.
     // No IfModule around mod_rewrite: missing support must fail closed, not expose the app.
     return "# CoreFlux maintenance $operation\n"
         . "Options -Indexes\nRewriteEngine On\nRewriteOptions InheritDownBefore\n"
+        . $channel
         . "RewriteRule ^ - [R=503,L]\n"
         . "ErrorDocument 503 \"CoreFlux is temporarily unavailable for maintenance. Please try again shortly.\"\n"
         . "<IfModule mod_headers.c>\nHeader always set Retry-After \"300\"\n"
