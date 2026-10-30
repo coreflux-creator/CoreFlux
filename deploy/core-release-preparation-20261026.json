@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-26",
+  "candidate_commit": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+  "source_preflight_run": 40346520387,
+  "review_scope": "Exact nine known divergent source files; not a complete production acceptance or activation authorization",
+  "reviewed_files": [
+    {
+      "path": "core/config.php",
+      "git_blob": "296510537cedf7c66433479e922cd636023be9de",
+      "normalized_git_blob": "296510537cedf7c66433479e922cd636023be9de",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "455c6be62157ae4c64855a0ef49687c64e80856a",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "2c1892a1fc1778b464c50fee29f70ca16f172e89",
+      "disposition": "replace_after_private_settings_verification",
+      "review": "Candidate removes inline connection settings and supports private configuration. Candidate-bound CLI and PHP-FPM connection probes passed with the existing settings; the production config is unchanged."
+    },
+    {
+      "path": "core/migrations/007_subtenant_provisioning.sql",
+      "git_blob": "9d2477212bf669aec2d5be613ede9e22a4517dbb",
+      "normalized_git_blob": "9d2477212bf669aec2d5be613ede9e22a4517dbb",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "3beeef22c339b0c3229270c99d465b8c6ede62f1",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "2d63c32c6ff20f11241f9da7affbc43217ca78f6",
+      "disposition": "retain_deployed_migration",
+      "review": "Deployed bytes match FULL_CORE_RETAINED_MIGRATION_BLOBS; preserve successful history rather than reapply the changed historical migration."
+    },
+    {
+      "path": "core/migrations/041_csv_mapping_presets.sql",
+      "git_blob": "8f8a853bc225dd2a96391c0fb6d0e7c16a2e4bdc",
+      "normalized_git_blob": "8f8a853bc225dd2a96391c0fb6d0e7c16a2e4bdc",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "d46216adad1f204743af0dcb7e01e50820c83b71",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "adb0b10eb20f410f6f024ad095bf6d200cbc2efc",
+      "disposition": "retain_deployed_migration",
+      "review": "Deployed bytes match FULL_CORE_RETAINED_MIGRATION_BLOBS; preserve successful history rather than reapply the changed historical migration."
+    },
+    {
+      "path": "core/migrations/043_simulation_harness.sql",
+      "git_blob": "09515e5b299f867e6b120009a5e3982690e082ca",
+      "normalized_git_blob": "09515e5b299f867e6b120009a5e3982690e082ca",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "f2480fcbfc85d6653c8edfdf862bf08df77b7678",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "acd4755cc13b4e183577741b58d74db6aa499df5",
+      "disposition": "retain_deployed_migration",
+      "review": "Deployed bytes match FULL_CORE_RETAINED_MIGRATION_BLOBS; preserve successful history rather than reapply the changed historical migration."
+    },
+    {
+      "path": "modules/people/lib/companies.php",
+      "git_blob": "90967191c03f82a2c8843834110db37ca2d5d8fa",
+      "normalized_git_blob": "90967191c03f82a2c8843834110db37ca2d5d8fa",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "eed257c27f1d6c18fd83524da8e2973f37d52cad",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "fbabe362289ec7e05746e58f9424c0e70ae45722",
+      "disposition": "candidate_preserves_live_fix",
+      "review": "The blank-country fix remains. Candidate adds company-directory ownership and stable record numbers. Twenty-one client-save assertions cover default/preserved country, parent/private catalogs and reuse."
+    },
+    {
+      "path": "modules/placements/api/economics.php",
+      "git_blob": "4775d5ba7aba0ce8caec445fcf756b0358f09713",
+      "normalized_git_blob": "4775d5ba7aba0ce8caec445fcf756b0358f09713",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "e0c43a124a133d29f2a9013765e2a89dd277bc83",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "20f8179a0d77a15662fd57d9b2c0aaa84e03b419",
+      "disposition": "intentional_directory_alignment",
+      "review": "Three call sites resolve the company directory and pass the authenticated workspace to vendor linking. The live economic-party workflow remains."
+    },
+    {
+      "path": "modules/placements/api/placements.php",
+      "git_blob": "5bc84c71e1b99b04dcdf6944f9c6423cbc2b6824",
+      "normalized_git_blob": "5bc84c71e1b99b04dcdf6944f9c6423cbc2b6824",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "f58bd18bdf80600d7704dd35283469dd27cbb285",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "fbabe362289ec7e05746e58f9424c0e70ae45722",
+      "disposition": "intentional_role_alignment",
+      "review": "Candidate preserves existing input guards and replaces end-client-as-debtor coupling with independent bill-to/end-client resolution; city normalization and directory ownership are added."
+    },
+    {
+      "path": "modules/placements/lib/economics.php",
+      "git_blob": "0757876c1b462785b82fee0c07d9df26f167174e",
+      "normalized_git_blob": "0757876c1b462785b82fee0c07d9df26f167174e",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "bba2373520f73563f5dcccbad4cc04c27429fee1",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "20f8179a0d77a15662fd57d9b2c0aaa84e03b419",
+      "disposition": "intentional_economic_identity_alignment",
+      "review": "Candidate keeps live graph functionality, separates debtor and work recipient, refuses ambiguous vendor identity, protects manually managed parties and overrides, and rolls back partial reconciliation. Existing approved contract snapshots are not rewritten by this review."
+    },
+    {
+      "path": "session.php",
+      "git_blob": "098d9312e390785535cf3ba5ec8503507041e8e1",
+      "normalized_git_blob": "098d9312e390785535cf3ba5ec8503507041e8e1",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "1b418d599dd767a9dd32710fff427e6e746ad0b9",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "16fdca770877c1fab302e05e70ca3230cc57e9fb",
+      "disposition": "candidate_preserves_live_behavior",
+      "review": "Live module-refresh behavior remains. Candidate adds tenant-pinned access resolution and isolates standalone accounting menus. Eleven tab-pinning smoke assertions pass."
+    }
+  ],
+  "upgrade_parser": {
+    "previous_pending_count": 60,
+    "current_pending_count": 77,
+    "added_coverage": 17,
+    "assertions": 99,
+    "statements": 729,
+    "scope": "SQL parser and exact pending-byte verification only; not execution against a production clone"
+  },
+  "private_settings": {
+    "candidate_commit": "e5521a4fb04d89f88fabc80852d4c25a6ceaccc9",
+    "prepared": true,
+    "settings_preserved": true,
+    "cli_read_only_database_probe": true,
+    "php_fpm_read_only_database_probe": true,
+    "temporary_probe_removed": true,
+    "live_config_unchanged": true,
+    "reported_controls": 11,
+    "reported_controls_disabled": true,
+    "limitation": "No worker process environment or all-writer maintenance proof is implied by CLI and PHP-FPM checks.",
+    "run_id": 40351607472,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40351607472",
+    "conclusion": "success"
+  },
+  "hosting_check": {
+    "checked_at": "2026-10-26T15:28:16+00:00",
+    "ssh_uid": 1003,
+    "web_file_owner_uid": 1004,
+    "web_file_owner": "grcudkpvcd",
+    "web_file_group": 33,
+    "representative_mode": "0664",
+    "can_act_as_web_file_owner": false,
+    "production_changed": false
+  },
+  "support": {
+    "request_prepared": true,
+    "user_authorized_advice_only": true,
+    "sent": true,
+    "ticket_id": 999748,
+    "url": "https://tickets.cloudways.com/hc/en-us/requests/999748",
+    "status": "Open",
+    "confirmed_at": "2026-10-26T15:46:00Z",
+    "scope": "Advice only; no permission reset, ownership change, access grant, service pause, data change or deployment requested.",
+    "confirmation_screenshot": "output/core-release-preparation-20261026/cloudways-ticket-999748.png",
+    "human_followup_sent": true,
+    "human_followup_confirmed_at": "2026-10-26T15:53:00Z",
+    "automated_reply_established_supported_owner_procedure": false,
+    "human_response_pending": true
+  },
+  "activation_authorized": false,
+  "production_migrations_run": false,
+  "remaining": [
+    "Owner-preserving deployment/recovery and complete scheduler control",
+    "Candidate-bound matching backup and tested recovery with writers held",
+    "Matching PurePay customer interface and hosted acceptance",
+    "Actual Thunderhawk operational round trip and explicit cutover authorization"
+  ],
+  "release_check_commit": "e5521a4fb04d89f88fabc80852d4c25a6ceaccc9",
+  "ci": {
+    "run_id": 40351079908,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40351079908",
+    "conclusion": "success",
+    "jobs_passed": 9,
+    "private_settings_checks": 37
+  }
+}

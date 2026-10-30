@@ -8,16 +8,17 @@ import React, { useState } from 'react';
  * imports (placement_id / person_id columns) instead of relying on
  * email lookups — eliminates the typo + hidden-Unicode bug class.
  *
+ * `number` displays the persisted Core business reference when supplied.
  * Optional `prefix` is presentational only (PL-1042 reads better than
  * a bare 1042 in a busy table). The clipboard always copies the bare
  * integer so the CSV cell stays clean.
  *
  * data-testid: id-badge-{prefix?}-{id}
  */
-export default function IdBadge({ id, prefix, title }) {
+export default function IdBadge({ id, prefix, number, title }) {
   const [copied, setCopied] = useState(false);
   if (id == null) return <span style={{ color: '#94a3b8' }}>—</span>;
-  const display = prefix ? `${prefix}-${id}` : String(id);
+  const display = number || (prefix ? `${prefix}-${id}` : String(id));
   const testid = prefix ? `id-badge-${prefix.toLowerCase()}-${id}` : `id-badge-${id}`;
   const handleCopy = async (e) => {
     e.preventDefault();

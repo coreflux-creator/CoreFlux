@@ -63,16 +63,15 @@ $assert('projector documents shallow customer id as unsafe company identity',
 $assert('projector still plucks customer/company names from V2 BI key shapes',
     strpos($projector, "'customerName', 'customer_name', 'customer name'") !== false
     && strpos($projector, "'clientName', 'client_name', 'client name'") !== false);
-$assert('projector only binds trusted jobdiva_customer identities',
-    strpos($projector, '$trustedCustomerExtId = jobdivaProjectorTrustedCustomerCompanyExternalId($payload);') !== false
-    && strpos($projector, "\$bind('jobdiva_customer', \$trustedCustomerExtId") !== false);
+$assert('projector binds explicit recipient IDs and not generic customer aliases',
+    str_contains($projector, "\$bind('company', \$endClientEvidence['external_id']")
+    && !str_contains($projector, "\$bind('jobdiva_customer'"));
 
 echo "\njobdivaResolveOrAutoCreateEndClient — dedupe + bind\n";
 $assert('case-insensitive name lookup before auto-create (avoid dupes)',
     strpos($sync, 'WHERE tenant_id = :t AND LOWER(name) = LOWER(:n) AND deleted_at IS NULL') !== false);
-$assert('mapping collisions are logged but do not abort end-client resolution',
-    strpos($sync, '[jobdiva end-client resolver] customer mapping bind skipped') !== false
-    && strpos($projector, '[jobdiva projector] end-client mapping bind skipped') !== false);
+$assert('provider company identity conflicts stop automatic reassignment',
+    str_contains($projector, 'Company already has a different provider identity; no mapping was changed.'));
 $assert('auto-creates with name-only (operator enriches later)',
     strpos($sync, "'INSERT INTO companies (tenant_id, name) VALUES (:t, :n)'") !== false);
 $assert('legacy helper still attempts a trusted mapping bind after auto-create',

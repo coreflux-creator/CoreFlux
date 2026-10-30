@@ -4,8 +4,8 @@
  *
  *   GET                → list all active deposit accounts (bank + cash) with
  *                         current GL balance and last feed sync.
- *   POST               → create a new deposit account (proxies accounting's
- *                         bank_accounts create path so we don't duplicate logic).
+ *   POST               → create a new deposit account with the same cash-ledger
+ *                         validation as Accounting bank setup.
  *
  * "Deposit account" = any GL account in the `accounting_bank_accounts`
  * table (checking / savings / cash-on-hand) plus ad-hoc asset-type COA
@@ -16,46 +16,18 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
+require_once __DIR__ . '/../../../core/plaid_schema.php';
+require_once __DIR__ . '/../../accounting/lib/bank_account_ledger.php';
 
 $ctx = api_require_auth();
 
-/**
- * Self-heal: ensure the live-balance columns exist on plaid_accounts before
- * the GET LEFT-JOIN runs them. Production tenants who haven't pulled
- * migration 010 yet would otherwise hit "Unknown column pa.current_balance_cents"
- * and get an empty list back. Mirrors the same guard used by
- * plaidPersistAccountBalances() in core/plaid_service.php.
- */
-function _treasuryEnsurePlaidBalanceColumns(): void {
-    static $done = false;
-    if ($done) return;
-    $pdo = getDB();
-    foreach ([
-        ['current_balance_cents',   'BIGINT NULL'],
-        ['available_balance_cents', 'BIGINT NULL'],
-        ['limit_balance_cents',     'BIGINT NULL'],
-        ['iso_currency_code',       'CHAR(3) NULL'],
-        ['balance_as_of',           'TIMESTAMP NULL'],
-    ] as [$col, $def]) {
-        try {
-            $chk = $pdo->prepare(
-                "SELECT COUNT(*) FROM information_schema.columns
-                  WHERE table_schema = DATABASE()
-                    AND table_name   = 'plaid_accounts'
-                    AND column_name  = :c"
-            );
-            $chk->execute(['c' => $col]);
-            if ((int) $chk->fetchColumn() === 0) {
-                $pdo->exec("ALTER TABLE plaid_accounts ADD COLUMN {$col} {$def}");
-            }
-        } catch (\Throwable $_) { /* non-fatal */ }
-    }
-    $done = true;
-}
-
 switch (api_method()) {
     case 'GET': {
-        _treasuryEnsurePlaidBalanceColumns();
+        try {
+            plaidRequireBalanceSchema(getDB());
+        } catch (PlaidSchemaException $e) {
+            api_error($e->getMessage(), 503);
+        }
         // Sprint 6d — multi-entity scope.
         $entityFilter = !empty($_GET['entity_id']) ? ' AND ba.entity_id = :eid' : '';
         $params = [];
@@ -75,7 +47,9 @@ switch (api_method()) {
              LEFT JOIN accounting_accounts aa
                ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
              LEFT JOIN accounting_journal_entries je
-               ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
+               ON je.tenant_id = aa.tenant_id
+              AND je.entity_id = ba.entity_id
+              AND je.status IN ('posted', 'reversed')
              LEFT JOIN accounting_journal_entry_lines jel
                ON jel.je_id = je.id AND jel.account_id = aa.id
              WHERE ba.tenant_id = :tenant_id AND ba.status = 'active'{$entityFilter}
@@ -108,15 +82,30 @@ switch (api_method()) {
         }
         if (!$entity) api_error('No accounting entity is configured for this tenant', 422);
 
-        $id = scopedInsert('accounting_bank_accounts', [
-            'name'            => trim((string) $body['name']),
-            'gl_account_code' => trim((string) $body['gl_account_code']),
-            'bank_name'       => $body['bank_name'] ?? null,
-            'last4'           => $body['last4'] ?? null,
-            'currency'        => $body['currency'] ?? 'USD',
-            'entity_id'       => (int) $entity['id'],
-            'status'          => 'active',
-        ]);
+        $code = trim((string) $body['gl_account_code']);
+        $currency = strtoupper(trim((string) ($body['currency'] ?? $entity['base_currency'])));
+        if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Currency must be a three-letter code', 422);
+        if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
+            api_error('The bank account currency must match the legal entity currency', 422);
+        }
+        bankAccountValidateLedger($code, $currency, (int) $entity['id']);
+
+        try {
+            $id = scopedInsert('accounting_bank_accounts', [
+                'name'            => trim((string) $body['name']),
+                'gl_account_code' => $code,
+                'bank_name'       => $body['bank_name'] ?? null,
+                'last4'           => $body['last4'] ?? null,
+                'currency'        => $currency,
+                'entity_id'       => (int) $entity['id'],
+                'status'          => 'active',
+            ]);
+        } catch (\PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+                api_error('This cash ledger account is already linked to a bank account. Choose a different cash account.', 409);
+            }
+            throw $e;
+        }
 
         try {
             $pdo = getDB();
@@ -151,7 +140,7 @@ switch (api_method()) {
 
         $pdo = getDB();
         if ($mode === 'delete') {
-            // Hard delete is only allowed when no posted journal entry references
+            // Hard delete is only allowed when no ledger journal references
             // the matching GL code — otherwise the ledger goes inconsistent.
             $usage = scopedFind(
                 "SELECT COUNT(*) AS c
@@ -159,11 +148,14 @@ switch (api_method()) {
                    JOIN accounting_journal_entries je ON je.id = jel.je_id
                    JOIN accounting_accounts aa ON aa.id = jel.account_id
                    JOIN accounting_bank_accounts ba ON ba.gl_account_code = aa.code AND ba.tenant_id = aa.tenant_id
-                  WHERE ba.tenant_id = :tenant_id AND ba.id = :id AND je.status = 'posted'",
+                  WHERE ba.tenant_id = :tenant_id AND ba.id = :id
+                    AND je.tenant_id = ba.tenant_id
+                    AND je.entity_id = ba.entity_id
+                    AND je.status IN ('posted', 'reversed')",
                 ['id' => $id]
             );
             if ((int) ($usage['c'] ?? 0) > 0) {
-                api_error('Cannot hard-delete: posted journal entries reference this account. Use mode=hide instead.', 409, [
+                api_error('Cannot hard-delete: ledger journal entries reference this account. Use mode=hide instead.', 409, [
                     'posted_lines' => (int) $usage['c'],
                 ]);
             }

@@ -1,0 +1,91 @@
+{
+  "verified_at": "2026-10-24T01:40:38.647Z",
+  "core_runtime": "163a08e524454fc5d6b4c1bc390fb572e0540d17",
+  "core": {
+    "app_id": 6707602,
+    "database": "muzqvdvqbx",
+    "tenant_id": 999,
+    "tenant_name": "CoreFlux CI Simulation",
+    "is_simulation": true
+  },
+  "before": {
+    "quanta_connections": 0,
+    "quanta_workspace_bindings": 0,
+    "purepay_core_connections": 0
+  },
+  "configuration": {
+    "ok": true,
+    "tenant_id": 999,
+    "connection_id": 1,
+    "encrypted_key_stored": true,
+    "workspace_binding_confirmed": false,
+    "base": "https://clockin-hub-16.preview.emergentagent.com/api/v1",
+    "remote_workspace": {
+      "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+      "name": "Acme Construction"
+    },
+    "private_backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux-preview-connection-backups/quanta-20261024013851-68133753",
+    "config_sha256": "9548068b3ee031824da218b63621809169cd6dd9d45d2c4ceb8634b42899eebc",
+    "remote_writes": false
+  },
+  "cli_probe": {
+    "ok": true,
+    "base": "https://clockin-hub-16.preview.emergentagent.com/api/v1",
+    "context": {
+      "workspace": {
+        "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+        "name": "Acme Construction"
+      },
+      "contract_version": "2026-10-20.1",
+      "capabilities": [
+        "person_links",
+        "assignment_metadata",
+        "conditional_assignment_updates",
+        "durable_delivery_receipts"
+      ],
+      "execution_side_effects": false
+    },
+    "approved_time_access": true,
+    "remote_writes": false,
+    "key_stored": false
+  },
+  "web_probe": {
+    "http_status": 200,
+    "anonymous_status": 404,
+    "web": {
+      "ok": true,
+      "environment": "isolated staging",
+      "tenant_id": 999,
+      "preview_endpoint": true,
+      "encrypted_credential_read": true,
+      "workspace": {
+        "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+        "name": "Acme Construction"
+      },
+      "approved_time_access": true,
+      "document_transfer_enabled": false,
+      "payroll_authority_enabled": false,
+      "workspace_binding_exists": false,
+      "remote_writes": false
+    },
+    "temporary_probe_removed": true
+  },
+  "scope": {
+    "credential_delivery": "Existing user-created Quanta preview key delivered over host-verified SSH and stored with Core AES-256-GCM field encryption.",
+    "credential_in_chat_or_repository": false,
+    "real_thunderhawk_round_trip": false,
+    "production_runtime_changed": false,
+    "provider_writes": true,
+    "workspace_confirmation_pending": false,
+    "purepay_key_creation_pending": false,
+    "provider_record_scope": "User-approved synthetic demo records only"
+  },
+  "current_state": {
+    "checked_at": "2026-10-24T03:01:20.052Z",
+    "core_runtime": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+    "organization_binding_confirmed": true,
+    "quanta_workspace_binding_confirmed": true,
+    "synthetic_acceptance_receipt": "deploy/synthetic-integration-acceptance-20261023.json",
+    "workspace_binding_confirmed": true
+  }
+}

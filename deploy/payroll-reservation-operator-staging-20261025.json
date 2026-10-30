@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-25T20:04:27.681396+00:00",
+  "scope": "Core isolated staging; Core 999 / PurePayroll Meridian synthetic setup only",
+  "installed_core_sha": "75601b61f2b885d4a02f9dfdf43447c130d4aed0",
+  "runtime_ci": {
+    "run_id": 40228003167,
+    "conclusion": "success",
+    "headSha": "75601b61f2b885d4a02f9dfdf43447c130d4aed0",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40228003167"
+  },
+  "staging_release": {
+    "run_id": 40228218476,
+    "conclusion": "success",
+    "headSha": "75601b61f2b885d4a02f9dfdf43447c130d4aed0",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40228218476"
+  },
+  "reservation_helper_ci": {
+    "run_id": 40228701590,
+    "conclusion": "success",
+    "headSha": "58da503419398ba888e6ddbb80c3505e9c10fa1d",
+    "jobs": [
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40228701590"
+  },
+  "implementation": {
+    "operator_actions": [
+      "history",
+      "reserve",
+      "share",
+      "reconcile",
+      "release_after_provider_cancellation"
+    ],
+    "default_changes_enabled": false,
+    "server_resolved_owners": true,
+    "release_requires_payroll_approval_permission": true,
+    "company_switch_submission_guard": true,
+    "request_replay_retained": true,
+    "lost_response_recovers_history_without_resending": true,
+    "history_checks_held_reservations_across_all_pages": true,
+    "current_assignment_contract_display_corrected": true
+  },
+  "local_and_ci_validation": {
+    "new_operator_browser_component_checks": 7,
+    "assignment_contract_component_checks": 1,
+    "new_operator_mariadb_checks": 17,
+    "existing_authority_database_suite_retained": true,
+    "exact_demo_packet_guard_checks": 48,
+    "missing_secondary_bundle_corrected_before_deploy": true,
+    "payment_fixture_timestamp_order_corrected": true,
+    "operator_http_submission_exercised": false,
+    "live_reservation_runner_executed": false
+  },
+  "native_demo_ui_changes": {
+    "organization_id": "org_purepay_demo",
+    "employee_id": "emp_core_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3",
+    "employee_status": "active",
+    "employment_type": "w2",
+    "pay_type": "hourly",
+    "hourly_rate": "30.00",
+    "work_state": "NJ",
+    "start_date": "2026-10-01",
+    "pay_method": "Record only",
+    "pay_group_name": "Core integration demo",
+    "pay_group_frequency": "biweekly",
+    "pay_group_anchor": null,
+    "existing_pay_groups_changed": false,
+    "initial_weekly_choice_corrected_to_source_cadence_before_assignment_activation": true,
+    "invitation_sent": false,
+    "bank_or_government_identifiers_entered": false,
+    "personal_onboarding_completed": false,
+    "assignment_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+    "assignment_status": "draft",
+    "activation_button_disabled_by_preview_gate": true,
+    "automatic_billing_enabled": false,
+    "screenshot": "C:\\Users\\kunal\\OneDrive\\Documents\\CoreFlux\\output\\thunderhawk-location-alignment-20261025\\purepay-demo-placement-activation-held-20261025.png"
+  },
+  "remaining": [
+    "Deploy coordinated exact-demo assignment activation and held-draft guards in PurePay preview",
+    "Run installed Core source reservation and original-provider receipt replay",
+    "Activate reviewed demo assignment, create one held draft, reconcile result and cancellation",
+    "Actual Thunderhawk operational acceptance and production release remain separate"
+  ],
+  "production_changed": false,
+  "actual_thunderhawk_records_changed": false,
+  "arabella_changed": false,
+  "payroll_or_payments_executed": false,
+  "financial_postings_created": false
+}

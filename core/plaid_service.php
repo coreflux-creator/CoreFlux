@@ -30,6 +30,8 @@ unset($_plaidLocalConfig);
 require_once __DIR__ . '/encryption.php';
 require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/sim_mock_bridge.php';
+require_once __DIR__ . '/plaid_bank_currency.php';
+require_once __DIR__ . '/plaid_schema.php';
 
 // ---------------------------------------------------------------- config
 
@@ -731,8 +733,8 @@ function plaidEnsureSharedGlAccount(
 /**
  * Persist /accounts/get balance data into plaid_accounts so the Treasury
  * list pages can render a live "Bank balance" column without firing Plaid
- * on every GET. Safe to call multiple times — uses UPDATE + runtime
- * ALTER guards so tenants that haven't run migration 010 yet self-heal.
+ * on every GET. Safe to call multiple times with UPDATE. Requires core
+ * migration 010; runtime writes must not alter schema.
  *
  * @param array  $plaidAccounts  Raw /accounts/get `accounts` array (each item
  *                               has `account_id`, `balances.current`,
@@ -743,32 +745,7 @@ function plaidEnsureSharedGlAccount(
 function plaidPersistAccountBalances(PDO $pdo, int $tenantId, array $plaidAccounts): int
 {
     if (!$plaidAccounts) return 0;
-
-    // Self-heal: add the balance columns if migration 010 isn't applied yet.
-    static $columnsEnsured = false;
-    if (!$columnsEnsured) {
-        foreach ([
-            ['current_balance_cents',   'BIGINT NULL'],
-            ['available_balance_cents', 'BIGINT NULL'],
-            ['limit_balance_cents',     'BIGINT NULL'],
-            ['iso_currency_code',       'CHAR(3) NULL'],
-            ['balance_as_of',           'TIMESTAMP NULL'],
-        ] as [$col, $def]) {
-            try {
-                $chk = $pdo->prepare(
-                    "SELECT COUNT(*) FROM information_schema.columns
-                      WHERE table_schema = DATABASE()
-                        AND table_name   = 'plaid_accounts'
-                        AND column_name  = :c"
-                );
-                $chk->execute(['c' => $col]);
-                if ((int) $chk->fetchColumn() === 0) {
-                    $pdo->exec("ALTER TABLE plaid_accounts ADD COLUMN {$col} {$def}");
-                }
-            } catch (\Throwable $_) { /* non-fatal */ }
-        }
-        $columnsEnsured = true;
-    }
+    plaidRequireBalanceSchema($pdo);
 
     $upd = $pdo->prepare(
         'UPDATE plaid_accounts
@@ -789,7 +766,8 @@ function plaidPersistAccountBalances(PDO $pdo, int $tenantId, array $plaidAccoun
         $cur = isset($b['current'])   && is_numeric($b['current'])   ? (int) round(((float) $b['current'])   * 100) : null;
         $avl = isset($b['available']) && is_numeric($b['available']) ? (int) round(((float) $b['available']) * 100) : null;
         $lim = isset($b['limit'])     && is_numeric($b['limit'])     ? (int) round(((float) $b['limit'])     * 100) : null;
-        $iso = isset($b['iso_currency_code']) ? substr((string) $b['iso_currency_code'], 0, 3) : 'USD';
+        $isoRaw = strtoupper(trim((string) ($b['iso_currency_code'] ?? '')));
+        $iso = preg_match('/^[A-Z]{3}$/', $isoRaw) ? $isoRaw : null;
 
         try {
             $upd->execute([

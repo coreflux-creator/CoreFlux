@@ -18,7 +18,7 @@ $read = static fn(string $path): string => (string) file_get_contents($root . '/
 echo "Public navigation semantics\n";
 $publicPages = [
     'people.html', 'finance.html', 'accounting.html', 'tax.html',
-    'wealth.html', 'reporting.html', 'crm.html', 'pricing.html', 'login.html',
+    'wealth.html', 'reporting.html', 'crm.html', 'pricing.html',
 ];
 foreach ($publicPages as $page) {
     $html = $read($page);
@@ -26,6 +26,9 @@ foreach ($publicPages as $page) {
     $assert("{$page} has no dead Modules link", !str_contains($html, '<a href="#">Modules</a>'));
     $assert("{$page} exposes an accessible Modules trigger", str_contains($html, 'class="dropdown-trigger" aria-haspopup="true"'));
 }
+$login = $read('login.html');
+$assert('sign-in keeps its page heading', preg_match('/<h1(?:\s|>)/i', $login) === 1);
+$assert('sign-in has no marketing navigation to unshipped pages', !str_contains($login, 'class="nav-links"'));
 $css = $read('assets/css/styles.css');
 $assert('dropdown opens for keyboard focus', str_contains($css, '.dropdown:focus-within .dropdown-content'));
 $assert('public navigation has a visible keyboard focus style', str_contains($css, ':focus-visible'));
@@ -56,6 +59,7 @@ $timeModule = $read('modules/time/ui/TimeModule.jsx');
 $coreModules = $read('core/modules.php');
 $fallbackModules = $read('dashboard/src/App.jsx');
 $treasury = $read('modules/treasury/ui/TreasuryOverview.jsx');
+$accounting = $read('modules/accounting/ui/AccountingModule.jsx');
 $mailSettings = $read('dashboard/src/pages/MailSettingsPage.jsx');
 $assert('legacy Time inbox deep link reaches the working intake queue', str_contains($timeModule, 'to="/modules/time/intake"'));
 $assert('primary Time navigation names Intake Queue', str_contains($coreModules, "['name' => 'Intake Queue'"));
@@ -64,6 +68,15 @@ $assert('fallback Time navigation names Intake Queue', str_contains($fallbackMod
 $assert('Treasury overview links to the shipped forecast', str_contains($treasury, 'to="../forecast"'));
 $assert('Treasury overview links to cash scenarios', str_contains($treasury, 'to="../scenario"'));
 $assert('Treasury overview no longer calls its forecast coming soon', !str_contains($treasury, '13-week forecast coming soon'));
+$assert('Accounting overview is a visible primary route', str_contains($accounting, "{ to: 'overview', label: 'Overview'")
+    && str_contains($accounting, '<Route path="overview" element={<BookkeepingOverview standaloneAccounting={session?.product_mode === \'coreaccounting\'} />} />'));
+$assert('old bookkeeping links reach the accounting overview', str_contains($accounting,
+    '<Route path="bookkeeping" element={<Navigate to="/modules/accounting/overview" replace />} />'));
+$assert('unknown accounting paths do not render a blank page', str_contains($accounting,
+    '<Route path="*" element={<Navigate to="/modules/accounting/overview" replace />} />'));
+$assert('legal-entity setup is reachable from Accounting tools', str_contains($accounting,
+    "{ to: 'entities', label: 'Legal entities'")
+    && str_contains($accounting, '<Route path="entities" element={<LegalEntities />} />'));
 $assert('unknown authenticated paths return to the workspace', str_contains($fallbackModules, '<Route path="*" element={<Navigate to="/" replace />} />'));
 $assert('unknown module paths do not expose unfinished placeholder screens', str_contains($fallbackModules, '<Route path="/modules/:moduleId/*" element={<Navigate to="/" replace />} />'));
 $assert('Mail Settings does not advertise an unavailable sending-domain control', !str_contains($mailSettings, 'coming soon'));

@@ -1,0 +1,316 @@
+{
+  "observed_at": "2026-10-30T05:14:17.819895+00:00",
+  "scope": "Read-only existing Thunderhawk AP/AR observations in the isolated provider and Core staging",
+  "purepay_source_commit": "acb474daae863643ac700d756ea43a9b8be80399",
+  "core_runtime_commit": "be4bb1ee004ff7bf5c028cf33d97f135589796ea",
+  "contract_version": "2026-10-30.1",
+  "production_publication": false,
+  "production_records_changed": false,
+  "payments_or_payroll_executed": false,
+  "financial_postings": false,
+  "provider_release": {
+    "source_commit": "acb474daae863643ac700d756ea43a9b8be80399",
+    "production_changed": false,
+    "payroll_or_payment_execution": false,
+    "passed": true,
+    "release_stamp": {
+      "release_id": "pure-core-financial-observations-20261030",
+      "deployment_id": "35b3f54f-2863-4812-b466-5111878726f8",
+      "source_digest": "ccf3398f3030eb2be5efcff350814dc218e577b3a684d0a3c2c63d49d43d8a48"
+    },
+    "health": {
+      "maintenance": false,
+      "state": "active",
+      "message": "Pure//Pay is completing a release. Please try again shortly.",
+      "startup_mode": "isolated_pilot",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false,
+      "provider_egress_enabled": false
+    },
+    "provider_business_records_unchanged": true,
+    "other_containers_unchanged": true,
+    "private_rollback_retained": true
+  },
+  "source_capture": {
+    "passed": true,
+    "organization_id": "org_0369a63ff2cb",
+    "source_record_projection_sha256": "75ebe80b9218f0c596ac01bd37e5f4a8029728a5163480e603ddb8e96f492930",
+    "source_records_unchanged": true,
+    "copy": {
+      "copied_records": 5,
+      "replay": false,
+      "other_pilot_records_unchanged": true,
+      "record_counts": {
+        "payables": 1,
+        "invoices": 2,
+        "payments": 2,
+        "ar_collections": 0
+      }
+    },
+    "observations": [
+      {
+        "kind": "bill",
+        "document_id": "pay_041311ec10",
+        "observation_hash": "b40b11b2fc5a9994fc9a446af58b265938b53e1d4e2047e08bef625016a39a76",
+        "currency_recorded": false,
+        "line_count": 2,
+        "outgoing_payment_count": 2,
+        "recorded_receipt_count": 0,
+        "collection_count": 0,
+        "native_http_matches_source": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_05611deda7",
+        "observation_hash": "e1d8f1cfa03c03efb7ea2f98c8f6b4bfecad157a563f0818dbde33fdae6c8964",
+        "currency_recorded": false,
+        "line_count": 42,
+        "outgoing_payment_count": 0,
+        "recorded_receipt_count": 0,
+        "collection_count": 0,
+        "native_http_matches_source": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_13c40a9026",
+        "observation_hash": "4939f0aa1d1d0f129a21e4c0346e3f54699adffd70b317ff30098f5572dc9455",
+        "currency_recorded": false,
+        "line_count": 1,
+        "outgoing_payment_count": 0,
+        "recorded_receipt_count": 0,
+        "collection_count": 0,
+        "native_http_matches_source": true
+      }
+    ],
+    "production_changed": false,
+    "payments_or_payroll_executed": false,
+    "financial_postings": false,
+    "cash_delivery_proven": false,
+    "currency_reconciliation": "missing_source_currency",
+    "core_financial_observation_saved": false
+  },
+  "source_replay": {
+    "passed": true,
+    "organization_id": "org_0369a63ff2cb",
+    "source_record_projection_sha256": "75ebe80b9218f0c596ac01bd37e5f4a8029728a5163480e603ddb8e96f492930",
+    "source_records_unchanged": true,
+    "copy": {
+      "copied_records": 0,
+      "replay": true,
+      "other_pilot_records_unchanged": true,
+      "record_counts": {
+        "payables": 1,
+        "invoices": 2,
+        "payments": 2,
+        "ar_collections": 0
+      }
+    },
+    "observations": [
+      {
+        "kind": "bill",
+        "document_id": "pay_041311ec10",
+        "observation_hash": "b40b11b2fc5a9994fc9a446af58b265938b53e1d4e2047e08bef625016a39a76",
+        "currency_recorded": false,
+        "line_count": 2,
+        "outgoing_payment_count": 2,
+        "recorded_receipt_count": 0,
+        "collection_count": 0,
+        "native_http_matches_source": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_05611deda7",
+        "observation_hash": "e1d8f1cfa03c03efb7ea2f98c8f6b4bfecad157a563f0818dbde33fdae6c8964",
+        "currency_recorded": false,
+        "line_count": 42,
+        "outgoing_payment_count": 0,
+        "recorded_receipt_count": 0,
+        "collection_count": 0,
+        "native_http_matches_source": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_13c40a9026",
+        "observation_hash": "4939f0aa1d1d0f129a21e4c0346e3f54699adffd70b317ff30098f5572dc9455",
+        "currency_recorded": false,
+        "line_count": 1,
+        "outgoing_payment_count": 0,
+        "recorded_receipt_count": 0,
+        "collection_count": 0,
+        "native_http_matches_source": true
+      }
+    ],
+    "production_changed": false,
+    "payments_or_payroll_executed": false,
+    "financial_postings": false,
+    "cash_delivery_proven": false,
+    "currency_reconciliation": "missing_source_currency",
+    "core_financial_observation_saved": false
+  },
+  "core_private_capture": {
+    "checked_at": "2026-10-30T05:13:05+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "product_observation_saved": false,
+    "passed": true,
+    "tenant_id": 2002,
+    "observations": [
+      {
+        "kind": "bill",
+        "document_id": "pay_041311ec10",
+        "observation_hash": "b40b11b2fc5a9994fc9a446af58b265938b53e1d4e2047e08bef625016a39a76",
+        "line_count": 2,
+        "payment_count": 2,
+        "currency_missing": true,
+        "cross_language_hash_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_05611deda7",
+        "observation_hash": "e1d8f1cfa03c03efb7ea2f98c8f6b4bfecad157a563f0818dbde33fdae6c8964",
+        "line_count": 42,
+        "payment_count": 0,
+        "currency_missing": true,
+        "cross_language_hash_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_13c40a9026",
+        "observation_hash": "4939f0aa1d1d0f129a21e4c0346e3f54699adffd70b317ff30098f5572dc9455",
+        "line_count": 1,
+        "payment_count": 0,
+        "currency_missing": true,
+        "cross_language_hash_verified": true
+      }
+    ],
+    "private_encrypted_packet_verified": true,
+    "existing_packet_reused": false,
+    "all_core_business_records_unchanged": true,
+    "currency_reconciliation": "missing_source_currency",
+    "cash_delivery_proven": false
+  },
+  "core_private_replay": {
+    "checked_at": "2026-10-30T05:13:23+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "product_observation_saved": false,
+    "passed": true,
+    "tenant_id": 2002,
+    "observations": [
+      {
+        "kind": "bill",
+        "document_id": "pay_041311ec10",
+        "observation_hash": "b40b11b2fc5a9994fc9a446af58b265938b53e1d4e2047e08bef625016a39a76",
+        "line_count": 2,
+        "payment_count": 2,
+        "currency_missing": true,
+        "cross_language_hash_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_05611deda7",
+        "observation_hash": "e1d8f1cfa03c03efb7ea2f98c8f6b4bfecad157a563f0818dbde33fdae6c8964",
+        "line_count": 42,
+        "payment_count": 0,
+        "currency_missing": true,
+        "cross_language_hash_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_13c40a9026",
+        "observation_hash": "4939f0aa1d1d0f129a21e4c0346e3f54699adffd70b317ff30098f5572dc9455",
+        "line_count": 1,
+        "payment_count": 0,
+        "currency_missing": true,
+        "cross_language_hash_verified": true
+      }
+    ],
+    "private_encrypted_packet_verified": true,
+    "existing_packet_reused": true,
+    "all_core_business_records_unchanged": true,
+    "currency_reconciliation": "missing_source_currency",
+    "cash_delivery_proven": false
+  },
+  "tests": [
+    {
+      "run": "purepay-current-offline-nmr13d76",
+      "totals": {
+        "tests": 69,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 1
+      },
+      "result_metadata": {
+        "test_files": [
+          "contract_tests/test_financial_observations.py",
+          "contract_tests/test_financial_context.py",
+          "contract_tests/test_bill_payment_history.py"
+        ],
+        "pytest_exit": 0,
+        "network_attempts": 0,
+        "real_database_used": false,
+        "owned_local_mongo_pid": null,
+        "live_workspace_acceptance": false,
+        "report_directory": "C:\\Users\\kunal\\AppData\\Local\\Temp\\purepay-current-offline-nmr13d76"
+      },
+      "results_xml_sha256": "0d882363dc3e7515a00b27a0a622dddd00463cd9e75e04921051a7b10e11f16f"
+    },
+    {
+      "run": "purepay-current-offline-e0os0q29",
+      "totals": {
+        "tests": 31,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      },
+      "result_metadata": {
+        "test_files": [
+          "contract_tests/test_financial_observations.py"
+        ],
+        "pytest_exit": 0,
+        "network_attempts": 0,
+        "real_database_used": false,
+        "owned_local_mongo_pid": null,
+        "live_workspace_acceptance": false,
+        "report_directory": "C:\\Users\\kunal\\AppData\\Local\\Temp\\purepay-current-offline-e0os0q29"
+      },
+      "results_xml_sha256": "1c00c6a3ed367d3432fa0d113b80a13d46540d91eaa46472a17cbdaa0a22bc3f"
+    },
+    {
+      "run": "purepay-current-offline-8jb4u_77",
+      "totals": {
+        "tests": 89,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      },
+      "result_metadata": {
+        "test_files": [
+          "contract_tests/test_financial_observations.py",
+          "contract_tests/test_isolated_pilot.py",
+          "contract_tests/test_release_handover.py"
+        ],
+        "pytest_exit": 0,
+        "network_attempts": 0,
+        "real_database_used": false,
+        "owned_local_mongo_pid": null,
+        "live_workspace_acceptance": false,
+        "report_directory": "C:\\Users\\kunal\\AppData\\Local\\Temp\\purepay-current-offline-8jb4u_77"
+      },
+      "results_xml_sha256": "700fd9dcde1ccd5fe093f790cfa2498d04ee63f9c2bd20e7a4a04d27820f8a8c"
+    }
+  ],
+  "limits": [
+    "Core encrypted private packet only; native product observation persistence, comparison and operator UI remain to be implemented.",
+    "Production read used the reviewed projection module in a separate read-only process. New observation routes are deployed only to the isolated provider.",
+    "Currency is absent from historical source bill, invoice and payment records; retained QuickBooks facts did not establish it. No currency default or user confirmation assumed.",
+    "Completeness covers named stored sources only: payables/payments and invoices/ar_collections plus embedded receipts. No fresh external source reads, bank delivery proof or complete external QuickBooks receipt claim.",
+    "Stored settled statuses are retained provider facts, not independently established bank settlement.",
+    "Selected source assignment asg_520a00454f has no reviewed Core match; historical documents are not linked to PL-864 by inference.",
+    "Core staff-browser acceptance and the original integration-plan completion audit remain open."
+  ],
+  "encryption_serialization_correction": "Core field encryption returns raw binary. The private JSON envelope now explicitly base64-encodes ciphertext and strictly decodes before authenticated decryption; first save and replay verified."
+}

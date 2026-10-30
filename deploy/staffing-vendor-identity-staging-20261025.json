@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-25",
+  "core_staging_commit": "4aa62cba50c77085985c64cb13a7c3b632730253",
+  "ci": {
+    "conclusion": "success",
+    "headSha": "4aa62cba50c77085985c64cb13a7c3b632730253",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40219118096"
+  },
+  "ci_jobs": [
+    {
+      "name": "CoreAccounting standalone release package",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (modules)",
+      "conclusion": "success"
+    },
+    {
+      "name": "CoreAccounting standalone empty-database install",
+      "conclusion": "success"
+    },
+    {
+      "name": "Full-Core maintenance Apache rehearsal",
+      "conclusion": "success"
+    },
+    {
+      "name": "Live business graph simulation",
+      "conclusion": "success"
+    },
+    {
+      "name": "Sim scenario dry-runs (determinism)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (ui)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (core)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (harness)",
+      "conclusion": "success"
+    }
+  ],
+  "vendor_identity_database_checks": 20,
+  "deployment": {
+    "conclusion": "success",
+    "headSha": "4aa62cba50c77085985c64cb13a7c3b632730253",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40219400566"
+  },
+  "staging_acceptance_passed": true,
+  "correction": "Staffing vendor resolution uses an exact active company in the authorized directory. It holds name collisions, unreviewed existing links and duplicate company vendors rather than selecting a different payee.",
+  "existing_vendor_ids_and_canonical_numbers_preserved": true,
+  "existing_tax_terms_and_paid_when_paid_preserved": true,
+  "provider_mapping_rows_preserved": true,
+  "caller_transaction_preserved": true,
+  "database_validation_scope": "Synthetic records in a disposable fully migrated CI database; not real customer payables.",
+  "concurrent_multi_process_acceptance": false,
+  "actual_thunderhawk_company_role_comparison_complete": false,
+  "actual_thunderhawk_round_trip": false,
+  "production_impact_assessed": false,
+  "production_runtime_changed": false,
+  "production_business_records_changed": false,
+  "credentials_changed": false,
+  "real_payroll_payments_postings": false,
+  "arabella_changed": false
+}

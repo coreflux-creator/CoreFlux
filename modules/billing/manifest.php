@@ -36,6 +36,7 @@ return [
         'billing.view'                => 'View billing data',
         'billing.invoice.draft'       => 'Create / edit draft invoices',
         'billing.invoice.approve'     => 'Move draft → approved (two-eye)',
+        'billing.approvals.manage'    => 'Choose invoice approval reviewers',
         'billing.invoice.send'        => 'Send invoice via MailService',
         'billing.invoice.void'        => 'Void invoice with reason',
         'billing.invoice.post'        => 'Post invoice to GL via Accounting',

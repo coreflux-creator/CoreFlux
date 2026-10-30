@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-26",
+  "kind": "customer_release_review_and_hosted_recovery",
+  "candidate": "a83819fe86d25f1d83f7aabfeb079d251df435f5",
+  "decision": "not_approved_for_publication",
+  "verified_live_sign_in_baseline": {
+    "source_commit": "480cf14964c3c377ebcc9a7134739376e8841595",
+    "publisher_revision": "ba2986f",
+    "backend_build": "nogit-1026.1827",
+    "peer_receipt": "C:/Users/kunal/OneDrive/Documents/CoreFlux/output/single-login-2026-10-26/release.json",
+    "shared_preview_restored": true
+  },
+  "independent_actual_app_review": {
+    "evidence_directory": "C:/Users/kunal/OneDrive/Documents/CoreFlux/output/customer-release-review-2026-10-26",
+    "database": "in_memory_only",
+    "external_network_attempts": 0,
+    "reproduced": [
+      "An existing bare QuickBooks customer ID loses access under blanket strict enforcement",
+      "Invoice import does not save QuickBooks company/environment provenance",
+      "Subsequent import of an already confirmed customer does not link that invoice",
+      "The customer's credit has no invoice choices and application is rejected",
+      "The payer fallback creates a second local customer"
+    ],
+    "correction_owner": "Review and harden Pure//Pay",
+    "correction_checkout": "C:/Users/kunal/OneDrive/Documents/CoreFlux/output/customer-mapping-2026-10-26/candidate",
+    "original_candidate_preserved": true,
+    "corrected_candidate_not_yet_accepted": true
+  },
+  "hosted_attempt": {
+    "package": "output/core-customer-hosted-20261026/core-customer-review-v2.zip",
+    "sha256": "8d2a7c76369528761cbea469cba4ceede710de361b5c947574972b67bad51095",
+    "source_files_prepared": 962,
+    "base_crlf_variants_verified": 12,
+    "backend_exit": 120,
+    "tests_started": false,
+    "cause": "The first disposable Mongo fixture exhausted the /app filesystem before tests began",
+    "frontend_scopes_and_build_run": false,
+    "runtime_staged": false
+  },
+  "recovery": {
+    "verified_at": "2026-10-26T19:06:49.797268+00:00",
+    "remote_receipt": "/app/audit/core-customers-20261026/recovery-receipt.json",
+    "owned_fixture_directory_removed": true,
+    "owned_mongo_processes_remaining": 0,
+    "candidate_source_preserved": true,
+    "shared_source_configuration_git_and_services_preserved": true,
+    "app_free_bytes_at_verification": 150401024,
+    "tmp_free_bytes_at_verification": 202580844544,
+    "replacement_helpers": "output/core-customer-hosted-20261026/next-run-helpers",
+    "replacement_helpers_status": "locally_prepared_and_syntax_checked_only",
+    "next_run_storage": "/tmp for disposable Mongo, copied source, build output and package caches",
+    "candidate_pin_and_expected_test_counts_require_update_before_next_run": true
+  },
+  "core_read_only_preflight": {
+    "checked_at": "2026-10-26T18:55:42+00:00",
+    "tenant_id": 999,
+    "provider_organization_id": "org_purepay_demo",
+    "connection_revision": 4,
+    "existing_client_number": "CL-1",
+    "existing_link_delivery_id": 8,
+    "existing_provider_customer_id": "cus_2851af69d9",
+    "new_customer_attempts": 0,
+    "provider_requests": 0,
+    "local_writes": false,
+    "customer_delivery_enabled": false,
+    "evidence": "output/core-customer-hosted-20261026/core-local-preflight.json"
+  },
+  "worker_page_rechecked": {
+    "workspace": "Acme Construction",
+    "person_number": "P-15",
+    "placement_number": "PL-13",
+    "synthetic_requirements_showing_approved_by_employer": 3,
+    "new_submission_or_review_performed": false,
+    "prior_round_trip_receipt": "deploy/synthetic-onboarding-review-return-20261026.json"
+  },
+  "cloudways_support": {
+    "ticket": 999748,
+    "status": "Open",
+    "last_visible_activity": "2026-10-26 11:53 America/New_York",
+    "human_procedure_response_received": false,
+    "additional_message_sent": false
+  },
+  "customer_candidate_published": false,
+  "core_staging_runtime_changed": false,
+  "credentials_changed": false,
+  "production_changed_by_this_work": false,
+  "real_payroll_payments_or_postings": false,
+  "remaining": [
+    "Review a corrected customer mapping and legacy billing transition candidate",
+    "Run isolated hosted acceptance using temporary storage outside /app",
+    "Review the demo key customer capability before actual Core/PurePay customer acceptance",
+    "Preserve CL-1's existing native ID and use a separate fictional client for creation",
+    "Complete actual Thunderhawk operational, payroll-result and financial reconciliation acceptance",
+    "Establish real invitation delivery and supported Core deployment/recovery before authorized cutover"
+  ]
+}

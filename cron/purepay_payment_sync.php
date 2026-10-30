@@ -16,6 +16,7 @@ try {
            FROM purepay_payment_links l
            LEFT JOIN ap_payments p ON p.tenant_id=l.tenant_id AND p.id=l.core_payment_id
           WHERE (l.status NOT IN ('settled','paid','completed','cleared','returned','cancelled','canceled','failed','settled_failed_review')
+                 OR l.last_error_json IS NOT NULL
                  OR (p.status='sent' AND l.status IN ('returned','cancelled','canceled','failed')))
             AND (l.purepay_bill_id IS NOT NULL OR l.purepay_payment_id IS NOT NULL)
        ORDER BY l.updated_at ASC LIMIT 500"
@@ -31,7 +32,7 @@ foreach ($rows as $row) {
         ? 'purepay:bill:' . $row['purepay_bill_id']
         : 'purepay:payment:' . $row['purepay_payment_id'];
     try {
-        $status = $driver->getStatus($ref);
+        $status = $driver->getStatusForTenant((int)$row['tenant_id'],$ref);
         if ((int) ($row['core_payment_id'] ?? 0) > 0) {
             purepayApplyPaymentStatus((int) $row['tenant_id'], (int) $row['core_payment_id'], $status, $pdo);
         }
@@ -39,6 +40,19 @@ foreach ($rows as $row) {
     } catch (\Throwable $e) {
         $failed++;
         fwrite(STDERR, "{$ref}: {$e->getMessage()}\n");
+    }
+}
+if(purepayAllocatedSchemaAvailable($pdo)){
+    // Include settled allocations so a later return is observed even after the
+    // original payment was cleared. Reconciliation never dispatches a payout.
+    $parents=$pdo->query('SELECT tenant_id,core_payment_id FROM purepay_allocated_payments
+        WHERE status<>"cancelled" ORDER BY updated_at,tenant_id,core_payment_id LIMIT 500')->fetchAll(PDO::FETCH_ASSOC);
+    foreach($parents as$parent){
+        $tenant=(int)$parent['tenant_id'];$payment=(int)$parent['core_payment_id'];
+        try{
+            $status=$driver->getStatusForTenant($tenant,'purepay:allocation:'.$payment);
+            purepayApplyPaymentStatus($tenant,$payment,$status,$pdo);$synced++;
+        }catch(Throwable $e){$failed++;fwrite(STDERR,"Core payment {$payment}: {$e->getMessage()}\n");}
     }
 }
 fwrite(STDOUT, "purepay_payment_sync done: synced={$synced} failed={$failed}\n");

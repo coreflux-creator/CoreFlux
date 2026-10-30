@@ -198,13 +198,15 @@ function _lifecycleAccrualEvents(\PDO $pdo, int $tenantId, int $timesheetId): ar
                  ON je.id = ae.journal_entry_id AND je.tenant_id = ae.tenant_id
               WHERE ae.tenant_id = :t
                 AND ae.source_module = 'staffing'
-                AND (ae.source_record_id = :id1 OR ae.source_record_id LIKE :pfx)
+                AND (ae.source_record_id = :id1 OR ae.source_record_id LIKE :pfx
+                     OR ae.source_record_id LIKE :assignment_pfx)
               ORDER BY ae.created_at ASC"
         );
         $st->execute([
             't'   => $tenantId,
             'id1' => (string) $timesheetId,
             'pfx' => $timesheetId . ':%',
+            'assignment_pfx' => 'timesheet:' . $timesheetId . ':placement:%',
         ]);
         return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     } catch (\Throwable $_) {
@@ -282,6 +284,7 @@ function _lifecycleArSide(\PDO $pdo, int $tenantId, array $entryIds): array
            JOIN billing_payments p ON p.id = a.payment_id
           WHERE p.tenant_id = :t
             AND a.invoice_id IN (' . implode(',', $invPlace) . ')
+            AND a.reversed_at IS NULL AND p.voided_at IS NULL
           ORDER BY a.applied_at ASC, a.id ASC'
     );
     $allocStmt->execute($invParams);
@@ -360,6 +363,7 @@ function _lifecycleApSide(\PDO $pdo, int $tenantId, array $entryIds): array
     }
 
     // Payments.
+    $paymentParams = $bparams + ['sent_status' => 'sent', 'cleared_status' => 'cleared'];
     $allocStmt = $pdo->prepare(
         'SELECT a.bill_id, a.amount_applied, a.applied_at,
                 p.id AS payment_id, p.pay_date, p.method, p.amount AS payment_amount,
@@ -370,9 +374,11 @@ function _lifecycleApSide(\PDO $pdo, int $tenantId, array $entryIds): array
            JOIN ap_payments p ON p.id = a.payment_id
           WHERE p.tenant_id = :t
             AND a.bill_id IN (' . implode(',', $bp) . ')
+            AND p.voided_at IS NULL
+            AND p.status IN (:sent_status, :cleared_status)
           ORDER BY a.applied_at ASC, a.id ASC'
     );
-    $allocStmt->execute($bparams);
+    $allocStmt->execute($paymentParams);
     $allocByBill = [];
     foreach ($allocStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $a) {
         $allocByBill[(int) $a['bill_id']][] = $a;

@@ -1,0 +1,352 @@
+{
+  "recorded_at": "2026-10-30T15:44:18.136981+00:00",
+  "scope": "Isolated Thunderhawk Core company 2002; historical source context, not a staffing identity link",
+  "core_runtime_commit": "5166232e30edcdc3f88f4adb5e9393765f1b2408",
+  "purepay_module_commit": "c9a2db6d6d01530c519247ca731e6d98ac412f0e",
+  "contract_version": "2026-10-30.2",
+  "previous_capture_contract_supported": "2026-10-30.1",
+  "ci": {
+    "run": 41081337721,
+    "conclusion": "success",
+    "jobs_passed": 9
+  },
+  "staging_release": {
+    "run": 41081878180,
+    "conclusion": "success"
+  },
+  "local_validation": {
+    "provider_route_tests": 41,
+    "php_contract_checks": 80,
+    "mariadb_capture_checks": 33,
+    "ui_tests": 8,
+    "dashboard_build": "passed"
+  },
+  "provider_install": {
+    "source_commit": "c9a2db6d6d01530c519247ca731e6d98ac412f0e",
+    "production_changed": false,
+    "payroll_or_payment_execution": false,
+    "passed": true,
+    "release_stamp": {
+      "release_id": "pure-core-financial-context-20261030",
+      "deployment_id": "ffdcc571-56c4-4a7a-a6a1-3d4f74ba3c74",
+      "source_digest": "3d1e444fe8afa4dad2b4164e8a0fcc91ab3faf22398a03661760195547816df9"
+    },
+    "health": {
+      "maintenance": false,
+      "state": "active",
+      "message": "Pure//Pay is completing a release. Please try again shortly.",
+      "startup_mode": "isolated_pilot",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false,
+      "provider_egress_enabled": false
+    },
+    "provider_business_records_unchanged": true,
+    "other_containers_unchanged": true,
+    "private_rollback_retained": true
+  },
+  "source_capture": {
+    "passed": true,
+    "source_record_projection_sha256": "79ca2a9c038f700a78ee93eda50fb7da63890495ebec16739c3085f563de9ffc",
+    "copy": {
+      "copied_records": 5,
+      "replay": false,
+      "other_pilot_records_unchanged": true,
+      "record_counts": {
+        "invoices": 5,
+        "ar_collections": 0
+      }
+    },
+    "source_records_unchanged": true,
+    "observations": [
+      {
+        "kind": "invoice",
+        "document_id": "inv_82de265509",
+        "observation_hash": "446fa0484259ee3223482e57484c02fd66b23415ac25815db429a651b9f9ac86",
+        "line_count": 22,
+        "selected_line_id": "il_qbo_6019_21",
+        "selected_item_id": "itm_eb535696e3",
+        "source_labels_retained": true,
+        "currency_recorded": false,
+        "collection_count": 0,
+        "recorded_receipt_count": 0,
+        "native_http_matches_source": true,
+        "staffing_identity_verified": false,
+        "service_dates_recorded": false
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_ea597af5df",
+        "observation_hash": "e0d14abfb26cfc9d46d32d21e2346c16e29eec3aec0f7e23a05861baa5a13feb",
+        "line_count": 24,
+        "selected_line_id": "il_qbo_4155_21",
+        "selected_item_id": "itm_eb535696e3",
+        "source_labels_retained": true,
+        "currency_recorded": false,
+        "collection_count": 0,
+        "recorded_receipt_count": 0,
+        "native_http_matches_source": true,
+        "staffing_identity_verified": false,
+        "service_dates_recorded": false
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_dcb25061c4",
+        "observation_hash": "f6f5b0bc5a25a1e4ec196c8fbec4cbe8907927c0841707fd01921a65f17c7ebe",
+        "line_count": 24,
+        "selected_line_id": "il_qbo_3474_24",
+        "selected_item_id": "itm_eb535696e3",
+        "source_labels_retained": true,
+        "currency_recorded": false,
+        "collection_count": 0,
+        "recorded_receipt_count": 0,
+        "native_http_matches_source": true,
+        "staffing_identity_verified": false,
+        "service_dates_recorded": false
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_191eb3675c",
+        "observation_hash": "8107b861f558d6064248174737a46f3857b20ad73cee052142da56f04418ef2c",
+        "line_count": 21,
+        "selected_line_id": "il_qbo_6472_18",
+        "selected_item_id": "itm_eb535696e3",
+        "source_labels_retained": true,
+        "currency_recorded": false,
+        "collection_count": 0,
+        "recorded_receipt_count": 1,
+        "native_http_matches_source": true,
+        "staffing_identity_verified": false,
+        "service_dates_recorded": false
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_0f1382bcb5",
+        "observation_hash": "554f045e13a35d7001d8ec92c3b6e256ac57f4552124f90f6759d3de0f610a4f",
+        "line_count": 21,
+        "selected_line_id": "il_qbo_7101_16",
+        "selected_item_id": "itm_eb535696e3",
+        "source_labels_retained": true,
+        "currency_recorded": false,
+        "collection_count": 0,
+        "recorded_receipt_count": 1,
+        "native_http_matches_source": true,
+        "staffing_identity_verified": false,
+        "service_dates_recorded": false
+      }
+    ],
+    "production_changed": false,
+    "payments_or_payroll_executed": false,
+    "financial_postings": false,
+    "core_capture_saved": false
+  },
+  "core_capture": {
+    "checked_at": "2026-10-30T15:38:11+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "passed": true,
+    "tenant_id": 2002,
+    "captures": [
+      {
+        "kind": "invoice",
+        "document_id": "inv_82de265509",
+        "capture_id": 4,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "446fa0484259ee3223482e57484c02fd66b23415ac25815db429a651b9f9ac86",
+        "line_count": 22,
+        "outgoing_payment_count": 0,
+        "source_labels_retained": true,
+        "selected_line_id": "il_qbo_6019_21",
+        "selected_item_id": "itm_eb535696e3",
+        "service_dates_unknown": true,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_ea597af5df",
+        "capture_id": 5,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "e0d14abfb26cfc9d46d32d21e2346c16e29eec3aec0f7e23a05861baa5a13feb",
+        "line_count": 24,
+        "outgoing_payment_count": 0,
+        "source_labels_retained": true,
+        "selected_line_id": "il_qbo_4155_21",
+        "selected_item_id": "itm_eb535696e3",
+        "service_dates_unknown": true,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_dcb25061c4",
+        "capture_id": 6,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "f6f5b0bc5a25a1e4ec196c8fbec4cbe8907927c0841707fd01921a65f17c7ebe",
+        "line_count": 24,
+        "outgoing_payment_count": 0,
+        "source_labels_retained": true,
+        "selected_line_id": "il_qbo_3474_24",
+        "selected_item_id": "itm_eb535696e3",
+        "service_dates_unknown": true,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_191eb3675c",
+        "capture_id": 7,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "8107b861f558d6064248174737a46f3857b20ad73cee052142da56f04418ef2c",
+        "line_count": 21,
+        "outgoing_payment_count": 0,
+        "source_labels_retained": true,
+        "selected_line_id": "il_qbo_6472_18",
+        "selected_item_id": "itm_eb535696e3",
+        "service_dates_unknown": true,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_0f1382bcb5",
+        "capture_id": 8,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "554f045e13a35d7001d8ec92c3b6e256ac57f4552124f90f6759d3de0f610a4f",
+        "line_count": 21,
+        "outgoing_payment_count": 0,
+        "source_labels_retained": true,
+        "selected_line_id": "il_qbo_7101_16",
+        "selected_item_id": "itm_eb535696e3",
+        "service_dates_unknown": true,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      }
+    ],
+    "other_company_reads_denied": 3,
+    "all_protected_business_records_unchanged": true,
+    "cash_delivery_proven": false,
+    "staff_browser_acceptance": false
+  },
+  "core_native_http": {
+    "checked_at": "2026-10-30T15:39:15+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "browser_test": false,
+    "passed": true,
+    "synthetic_actor_retired": true,
+    "synthetic_actor_id": 58,
+    "private_session_removed": true,
+    "checks": [
+      "anonymous API read denied",
+      "synthetic native login succeeded",
+      "ungranted financial access denied",
+      "missing AP read denied",
+      "missing billing read denied",
+      "authorized API returns exact source evidence",
+      "HTTP preserves the exact selected source line and its labels",
+      "HTTP does not infer worker identity or dates from prose",
+      "HTTP retains unknown currency and unlinked identity",
+      "foreign pinned company denied",
+      "save requires explicit review confirmation",
+      "stale review refused",
+      "native API save reuses previously captured evidence",
+      "native API history decrypts requested capture",
+      "native HTTP still reads the original v1 capture",
+      "revoked billing access blocks saved history",
+      "HTTP checks created no duplicate captures"
+    ],
+    "requests": [
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 401
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "read",
+        "tenant_id": 999,
+        "status": 403
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 403
+      }
+    ]
+  },
+  "live_browser_acceptance": false,
+  "user_confirmed_next_association": {
+    "placement_number": "PL-864",
+    "scope": "Five identified historical invoice lines only",
+    "applied": false
+  },
+  "unresolved": [
+    "Structured service dates absent",
+    "Currency absent",
+    "Reviewed placement associations not yet applied",
+    "No payroll/time reconciliation for these historical periods",
+    "Stored paid labels and receipts do not prove bank delivery"
+  ]
+}

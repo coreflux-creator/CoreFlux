@@ -41,7 +41,7 @@ $unclassified = [];
 function ciLaneSmokeFallback(string $name): string {
     $patterns = [
         'harness' => [
-            'sim_harness_*','module_emission_discipline_smoke.php','phase_2a_event_discipline_smoke.php',
+            'sim_harness_*','purepay_financial_preview_config_smoke.php','purepay_demo_location_review_smoke.php','purepay_demo_callback_contract_smoke.php','module_emission_discipline_smoke.php','phase_2a_event_discipline_smoke.php',
             'phase_1b_*','phase_1c_*','phase_1d_*','phase_1e_*',
             'event_registry_contract_*','accounting_bank_rule_learning_*','ai_rule_competition_*',
             'sprint7b_event_layer_*','sprint7b_formula_engine_*','sprint7b_rule_sandbox_*',
@@ -56,7 +56,7 @@ function ciLaneSmokeFallback(string $name): string {
             'sprint6_mobile_*','sprint6b_*','sprint6d_*','sprint6e_*','sprint6f_*','sprint6g_*',
             'sprint6h_*','sprint6i_*','sprint6j_*','sprint6k_*','sprint7_reports_drill_*',
             'sprint7e1_*','sprint7e2_*','sprint7e3_*','sprint7g_*','sprint_distribution_polish*',
-            'ai_confidence_moat_*','ai_extract_*','ai_gateway_*','p1_linked_external_systems_*',
+            'ai_confidence_moat_*','ai_extract_*','ai_gateway_*','ui_polish_*','p1_linked_external_systems_*',
             'p2_admin_surfaces_*','p3_treasury_scenario_*',
         ],
         'modules' => [
@@ -69,7 +69,7 @@ function ciLaneSmokeFallback(string $name): string {
             'sprint3_staffing_loop_*','sprint6c_*','sprint7c_treasury_*',
             'sprint8*','sprint9_*','p0_ap_bill_liquidity_*','p1_a4_time_direction_*',
             'p2_liquidity_and_auto_reverse_*','approval_reminders_daily_*',
-            'jaz_*','zoho_*','qbo_*','accounting_basics_*','rbac_cpa_*',
+            'jaz_*','zoho_*','qbo_*','accounting_basics_*','coreaccounting_*','rbac_cpa_*',
         ],
     ];
     foreach ($patterns as $lane => $lanePatterns) {

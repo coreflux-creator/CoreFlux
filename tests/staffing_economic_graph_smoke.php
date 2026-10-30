@@ -57,7 +57,7 @@ $assert('migration guards module-table alters and legacy cycle backfill',
     && str_contains($migration, '@payroll_cols=2')
     && !str_contains($migration, 'ADD COLUMN billing_operating_cycle_id BIGINT UNSIGNED NULL AFTER'));
 
-foreach (['placement:end_client', 'source_type\' => \'worker', 'source_type\' => \'corp',
+foreach (['placement:bill_to', 'placement:work_recipient', 'source_type\' => \'worker', 'source_type\' => \'corp',
           'source_type\' => \'chain', 'source_type\' => \'referral', 'source_type\' => \'commission'] as $needle) {
     $assert("reconciler projects {$needle}", str_contains($economics, $needle));
 }
@@ -140,7 +140,9 @@ $assert('AR invoice creation consumes and snapshots placement client terms',
     && str_contains($settlementCreate, "'payment_terms'     => \$receivable['payment_terms']")
     && !str_contains($settlementCreate, "strtotime('+30 days')")
     && substr_count($billing, 'placementEconomicsReceivableContract') >= 2
-    && str_contains($billingApi, "'payment_terms'     => \$resolvedInvoiceTerms"));
+    && substr_count($billing, "'payment_terms' => \$receivable['payment_terms']") >= 2
+    && str_contains($billingApi, "\$inv  = \$d['invoice']")
+    && str_contains($billingApi, "scopedInsert('billing_invoices', \$inv)"));
 $assert('time settlement prefers purpose-specific cycles',
     str_contains($settlement, 'placement.billing_operating_cycle_id')
     && str_contains($settlement, 'placement.ap_operating_cycle_id')

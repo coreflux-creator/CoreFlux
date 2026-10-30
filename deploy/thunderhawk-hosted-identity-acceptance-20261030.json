@@ -1,0 +1,283 @@
+{
+  "observed_at": "2026-10-30T00:35:18Z",
+  "scope": "Isolated Thunderhawk source-copy pilot; production provider companies are not configured with these staging credentials.",
+  "core_runtime_commit": "3d9ca8a35d350a1136cccaf81b210571a4dfb9ef",
+  "core_bootstrap": {
+    "checked_at": "2026-10-30T00:23:56+00:00",
+    "mode": "--apply",
+    "tenant_id": 2002,
+    "name": "Thunderhawk \u2014 isolated integration pilot",
+    "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+    "source_sha256": "92273e98277802936feaa27a3c5a2d1e51649880481a560dbe1f9c4911a510b2",
+    "production_changed": false,
+    "source_approvals_imported": false,
+    "notifications_sent": false,
+    "payroll_or_financial_postings": false,
+    "source_capture_is_fresh_jobdiva_fetch": false,
+    "job_company_and_placement_bill_to_are_distinct": true,
+    "workers_comp_class_missing": true,
+    "preflight_passed": true,
+    "created": true,
+    "accounting_entity_id": 127,
+    "rate_version_ids": [
+      2
+    ],
+    "membership_id": 37,
+    "record_numbers": [
+      {
+        "entity_type": "client",
+        "record_id": 97,
+        "record_number": "CL-97"
+      },
+      {
+        "entity_type": "client",
+        "record_id": 1280,
+        "record_number": "CL-1280"
+      },
+      {
+        "entity_type": "company",
+        "record_id": 1080,
+        "record_number": "CO-1080"
+      },
+      {
+        "entity_type": "company",
+        "record_id": 1902,
+        "record_number": "CO-1902"
+      },
+      {
+        "entity_type": "person",
+        "record_id": 358,
+        "record_number": "P-358"
+      },
+      {
+        "entity_type": "placement",
+        "record_id": 864,
+        "record_number": "PL-864"
+      }
+    ],
+    "other_staging_records_unchanged": true,
+    "passed": true
+  },
+  "provider_bootstrap": {
+    "passed": true,
+    "pure": {
+      "_id": "thunderhawk-bootstrap-20261030",
+      "organization_id": "org_0369a63ff2cb",
+      "employee_id": "emp_ea232efec736",
+      "customer_id": "cus_e25f880f86",
+      "operator_id": "usr_2d19df3dfa23",
+      "api_key_id": "key_3afdf4dbff6c",
+      "source_hashes": {
+        "pure-source.private.json": "bbaeca1968b6833a7caa85f7a269074084e0818f3e81ce6ea9a9cbc920037d25",
+        "quanta-source.private.json": "4a12f910c6f45dd170c8654ce5962351113949605bbc6078ae7dfce0c7da3d55",
+        "core-source.private.json": "b4c32fd56e0aa560c509bf65061b3a8bd5f1c5268195d9dcae20fc811cdf9c22"
+      },
+      "scopes": [
+        "read:coreflux",
+        "read:payroll",
+        "read:people_setup",
+        "write:assignment_inputs",
+        "write:coreflux",
+        "write:customer_inputs",
+        "write:payroll_authority",
+        "write:payroll_inputs",
+        "write:people_inputs"
+      ],
+      "execution_held": true,
+      "created_at": "2026-10-30T00:27:45.701657+00:00"
+    },
+    "quanta": {
+      "_id": "thunderhawk-bootstrap-20261030",
+      "tenant_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "operator_id": "8041205e-b179-4991-8dbe-65d51a474e22",
+      "approver_id": "ff6fdfe9-291c-4fac-91aa-51782ba5585f",
+      "api_key_id": "4aae55c2-313b-4515-bc3c-12419811bdf2",
+      "scopes": [
+        "read:coreflux",
+        "write:coreflux",
+        "read:workers",
+        "write:workers",
+        "read:worksites",
+        "read:dimensions",
+        "read:entries",
+        "read:timesheets",
+        "read:core_onboarding",
+        "write:core_onboarding",
+        "read:core_onboarding_documents"
+      ],
+      "source_hashes": {
+        "pure-source.private.json": "bbaeca1968b6833a7caa85f7a269074084e0818f3e81ce6ea9a9cbc920037d25",
+        "quanta-source.private.json": "4a12f910c6f45dd170c8654ce5962351113949605bbc6078ae7dfce0c7da3d55",
+        "core-source.private.json": "b4c32fd56e0aa560c509bf65061b3a8bd5f1c5268195d9dcae20fc811cdf9c22"
+      },
+      "workers_seeded": 0,
+      "external_mail_enabled": false,
+      "background_workers_enabled": false
+    },
+    "production_changed": false,
+    "notifications_sent": false,
+    "worker_access_created": false,
+    "source_email_matched": true,
+    "credentials_returned": false,
+    "credentials_saved_privately": true
+  },
+  "staging_origins": {
+    "checked_at": "2026-10-30T00:30:20+00:00",
+    "mode": "--configure-origins",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "business_records_sent": false,
+    "payroll_or_payment_execution": false,
+    "configured_origins": {
+      "quanta": "https://helloquanta.app:19443/api/v1",
+      "purepay": "https://purepay.online:19443/api/v1"
+    },
+    "prior_configuration_backed_up": true,
+    "old_config_sha256": "c1e9edf31c4851f60bbb76dd3f975bb9b2455253c6bfe510f497d94d4f2d9565",
+    "new_config_sha256": "51872ee9ec03d71ffdac6981d3877677fbf8e938b6967dffa0f82c7011ab698c",
+    "existing_demo_bindings_retained": true,
+    "old_demo_origins_now_require_explicit_migration": true,
+    "financial_payment_rail_configuration_changed": false,
+    "other_company_connections_unchanged": true,
+    "passed": true
+  },
+  "native_company_connections": {
+    "checked_at": "2026-10-30T00:30:26+00:00",
+    "mode": "--connect",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "business_records_sent": false,
+    "payroll_or_payment_execution": false,
+    "quanta": {
+      "workspace": {
+        "id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+        "name": "Thunderhawk \u2014 isolated pilot"
+      },
+      "verified": true,
+      "api_base": "https://helloquanta.app:19443/api/v1"
+    },
+    "purepay": {
+      "organization": {
+        "id": "org_0369a63ff2cb",
+        "name": "Thunderhawk Technology Partners \u2014 isolated pilot"
+      },
+      "verified": true,
+      "api_base": "https://purepay.online:19443/api/v1",
+      "capabilities": [
+        "read:coreflux",
+        "read:payroll",
+        "read:people_setup",
+        "write:assignment_inputs",
+        "write:coreflux",
+        "write:customer_inputs",
+        "write:payroll_authority",
+        "write:payroll_inputs",
+        "write:people_inputs"
+      ]
+    },
+    "other_company_connections_unchanged": true,
+    "passed": true
+  },
+  "native_identity_delivery": {
+    "checked_at": "2026-10-30T00:32:34+00:00",
+    "tenant_id": 2002,
+    "production_changed": false,
+    "worker_access_granted": false,
+    "notifications_sent": false,
+    "compensation_changed": false,
+    "payroll_or_financial_postings": false,
+    "purepay_person": {
+      "delivery_id": 25,
+      "state": "delivered",
+      "provider_id": "emp_ea232efec736",
+      "receipt_id": "cfl_5e7f42db1f09eef7c72f73a7a2bfa1c3b59494ec7105c4f2b66c709df61fd989",
+      "repeat_send_same_identity": true
+    },
+    "purepay_client": {
+      "delivery_id": 26,
+      "state": "delivered",
+      "provider_id": "cus_e25f880f86",
+      "receipt_id": "cfl_8d1a4a4aa77eb6cfa20fbb6075c652540ac8c558fc81851378bc035519a7e9c6",
+      "repeat_send_same_identity": true
+    },
+    "quanta_worker": {
+      "delivery_id": 27,
+      "state": "delivered",
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "receipt_id": "cfd_a03402f8d6d06200ae581011478cfdbbc2f0a69a3e0bc36eb859589c59b14766",
+      "status": "disabled",
+      "worker_count": 1,
+      "native_preview_after_delivery": "unchanged",
+      "remote_replay_same_worker_and_receipt": true
+    },
+    "passed": true
+  },
+  "provider_readback": {
+    "passed": true,
+    "pure_pilot": {
+      "organizations": 1,
+      "employees": 1,
+      "customers": 1,
+      "pay_runs": 0,
+      "payments": 0,
+      "payables": 0,
+      "invoices": 0,
+      "sessions": 0,
+      "coreflux_record_links": 2
+    },
+    "quanta_pilot": {
+      "tenants": 1,
+      "workers": 1,
+      "disabled_workers": 1,
+      "time_entries": 0,
+      "timesheets": 0,
+      "worker_identities": 0
+    },
+    "production_quanta": {
+      "thunderhawk_workers": 0
+    }
+  },
+  "provider_native_links": {
+    "coreflux_record_links": 2,
+    "links": [
+      {
+        "id": "cfl_8d1a4a4aa77eb6cfa20fbb6075c652540ac8c558fc81851378bc035519a7e9c6",
+        "reference": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "client",
+          "number": "CL-1280"
+        },
+        "entity_type": "client",
+        "provider_id": "cus_e25f880f86"
+      },
+      {
+        "id": "cfl_5e7f42db1f09eef7c72f73a7a2bfa1c3b59494ec7105c4f2b66c709df61fd989",
+        "reference": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-358"
+        },
+        "entity_type": "person",
+        "provider_id": "emp_ea232efec736"
+      }
+    ]
+  },
+  "limitations": [
+    "This proves hosted company pairing and identity exchange only; assignment, onboarding, time approval, held payroll and reconciliation acceptance remain outstanding.",
+    "The Core source is a bounded current stored snapshot, not a new JobDiva API response. JobDiva mappings are disabled and marked stale in the pilot.",
+    "Job 1972 references Thunderhawk company 1080/client 97; placement 864 bills Rockefeller company 1902/client 1280. Both observed relationships are preserved without conflating their roles.",
+    "Source bill/pay rates 98/65 remain unapproved; workers compensation class remains missing.",
+    "The created Quanta worker is disabled with no login identity or invitation. Other pilot users are synthetic operators.",
+    "Old demo connection rows remain unchanged. Their former preview origins require explicit migration after the isolated staging origin switch.",
+    "No production deployment, provider API-key rotation, payroll execution, payment or financial posting occurred."
+  ],
+  "script_sha256": {
+    "export_thunderhawk_pilot_source.php": "765a2c2c624a72dbfc35aade876091361187a0647da5011d80989a48a00deedb",
+    "provision_thunderhawk_staging_pilot.php": "eb91445476d9b9bc98f27b254dea315c3b1643a366200e4f5568b916c4a6a499",
+    "provision_thunderhawk_provider_pilots.py": "efed3ca8d405a3a321fcbc1d8c268c629d0b23ab87dec1a6a5f157ab422e918e",
+    "connect_thunderhawk_provider_pilots.php": "32524e1ceeaf808f10254e114dd6f314fc8e1f83c351b95a9d845a9d730c2891",
+    "accept_thunderhawk_pilot_identities.php": "ad1966fbd264940b46e8eaa8f5d1c99bb8b147575473a360e80957332d30cd48"
+  }
+}

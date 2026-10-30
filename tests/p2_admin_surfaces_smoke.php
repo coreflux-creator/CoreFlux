@@ -27,7 +27,9 @@ $apiSrc  = (string) file_get_contents($apiPath);
 $a('API file parses',                                  $parses($apiPath));
 $a('GET requires billing.view',                        str_contains($apiSrc, "rbac_legacy_require(\$user, 'billing.view')"));
 $a('write requires billing.invoice.create',            str_contains($apiSrc, "rbac_legacy_require(\$user, 'billing.invoice.create')"));
-$a('GET returns rows array',                           str_contains($apiSrc, "api_ok(['rows' => \$rows])"));
+$a('GET returns assigned and unassigned rows',
+    str_contains($apiSrc, "'rows' => \$rows")
+    && str_contains($apiSrc, "'unassigned' => \$legacy->fetchAll(PDO::FETCH_ASSOC)"));
 $a('GET supports search (?q)',                         str_contains($apiSrc, "client_name LIKE :q"));
 $a('POST upserts ON DUPLICATE KEY UPDATE',             str_contains($apiSrc, 'ON DUPLICATE KEY UPDATE'));
 $a('POST validates email fields',                      str_contains($apiSrc, "FILTER_VALIDATE_EMAIL"));

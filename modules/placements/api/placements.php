@@ -26,6 +26,7 @@ require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
+$placementTenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
 
 const ALLOWED_STATUS = ['draft','pending_start','active','on_hold','ended','cancelled'];
 const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal','referral'];
@@ -243,7 +244,7 @@ if ($method === 'POST') {
         $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
         $field = (string) ($body['field'] ?? '');
         $value = $body['value'] ?? null;
-        $allowedFields = ['engagement_type','end_client_company_id','remote_policy','worksite_state','worksite_country'];
+        $allowedFields = ['engagement_type','end_client_company_id','remote_policy','worksite_city','worksite_state','worksite_country'];
         if (!$ids) api_error('ids[] required', 422);
         if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
         if (!in_array($field, $allowedFields, true)) {
@@ -261,9 +262,12 @@ if ($method === 'POST') {
             if ($raw !== '' && $value === null) {
                 api_error('Invalid remote_policy', 422, ['allowed' => ALLOWED_REMOTE]);
             }
+        } elseif ($field === 'worksite_city') {
+            try { $value = placementsNormalizeWorksiteCity($value); }
+            catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
         } elseif ($field === 'end_client_company_id') {
             $value = (int) $value;
-            if ($value <= 0 || !companiesGet($value)) api_error('Client company not found', 422);
+            if ($value <= 0 || !companiesGet($value, placementsCompanyDirectoryTenantId())) api_error('Client company not found', 422);
         } else {
             $value = trim((string) $value);
             if ($value === '') api_error("{$field} cannot be blank", 422);
@@ -281,19 +285,7 @@ if ($method === 'POST') {
                 }
                 $patch = [$field => $value];
                 if ($field === 'end_client_company_id') {
-                    $company = companiesGet((int) $value);
-                    if (!$company) throw new \RuntimeException('Client company not found');
-                    $clientRef = staffingClientEnsureForCompany(
-                        currentTenantId(),
-                        (int) $company['id'],
-                        (string) $company['name'],
-                        ['created_by_user_id' => $user['id'] ?? null]
-                    );
-                    $patch = [
-                        'client_id' => $clientRef['client_id'],
-                        'end_client_company_id' => $clientRef['company_id'],
-                        'end_client_name' => $clientRef['name'],
-                    ];
+                    $patch = placementsResolveCompanyRoles((int) placementsGraphTenantId(currentTenantId()), $patch, $existing, $user['id'] ?? null, currentTenantId());
                 }
 
                 $before = placementAuditRow($pid) ?? $existing;
@@ -394,6 +386,8 @@ if ($method === 'POST') {
     // Default POST = create
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
+    try { $body['worksite_city'] = placementsNormalizeWorksiteCity($body['worksite_city'] ?? null); }
+    catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
     api_require_fields($body, ['title', 'start_date', 'engagement_type']);
     if (!in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
         api_error('Invalid engagement_type', 422, ['allowed' => ALLOWED_ETYPE]);
@@ -510,6 +504,7 @@ if ($method === 'POST') {
             'end_date'         => $body['end_date']         ?? null,
             'due_date'         => $body['due_date']         ?? null,
             'engagement_type'  => $body['engagement_type'],
+            'worksite_city'    => placementsNormalizeWorksiteCity($body['worksite_city'] ?? null),
             'worksite_state'   => $body['worksite_state']   ?? null,
             'worksite_country' => $body['worksite_country'] ?? null,
             'remote_policy'    => placementsNormalizeRemotePolicy($body['remote_policy'] ?? null),
@@ -533,34 +528,7 @@ if ($method === 'POST') {
             'created_by_user_id' => $user['id'] ?? null,
         ];
 
-        // If a company_id is provided, prefer its canonical name and tag it 'client'.
-        // If only a free-text end_client_name is provided, upsert into companies for
-        // future picks. Either path also ensures the staffing client consumer row.
-        if (!empty($insert['end_client_company_id'])) {
-            $co = companiesGet((int) $insert['end_client_company_id']);
-            if ($co) {
-                $insert['end_client_name'] = $co['name'];
-                companiesAddRole((int) $co['id'], 'client');
-                companiesBumpUsage((int) $co['id']);
-            }
-        } elseif (!empty($insert['end_client_name'])) {
-            $cid = companiesUpsertByName(currentTenantId(), (string) $insert['end_client_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['client']);
-            $insert['end_client_company_id'] = $cid;
-            companiesBumpUsage($cid);
-        }
-        if (!empty($insert['end_client_company_id']) || !empty($insert['end_client_name'])) {
-            $clientRef = staffingClientEnsureForCompany(
-                currentTenantId(),
-                !empty($insert['end_client_company_id']) ? (int) $insert['end_client_company_id'] : null,
-                (string) ($insert['end_client_name'] ?? ''),
-                ['created_by_user_id' => $user['id'] ?? null]
-            );
-            $insert['client_id'] = $clientRef['client_id'];
-            $insert['end_client_company_id'] = $clientRef['company_id'] ?: $insert['end_client_company_id'];
-            $insert['end_client_name'] = $clientRef['name'];
-        }
+        $insert = array_replace($insert, placementsResolveCompanyRoles($placementTenantId, $body, [], $user['id'] ?? null, currentTenantId()));
 
         $id = scopedInsert('placements', $insert);
 
@@ -620,6 +588,10 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
     foreach (['id','tenant_id','created_at','created_by_user_id','deleted_at','coreflux_overridden_fields'] as $k) unset($body[$k]);
+    if (array_key_exists('worksite_city', $body)) {
+        try { $body['worksite_city'] = placementsNormalizeWorksiteCity($body['worksite_city']); }
+        catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
+    }
     if (isset($body['engagement_type']) && !in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
         api_error('Invalid engagement_type', 422);
     }
@@ -699,24 +671,10 @@ if ($method === 'PATCH') {
             'patch_status'
         );
     }
-    if (array_key_exists('end_client_company_id', $body) || array_key_exists('end_client_name', $body)) {
-        $companyId = !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null;
-        if (!array_key_exists('end_client_name', $body) && !$companyId && !empty($existing['end_client_company_id'])) {
-            $companyId = (int) $existing['end_client_company_id'];
-        }
-        $clientName = trim((string) ($body['end_client_name'] ?? $existing['end_client_name'] ?? ''));
-        if ($companyId || $clientName !== '') {
-            $clientRef = staffingClientEnsureForCompany(currentTenantId(), $companyId, $clientName, [
-                'created_by_user_id' => $user['id'] ?? null,
-            ]);
-            $body['client_id'] = $clientRef['client_id'];
-            $body['end_client_company_id'] = $clientRef['company_id'];
-            $body['end_client_name'] = $clientRef['name'];
-        } else {
-            $body['client_id'] = null;
-            $body['end_client_company_id'] = null;
-            $body['end_client_name'] = null;
-        }
+    try {
+        $body = array_replace($body, placementsResolveCompanyRoles($placementTenantId, $body, $existing, $user['id'] ?? null, currentTenantId()));
+    } catch (InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
     }
     $isJobDivaSourced = is_string($existing['external_id'] ?? null)
         && strpos((string) $existing['external_id'], 'jd:') === 0;

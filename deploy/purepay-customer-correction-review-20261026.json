@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "candidate": "a0a24061c309a2944a60f43c319598471d6c0ad1",
+  "reviewed_base": "a83819fe86d25f1d83f7aabfeb079d251df435f5",
+  "independent_actual_application_review": {
+    "legacy_customer_mapping_retains_existing_access": true,
+    "import_records_current_company_on_new_invoice": true,
+    "confirmed_customer_link_resolves_after_import": true,
+    "credit_picker_contains_imported_invoice": true,
+    "credit_application_uses_scoped_mock_provider": true,
+    "payer_preserves_existing_customer_id": true,
+    "contradictory_local_and_provider_id_rejected_409": true,
+    "partially_recorded_company_rejected_409": true,
+    "database": "memory",
+    "startup_run": false,
+    "external_network_attempts": 0,
+    "production_changed": false
+  },
+  "dedicated_core_customer_contract_files_unchanged": true,
+  "local_scope": "Independent reproductions of the prior release blockers and two follow-up conflicts, not the full hosted suite",
+  "hosted_exact_candidate_acceptance": "pending",
+  "staged": false,
+  "published": false,
+  "credentials_changed": false,
+  "customer_delivery_enabled": false,
+  "actual_thunderhawk_acceptance": false
+}

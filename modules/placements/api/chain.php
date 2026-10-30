@@ -165,13 +165,13 @@ if ($method === 'POST') {
                    : ($body['party_role'] === 'direct' ? 'client' : $body['party_role']);
 
     if ($companyId) {
-        $co = companiesGet($companyId);
+        $co = companiesGet($companyId, placementsCompanyDirectoryTenantId());
         if (!$co) api_error('company_id not found in this tenant', 422);
         $partyName = $co['name'];
         companiesAddRole($companyId, $roleForDir);
         companiesBumpUsage($companyId);
     } else {
-        $companyId = companiesUpsertByName(currentTenantId(), (string) $partyName, [
+        $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), (string) $partyName, [
             'created_by_user_id' => $user['id'] ?? null,
         ], [$roleForDir]);
         companiesBumpUsage($companyId);
@@ -222,6 +222,12 @@ if ($method === 'PATCH') {
     }
     if (!$body) api_error('No fields to update', 422);
     $source = scopedFind('SELECT placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$source) api_error('Not found', 404);
+    if (!empty($body['company_id'])) {
+        $company = companiesGet((int) $body['company_id'], placementsCompanyDirectoryTenantId());
+        if (!$company) api_error('Company not found in this placement directory', 422);
+        $body['party_name'] = (string) $company['name'];
+    }
     $rows = scopedUpdate('placement_client_chain', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
     placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'patch', 'fields' => array_keys($body)], $id);

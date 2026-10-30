@@ -1,0 +1,338 @@
+{
+  "observed_at": "2026-10-30T03:56:53.933461+00:00",
+  "scope": "Existing Thunderhawk October 23 payroll ledger copied as a read-only observation into isolated provider and Core staging",
+  "production_cutover": false,
+  "production_records_changed": false,
+  "real_payroll_executed": false,
+  "cash_posted": false,
+  "source_capture": {
+    "passed": true,
+    "run_id": "run_54dde5d17c05",
+    "organization_id": "org_0369a63ff2cb",
+    "source": "provider_history",
+    "status": "paid",
+    "period_start": "2026-10-05",
+    "period_end": "2026-10-18",
+    "pay_date": "2026-10-23",
+    "line_count": 18,
+    "source_document_sha256": "5235ee542f7c5288161a54dac0e6800732c849505245e412bc8f2550c4f4ba5f",
+    "source_record_unchanged": true,
+    "native_http_matches_source": true,
+    "production_changed": false,
+    "source_capture_method": "Read-only database projection; new observation API is deployed in the isolated pilot only",
+    "payroll_executed": false,
+    "financial_postings": false,
+    "cash_delivery_proven": false,
+    "copied": true,
+    "existing_run_id_preserved": true,
+    "source_observation_hash": "504056f9de9b1e06dbf41a63875a3126cada7aa4425bf59fe06c819ed82c023a",
+    "other_pilot_records_unchanged": true,
+    "protected": {
+      "pay_runs": {
+        "count": 2,
+        "sha256": "4b8a4dddaf63eaf31a9992235a1a1c926393456acad98dbb1509db1f733a6268"
+      },
+      "employees": {
+        "count": 1,
+        "sha256": "36a54a9269601f2b07dab4320ae4467b9c32c04353d5b43fd374a8f9fadd5966"
+      },
+      "assignments": {
+        "count": 1,
+        "sha256": "a9339a53e02dacb2a788c40533988cdc4f6dd9fd793a93a6d5519221a07df6a9"
+      },
+      "customers": {
+        "count": 1,
+        "sha256": "3a033fad4803c188e336663185dc9c409c94cafe0823296b6b395b11e37146de"
+      },
+      "payments": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "payables": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "invoices": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "coreflux_payroll_inputs": {
+        "count": 2,
+        "sha256": "ab917ad1dab2f07b5c06ae86743f17a2735242faf4157c62a619c95d4a2838ac"
+      },
+      "coreflux_payroll_authorities": {
+        "count": 2,
+        "sha256": "42867058d2ca9663a89a712906a6b9b0fa23a302ca4066c39a14745f27ad2a3a"
+      },
+      "coreflux_record_links": {
+        "count": 3,
+        "sha256": "afe273d3204af4bfba9fea8583d099be89e535b79bcca3284e57be1c809896ea"
+      }
+    }
+  },
+  "core_capture": {
+    "checked_at": "2026-10-30T03:52:29+00:00",
+    "tenant_id": 2002,
+    "run_id": "run_54dde5d17c05",
+    "production_changed": false,
+    "payroll_executed": false,
+    "financial_postings": false,
+    "passed": true,
+    "observation_id": 2,
+    "observation_hash": "504056f9de9b1e06dbf41a63875a3126cada7aa4425bf59fe06c819ed82c023a",
+    "source_status": "paid",
+    "source": "provider_history",
+    "period_start": "2026-10-05",
+    "period_end": "2026-10-18",
+    "pay_date": "2026-10-23",
+    "lines_preserved": 18,
+    "people_linked": 1,
+    "people_unlinked": 17,
+    "linked_person_number": "P-358",
+    "totals_comparison": {
+      "gross": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "bonus": {
+        "status": "missing_provider_total",
+        "missing_lines": 0
+      },
+      "reimbursements": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      },
+      "federal_wh": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "social_security": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "medicare": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "state_wh": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "local_wh": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      },
+      "sdi_pfl": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      },
+      "other_deductions": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "garnishments": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      },
+      "net": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "employer_fica": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "employer_futa": {
+        "status": "matched",
+        "missing_lines": 0
+      },
+      "employer_suta": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      },
+      "employer_match": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      },
+      "funding_required": {
+        "status": "missing_line_amounts",
+        "missing_lines": 18
+      }
+    },
+    "source_lineage_status_counts": {
+      "not_recorded": 18
+    },
+    "unavailable_metadata": {
+      "native": "missing",
+      "manual": "missing",
+      "paid_at": "missing",
+      "currency": "missing",
+      "execution_hold": "missing"
+    },
+    "cash_delivery_proven": false,
+    "source_time_matched": false,
+    "replay_reuses_observation": true,
+    "encrypted_observation_verified": true,
+    "all_tenant_protected_business_sets_unchanged": true,
+    "protected": {
+      "people": {
+        "count": 62,
+        "sha256": "b005e3bbefd8904a595f5d61dcada1ae4ee0ac9093caba0d2ee5c241329e5acb"
+      },
+      "placements": {
+        "count": 60,
+        "sha256": "a9f71e0099281f8ee2a2d944ac2ef7ce46440fb6acdae7252c07f47db8cc3032"
+      },
+      "placement_rates": {
+        "count": 2,
+        "sha256": "cf984f556a980917485d8391864988dbfa4f4e90d188ab10cb66a9e26473fff4"
+      },
+      "staffing_clients": {
+        "count": 4,
+        "sha256": "0ecdd039d3322e44c45d902cc57501ccfafd596f5151ca2f22aa79157e8e6b30"
+      },
+      "time_entries": {
+        "count": 3,
+        "sha256": "6f91b4a4ca1687f6f336ea1ce90c35ed81079f2267c8f7c0ccd05fbae4b76ec6"
+      },
+      "staffing_timesheets": {
+        "count": 3,
+        "sha256": "862908d147629bdf2cab156363d5cf96e1af8e430a4c7fcbbb2a822849cd9687"
+      },
+      "payroll_runs": {
+        "count": 2,
+        "sha256": "7a775c81a624deb8afae4176855e82544e825852bc0970ea3104781d20007bd9"
+      },
+      "payroll_line_items": {
+        "count": 2,
+        "sha256": "2acbf3c1194d43e35d17347ce443cb142b9a9ce87f7be2159fe5c6960be15d2e"
+      },
+      "payroll_provider_results": {
+        "count": 4,
+        "sha256": "e180033d5b70b746ab8c456ed55c33da6545d4f07b9ff8604f099a4a62609a2b"
+      },
+      "ap_bills": {
+        "count": 162,
+        "sha256": "a575390fb8695b370f3d6849443c562f258ae06eceb82effda49ee49d45a2057"
+      },
+      "ap_payments": {
+        "count": 122,
+        "sha256": "81e073225aac3b33cef0aaa2e8697e2302808a9d0072344200c97cb06547ce91"
+      },
+      "accounting_journal_entries": {
+        "count": 1697,
+        "sha256": "517be8e1dc87792b57fb614a5a4c49316b450a29f51fe23c69432e6e2141c0e8"
+      },
+      "accounting_journal_entry_lines": {
+        "count": 3966,
+        "sha256": "fb0b3c61c41a8cde2c5eb24fe7467e70ee51c942aaf02ba224e71497f8c5c4f1"
+      },
+      "billing_invoices": {
+        "count": 444,
+        "sha256": "ce991dd943e833fd96ffaf83b25969025b5cc585c359869bd9768385b70d44b6"
+      },
+      "billing_payments": {
+        "count": 536,
+        "sha256": "fcb50720f365704548851440b11e0124491590e551160cbaf24f95006161de38"
+      },
+      "other_native_observations": {
+        "count": 1,
+        "sha256": "64c7740c8d034b38cea5cb1607df8769835a12fa0d460aca78707d06ac99a94e"
+      }
+    }
+  },
+  "prior_held_draft_replay": {
+    "checked_at": "2026-10-30T03:53:38.847834+00:00",
+    "organization_id": "org_0369a63ff2cb",
+    "input_id": "cpi_390401c8dcc2bc7b7e979232c4c294ad6347d42e4a920bd0777dd693572a399b",
+    "authority_id": "cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+    "production_changed": false,
+    "real_payroll_executed": false,
+    "passed": true,
+    "run_id": "run_core_af63f6606e0cdfdb12fb3c9d60df37451d59feb32a1f0316fdc88d995c91c23d",
+    "status": "draft",
+    "gross": "65.00",
+    "hours": "1.00",
+    "pay_rate": "65.0000",
+    "currency": "USD",
+    "execution_hold": true,
+    "pay_date": "2026-11-06",
+    "prior_drafts_unchanged": true,
+    "duplicate_request_same_draft": true,
+    "execution_rejected": true,
+    "payments_bills_invoices_unchanged": true
+  },
+  "worker_report_browser_acceptance": {
+    "verified_at": "2026-10-30T03:41:31.488948+00:00",
+    "method": "Actual Chrome worker Download report button; native browser download inspected from Downloads",
+    "download_event_observer": "Timed out, but native file creation and exact report contents were verified; the download was not retried",
+    "browser_url": "http://127.0.0.1:19181/app/assignments",
+    "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+    "role": "worker",
+    "rows": 1,
+    "columns": [
+      "placement_number",
+      "person_number",
+      "worker_name",
+      "title",
+      "engagement_type",
+      "status",
+      "start_date",
+      "end_date",
+      "worksite_name",
+      "worksite_city",
+      "worksite_state",
+      "worksite_country",
+      "worksite_active",
+      "worksite_assigned",
+      "client_number",
+      "vendor_number",
+      "company_number",
+      "version",
+      "updated_at"
+    ],
+    "expected_identity_and_dates": {
+      "placement_number": "PL-864",
+      "person_number": "P-358",
+      "engagement_type": "w2",
+      "status": "active",
+      "start_date": "2026-05-18",
+      "end_date": "2027-03-20",
+      "worksite_state": "NJ",
+      "worksite_country": "US",
+      "client_number": "CL-1280",
+      "vendor_number": "",
+      "company_number": "CO-1902",
+      "version": "2"
+    },
+    "correct_worksite_and_access": true,
+    "record_version": "2",
+    "record_updated_at": "2026-10-30T01:50:01.070524+00:00",
+    "report_sha256": "52f9c110393caf9e50fab21c6ed0c9f5e24ac62b473835aa3b4daf1e80d169e6",
+    "report_file": "output/hosted-thunderhawk-staff-20261030/thunderhawk-worker-assignment-report.csv",
+    "financial_and_private_contact_columns_absent": true,
+    "passed": true,
+    "limitations": [
+      "This proves the worker export, not a staff/manager export or cross-company report denial."
+    ]
+  },
+  "script_sha256": {
+    "capture_thunderhawk_payroll_actual.py": "c4384e41d3653c0fd70132e441dba2b5e3a41069ebb39360a34826a510482d2c",
+    "observe_thunderhawk_payroll_actual.php": "58c6dec56b51385b1b58f0e6663a149a6dffd97225048704f748f656088b9416",
+    "accept_thunderhawk_payroll_draft.py": "2121118cefe4c1034d118d2e6b5ec015362f7b0859141a58166f51746303c363"
+  },
+  "remaining_reconciliation": [
+    "Seventeen employees in this historical whole-company run remain unlinked in the single-person pilot; no duplicate employee was created.",
+    "Historical source time references, currency and paid timestamp are absent; missing values were not inferred.",
+    "Nine supplied totals match the complete employee lines; seven categories lack line values and one lacks the provider total.",
+    "A stored paid status does not independently confirm cash delivery. No ledger posting or source-time reconciliation was authorized by this observation.",
+    "The new observation API is installed in the isolated provider only. Production source capture used a bounded read-only projection, preserving native identities.",
+    "Core staff-browser, remaining portal/reverse-change and AP/AR/payment-result acceptance remain open."
+  ],
+  "recovery": {
+    "existing_source_copy_reused": true,
+    "native_http_matches_source": true,
+    "core_observation_id_reused": 2,
+    "core_protected_sets_unchanged": true
+  }
+}

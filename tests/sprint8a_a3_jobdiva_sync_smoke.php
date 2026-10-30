@@ -2,7 +2,7 @@
 /**
  * Sprint 8a / Slice A3 smoke — JobDiva sync drivers.
  *
- * Static / contract assertions only:
+ * Source contracts and pure date-normalization behavior:
  *   - core/jobdiva/sync.php parses + exports drivers
  *   - Each driver pulls items via jobdivaSyncFetchItems (testable via
  *     items_override) and binds via mappingUpsert with source_system='jobdiva'
@@ -74,14 +74,14 @@ $assert('handles {items:[...]} pagination',       strpos($src, "isset(\$resp['it
 $assert('handles plain list response',            strpos($src, 'array_keys($resp) === range(0, count($resp) - 1)') !== false);
 
 echo "\nDate normaliser (Y-m-d for MySQL DATE columns)\n";
-$assert('exports jobdivaNormaliseDate',           strpos($src, 'function jobdivaNormaliseDate(') !== false);
-$assert('detects epoch milliseconds (>= 10^12)',  strpos($src, '$n >= 1_000_000_000_000') !== false);
-$assert('detects epoch seconds (>= 10^8)',        strpos($src, '$n >= 100_000_000') !== false);
-$assert('uses gmdate Y-m-d for portable output',  strpos($src, "gmdate('Y-m-d',") !== false);
-$assert('parses common string dates via strtotime',
-    strpos($src, '$ts = strtotime($raw);') !== false);
-$assert('preserves Y-m-d prefix on otherwise-uninterpretable string',
-    strpos($src, "preg_match('/^\\d{4}-\\d{2}-\\d{2}(?:[T\\s]|$)/'") !== false);
+require_once $path;
+$assert('sync exports jobdivaNormaliseDate', function_exists('jobdivaNormaliseDate'));
+$assert('normalizes epoch milliseconds', jobdivaNormaliseDate('1767225600000') === '2026-01-01');
+$assert('normalizes epoch seconds', jobdivaNormaliseDate('1767225600') === '2026-01-01');
+$assert('preserves an ISO business date', jobdivaNormaliseDate('2026-05-22') === '2026-05-22');
+$assert('parses common US string dates', jobdivaNormaliseDate('5/22/2026') === '2026-05-22');
+$assert('preserves account-local end-of-day dates across timezones',
+    jobdivaNormaliseDate('2026-05-22T23:59:59-0400') === '2026-05-22');
 $assert('placement upsert normalises startDate before binding',
     strpos($src, "\$startDate = jobdivaNormaliseDate(\$startDate)") !== false);
 $assert('placement upsert normalises endDate (nullable) before binding',
@@ -167,12 +167,10 @@ $assert("placement uses 'jd:' external_id prefix",
 $assert('placement status maps JobDiva → CoreFlux enum',
     strpos($src, 'jobdivaAssignmentValidate($jd)') !== false
     && strpos($src, 'jobdivaAssignmentCanonicalPlacementStatus') !== false);
-$assert("placement engagement_type uses source-evidence inference before defaulting",
-    strpos($src, 'function jobdivaInferPlacementEngagementTypeFromPayload') !== false
-    && strpos($src, '$sourceEngagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, \'\');') !== false
-    && strpos($src, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\');') !== false);
+$assert('placement requires source classification before writes',
+    strpos($src, '$engagement = jobdivaClassificationRequire($jd);') !== false);
 $assert('placement insert provides title (NOT NULL on placements table)',
-    strpos($src, "engagement_type, worksite_state, worksite_country") !== false
+    strpos($src, "engagement_type, worksite_city, worksite_state, worksite_country") !== false
     && strpos($src, "client_approver_name, client_approver_email, title") !== false
     && strpos($src, "if (\$title === '') \$title = 'JobDiva Placement '") !== false);
 $assert('binds mapping (placement)',

@@ -1,0 +1,48 @@
+{
+  "scope": "Core-only payment evidence correction in the existing isolated pilot",
+  "core_runtime": "ea1241f23d15196e6eee508b84ab92dad0d6d998",
+  "ci": {
+    "run": 40158700686,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40158700686",
+    "jobs_passed": 9,
+    "money_evidence_checks": 76,
+    "purepay_delivery_mariadb_checks": 273
+  },
+  "deployment": {
+    "run": 40158836250,
+    "job": 121065876232,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40158836250",
+    "conclusion": "success",
+    "completed_at": "2026-10-25T03:39:40Z",
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/ea1241f23d15196e6eee508b84ab92dad0d6d998-20261025033859"
+  },
+  "verified_behavior": [
+    "Full reserved amount and explicit USD required with matching bill/payment/status aliases.",
+    "Provider gross obligation and net transfer cents keep their distinct meanings and must be internally consistent.",
+    "Compact history only discovers identity; full payment detail is read before accepting a result.",
+    "Partial, adjusted, ambiguous, missing, conflicting or unreadable evidence retains reservation and review hold.",
+    "Versioned evidence is rechecked for replay, AP terminal projection, cancellation and ledger clearance.",
+    "Current consistent evidence can recover held or lost-response attempts without a second payout.",
+    "Review holds are visible in triage and eligible for read-only recovery polling."
+  ],
+  "provider_compatibility": {
+    "source_unchanged": "01515145805ee30054e25e77c06538adfa68db14",
+    "runtime_modified_this_increment": false,
+    "missing_currency_on_current_wallet_rows": true,
+    "terminal_callbacks_missing_amount_and_currency": true,
+    "activation_requires_separate_provider_evidence_increment": true,
+    "historical_money_backfilled": false,
+    "contract": "spec/purepay_docs/payment-evidence.md"
+  },
+  "production_cutover": false,
+  "real_payment_or_payroll_execution": false,
+  "actual_thunderhawk_round_trip_complete": false,
+  "runtime_files": {
+    "core/purepay_payment_evidence.php": "414fce34d01f1b77c0286dbad6f9341e32069abcff1992be03cd970ac1a63948",
+    "core/payment_rails/purepay_driver.php": "721769568ee03654d610f64e24422c006efbee0adf15ae126e80ab0a932ddcac",
+    "core/purepay_webhooks.php": "f2da4f784b1978f2abd7b2f2e87eef44a46771b37c7172b0a91e1d02b5ea5cf7",
+    "modules/ap/lib/ap.php": "77cd33c5549e6ab3b669f133364e1cb11b1f42ed911c2a5f9ac6b6bdb1a39d6a",
+    "api/admin/integration_triage.php": "5159ba0ad3bd32fe8d3cad54cedb1b5a5e47cfdc98df61d4086247f29e8485b5",
+    "cron/purepay_payment_sync.php": "3d2fadf072db4a2efa440e7b2af4bf728c410cf704dc6308e39d11293d977015"
+  }
+}

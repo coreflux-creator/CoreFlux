@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-25T20:34:02.921933+00:00",
+  "scope": "Core simulation 999 / Meridian demo only; not actual Thunderhawk acceptance",
+  "provider_guard": {
+    "candidate_commit": "07256681a09a43492334930a1df47c0f001e034a",
+    "base_commit": "b4d257ed2d7cb573593fa2ebe57043747a8f8325",
+    "scope": "Separate human-authorized synthetic Core/PurePayroll preview test. Not part of the vendor-messages or customer-identity release.",
+    "authorization": {
+      "thread": "01a15529-461a-73e1-bb38-170ddf030412",
+      "user_message": "01a16bb2-8a78-7843-be75-3f5cb631d9bd",
+      "answer": "Yes, use the demo companies for the synthetic test."
+    },
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "installed_at": "2026-10-25T20:23:07.678643+00:00",
+    "production_changed": false,
+    "services": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "webhook-crond": "STOPPED"
+    },
+    "startup_mode": "review",
+    "background_jobs": false,
+    "startup_migrations": false,
+    "scheduled_operations": false,
+    "all_records_unchanged": true,
+    "collections_verified": 145,
+    "protected_source_config_unchanged": true,
+    "allowed_configuration_change": "Append COREFLUX_PAYROLL_DRAFT_PILOT=1 to the existing host-bound review environment. Both broad draft and assignment-provisioning flags remain unset.",
+    "organization_id": "org_purepay_demo",
+    "payroll_input": "cpi_ee8ffda42ef94cd2ab75632afdc8e1c2fe9cd16bde05e04c620add98dd2996ed",
+    "assignment_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+    "assignment_snapshot": "cpa_98f87893fc9f73c253c75d20eacd8025e381e8ea11bde1dde96605bf946a5be4",
+    "assignment_readback": {
+      "state": "created",
+      "assignment_status": "draft",
+      "creation_enabled": false,
+      "activation_enabled": true,
+      "billing_automation_enabled": false
+    },
+    "native_ui_verification": "Meridian /links > Assignments: historical PL-13 snapshot has no activation action; current snapshot shows Activate assignment disabled until the review checkbox, enabled when checked, and disabled again after unchecking. No activation or other form was submitted; verification tab closed.",
+    "verification_window_closed": true,
+    "core_handoff_sent": true,
+    "validation": {
+      "backend": "115 passed, one companion PHP fixture skipped; isolated Mongo mocks with actual route handlers and extracted native hold guards, no external network",
+      "ui": "9 component checks passed; separate unavailable full PHP graph fixture excluded",
+      "frontend_build": "Full yarn build completed in the exact preview source using isolated BUILD_PATH",
+      "source_hashes_match_tested_candidate": true
+    },
+    "patch_sha256": "4466537715ca879f0773fa7657872bc332fd689755c8986523da67092f92c63b",
+    "remote_evidence": "/app/audit/core-pilot-20261025/installed.json",
+    "remote_baseline": "/app/audit/core-pilot-20261025/baseline.json",
+    "remote_backup": "/app/audit/core-pilot-20261025/before",
+    "remote_build_log": "/app/audit/core-pilot-20261025/build.log",
+    "recovery": "Preview waking had restarted webhook-crond and left backend stopped. Scheduler was stopped and review backend restored; all 145 collections and source/config remained unchanged during recovery. No source reservation, draft, assignment activation, payment, employee update or billing record was created by this deployment.",
+    "handoff": "Core chat must perform the normal reviewed synthetic workflow. Funding, approval and payment execution remain blocked by core_execution_hold. Removing the pilot flag disables further draft/recovery actions while preserving receipts. Never publish this mixed preview to production."
+  },
+  "native_ui_assignment_activation": {
+    "organization_id": "org_purepay_demo",
+    "person_number": "P-15",
+    "placement_number": "PL-13",
+    "assignment_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+    "snapshot_id": "cpa_98f87893fc9f73c253c75d20eacd8025e381e8ea11bde1dde96605bf946a5be4",
+    "dates": [
+      "2026-10-01",
+      "2026-10-31"
+    ],
+    "regular_pay_rate_usd_hour": "30.00",
+    "regular_bill_rate_usd_hour": "60.00",
+    "result": "active",
+    "automatic_billing": false,
+    "native_review_checkbox_and_activation_used": true,
+    "independent_human_review": false,
+    "screenshot": "C:\\Users\\kunal\\OneDrive\\Documents\\CoreFlux\\output\\thunderhawk-location-alignment-20261025\\purepay-demo-assignment-active-20261025.png"
+  },
+  "reservation_attempt": {
+    "run_id": 40231024688,
+    "conclusion": "failure",
+    "headSha": "441293d0674e6473639bd2d5ced4352d70a89d19",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40231024688",
+    "receipt": {
+      "checked_at": "2026-10-25T20:30:35+00:00",
+      "mode": "synthetic_payroll_source_reservation",
+      "tenant_id": 999,
+      "organization_id": "org_purepay_demo",
+      "input_receipt_id": "cpi_ee8ffda42ef94cd2ab75632afdc8e1c2fe9cd16bde05e04c620add98dd2996ed",
+      "production_changed": false,
+      "application_deployed": false,
+      "payroll_creation_requested": false,
+      "payroll_execution_requested": false,
+      "financial_posting_requested": false,
+      "authority_id": "cpa_11b15b808a583e07d9976732803dd2691da8c24cd0b88fd4528338c95cee31c0",
+      "protected_local_sets": 333,
+      "passed": false,
+      "failed_phase": "native_reservation",
+      "failure_class": "RuntimeException",
+      "failure_source": "purepay_payroll_reservation_review.php",
+      "failure_line": 16,
+      "reservation_flag_restored": true
+    }
+  },
+  "diagnosis": {
+    "existing_demo_key_label": "Core isolated pilot - Meridian - Oct 23",
+    "missing_capability": "write:payroll_authority",
+    "ui_confirmed_existing_scope_list": true,
+    "reservation_mutation_reached": false,
+    "provider_draft_created": false,
+    "acceptance_passed": false,
+    "protected_after_state_not_compared_because_precondition_failed": true
+  },
+  "pending_user_handoff": {
+    "new_key_created": false,
+    "form_prepared_in_demo_settings": true,
+    "label": "Core isolated pilot - Meridian - reservations Oct 25",
+    "same_existing_capabilities_plus": "write:payroll_authority",
+    "production_rotation_changed": false
+  },
+  "production_changed": false,
+  "actual_thunderhawk_records_changed": false,
+  "arabella_changed": false,
+  "payroll_or_payments_executed": false,
+  "financial_postings_created": false
+}

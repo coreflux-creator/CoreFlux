@@ -1,6 +1,6 @@
 {
   "name": "treasury_bank_feed_categorize",
-  "description": "Treasury bank-feed categorize — Phase-2a target. TODAY this bypasses the event engine via direct accountingPostJe() in modules/treasury/api/account_transactions.php. This scenario is designed to FAIL the no_direct_gl invariant on the legacy path and PASS once 2a refactors treasury to emit treasury.bank_transaction.matched through accountingProcessEvent.",
+  "description": "Treasury categorized bank outflow through the event engine; the source bank line must finish matched to its cash journal.",
   "default_seed": 13,
   "expected": { "events_emitted": 1, "je_posted": 1, "assertions_failed": 0 },
   "invariants": [
@@ -8,9 +8,18 @@
     "no_orphan_events",
     "no_direct_gl",
     "business_graph_consistent",
+    "bank_line_matched",
     "replay_reproducible"
   ],
   "steps": [
+    {
+      "action": "create_bank_line",
+      "id": 1,
+      "bank_gl_account_code": "1000",
+      "fitid": "SIM-BANK-0001",
+      "amount": -850.00,
+      "description": "Office supplies"
+    },
     {
       "action": "emit_event",
       "event_type": "treasury.bank_transaction.categorized",
@@ -23,11 +32,11 @@
         "amount": 850.00,
         "currency": "USD",
         "direction": "outflow",
-        "category_account_code": "6000",
+        "category_account_code": "6990",
         "description": "Categorized: office supplies",
         "lines": [
           { "account_code": "6990", "debit": 850.00, "credit": 0,       "description": "Office supplies" },
-          { "account_code": "1010", "debit": 0,      "credit": 850.00,  "description": "Bank account" }
+          { "account_code": "1000", "debit": 0,      "credit": 850.00,  "description": "Bank account" }
         ]
       }
     }

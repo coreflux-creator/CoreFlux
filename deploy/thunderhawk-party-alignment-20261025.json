@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-25",
+  "kind": "read_only_actual_thunderhawk_party_alignment",
+  "candidate_commit": "6ecdf6a7176af63cccd117b1225f6090a0901cbd",
+  "ci": {
+    "status": "completed",
+    "conclusion": "success",
+    "headSha": "6ecdf6a7176af63cccd117b1225f6090a0901cbd",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40220584649"
+  },
+  "ci_jobs": [
+    {
+      "name": "CoreAccounting standalone empty-database install",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (ui)",
+      "conclusion": "success"
+    },
+    {
+      "name": "CoreAccounting standalone release package",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (harness)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Full-Core maintenance Apache rehearsal",
+      "conclusion": "success"
+    },
+    {
+      "name": "Live business graph simulation",
+      "conclusion": "success"
+    },
+    {
+      "name": "Sim scenario dry-runs (determinism)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (core)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (modules)",
+      "conclusion": "success"
+    }
+  ],
+  "new_party_database_checks": 54,
+  "read_only_variations_with_unchanged_records": 44,
+  "combined_directory_fixture_checks": 169,
+  "inspection": {
+    "conclusion": "success",
+    "headSha": "6ecdf6a7176af63cccd117b1225f6090a0901cbd",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40220845582"
+  },
+  "reported_candidate_commit": "6ecdf6a7176af63cccd117b1***5f6090a0901cbd",
+  "candidate_log_partially_redacted": true,
+  "candidate_verification": "Workflow head and every visible character in the partially redacted public commit log agree; no hidden log content reconstructed.",
+  "pilot": {
+    "person": "P-358",
+    "placement": "PL-864",
+    "company": "Thunderhawk"
+  },
+  "party_alignment": {
+    "status": "compared",
+    "records_changed": false,
+    "as_of": "2026-10-25",
+    "scope": "Explicit end-client identity, subcontract links, current primary labor routing and persisted company/client/vendor numbers.",
+    "limits": [
+      "Name agreement alone does not establish a company or payee identity.",
+      "Current graph routing does not establish approved compensation, payroll readiness or payment authorization.",
+      "Referral, commission, additional parties and custom values need separate review."
+    ],
+    "end_client": {
+      "source_evidence": "missing",
+      "company": "source_identity_missing",
+      "name": "source_name_missing"
+    },
+    "subcontract_link": {
+      "current": "absent",
+      "company": "not_required_for_source_classification",
+      "vendor": "not_compared"
+    },
+    "primary_labor_route": "matches_source_identity_and_route",
+    "persisted_numbers": {
+      "client": "schema_unavailable",
+      "end_client_company": "schema_unavailable",
+      "subcontract_company": "reference_missing",
+      "subcontract_vendor": "reference_missing"
+    }
+  },
+  "interpretation": [
+    "The existing W2 labor party identifies the selected person and uses payroll/payable, without a corporate or AP-vendor identity.",
+    "No corporate facet exists, and a subcontract vendor is not required for this source W2 classification.",
+    "Fresh JobDiva assignment evidence does not establish an explicit end client. Its billing company cannot substitute for that role.",
+    "Production has no canonical company/client number registry schema. No number was allocated during inspection.",
+    "These findings do not establish compensation approval, worker access, additional-party alignment or a downstream round trip."
+  ],
+  "core_staging_runtime_unchanged": "4aa62cba50c77085985c64cb13a7c3b632730253",
+  "production_runtime_changed": false,
+  "production_business_records_changed": false,
+  "provider_records_changed": false,
+  "source_snapshot_replaced": false,
+  "credentials_changed": false,
+  "new_vendor_created": false,
+  "canonical_numbers_allocated": false,
+  "actual_thunderhawk_round_trip": false,
+  "real_payroll_payments_postings": false,
+  "arabella_changed": false,
+  "remaining": [
+    "End-client evidence and ownership review",
+    "Custom values and additional economic parties",
+    "Production release of the tested numbering and integration runtime",
+    "Normal commercial approval and supported WC evidence",
+    "Worker login and document submission",
+    "Independent time approval",
+    "Held payroll input/result exchange and reconciliation",
+    "Separate financial-preview credential and callback acceptance",
+    "Thunderhawk replacement key installation and verification"
+  ]
+}

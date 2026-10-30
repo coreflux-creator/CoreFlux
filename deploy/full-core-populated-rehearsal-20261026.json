@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-26",
+  "recorded_at": "2026-10-27T02:52:27.019854+00:00",
+  "candidate_commit": "4b1b7a2e6ddc98b8927d024f4b6b1da18bb35908",
+  "status": "Local populated migration conversion and reconciliation passed; hosted acceptance and cutover remain incomplete",
+  "snapshot": {
+    "database_engine": "MariaDB 10.11.18",
+    "tables": 387,
+    "rows": 4043709,
+    "sql_bytes": 6604163491,
+    "sql_sha256": "4cc64a7c433704e254a068532b5eac69cdfad92e0132359cc95ec3bfe4763d56",
+    "archive_bytes": 401265138,
+    "read_only_consistent_transaction": true,
+    "surrounding_schema_and_history_unchanged": true,
+    "private_archive_integrity_verified": true,
+    "business_data_exported_to_private_local_copy": true,
+    "production_config_or_data_encryption_key_exported": false
+  },
+  "storage": {
+    "outside_cloud_sync_and_repository": true,
+    "acl": "Current Windows user and SYSTEM only",
+    "archive_protection": "Windows user-bound DPAPI",
+    "database_protection": "MariaDB forced table, redo-log and temporary-data encryption",
+    "synthetic_storage_checks": 12,
+    "every_initial_destination_table_encrypted": true,
+    "loopback_only": true,
+    "event_scheduler": "OFF",
+    "application_started": false,
+    "provider_contacted": false,
+    "database_stopped": true,
+    "active_plaintext_fixture_keys_removed": true
+  },
+  "upgrade": {
+    "pending_files": 76,
+    "executed_statements": 734,
+    "plan_sha256": "adbbbdee6d52f9e80ebe0bf6732701d0b50844918e6719736ec0458faea6fe2a",
+    "normal_commit_flushing_restored_before_baseline": true,
+    "original_migration_history_preserved": true
+  },
+  "reconciliation": {
+    "candidate_commit": "4b1b7a2e6ddc98b8927d024f4b6b1da18bb35908",
+    "reconciliation_accepted": true,
+    "source_rows": 4043709,
+    "unchanged_original_tables": 381,
+    "reconciled_changed_tables": 6,
+    "checks": [
+      "All six original reference tables match the pre-upgrade full-row hashes",
+      "Only untouched default invoice labels and eligible platform export fields changed; all other columns and tenant customizations preserved",
+      "Every pre-existing migration, chart account and integration target row is unchanged",
+      "Exactly the missing active-tenant customer-deposit accounts were added; no ledger posting was created",
+      "One platform worksite-city mapping target added with the reviewed defaults",
+      "Exactly 76 completed migration records match the reviewed file bytes; original history remains unchanged"
+    ],
+    "new_chart_accounts": 7,
+    "new_integration_targets": 1,
+    "renamed_default_rules": 6,
+    "renamed_default_templates": 6,
+    "extended_platform_export_templates": 3,
+    "numbering": {
+      "person": {
+        "source_rows": 362,
+        "missing_or_different": 0
+      },
+      "company": {
+        "source_rows": 1902,
+        "missing_or_different": 0
+      },
+      "placement": {
+        "source_rows": 868,
+        "missing_or_different": 0
+      },
+      "client": {
+        "source_rows": 1277,
+        "missing_or_different": 0
+      },
+      "vendor": {
+        "source_rows": 328,
+        "missing_or_different": 0
+      }
+    },
+    "raw_invoice_token_removed_hash_and_other_fields_preserved": true,
+    "production_changed": false,
+    "limitation": "Local populated migration conversion only. Not a hosted Thunderhawk round trip, cutover backup/recovery proof, or release authorization. Source auto-increment high-water marks beyond imported IDs were not preserved by this data-only rehearsal."
+  },
+  "harness_sha256": {
+    "private_rehearsal_store.py": "dc29ece40796f3ee490b32a193a18d9ea025928e0663401f931b6272688a77a9",
+    "capture_populated_rehearsal.py": "2e6c24e95aebb89ba00c0b5dcc46a176f34d0596218607f8513c04fe788f22d7",
+    "test_private_rehearsal_database.py": "c937fc42bcbee414d06ce4e1249a0733faf5f706f1dee42ab82b89bc16f87881",
+    "run_populated_rehearsal.py": "af881c41caf5d4bd4b4be000ff3e4f7d0c68154c1835cbd0a0defd9319305dcc",
+    "populated_rehearsal.php": "9591e0452929995f7651b2e9159e04126f2526f7218cebc3a7d5d4291fc0c5c2",
+    "verify_populated_fixture.py": "82e9003f4e6dec1d84b5946980b6fd6bec91de5671521e0c4ac9ea5933fbf7f2",
+    "reconcile_populated_fixture.py": "969034a01ed2ffe097394ff5bd24b7abcf5bbbb5676b5e0336ecdfeddea0b35b",
+    "reconcile_populated.php": "f19dc9409a6e2c59b36d2566a82f3b55ed56afba33d113b1cb228556fe0cb0e6"
+  },
+  "private_evidence": "output/populated-rehearsal-20261026/; populated data and database keys remain outside the repository",
+  "limitations": [
+    "The 381-table preservation result covers original retained columns; billing_invoice_tokens.token is deliberately removed, with token_hash and all other fields preserved.",
+    "Source auto-increment high-water marks beyond imported IDs were not copied by this data-only rehearsal.",
+    "Surrounding schema equality is not proof of a DDL-free maintenance window.",
+    "This is not matching file/database cutover backup, recovery under writer drain, hosted HTTP acceptance, an actual Thunderhawk operational round trip, or release authorization.",
+    "Core staging remains 98d1d8f7ed9d860a638b67cdf78afeecd6b7a391; production is unchanged."
+  ],
+  "production_changed": false,
+  "goal_complete": false
+}

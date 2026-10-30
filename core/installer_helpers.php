@@ -6,6 +6,28 @@
 
 declare(strict_types=1);
 
+function installerRequiredBaseTables(): array {
+    return [
+        'tenants', 'users', 'user_tenants', 'tenant_modules',
+        'people_employees', 'placements', 'time_entries', 'staffing_timesheets',
+    ];
+}
+
+function installerMissingBaseTables(array $present): array {
+    return array_values(array_diff(installerRequiredBaseTables(), $present));
+}
+
+function installerCheckBaseSchema(PDO $pdo): array {
+    $required = installerRequiredBaseTables();
+    $placeholders = implode(',', array_fill(0, count($required), '?'));
+    $baseTables = $pdo->prepare(
+        "SELECT table_name FROM information_schema.tables
+          WHERE table_schema = DATABASE() AND table_name IN ($placeholders)"
+    );
+    $baseTables->execute($required);
+    return installerMissingBaseTables($baseTables->fetchAll(PDO::FETCH_COLUMN));
+}
+
 /**
  * Read a host configuration value consistently across PHP-FPM setups.
  * Some managed hosts expose application variables through $_SERVER/$_ENV
@@ -95,6 +117,15 @@ function spaBundleStatus(string $root): array {
     $scan($root . '/dashboard/src');
     foreach (glob($root . '/modules/*/ui') ?: [] as $uiDir) $scan($uiDir);
 
+    if ($newest === 0) {
+        $rows[] = [
+            'check' => 'spa bundle freshness',
+            'ok' => true,
+            'detail' => 'runtime-only package; compare installed bundle hashes with the release manifest',
+        ];
+        return $rows;
+    }
+
     // Tolerance: 600 seconds (10 min). Git pull does NOT preserve commit
     // mtime — it stamps every pulled file with the current wall-clock time in
     // whatever order git happens to write them. With ~100+ modified files,
@@ -133,10 +164,8 @@ function spaBundleStatus(string $root): array {
  *   ], ... ]
  *
  * Idempotency: catches "Duplicate column / already exists / Duplicate key"
- * and similar safe errors at the per-statement level. A migration that
- * has been partially applied by the runtime self-heal (e.g.
- * `_treasuryEnsurePlaidBalanceColumns`) will now still register as
- * applied without aborting the whole update.
+ * and similar safe errors at the per-statement level, including historical
+ * partial schemas. Current web requests never apply Plaid migrations.
  */
 function runMigrationsInProcess(): array {
     require_once __DIR__ . '/config.php';
@@ -145,6 +174,13 @@ function runMigrationsInProcess(): array {
         DB_USER, DB_PASS,
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
     );
+    $missing = installerCheckBaseSchema($pdo);
+    if ($missing) {
+        throw new RuntimeException(
+            'Canonical CoreFlux base schema is missing: ' . implode(', ', $missing)
+            . '. Provision the platform and People, Placements, Time, and Staffing base schemas before running the web installer.'
+        );
+    }
     $pdo->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS coreflux_migrations (
     id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

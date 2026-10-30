@@ -5,8 +5,9 @@
  *   invoiceRenderPdf(int $invoiceId, bool $useCache = true): string  → absolute path
  *   invoiceBuildPdfHtml(int $invoiceId): string                       → HTML template
  *
- * Cached at `/app/storage/billing/invoices/<tenant_id>/<invoice_id>-<hash>.pdf`.
- * Cache key is the invoice's `updated_at` + amount_due (so any edit busts cache).
+ * Cached under private storage for standalone CoreAccounting, or the ERP's
+ * existing storage directory otherwise.
+ * Cache key includes invoice state and template source (so edits, workflow and releases bust cache).
  *
  * Permissions are NOT checked here — callers (HTTP endpoint, mail attach)
  * are responsible. This is a builder.
@@ -15,17 +16,50 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/pdf_renderer.php';
+require_once __DIR__ . '/../../../core/accounting/private_storage.php';
+require_once __DIR__ . '/invoice_pdf_cache.php';
 
 const COREFLUX_INVOICE_PDF_STORAGE_ROOT = __DIR__ . '/../../../storage/billing/invoices';
+
+function invoiceFormatMeasure(float|int|string $value): string {
+    $formatted = number_format((float) $value, 4, '.', ',');
+    return substr($formatted, 0, -2) . rtrim(substr($formatted, -2), '0');
+}
+
+function invoicePdfStatusPresentation(string $status): array {
+    return match ($status) {
+        'draft' => ['DRAFT - NOT ISSUED', 'Planned due date', 'Draft total'],
+        'approved' => ['APPROVED - NOT SENT', 'Planned due date', 'Approved total'],
+        'void' => ['VOID - NOT PAYABLE', 'Due date', 'Voided balance'],
+        default => ['', 'Due date', 'Total due'],
+    };
+}
+
+function invoicePdfStorageRoot(): string {
+    if (getenv('COREFLUX_ENV') !== 'coreaccounting') {
+        return COREFLUX_INVOICE_PDF_STORAGE_ROOT;
+    }
+    return coreAccountingPrivateStorageRoot(dirname(__DIR__, 3)) . '/billing/invoices';
+}
 
 function invoiceRenderPdf(int $invoiceId, bool $useCache = true): string {
     $pdo = getDB();
     $inv = _invoiceLoad($pdo, $invoiceId);
     if (!$inv) throw new RuntimeException("Invoice #{$invoiceId} not found");
 
-    $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['amount_due']);
+    $cacheKey = hash('sha1', (string) $inv['updated_at'] . '|' . (string) $inv['status']
+        . '|' . (string) $inv['amount_due']
+        . '|' . (string) ($inv['amount_credited'] ?? 0)
+        . '|' . (string) ($inv['amount_paid'] ?? 0)
+        . '|' . hash_file('sha1', __FILE__));
     $tenantId = (int) $inv['tenant_id'];
-    $outDir   = COREFLUX_INVOICE_PDF_STORAGE_ROOT . '/' . $tenantId;
+    $storageRoot = invoicePdfStorageRoot();
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        invoiceArchiveLegacyPdfCache($invoiceId, $tenantId,
+            COREFLUX_INVOICE_PDF_STORAGE_ROOT,
+            coreAccountingPrivateStorageRoot(dirname(__DIR__, 3)));
+    }
+    $outDir   = $storageRoot . '/' . $tenantId;
     $outPath  = $outDir . '/' . $invoiceId . '-' . $cacheKey . '.pdf';
 
     if ($useCache && is_file($outPath) && filesize($outPath) > 0) return $outPath;
@@ -45,6 +79,8 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
 
     $h = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     $money = fn($v) => '$' . number_format((float) $v, 2);
+    [$notice, $dueDateLabel, $totalLabel] = invoicePdfStatusPresentation((string) ($inv['status'] ?? ''));
+    $noticeHtml = $notice !== '' ? '<div class="document-state">' . $h($notice) . '</div>' : '';
 
     $billToJson = is_string($inv['bill_to_json'] ?? null) ? json_decode($inv['bill_to_json'], true) : null;
     $billToLines = [];
@@ -61,9 +97,9 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
         $linesHtml .= '<tr>'
             . '<td class="num">' . ($i + 1) . '</td>'
             . '<td>' . $h($l['description']) . '</td>'
-            . '<td class="num">' . $h(rtrim(rtrim(number_format((float) $l['quantity'], 4, '.', ''), '0'), '.')) . '</td>'
+            . '<td class="num">' . $h(invoiceFormatMeasure($l['quantity'])) . '</td>'
             . '<td>' . $h($l['unit']) . '</td>'
-            . '<td class="num">' . $money($l['unit_price']) . '</td>'
+            . '<td class="num">$' . $h(invoiceFormatMeasure($l['unit_price'])) . '</td>'
             . '<td class="num">' . $money($l['subtotal']) . '</td>'
             . '<td class="num">' . $money($l['tax_amount']) . '</td>'
             . '<td class="num">' . $money($l['total']) . '</td>'
@@ -91,13 +127,16 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
 <style>
   * { box-sizing: border-box; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0f172a; font-size: 11pt; margin: 0; padding: 0 32px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; padding: 36px 0 20px; border-bottom: 3px solid {$brandColor}; }
+  .header { display: table; width: 100%; padding: 36px 0 20px; border-bottom: 3px solid {$brandColor}; }
+  .header > div { display: table-cell; vertical-align: top; }
   .header .logo { max-height: 56px; max-width: 220px; }
   .brand-name { font-size: 22pt; font-weight: 700; color: {$brandColor}; }
   .title { text-align: right; }
   .title h1 { margin: 0 0 4px; font-size: 26pt; color: {$brandColor}; letter-spacing: 0.04em; }
+  .document-state { margin: 0 0 4px; color: #9a3412; font-size: 10pt; font-weight: 700; letter-spacing: 0.04em; }
   .title .meta { color: #64748b; font-size: 10pt; line-height: 1.55; }
-  .parties { display: flex; justify-content: space-between; margin: 24px 0; gap: 20px; }
+  .parties { display: table; width: 100%; margin: 24px 0; }
+  .parties > .party { display: table-cell; vertical-align: top; padding-right: 20px; }
   .party h4 { margin: 0 0 6px; font-size: 9pt; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; }
   .party .line { font-size: 11pt; line-height: 1.55; }
   table.lines { width: 100%; border-collapse: collapse; margin-top: 12px; }
@@ -123,10 +162,11 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
     <div>{$logoHtml}</div>
     <div class="title">
       <h1>INVOICE</h1>
+      {$noticeHtml}
       <div class="meta">
         <strong>{$h($inv['invoice_number'])}</strong><br>
-        Issue date: {$h($inv['issue_date'])}<br>
-        Due date: {$h($inv['due_date'])}
+        Invoice date: {$h($inv['issue_date'])}<br>
+        {$h($dueDateLabel)}: {$h($inv['due_date'])}
         @{po_section}
       </div>
     </div>
@@ -161,7 +201,9 @@ function invoiceBuildPdfHtml(int $invoiceId): string {
     <table>
       <tr><td class="label">Subtotal</td><td class="val">{$money($inv['subtotal'])}</td></tr>
       <tr><td class="label">Tax</td><td class="val">{$money($inv['tax_total'])}</td></tr>
-      <tr><td class="label grand">Total due</td><td class="val grand">{$money($inv['amount_due'])}</td></tr>
+      <tr><td class="label">Payments received</td><td class="val">{$money($inv['amount_paid'] ?? 0)}</td></tr>
+      <tr><td class="label">Credits applied</td><td class="val">{$money($inv['amount_credited'] ?? 0)}</td></tr>
+      <tr><td class="label grand">{$h($totalLabel)}</td><td class="val grand">{$money($inv['amount_due'])}</td></tr>
     </table>
   </div>
   {$notesHtml}

@@ -1,0 +1,55 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "isolated_core_hybrid_audit_release_verified",
+  "installed_commit": "9b527b1b602bdda332927aa812f4bd54670d887b",
+  "supersedes_installed_commit": "d68a4a7d01db82924028eba11cce8e2a92c11562",
+  "change": "The native audit writer populates required legacy action/entity_id aliases alongside canonical event/target_id columns when both exist.",
+  "production_evidence": "Read-only run 40197504610 observed the mixed schema. Failed entity run 40197253805 left the selected placement reference empty; corrected run 40198138420 applied and independently verified THUN.",
+  "ci": {
+    "databaseId": 40197899827,
+    "headSha": "9b527b1b602bdda332927aa812f4bd54670d887b",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40197899827",
+    "successful_jobs": 9,
+    "pilot_database_checks": 105,
+    "native_audit_schema_cases": 3
+  },
+  "deployment": {
+    "databaseId": 40198303037,
+    "headSha": "9b527b1b602bdda332927aa812f4bd54670d887b",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40198303037",
+    "successful_jobs": 1,
+    "target_application": "muzqvdvqbx",
+    "simulation_tenant": 999,
+    "changed_files": 14,
+    "migrations_applied": [],
+    "runtime_and_schema_verified": true,
+    "served_assets_verified": 4,
+    "acceptance": {
+      "accounting_lifecycle": "passed",
+      "split_receipt": "passed",
+      "credit_applications": {
+        "status": "passed",
+        "checks": 61,
+        "rollback": true
+      },
+      "billing_delivery": "passed: log-only delivery",
+      "staffing_onboarding": {
+        "status": "passed",
+        "checks": 17,
+        "portal_delivery": "not_checked",
+        "payroll_authorization": "not_evaluated"
+      }
+    }
+  },
+  "production_placement_evidence": "deploy/thunderhawk-entity-alignment-20261025.json",
+  "boundaries": {
+    "production_runtime_changed": false,
+    "production_cutover": false,
+    "arabella_changed": false,
+    "real_payroll_or_payments_executed": false,
+    "credential_rotation_completed": false,
+    "full_thunderhawk_round_trip_proven": false
+  }
+}

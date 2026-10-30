@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "const": "2026-10-25.1"
+    },
+    "organization_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "observation.schema.json"
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 512
+    },
+    "consistency": {
+      "const": "rechecked_read_not_transactional_snapshot"
+    }
+  },
+  "required": [
+    "contract_version",
+    "organization_id",
+    "items",
+    "next_cursor",
+    "consistency"
+  ]
+}

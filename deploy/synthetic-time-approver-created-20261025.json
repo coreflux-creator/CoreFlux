@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-25T18:55:24.894515+00:00",
+  "scope": "User-authorized simulation-only test approver in Core staging tenant 999",
+  "helper_sha": "3744d2d60f1d3c78eaf07eb7b9c98560d80742f9",
+  "installed_core_sha": "daf386d0a40ff08f11a0934beef4517a6bfe6314",
+  "ci": {
+    "run_id": 40223250225,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40223250225",
+    "all_nine_jobs_passed": true
+  },
+  "provisioning": {
+    "run_id": 40223461462,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40223461462",
+    "reports": [
+      {
+        "checked_at": "2026-10-25T18:55:09+00:00",
+        "mode": "create_synthetic_time_reviewer",
+        "production_changed": false,
+        "time_approved": false,
+        "payroll_or_financial_writes": false,
+        "independent_human_review": false,
+        "user_id": 51,
+        "membership_id": 36,
+        "display_name": "Core Pilot Test Approver",
+        "tenant_id": 999,
+        "time_review_allowed_in_both_models": true,
+        "other_modules_denied": true,
+        "global_admin": false,
+        "other_active_tenant_memberships": 0,
+        "audit_verified": true,
+        "created": true,
+        "credentials_issued": false,
+        "invitation_sent": false,
+        "existing_time_identity_and_operator_unchanged": true,
+        "distinct_from_pilot_entry_creators": true,
+        "passed": true
+      },
+      {
+        "checked_at": "2026-10-25T18:55:10+00:00",
+        "mode": "create_synthetic_time_reviewer",
+        "production_changed": false,
+        "time_approved": false,
+        "payroll_or_financial_writes": false,
+        "independent_human_review": false,
+        "user_id": 51,
+        "membership_id": 36,
+        "display_name": "Core Pilot Test Approver",
+        "tenant_id": 999,
+        "time_review_allowed_in_both_models": true,
+        "other_modules_denied": true,
+        "global_admin": false,
+        "other_active_tenant_memberships": 0,
+        "audit_verified": true,
+        "created": false,
+        "credentials_issued": false,
+        "invitation_sent": false,
+        "existing_time_identity_and_operator_unchanged": true,
+        "distinct_from_pilot_entry_creators": true,
+        "passed": true
+      }
+    ]
+  },
+  "redaction_note": null,
+  "remaining": [
+    "Approve only the verified synthetic time through the native control and reconcile Quanta status.",
+    "Disable the temporary reviewer after the synthetic review test while retaining its audit reference.",
+    "Actual Thunderhawk human approval and live operational round trip remain separate."
+  ]
+}

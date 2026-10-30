@@ -39,12 +39,23 @@ if ($method === 'POST' && $action === 'consume') {
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
     api_require_fields($body, ['consumed_by_module', 'consumed_ref_id']);
-    $rows = scopedUpdate('time_downstream_feed', $id, [
-        'status'            => 'consumed',
-        'consumed_at'       => date('Y-m-d H:i:s'),
-        'consumed_by_module'=> $body['consumed_by_module'],
-        'consumed_ref_id'   => (int) $body['consumed_ref_id'],
-    ]);
+    require_once __DIR__.'/../../../core/quanta/time_current.php';
+    require_once __DIR__.'/../../../core/tx_helpers.php';
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        quantaTimeAssertLegacyBundles($pdo, (int)currentTenantId(), [$id]);
+        $rows = scopedUpdate('time_downstream_feed', $id, [
+            'status'            => 'consumed',
+            'consumed_at'       => date('Y-m-d H:i:s'),
+            'consumed_by_module'=> $body['consumed_by_module'],
+            'consumed_ref_id'   => (int) $body['consumed_ref_id'],
+        ]);
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        api_error($e->getMessage(), 409);
+    }
     if ($rows === 0) api_error('Not found or no change', 404);
     timeAudit('time.feed.consumed', ['bundle_id' => $id, 'by' => $body['consumed_by_module'], 'ref' => (int) $body['consumed_ref_id']], $id);
     api_ok(['ok' => true]);

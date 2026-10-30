@@ -1,0 +1,3 @@
+Invoice #,Client name,Entity code,Issue date,Due date,Line description,Line quantity,Line unit price
+CSVQA-AR-PREVIEW-20261007,Synthetic Preview Customer,SIM,2026-10-07,2026-11-06,Preview service A,1,5
+CSVQA-AR-PREVIEW-20261007,,,,,Preview service B,2,3

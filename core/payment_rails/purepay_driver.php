@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../payment_rails.php';
+require_once __DIR__ . '/../purepay_payment_evidence.php';
 
 class PurePayRailDriver implements PaymentRailsDriver
 {
@@ -18,6 +19,7 @@ class PurePayRailDriver implements PaymentRailsDriver
     {
         require_once __DIR__ . '/../purepay_service.php';
         $conn = purepayGetConnection($tenantId);
+        try { purepayFinancialRequire(getDB(),$tenantId,$conn); } catch (Throwable $e) { return false; }
         return $conn && ($conn['status'] ?? '') === 'active'
             && ($conn['key_scope'] ?? '') === 'read_write' && ($conn['api_key'] ?? '') !== '';
     }
@@ -38,13 +40,15 @@ class PurePayRailDriver implements PaymentRailsDriver
             throw new PaymentRailsNotConfiguredException('Pure//Pay payouts require a read-write API key');
         }
 
+        purepayFinancialRequire(getDB(),$tenantId,$conn);
         $batchId = (string) ($opts['batch_id'] ?? ('purepay_' . date('YmdHis') . '_' . bin2hex(random_bytes(3))));
         $results = [];
         foreach ($items as $index => $item) {
             try {
                 $results[] = $this->originateOne($tenantId, (string) $conn['api_key'], $item, $opts, $index);
             } catch (\Throwable $e) {
-                $this->recordFailure($tenantId, (string) ($item['external_ref'] ?? ''), $e);
+                // Only the request that acquired the durable claim may record a failure.
+                // Validation errors and competing retries must not change another attempt.
                 $results[] = [
                     'external_ref' => (string) ($item['external_ref'] ?? ''),
                     'status' => 'failed',
@@ -68,305 +72,176 @@ class PurePayRailDriver implements PaymentRailsDriver
 
     private function originateOne(int $tenantId, string $apiKey, array $item, array $opts, int $index): array
     {
-        foreach (['external_ref', 'recipient_name', 'recipient_email', 'recipient_ref', 'amount_cents'] as $key) {
-            if (!isset($item[$key]) || trim((string) $item[$key]) === '') {
-                throw new PaymentRailsOriginateException("Pure//Pay item {$index}: {$key} is required");
+        require_once __DIR__.'/../purepay_allocated_payments.php';
+        $source=(string)($item['external_ref']??'');
+        if(!preg_match('/^ap_payment:([1-9][0-9]*)$/D',$source,$match))
+            throw new PaymentRailsOriginateException('PurePay dispatch requires an original AP payment.');
+        $date=(string)($item['effective_date']??$opts['effective_date']??date('Y-m-d'));
+        purepayBillDate($date);
+        if($date>date('Y-m-d'))throw new PaymentRailsOriginateException('This payment is scheduled for a future date.');
+        return purepayAllocationDispatch(getDB(),$tenantId,(int)$match[1],$item,$date);
+    }
+
+    private function updateLink(int $tenantId, string $sourceRef, array $fields): string
+    {
+        $pdo=getDB();
+        if ($pdo->inTransaction()) throw new PaymentRailsOriginateException('Provider result requires its own durable transaction');
+        $pdo->beginTransaction();
+        try {
+        purepayFinancialRequire($pdo,$tenantId);
+        $read=$pdo->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s FOR UPDATE');
+        $read->execute(['t'=>$tenantId,'s'=>$sourceRef]);$current=$read->fetch(PDO::FETCH_ASSOC);
+        if (!$current) throw new PaymentRailsOriginateException('Pure//Pay attempt was not found');
+        $connection=purepayFinancialConnection($pdo,$tenantId,true);
+        if (!hash_equals((string)$current['connection_fingerprint'],purepayConnectionFingerprint($tenantId,purepayFinancialKey($connection)))) throw new PaymentRailsOriginateException('The company connection changed while reading this payment.');
+        foreach (['purepay_vendor_id','purepay_bill_id','purepay_payment_id'] as $identity) {
+            if (!empty($current[$identity]) && isset($fields[$identity]) && $fields[$identity]!==$current[$identity]) {
+                throw new PaymentRailsOriginateException('Pure//Pay result conflicts with the recorded provider identity');
             }
         }
-        if (!filter_var((string) $item['recipient_email'], FILTER_VALIDATE_EMAIL)) {
-            throw new PaymentRailsOriginateException("Pure//Pay item {$index}: vendor remit email is invalid");
-        }
-        if ((int) $item['amount_cents'] <= 0) {
-            throw new PaymentRailsOriginateException("Pure//Pay item {$index}: amount must be positive");
-        }
-        if (strtoupper((string) ($item['currency'] ?? '')) !== 'USD') {
-            throw new PaymentRailsOriginateException("Pure//Pay item {$index}: only USD payouts are supported");
-        }
-
-        $sourceRef = (string) $item['external_ref'];
-        $recipientName = trim((string) ($item['recipient_full_name'] ?? $item['recipient_name']));
-        $recipientEmail = strtolower(trim((string) $item['recipient_email']));
-        $fingerprint = hash('sha256', json_encode([
-            $tenantId, $sourceRef, (string) $item['recipient_ref'], $recipientName,
-            $recipientEmail, (int) $item['amount_cents'], 'wallet',
-        ], JSON_UNESCAPED_SLASHES));
-        $link = $this->claimLink($tenantId, $sourceRef, (int) $item['amount_cents'], $fingerprint);
-        if (!hash_equals((string) $link['request_fingerprint'], $fingerprint)) {
-            throw new PaymentRailsOriginateException('Pure//Pay idempotency conflict: this CoreFlux payment was previously sent with different details');
-        }
-
-        $billId = (string) ($link['purepay_bill_id'] ?? '');
-        $paymentId = (string) ($link['purepay_payment_id'] ?? '');
-        $rawStatus = strtolower(trim((string) ($link['status'] ?? '')));
-        $existingStatus = $this->normalizeStatus($rawStatus);
-        $safePrePayStates = ['creating', 'bill_created', 'ready_to_pay', 'pushed_unverified', 'failed', 'needs_review'];
-        if ($paymentId !== '' || !in_array($rawStatus, $safePrePayStates, true)) {
-            return [
-                'external_ref' => $sourceRef,
-                'status' => $existingStatus,
-                'rail_external_ref' => $billId !== '' ? 'purepay:bill:' . $billId : 'purepay:payment:' . $paymentId,
-            ];
-        }
-        if ($billId === '' && in_array($rawStatus, ['failed', 'needs_review'], true)) {
-            $this->updateLink($tenantId, $sourceRef, ['status'=>'creating','last_error'=>null,'last_error_json'=>null]);
-        }
-
-        $vendorId = (string) ($link['purepay_vendor_id'] ?? '');
-        if ($vendorId === '') {
-            $vendor = $this->ensureVendor($tenantId, $apiKey, $item);
-            $vendorId = $vendor['id'];
-            getDB()->prepare('UPDATE purepay_payment_links SET purepay_vendor_id=:v, updated_at=NOW() WHERE tenant_id=:t AND source_ref=:s')
-                ->execute(['v' => $vendorId, 't' => $tenantId, 's' => $sourceRef]);
-        }
-
-        if ($billId === '') {
-            $billPayload = [
-                'vendor_id' => $vendorId,
-                'amount' => round(((int) $item['amount_cents']) / 100, 2),
-                'bill_date' => (string) ($opts['effective_date'] ?? date('Y-m-d')),
-                'due_date' => (string) ($opts['effective_date'] ?? date('Y-m-d')),
-                'invoice_number' => substr((string) ($item['invoice_number'] ?? $sourceRef), 0, 100),
-            ];
-            $created = purepayCreateBill($apiKey, $billPayload, purepayIdempotencyKey($tenantId, 'bill', $sourceRef));
-            $billId = purepayResourceId($created, ['bill']);
-            if ($billId === '') throw new PurePayApiException('Pure//Pay created a bill but did not return its id');
-            $this->updateLink($tenantId, $sourceRef, [
-                'purepay_bill_id' => $billId,
-                'status' => 'bill_created',
-                'response_json' => json_encode($created, JSON_UNESCAPED_SLASHES),
-            ]);
-        }
-
-        // Charter primitive #5: re-read the provider after the create before paying.
-        $remoteBill = purepayResource(purepayGetBill($apiKey, $billId), ['bill']);
-        if (purepayResourceId($remoteBill, ['bill']) !== $billId) {
-            $this->updateLink($tenantId, $sourceRef, ['status' => 'pushed_unverified']);
-            throw new PaymentRailsOriginateException('Pure//Pay bill was created but could not be verified from GET /bills; payment was not released');
-        }
-
-        // Reconcile before release; the POST itself also uses a stable key so
-        // a lost response cannot turn a retry into a second payment.
-        $paymentsBefore = purepayCollection(purepayListPayments($apiKey), ['payments']);
-        $alreadyPaid = $this->findPayment($paymentsBefore, '', $billId);
-        if ($alreadyPaid) {
-            $paymentId = (string) ($alreadyPaid['id'] ?? $alreadyPaid['payment_id'] ?? '');
-            $status = (string) ($alreadyPaid['pay_status'] ?? $alreadyPaid['status'] ?? 'submitted');
-            $this->updateLink($tenantId, $sourceRef, [
-                'purepay_payment_id' => $paymentId !== '' ? $paymentId : null,
-                'status' => $status,
-                'response_json' => json_encode($alreadyPaid, JSON_UNESCAPED_SLASHES),
-                'last_synced_at' => date('Y-m-d H:i:s'),
-                'last_error' => null,
-                'last_error_json' => null,
-            ]);
-            return [
-                'external_ref' => $sourceRef,
-                'status' => $this->normalizeStatus($status),
-                'rail_external_ref' => 'purepay:bill:' . $billId,
-            ];
-        }
-
-        $paid = purepayPayBill($apiKey, $billId, ['pay_via' => 'wallet'], purepayIdempotencyKey($tenantId, 'pay', $sourceRef));
-        $paymentResource = is_array($paid['payment'] ?? null) ? $paid['payment'] : $paid;
-        $paymentId = (string) ($paymentResource['payment_id'] ?? $paymentResource['id'] ?? '');
-        $status = (string) (purepayResource($paid, ['payment', 'bill'])['pay_status']
-            ?? purepayResource($paid, ['payment', 'bill'])['status'] ?? 'submitted');
-
-        // Verify the payment through the provider's detail endpoint; fall back
-        // to the list when the POST response omits its payment id.
-        $remotePayment = $paymentId !== ''
-            ? purepayResource(purepayGetPayment($apiKey, $paymentId), ['payment'])
-            : $this->findPayment(purepayCollection(purepayListPayments($apiKey), ['payments']), '', $billId);
-        if ($remotePayment) {
-            $paymentId = (string) ($remotePayment['id'] ?? $remotePayment['payment_id'] ?? $paymentId);
-            $status = (string) ($remotePayment['pay_status'] ?? $remotePayment['status'] ?? $status);
-        } else {
-            $status = 'posted_unverified';
-        }
-        $this->updateLink($tenantId, $sourceRef, [
-            'purepay_payment_id' => $paymentId !== '' ? $paymentId : null,
-            'status' => $status,
-            'response_json' => json_encode($paid, JSON_UNESCAPED_SLASHES),
-            'last_synced_at' => date('Y-m-d H:i:s'),
-            'last_error' => null,
-            'last_error_json' => null,
-        ]);
-        return [
-            'external_ref' => $sourceRef,
-            'status' => $this->normalizeStatus($status),
-            'rail_external_ref' => 'purepay:bill:' . $billId,
-        ];
-    }
-
-    private function ensureVendor(int $tenantId, string $apiKey, array $item): array
-    {
-        $coreRef = (string) $item['recipient_ref'];
-        $stmt = getDB()->prepare('SELECT purepay_vendor_id, verification_status FROM purepay_vendor_mappings WHERE tenant_id=:t AND core_vendor_ref=:r LIMIT 1');
-        $stmt->execute(['t' => $tenantId, 'r' => $coreRef]);
-        $mapped = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-        $name = trim((string) ($item['recipient_full_name'] ?? $item['recipient_name']));
-        $email = strtolower(trim((string) $item['recipient_email']));
-        if ($mapped) {
-            $vendorId = (string) $mapped['purepay_vendor_id'];
-            $remote = purepayResource(purepayGetVendor($apiKey, $vendorId), ['vendor']);
-            $this->assertVendorIdentity($remote, $vendorId, $name, $email);
-            return ['id' => $vendorId];
-        }
-        $vendors = purepayCollection(purepayListVendors($apiKey), ['vendors']);
-        $remote = null;
-        foreach ($vendors as $candidate) {
-            if (!is_array($candidate)) continue;
-            $candidateEmail = strtolower(trim((string) ($candidate['email'] ?? '')));
-            $candidateName = trim((string) ($candidate['display_name'] ?? $candidate['legal_name'] ?? $candidate['name'] ?? ''));
-            if ($candidateEmail === $email && strcasecmp($candidateName, $name) === 0) {
-                $remote = $candidate;
-                break;
+        $paymentId = (string)($fields['purepay_payment_id'] ?? $current['purepay_payment_id'] ?? '');
+        if ($paymentId !== '') {
+            if(purepayAllocationConflictsWithLegacy($pdo,$tenantId,$current,$paymentId))
+                throw new PaymentRailsOriginateException('This receipt belongs to an original-bill allocation. Reconcile the historical attempt separately.');
+            $owner = $pdo->prepare('SELECT source_ref FROM purepay_payment_links
+                WHERE tenant_id=:t AND purepay_payment_id=:p AND source_ref<>:s LIMIT 1');
+            $owner->execute(['t'=>$tenantId, 'p'=>$paymentId, 's'=>$sourceRef]);
+            if ($owner->fetchColumn() !== false) {
+                throw new PaymentRailsOriginateException('This PurePay payment already belongs to another Core payment. Reconcile both attempts; no receipt was reassigned.');
             }
+            // The database unique key arbitrates concurrent first bindings.
         }
-        if (!$remote) {
-            $created = purepayCreateVendor($apiKey, [
-                'display_name' => $name,
-                'email' => $email,
-                'relationship' => 'vendor',
-            ], purepayIdempotencyKey($tenantId, 'vendor', $coreRef));
-            $vendorId = purepayResourceId($created, ['vendor']);
-            if ($vendorId === '') throw new PurePayApiException('Pure//Pay created a vendor but did not return its id');
-        } else {
-            $vendorId = (string) ($remote['id'] ?? $remote['vendor_id'] ?? '');
-        }
-        if ($vendorId === '') throw new PurePayApiException('Pure//Pay vendor id is missing');
-        $remote = purepayResource(purepayGetVendor($apiKey, $vendorId), ['vendor']);
-        $this->assertVendorIdentity($remote, $vendorId, $name, $email);
-        getDB()->prepare(
-            'INSERT INTO purepay_vendor_mappings
-                (tenant_id, core_vendor_ref, purepay_vendor_id, vendor_name, vendor_email, verification_status)
-             VALUES (:t,:r,:v,:n,:e,:s)
-             ON DUPLICATE KEY UPDATE purepay_vendor_id=VALUES(purepay_vendor_id),
-                vendor_name=VALUES(vendor_name), vendor_email=VALUES(vendor_email),
-                verification_status=VALUES(verification_status), updated_at=NOW()'
-        )->execute(['t'=>$tenantId,'r'=>$coreRef,'v'=>$vendorId,'n'=>$name,'e'=>$email,'s'=>'verified']);
-        return ['id' => $vendorId, 'verification_status' => 'verified'];
-    }
-
-    private function assertVendorIdentity(array $remote, string $vendorId, string $name, string $email): void
-    {
-        $actualId = purepayResourceId($remote, ['vendor']);
-        $actualName = trim((string) ($remote['display_name'] ?? $remote['legal_name'] ?? $remote['name'] ?? ''));
-        $actualEmail = strtolower(trim((string) ($remote['email'] ?? '')));
-        if ($actualId !== $vendorId || strcasecmp($actualName, $name) !== 0 || $actualEmail !== $email) {
-            throw new PaymentRailsOriginateException(
-                'Pure//Pay vendor identity differs from the AP vendor. Review the name and remit email in both systems before paying.'
-            );
-        }
-    }
-
-    private function claimLink(int $tenantId, string $sourceRef, int $amountCents, string $fingerprint): array
-    {
-        $corePaymentId = preg_match('/^ap_payment:(\d+)$/', $sourceRef, $m) ? (int) $m[1] : null;
-        $insert = getDB()->prepare(
-            'INSERT IGNORE INTO purepay_payment_links
-                (tenant_id, source_ref, core_payment_id, amount_cents, status, request_fingerprint)
-             VALUES (:t,:s,:p,:a,"creating",:f)'
-        );
-        $insert->execute(['t'=>$tenantId,'s'=>$sourceRef,'p'=>$corePaymentId,'a'=>$amountCents,'f'=>$fingerprint]);
-        $fresh = $insert->rowCount() > 0;
-        $stmt = getDB()->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s LIMIT 1');
-        $stmt->execute(['t'=>$tenantId,'s'=>$sourceRef]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if (!$row) throw new PaymentRailsOriginateException('Could not create Pure//Pay durable operation');
-        $row['__fresh'] = $fresh;
-        return $row;
-    }
-
-    private function updateLink(int $tenantId, string $sourceRef, array $fields): void
-    {
+        $status=(string)($fields['status']??$current['status']);
+        $prior=$this->normalizeStatus((string)$current['status']);$next=$this->normalizeStatus($status);
+        if ($current['status']==='settled_failed_review' || ($prior==='returned' && $next!=='returned')
+            || ($prior==='cancelled' && !in_array($next,['returned','settled'],true))) $status=(string)$current['status'];
+        elseif ($prior==='settled' && !in_array($next,['settled','returned'],true)) $status=$next==='failed'?'settled_failed_review':(string)$current['status'];
+        // A late processing response must not replace a concurrent terminal receipt.
+        if ($this->normalizeStatus($status) !== $next) unset($fields['response_json'], $fields['last_error'], $fields['last_error_json']);
+        $fields['status']=$status;
         $allowed = ['purepay_vendor_id','purepay_bill_id','purepay_payment_id','status','response_json','last_error','last_error_json','last_synced_at'];
         $sets = []; $params = ['t'=>$tenantId,'s'=>$sourceRef];
         foreach ($fields as $key => $value) {
             if (!in_array($key, $allowed, true)) continue;
             $sets[] = "{$key}=:{$key}"; $params[$key] = $value;
         }
-        if (!$sets) return;
-        getDB()->prepare('UPDATE purepay_payment_links SET ' . implode(',', $sets) . ', updated_at=NOW() WHERE tenant_id=:t AND source_ref=:s')
+        $pdo->prepare('UPDATE purepay_payment_links SET ' . implode(',', $sets) . ', updated_at=NOW() WHERE tenant_id=:t AND source_ref=:s')
             ->execute($params);
+        $pdo->commit();
+        return $status;
+        } catch (\Throwable $e) { if($pdo->inTransaction())$pdo->rollBack();throw $e; }
     }
 
     private function recordFailure(int $tenantId, string $sourceRef, \Throwable $error): void
     {
         if ($sourceRef === '') return;
-        $status = ($error instanceof PurePayApiException && $error->outcomeUncertain) ? 'needs_review' : 'failed';
-        $raw = $error instanceof PurePayApiException ? $error->raw : null;
         try {
-            $this->updateLink($tenantId, $sourceRef, [
-                'status' => $status,
-                'last_error' => substr($error->getMessage(), 0, 500),
-                'last_error_json' => $raw ? json_encode($raw, JSON_UNESCAPED_SLASHES) : null,
-            ]);
+            // A preceding write may have succeeded even when a subsequent GET
+            // fails. Keep the whole attempt on hold; never downgrade settlement.
+            getDB()->prepare('UPDATE purepay_payment_links SET status="needs_review",last_error=:e,last_error_json=NULL,updated_at=NOW()
+                WHERE tenant_id=:t AND source_ref=:s AND status IN ("creating","bill_created","ready_to_pay","pushed_unverified","posted_unverified")')
+                ->execute(['t'=>$tenantId,'s'=>$sourceRef,'e'=>'Provider attempt interrupted. Reconcile its vendor, bill and payment before another payout.']);
         } catch (\Throwable $_) {}
     }
 
     private function findPayment(array $rows, string $paymentId, string $billId): ?array
     {
+        $matches=[];
         foreach ($rows as $row) {
-            if (!is_array($row)) continue;
-            $rid = (string) ($row['id'] ?? $row['payment_id'] ?? '');
-            $rbill = (string) ($row['bill_id'] ?? $row['payable_id'] ?? '');
-            if (($paymentId !== '' && $rid === $paymentId) || ($billId !== '' && $rbill === $billId)) return $row;
+            if (!is_array($row) || (!isset($row['bill_id']) && !isset($row['payable_id']))) {
+                throw new PaymentRailsOriginateException('Pure//Pay history has an unidentified bill; reconcile it before another payout');
+            }
+            // Conflicting aliases must be examined, not hide a payment from the preflight.
+            if (($paymentId !== '' && in_array($paymentId, [$row['id']??null, $row['payment_id']??null], true))
+                || ($billId !== '' && in_array($billId, [$row['bill_id']??null, $row['payable_id']??null], true))) $matches[]=$row;
         }
-        return null;
+        if (count($matches)>1) throw new PaymentRailsOriginateException('Multiple Pure//Pay payments match this bill; reconcile them before changing its status');
+        return $matches[0]??null;
     }
 
     public function getStatus(string $railExternalRef): string
     {
+        // The interface has no tenant argument. Refuse a global provider-ID lookup.
+        return 'unknown';
+    }
+
+    private function confirmedStatus(int $tenantId, string $sourceRef): string
+    {
+        $stmt = getDB()->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND source_ref=:s');
+        $stmt->execute(['t'=>$tenantId, 's'=>$sourceRef]);
+        $link = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $link && purepayStoredPaymentEvidence($link) && purepayPaymentEvidenceOwned(getDB(), $tenantId, $link)
+            ? $this->normalizeStatus((string)$link['status']) : 'unknown';
+    }
+
+    private function readPaymentDetail(string $apiKey, string $billId, string $paymentId): ?array
+    {
+        if ($paymentId === '') {
+            $candidate = $this->findPayment(purepayCompleteBillPayments($apiKey, $billId), '', $billId);
+            if ($candidate === null) return null;
+            $identity = purepayPaymentIdentity($candidate, $billId);
+            if (!$identity['ok']) throw new PaymentRailsOriginateException('PurePay history has conflicting payment identity');
+            $paymentId = $identity['payment_id'];
+        }
+        $detail = purepayResource(purepayGetPayment($apiKey, $paymentId), ['payment']);
+        $identity = purepayPaymentIdentity($detail, $billId, $paymentId);
+        if (!$identity['ok']) throw new PaymentRailsOriginateException('PurePay detail does not confirm the original payment and bill');
+        return $detail;
+    }
+
+    public function getStatusForTenant(int $tenantId,string $railExternalRef): string
+    {
         require_once __DIR__ . '/../purepay_service.php';
+        if ($tenantId<=0) return 'unknown';
+        if(preg_match('/^purepay:allocation:([1-9][0-9]*)$/D',$railExternalRef,$allocation)){
+            require_once __DIR__.'/../purepay_allocated_payments.php';
+            return purepayAllocationReconcile(getDB(),$tenantId,(int)$allocation[1]);
+        }
         if (!preg_match('/^purepay:(bill|payment):(.+)$/', $railExternalRef, $m)) return 'unknown';
         $column = $m[1] === 'bill' ? 'purepay_bill_id' : 'purepay_payment_id';
         $link = null;
         try {
-            $stmt = getDB()->prepare("SELECT * FROM purepay_payment_links WHERE {$column}=:id ORDER BY id DESC LIMIT 1");
-            $stmt->execute(['id' => $m[2]]);
+            $stmt = getDB()->prepare("SELECT * FROM purepay_payment_links WHERE tenant_id=:t AND {$column}=:id ORDER BY id DESC LIMIT 2");
+            $stmt->execute(['t'=>$tenantId,'id' => $m[2]]);
             $link = $stmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$link) return 'unknown';
+            if (!$link || $stmt->fetch(\PDO::FETCH_ASSOC)) return 'unknown';
             if (($link['status'] ?? '') === 'settled_failed_review') return 'unknown';
             $conn = purepayGetConnection((int) $link['tenant_id']);
-            if (!$conn || ($conn['status'] ?? '') !== 'active') return $this->normalizeStatus((string) $link['status']);
+            if (!$conn || ($conn['status'] ?? '') !== 'active') return 'unknown';
+            purepayFinancialRequire(getDB(),$tenantId,$conn,true);
+            if (!hash_equals((string)($link['connection_fingerprint']??''),purepayConnectionFingerprint($tenantId,(string)$conn['api_key']))) return 'unknown';
             $paymentId = (string) ($link['purepay_payment_id'] ?? '');
-            $remote = $paymentId !== ''
-                ? purepayResource(purepayGetPayment((string) $conn['api_key'], $paymentId), ['payment'])
-                : $this->findPayment(
-                    purepayCollection(purepayListPayments((string) $conn['api_key']), ['payments']),
-                    '', (string) ($link['purepay_bill_id'] ?? '')
-                );
-            if (!$remote) return $this->normalizeStatus((string) $link['status']);
-            $status = (string) ($remote['pay_status'] ?? $remote['status'] ?? 'unknown');
-            if ($this->normalizeStatus((string) $link['status']) === 'settled'
-                && !in_array($this->normalizeStatus($status), ['settled', 'returned'], true)) {
-                return 'settled';
+            $remote = $this->readPaymentDetail((string)$conn['api_key'], (string)($link['purepay_bill_id'] ?? ''), $paymentId);
+            if (!$remote) {
+                purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], 'payment_evidence_missing');
+                return 'unknown';
             }
-            $this->updateLink((int) $link['tenant_id'], (string) $link['source_ref'], [
+            $evidence = purepayPaymentEvidence($remote, (int)$link['amount_cents'], (string)($link['purepay_bill_id'] ?? ''), $paymentId);
+            if (!$evidence['ok']) {
+                purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], $evidence['reason']);
+                return 'unknown';
+            }
+            $status = $evidence['status'];
+            $status=$this->updateLink((int) $link['tenant_id'], (string) $link['source_ref'], [
                 'status'=>$status, 'last_synced_at'=>date('Y-m-d H:i:s'),
-                'purepay_payment_id'=>(string) ($remote['id'] ?? $remote['payment_id'] ?? $link['purepay_payment_id'] ?? ''),
+                'purepay_payment_id'=>$evidence['payment_id'],
+                'response_json'=>purepayPaymentReceipt($evidence, 'detail'),
+                'last_error'=>null, 'last_error_json'=>null,
             ]);
-            return $this->normalizeStatus($status);
-        } catch (\Throwable $_) {
-            return $link ? $this->normalizeStatus((string) $link['status']) : 'unknown';
+            return $this->confirmedStatus($tenantId, (string)$link['source_ref']);
+        } catch (\Throwable $e) {
+            // Missing, ambiguous, or unreadable evidence cannot replay a cached terminal label.
+            if ($link) {
+                try { purepayHoldPaymentEvidence(getDB(), $tenantId, (string)$link['source_ref'], 'payment_evidence_unavailable'); }
+                catch (\Throwable $_) { /* Return uncertainty even if the review marker could not be saved. */ }
+            }
+            return 'unknown';
         }
     }
 
     private function normalizeStatus(string $status): string
     {
-        $s = strtolower(trim($status));
-        return match ($s) {
-            'settled', 'paid', 'completed', 'cleared' => 'settled',
-            'returned', 'reversed' => 'returned',
-            'cancelled', 'canceled', 'void', 'voided' => 'cancelled',
-            'failed', 'payment_failed', 'declined' => 'failed',
-            'posted', 'sent' => 'posted',
-            'submitted', 'processing', 'in_transit', 'initiated' => 'submitted',
-            'creating', 'bill_created', 'ready_to_pay', 'pending', 'pushed_unverified', 'posted_unverified', 'needs_review' => 'pending',
-            default => 'unknown',
-        };
+        return purepayPaymentStatus($status);
     }
 
     public function metadata(): array

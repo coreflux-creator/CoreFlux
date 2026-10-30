@@ -1,0 +1,895 @@
+{
+  "scope": "Installed held PurePay preview; isolated payment amount acceptance",
+  "test_source_commit": "4f46f757521798d378ac2e5ae9e1baa8a109e39b",
+  "application_changed": false,
+  "webhook_scheduler_stopped": true,
+  "installed_tests": {
+    "runtime_hashes": {
+      "server.py": "8c843fc21c8f75d14307254bd9f5842fdffe7b870ba3478916ab756a9805b262",
+      "integration_payment_outbox.py": "e920b3753d986b77c43ac4d91b96d6830fc053725aa12cd6723f0e7502c7efa5",
+      "integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+      "moov_client.py": "8ba337b3ca635c11393cf5b9c494b5c274a1113bf6cef196ca2f34891d5a12bb",
+      "moov_webhook_inbox.py": "1ae3f451e64eeb7fc787395c01f72de104fd89ba52bf79914062f14066db5d53"
+    },
+    "dependency_hashes": {},
+    "pytest_exit": 0,
+    "tests": [
+      {
+        "test": "test_payment_outbox.py::test_existing_event_log_repairs_missing_enqueue_and_deduplicates",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_response_loss_retries_identical_id_and_body_with_fresh_timestamp",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_expired_process_lease_recovers_same_event",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_newer_return_supersedes_unsent_settlement",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_lease_prevents_concurrent_delivery",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change0]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change1]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change3]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change4]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change5]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_unconfirmed_or_foreign_payment_never_queues[change6]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_revoked_or_foreign_endpoint_cannot_receive_queued_data[change0]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_revoked_or_foreign_endpoint_cannot_receive_queued_data[change1]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_revoked_or_foreign_endpoint_cannot_receive_queued_data[change2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_enqueue_failure_preserves_cursor_for_recovery",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_real_emitter_queues_and_real_delivery_signs_retry",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_event_scan_is_bounded_and_resumes_without_duplicate_delivery",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_identical_payment_ids_in_two_companies_have_separate_events",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_review_mode_never_scans_or_sends",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_saved_result_without_event_log_is_recovered_without_payment_writes",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_bounded_payment_sweep_revisits_older_status_without_a_new_event",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_payment_sweep_enqueue_failure_keeps_its_cursor_for_retry",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_subscription_added_after_event_scan_gets_current_result_once",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_scoped_recovery_leaves_other_company_endpoint_and_global_cursor_unchanged",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_invalid_or_foreign_scope_does_not_start_a_recovery_pass[scope0]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_invalid_or_foreign_scope_does_not_start_a_recovery_pass[scope1]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_invalid_or_foreign_scope_does_not_start_a_recovery_pass[scope2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_invalid_or_foreign_scope_does_not_start_a_recovery_pass[scope3]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_invalid_or_foreign_scope_does_not_start_a_recovery_pass[scope4]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_invalid_or_foreign_scope_does_not_start_a_recovery_pass[scope5]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_scoped_supersession_never_enqueues_other_subscriptions",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_payment_outbox.py::test_global_and_scoped_passes_share_event_claims",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_repeated_real_lifespan_preserves_access_and_financial_records",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/pwp-auto-batch]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/ap-due-digest]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_full_mode_cron_keeps_authentication_and_duplicate_handling",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[agent-env-other-preview]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[production-host]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_invalid_mode_fails_before_database_or_storage",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_required_index_failure_aborts_review_startup",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_default_full_startup_keeps_existing_operations",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[None]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[True]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[False]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[bad3]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[bad4]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[NaN]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[Infinity]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[inf]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[nan]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[1e2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[125.001]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[-1]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[0]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[100000000000]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[ 125]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_amounts_are_never_inferred_or_rounded[125 ]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch0]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch1]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch3]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch4]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch5]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch6]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch7]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch8]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch9]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch10]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch11]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch12]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_terminal_money_and_identity_conflicts_are_not_emitted[patch13]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_route_emits_only_matching_stored_money_and_identity",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch0]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch1]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch3]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch4]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch5]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch6]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch7]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_cached_result_cannot_override_missing_or_conflicting_stored_evidence[patch8]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_read_and_core_keys_cannot_execute_payment[read]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_read_and_core_keys_cannot_execute_payment[core]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_foreign_company_cannot_confirm_or_read_payment",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_detail_preserves_new_currency_and_leaves_historical_missing_currency_unknown",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_new_wallet_record_binds_currency_before_any_execution[None]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_new_wallet_record_binds_currency_before_any_execution[USD]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_new_wallet_record_binds_currency_before_any_execution[CAD]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_requested_amount_is_rejected_before_storing[True]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_requested_amount_is_rejected_before_storing[125.001]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_requested_amount_is_rejected_before_storing[nan]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_requested_amount_is_rejected_before_storing[inf]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_invalid_requested_amount_is_rejected_before_storing[1e2]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_real_wallet_transfer_request_uses_stored_currency_contract[ach]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_real_wallet_transfer_request_uses_stored_currency_contract[instant]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_explicit_wallet_obligation_cannot_be_replaced_by_provider_plan[None-0-40]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_explicit_wallet_obligation_cannot_be_replaced_by_provider_plan[125-0-125]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_explicit_wallet_obligation_cannot_be_replaced_by_provider_plan[125.37-0-125.37]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_wallet_payment_evidence.py::test_explicit_wallet_obligation_cannot_be_replaced_by_provider_plan[125.37-40-None]",
+        "phase": "call",
+        "outcome": "passed"
+      }
+    ],
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true,
+    "real_database_used": false,
+    "candidate_hashes": {},
+    "feature_gate_fixture": false,
+    "real_session_authentication": false,
+    "bill_payment_history": false,
+    "wallet_payment_evidence": false,
+    "payment_outbox": true,
+    "moov_inbox": false,
+    "workflow": false,
+    "live_workspace_acceptance": false,
+    "report_directory": "/tmp/purepay-core-full-app-m0s0ypvw"
+  },
+  "preview": {
+    "at": "2026-10-25T06:11:10.409773+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "health": {
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "source_files_verified": 6322,
+    "head_and_configuration_unchanged": true,
+    "protected_differences": {
+      "index": {
+        "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+        "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+      }
+    },
+    "demo_unchanged": true,
+    "demo_counts": {
+      "pay_runs": 50,
+      "coreflux_payroll_inputs": 0,
+      "coreflux_payroll_authorities": 0
+    },
+    "demo_run_count": 50,
+    "published": false,
+    "credential_changes": false,
+    "candidate_installed": true,
+    "index_semantics": {
+      "equals_current_head": true,
+      "entries": 6256,
+      "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+      "historical_byte_equivalence_proven": false
+    }
+  },
+  "limitations": [
+    "Installed source tested with an isolated database fixture and zero network attempts.",
+    "No hosted signed callback, live financial request or actual Thunderhawk round trip is proved.",
+    "The explicit amount fix is not a cross-system obligation reservation.",
+    "No production publication, payroll execution, payment or financial posting occurred.",
+    "Historical preview Git index byte equivalence is not asserted; current index semantics equal HEAD."
+  ],
+  "core": {
+    "runtime_commit": "628dbf43b22fe8cc0632e88c6c084c2194e35c0a",
+    "change": "Core sends its durably reserved gross amount with the wallet pay request, overriding PurePay native installment-plan defaults.",
+    "ci": {
+      "conclusion": "success",
+      "headSha": "628dbf43b22fe8cc0632e88c6c084c2194e35c0a",
+      "jobs": [
+        {
+          "name": "Sim scenario dry-runs (determinism)",
+          "conclusion": "success",
+          "databaseId": 121091848754,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091848754"
+        },
+        {
+          "name": "Smoke (harness)",
+          "conclusion": "success",
+          "databaseId": 121091848897,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091848897"
+        },
+        {
+          "name": "Live business graph simulation",
+          "conclusion": "success",
+          "databaseId": 121091848923,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091848923"
+        },
+        {
+          "name": "Smoke (modules)",
+          "conclusion": "success",
+          "databaseId": 121091848927,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091848927"
+        },
+        {
+          "name": "Full-Core maintenance Apache rehearsal",
+          "conclusion": "success",
+          "databaseId": 121091848955,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091848955"
+        },
+        {
+          "name": "CoreAccounting standalone empty-database install",
+          "conclusion": "success",
+          "databaseId": 121091848992,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091848992"
+        },
+        {
+          "name": "Smoke (ui)",
+          "conclusion": "success",
+          "databaseId": 121091849005,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091849005"
+        },
+        {
+          "name": "Smoke (core)",
+          "conclusion": "success",
+          "databaseId": 121091849039,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091849039"
+        },
+        {
+          "name": "CoreAccounting standalone release package",
+          "conclusion": "success",
+          "databaseId": 121091849321,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205/job/121091849321"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167642205"
+    },
+    "deployment": {
+      "conclusion": "success",
+      "headSha": "628dbf43b22fe8cc0632e88c6c084c2194e35c0a",
+      "jobs": [
+        {
+          "name": "core-integration-staging",
+          "conclusion": "success",
+          "databaseId": 121092367998,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092367998"
+        },
+        {
+          "name": "configure-financial-preview",
+          "conclusion": "skipped",
+          "databaseId": 121092368546,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092368546"
+        },
+        {
+          "name": "verify-purepay-preview-replay",
+          "conclusion": "skipped",
+          "databaseId": 121092368747,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092368747"
+        },
+        {
+          "name": "inspect-purepay-preview-continuity",
+          "conclusion": "skipped",
+          "databaseId": 121092368757,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092368757"
+        },
+        {
+          "name": "inspect-synthetic-integration",
+          "conclusion": "skipped",
+          "databaseId": 121092368811,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092368811"
+        },
+        {
+          "name": "staging-maintenance-rehearsal",
+          "conclusion": "skipped",
+          "databaseId": 121092368836,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092368836"
+        },
+        {
+          "name": "accept-synthetic-payroll-capture",
+          "conclusion": "skipped",
+          "databaseId": 121092368966,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092368966"
+        },
+        {
+          "name": "accept-synthetic-time-review",
+          "conclusion": "skipped",
+          "databaseId": 121092369003,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092369003"
+        },
+        {
+          "name": "inspect-integration-staging",
+          "conclusion": "skipped",
+          "databaseId": 121092369112,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092369112"
+        },
+        {
+          "name": "production-source-audit",
+          "conclusion": "skipped",
+          "databaseId": 121092369144,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092369144"
+        },
+        {
+          "name": "deploy",
+          "conclusion": "skipped",
+          "databaseId": 121092385052,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092385052"
+        },
+        {
+          "name": "accept-synthetic-onboarding",
+          "conclusion": "skipped",
+          "databaseId": 121092389234,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092389234"
+        },
+        {
+          "name": "migrate-purepay-preview-origin",
+          "conclusion": "skipped",
+          "databaseId": 121092389243,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092389243"
+        },
+        {
+          "name": "cleanup-known-staging-uploads",
+          "conclusion": "skipped",
+          "databaseId": 121092397368,
+          "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777/job/121092397368"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40167821777"
+    },
+    "readiness": {
+      "run": {
+        "conclusion": "success",
+        "headSha": "628dbf43b22fe8cc0632e88c6c084c2194e35c0a",
+        "status": "completed",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168107529"
+      },
+      "ci_log_redaction_present": true,
+      "report": {
+        "checked_at": "2026-10-25T06:10:24+00:00",
+        "mode": "read_only_synthetic_integration",
+        "tenant_id": 999,
+        "database_identity_verified": true,
+        "private_identity_verified": true,
+        "local_writes": false,
+        "provider_record_writes": false,
+        "configuration_changed": false,
+        "onboarding_delivery_enabled": false,
+        "document_intake_enabled": false,
+        "private_document_storage_ready": true,
+        "field_dictionary": {
+          "contract_version": "2026-10-24.2",
+          "metadata_only": true,
+          "activates_sync": false,
+          "field_count": 1345,
+          "workflow_fields": {
+            "quanta_time_review": 11,
+            "quanta_onboarding_publication": 24,
+            "quanta_onboarding_submission": "[redacted_by_ci]",
+            "purepayroll_result": 104,
+            "purepayroll_native_observation": 131
+          },
+          "unverified_workflow_containers": []
+        },
+        "synthetic_records": {
+          "person": {
+            "id": 15,
+            "status": "active"
+          },
+          "placement": {
+            "id": 13,
+            "person_id": 15,
+            "status": "active"
+          }
+        },
+        "onboarding_cases": [
+          {
+            "id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+            "version": 5,
+            "plan_version": 4,
+            "confirmed_plan_version": 4
+          }
+        ],
+        "synthetic_time": [
+          {
+            "id": 1,
+            "hours": "8.00",
+            "status": "pending_review",
+            "approved_by_user_id": null,
+            "timesheet_id": 2,
+            "quanta_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676"
+          }
+        ],
+        "saved_purepay_binding": {
+          "id": 1,
+          "status": "active",
+          "revision": 3,
+          "remote_organization_id": "org_purepay_demo"
+        },
+        "payment_callback_setup": {
+          "connection_present": false,
+          "connection_status": null,
+          "key_scope": null,
+          "api_key_stored": false,
+          "callback_secret_stored": false,
+          "payment_api_destination": "reviewed_preview",
+          "payment_links": 0,
+          "saved_callback_events": 0,
+          "credentials_decrypted": false,
+          "provider_contacted": false,
+          "installation_scope": {
+            "has_nonpilot_connections": false,
+            "saved_connections": [],
+            "private_db_config_sha256": "c1e9edf31c4851f60bbb76dd3f975bb9b2455253c6bfe510f497d94d4f2d9565",
+            "financial_preview_constant_present": true
+          }
+        },
+        "quanta_binding": {
+          "available": true,
+          "http_status": 200
+        },
+        "quanta_onboarding": {
+          "available": true,
+          "http_status": 200
+        },
+        "quanta_document_transfer": {
+          "available": false,
+          "reason": "contract_or_configuration_check_failed"
+        },
+        "quanta_document_context": {
+          "http_status": 200,
+          "workspace_matches": true,
+          "contract_matches": true,
+          "transfer_enabled": false,
+          "approval_stays_in_core": true,
+          "size_limit_matches": true
+        },
+        "existing_operator": {
+          "found": true,
+          "active_membership": true,
+          "permissions": {
+            "people.onboarding.view": {
+              "legacy": true,
+              "membership": true
+            },
+            "people.onboarding.manage": {
+              "legacy": true,
+              "membership": true
+            },
+            "people.onboarding.review": {
+              "legacy": true,
+              "membership": true
+            },
+            "placements.view": {
+              "legacy": true,
+              "membership": true
+            },
+            "people.docs.view": {
+              "legacy": true,
+              "membership": true
+            },
+            "integrations.quanta.manage": {
+              "legacy": true,
+              "membership": true
+            }
+          }
+        },
+        "time_review_gate": {
+          "eligible_in_both_permission_models": 1,
+          "entries": [
+            {
+              "entry_id": 1,
+              "status": "pending_review",
+              "independent_eligible_reviewers": 0,
+              "existing_operator_is_creator": true
+            }
+          ]
+        }
+      }
+    },
+    "delivery_mariadb_checks_passed": 279,
+    "regression": "The Core provider fixture defaults to 40 when amount is absent; Core must explicitly send and reconcile its 125 reservation.",
+    "provider_regressions": [
+      "Omitted amount retains native 40 installment behavior",
+      "Explicit 125 overrides native 40 installment",
+      "Explicit 125.37 retains cents",
+      "125.37 against insufficient open balance rejects before payment creation"
+    ]
+  }
+}

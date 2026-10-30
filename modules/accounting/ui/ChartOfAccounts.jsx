@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
@@ -8,8 +8,17 @@ import {
   Database, Download, Landmark, MoveRight, Network, Plus, Search, Upload, X,
 } from 'lucide-react';
 
-const TYPES = ['asset','liability','equity','revenue','expense'];
-const NORMAL = { asset: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit' };
+const TYPE_META = {
+  asset: { label: 'Asset', normal: 'debit' },
+  liability: { label: 'Liability', normal: 'credit' },
+  equity: { label: 'Equity', normal: 'credit' },
+  revenue: { label: 'Revenue', normal: 'credit' },
+  contra_revenue: { label: 'Contra revenue', normal: 'debit' },
+  expense: { label: 'Expense', normal: 'debit' },
+  cost_of_goods_sold: { label: 'Cost of goods sold', normal: 'debit' },
+  other_income: { label: 'Other income', normal: 'credit' },
+  other_expense: { label: 'Other expense', normal: 'debit' },
+};
 
 const DEFAULT_COA = [
   { code: '1000', name: 'Cash', account_type: 'asset' },
@@ -87,9 +96,16 @@ function descendantSet(rows, accountId) {
 }
 
 export default function ChartOfAccounts() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedEntity = searchParams.get('entity_id');
+  const detailEntityId = requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? requestedEntity : undefined;
+  const bankSetupPath = searchParams.get('bank_setup') === '1' && /^[1-9][0-9]*$/.test(requestedEntity || '')
+    ? `/modules/accounting/bank-rec?entity_id=${requestedEntity}&new=1` : null;
   const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
-  const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense' });
+  const accountTypes = data?.types ?? Object.keys(TYPE_META);
+  const [form, setForm]       = useState(() => ({ code: '', name: '', account_type: bankSetupPath ? 'asset' : 'expense', cash_flow_tag: bankSetupPath ? 'cash_and_equivalents' : '' }));
   const [busy, setBusy]       = useState(false);
   const [seedBusy, setSeedBusy] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -103,7 +119,7 @@ export default function ChartOfAccounts() {
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAdd, setShowAdd] = useState(!!bankSetupPath);
   const [moveTarget, setMoveTarget] = useState(null);   // {id, code, name, account_type, parent_account_id}
 
   const filtered = useMemo(
@@ -204,7 +220,11 @@ export default function ChartOfAccounts() {
     setBusy(true); setNotice(null);
     try {
       await api.post('/modules/accounting/api/accounts.php', form);
-      setForm({ code: '', name: '', account_type: 'expense' });
+      if (bankSetupPath) {
+        navigate(bankSetupPath, { replace: true });
+        return;
+      }
+      setForm({ code: '', name: '', account_type: 'expense', cash_flow_tag: '' });
       setShowAdd(false);
       reload();
     } catch (err) { setNotice({ type: 'err', text: err.message }); }
@@ -299,7 +319,7 @@ export default function ChartOfAccounts() {
           <button
             type="button"
             className="btn btn--primary"
-            onClick={() => setShowAdd(open => !open)}
+            onClick={() => showAdd && bankSetupPath ? navigate(bankSetupPath) : setShowAdd(open => !open)}
             aria-expanded={showAdd}
             data-testid="accounting-accounts-add-trigger"
           >
@@ -345,7 +365,7 @@ export default function ChartOfAccounts() {
             style={{ width: 180 }}
           >
             <option value="">All account types</option>
-            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {accountTypes.map((t) => <option key={t} value={t}>{TYPE_META[t]?.label ?? t}</option>)}
           </select>
           <select
             className="input"
@@ -371,11 +391,20 @@ export default function ChartOfAccounts() {
         <form onSubmit={add} className="inline-create-form" data-testid="accounting-accounts-form">
           <input className="input" placeholder="Number" aria-label="Account number" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} data-testid="accounting-accounts-code" required />
           <input className="input" placeholder="Account name" aria-label="Account name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-accounts-name" required />
-          <select className="input" aria-label="Account type" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value })} data-testid="accounting-accounts-type">
-            {TYPES.map((t) => <option key={t} value={t}>{t} ({NORMAL[t]})</option>)}
+          <select className="input" aria-label="Account type" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value, cash_flow_tag: e.target.value === 'asset' ? form.cash_flow_tag : '' })} data-testid="accounting-accounts-type">
+            {accountTypes.map((t) => <option key={t} value={t}>
+              {TYPE_META[t]?.label ?? t}{TYPE_META[t]?.normal ? ` (${TYPE_META[t].normal})` : ''}
+            </option>)}
           </select>
-          <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
-          <button type="button" className="btn btn--ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+          {form.account_type === 'asset' && <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={form.cash_flow_tag === 'cash_and_equivalents'}
+              onChange={(e) => setForm({ ...form, cash_flow_tag: e.target.checked ? 'cash_and_equivalents' : '' })}
+              data-testid="accounting-accounts-bank-cash" />Bank/cash account
+          </label>}
+          <div className="inline-create-form__actions">
+            <button className="btn btn--primary" data-testid="accounting-accounts-add" disabled={busy}>{busy ? 'Adding…' : 'Add account'}</button>
+            <button type="button" className="btn btn--ghost" onClick={() => bankSetupPath ? navigate(bankSetupPath) : setShowAdd(false)}>Cancel</button>
+          </div>
         </form>
       )}
 
@@ -419,14 +448,14 @@ export default function ChartOfAccounts() {
             <tr key={r.id} data-testid={`accounting-accounts-row-${r.code}`}>
               <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.code} ${r.name}`} data-testid={`accounting-account-select-${r.id}`} /></td>
               <td>
-                <AccountLink accountId={r.id} accountCode={r.code} className="account-code">
+                <AccountLink accountId={r.id} accountCode={r.code} entityId={detailEntityId} className="account-code">
                   {r.code}
                 </AccountLink>
               </td>
               <td>
                 <span style={{ display: 'inline-block', width: depth * 20 }} aria-hidden />
                 {depth > 0 && <span style={{ color: '#9eaaa7', marginRight: 6 }}>└</span>}
-                <AccountLink accountId={r.id} accountCode={r.code} data-testid={`accounting-account-open-${r.code}`}>
+                <AccountLink accountId={r.id} accountCode={r.code} entityId={detailEntityId} data-testid={`accounting-account-open-${r.code}`}>
                   <span style={{ fontWeight: r.is_postable ? 400 : 600 }}>{r.name}</span>
                 </AccountLink>
                 {!r.is_postable && (
@@ -436,7 +465,7 @@ export default function ChartOfAccounts() {
                   <span className="badge" style={{ marginLeft: 6, fontSize: 10 }}>interest terms</span>
                 )}
               </td>
-              <td>{r.account_type}</td>
+              <td>{TYPE_META[r.account_type]?.label ?? r.account_type}</td>
               <td>{r.normal_side}</td>
               <td>{r.is_postable ? 'Posting' : 'Header'}</td>
               <td><span className={`account-status${r.active ? ' account-status--active' : ''}`}>{r.active ? 'Active' : 'Inactive'}</span></td>

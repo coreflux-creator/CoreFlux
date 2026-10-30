@@ -30,22 +30,33 @@ const WORKSPACE_ITEMS = [
   { key: 'time', label: 'Time', to: '/modules/staffing/timesheets', Icon: Clock3, moduleIds: ['time', 'staffing'], paths: ['/modules/time', '/modules/staffing/timesheets'] },
   { key: 'billing', label: 'Billing', to: '/modules/billing/invoices', Icon: Receipt, moduleIds: ['billing'] },
   { key: 'ap', label: 'Accounts payable', to: '/modules/ap/bills', Icon: CreditCard, moduleIds: ['ap'] },
-  { key: 'accounting', label: 'Accounting', to: '/modules/accounting/journal-entries', Icon: BookOpen, moduleIds: ['accounting'] },
+  { key: 'accounting', label: 'Accounting', to: '/modules/accounting/overview', Icon: BookOpen, moduleIds: ['accounting'] },
   { key: 'payroll', label: 'Payroll', to: '/modules/payroll/runs', Icon: CalendarCheck, moduleIds: ['payroll'] },
   { key: 'treasury', label: 'Treasury', to: '/modules/treasury/overview', Icon: Wallet, moduleIds: ['treasury'] },
   { key: 'reports', label: 'Reports', to: '/modules/reports/overview', Icon: BarChart3, moduleIds: ['reports'] },
 ];
 
+const ACCOUNTING_WORKSPACE_ITEMS = [
+  { key: 'overview', label: 'Overview', to: '/modules/accounting/overview', Icon: LayoutGrid, moduleIds: ['accounting'], paths: ['/modules/accounting/overview'] },
+  { key: 'invoices', label: 'Invoices', to: '/modules/billing/invoices', Icon: Receipt, moduleIds: ['billing'], paths: ['/modules/billing'] },
+  { key: 'bills', label: 'Bills', to: '/modules/ap/bills', Icon: CreditCard, moduleIds: ['ap'], paths: ['/modules/ap'] },
+  { key: 'banking', label: 'Banking', to: '/modules/accounting/transactions-to-review', Icon: Wallet, moduleIds: ['accounting'], paths: ['/modules/accounting/transactions-to-review', '/modules/accounting/bank-rec', '/modules/treasury'] },
+  { key: 'entries', label: 'Entries', to: '/modules/accounting/journal-entries', Icon: BookOpen, moduleIds: ['accounting'], paths: ['/modules/accounting/journal-entries'] },
+  { key: 'reports', label: 'Reports', to: '/modules/accounting/reports', Icon: BarChart3, moduleIds: ['accounting'], paths: ['/modules/accounting/reports', '/modules/accounting/pnl', '/modules/accounting/balance', '/modules/accounting/cash-flow', '/modules/accounting/trial'] },
+  { key: 'accounts', label: 'Accounts', to: '/modules/accounting/accounts', Icon: Building2, moduleIds: ['accounting'], paths: ['/modules/accounting/accounts'] },
+];
+
 const Sidebar = ({ session, onModuleChange }) => {
   const location = useLocation();
   const modules = session?.modules || [];
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   const availableIds = new Set(modules.map(module => module.id));
   const user = session?.user || {};
   const isAdmin = ['master_admin', 'tenant_admin', 'admin'].includes(user.role)
     || ['master_admin', 'tenant_admin'].includes(user.global_role)
     || Boolean(user.is_global_admin);
 
-  const visibleWorkspace = WORKSPACE_ITEMS.filter(item => {
+  const visibleWorkspace = (standaloneAccounting ? ACCOUNTING_WORKSPACE_ITEMS : WORKSPACE_ITEMS).filter(item => {
     if (!item.moduleIds) return true;
     return item.moduleIds.some(id => availableIds.has(id));
   });
@@ -63,10 +74,10 @@ const Sidebar = ({ session, onModuleChange }) => {
   };
 
   return (
-    <aside className="sidebar" aria-label="CoreFlux workspace">
-      <NavLink to="/" className="sidebar-brand" aria-label="CoreFlux overview">
+    <aside className="sidebar" aria-label={standaloneAccounting ? 'CoreAccounting workspace' : 'CoreFlux workspace'}>
+      <NavLink to={standaloneAccounting ? '/modules/accounting/overview' : '/'} className="sidebar-brand" aria-label={standaloneAccounting ? 'CoreAccounting overview' : 'CoreFlux overview'}>
         <img src={corefluxMark} alt="" aria-hidden="true" />
-        <span>Core<span>Flux</span></span>
+        <span>Core<span>{standaloneAccounting ? 'Accounting' : 'Flux'}</span></span>
       </NavLink>
 
       <nav className="sidebar-nav">
@@ -88,23 +99,25 @@ const Sidebar = ({ session, onModuleChange }) => {
           )}
           {isAdmin && (
             <>
-              <SidebarLink item={{ label: 'Data import / export', to: '/data/bulk-import', Icon: Upload }} active={location.pathname.startsWith('/data/')} />
-              <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />
+              {!standaloneAccounting && <SidebarLink item={{ label: 'Data import / export', to: '/data/bulk-import', Icon: Upload }} active={location.pathname.startsWith('/data/')} />}
+              {standaloneAccounting
+                ? <SidebarLink item={{ label: 'Bank connections', to: '/modules/treasury/overview', Icon: Link2 }} active={location.pathname === '/modules/treasury/overview'} />
+                : <SidebarLink item={{ label: 'Connections', to: '/admin/integrations', Icon: Link2 }} active={location.pathname.startsWith('/admin/integrations')} />}
             </>
           )}
         </SidebarGroup>
       </nav>
 
       <div className="sidebar-footer">
-        <NavLink to="/ai-agents" className="sidebar-link sidebar-link--assistant">
+        {!standaloneAccounting && <NavLink to="/ai-agents" className="sidebar-link sidebar-link--assistant">
           <span className="sidebar-icon-wrap" aria-hidden="true"><Sparkles size={16} className="sidebar-icon" /></span>
           <span>Ask CoreFlux</span>
-        </NavLink>
+        </NavLink>}
         <NavLink to="/settings" className="sidebar-link">
           <span className="sidebar-icon-wrap" aria-hidden="true"><Settings size={16} className="sidebar-icon" /></span>
           <span>Workspace settings</span>
         </NavLink>
-        <div className="sidebar-version"><Building2 size={13} aria-hidden="true" /> CoreFlux workspace</div>
+        <div className="sidebar-version"><Building2 size={13} aria-hidden="true" /> {standaloneAccounting ? 'CoreAccounting workspace' : 'CoreFlux workspace'}</div>
       </div>
     </aside>
   );

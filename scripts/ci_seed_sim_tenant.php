@@ -4,6 +4,21 @@ declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') exit(1);
 
+$tenantOnly = in_array('--tenant-only', $argv, true);
+$requireNew = in_array('--require-new', $argv, true);
+if ($requireNew && !$tenantOnly) {
+    fwrite(STDERR, "--require-new must be used with --tenant-only.\n");
+    exit(2);
+}
+if ($tenantOnly && !in_array((string) getenv('COREFLUX_ENV'), ['staging', 'development', 'test', 'ci'], true)) {
+    fwrite(STDERR, "--tenant-only requires an explicit non-production COREFLUX_ENV.\n");
+    exit(2);
+}
+if ($tenantOnly && (!getenv('SIM_TENANT_ID') || (int) getenv('SIM_TENANT_ID') <= 0)) {
+    fwrite(STDERR, "--tenant-only requires a positive SIM_TENANT_ID.\n");
+    exit(2);
+}
+
 require_once __DIR__ . '/../core/migrate.php';
 
 $pdo = getDB();
@@ -49,6 +64,7 @@ function ciApplySimulationSql(PDO $pdo, string $relativePath): void
 $schemaFiles = [
     'sql/layer_sandbox_seed.sql',
     'core/migrations/007_subtenant_provisioning.sql',
+    'core/migrations/003_mail_service.sql',
     'modules/accounting/migrations/001_init.sql',
     'modules/accounting/migrations/002_phase2.sql',
     'modules/accounting/migrations/006_intercompany.sql',
@@ -62,53 +78,112 @@ $schemaFiles = [
     'modules/accounting/migrations/025_journal_entry_source_module_varchar.sql',
     'modules/accounting/migrations/028_journal_line_tenant_scope.sql',
     'core/migrations/024_auto_reversing_accruals.sql',
+    'modules/people/migrations/001_init.sql',
+    'modules/people/migrations/003_spec_alignment.sql',
     'modules/ap/migrations/001_init.sql',
     'modules/billing/migrations/001_init.sql',
+    'modules/accounting/migrations/007_consolidation.sql',
+    'modules/accounting/migrations/008_consolidation_runs.sql',
+    'modules/ap/migrations/020_payment_entity_scope.sql',
     'modules/payroll/migrations/001_init.sql',
     'core/migrations/036_event_registry.sql',
+    'core/migrations/019_workflow_engine.sql',
     'core/migrations/043_simulation_harness.sql',
     'core/migrations/105_ai_phase1_tool_registry_and_artifact_layer.sql',
     'core/migrations/145_business_logic_hardening.sql',
     'modules/accounting/migrations/029_reconciliation_artifacts.sql',
     'modules/payroll/migrations/008_run_artifacts.sql',
+    'core/migrations/096_csv_import_external_ids_wave2.sql',
+    'core/migrations/132_bank_transaction_identity.sql',
 ];
 
-try {
-    foreach ($schemaFiles as $schemaFile) ciApplySimulationSql($pdo, $schemaFile);
-} catch (Throwable $e) {
-    fwrite(STDERR, $e->getMessage() . PHP_EOL);
-    exit(3);
+if (!$tenantOnly) {
+    try {
+        foreach ($schemaFiles as $schemaFile) ciApplySimulationSql($pdo, $schemaFile);
+    } catch (Throwable $e) {
+        fwrite(STDERR, $e->getMessage() . PHP_EOL);
+        exit(3);
+    }
 }
 
 $tenantId = (int) (getenv('SIM_TENANT_ID') ?: 999);
-$pdo->prepare(
-    'INSERT INTO tenants (id, name, status, is_simulation)
-     VALUES (:id, :name, "active", 1)
-     ON DUPLICATE KEY UPDATE name = VALUES(name), status = "active", is_simulation = 1'
-)->execute(['id' => $tenantId, 'name' => 'CoreFlux CI Simulation']);
+if ($tenantId <= 0) {
+    fwrite(STDERR, "SIM_TENANT_ID must be positive.\n");
+    exit(2);
+}
 
-$pdo->prepare(
-    'INSERT INTO accounting_entities
-        (id, tenant_id, code, legal_name, country, base_currency, active)
-     VALUES (1, :tenant_id, "SIM", "CoreFlux CI Simulation", "US", "USD", 1)
-     ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id), code = VALUES(code),
-         legal_name = VALUES(legal_name), active = 1'
-)->execute(['tenant_id' => $tenantId]);
+try {
+    $pdo->beginTransaction();
+    $tenant = $pdo->prepare('SELECT is_simulation, status FROM tenants WHERE id = :id FOR UPDATE');
+    $tenant->execute(['id' => $tenantId]);
+    $existingTenant = $tenant->fetch(PDO::FETCH_ASSOC);
+    if ($existingTenant) {
+        if ($requireNew) throw new RuntimeException("Tenant {$tenantId} already exists; choose an unused simulation ID");
+        if ((int) $existingTenant['is_simulation'] !== 1 || $existingTenant['status'] !== 'active') {
+            throw new RuntimeException("Tenant {$tenantId} exists but is not an active simulation tenant");
+        }
+    } else {
+        $pdo->prepare(
+            'INSERT INTO tenants (id, name, status, is_simulation)
+             VALUES (:id, :name, "active", 1)'
+        )->execute(['id' => $tenantId, 'name' => "CoreFlux CI Simulation {$tenantId}"]);
+    }
 
-$pdo->prepare(
-    'INSERT INTO accounting_fiscal_calendars
-        (id, tenant_id, entity_id, name, calendar_type, start_date, end_date, period_count, is_default, active)
-     VALUES (1, :tenant_id, 1, "Simulation calendar", "calendar_year", "2026-01-01", "2026-12-31", 12, 1, 1)
-     ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id), entity_id = 1, active = 1'
-)->execute(['tenant_id' => $tenantId]);
+    $entity = $pdo->prepare('SELECT id, active FROM accounting_entities WHERE tenant_id = :tenant_id AND code = "SIM" FOR UPDATE');
+    $entity->execute(['tenant_id' => $tenantId]);
+    $existingEntity = $entity->fetch(PDO::FETCH_ASSOC);
+    if ($existingEntity && (int) $existingEntity['active'] !== 1) {
+        throw new RuntimeException("Simulation entity is inactive for tenant {$tenantId}");
+    }
+    if (!$existingEntity) {
+        $pdo->prepare(
+            'INSERT INTO accounting_entities (tenant_id, code, legal_name, country, base_currency, active)
+             VALUES (:tenant_id, "SIM", "CoreFlux CI Simulation", "US", "USD", 1)'
+        )->execute(['tenant_id' => $tenantId]);
+    }
+    $entityId = $existingEntity ? (int) $existingEntity['id'] : (int) $pdo->lastInsertId();
 
-$pdo->prepare(
-    'INSERT INTO accounting_periods
-        (id, tenant_id, entity_id, calendar_id, period_number, start_date, end_date, status)
-     VALUES (1, :tenant_id, 1, 1, 1, "2026-01-01", "2026-12-31", "open")
-     ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id), entity_id = 1,
-         start_date = VALUES(start_date), end_date = VALUES(end_date), status = "open"'
-)->execute(['tenant_id' => $tenantId]);
+    $calendar = $pdo->prepare(
+        'SELECT id FROM accounting_fiscal_calendars
+          WHERE tenant_id = :tenant_id AND entity_id = :entity_id
+            AND name = "Simulation calendar" AND start_date = "2026-01-01" AND end_date = "2026-12-31"
+          ORDER BY id LIMIT 1 FOR UPDATE'
+    );
+    $calendar->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
+    $calendarId = (int) $calendar->fetchColumn();
+    if ($calendarId <= 0) {
+        $pdo->prepare(
+            'INSERT INTO accounting_fiscal_calendars
+                (tenant_id, entity_id, name, calendar_type, start_date, end_date, period_count, is_default, active)
+             VALUES (:tenant_id, :entity_id, "Simulation calendar", "calendar_year", "2026-01-01", "2026-12-31", 12, 1, 1)'
+        )->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
+        $calendarId = (int) $pdo->lastInsertId();
+    }
+
+    $period = $pdo->prepare(
+        'SELECT id, end_date, status FROM accounting_periods
+          WHERE tenant_id = :tenant_id AND entity_id = :entity_id
+            AND period_number = 1 AND start_date = "2026-01-01" FOR UPDATE'
+    );
+    $period->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId]);
+    $existingPeriod = $period->fetch(PDO::FETCH_ASSOC);
+    if ($existingPeriod) {
+        if ($existingPeriod['end_date'] !== '2026-12-31' || $existingPeriod['status'] !== 'open') {
+            throw new RuntimeException("Simulation period already exists with different dates or status for tenant {$tenantId}");
+        }
+    } else {
+        $pdo->prepare(
+            'INSERT INTO accounting_periods
+                (tenant_id, entity_id, calendar_id, period_number, start_date, end_date, status)
+             VALUES (:tenant_id, :entity_id, :calendar_id, 1, "2026-01-01", "2026-12-31", "open")'
+        )->execute(['tenant_id' => $tenantId, 'entity_id' => $entityId, 'calendar_id' => $calendarId]);
+    }
+    $pdo->commit();
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    fwrite(STDERR, $e->getMessage() . PHP_EOL);
+    exit(4);
+}
 
 require_once __DIR__ . '/../core/accounting/system_accounts.php';
 require_once __DIR__ . '/../core/posting_engine/seed_defaults.php';
@@ -117,4 +192,10 @@ accountingSeedSystemAccounts($tenantId);
 postingRulesSeedDefaults($tenantId);
 eventRegistrySeedRun($pdo);
 
-echo "Simulation tenant {$tenantId} seeded with production business-graph schema, books, accounts, and posting rules." . PHP_EOL;
+$pdo->prepare('UPDATE accounting_accounts SET name = CASE code
+    WHEN "1100" THEN "Trade receivables - custom label"
+    WHEN "2000" THEN "Vendor obligations - custom label" ELSE name END
+    WHERE tenant_id = :tenant_id AND code IN ("1100", "2000")')
+    ->execute(['tenant_id' => $tenantId]);
+
+echo "Simulation tenant {$tenantId} seeded with entity {$entityId}, books, accounts, and posting rules." . PHP_EOL;

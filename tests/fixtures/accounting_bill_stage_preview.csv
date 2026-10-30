@@ -1,0 +1,3 @@
+Bill #,Vendor name,Entity code,Bill date,Due date,Line description,Line quantity,Line unit price
+CSVQA-AP-PREVIEW-20261007,Synthetic Preview Vendor,SIM,2026-10-07,2026-11-06,Preview expense A,1,5
+CSVQA-AP-PREVIEW-20261007,,,,,Preview expense B,2,3

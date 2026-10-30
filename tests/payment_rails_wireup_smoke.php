@@ -96,9 +96,10 @@ echo "\nFunctional — NACHA driver round-trip via helpers\n";
 require_once __DIR__ . '/../core/payment_rails.php';
 require_once __DIR__ . '/../core/payment_rails/originate_helpers.php';
 
-// Build a synthetic item by hand (no DB, no decryptField needed).
+// AP dispatch now requires real durable claims, covered in purepay_allocated_payments_mariadb.php.
+// Keep this pure formatting smoke on the shared payroll helper path.
 $item = paymentRailsBuildItem([
-    'external_ref'   => 'ap_payment:42',
+    'external_ref'   => 'payroll_line:42',
     'recipient_name' => 'Acme Vendor LLC',
     'routing'        => '021000021',
     'account'        => '12345678',
@@ -112,7 +113,7 @@ $a('BuildItem returns expected keys',
 $a('BuildItem trims recipient to 22 chars',  strlen($item['recipient_name']) <= 22);
 $a('BuildItem trims description to 10 chars', strlen($item['description']) <= 10);
 
-$res = paymentRailsDispatch('ap',
+$res = paymentRailsDispatch('payroll',
     ['tenant_id' => 1], // no DB row needed, but dispatch is tenant-scoped
     ['nacha_company_id' => '1234567890', 'nacha_company_name' => 'CORE FLUX', 'nacha_origin_routing' => '021000021', 'disbursement_rail' => 'nacha'],
     [$item]
@@ -121,7 +122,7 @@ $a('Dispatch resolves rail=nacha',           ($res['rail'] ?? '') === 'nacha');
 $a('Dispatch returns batch_id',               !empty($res['batch_id']));
 $a('Dispatch returns submitted-status batch', in_array($res['status'] ?? '', ['queued','submitted'], true));
 $a('Dispatch surfaces NACHA file content',    !empty($res['payload']['content']));
-$a('Dispatch echoes per-item result',         count($res['items']) === 1 && ($res['items'][0]['external_ref'] ?? '') === 'ap_payment:42');
+$a('Dispatch echoes per-item result',         count($res['items']) === 1 && ($res['items'][0]['external_ref'] ?? '') === 'payroll_line:42');
 
 // Validation paths
 try { paymentRailsBuildItem(['external_ref'=>'x']); $a('BuildItem rejects missing keys', false); }

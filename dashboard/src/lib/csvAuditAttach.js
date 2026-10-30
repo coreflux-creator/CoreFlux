@@ -1,7 +1,7 @@
 import { api } from './api';
 
 /**
- * Attach the original CSV bytes to a csv_import_history row as a polymorphic
+ * Attach the selected source File to a csv_import_history row as a polymorphic
  * evidence_attachments record so auditors can download the EXACT input bytes
  * that produced a batch of records — not just the metadata about them.
  *
@@ -20,19 +20,18 @@ import { api } from './api';
  * CSV with document_type='column_map' so auditors can see "here are the
  * input bytes AND here's exactly how we interpreted them" in one place.
  *
- * Never throws — audit-write is a nicety, not a critical path. Reuses the
- * generic evidence-upload flow already used by AP bills, invoices, and
- * time bundles.
+ * Returns a null attachment when storage fails; the caller must show that
+ * source evidence is missing. Reuses the generic evidence-upload flow.
  */
-export async function attachCsvToImportRun({ importRunId, csvText, fileName, entity, columnMap }) {
-  if (!importRunId || !csvText) return null;
+export async function attachCsvToImportRun({ importRunId, csvText, sourceFile, fileName, entity, columnMap }) {
+  if (!importRunId || (!sourceFile && !csvText)) return null;
   const baseName = fileName || `${entity || 'import'}-${importRunId}.csv`;
 
   const result = { csv: null, columnMap: null };
   try {
     result.csv = await _uploadEvidence({
       importRunId,
-      bytes:         csvText,
+      bytes:         sourceFile || csvText,
       filename:      baseName,
       contentType:   'text/csv',
       documentType:  'csv_source',
@@ -75,25 +74,35 @@ async function _uploadEvidence({ importRunId, bytes, filename, contentType, docu
   });
 
   // Step 2: upload bytes direct to S3 (or local-driver shim).
-  if (presign.upload?.url) {
-    const blob = new Blob([bytes], { type: contentType });
-    const form = new FormData();
-    Object.entries(presign.upload.fields || {}).forEach(([k, v]) => form.append(k, v));
-    form.append('file', blob, filename);
-    const up = await fetch(presign.upload.url, { method: 'POST', body: form, credentials: 'omit' });
-    if (!up.ok) throw new Error(`upload failed: ${up.status}`);
+  const uploadUrl = presign.upload?.form_action || presign.upload?.url;
+  if (!uploadUrl) throw new Error('Storage did not provide an upload destination');
+  const blob = new Blob([bytes], { type: contentType });
+  const form = new FormData();
+  Object.entries(presign.upload.fields || {}).forEach(([k, v]) => form.append(k, v));
+  form.append('file', blob, filename);
+  const up = await fetch(uploadUrl, {
+    method: 'POST', body: form,
+    credentials: uploadUrl.startsWith('/') ? 'same-origin' : 'omit',
+  });
+  if (!up.ok) throw new Error(`upload failed: ${up.status}`);
+  if (presign.driver === 'local') {
+    const receipt = await up.json().catch(() => null);
+    if (!receipt?.stored || receipt.storage_key !== presign.storage_key) {
+      throw new Error('Local storage did not confirm the uploaded bytes');
+    }
   }
-  // LocalDriver returns no upload.url — the storage_key IS the path.
 
   // Step 3: register metadata.
-  return await api.post('/api/accounting/evidence.php', {
+  const attached = await api.post('/api/accounting/evidence.php', {
     subject_type:  'csv_import_run',
     subject_id:    importRunId,
     document_type: documentType,
     label:         filename,
     storage_key:   presign.storage_key,
     content_type:  contentType,
-    size_bytes:    new Blob([bytes]).size,
+    size_bytes:    blob.size,
     source:        'csv_import_auto_attach',
   });
+  if (!attached?.id) throw new Error('Import evidence could not be registered');
+  return attached;
 }

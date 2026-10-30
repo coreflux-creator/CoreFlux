@@ -5,7 +5,7 @@
 # test) so the classification logic lives in exactly ONE place.
 #
 # Lanes:
-#   harness  — simulation harness + module emission discipline
+#   harness  — simulation/deployment harness + module emission discipline
 #   ui       — dashboard / SPA / CSV / digest / scenarios / sprint UIs
 #   modules  — AP / AR / billing / time / staffing / placement / payroll
 #               / treasury / payment / company / mail / plaid / gusto
@@ -27,7 +27,7 @@ ci_classify_lane() {
         #    posting + replay surface (phase_1*, sprint7b/c/e event-layer,
         #    posting rules sandbox, formula engine). These all stand or
         #    fall together with the harness invariants.
-        sim_harness_*|module_emission_discipline_smoke.php|phase_2a_event_discipline_smoke.php|\
+        sim_harness_*|purepay_financial_preview_config_smoke.php|purepay_demo_location_review_smoke.php|purepay_demo_callback_contract_smoke.php|module_emission_discipline_smoke.php|phase_2a_event_discipline_smoke.php|\
         phase_1b_*|phase_1c_*|phase_1d_*|phase_1e_*|\
         event_registry_contract_*|accounting_bank_rule_learning_*|\
         ai_rule_competition_*|\
@@ -59,7 +59,7 @@ ci_classify_lane() {
         sprint3_staffing_loop_*|sprint6c_*|sprint7c_treasury_*|\
         sprint8*|sprint9_*|p0_ap_bill_liquidity_*|p1_a4_time_direction_*|\
         p2_liquidity_and_auto_reverse_*|approval_reminders_daily_*|\
-        jaz_*|zoho_*|qbo_*|accounting_basics_*|rbac_cpa_*)
+        jaz_*|zoho_*|qbo_*|accounting_basics_*|coreaccounting_*|rbac_cpa_*)
             echo "modules"; return 0 ;;
 
         # ── core (~50 tests) — everything else (default lane) ──

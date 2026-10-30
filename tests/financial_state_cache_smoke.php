@@ -130,7 +130,7 @@ $a('postJe only marks when $post is true',
     preg_match('/if\s*\(\s*\$post\s*&&\s*isset\(\$period\[.id.\]\)\s*\)\s*\{[\s\S]{0,200}fscMarkDirty\(/', $acc) === 1);
 
 $a('reverseJe marks original period dirty',
-    preg_match('/UPDATE accounting_journal_entries SET reverses_je_id[\s\S]{0,400}fscMarkDirty\(\s*\$tenantId,\s*FSC_SCOPE_PERIOD,\s*\(string\) \$je\[.period_id.\]/', $acc) === 1);
+    preg_match('/UPDATE accounting_journal_entries SET reverses_je_id[\s\S]*?cf_tx_commit\(\$pdo, \$ownsTransaction\);[\s\S]*?fscMarkDirty\(\s*\$tenantId,\s*FSC_SCOPE_PERIOD,\s*\(string\) \$je\[.period_id.\]/', $acc) === 1);
 $a('reverseJe uses je_reversed reason',          str_contains($acc, "'je_reversed'"));
 $a('reverseJe wraps fscMarkDirty in try/catch',
     preg_match('/try\s*\{\s*fscMarkDirty\([\s\S]+?never block the reversal/', $acc) === 1);

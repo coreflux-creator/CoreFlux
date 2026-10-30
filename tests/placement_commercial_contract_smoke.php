@@ -84,8 +84,8 @@ $assert('non-W2 labor payee repair is conservative and unambiguous',
 
 $assert('billing resolves bill-to and terms from each approved rate snapshot',
     substr_count($billing, 'placementEconomicsReceivableContract(') >= 2
-    && str_contains($billing, "\$contractBundle['rate_snapshot_id']")
-    && str_contains($billing, "\$contractRow['_rate_snapshot_id']"));
+    && str_contains($billing, "\$b['rate_snapshot_id']")
+    && str_contains($billing, "\$e['_rate_snapshot_id']"));
 $assert('direct time billing refuses mixed bill-to contract terms',
     str_contains($settlement, 'spans approved contract snapshots with different bill-to terms'));
 $assert('AP labor recipient is resolved from the locked rate snapshot',

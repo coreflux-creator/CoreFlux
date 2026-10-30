@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import DataWarning from '../../../dashboard/src/components/DataWarning';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
-import { ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 
 /**
  * GL Detail — every JE line that hit a single account between two dates.
@@ -17,13 +19,17 @@ import { ChevronRight, RefreshCw } from 'lucide-react';
  * climb on debits, credit accounts climb on credits).
  */
 export default function GLDetail() {
+  const scope = useAccountingEntityScope();
   const [params, setParams] = useSearchParams();
   const accountId   = params.get('account_id') || '';
   const accountCode = params.get('account_code') || '';
   const start       = params.get('start') || isoMonthStart();
   const end         = params.get('end')   || isoToday();
-  const entityId    = params.get('entity_id') || '';
+  const entityId    = scope.entityId;
   const includeUnposted = params.get('include_unposted') === '1';
+  const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
+  const perPage = [25, 50, 100, 200].includes(Number(params.get('per_page')))
+    ? Number(params.get('per_page')) : 50;
 
   const [draftCode, setDraftCode] = useState(accountCode);
   useEffect(() => { setDraftCode(accountCode); }, [accountCode]);
@@ -33,19 +39,31 @@ export default function GLDetail() {
   const accounts = accountsApi.data?.rows || [];
 
   const queryReady = !!(accountId || accountCode);
-  const url = queryReady
+  const url = queryReady && scope.ready
     ? '/api/gl_detail.php?'
       + (accountId ? `account_id=${accountId}` : `account_code=${encodeURIComponent(accountCode)}`)
-      + `&start=${start}&end=${end}`
+      + `&start=${start}&end=${end}&page=${page}&per_page=${perPage}`
       + (entityId ? `&entity_id=${entityId}` : '')
       + (includeUnposted ? '&include_unposted=1' : '')
     : null;
-  const { data, error, loading, reload } = useApi(url);
+  const { data: response, error, loading, reload } = useApi(url, { enabled: Boolean(url) });
+  const data = queryReady && scope.ready && response?.entity_id === entityId
+    && response?.start === start && response?.end === end
+    && (!accountId || Number(response?.account?.id) === Number(accountId))
+    && (!accountCode || response?.account?.code === accountCode)
+    ? response : null;
+  const pagination = data?.pagination;
+  useEffect(() => {
+    if (!accountCode && data?.account?.code) setDraftCode(data.account.code);
+  }, [accountCode, data?.account?.code]);
 
   const setParam = (k, v) => {
     const p = new URLSearchParams(params);
     if (v === '' || v == null) p.delete(k);
     else p.set(k, String(v));
+    if (k === 'account_code') p.delete('account_id');
+    if (k === 'account_id') p.delete('account_code');
+    if (k !== 'page') p.delete('page');
     setParams(p, { replace: true });
   };
 
@@ -55,12 +73,15 @@ export default function GLDetail() {
         <div>
           <h2 style={{ margin: 0 }}>GL Detail</h2>
           <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }}>
-            Every posted journal-entry line that touched this account, with running balance.
+            {scope.label} · Every posted journal-entry line that touched this account, with running balance.
           </p>
         </div>
-        <button data-testid="accounting-gl-detail-refresh" onClick={reload} className="btn btn--ghost" style={{ fontSize: 12 }}>
-          <RefreshCw size={14} aria-hidden="true" />Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          <AccountingEntitySelector scope={scope} testId="accounting-gl-detail-entity" />
+          <button data-testid="accounting-gl-detail-refresh" onClick={reload} className="btn btn--ghost" style={{ fontSize: 12 }}>
+            <RefreshCw size={14} aria-hidden="true" />Refresh
+          </button>
+        </div>
       </header>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 14 }}>
@@ -96,8 +117,8 @@ export default function GLDetail() {
           Select an account to load its GL detail.
         </div>
       )}
-      {loading && <p data-testid="accounting-gl-detail-loading">Loading…</p>}
-      {error && <p data-testid="accounting-gl-detail-error" className="error">Error: {error.message}</p>}
+      {(loading || (queryReady && !data && !error && !scope.error)) && <p data-testid="accounting-gl-detail-loading">Loading…</p>}
+      {(scope.error || error) && <p data-testid="accounting-gl-detail-error" className="error">Error: {scope.error || error.message}</p>}
       {data?.data_warning && <DataWarning text={data.data_warning} />}
 
       {data?.account && (
@@ -116,6 +137,7 @@ export default function GLDetail() {
       )}
 
       {data?.lines && (
+        <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="GL detail entries" tabIndex={0}>
         <table className="data-table" style={{ width: '100%' }} data-testid="accounting-gl-detail-table">
           <thead>
             <tr>
@@ -159,7 +181,29 @@ export default function GLDetail() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
+      {pagination && <div data-testid="accounting-gl-detail-pagination"
+        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 0' }}>
+        <span style={{ fontSize: 12, color: '#64748b' }}>
+          {pagination.total_rows ? `${(pagination.page - 1) * pagination.per_page + 1}–${Math.min(pagination.page * pagination.per_page, pagination.total_rows)}` : '0'} of {pagination.total_rows} lines
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>Rows
+            <select className="input" value={perPage} aria-label="GL detail rows per page"
+              onChange={e => setParam('per_page', e.target.value)}>
+              {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn btn--ghost btn--sm" aria-label="Previous GL detail page"
+            title="Previous page" disabled={loading || pagination.page <= 1}
+            onClick={() => setParam('page', pagination.page - 1)}><ChevronLeft size={16} /></button>
+          <span style={{ fontSize: 12, minWidth: 66, textAlign: 'center' }}>Page {pagination.page} of {pagination.total_pages}</span>
+          <button type="button" className="btn btn--ghost btn--sm" aria-label="Next GL detail page"
+            title="Next page" disabled={loading || pagination.page >= pagination.total_pages}
+            onClick={() => setParam('page', pagination.page + 1)}><ChevronRight size={16} /></button>
+        </div>
+      </div>}
     </section>
   );
 }

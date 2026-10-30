@@ -1,5 +1,84 @@
 # Quanta time integration
 
+This document describes the CoreFlux time-import connector. The October 20
+[Thunderhawk operating pilot](thunderhawk-core-operating-pilot.md) expands the
+target to people, assignments, onboarding, portal reporting, and PurePay /
+PurePayroll integration. The current candidate also implements separately gated,
+reviewed outbound worker preparation, person links and assignment metadata.
+Those additions are described below and in the pilot plan; they do not mirror
+all fields or approve/correct source time in both systems.
+
+## Company-specific pilot enablement
+
+`COREFLUX_INTEGRATION_DELIVERY_TENANTS` is an optional hard boundary for the
+operational Quanta and PurePay feature flags. Set it to a comma-separated list
+of Core company IDs, such as `2002`, in the server's private configuration.
+Each feature must also be enabled independently. An unset list preserves the
+existing flag behavior; an explicitly empty or malformed list denies all.
+Preview controls and actual send/reservation operations use the authorized
+connection company, independently of any shared people or placement directory.
+Document intake additionally requires its existing document-specific list.
+This setting grants no user permissions, provider credentials, time approval,
+payroll execution or payment authority. Receipt inspection and reconciliation
+remain available when new delivery is held.
+
+Hosts that disable PHP's `putenv` can define the company lists as string
+constants and each feature as a boolean constant in private configuration.
+Constants take precedence over environment settings. A malformed company-list
+constant denies delivery, including a boolean `false`; only an absent setting
+retains the prior unrestricted feature-flag behavior. Verify the web process
+as well as the command line before activating the pilot.
+
+## Reviewed assignment worksite revisions — October 30, 2026
+
+An existing assignment can receive, change or explicitly clear its Quanta
+worksite reference through the same preview and confirmed metadata delivery.
+Core requires the additive `assignment_worksite_contract_version=2026-10-30.1`
+capability before proposing a changed reference. It validates an active site in
+the connected workspace, and Quanta rechecks that identity before applying the
+version-conditional update. The assignment keeps its Core/provider IDs and full
+revision history; its person, client, vendor and company relationships remain
+immutable. Existing time and worksite membership are unchanged. Quanta's native
+worksite assignment workflow separately grants the worker access to clock time.
+
+An assignment revision also changes the version bound by an onboarding
+publication. Review and republish the existing Core checklist before expecting
+the worker to use that checklist against the revised assignment.
+
+## Reviewed worker intake — October 22, 2026
+
+The existing inbound worker creation/linking flow now requires a separate
+comparison review. An encrypted review binds the worker and proposed person to
+the current verified connection, directory and reviewer. Migration 168 stores a
+local receipt and original source provenance atomically with the person number
+and link. Receipt recovery does not depend on Quanta being available and cannot
+recreate a later removed link. Contact changes or connection/directory drift
+require a new review. Linking never overwrites existing Core contact fields or
+provider IDs. This candidate still requires hosted pilot acceptance.
+
+## Reviewed outbound candidate — October 22, 2026
+
+The dedicated Core contract verifies Quanta's workspace and capabilities before
+review. Canonical person and placement references include the Core installation
+and directory owner. Existing provider IDs are preserved. Metadata and worker
+delivery have separate environment flags, both off by default.
+
+Worker preparation shows the current and proposed contacts before confirmation.
+A new worker is disabled and receives no login identity, credentials, invitation
+or worksite access. Existing linked workers accept conditional name/phone changes;
+email collisions require identity review. Core stores the confirmed provider
+receipt and its local worker link together. Interrupted sends remain held until
+the original scoped receipt is verified; history remains available without a
+working provider preview. Neither a missing receipt nor a new preview permits an
+automatic retry. Native activation and onboarding remain separate in Quanta.
+
+Core's reviewed workflow passes local database, browser and component checks.
+The Quanta worker companion `fac667a` is saved and hash-verified in Emergent.
+Its development preview registers the worker routes and passes health and
+unauthenticated access checks. The assignment portal is also saved, but
+authenticated Thunderhawk acceptance remains open. These checks do not establish
+a live Thunderhawk round trip. Consult the pilot document for release receipts.
+
 The Quanta connector is intentionally disconnected on deployment. There is no
 scheduled sync, webhook, or automatic tenant link. A CoreFlux tenant admin must
 connect a Quanta API key, link worker identities, review placement routes,
@@ -7,15 +86,25 @@ preview source time, and select the entries to import.
 
 ## Connection and scope
 
+For the isolated integration pilot only, deployment configuration may set
+`COREFLUX_QUANTA_PREVIEW_API_BASE` to
+`https://clockin-hub-16.preview.emergentagent.com/api/v1`. This requires the
+strict boolean `COREFLUX_STAGING=true`; production, malformed values and other
+hosts fail before any request. A private PHP constant takes precedence over
+the process environment. With no setting, the existing live origin remains
+the default. Reads, worker/assignment/onboarding writes and private document
+retrieval all use the same selection. Changing it invalidates the reviewed
+workspace binding. This setting creates no connection or delivery authority.
+
 Use a Quanta key with `timesheets:read`, `workers:read`, and `worksites:read`.
-CoreFlux only calls Quanta's documented GET endpoints on
-`https://helloquanta.app/api/v1`; it does not write to Quanta. The key is
+Time import calls Quanta's documented GET endpoints on
+`https://helloquanta.app/api/v1`; the import itself does not write to Quanta. The key is
 encrypted at rest. The connection screen shows the active CoreFlux workspace
 and requires an explicit confirmation before a key can be saved. Replacing a
-previous key also requires confirming that it belongs to the same Quanta
-workspace, because Quanta's public v1 API does not expose a workspace identity
-endpoint. Disconnecting removes the encrypted key without deleting imported
-CoreFlux time.
+previous key invalidates the workspace verification. The candidate's dedicated
+Core contract exposes workspace identity and version/capabilities; Core requires
+explicit verification before reviewed exchange. Disconnecting revokes that
+binding without deleting imported Core time or historical identity lineage.
 
 ## Review and import
 
@@ -78,9 +167,11 @@ import while a preview contains unresolved rows.
 Quanta owns clock events, timesheet submission, and its source approval state.
 CoreFlux owns placements, rates, accounting dimensions, and downstream billing,
 AP, and payroll decisions. Import never writes an approval or correction back
-to Quanta. Quanta documents write endpoints, but the tenant API-key screen only
-offers read scopes; a bidirectional workflow requires separately verified
-write credentials, conflict rules, and an agreed source of truth before it can
-be enabled. Running Connecteam-to-Quanta and Connecteam-to-CoreFlux time feeds
+to Quanta. At the September 28 verification, the inspected tenant API-key screen
+offered read scopes only. That observation is not a claim about every current
+Quanta integration: the reviewed PurePay source also contains worker writes,
+time approvals, and other Quanta operations. CoreFlux still needs verified
+write credentials, conflict rules, and field ownership before its outbound
+workflow can be enabled. Running Connecteam-to-Quanta and Connecteam-to-CoreFlux time feeds
 for the same activity would risk duplicate time, so only one ingestion path
 should be active for each source clock.

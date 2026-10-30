@@ -36,8 +36,6 @@ foreach ($tenants as $row) {
 
     $policy = billingDunningGetPolicy($tid);
     $dnc = array_map('strval', $policy['do_not_contact']);
-    $tenant = $pdo->query("SELECT * FROM tenants WHERE id = {$tid} LIMIT 1")->fetch(\PDO::FETCH_ASSOC) ?: ['name' => ''];
-
     foreach (billingDunningEligibleInvoices($tid, $today) as $inv) {
         if (in_array((string) $inv['client_name'], $dnc, true)) {
             $totalSuppressed++;
@@ -55,10 +53,16 @@ foreach ($tenants as $row) {
             billingDunningRecordSend($tid, (int) $inv['id'], $stage, '', [], 'suppressed', 'no_contact');
             $totalSuppressed++; continue;
         }
-        $email  = billingDunningRenderEmail((string) $stage['template_key'], $inv, $tenant);
-        $sender = cf_tenant_mail_sender($tid, 'billing');
         try {
-            $svc->send($tid, 'billing', "dunning_{$stage['template_key']}", [$recipients['to']],
+            $sender = billingEntityMailSender($tid, (int) ($inv['entity_id'] ?? 0));
+            if (!$sender['ready']) throw new RuntimeException((string) $sender['reason']);
+        } catch (\Throwable $e) {
+            billingDunningRecordSend($tid, (int) $inv['id'], $stage, '', [], 'suppressed', $e->getMessage());
+            $totalSuppressed++; continue;
+        }
+        $email  = billingDunningRenderEmail((string) $stage['template_key'], $inv, ['name' => $sender['entity_name']]);
+        try {
+            $sendResult = $svc->send($tid, 'billing', "dunning_{$stage['template_key']}", [$recipients['to']],
                 $email['subject'], $email['text'], $email['html'], [], [
                     'from'      => $sender['from'] ?? null,
                     'from_name' => $sender['from_name'] ?? null,
@@ -67,6 +71,9 @@ foreach ($tenants as $row) {
                     'idempotency_key' => 'dunning-' . $inv['id'] . '-' . $stage['stage_no'] . '-' . $today,
                 ]
             );
+            if (($sendResult['status'] ?? 'failed') !== 'sent') {
+                throw new RuntimeException((string) ($sendResult['error'] ?? 'Delivery provider did not accept the reminder.'));
+            }
             billingDunningRecordSend($tid, (int) $inv['id'], $stage, $recipients['to'], $recipients['cc'], 'sent');
             $totalSent++;
             echo "[ok] tenant={$tid} inv={$inv['invoice_number']} stage={$stage['stage_no']} to={$recipients['to']}\n";

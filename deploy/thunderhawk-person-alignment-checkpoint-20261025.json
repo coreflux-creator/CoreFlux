@@ -1,0 +1,338 @@
+{
+  "date": "2026-10-25",
+  "core_runtime": "4f1c08443bd41efd3b447ddba800e498cc4b5f74",
+  "ci": {
+    "conclusion": "success",
+    "headSha": "4f1c08443bd41efd3b447ddba800e498cc4b5f74",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40216285612"
+  },
+  "deployment": {
+    "conclusion": "success",
+    "headSha": "4f1c08443bd41efd3b447ddba800e498cc4b5f74",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40216535287"
+  },
+  "ci_jobs_passed": 9,
+  "source_reader_checks": 62,
+  "directory_database_checks": 115,
+  "assignment_party_checks": 18,
+  "migrations_applied": [],
+  "staging_acceptance_passed": true,
+  "actual_person_comparison": {
+    "date": "2026-10-25",
+    "kind": "read_only_thunderhawk_person_alignment",
+    "run": {
+      "conclusion": "success",
+      "headSha": "5ac3bd16ffcbeb047463f45c2434604cae124051",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40217104289"
+    },
+    "person": "P-358",
+    "placement": "PL-864",
+    "source_status": "exact_source_observed",
+    "observed_at": "2026-10-25T17:36:34+00:00",
+    "person_source": {
+      "status": "exact_person_observed",
+      "source_refreshed": true,
+      "record_writes": false,
+      "exact_person_verified": true,
+      "http_status": 200,
+      "provider_calls": [
+        {
+          "operation": "candidate_search",
+          "http_status": 404
+        },
+        {
+          "operation": "candidate_detail",
+          "http_status": 200
+        }
+      ],
+      "parsed_rows": 1,
+      "fields": {
+        "first_name": "present",
+        "last_name": "present",
+        "email_primary": "present",
+        "phone_primary": "missing"
+      }
+    },
+    "person_alignment": {
+      "status": "compared",
+      "records_changed": false,
+      "fields": {
+        "first_name": "matches_fresh_source",
+        "last_name": "matches_fresh_source",
+        "email_primary": "matches_fresh_source",
+        "phone_primary": "source_value_missing"
+      },
+      "scope": "Four current person fields against an exact candidate read; no overwrite proposed.",
+      "limits": [
+        "Core overrides and tenant mappings may intentionally differ.",
+        "Names are case-sensitive; phone formatting alone is ignored, with no country inference.",
+        "This does not verify addresses, custom fields, worker access or payroll eligibility."
+      ]
+    },
+    "placement_alignment": {
+      "status": "compared",
+      "scope": "Nine current Core placement dimensions compared with a fresh exact JobDiva assignment contract.",
+      "source_refreshed": true,
+      "records_changed": false,
+      "limits": [
+        "Tenant mappings and Core overrides can intentionally differ; no overwrite is proposed.",
+        "Employer, rates, custom-field values and downstream delivery require separate evidence."
+      ],
+      "fields": {
+        "branch": "matches_fresh_source",
+        "workers_comp_class": "source_value_missing",
+        "worksite_city": "core_column_unavailable",
+        "worksite_state": "matches_fresh_source",
+        "worksite_country": "matches_fresh_source",
+        "engagement_type": "matches_fresh_source",
+        "start_date": "matches_fresh_source",
+        "end_date": "matches_fresh_source",
+        "status": "matches_fresh_source"
+      },
+      "source_last_synced_at": null
+    },
+    "commercial_alignment": {
+      "status": "observed",
+      "as_of": "2026-10-25",
+      "records_changed": false,
+      "scope": "Current nonsuperseded rate versions and the billing-client company link; no raw values.",
+      "limits": [
+        "Matching drafts are not approved compensation.",
+        "Billing client, end client, legal employer and vendor are distinct roles.",
+        "A source comparison does not authorize import, approval, payroll or payment."
+      ],
+      "rates": {
+        "status": "compared",
+        "draft_versions": 1,
+        "approved_versions": 0,
+        "versions": [
+          {
+            "status": "compared",
+            "approval": "draft",
+            "source_rate_basis_resolved": true,
+            "fields": {
+              "bill_rate_unit": "matches_fresh_source",
+              "pay_rate_unit": "matches_fresh_source",
+              "currency": "matches_fresh_source",
+              "bill_rate": "matches_fresh_source",
+              "bill_discount_pct": "source_value_missing",
+              "invoice_bill_rate": "awaiting_rate_approval",
+              "pay_rate": "matches_fresh_source",
+              "payroll_load_pct": "source_value_missing",
+              "workers_comp_pct": "source_value_missing",
+              "benefits_load_pct": "source_value_missing",
+              "c2c_overhead_pct": "source_value_missing",
+              "other_cost_per_hour": "source_value_missing",
+              "other_cost_flat": "source_value_missing"
+            }
+          }
+        ]
+      },
+      "billing_client_company": {
+        "status": "matches_fresh_source"
+      }
+    },
+    "employer_alignment": {
+      "status": "unique_existing_default",
+      "records_changed": false,
+      "native_sync_rule": "first_active_entity_by_id_in_effective_accounting_directory",
+      "can_follow_existing_sync_rule": false,
+      "accounting_directory_verified": true,
+      "active_entity_count": 1,
+      "existing_default": {
+        "id": 2,
+        "code": "THUN",
+        "legal_name": "Thunderhawk"
+      },
+      "placement_reference": "active_in_expected_directory",
+      "person_reference": "empty",
+      "placement_matches_default": true,
+      "entity_override": "absent"
+    },
+    "production_records_changed": false,
+    "runtime_installed": false,
+    "credentials_changed": false,
+    "source_snapshot_replaced": false,
+    "production_cutover": false,
+    "financial_execution": false,
+    "arabella_changed": false,
+    "actual_thunderhawk_round_trip": false,
+    "primary_phone_verified": false,
+    "supported_primary_phone_aliases_absent": true,
+    "comparison_limit": "No primary phone returned under supported aliases, including phone 1. This does not establish absence from every custom or alternate source field."
+  },
+  "field_dictionary_correction": "Billing-company evidence supplies the bill-to client; explicit end-client evidence supplies the work recipient.",
+  "native_person_link_endpoint_fallback_verified": false,
+  "actual_thunderhawk_round_trip": false,
+  "production_cutover": false,
+  "credentials_changed": false,
+  "real_financial_execution": false,
+  "arabella_changed": false,
+  "previous_person_comparison": {
+    "date": "2026-10-25",
+    "kind": "read_only_thunderhawk_person_alignment",
+    "run": {
+      "conclusion": "success",
+      "headSha": "4f1c08443bd41efd3b447ddba800e498cc4b5f74",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40216500907"
+    },
+    "person": "P-358",
+    "placement": "PL-864",
+    "source_status": "exact_source_observed",
+    "observed_at": "2026-10-25T17:28:53+00:00",
+    "person_source": {
+      "status": "exact_person_observed",
+      "source_refreshed": true,
+      "record_writes": false,
+      "exact_person_verified": true,
+      "http_status": 200,
+      "provider_calls": [
+        {
+          "operation": "candidate_search",
+          "http_status": 404
+        },
+        {
+          "operation": "candidate_detail",
+          "http_status": 200
+        }
+      ],
+      "parsed_rows": 1,
+      "fields": {
+        "first_name": "present",
+        "last_name": "present",
+        "email_primary": "present",
+        "phone_primary": "missing"
+      }
+    },
+    "person_alignment": {
+      "status": "compared",
+      "records_changed": false,
+      "fields": {
+        "first_name": "matches_fresh_source",
+        "last_name": "matches_fresh_source",
+        "email_primary": "matches_fresh_source",
+        "phone_primary": "source_value_missing"
+      },
+      "scope": "Four current person fields against an exact candidate read; no overwrite proposed.",
+      "limits": [
+        "Core overrides and tenant mappings may intentionally differ.",
+        "Names are case-sensitive; phone formatting alone is ignored, with no country inference.",
+        "This does not verify addresses, custom fields, worker access or payroll eligibility."
+      ]
+    },
+    "placement_alignment": {
+      "status": "compared",
+      "scope": "Nine current Core placement dimensions compared with a fresh exact JobDiva assignment contract.",
+      "source_refreshed": true,
+      "records_changed": false,
+      "limits": [
+        "Tenant mappings and Core overrides can intentionally differ; no overwrite is proposed.",
+        "Employer, rates, custom-field values and downstream delivery require separate evidence."
+      ],
+      "fields": {
+        "branch": "matches_fresh_source",
+        "workers_comp_class": "source_value_missing",
+        "worksite_city": "core_column_unavailable",
+        "worksite_state": "matches_fresh_source",
+        "worksite_country": "matches_fresh_source",
+        "engagement_type": "matches_fresh_source",
+        "start_date": "matches_fresh_source",
+        "end_date": "matches_fresh_source",
+        "status": "matches_fresh_source"
+      },
+      "source_last_synced_at": null
+    },
+    "commercial_alignment": {
+      "status": "observed",
+      "as_of": "2026-10-25",
+      "records_changed": false,
+      "scope": "Current nonsuperseded rate versions and the billing-client company link; no raw values.",
+      "limits": [
+        "Matching drafts are not approved compensation.",
+        "Billing client, end client, legal employer and vendor are distinct roles.",
+        "A source comparison does not authorize import, approval, payroll or payment."
+      ],
+      "rates": {
+        "status": "compared",
+        "draft_versions": 1,
+        "approved_versions": 0,
+        "versions": [
+          {
+            "status": "compared",
+            "approval": "draft",
+            "source_rate_basis_resolved": true,
+            "fields": {
+              "bill_rate_unit": "matches_fresh_source",
+              "pay_rate_unit": "matches_fresh_source",
+              "currency": "matches_fresh_source",
+              "bill_rate": "matches_fresh_source",
+              "bill_discount_pct": "source_value_missing",
+              "invoice_bill_rate": "awaiting_rate_approval",
+              "pay_rate": "matches_fresh_source",
+              "payroll_load_pct": "source_value_missing",
+              "workers_comp_pct": "source_value_missing",
+              "benefits_load_pct": "source_value_missing",
+              "c2c_overhead_pct": "source_value_missing",
+              "other_cost_per_hour": "source_value_missing",
+              "other_cost_flat": "source_value_missing"
+            }
+          }
+        ]
+      },
+      "billing_client_company": {
+        "status": "matches_fresh_source"
+      }
+    },
+    "employer_alignment": {
+      "status": "unique_existing_default",
+      "records_changed": false,
+      "native_sync_rule": "first_active_entity_by_id_in_effective_accounting_directory",
+      "can_follow_existing_sync_rule": false,
+      "accounting_directory_verified": true,
+      "active_entity_count": 1,
+      "existing_default": {
+        "id": 2,
+        "code": "THUN",
+        "legal_name": "Thunderhawk"
+      },
+      "placement_reference": "active_in_expected_directory",
+      "person_reference": "empty",
+      "placement_matches_default": true,
+      "entity_override": "absent"
+    },
+    "production_records_changed": false,
+    "runtime_installed": false,
+    "credentials_changed": false,
+    "source_snapshot_replaced": false,
+    "production_cutover": false,
+    "financial_execution": false,
+    "arabella_changed": false,
+    "actual_thunderhawk_round_trip": false,
+    "primary_phone_verified": false,
+    "all_source_phone_aliases_absent": false,
+    "comparison_limit": "The installed inspector omitted the existing phone 1 alias; its missing result is incomplete evidence about the primary phone."
+  },
+  "alias_verification": {
+    "commit": "5ac3bd16ffcbeb047463f45c2434604cae124051",
+    "ci_run": 40216898542,
+    "source_reader_checks_local": 63,
+    "installed_in_staging": false,
+    "hosted_comparison_completed": true,
+    "ci": {
+      "conclusion": "success",
+      "headSha": "5ac3bd16ffcbeb047463f45c2434604cae124051",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40216898542"
+    },
+    "inspection": {
+      "conclusion": "success",
+      "headSha": "5ac3bd16ffcbeb047463f45c2434604cae124051",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40217104289"
+    }
+  }
+}

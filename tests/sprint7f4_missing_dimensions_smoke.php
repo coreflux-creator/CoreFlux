@@ -79,7 +79,7 @@ $assert('sample testid',                          strpos($bo, 'data-testid="book
 $assert('CTA testid',                             strpos($bo, 'data-testid="bookkeeping-overview-missing-dims-cta"') !== false);
 $assert('renders only when count > 0',
     strpos($bo, '(data.missing_dims?.count ?? 0) > 0') !== false);
-$assert('CTA deep-links to /missing-dimensions',  strpos($bo, 'to="/modules/accounting/missing-dimensions"') !== false);
+$assert('CTA deep-links with entity scope',  strpos($bo, "scope.withScope('/modules/accounting/missing-dimensions')") !== false);
 $assert('amber palette',                          strpos($bo, "background: '#fffbeb'") !== false);
 $assert('renders sample top-offenders compact',
     strpos($bo, 'Top offenders:') !== false);
@@ -88,7 +88,8 @@ echo "\nUI — MissingDimensions.jsx page\n";
 $mdPath = "{$ROOT}/dashboard/src/pages/MissingDimensions.jsx";
 $md = (string) file_get_contents($mdPath);
 $assert('page exists',                            strlen($md) > 0);
-$assert('reads missing_dimensions endpoint',      strpos($md, "'/api/missing_dimensions.php?days=90&limit=200'") !== false);
+$assert('reads missing_dimensions endpoint with entity scope',
+    strpos($md, '/api/missing_dimensions.php?days=90&limit=200') !== false && strpos($md, 'scope.apiQuery') !== false);
 $assert('page testid',                            strpos($md, 'data-testid="missing-dims-page"') !== false);
 $assert('empty-state testid',                     strpos($md, 'data-testid="missing-dims-empty"') !== false);
 $assert('by-account row dynamic testid',          strpos($md, 'data-testid={`missing-dims-account-row-${a.account_id}`}') !== false);
@@ -96,7 +97,8 @@ $assert('per-row dynamic testid',                 strpos($md, 'data-testid={`mis
 $assert('open-JE deep-link template',
     strpos($md, 'data-testid={`missing-dims-open-je-${r.je_id}`}') !== false
     && strpos($md, 'to={`/modules/accounting/journal-entries/${r.je_id}`}') !== false);
-$assert('back link to BookkeepingOverview',       strpos($md, 'to="/modules/accounting/bookkeeping"') !== false);
+$assert('back link preserves selected entity',
+    strpos($md, "scope.withScope('/modules/accounting/overview')") !== false);
 
 echo "\nRouting — AccountingModule\n";
 $am = (string) file_get_contents("{$ROOT}/modules/accounting/ui/AccountingModule.jsx");

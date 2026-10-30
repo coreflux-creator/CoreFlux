@@ -242,13 +242,6 @@ function treasuryImportBankCsv(
               WHERE tenant_id = :tid AND bank_account_id = :acc AND fitid = :fitid
               LIMIT 1'
         );
-        $checkNatural = $pdo->prepare(
-            'SELECT id, description FROM accounting_bank_statement_lines
-              WHERE tenant_id = :tid AND bank_account_id = :acc
-                AND posted_date = :dt AND amount = :amt' .
-                (isset($columnInfo['duplicate_of_line_id']) ? ' AND duplicate_of_line_id IS NULL' : '')
-        );
-
         $insertColumns = ['tenant_id', 'bank_account_id', 'posted_date', 'description', 'amount', 'fitid'];
         $insertValues  = [':tid', ':acc', ':dt', ':desc', ':amt', ':fitid'];
         foreach (['bank_reference' => ':ref', 'external_id' => ':ext', 'source_system' => ':src'] as $column => $placeholder) {
@@ -278,7 +271,6 @@ function treasuryImportBankCsv(
     }
 
     $rowNum = 1;
-    $claimedLineIds = [];
     $occurrenceCounts = [];
     while (($row = fgetcsv($h, null, ',', '"', '')) !== false) {
         $rowNum++;
@@ -357,46 +349,12 @@ function treasuryImportBankCsv(
             ]);
             $existingFitidLineId = $check->fetchColumn();
             if ($existingFitidLineId !== false) {
-                $claimedLineIds[(int) $existingFitidLineId] = true;
                 $summary['rows_duplicate']++;
                 continue;
             }
-            // Plaid and a bank CSV identify the same transaction differently.
-            // Compare the stable facts as a second de-dup key so importing
-            // older history does not duplicate rows already supplied by Plaid.
-            $checkNatural->execute([
-                'tid' => $tenantId,
-                'acc' => $bankAccountId,
-                'dt'  => $date,
-                'amt' => number_format($amount, 2, '.', ''),
-            ]);
-            $normalisedDescription = treasuryCsvNormaliseDescription($rawDesc);
-            $matchesExisting = false;
-            $matchedExistingLineId = null;
-            foreach ($checkNatural->fetchAll(PDO::FETCH_ASSOC) as $existingRow) {
-                $candidateId = (int) ($existingRow['id'] ?? 0);
-                if ($candidateId <= 0 || isset($claimedLineIds[$candidateId])) continue;
-                if (bankTxnDescriptionsEquivalent((string) ($existingRow['description'] ?? ''), $normalisedDescription)) {
-                    $matchesExisting = true;
-                    $matchedExistingLineId = $candidateId;
-                    break;
-                }
-            }
-            if ($matchesExisting) {
-                $claimedLineIds[$matchedExistingLineId] = true;
-                if ($extId !== null) {
-                    bankTxnRecordAlias(
-                        $pdo,
-                        $tenantId,
-                        $bankAccountId,
-                        $matchedExistingLineId,
-                        $srcSys === 'manual' ? 'csv' : $srcSys,
-                        $extId
-                    );
-                }
-                $summary['rows_duplicate']++;
-                continue;
-            }
+            // A different FITID may be a second real bank event, even when
+            // date, amount and merchant text are identical. Keep it visible
+            // for reconciliation instead of silently collapsing it.
 
             $insertParams = [
                 'tid'   => $tenantId,
@@ -421,7 +379,6 @@ function treasuryImportBankCsv(
             $ins->execute($insertParams);
             $insertedLineId = bankTxnLineIdByFitid($pdo, $tenantId, $bankAccountId, $fitid);
             if ($insertedLineId !== null) {
-                $claimedLineIds[$insertedLineId] = true;
                 if ($extId !== null) {
                     bankTxnRecordAlias(
                         $pdo,

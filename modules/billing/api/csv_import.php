@@ -18,7 +18,10 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/accounting/csv_document_entity.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../lib/invoice_drafts.php';
+require_once __DIR__ . '/../../ap/lib/ap.php';
 
 use Core\CsvImportService;
 
@@ -39,6 +42,8 @@ CsvImportService::registerSchema('billing_invoices', [
         'record_status'    => ['label' => 'Record status (read only)'],
         'amount_paid'      => ['label' => 'Amount paid (read only)', 'type' => 'number'],
         'client_name'      => ['label' => 'Client name'],
+        'client_company_id' => ['label' => 'Client company ID', 'type' => 'integer'],
+        'entity_code'      => ['label' => 'Entity code'],
         'issue_date'       => ['label' => 'Issue date',      'type' => 'date'],
         'due_date'         => ['label' => 'Due date',        'type' => 'date'],
         'period_start'     => ['label' => 'Period start',    'type' => 'date'],
@@ -51,6 +56,9 @@ CsvImportService::registerSchema('billing_invoices', [
         'line_id'          => ['label' => 'Line ID (read only)', 'type' => 'integer'],
         'line_no'          => ['label' => 'Line #',           'type' => 'number'],
         'line_description' => ['label' => 'Line description'],
+        'line_catalog_item_id' => ['label' => 'Line catalog item ID', 'type' => 'integer'],
+        'line_item_type'   => ['label' => 'Line item type', 'enum' => AP_LINE_ITEM_TYPES],
+        'line_gl_revenue_account_code' => ['label' => 'Line revenue account'],
         'line_quantity'    => ['label' => 'Line quantity',    'type' => 'number'],
         'line_unit'        => ['label' => 'Line unit'],
         'line_unit_price'  => ['label' => 'Line unit price',  'type' => 'number'],
@@ -137,76 +145,77 @@ if ($method === 'POST' && $action === 'dry_run') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
-    $result = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
-
-    $groups = [];
-    foreach ($result['rows'] as $rn => $row) {
-        $inv = (string) ($row['invoice_number'] ?? '');
-        if ($inv === '') continue;
-        $groups[$inv][] = ['rn' => $rn, 'row' => $row];
-    }
-    foreach ($groups as $inv => $g) {
-        $first = $g[0]['row'];
-        foreach (['client_name','issue_date','due_date'] as $req) {
-            if (empty($first[$req])) {
-                $rn = $g[0]['rn'];
-                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                $result['errors'][$rn][] = "{$req}: required on first row of invoice #{$inv}";
-            }
+    $pdo = getDB();
+    $catalogTenantId = staffingClientCatalogTenantId($tid);
+    $review = accountingCsvReviewDocumentGroups(
+        CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
+        accountingCsvDocumentEntities($pdo, $tid),
+        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
+        static function (array $row, array $amounts) use ($pdo, $tid): void {
+            billingValidateImportedInvoiceLineAmounts($row, $amounts);
+            billingImportedInvoiceLineMetadata($pdo, $tid, $row, $amounts);
+        }, static function (array $rows, array $amounts) use ($pdo, $catalogTenantId): void {
+            billingValidateImportedInvoiceGroupAmounts($rows, $amounts);
+            $header = reset($rows);
+            billingValidateDirectInvoiceClientCompanyId($pdo, $catalogTenantId,
+                (string) ($header['client_name'] ?? ''), $header['client_company_id'] ?? null);
         }
-    }
-    $result['error_count'] = count($result['errors']);
-    $result['groups']      = count($groups);
-    api_ok($result);
+    );
+    api_ok($review['result']);
 }
 
 if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'billing.invoice.draft');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('billing_invoices', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $columnMap = CsvImportService::readRequestColumnMap();
+    $pdo = getDB();
+    $catalogTenantId = staffingClientCatalogTenantId($tid);
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
-    $dry = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
-    if (!$skipInvalid && $dry['error_count'] > 0) {
-        api_ok([
-            'imported_count' => 0, 'skipped_count' => count($dry['rows']),
+    $review = accountingCsvReviewDocumentGroups(
+        CsvImportService::dryRun('billing_invoices', $csv, $columnMap),
+        accountingCsvDocumentEntities($pdo, $tid),
+        'invoice_number', 'invoice', ['client_name', 'issue_date', 'due_date'],
+        static function (array $row, array $amounts) use ($pdo, $tid): void {
+            billingValidateImportedInvoiceLineAmounts($row, $amounts);
+            billingImportedInvoiceLineMetadata($pdo, $tid, $row, $amounts);
+        }, static function (array $rows, array $amounts) use ($pdo, $catalogTenantId): void {
+            billingValidateImportedInvoiceGroupAmounts($rows, $amounts);
+            $header = reset($rows);
+            billingValidateDirectInvoiceClientCompanyId($pdo, $catalogTenantId,
+                (string) ($header['client_name'] ?? ''), $header['client_company_id'] ?? null);
+        }
+    );
+    $dry = $review['result'];
+    if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {
+        api_ok(coreAccountingRecordCsvImportOutcome([
+            'imported_count' => 0, 'skipped_count' => $dry['groups'],
+            'group_count' => $dry['groups'],
+            'row_count' => count($dry['rows']), 'imported_row_count' => 0,
+            'skipped_row_count' => count($dry['rows']),
             'errors' => $dry['errors'],
-            'message' => 'Validation errors present; pass skip_invalid=1 to import valid rows only.',
-        ]);
+            'message' => $dry['blocking_error'] ?? 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
+        ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
 
-    $groups = [];
-    foreach ($dry['rows'] as $rn => $row) {
-        if ($skipInvalid && isset($dry['errors'][$rn])) continue;
-        $inv = (string) ($row['invoice_number'] ?? '');
-        if ($inv === '') continue;
-        $groups[$inv][] = $row;
-    }
+    $groups = $review['groups'];
 
-    $pdo = getDB();
     $imported = 0;
     $created  = 0;
     $updated  = 0;
+    $importedRows = 0;
     $errors   = $dry['errors'];
     $ids      = [];
 
-    $amountsForLine = static function (array $row): array {
-        $quantity = ($row['line_quantity'] ?? '') === '' ? 1.0 : (float) $row['line_quantity'];
-        $unitPrice = ($row['line_unit_price'] ?? '') === '' ? 0.0 : (float) $row['line_unit_price'];
-        $subtotal = ($row['line_subtotal'] ?? '') === ''
-            ? round($quantity * $unitPrice, 2)
-            : round((float) $row['line_subtotal'], 2);
-        $tax = ($row['line_tax_amount'] ?? '') === '' ? 0.0 : round((float) $row['line_tax_amount'], 2);
-        $total = ($row['line_total'] ?? '') === ''
-            ? round($subtotal + $tax, 2)
-            : round((float) $row['line_total'], 2);
-        return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
-    };
-
-    foreach ($groups as $inv => $rows) {
+    foreach ($groups as $inv => $numberedRows) {
+        if (count(array_intersect(array_keys($numberedRows), array_keys($dry['errors']))) > 0) continue;
+        $rows = array_values($numberedRows);
         $header = $rows[0];
+        $entity = $review['entities'][$inv];
         $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
         $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
 
@@ -217,7 +226,7 @@ if ($method === 'POST' && $action === 'commit') {
         $invoiceId = isset($header['invoice_id']) && $header['invoice_id'] !== '' ? (int) $header['invoice_id'] : 0;
         if ($invoiceId > 0) {
             $existing = scopedFind(
-                'SELECT id, status, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, journal_entry_id, amount_paid
                    FROM billing_invoices
                   WHERE tenant_id = :tenant_id AND id = :id',
                 ['id' => $invoiceId]
@@ -228,7 +237,7 @@ if ($method === 'POST' && $action === 'commit') {
             }
         } elseif ($externalId !== null) {
             $existing = scopedFind(
-                'SELECT id, status, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, journal_entry_id, amount_paid
                    FROM billing_invoices
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
@@ -236,13 +245,17 @@ if ($method === 'POST' && $action === 'commit') {
         }
         if (!$existing) {
             $existing = scopedFind(
-                'SELECT id, status, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, journal_entry_id, amount_paid
                    FROM billing_invoices
                   WHERE tenant_id = :tenant_id AND invoice_number = :n',
                 ['n' => $inv]
             );
         }
         if ($existing) {
+            if (!empty($existing['entity_id']) && (int) $existing['entity_id'] !== $entity['id']) {
+                $errors['__invoice_' . $inv] = ['CSV cannot move an invoice to another legal entity'];
+                continue;
+            }
             if (!$updateExisting) {
                 $errors['__invoice_' . $inv] = ['Invoice # ' . $inv . ' already exists; enable Update matching editable records to change its draft'];
                 continue;
@@ -266,7 +279,7 @@ if ($method === 'POST' && $action === 'commit') {
 
         $subtotal = 0; $tax = 0; $total = 0;
         foreach ($rows as $r) {
-            $amounts = $amountsForLine($r);
+            $amounts = accountingCsvDocumentLineAmounts($r);
             $subtotal += $amounts['subtotal'];
             $tax      += $amounts['tax'];
             $total    += $amounts['total'];
@@ -276,14 +289,20 @@ if ($method === 'POST' && $action === 'commit') {
         $total = round($total, 2);
         $wasUpdate = (bool) $existing;
 
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_invoice_document');
         try {
+            $clientCompanyId = billingResolveDirectInvoiceClientCompanyId(
+                $pdo, $catalogTenantId, (string) $header['client_name'],
+                $header['client_company_id'] ?? null, (int) ($user['id'] ?? 0) ?: null
+            );
             $headerPayload = [
                 'invoice_number' => $inv,
                 'external_id'    => $externalId,
                 'source_system'  => $sourceSystem,
                 'client_name'    => (string) $header['client_name'],
-                'currency'       => $header['currency']  ?? 'USD',
+                'client_company_id' => $clientCompanyId,
+                'entity_id'      => $entity['id'],
+                'currency'       => $entity['base_currency'],
                 'issue_date'     => $header['issue_date'],
                 'due_date'       => $header['due_date'],
                 'period_start'   => $header['period_start'] ?? null,
@@ -310,18 +329,22 @@ if ($method === 'POST' && $action === 'commit') {
             $lineNo = 0;
             foreach ($rows as $r) {
                 $lineNo++;
-                $amounts = $amountsForLine($r);
+                $amounts = accountingCsvDocumentLineAmounts($r);
+                $metadata = billingImportedInvoiceLineMetadata($pdo, $tid, $r, $amounts);
                 $pdo->prepare(
                     'INSERT INTO billing_invoice_lines
-                       (invoice_id, line_no, source_type, description, quantity, unit, unit_price,
-                        subtotal, tax_rate_pct, tax_amount, total)
+                       (invoice_id, line_no, source_type, catalog_item_id, item_type, description,
+                        quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total,
+                        gl_revenue_account_code)
                      VALUES
-                       (:invoice_id, :line_no, :stype, :desc, :qty, :unit, :unit_price,
-                        :subtotal, 0, :tax_amount, :total)'
+                       (:invoice_id, :line_no, :stype, :catalog_item_id, :item_type, :desc,
+                        :qty, :unit, :unit_price, :subtotal, 0, :tax_amount, :total, :gl_rev)'
                 )->execute([
                     'invoice_id' => $invId,
                     'line_no'    => isset($r['line_no']) && (int) $r['line_no'] > 0 ? (int) $r['line_no'] : $lineNo,
                     'stype'      => 'manual',
+                    'catalog_item_id' => $metadata['catalog_item_id'],
+                    'item_type'  => $metadata['item_type'],
                     'desc'       => (string) ($r['line_description'] ?? ''),
                     'qty'        => $amounts['quantity'],
                     'unit'       => (string) ($r['line_unit'] ?? 'hour'),
@@ -329,29 +352,34 @@ if ($method === 'POST' && $action === 'commit') {
                     'subtotal'   => $amounts['subtotal'],
                     'tax_amount' => $amounts['tax'],
                     'total'      => $amounts['total'],
+                    'gl_rev'     => $metadata['gl_revenue_account_code'],
                 ]);
             }
-            $pdo->commit();
+            coreAccountingCsvCommitUnit($pdo, 'csv_invoice_document', $ownsUnit);
             $ids[$inv] = $invId;
             $imported++;
+            $importedRows += count($rows);
             if ($wasUpdate) $updated++;
             else $created++;
         } catch (\Throwable $e) {
-            $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_invoice_document', $ownsUnit);
             $errors['__invoice_' . $inv] = ['persist failed: ' . $e->getMessage()];
         }
     }
 
-    api_ok([
+    api_ok(coreAccountingRecordCsvImportOutcome([
         'imported_count' => $imported,
         'created_count'  => $created,
         'updated_count'  => $updated,
         'skipped_count'  => count($groups) - $imported,
         'group_count'    => count($groups),
+        'row_count'      => count($dry['rows']),
+        'imported_row_count' => $importedRows,
+        'skipped_row_count' => count($dry['rows']) - $importedRows,
         'errors'         => $errors,
         'ids'            => $ids,
         'update_existing'=> $updateExisting,
-    ]);
+    ], (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|dry_run|commit', 400);

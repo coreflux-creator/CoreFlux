@@ -10,6 +10,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/purepay_service.php';
 require_once __DIR__ . '/../core/purepay_webhooks.php';
+require_once __DIR__ . '/../core/purepay_callback_url.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -19,38 +20,55 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 $base = trim((string) (getenv('APP_PUBLIC_URL') ?: (defined('APP_URL') ? constant('APP_URL') : '')));
-if ($base === '') $base = 'https://www.corefluxapp.com';
-$deliveryUrl = rtrim($base, '/') . '/api/webhooks/purepay.php?t=' . $tenantId;
+$deliveryUrl = purepayCallbackUrl($tenantId, $base, defined('COREFLUX_STAGING') && COREFLUX_STAGING);
 
-function ppAudit(string $event, array $meta, int $tenantId, ?int $userId): void
+function ppAudit(string $event, array $meta, int $tenantId, ?int $userId, bool $required=false): void
 {
     try {
         getDB()->prepare(
             'INSERT INTO audit_log (tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at)
              VALUES (:t,:u,:e,NULL,:m,:ip,NOW())'
         )->execute(['t'=>$tenantId,'u'=>$userId,'e'=>$event,'m'=>json_encode($meta),'ip'=>$_SERVER['REMOTE_ADDR'] ?? null]);
-    } catch (\Throwable $_) {}
+    } catch (\Throwable $e) { if ($required) throw $e; }
 }
 
 if ($method === 'GET' && ($action === '' || $action === 'status')) {
     $row = purepayGetConnection($tenantId);
+    $company=purepayFinancialSummary(getDB(),$tenantId);
+    $name=getDB()->prepare('SELECT name FROM tenants WHERE id=?');$name->execute([$tenantId]);
     api_ok([
         'configured' => purepayServiceConfigured(),
-        'connected' => $row && ($row['status'] ?? '') === 'active',
+        'has_connection' => $row && ($row['status'] ?? '') !== 'revoked',
+        'connected' => $row && ($row['status'] ?? '') === 'active' && $company['verified'],
+        'financial_company'=>$company,
+        'core_company'=>['id'=>$tenantId,'name'=>(string)$name->fetchColumn()],
         'status' => $row['status'] ?? null,
         'label' => $row['label'] ?? null,
         'api_key_last4' => $row['api_key_last4'] ?? null,
         'key_scope' => $row['key_scope'] ?? null,
-        'wallet_balance_cents' => isset($row['wallet_balance_cents']) ? (int) $row['wallet_balance_cents'] : null,
+        'wallet_balance_cents' => $company['verified'] && isset($row['wallet_balance_cents']) ? (int) $row['wallet_balance_cents'] : null,
         'last_probe_at' => $row['last_probe_at'] ?? null,
         'last_probe_error' => $row['last_probe_error'] ?? null,
         'webhook_configured' => !empty($row['webhook_secret']),
         'webhook_secret_last4' => $row['webhook_secret_last4'] ?? null,
         'delivery_url' => $deliveryUrl,
+        'delivery_url_error' => $deliveryUrl === null ? 'Configure this installation’s HTTPS public address before adding a PurePay webhook.' : null,
         'recent_events' => purepayWebhookRecent($tenantId, 30),
     ]);
 }
 if ($method !== 'POST') api_error('Method not allowed', 405);
+
+if ($action==='review_company' || $action==='confirm_company') {
+    $body=api_json_body();
+    try {
+        $result=$action==='review_company' ? purepayFinancialReview(getDB(),$tenantId)
+            : purepayFinancialConfirm(getDB(),$tenantId,(int)($user['id']??0),
+                (string)($body['review_hash']??''),(string)($body['organization_id']??''),
+                fn()=>ppAudit('purepay.financial_company.confirmed',['organization_id'=>$body['organization_id']??null],$tenantId,$user['id']??null,true));
+    } catch (PurePayApiException $e) { api_error($e->getMessage(),422); }
+    catch (Throwable $e) { api_error('Company review could not be saved. Check the integration setup and try again.',422); }
+    api_ok($result);
+}
 
 if ($action === 'disconnect') {
     purepayRevokeConnection($tenantId);
@@ -84,5 +102,6 @@ catch (PurePayApiException $e) {
     ppAudit('purepay.connection.probe_failed', ['http_status'=>$e->httpStatus,'error'=>$e->getMessage()], $tenantId, $user['id'] ?? null);
     api_error('Pure//Pay rejected the key: ' . $e->getMessage(), 422, ['http_status'=>$e->httpStatus]);
 }
+catch (Throwable $e) { api_error('PurePay connection could not be saved. Check the integration setup and try again.',422); }
 ppAudit('purepay.connection.connected', ['label'=>$label, 'key_scope'=>$keyScope], $tenantId, $user['id'] ?? null);
 api_ok(['ok'=>true] + $result);

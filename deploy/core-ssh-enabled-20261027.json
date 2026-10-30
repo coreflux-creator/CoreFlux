@@ -1,0 +1,67 @@
+{
+  "observed_at": "2026-10-27T14:03:56.1836647Z",
+  "application_id": 5829812,
+  "application_name": "CoreFlux",
+  "login": "kunalverma2",
+  "user_authorization": "enable core ssh",
+  "cloudways_ssh_shell_access": "enabled",
+  "settings_url": "https://unified.cloudways.com/apps/5829812/setting",
+  "verification": {
+    "authenticated": true,
+    "uid": 1004,
+    "gid": 33,
+    "application_root": "/home/1516771.cloudwaysapps.com/grcudkpvcd/public_html",
+    "root_owner_uid": 1004,
+    "root_writable": true,
+    "checks": [
+      "create as application UID/GID",
+      "atomic replace preserves UID/GID/mode",
+      "rename and readback",
+      "isolated probe cleaned up",
+      "live ingress file metadata and content unchanged"
+    ],
+    "application_parent_writable": false,
+    "probe_parent": "/tmp",
+    "probe_outside_webroot": true,
+    "probe_removed": true,
+    "application_crontab": {
+      "installed": false,
+      "active_entries": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "changed": false
+    },
+    "live_ingress_unchanged": true,
+    "observed_at": "2026-10-27T10:02:11.875422-04:00",
+    "auth_method": "existing application password, held in process memory only",
+    "host_key_policy": "reject unknown or changed key using existing known_hosts",
+    "credential_saved": false
+  },
+  "master_scheduler_sha256": "f7fbd8130fde0b15b31e54ebfba41bf2152288908275ecaef43f174b952c2183",
+  "master_scheduler_unchanged": true,
+  "password_changed": false,
+  "new_key_created": false,
+  "credential_saved": false,
+  "production_deployed": false,
+  "production_data_changed": false,
+  "screenshot": "ssh-enabled.png",
+  "limitations": [
+    "Existing deployment key is not authorized for this application login; the existing application password authenticated successfully.",
+    "Application home parent is not writable. The disposable file operation probe ran under /tmp; webroot writability and ownership were inspected without writing there.",
+    "Application user has no installed crontab; maintenance preparation must explicitly handle that state.",
+    "This proves owner shell access, not a complete deployment/rollback or writer-drain procedure.",
+    "Current Quanta and PurePay source access and actual Thunderhawk acceptance remain outstanding."
+  ],
+  "revalidated_at": "2026-10-29",
+  "revalidation": {
+    "master_ssh_reachable": true,
+    "application_login": "kunalverma2",
+    "uid": 1004,
+    "gid": 33,
+    "application_shell": "/usr/bin/mysecureshell",
+    "webroot_owner_uid": 1004,
+    "webroot_owner_gid": 33,
+    "webroot_mode": "775",
+    "application_password_authentication_repeated": false,
+    "last_application_authentication_date": "2026-10-27"
+  }
+}

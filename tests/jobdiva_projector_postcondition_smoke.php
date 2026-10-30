@@ -50,7 +50,7 @@ $drifted = [
 ];
 $drift = jobdivaProjectorSourceContractDrift($payload, $drifted, '57612620');
 $fields = array_column($drift, 'field');
-foreach (['status', 'engagement_type', 'start_date', 'end_date', 'end_client_name', 'bill_rate', 'pay_rate', 'client_bill_cycle', 'vendor_pay_cycle'] as $field) {
+foreach (['status', 'engagement_type', 'start_date', 'end_date', 'billing_client_name', 'bill_rate', 'pay_rate', 'client_bill_cycle', 'vendor_pay_cycle'] as $field) {
     if (!in_array($field, $fields, true)) {
         fwrite(STDERR, "Missing expected drift field: {$field}\n");
         exit(1);
@@ -63,10 +63,11 @@ $aligned['placement'] = array_merge($aligned['placement'], [
     'engagement_type' => 'w2',
     'start_date' => '2026-08-11',
     'end_date' => '2027-08-17',
-    'end_client_name' => 'TCS',
+    'end_client_name' => 'Independent Work Recipient',
     'client_bill_cycle' => 'weekly',
     'vendor_pay_cycle' => 'biweekly',
 ]);
+$aligned['billing_client'] = ['name'=>'TCS'];
 $aligned['rates'][0]['bill_rate'] = '79.0000';
 $aligned['rates'][0]['pay_rate'] = '60.0000';
 if (jobdivaProjectorSourceContractDrift($payload, $aligned, '57612620') !== []) {
@@ -83,4 +84,13 @@ if (in_array('paid_when_paid', array_column($missingPwpDrift, 'field'), true)) {
     exit(1);
 }
 
+$cityPayload=$payload;$cityPayload['_jd_contract']['worksite_city']='Hamilton';
+$cityGraph=$aligned;$cityGraph['placement']['worksite_city']='Newark';
+if (!in_array('worksite_city',array_column(jobdivaProjectorSourceContractDrift($cityPayload,$cityGraph,'57612620'),'field'),true)) {
+    throw new RuntimeException('Missing city projection was not detected');
+}
+$cityGraph['placement']['coreflux_overridden_fields']='["worksite_city"]';
+if (in_array('worksite_city',array_column(jobdivaProjectorSourceContractDrift($cityPayload,$cityGraph,'57612620'),'field'),true)) {
+    throw new RuntimeException('Manual city ownership was mistaken for source projection failure');
+}
 echo "JobDiva projector postcondition smoke: ok\n";

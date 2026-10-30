@@ -24,6 +24,11 @@ if (!isAuthenticated()) {
     exit;
 }
 
+if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+    header('Location: /spa.php');
+    exit;
+}
+
 // Default route for everyone: the React SPA. The two escape hatches below
 // keep the legacy UI reachable for debugging without polluting the user
 // experience.

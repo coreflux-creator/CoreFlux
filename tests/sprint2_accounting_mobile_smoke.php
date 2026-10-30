@@ -100,7 +100,10 @@ $assert('close_tasks API guards close_workflow.manage',  stripos($closeApi, "rba
 $assert('close_tasks API guards close_task.complete',    stripos($closeApi, "rbac_legacy_require(\$user, 'accounting.close_task.complete')") !== false);
 
 $pktApi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/close_packet.php');
-$assert('close_packet API exposes html download', stripos($pktApi, "Content-Disposition: attachment; filename=\"close-packet-period-") !== false);
+$assert('close_packet API exposes html download',
+    stripos($pktApi, "\$format === 'html'") !== false
+    && stripos($pktApi, "'attachment'") !== false
+    && stripos($pktApi, "'Content-Disposition: '") !== false);
 
 echo "\nJWT round-trip\n";
 $payload = ['user_id' => 7, 'tenant_id' => 1, 'name' => 'Tester', 'email' => 'a@b.c', 'role' => 'admin'];

@@ -1,0 +1,170 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "held_purepay_preview_bill_reservations_installed_and_verified",
+  "provider_candidate_commit": "cff7b26013d9b820a2a3c7d13ddf24b63e7fb713",
+  "preview_origin": "https://pure-pay-support.preview.emergentagent.com",
+  "installation": {
+    "at": "2026-10-25T11:01:37.606840+00:00",
+    "installed": true,
+    "source_hashes": {
+      "backend/server.py": "f701d5c86189100bdef8e9e58102db17de7ddca87546e07531969eb101e28985",
+      "backend/integration_bill_reservations.py": "8bde190b9a886399b44c06cc01cfc30f952930b1ee3ca3d2e4486d94de37d099"
+    },
+    "protected_unchanged_during_install": true,
+    "post_install": {
+      "at": "2026-10-25T11:01:37.603793+00:00",
+      "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+      "health": {
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      },
+      "source_files_verified": 6324,
+      "head_and_configuration_unchanged": true,
+      "protected_differences": {
+        "index": {
+          "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+          "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+        }
+      },
+      "demo_unchanged": true,
+      "demo_counts": {
+        "pay_runs": 50,
+        "coreflux_payroll_inputs": 0,
+        "coreflux_payroll_authorities": 0
+      },
+      "demo_run_count": 50,
+      "published": false,
+      "credential_changes": false,
+      "candidate_installed": true,
+      "index_semantics": {
+        "equals_current_head": true,
+        "entries": 6256,
+        "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+        "historical_byte_equivalence_proven": false
+      }
+    },
+    "jsx_sources_parsed": 0,
+    "production_published": false,
+    "business_records_written": false,
+    "callback_worker_started": false,
+    "backup_directory": "/app/audit/core-bill-reservations-2026-10-25"
+  },
+  "installed_application_acceptance": {
+    "pytest_exit": 0,
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true,
+    "real_database_used": false,
+    "candidate_hashes": {},
+    "runtime_hashes": {
+      "server.py": "f701d5c86189100bdef8e9e58102db17de7ddca87546e07531969eb101e28985",
+      "integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+      "moov_client.py": "8ba337b3ca635c11393cf5b9c494b5c274a1113bf6cef196ca2f34891d5a12bb",
+      "integration_payment_outbox.py": "e920b3753d986b77c43ac4d91b96d6830fc053725aa12cd6723f0e7502c7efa5",
+      "moov_webhook_inbox.py": "1ae3f451e64eeb7fc787395c01f72de104fd89ba52bf79914062f14066db5d53",
+      "integration_financial_context.py": "9b044e6c7f2a0ee593c1d2426a5f168d0523b010a53cd9e68f9adaccd9776648",
+      "integration_bill_reservations.py": "8bde190b9a886399b44c06cc01cfc30f952930b1ee3ca3d2e4486d94de37d099"
+    },
+    "report_directory": "/tmp/purepay-core-full-app-zawjzfgy",
+    "passed": 171,
+    "failed": 0,
+    "skipped": 0
+  },
+  "real_mongo_contention": {
+    "at": "2026-10-25T11:04:29.139491+00:00",
+    "status": "passed",
+    "checks": [
+      "Independent clients replay one identical reservation",
+      "Concurrent identical requests leave one history entry",
+      "Original reservation owns the durable bill lock",
+      "Other organization cannot read the bill reservation",
+      "Two competing payment requests have exactly one winner",
+      "Losing payment request creates no second claim",
+      "Native payment entry cannot acquire a reserved bill",
+      "Native lock blocks a competing Core claim",
+      "Core can reserve after a native lock is safely released",
+      "Early cancellation records the original released request",
+      "Early cancellation preserves another service native lock",
+      "Late reserve cannot resurrect an early cancellation",
+      "Late execution cannot resurrect an early cancellation",
+      "Cancellation retry resolves simultaneous reserve and cancellation",
+      "Resolved cancellation leaves no active reservation",
+      "Concurrent source amount change defeats stale reservation snapshot",
+      "Source conflict creates no claim",
+      "Execution interruption is observed",
+      "A second client reconciles uncertain execution without another send",
+      "The synthetic financial boundary was entered exactly once",
+      "Uncertain execution cannot release the bill claim",
+      "Uncertain execution retains its original durable lock",
+      "No payment record was created",
+      "No accounting entry was created",
+      "No external network connection was attempted"
+    ],
+    "real_database_used": true,
+    "database": "core_bill_reservation_test_0d5a8e08dff747f2a649b9202f6ec0dd",
+    "independent_clients": 2,
+    "source_hashes": {
+      "server.py": "f701d5c86189100bdef8e9e58102db17de7ddca87546e07531969eb101e28985",
+      "integration_bill_reservations.py": "8bde190b9a886399b44c06cc01cfc30f952930b1ee3ca3d2e4486d94de37d099",
+      "integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0"
+    },
+    "financial_provider_calls": 0,
+    "external_network_attempts": 0,
+    "existing_database_writes": false,
+    "synthetic_database_retained": true
+  },
+  "post_mongo_preview_verification": {
+    "at": "2026-10-25T11:06:23.157991+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "health": {
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "source_files_verified": 6324,
+    "head_and_configuration_unchanged": true,
+    "protected_differences": {
+      "index": {
+        "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+        "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+      }
+    },
+    "demo_unchanged": true,
+    "demo_counts": {
+      "pay_runs": 50,
+      "coreflux_payroll_inputs": 0,
+      "coreflux_payroll_authorities": 0
+    },
+    "demo_run_count": 50,
+    "published": false,
+    "credential_changes": false,
+    "candidate_installed": true,
+    "index_semantics": {
+      "equals_current_head": true,
+      "entries": 6256,
+      "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+      "historical_byte_equivalence_proven": false
+    }
+  },
+  "boundaries": {
+    "production_changed": false,
+    "real_payments_executed": false,
+    "real_payroll_executed": false,
+    "financial_provider_calls": 0,
+    "existing_demo_records_unchanged": true,
+    "credential_changes": false,
+    "webhook_scheduler_stopped": true,
+    "arabella_changed": false,
+    "combined_core_provider_financial_acceptance_complete": false
+  },
+  "remaining": [
+    "Separate Meridian financial API key and signed callback setup",
+    "Combined Core/provider hosted financial contract acceptance",
+    "Independent time reviewer and worker/document acceptance",
+    "Thunderhawk replacement key consumer verification",
+    "Full Thunderhawk staffing-to-financial-result round trip and publication readiness"
+  ]
+}

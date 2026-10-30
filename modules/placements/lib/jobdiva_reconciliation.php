@@ -10,6 +10,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/jobdiva/assignment_identity.php';
+require_once __DIR__ . '/../../../core/integrations/source_values.php';
+require_once __DIR__ . '/../../../core/jobdiva/classification.php';
 
 function jobdivaReconciliationSchema(): array
 {
@@ -26,6 +28,7 @@ function jobdivaReconciliationSchema(): array
             'start_date'           => ['label' => 'Start Date'],
             'end_date'             => ['label' => 'End Date'],
             'end_client_name'      => ['label' => 'End Client'],
+            'worksite_city'        => ['label' => 'Worksite City'],
             'worksite_state'       => ['label' => 'Worksite State'],
             'worksite_country'     => ['label' => 'Worksite Country'],
             'remote_policy'        => ['label' => 'Remote Policy'],
@@ -72,6 +75,7 @@ function jobdivaReconciliationHeaderAliases(): array
             'end client', 'end client name', 'client name', 'customer name',
             'company name', 'companyname',
         ],
+        'worksite_city' => ['worksite city', 'working city', 'job city'],
         'worksite_state' => ['worksite state', 'state', 'job state'],
         'worksite_country' => ['worksite country', 'country', 'job country'],
         'remote_policy' => ['remote policy', 'remote', 'work arrangement'],
@@ -188,21 +192,14 @@ function jobdivaReconciliationTruthy(mixed $value): ?bool
 
 function jobdivaReconciliationNormaliseEngagement(mixed $value, string $sourceHeader = ''): ?string
 {
-    $raw = strtolower(trim((string) $value));
-    if ($raw === '') return null;
-    $header = jobdivaReconciliationNormaliseHeader($sourceHeader);
-    $truthy = jobdivaReconciliationTruthy($raw);
-    if ($truthy === true && preg_match('/\b(c2c|corp|crop)\b/', $header)) return 'c2c';
-    if ($truthy === true && preg_match('/\bw ?2\b/', $header)) return 'w2';
-    $flat = preg_replace('/[^a-z0-9]+/', ' ', $raw) ?? $raw;
-    if ($flat === 'ref' || preg_match('/\breferral\b/', $flat)) return 'referral';
-    if ($flat === 'internal') return 'internal';
-    if (preg_match('/\b(c2c|corp to corp|corporation)\b/', $flat)) return 'c2c';
-    if (preg_match('/\b(w2|w 2|employee)\b/', $flat)) return 'w2';
-    if (preg_match('/\b(1099|independent contractor|contractor)\b/', $flat)) return '1099';
-    if (str_contains($flat, 'temp to perm') || str_contains($flat, 'contract to hire')) return 'temp_to_perm';
-    if (str_contains($flat, 'direct hire') || $flat === 'permanent') return 'direct_hire';
-    return null;
+    $header = jobdivaClassificationKey($sourceHeader);
+    $flags = ['c2c'=>'c2c','corptocorp'=>'c2c','croptocrop'=>'c2c','tcsc2c'=>'c2c','isc2c'=>'c2c',
+        'w2'=>'w2','tcsw2'=>'w2','isw2'=>'w2'];
+    if (isset($flags[$header])) {
+        return jobdivaReconciliationTruthy($value) === true ? $flags[$header] : null;
+    }
+    return jobdivaClassificationValue($value, in_array($header, ['employmentcategory','employeecategory'], true));
+
 }
 
 function jobdivaReconciliationNormaliseStatus(mixed $value): ?string
@@ -221,14 +218,7 @@ function jobdivaReconciliationNormaliseStatus(mixed $value): ?string
 
 function jobdivaReconciliationNormaliseRateUnit(mixed $value): ?string
 {
-    $raw = strtolower(trim((string) $value));
-    if ($raw === '') return null;
-    if (str_starts_with($raw, 'h')) return 'hour';
-    if (str_starts_with($raw, 'd')) return 'day';
-    if (str_starts_with($raw, 'w')) return 'week';
-    if (str_starts_with($raw, 'm')) return 'month';
-    if (str_starts_with($raw, 'p') || str_contains($raw, 'flat')) return 'project';
-    return null;
+    return integrationSourceRateUnit($value);
 }
 
 function jobdivaReconciliationNormaliseCycle(mixed $value): ?string
@@ -301,6 +291,7 @@ function jobdivaReconciliationNormaliseRow(array $row, array $mappedHeaders, arr
         if ($value === null) $errors[] = "status: unrecognised '{$out['status']}'";
         else $out['status'] = $value;
     }
+    $rawRateBasis = $out + ['bill_rate_raw' => $out['bill_rate'] ?? null, 'pay_rate_raw' => $out['pay_rate'] ?? null];
     foreach (['bill_rate','pay_rate'] as $field) {
         if (!array_key_exists($field, $out)) continue;
         $value = jobdivaReconciliationNormaliseNumber($out[$field]);
@@ -336,15 +327,14 @@ function jobdivaReconciliationNormaliseRow(array $row, array $mappedHeaders, arr
         if ($remote === null) $errors[] = "remote_policy: unrecognised '{$out['remote_policy']}'";
         else $out['remote_policy'] = $remote;
     }
+    if (isset($out['worksite_city'])) {
+        try { $out['worksite_city'] = integrationSourceWorksiteCity($out['worksite_city']); }
+        catch (InvalidArgumentException $e) { $errors[] = $e->getMessage(); }
+    }
     if (isset($out['worksite_country'])) {
-        $countryRaw = strtoupper(trim((string) $out['worksite_country']));
-        $countryAliases = [
-            'USA' => 'US', 'UNITED STATES' => 'US', 'UNITED STATES OF AMERICA' => 'US',
-            'CANADA' => 'CA',
-        ];
-        $country = $countryAliases[$countryRaw] ?? $countryRaw;
-        if (!preg_match('/^[A-Z]{2}$/', $country)) {
-            $errors[] = "worksite_country: expected a 2-letter code, got '{$out['worksite_country']}'";
+        $country = integrationSourceCountry($out['worksite_country']);
+        if ($country === null) {
+            $errors[] = "worksite_country: unrecognized country '{$out['worksite_country']}'";
         } else {
             $out['worksite_country'] = $country;
         }
@@ -359,9 +349,16 @@ function jobdivaReconciliationNormaliseRow(array $row, array $mappedHeaders, arr
         }
     }
     if (isset($out['currency'])) {
-        $currency = strtoupper(trim((string) $out['currency']));
-        if (!preg_match('/^[A-Z]{3}$/', $currency)) $errors[] = "currency: expected ISO code, got '{$out['currency']}'";
+        $currency = integrationSourceCurrency($out['currency']);
+        if ($currency === null) $errors[] = "currency: unrecognized code '{$out['currency']}'";
         else $out['currency'] = $currency;
+    }
+    if (isset($out['bill_rate'], $out['pay_rate'])) {
+        $basis = integrationSourceRateBasis($rawRateBasis);
+        foreach ($basis['errors'] as $basisError) $errors[] = $basisError;
+        if ($basis['errors'] === []) {
+            foreach (['bill_rate_unit', 'pay_rate_unit', 'currency'] as $field) $out[$field] = $basis[$field];
+        }
     }
     return $out;
 }
@@ -669,6 +666,7 @@ function jobdivaReconciliationBuildRowPlan(
         'start_date' => 'Start Date',
         'end_date' => 'End Date',
         'end_client_name' => 'End Client',
+        'worksite_city' => 'Worksite City',
         'worksite_state' => 'Worksite State',
         'worksite_country' => 'Worksite Country',
         'remote_policy' => 'Remote Policy',
@@ -741,6 +739,11 @@ function jobdivaReconciliationBuildRowPlan(
     if ($hasBill xor $hasPay) {
         $errors[] = 'Bill Rate and Pay Rate must both be mapped for a rate write; partial economics are blocked.';
     } elseif ($hasBill && $hasPay) {
+        $basis = integrationSourceRateBasis($source);
+        foreach ($basis['errors'] as $basisError) $errors[] = $basisError;
+        if ($basis['bill_rate_unit'] !== 'hour' || $basis['pay_rate_unit'] !== 'hour') {
+            $errors[] = 'Automatic JobDiva economics require verified hourly bill/pay rates; other bases need a reviewed conversion.';
+        }
         $currentRate = $placement ? jobdivaReconciliationFetchRate($pdo, $tenantId, (int) $placement['id']) : null;
         $desiredRate = [
             'effective_from' => $source['start_date'] ?? ($currentRate['effective_from'] ?? ($placement['start_date'] ?? date('Y-m-d'))),
@@ -749,9 +752,9 @@ function jobdivaReconciliationBuildRowPlan(
                 : ($currentRate['effective_to'] ?? null),
             'bill_rate' => (float) $source['bill_rate'],
             'pay_rate' => (float) $source['pay_rate'],
-            'bill_rate_unit' => $source['bill_rate_unit'] ?? ($currentRate['bill_rate_unit'] ?? 'hour'),
-            'pay_rate_unit' => $source['pay_rate_unit'] ?? ($currentRate['pay_rate_unit'] ?? 'hour'),
-            'currency' => $source['currency'] ?? ($currentRate['currency'] ?? 'USD'),
+            'bill_rate_unit' => $basis['bill_rate_unit'],
+            'pay_rate_unit' => $basis['pay_rate_unit'],
+            'currency' => $basis['currency'],
         ];
         $rateChanged = $currentRate === null;
         foreach ($desiredRate as $field => $to) {

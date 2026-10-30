@@ -8,6 +8,25 @@
 // DO NOT change once set in production — rotating it will orphan existing ciphertext.
 define('COREFLUX_DATA_KEY', 'REPLACE_ME_WITH_BASE64_32_BYTES');
 
+// Permanent, lowercase UUID v4 namespace for outbound integration record numbers.
+// Generate once per installation and retain across releases. Staging and production
+// must have DIFFERENT values; never copy this value when cloning an environment.
+// Changing it after publication requires an identity migration, not a key rotation.
+// Missing configuration keeps outbound identity binding disabled.
+// define('COREFLUX_INTEGRATION_INSTANCE_ID', 'REPLACE_WITH_PERMANENT_UUID_V4');
+// Isolated staging setup can persist this in private_html/coreflux.integration.php.
+// That private file is preserved across releases and must never be cloned to another installation.
+// Enable reviewed identity/assignment metadata delivery only after verifying the provider contract.
+// This does not enable worker activation, access, payroll or payments.
+// define('COREFLUX_QUANTA_METADATA_DELIVERY', true);
+// define('COREFLUX_QUANTA_WORKER_DELIVERY', true); // Reviewed inactive preparation/contact updates only.
+// define('COREFLUX_QUANTA_ONBOARDING_DELIVERY', true); // Reviewed portal requirements only; no employer approval.
+// Optional hard company boundary, in addition to each integration feature flag.
+// putenv('COREFLUX_INTEGRATION_DELIVERY_TENANTS=2002');
+// Unset preserves existing feature behavior. An empty or malformed list denies all.
+// Applies to Quanta delivery/document intake and PurePay inputs/source reservations;
+// does not grant module permissions, provider access, payroll execution or payments.
+
 // OpenAI key — used directly by core/ai_service.php (no Python sidecar).
 // Get one at https://platform.openai.com/api-keys
 define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');

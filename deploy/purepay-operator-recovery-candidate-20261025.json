@@ -1,0 +1,87 @@
+{
+  "recorded_at": "2026-10-25 09:27:27 UTC",
+  "kind": "operator_recovery_source_candidate_not_deployed",
+  "core_backend_candidate_commit": "208ce25a4f67792e114c9c584612c3853be18591",
+  "provider_candidate_commit": "cff7b26013d9b820a2a3c7d13ddf24b63e7fb713",
+  "ci": {
+    "run_id": 40180313598,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40180313598",
+    "conclusion": "success",
+    "headSha": "208ce25a4f67792e114c9c584612c3853be18591",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "name": "Full-Core maintenance Apache rehearsal"
+      },
+      {
+        "conclusion": "success",
+        "name": "Smoke (ui)"
+      },
+      {
+        "conclusion": "success",
+        "name": "CoreAccounting standalone release package"
+      },
+      {
+        "conclusion": "success",
+        "name": "Live business graph simulation"
+      },
+      {
+        "conclusion": "success",
+        "name": "Sim scenario dry-runs (determinism)"
+      },
+      {
+        "conclusion": "success",
+        "name": "Smoke (harness)"
+      },
+      {
+        "conclusion": "success",
+        "name": "CoreAccounting standalone empty-database install"
+      },
+      {
+        "conclusion": "success",
+        "name": "Smoke (core)"
+      },
+      {
+        "conclusion": "success",
+        "name": "Smoke (modules)"
+      }
+    ],
+    "status": "completed"
+  },
+  "validation": {
+    "core_allocated_payment_mariadb_checks": 74,
+    "provider_full_app_checks": 171,
+    "provider_database": "memory Mongo fixture",
+    "provider_network_attempts": 0,
+    "ui_component_checks": 6,
+    "visual_review": "Actual React component in Chrome with local synthetic responses; confirmation, cancellation result and history inspected.",
+    "ui_wording_adjustment": "After this CI run, the operator-history completed phase label was clarified; all six component tests were rerun successfully."
+  },
+  "implemented": [
+    "Company-scoped per-bill review and operator history",
+    "Mandatory requested/outcome audit; stale evidence and creator resume controls",
+    "Durable irreversible cancellation intent before provider access",
+    "Original-request cancellation before delayed reserve; native locks unaffected",
+    "Explicit original-request resume; no automatic retry after uncertain execution",
+    "Released receipts resist late held responses; contradictory later execution stays held",
+    "AP rail reference committed with its original allocation before provider writes"
+  ],
+  "boundaries": {
+    "core_deployed": false,
+    "provider_deployed": false,
+    "production_changed": false,
+    "real_payment_executed": false,
+    "payroll_executed": false,
+    "accounting_posted": false,
+    "arabella_changed": false
+  },
+  "remaining": [
+    "Combined hosted Core/PurePay verification with real Mongo contention",
+    "Audited uncertain-funding and native export/recording recovery",
+    "Reviewed financial credential rebinding",
+    "Concurrent cross-rail origination audit and any required shared-claim hardening",
+    "Production Thunderhawk key rotation consumer verification",
+    "Thunderhawk staffing, onboarding, independent time approval and payroll/financial end-to-end evidence",
+    "Controlled publication after release requirements are met"
+  ]
+}

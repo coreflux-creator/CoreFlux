@@ -6,6 +6,25 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/encryption.php';
 require_once __DIR__ . '/purepay_adapter.php';
+require_once __DIR__ . '/purepay_financial_binding.php';
+
+/** Only the server-configured simulation company may use the financial preview. */
+function purepayAssertFinancialPreviewConnection(int $tenantId, ?string $keyScope = null): void
+{
+    $previewTenant = purepayFinancialPreviewTenant();
+    if ($previewTenant !== null
+        && ($tenantId !== $previewTenant || ($keyScope !== null && $keyScope !== 'read_only'))) {
+        throw new PurePayApiException('The financial preview requires the approved simulation company and a read-only connection.');
+    }
+}
+
+/** Internal binding only; key rotation requires review of existing provider identities. */
+function purepayConnectionFingerprint(int $tenantId,string $apiKey): string
+{
+    purepayAssertFinancialPreviewConnection($tenantId);
+    if ($tenantId<=0 || $apiKey==='' || preg_match('/[\r\n]/',$apiKey)) throw new InvalidArgumentException('Valid Pure//Pay connection required');
+    return hash('sha256',json_encode(['tenant_id'=>$tenantId,'base'=>purepayApiBase(),'credential_digest'=>hash('sha256',$apiKey)],JSON_THROW_ON_ERROR));
+}
 
 function purepayServiceConfigured(): bool
 {
@@ -27,6 +46,8 @@ function purepayWalletBalanceCents(array $response): ?int
 
 function purepayGetConnection(int $tenantId): ?array
 {
+    $previewTenant = purepayFinancialPreviewTenant();
+    if ($previewTenant !== null && $tenantId !== $previewTenant) return null;
     try {
         $stmt = getDB()->prepare(
         'SELECT id, tenant_id, label, api_key_ct, api_key_last4, key_scope,
@@ -38,6 +59,7 @@ function purepayGetConnection(int $tenantId): ?array
         $stmt->execute(['t' => $tenantId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$row) return null;
+        purepayAssertFinancialPreviewConnection($tenantId, (string)$row['key_scope']);
         $row['api_key'] = decryptField($row['api_key_ct'] ?? null) ?: '';
         $row['webhook_secret'] = decryptField($row['webhook_secret_ct'] ?? null) ?: '';
         unset($row['api_key_ct'], $row['webhook_secret_ct']);
@@ -49,18 +71,25 @@ function purepayGetConnection(int $tenantId): ?array
 
 function purepayStoreConnection(int $tenantId, string $apiKey, ?string $label, ?int $userId, string $keyScope): array
 {
+    purepayAssertFinancialPreviewConnection($tenantId, $keyScope);
     $apiKey = trim($apiKey);
-    if ($apiKey === '') throw new PurePayApiException('Pure//Pay: API key required');
+    if (strlen($apiKey)<12 || strlen($apiKey)>1000 || preg_match('/[\x00-\x20\x7f]/',$apiKey)) throw new PurePayApiException('Pure//Pay: enter a valid API key');
     if (!in_array($keyScope, ['read_only', 'read_write'], true)) {
         throw new PurePayApiException('Pure//Pay: select read-only or read-write key scope');
     }
     if (!purepayServiceConfigured()) {
         throw new PurePayApiException('CoreFlux data encryption key is not configured');
     }
-    $wallet = purepayGetWallet($apiKey); // Probe before persistence.
-    $balance = purepayWalletBalanceCents($wallet);
+    $pdo=getDB();
+    if ($pdo->inTransaction()) throw new LogicException('Connection changes require their own transaction.');
+    $context=purepayFinancialReadContext($apiKey);
+    // Company identity is sufficient to check the key. Read wallet data only
+    // after the administrator confirms this is the intended company.
+    $balance = null;
     $ct = encryptField($apiKey);
-    getDB()->prepare(
+    $pdo->beginTransaction();
+    try {
+    $pdo->prepare(
         'INSERT INTO purepay_connections
             (tenant_id, label, api_key_ct, api_key_last4, key_scope, status,
              wallet_balance_cents, last_probe_at, last_probe_error, created_by_user_id)
@@ -74,16 +103,26 @@ function purepayStoreConnection(int $tenantId, string $apiKey, ?string $label, ?
         't' => $tenantId, 'lb' => $label, 'ct' => $ct,
         'l4' => substr($apiKey, -4), 'scope' => $keyScope, 'bal' => $balance, 'u' => $userId,
     ]);
-    return ['wallet_balance_cents' => $balance];
+    $connection=purepayFinancialConnection($pdo,$tenantId,true);
+    purepayFinancialPending($pdo,$connection,$context);
+    $pdo->commit();
+    } catch (Throwable $e) { if ($pdo->inTransaction())$pdo->rollBack();throw $e; }
+    return ['wallet_balance_cents' => $balance,'company_review_required'=>true];
 }
 
 function purepaySaveWebhookSecret(int $tenantId, string $secret): void
 {
+    purepayAssertFinancialPreviewConnection($tenantId);
     $secret = trim($secret);
     if ($secret === '' || !str_starts_with($secret, 'whsec_')) {
         throw new \InvalidArgumentException('Pure//Pay webhook secret must start with whsec_');
     }
-    $stmt = getDB()->prepare(
+    $pdo=getDB();
+    if ($pdo->inTransaction())throw new LogicException('Callback setup requires its own transaction.');
+    $pdo->beginTransaction();
+    try {
+    purepayFinancialRequire($pdo,$tenantId);
+    $stmt = $pdo->prepare(
         'UPDATE purepay_connections
             SET webhook_secret_ct = :ct, webhook_secret_last4 = :l4, updated_at = NOW()
           WHERE tenant_id = :t'
@@ -92,6 +131,8 @@ function purepaySaveWebhookSecret(int $tenantId, string $secret): void
     if ($stmt->rowCount() === 0 && purepayGetConnection($tenantId) === null) {
         throw new \RuntimeException('Connect Pure//Pay before saving a webhook secret');
     }
+    $pdo->commit();
+    } catch (Throwable $e) { if ($pdo->inTransaction())$pdo->rollBack();throw $e; }
 }
 
 function purepayProbeConnection(int $tenantId): array
@@ -99,16 +140,29 @@ function purepayProbeConnection(int $tenantId): array
     $conn = purepayGetConnection($tenantId);
     if (!$conn || ($conn['status'] ?? '') === 'revoked') throw new PurePayApiException('Pure//Pay is not connected');
     try {
+        $review=purepayFinancialReview(getDB(),$tenantId);
+        if (!$review['verified']) throw new PurePayApiException('Review and confirm the PurePay company first.');
         $wallet = purepayGetWallet((string) $conn['api_key']);
         $balance = purepayWalletBalanceCents($wallet);
-        getDB()->prepare(
+        $pdo=getDB();$pdo->beginTransaction();
+        try {
+        $current=purepayFinancialConnection($pdo,$tenantId,true);
+        if (!$current || $current['status']==='revoked' || $current['key_scope']!==$conn['key_scope']
+            || !hash_equals((string)$conn['api_key'],purepayFinancialKey($current))) throw new PurePayApiException('The connection changed during verification.');
+        $binding=purepayFinancialBinding($pdo,$tenantId,true);
+        if (!$binding || $binding['binding_hash']!==$review['review_hash']) throw new PurePayApiException('The company review changed during verification.');
+        $pdo->prepare(
             'UPDATE purepay_connections SET status="active", wallet_balance_cents=:b,
                     last_probe_at=NOW(), last_probe_error=NULL, updated_at=NOW()
               WHERE tenant_id=:t'
         )->execute(['b' => $balance, 't' => $tenantId]);
+        $pdo->commit();
+        } catch (Throwable $e) { if ($pdo->inTransaction())$pdo->rollBack();throw $e; }
         return ['wallet_balance_cents' => $balance];
     } catch (PurePayApiException $e) {
-        purepayFlagConnectionError($tenantId, $e->getMessage());
+        // Do not overwrite a replacement key's status after a stale network read.
+        $current=purepayGetConnection($tenantId);
+        if ($current && $current['status']!=='revoked' && hash_equals((string)$conn['api_key'],(string)$current['api_key'])) purepayFlagConnectionError($tenantId, $e->getMessage());
         throw $e;
     }
 }

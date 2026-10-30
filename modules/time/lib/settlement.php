@@ -307,6 +307,8 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
             }
         }
 
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)$tenantId, $entryIds);
         $storedTargetRef = (string) $targetRef;
         if ($target === 'billing') {
             $targetRow = scopedFind(
@@ -367,6 +369,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
 
     settlementAudit("time.settlement.extracted_$target", [
         'count' => count($entryIds), 'target_ref' => $targetRef, 'ids' => $entryIds,
+        'quanta_source_check' => $sourceCheck ?: null,
     ]);
     return ['extracted_count' => count($entryIds), 'ids' => $entryIds, 'target_ref' => $storedTargetRef];
 }

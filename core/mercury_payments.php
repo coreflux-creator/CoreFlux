@@ -140,6 +140,111 @@ function mpTransition(int $tenantId, int $instructionId, string $toState, ?strin
 
 function mpCreate(int $tenantId, array $data, ?int $userId = null): array
 {
+    if (!in_array($data['source_module'] ?? 'manual', ['ap', 'ap_payment'], true)) {
+        return mpInsertDraft($tenantId, $data, $userId);
+    }
+    $data['source_module'] = 'ap';
+    $pdo = getDB();
+    $owns = cf_tx_begin($pdo);
+    try {
+        $source = (string) ($data['source_ref'] ?? '');
+        $payment = mpLockApPayment($pdo, $tenantId, $source, $userId);
+        if (!is_int($data['amount_cents'] ?? null)
+            || $data['amount_cents'] !== (int) round((float) $payment['amount'] * 100)
+            || ($data['currency'] ?? 'USD') !== $payment['currency']) {
+            throw new DomainException('Mercury amount and currency must match the original AP payment');
+        }
+        $q = $pdo->prepare('SELECT name,kind,status FROM mercury_recipients
+            WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');
+        $q->execute([$tenantId, (int) ($data['recipient_id'] ?? 0)]);
+        $recipient = $q->fetch(PDO::FETCH_ASSOC);
+        if (!$recipient || $recipient['kind'] !== 'vendor' || $recipient['status'] !== 'active'
+            || strcasecmp(trim($recipient['name']), trim($payment['vendor_name'])) !== 0) {
+            throw new DomainException('Mercury recipient must match the original AP vendor');
+        }
+        $instruction = mpInsertDraft($tenantId, $data, $userId);
+        // Both AP entry points claim the same row before returning a draft.
+        // This transaction performs no provider IO and keeps the approval workflow intact.
+        $reference = str_starts_with($source, 'ap_payment:')
+            ? 'mercury:instruction:' . $instruction['id'] : 'pi:' . $instruction['id'];
+        $pdo->prepare('UPDATE ap_payments SET rail_external_ref = :ref, disbursement_rail = "mercury",
+                rail_status = "pending" WHERE tenant_id = :t AND id = :id')
+            ->execute(['ref' => $reference, 't' => $tenantId, 'id' => $payment['id']]);
+        cf_tx_commit($pdo, $owns);
+        return $instruction;
+    } catch (Throwable $e) {
+        cf_tx_rollback($pdo, $owns);
+        throw $e;
+    }
+}
+
+/** AP row locks serialize Mercury drafts with PurePay's original-bill claims. */
+function mpLockApPayment(PDO $pdo, int $tenantId, string $source, ?int $userId): array
+{
+    if (!$pdo->inTransaction()) throw new LogicException('AP payment claim requires its transaction');
+    if ($tenantId <= 0 || !$userId || $userId <= 0
+        || !preg_match('/^(?:ap_payment:)?([1-9][0-9]*)$/D', $source, $match)
+        || (string) (int) $match[1] !== $match[1]) {
+        throw new DomainException('A canonical AP payment reference is required');
+    }
+    $id = (int) $match[1];
+    $q = $pdo->prepare('SELECT * FROM ap_payments WHERE tenant_id=? AND id=? FOR UPDATE');
+    $q->execute([$tenantId, $id]);
+    $payment = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$payment || !in_array($payment['status'], ['draft', 'queued', 'sent'], true)
+        || $payment['currency'] !== 'USD' || (float) $payment['amount'] <= 0
+        || (float) $payment['unallocated_amount'] !== 0.0) {
+        throw new DomainException('Review the fully allocated USD AP payment before creating a Mercury instruction');
+    }
+    if ($userId && (int) ($payment['created_by_user_id'] ?? 0) === $userId) {
+        throw new DomainException('You cannot release your own AP payment');
+    }
+    if (!empty($payment['rail_external_ref'])) {
+        throw new DomainException('This AP payment is already attached to rail ' . $payment['rail_external_ref']);
+    }
+    require_once __DIR__.'/ap_bank_dispatches.php';
+    if (apBankSchemaAvailable($pdo) && apBankClaim($pdo, $tenantId, $id, true)) {
+        throw new DomainException('Reconcile the original bank delivery before changing payment service');
+    }
+    // A missing UI reference does not erase a durable provider attempt.
+    foreach (['purepay_allocated_payments', 'purepay_payment_links'] as $table) {
+        $q = $pdo->prepare('SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?');
+        $q->execute([$table]);
+        if (!$q->fetchColumn()) continue;
+        $q = $pdo->prepare($table === 'purepay_allocated_payments'
+            ? 'SELECT core_payment_id FROM purepay_allocated_payments WHERE tenant_id=? AND core_payment_id=? FOR UPDATE'
+            : 'SELECT id FROM purepay_payment_links WHERE tenant_id=? AND (core_payment_id=? OR source_ref=?) FOR UPDATE');
+        $q->execute($table === 'purepay_allocated_payments' ? [$tenantId, $id] : [$tenantId, $id, 'ap_payment:' . $id]);
+        if ($q->fetchColumn() !== false) throw new DomainException('Reconcile the original PurePay delivery before changing payment service');
+    }
+    $q = $pdo->prepare('SELECT id FROM payment_instructions WHERE tenant_id=? AND source_module IN ("ap","ap_payment")
+        AND source_ref IN (?,?) LIMIT 1 FOR UPDATE');
+    $q->execute([$tenantId, (string) $id, 'ap_payment:' . $id]);
+    if ($q->fetchColumn() !== false) throw new DomainException('Reconcile the original Mercury instruction before creating another');
+    $q = $pdo->prepare('SELECT a.amount_applied,b.tenant_id,b.vendor_name,b.currency,b.status,b.pwp_status
+        FROM ap_payment_allocations a JOIN ap_bills b ON b.id=a.bill_id
+        WHERE a.payment_id=? ORDER BY b.id,a.id FOR UPDATE');
+    $q->execute([$id]);
+    $allocated = 0;
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $bill) {
+        $cents = (int) round((float) $bill['amount_applied'] * 100);
+        if ($cents <= 0 || (int) $bill['tenant_id'] !== $tenantId
+            || $bill['vendor_name'] !== $payment['vendor_name'] || $bill['currency'] !== 'USD'
+            || !in_array($bill['status'], ['approved', 'partially_paid'], true)
+            || $bill['pwp_status'] === 'awaiting_ar') {
+            throw new DomainException('An allocated supplier bill is not released for payment');
+        }
+        $allocated += $cents;
+    }
+    if ($allocated !== (int) round((float) $payment['amount'] * 100)) {
+        throw new DomainException('The original supplier bill allocations must equal this payment');
+    }
+    return $payment;
+}
+
+/** Insert only; callers with an AP source must use mpCreate's atomic claim. */
+function mpInsertDraft(int $tenantId, array $data, ?int $userId = null): array
+{
     foreach (['recipient_id', 'amount_cents'] as $k) {
         if (empty($data[$k])) {
             throw new \InvalidArgumentException("payment.{$k} required");
@@ -626,71 +731,64 @@ function mpCreateFromApPayment(int $tenantId, int $apPaymentId, ?int $userId = n
 {
     if ($apPaymentId <= 0) throw new \InvalidArgumentException('ap_payment_id required');
     $pdo = getDB();
+    $owns = cf_tx_begin($pdo);
+    try {
+        // Keep vendor selection, draft insertion, and the reverse link in one transaction.
+        $ap = $pdo->prepare(
+            'SELECT id, vendor_name, amount, status, method, rail_external_ref
+               FROM ap_payments WHERE tenant_id = :t AND id = :id LIMIT 1 FOR UPDATE'
+        );
+        $ap->execute(['t' => $tenantId, 'id' => $apPaymentId]);
+        $row = $ap->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) throw new \RuntimeException('ap_payment not found');
+        if ($row['status'] !== 'sent') throw new \RuntimeException('ap_payment must be in status=sent');
+        if (!empty($row['rail_external_ref'])) {
+            throw new \RuntimeException('ap_payment is already attached to rail ' . $row['rail_external_ref']);
+        }
 
-    // Re-use scopedFind / scopedQuery so we follow the codebase convention,
-    // but fall back to raw PDO for portability with the rest of this file.
-    $ap = $pdo->prepare(
-        'SELECT id, vendor_name, amount, status, method, rail_external_ref
-           FROM ap_payments WHERE tenant_id = :t AND id = :id LIMIT 1'
-    );
-    $ap->execute(['t' => $tenantId, 'id' => $apPaymentId]);
-    $row = $ap->fetch(\PDO::FETCH_ASSOC);
-    if (!$row) throw new \RuntimeException('ap_payment not found');
-    if ($row['status'] !== 'sent') throw new \RuntimeException('ap_payment must be in status=sent');
-    if (!empty($row['rail_external_ref'])) {
-        throw new \RuntimeException('ap_payment is already attached to rail ' . $row['rail_external_ref']);
+        // Report an active draft here; mpCreate also checks terminal and historical claims.
+        $dup = $pdo->prepare(
+            'SELECT id, state FROM payment_instructions
+              WHERE tenant_id = :t AND source_module = "ap" AND source_ref = :r
+                AND state NOT IN ("Cancelled","Failed","Returned")
+              LIMIT 1'
+        );
+        $dup->execute(['t' => $tenantId, 'r' => (string) $apPaymentId]);
+        if ($e = $dup->fetch(\PDO::FETCH_ASSOC)) {
+            throw new \RuntimeException("payment_instruction #{$e['id']} already exists for this ap_payment ({$e['state']})");
+        }
+
+        // Find the mercury_recipient by vendor name (case-insensitive).
+        $rec = $pdo->prepare(
+            'SELECT id FROM mercury_recipients
+              WHERE tenant_id = :t AND kind = "vendor" AND status = "active"
+                AND deleted_at IS NULL
+                AND LOWER(name) = LOWER(:n) LIMIT 1'
+        );
+        $rec->execute(['t' => $tenantId, 'n' => (string) $row['vendor_name']]);
+        $recipientId = (int) ($rec->fetchColumn() ?: 0);
+        if ($recipientId === 0) {
+            throw new \RuntimeException("no Mercury recipient found for vendor '{$row['vendor_name']}'; add them under Treasury → Pay-out Rails → Recipients first");
+        }
+
+        $amountCents = (int) round(((float) $row['amount']) * 100);
+        $instruction = mpCreate($tenantId, [
+            'recipient_id'   => $recipientId,
+            'amount_cents'   => $amountCents,
+            'currency'       => 'USD',
+            'description'    => 'AP #' . $apPaymentId . ' / ' . substr((string) $row['vendor_name'], 0, 35),
+            'notes'          => 'Auto-created from ap_payments #' . $apPaymentId,
+            'source_module'  => 'ap',
+            'source_ref'     => (string) $apPaymentId,
+            'idempotency_key' => 'ap:' . $apPaymentId . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
+        ], $userId);
+
+        cf_tx_commit($pdo, $owns);
+        return $instruction;
+    } catch (Throwable $e) {
+        cf_tx_rollback($pdo, $owns);
+        throw $e;
     }
-
-    // Refuse duplicate instructions per ap_payment unless prior one was terminal.
-    $dup = $pdo->prepare(
-        'SELECT id, state FROM payment_instructions
-          WHERE tenant_id = :t AND source_module = "ap" AND source_ref = :r
-            AND state NOT IN ("Cancelled","Failed","Returned")
-          LIMIT 1'
-    );
-    $dup->execute(['t' => $tenantId, 'r' => (string) $apPaymentId]);
-    if ($e = $dup->fetch(\PDO::FETCH_ASSOC)) {
-        throw new \RuntimeException("payment_instruction #{$e['id']} already exists for this ap_payment ({$e['state']})");
-    }
-
-    // Find the mercury_recipient by vendor name (case-insensitive).
-    $rec = $pdo->prepare(
-        'SELECT id FROM mercury_recipients
-          WHERE tenant_id = :t AND kind = "vendor" AND status = "active"
-            AND deleted_at IS NULL
-            AND LOWER(name) = LOWER(:n) LIMIT 1'
-    );
-    $rec->execute(['t' => $tenantId, 'n' => (string) $row['vendor_name']]);
-    $recipientId = (int) ($rec->fetchColumn() ?: 0);
-    if ($recipientId === 0) {
-        throw new \RuntimeException("no Mercury recipient found for vendor '{$row['vendor_name']}'; add them under Treasury → Pay-out Rails → Recipients first");
-    }
-
-    $amountCents = (int) round(((float) $row['amount']) * 100);
-    $instruction = mpCreate($tenantId, [
-        'recipient_id'   => $recipientId,
-        'amount_cents'   => $amountCents,
-        'currency'       => 'USD',
-        'description'    => 'AP #' . $apPaymentId . ' / ' . substr((string) $row['vendor_name'], 0, 35),
-        'notes'          => 'Auto-created from ap_payments #' . $apPaymentId,
-        'source_module'  => 'ap',
-        'source_ref'     => (string) $apPaymentId,
-        'idempotency_key' => 'ap:' . $apPaymentId . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
-    ], $userId);
-
-    // Stamp the ap_payment so the UI hides the "Send via Mercury" button
-    // and the reverse link is discoverable.
-    $pdo->prepare(
-        'UPDATE ap_payments
-            SET rail_external_ref = :ref, disbursement_rail = "mercury"
-          WHERE tenant_id = :t AND id = :id'
-    )->execute([
-        'ref' => 'pi:' . $instruction['id'],
-        't'   => $tenantId,
-        'id'  => $apPaymentId,
-    ]);
-
-    return $instruction;
 }
 
 // ----------------------------------------------------------------- workflow orchestrator

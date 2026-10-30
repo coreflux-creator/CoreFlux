@@ -26,7 +26,8 @@ _p('checks SSN cipher',                                    str_contains($pf, "'i
 _p('checks DOB',                                           str_contains($pf, "'id' => 'dob'"));
 _p('checks W-4 federal_filing_status',                     str_contains($pf, "'id' => 'w4_federal'"));
 _p('checks state tax setup',                               str_contains($pf, "'id' => 'state_tax'"));
-_p('checks active People compensation used by engine',     str_contains($pf, 'peopleActiveCompensation($empId)'));
+_p('checks period-effective People compensation used by engine',
+    str_contains($pf, 'peopleActiveCompensation($empId, $periodEnd)'));
 _p('missing compensation is a blocker',                    str_contains($pf, "'id' => 'compensation'"));
 _p('banking check uses canonical employee banking helper', str_contains($pf, 'peopleActiveBankAccounts($empId)'));
 _p('placement is advisory, not a payroll prerequisite',    str_contains($pf, "'id' => 'placement_optional'")

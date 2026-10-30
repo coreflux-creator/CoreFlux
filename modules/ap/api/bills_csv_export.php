@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
 require_once __DIR__ . '/../../../core/export_service.php';
+require_once __DIR__ . '/../../../core/accounting/books_health_metrics.php';
 
 use Core\CsvExportService;
 
@@ -25,11 +26,20 @@ $userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'ap.export.run');
 // Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
 
+try {
+    $entityId = booksHealthResolveEntity(getDB(), $tenantId, $_GET['entity_id'] ?? null);
+} catch (InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (OutOfBoundsException $e) {
+    api_error($e->getMessage(), 404);
+}
+
 $datasetOptions = [
     'status'      => (string) ($_GET['status'] ?? ''),
     'from'        => (string) ($_GET['from'] ?? ''),
     'to'          => (string) ($_GET['to'] ?? ''),
     'vendor_name' => (string) ($_GET['vendor_name'] ?? ''),
+    'entity_id'   => $entityId,
 ];
 
 $tplId = (int) ($_GET['template_id'] ?? 0);
@@ -53,9 +63,26 @@ if ($tplId > 0) {
 
 $where = ['b.tenant_id = :tenant_id'];
 $params = ['tenant_id' => $tenantId];
-if ($datasetOptions['status'] !== '') {
+if ($datasetOptions['status'] === 'needs_action') {
+    $where[] = "b.status IN ('inbox', 'pending_review', 'pending_approval', 'approved', 'partially_paid', 'disputed')";
+} elseif ($datasetOptions['status'] === 'ready_to_pay') {
+    $where[] = "b.status IN ('approved', 'partially_paid')";
+    $where[] = '(b.amount_due - COALESCE((
+        SELECT SUM(ready_alloc.amount_applied)
+          FROM ap_payment_allocations ready_alloc
+          JOIN ap_payments ready_payment ON ready_payment.id = ready_alloc.payment_id
+         WHERE ready_alloc.bill_id = b.id
+           AND ready_payment.status IN ("draft", "queued", "sent")
+    ), 0)) > 0.005';
+} elseif ($datasetOptions['status'] === 'needs_review') {
+    $where[] = "b.status IN ('inbox', 'pending_review', 'disputed')";
+} elseif ($datasetOptions['status'] !== '') {
     $where[] = 'b.status = :status';
     $params['status'] = $datasetOptions['status'];
+}
+if ($entityId !== null) {
+    $where[] = 'b.entity_id = :entity_id';
+    $params['entity_id'] = $entityId;
 }
 if ($datasetOptions['from'] !== '') {
     $where[] = 'b.bill_date >= :from_date';
@@ -73,13 +100,14 @@ if ($datasetOptions['vendor_name'] !== '') {
 $stmt = getDB()->prepare(
     'SELECT b.id AS bill_id, b.bill_number, b.external_id, b.source_system,
             b.status AS record_status, b.amount_paid,
-            b.vendor_name, b.vendor_type, b.bill_date, b.due_date, b.received_at,
+            b.vendor_name, e.code AS entity_code, b.vendor_type, b.bill_date, b.due_date, b.received_at,
             b.period_start, b.period_end, b.currency, b.po_number, b.notes_internal,
             l.id AS line_id, l.line_no, l.description AS line_description,
             l.quantity AS line_quantity, l.unit AS line_unit,
             l.unit_price AS line_unit_price, l.subtotal AS line_subtotal,
             l.tax_amount AS line_tax_amount, l.total AS line_total
        FROM ap_bills b
+  LEFT JOIN accounting_entities e ON e.id = b.entity_id AND e.tenant_id = b.tenant_id
   LEFT JOIN ap_bill_lines l ON l.bill_id = b.id
       WHERE ' . implode(' AND ', $where) . '
       ORDER BY b.bill_date DESC, b.id DESC, l.line_no ASC, l.id ASC
@@ -103,6 +131,7 @@ exportDatasetAudit($tenantId, $userId ?: null, 'ap.bills.exported', null, export
     'record_status'  => 'Record status (read only)',
     'amount_paid'    => 'Amount paid (read only)',
     'vendor_name'    => 'Vendor name',
+    'entity_code'    => 'Entity code',
     'vendor_type'    => 'Vendor type',
     'bill_date'      => 'Bill date',
     'due_date'       => 'Due date',

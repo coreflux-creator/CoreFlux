@@ -1,0 +1,115 @@
+{
+  "provider_source_commit": "20b21f9bf0939a9479adfb5329d3edc8fe591e46",
+  "prior_callback_release": "purepay-payment-callbacks-staging-20261025.json",
+  "core_runtime_unchanged": "8fd81fc550232c2582dd7bd645e65f4d42458053",
+  "provider_installation": {
+    "at": "2026-10-25T04:38:59.218128+00:00",
+    "installed": true,
+    "source_hashes": {
+      "backend/integration_payment_outbox.py": "d975056cb58191927e998835ad693bd5b63cfd56cb4f941b66efa1991659e269"
+    },
+    "protected_unchanged_during_install": true,
+    "post_install": {
+      "at": "2026-10-25T04:38:59.215042+00:00",
+      "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+      "health": {
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      },
+      "source_files_verified": 6321,
+      "head_and_configuration_unchanged": true,
+      "protected_differences": {
+        "index": {
+          "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+          "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+        }
+      },
+      "demo_unchanged": true,
+      "demo_counts": {
+        "pay_runs": 50,
+        "coreflux_payroll_inputs": 0,
+        "coreflux_payroll_authorities": 0
+      },
+      "demo_run_count": 50,
+      "published": false,
+      "credential_changes": false,
+      "candidate_installed": true,
+      "index_semantics": {
+        "equals_current_head": true,
+        "entries": 6256,
+        "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+        "historical_byte_equivalence_proven": false
+      }
+    },
+    "jsx_sources_parsed": 0,
+    "production_published": false,
+    "business_records_written": false,
+    "callback_worker_started": false,
+    "backup_directory": "/app/audit/core-payment-recovery-2026-10-25"
+  },
+  "provider_final_verification": {
+    "at": "2026-10-25T04:39:43.801466+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "health": {
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "source_files_verified": 6321,
+    "head_and_configuration_unchanged": true,
+    "protected_differences": {
+      "index": {
+        "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+        "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+      }
+    },
+    "demo_unchanged": true,
+    "demo_counts": {
+      "pay_runs": 50,
+      "coreflux_payroll_inputs": 0,
+      "coreflux_payroll_authorities": 0
+    },
+    "demo_run_count": 50,
+    "published": false,
+    "credential_changes": false,
+    "candidate_installed": true,
+    "index_semantics": {
+      "equals_current_head": true,
+      "entries": 6256,
+      "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+      "historical_byte_equivalence_proven": false
+    }
+  },
+  "installed_acceptance": {
+    "runtime_hashes": {
+      "server.py": "c5ced4a8ad59d8b940fffe19711e33c5a8011ee9446c643fe58099fc59f028c7",
+      "integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+      "moov_client.py": "8ba337b3ca635c11393cf5b9c494b5c274a1113bf6cef196ca2f34891d5a12bb",
+      "integration_payment_outbox.py": "d975056cb58191927e998835ad693bd5b63cfd56cb4f941b66efa1991659e269"
+    },
+    "dependency_hashes": {},
+    "pytest_exit": 0,
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true,
+    "real_database_used": false,
+    "candidate_hashes": {},
+    "feature_gate_fixture": false,
+    "real_session_authentication": false,
+    "bill_payment_history": false,
+    "wallet_payment_evidence": false,
+    "payment_outbox": true,
+    "workflow": false,
+    "live_workspace_acceptance": false,
+    "report_directory": "/tmp/purepay-core-full-app-7rnbbebq"
+  },
+  "checks_passed": 88,
+  "live_callback_round_trip_verified": false,
+  "production_cutover": false,
+  "real_financial_execution": false,
+  "covered_failure": "Payment state persisted but event-log insertion did not; bounded local reconciliation queues the current verified result without changing payment records.",
+  "remaining_incoming_handler_risk": "A rail callback marked duplicate before its payment state was persisted still requires separate replay hardening."
+}

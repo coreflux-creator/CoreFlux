@@ -297,17 +297,11 @@ function staffingAssignmentDimensionContext(
         $vendor = $refStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     }
 
-    $canonicalClientCompanyId = (int) ($placement['end_client_company_id'] ?? 0) > 0
-        ? (int) $placement['end_client_company_id']
-        : ((int) ($placement['staffing_client_company_id'] ?? 0) > 0
-            ? (int) $placement['staffing_client_company_id']
-            : null);
+    $canonicalClientCompanyId = (int) ($placement['staffing_client_company_id'] ?? 0) > 0
+        ? (int) $placement['staffing_client_company_id'] : null;
     $clientDimension = $canonicalClientCompanyId
-        ?? (trim((string) ($placement['end_client_name'] ?? '')) !== ''
-            ? 'name:' . strtolower(trim((string) $placement['end_client_name']))
-            : (trim((string) ($placement['staffing_client_name'] ?? '')) !== ''
-                ? 'name:' . strtolower(trim((string) $placement['staffing_client_name']))
-                : null));
+        ?? (trim((string) ($placement['staffing_client_name'] ?? '')) !== ''
+            ? 'name:' . strtolower(trim((string) $placement['staffing_client_name'])) : null);
     $jobDimension = (int) ($placement['staffing_job_id'] ?? 0) > 0
         ? (int) $placement['staffing_job_id']
         : (trim((string) ($placement['jobdiva_job_id'] ?? '')) !== ''

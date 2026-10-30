@@ -26,6 +26,12 @@ class S3Driver implements StorageDriver
 
     public function __construct(array $cfg = [])
     {
+        // Direct module APIs do not load Composer as part of API bootstrap.
+        // Load the application's installed SDK lazily without initializing storage.
+        if (!class_exists('\\Aws\\S3\\S3Client')) {
+            $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+            if (is_file($autoload)) require_once $autoload;
+        }
         if (!class_exists('\Aws\S3\S3Client')) {
             throw new \RuntimeException(
                 'S3Driver requires aws/aws-sdk-php. Run `composer install` and ensure ' .
@@ -63,12 +69,13 @@ class S3Driver implements StorageDriver
         $params = [
             'Bucket' => $this->bucket,
             'Key'    => $key,
-            'Body'   => is_resource($localPathOrStream)
+            'Body'   => ($opts['source_is_bytes'] ?? false) === true ? $localPathOrStream : (is_resource($localPathOrStream)
                 ? $localPathOrStream
-                : (is_file($localPathOrStream) ? fopen($localPathOrStream, 'rb') : $localPathOrStream),
+                : (is_file($localPathOrStream) ? fopen($localPathOrStream, 'rb') : $localPathOrStream)),
         ];
 
         if (!empty($opts['mime']))     $params['ContentType']      = $opts['mime'];
+        if (!empty($opts['if_not_exists'])) $params['IfNoneMatch'] = '*';
         if (!empty($opts['metadata'])) $params['Metadata']         = $opts['metadata'];
 
         if ($this->kmsKeyId !== '') {
@@ -115,22 +122,27 @@ class S3Driver implements StorageDriver
     public function get_presigned_post(string $key, array $constraints = []): array
     {
         $defaults = [
-            'acl'                  => 'private',
-            'ServerSideEncryption' => 'aws:kms',
+            'x-amz-server-side-encryption' => 'aws:kms',
         ];
+        // Omit ACLs: new buckets enforce bucket ownership and reject an explicit
+        // private ACL. Access remains governed by the bucket/IAM policies.
         if ($this->kmsKeyId !== '') {
-            $defaults['SSEKMSKeyId'] = $this->kmsKeyId;
-            $defaults['x-amz-server-side-encryption']                = 'aws:kms';
             $defaults['x-amz-server-side-encryption-aws-kms-key-id'] = $this->kmsKeyId;
         }
         $defaults['key'] = $key;
+        // PostObjectV4 does not turn form fields into policy conditions. Bind
+        // the exact object and encryption fields in the signed policy.
+        // https://docs.aws.amazon.com/AmazonS3/latest/developerguide/RESTObjectPOST.html
+        $policy = $constraints['policy'] ?? [];
+        $policy[] = ['bucket' => $this->bucket];
+        foreach ($defaults as $field => $value) $policy[] = [$field => $value];
 
         $postClass = '\Aws\S3\PostObjectV4';
         $post = new $postClass(
             $this->client,
             $this->bucket,
             $defaults,
-            $constraints['policy'] ?? [],
+            $policy,
             $constraints['expires'] ?? '+15 minutes'
         );
 
@@ -155,6 +167,27 @@ class S3Driver implements StorageDriver
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    public function read(string $key, int $maxBytes): ?string
+    {
+        $head = $this->head($key);
+        if ($head === null) return null;
+        if ((int) ($head['size_bytes'] ?? -1) > $maxBytes) {
+            throw new \RuntimeException('S3Driver: object exceeds the allowed read size.');
+        }
+        $result = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $key]);
+        $body = $result->get('Body');
+        $bytes = '';
+        while (!$body->eof() && strlen($bytes) <= $maxBytes) {
+            $chunk = $body->read(min(65536, $maxBytes + 1 - strlen($bytes)));
+            if ($chunk === '') break;
+            $bytes .= $chunk;
+        }
+        if (strlen($bytes) > $maxBytes || strlen($bytes) !== (int) $head['size_bytes']) {
+            throw new \RuntimeException('S3Driver: incomplete or oversized object read.');
+        }
+        return $bytes;
     }
 
     public function delete(string $key): void
@@ -184,4 +217,5 @@ class S3Driver implements StorageDriver
     }
 
     public function driver_name(): string { return 's3'; }
+    public function location_fingerprint(): string { return hash('sha256',json_encode(['s3',$this->bucket,$this->kmsKeyId],JSON_THROW_ON_ERROR)); }
 }

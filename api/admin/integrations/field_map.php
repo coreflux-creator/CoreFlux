@@ -90,6 +90,10 @@ rbac_legacy_require_any($user, ['integrations.field_map.manage', 'tenant_admin.i
 try {
     switch ($method) {
         case 'GET': {
+            if (api_query('action') === 'contract') {
+                require_once __DIR__ . '/../../../core/integrations/staffing_field_contract.php';
+                api_ok(staffingFieldContractWithCustomFields(staffingFieldContractInventory(getDB(), $tid), $user));
+            }
             $integration = (string) (api_query('integration') ?? '');
             $entityType  = (string) (api_query('entity_type') ?? '');
             if ($integration !== '' && $entityType !== '') {

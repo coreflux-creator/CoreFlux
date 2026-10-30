@@ -9,7 +9,7 @@
  *   - api/billing_invoice_replay.php (same shape).
  *   - Module-namespaced kebab aliases delegate cleanly.
  *   - modules/billing/api/invoices.php?action=post emits
- *     billing.invoice.sent and falls back to direct accountingPostJe
+ *     ar.invoice.issued and falls back to direct accountingPostJe
  *     with subledger_links + event-status flip.
  *   - RuleSandbox.jsx exposes the new subledger replay strip with the
  *     full set of testids.
@@ -80,7 +80,12 @@ $assert('parses',                                $lint("{$ROOT}/api/billing_invo
 $assert('POST-only',                             strpos($bir, "if (api_method() !== 'POST')") !== false);
 $assert('RBAC accounting.manage_posting_rules',  strpos($bir, "rbac_legacy_require(\$user, 'accounting.manage_posting_rules')") !== false);
 $assert('source_module=billing_replay',          strpos($bir, "'source_module'    => 'billing_replay'") !== false);
-$assert('event_type=billing.invoice.sent',       strpos($bir, "'event_type'       => 'billing.invoice.sent'") !== false);
+$assert('event_type=ar.invoice.issued',           strpos($bir, "'event_type'       => 'ar.invoice.issued'") !== false);
+$assert('replay recognizes legacy and canonical rows',
+    substr_count($bir, "event_type IN ('billing.invoice.sent', 'ar.invoice.issued')") === 2);
+$assert('canonical replay payload includes required totals and due date',
+    strpos($bir, "'total'            => (float) \$r['total']") !== false
+    && strpos($bir, "'due_date'          => (string) \$r['due_date']") !== false);
 $assert('status filter whitelist',
     strpos($bir, "['approved','sent','partially_paid','paid']") !== false);
 $assert('snapshots original posted journal lines',
@@ -119,7 +124,7 @@ $inv = (string) file_get_contents("{$ROOT}/modules/billing/api/invoices.php");
 $assert('parses',                                $lint("{$ROOT}/modules/billing/api/invoices.php"));
 $assert('require posting_engine/process.php',
     strpos($inv, "require_once __DIR__ . '/../../../core/posting_engine/process.php'") !== false);
-$assert('emits billing.invoice.sent',            strpos($inv, "'event_type'       => 'billing.invoice.sent'") !== false);
+$assert('emits ar.invoice.issued',                strpos($inv, "'event_type'       => 'ar.invoice.issued'") !== false);
 $assert('source_module = billing',
     strpos($inv, "'source_module'    => 'billing'") !== false
     && strpos($inv, "'source_record_id' => 'billing_invoice:' . \$id") !== false);
@@ -128,6 +133,10 @@ $assert('preferred path: stamp journal_entry_id from event',
     strpos($inv, "'j' => \$eventResult['journal_entry_id']") !== false);
 $assert('preferred path: audit via=event_layer',
     strpos($inv, "'via' => 'event_layer'") !== false);
+$assert('event conflicts and failed rules never fall back to direct GL',
+    strpos($inv, 'if ($e instanceof AccountingEventConflictException) $eventErrorStatus = 409;') !== false
+    && strpos($inv, "(\$eventResult['error'] ?? null) !== 'no posting rule matched'") !== false
+    && strpos($inv, "api_error('Invoice event processing failed: '") !== false);
 $assert('fallback: legacy accountingPostJe still wired',
     strpos($inv, "\$res = accountingPostJe(\$tid, [") !== false);
 $assert('fallback: writes subledger_links',

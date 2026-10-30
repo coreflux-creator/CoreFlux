@@ -23,6 +23,7 @@ require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/compute.php';
 require_once __DIR__ . '/../lib/anomalies.php';
 require_once __DIR__ . '/../lib/workflow.php';
+require_once __DIR__ . '/../lib/approval_settings.php';
 require_once __DIR__ . '/../lib/accounting_posting.php';
 require_once __DIR__ . '/../lib/artifacts.php';
 
@@ -210,9 +211,6 @@ switch (api_method()) {
                 ['id' => (int) $body['pay_period_id']]
             );
             if (!$period) api_error('Pay period not found', 404);
-            if (in_array((string) ($period['status'] ?? ''), ['paid', 'closed'], true)) {
-                api_error('This pay period is already closed', 409);
-            }
             $runType = (string) ($body['run_type'] ?? 'regular');
             if (!in_array($runType, ['regular', 'off_cycle', 'correction', 'final'], true)) {
                 api_error('Invalid run_type', 422);
@@ -226,6 +224,9 @@ switch (api_method()) {
             );
             if ($existingRun) {
                 api_ok(['id' => (int) $existingRun['id'], 'status' => $existingRun['status'], 'existing' => true]);
+            }
+            if (in_array((string) ($period['status'] ?? ''), ['paid', 'closed'], true)) {
+                api_error('This pay period is already closed', 409);
             }
             $pdo = getDB();
             $ownsTx = cf_tx_begin($pdo);
@@ -263,6 +264,8 @@ switch (api_method()) {
         if ($action === 'compute') {
             rbac_legacy_require($user, 'payroll.run.compute');
             _payrollRequireStatus($run, ['draft', 'computed'], 'Compute');
+            $approval = payrollRunApprovalReadiness((int) currentTenantId(), (int) ($user['id'] ?? 0), $runId);
+            if (!$approval['ready']) api_error($approval['message'], 409);
             if (($run['status'] ?? '') === 'computed') {
                 payrollRunWorkflowCancelPending(currentTenantId(), $runId, (int) ($user['id'] ?? 0), 'recompute');
             }

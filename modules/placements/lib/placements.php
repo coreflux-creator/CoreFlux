@@ -10,6 +10,9 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
+require_once __DIR__ . '/../../../core/audit.php';
+require_once __DIR__ . '/../../people/lib/companies.php';
 
 /**
  * Allowed values for the placements.remote_policy ENUM. The MySQL column is
@@ -32,6 +35,19 @@ function placementsGraphTenantId(?int $tenantId = null): ?int
     }
 }
 
+class PlacementCompanyScopeConflict extends InvalidArgumentException {}
+
+/** A shared placement must not acquire a company private to one viewer. */
+function placementsCompanyDirectoryTenantId(?int $workspaceId = null): int
+{
+    $workspaceId = $workspaceId ?? currentTenantId();
+    $owner = companiesDirectoryTenantId((int) placementsGraphTenantId($workspaceId));
+    if (companiesDirectoryTenantId($workspaceId) !== $owner) {
+        throw new PlacementCompanyScopeConflict('This shared placement cannot use a company private to this workspace. Review the workspace sharing setup before linking a company.');
+    }
+    return $owner;
+}
+
 function placementsNormalizeRemotePolicy($v): ?string
 {
     if ($v === null) return null;
@@ -40,10 +56,54 @@ function placementsNormalizeRemotePolicy($v): ?string
     return in_array($v, PLACEMENTS_ALLOWED_REMOTE, true) ? $v : null;
 }
 
+/** City is source text, never inferred from a person's home or a company's address. */
+function placementsNormalizeWorksiteCity(mixed $value): ?string
+{
+    require_once __DIR__ . '/../../../core/integrations/source_values.php';
+    return integrationSourceWorksiteCity($value);
+}
+
+/** Resolve only the company roles explicitly edited; neither role supplies the other. */
+function placementsResolveCompanyRoles(int $tenantId, array $input, array $existing = [], ?int $userId = null, ?int $workspaceId = null): array
+{
+    require_once __DIR__ . '/../../people/lib/companies.php';
+    $patch = [];
+    $pdo = getDB();
+    if (array_key_exists('client_id', $input)) {
+        $id = (int) $input['client_id'];
+        if ($id > 0) {
+            $s = $pdo->prepare('SELECT id FROM staffing_clients WHERE tenant_id = :t AND id = :i');
+            $s->execute(['t' => $tenantId, 'i' => $id]);
+            if (!$s->fetchColumn()) throw new InvalidArgumentException('Bill-to client is not in this placement directory.');
+        }
+        $patch['client_id'] = $id > 0 ? $id : null;
+    }
+    if (array_key_exists('end_client_company_id', $input) || array_key_exists('end_client_name', $input)) {
+        $owner = companiesDirectoryTenantId($tenantId);
+        $id = (int) ($input['end_client_company_id'] ?? 0);
+        $name = trim((string) ($input['end_client_name'] ?? ''));
+        if (($id > 0 || $name !== '') && $workspaceId !== null) {
+            $owner = placementsCompanyDirectoryTenantId($workspaceId);
+        }
+        if ($id > 0) {
+            $s = $pdo->prepare('SELECT name FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
+            $s->execute(['t' => $owner, 'i' => $id]);
+            $canonical = $s->fetchColumn();
+            if ($canonical === false) throw new InvalidArgumentException('End client is not in this company directory.');
+            $name = (string) $canonical;
+        } elseif ($name !== '') {
+            $id = companiesUpsertByName($owner, $name, ['created_by_user_id' => $userId], []);
+        }
+        $patch['end_client_company_id'] = $id > 0 ? $id : null;
+        $patch['end_client_name'] = $name !== '' ? $name : null;
+    }
+    return $patch;
+}
+
 function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
-             'actual_end_date','due_date','engagement_type','worksite_state','worksite_country',
+             'actual_end_date','due_date','engagement_type','worksite_city','worksite_state','worksite_country',
              'remote_policy','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id',
              'title','end_client_name','end_client_company_id','client_id','staffing_job_id','notes',
              'recruiter_name','recruiter_email','account_manager_name','account_manager_email',
@@ -83,15 +143,18 @@ function placementGet(int $id): ?array
                    pe.work_auth_expiry  AS person_work_auth_expiry,
                    ec.name              AS end_client_company_name,
                    ec.website           AS end_client_company_website,
+                   sc.name              AS billing_client_name,
                    sj.title             AS staffing_job_title,
                    sj.status            AS staffing_job_status
             FROM placements p
             LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
-            LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+            LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :company_tenant AND ec.deleted_at IS NULL
             LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
+            LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
-    $row = scopedFind($sql, ['id' => $id]);
+    $row = scopedFind($sql, ['id' => $id, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())]);
     if (!$row) return null;
+    $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'placement', [$row])[0];
     return placementHydratePersonFields($row);
 }
 
@@ -135,7 +198,7 @@ function placementHydratePersonFields(array $row, ?callable $loader = null): arr
 function placementsList(array $filters = []): array
 {
     $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
-    $params = [];
+    $params = ['company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())];
     if (!empty($filters['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
         $where[] = '(CAST(p.id AS CHAR) LIKE :q_id
@@ -153,10 +216,12 @@ function placementsList(array $filters = []): array
                   OR CAST(p.start_date AS CHAR) LIKE :q_start
                   OR CAST(p.due_date AS CHAR) LIKE :q_due
                   OR CAST(p.end_date AS CHAR) LIKE :q_end
+                  OR p.worksite_city LIKE :q_city
                   OR p.worksite_state LIKE :q_state
-                  OR p.worksite_country LIKE :q_country)';
+                  OR p.worksite_country LIKE :q_country OR ' . coreRecordNumberSearchSql('placement', 'p', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $filters['q']));
         $like = '%' . trim((string) $filters['q']) . '%';
-        foreach (['q_id','q_title','q_job_title','q_person_id','q_first','q_last','q_person','q_email','q_client','q_external','q_status','q_type','q_start','q_due','q_end','q_state','q_country'] as $key) {
+        foreach (['q_id','q_title','q_job_title','q_person_id','q_first','q_last','q_person','q_email','q_client','q_external','q_status','q_type','q_start','q_due','q_end','q_city','q_state','q_country'] as $key) {
             $params[$key] = $like;
         }
     }
@@ -223,7 +288,7 @@ function placementsList(array $filters = []): array
         : "{$sortExpr} {$sortDir}, p.id {$tieDir}";
 
     $joins = ' LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-               LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+               LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :company_tenant AND ec.deleted_at IS NULL
                LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
                LEFT JOIN placement_rates cr ON cr.id = (
                     SELECT cr2.id
@@ -299,6 +364,7 @@ function placementsList(array $filters = []): array
         unset($row['current_economics_snapshot_json']);
     }
     unset($row);
+    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'placement', $rows);
     return ['rows' => $rows, 'total' => $total, 'summary' => $summary, 'page' => $page, 'per_page' => $perPage];
 }
 
@@ -425,12 +491,12 @@ function placementReferrals(int $placementId): array
                 COALESCE(c.name, NULLIF(TRIM(CONCAT(pp.first_name, " ", pp.last_name)), ""), u.name, pr.referrer_vendor_name) AS referrer_name,
                 c.id AS canonical_company_id
            FROM placement_referrals pr
-      LEFT JOIN companies c ON c.tenant_id = pr.tenant_id AND c.id = pr.referrer_company_id
+      LEFT JOIN companies c ON c.tenant_id = :company_tenant AND c.id = pr.referrer_company_id AND c.deleted_at IS NULL
       LEFT JOIN people pp ON pp.tenant_id = pr.tenant_id AND pp.id = pr.referrer_person_id
       LEFT JOIN users u ON u.id = pr.referrer_user_id
           WHERE pr.tenant_id = :tenant_id AND pr.placement_id = :pid
           ORDER BY pr.start_date DESC',
-        ['pid' => $placementId]
+        ['pid' => $placementId, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())]
     );
 }
 
@@ -518,27 +584,6 @@ function placementsComputeMargin(array $rate, array $chain): array
  */
 function placementsAudit(string $event, array $meta = [], ?int $targetId = null): void
 {
-    $pdo = getDB();
-    if (!$pdo) {
-        error_log("[placements.audit] {$event} target={$targetId} meta=" . json_encode($meta));
-        return;
-    }
-    try {
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id'     => currentTenantId(),
-            'actor_user_id' => $_SESSION['user']['id'] ?? null,
-            'event'         => $event,
-            'target_id'     => $targetId,
-            'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
-    } catch (\Throwable $e) {
-        error_log("[placements.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
-    }
+    platformAuditLogWrite(currentTenantId(), $_SESSION['user']['id'] ?? null,
+        $event, $targetId, $meta, ['source' => 'placements']);
 }

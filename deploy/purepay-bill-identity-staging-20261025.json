@@ -1,0 +1,305 @@
+{
+  "scope": "Reviewed original supplier-bill identity; isolated Core pilot only",
+  "runtime_commit": "52585f7a1417e04ffd7cfc7f6e6a13a3a05d7b70",
+  "ci": {
+    "conclusion": "success",
+    "headSha": "52585f7a1417e04ffd7cfc7f6e6a13a3a05d7b70",
+    "jobs": [
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "databaseId": 121108490916,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108490916"
+      },
+      {
+        "name": "Smoke (harness)",
+        "databaseId": 121108490967,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108490967"
+      },
+      {
+        "name": "Smoke (core)",
+        "databaseId": 121108491020,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491020"
+      },
+      {
+        "name": "Smoke (ui)",
+        "databaseId": 121108491025,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491025"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "databaseId": 121108491090,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491090"
+      },
+      {
+        "name": "Live business graph simulation",
+        "databaseId": 121108491100,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491100"
+      },
+      {
+        "name": "Smoke (modules)",
+        "databaseId": 121108491106,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491106"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "databaseId": 121108491118,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491118"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "databaseId": 121108491205,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094/job/121108491205"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173281094"
+  },
+  "deployment": {
+    "conclusion": "success",
+    "headSha": "52585f7a1417e04ffd7cfc7f6e6a13a3a05d7b70",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "databaseId": 121109067321,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109067321"
+      },
+      {
+        "name": "cleanup-known-staging-uploads",
+        "databaseId": 121109068027,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068027"
+      },
+      {
+        "name": "accept-synthetic-payroll-capture",
+        "databaseId": 121109068049,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068049"
+      },
+      {
+        "name": "production-source-audit",
+        "databaseId": 121109068052,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068052"
+      },
+      {
+        "name": "configure-financial-preview",
+        "databaseId": 121109068054,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068054"
+      },
+      {
+        "name": "migrate-purepay-preview-origin",
+        "databaseId": 121109068121,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068121"
+      },
+      {
+        "name": "inspect-synthetic-integration",
+        "databaseId": 121109068183,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068183"
+      },
+      {
+        "name": "inspect-integration-staging",
+        "databaseId": 121109068187,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068187"
+      },
+      {
+        "name": "verify-purepay-preview-replay",
+        "databaseId": 121109068224,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109068224"
+      },
+      {
+        "name": "accept-synthetic-time-review",
+        "databaseId": 121109085454,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109085454"
+      },
+      {
+        "name": "staging-maintenance-rehearsal",
+        "databaseId": 121109085542,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109085542"
+      },
+      {
+        "name": "accept-synthetic-onboarding",
+        "databaseId": 121109089593,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109089593"
+      },
+      {
+        "name": "deploy",
+        "databaseId": 121109090380,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109090380"
+      },
+      {
+        "name": "inspect-purepay-preview-continuity",
+        "databaseId": 121109098020,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268/job/121109098020"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40173466268"
+  },
+  "migration_applied": "177_purepay_bill_identity.sql",
+  "initial_schema_deployment": {
+    "conclusion": "success",
+    "headSha": "f5898e53f4977d808587b039437473e6f8b5c5f5",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "databaseId": 121107560442,
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107560442"
+      },
+      {
+        "name": "migrate-purepay-preview-origin",
+        "databaseId": 121107561027,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561027"
+      },
+      {
+        "name": "inspect-purepay-preview-continuity",
+        "databaseId": 121107561242,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561242"
+      },
+      {
+        "name": "deploy",
+        "databaseId": 121107561256,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561256"
+      },
+      {
+        "name": "inspect-synthetic-integration",
+        "databaseId": 121107561261,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561261"
+      },
+      {
+        "name": "inspect-integration-staging",
+        "databaseId": 121107561262,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561262"
+      },
+      {
+        "name": "verify-purepay-preview-replay",
+        "databaseId": 121107561264,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561264"
+      },
+      {
+        "name": "accept-synthetic-payroll-capture",
+        "databaseId": 121107561276,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561276"
+      },
+      {
+        "name": "configure-financial-preview",
+        "databaseId": 121107561288,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561288"
+      },
+      {
+        "name": "cleanup-known-staging-uploads",
+        "databaseId": 121107561299,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561299"
+      },
+      {
+        "name": "accept-synthetic-time-review",
+        "databaseId": 121107561612,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561612"
+      },
+      {
+        "name": "staging-maintenance-rehearsal",
+        "databaseId": 121107561628,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561628"
+      },
+      {
+        "name": "production-source-audit",
+        "databaseId": 121107561649,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107561649"
+      },
+      {
+        "name": "accept-synthetic-onboarding",
+        "databaseId": 121107576509,
+        "conclusion": "skipped",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742/job/121107576509"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40172971742"
+  },
+  "source_sha256_lf": {
+    "core/migrations/177_purepay_bill_identity.sql": "147f0bd702c2cf9295d74169c05e690acac88137648361ecbbe62381af4c4578",
+    "core/purepay_bill_identity.php": "35e84c47cc8a1e4b51dea4ef9e0336c96e6437dc64a883826a0e4552aa3f1c2f",
+    "api/purepay_bills.php": "611aef459e2f7528d4694d1231e5c9f47c429cef3ef40165c320c5c28310c0ad",
+    "modules/ap/ui/PurePayBillLink.jsx": "a306b34885379c16226545b4ab67b0723f230dcde572dd80a42c0e3957003108",
+    "modules/ap/ui/BillDetail.jsx": "2bca10e746f20993606226d53118ae550ace0c74737f33da8c090fd1dab0b771",
+    "modules/ap/api/bills.php": "5c85196d8ffd2799f7a2d3993ebd13eba99171f0312da5c1ef3527c0374ed2a2",
+    "tests/purepay_bill_identity_mariadb.php": "789a3008c4007443c1d552a4ec0b281228a9e1f9a8361063e4e0e3601e2285db",
+    ".github/workflows/ci.yml": "7f7b7bf2c34f4cd0a70d4762790d2ef7a41072a08ef7a7e423e9681e18598137",
+    "spec/purepay_docs/payment-evidence.md": "86f4ec9a06dd6c1f5b65cbbc74cdea0725d38a530a32dd83a099fe4d2e30e4a8"
+  },
+  "private_recovery_directory": "/home/master/.coreflux-integration-backups/muzqvdvqbx/52585f7a1417e04ffd7cfc7f6e6a13a3a05d7b70-20261025073941",
+  "database_checks": {
+    "bill_identity": 37,
+    "financial_company": 31,
+    "payment_delivery": 301
+  },
+  "bill_identity_checks": [
+    "Company and legal-entity isolation",
+    "Whitelisted commercial snapshot excludes bank/tax data",
+    "Invoice/vendor/date/total/currency mismatches",
+    "Local and provider changes between display and confirmation",
+    "Critical audit failure rolls back mapping and review",
+    "Replay preserves original review and one history record",
+    "Reconfirming earlier evidence records the new change audit",
+    "Exclusive provider bill claim with two physical SQL sessions",
+    "Immutable original bill/vendor/entity identities",
+    "Key rotation requires new review and retains history",
+    "Disconnect retains original identity",
+    "No payment attempts, allocations or balance changes"
+  ],
+  "ui_check": {
+    "actual_component": "modules/ap/ui/PurePayBillLink.jsx",
+    "synthetic_local_fetch_only": true,
+    "complete_hosted_application": false,
+    "payment_or_credentials_entered": false,
+    "checked": [
+      "Two-column bill/vendor/date/money comparison renders legibly",
+      "Save disabled until checked",
+      "Saved provider ID cannot be edited",
+      "Repeat comparison clears the confirmation checkbox"
+    ],
+    "screenshot": "output/core-bill-identity-20261025/review-local.png"
+  },
+  "provider_source_changed": false,
+  "production_published": false,
+  "limitations": [
+    "No hosted financial key or real provider-bill review was exercised.",
+    "Historical provider bills without explicit currency cannot be linked; currency is not inferred.",
+    "Current payment dispatch is not yet connected to this canonical bill mapping.",
+    "Shared supplier reservations and partial/multi-bill allocation contract remain incomplete.",
+    "Historical payment receipts and existing vendor mappings are not rebound by this workflow.",
+    "Actual Thunderhawk end-to-end acceptance and production cutover remain unproved."
+  ]
+}

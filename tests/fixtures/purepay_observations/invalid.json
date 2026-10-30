@@ -1,0 +1,140 @@
+{
+  "contract_version": "2026-10-25.1",
+  "organization_id": "org_synthetic_observation",
+  "run_id": "run_invalid_fixture",
+  "record_version": "e792f249a70a0e4bf6306f048a37878f7964a13eff344d784d573cfefe2e710d",
+  "period_start": null,
+  "period_end": null,
+  "pay_date": null,
+  "status": "draft",
+  "native": null,
+  "manual": null,
+  "provider_mode": null,
+  "source": null,
+  "provider": null,
+  "paid_at": null,
+  "created_at": null,
+  "currency": null,
+  "execution_hold": null,
+  "unavailable_fields": {
+    "period_start": "missing",
+    "period_end": "missing",
+    "pay_date": "missing",
+    "native": "missing",
+    "manual": "missing",
+    "provider_mode": "missing",
+    "source": "missing",
+    "provider": "missing",
+    "paid_at": "missing",
+    "created_at": "missing",
+    "currency": "invalid",
+    "execution_hold": "missing"
+  },
+  "totals": {
+    "gross": null,
+    "bonus": null,
+    "reimbursements": null,
+    "federal_wh": null,
+    "social_security": null,
+    "medicare": null,
+    "state_wh": null,
+    "local_wh": null,
+    "sdi_pfl": null,
+    "other_deductions": null,
+    "garnishments": null,
+    "net": null,
+    "employer_fica": null,
+    "employer_futa": null,
+    "employer_suta": null,
+    "employer_match": null,
+    "funding_required": null
+  },
+  "unavailable_totals": {
+    "gross": "missing",
+    "bonus": "missing",
+    "reimbursements": "missing",
+    "federal_wh": "missing",
+    "social_security": "missing",
+    "medicare": "missing",
+    "state_wh": "missing",
+    "local_wh": "missing",
+    "sdi_pfl": "missing",
+    "other_deductions": "missing",
+    "garnishments": "missing",
+    "net": "invalid",
+    "employer_fica": "missing",
+    "employer_futa": "missing",
+    "employer_suta": "missing",
+    "employer_match": "missing",
+    "funding_required": "missing"
+  },
+  "lines": [
+    {
+      "line_index": 0,
+      "employee_id": null,
+      "hours": null,
+      "ot_hours": null,
+      "unavailable_fields": {
+        "employee_id": "missing",
+        "hours": "invalid",
+        "ot_hours": "missing"
+      },
+      "amounts": {
+        "gross": null,
+        "bonus": null,
+        "reimbursements": null,
+        "federal_wh": null,
+        "social_security": null,
+        "medicare": null,
+        "state_wh": null,
+        "local_wh": null,
+        "sdi_pfl": null,
+        "other_deductions": null,
+        "garnishments": null,
+        "net": "0.00",
+        "employer_fica": null,
+        "employer_futa": null,
+        "employer_suta": null,
+        "employer_match": null,
+        "funding_required": null
+      },
+      "unavailable_amounts": {
+        "gross": "invalid",
+        "bonus": "missing",
+        "reimbursements": "missing",
+        "federal_wh": "missing",
+        "social_security": "missing",
+        "medicare": "missing",
+        "state_wh": "missing",
+        "local_wh": "missing",
+        "sdi_pfl": "missing",
+        "other_deductions": "missing",
+        "garnishments": "missing",
+        "employer_fica": "missing",
+        "employer_futa": "missing",
+        "employer_suta": "missing",
+        "employer_match": "missing",
+        "funding_required": "missing"
+      },
+      "source_time_lineage": {
+        "status": "partial",
+        "entries": [
+          {
+            "id": "valid-source",
+            "hours": null
+          }
+        ],
+        "unavailable_entries": [
+          0,
+          1
+        ]
+      }
+    }
+  ],
+  "amount_basis": "stored_payroll_ledger",
+  "delivery_confirmation": "not_evaluated",
+  "core_match": "not_evaluated",
+  "consistency": "rechecked_read_not_transactional_snapshot",
+  "observation_hash": "2adcdbfad8de976066c5ddabf682157ad6f37703c71d599a57c7eed69d47e362",
+  "observed_at": "2026-10-25T00:00:00+00:00"
+}

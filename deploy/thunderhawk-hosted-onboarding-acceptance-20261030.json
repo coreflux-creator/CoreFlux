@@ -1,0 +1,405 @@
+{
+  "observed_at": "2026-10-30T01:29:46.758873+00:00",
+  "scope": "Isolated Thunderhawk source-copy company, Core tenant 2002",
+  "runtime_revision": "ce14a12725479beb780cfc75caa79591688615fd",
+  "production_cutover": false,
+  "acceptance": "Quanta worker sample evidence -> Core private S3 intake -> native test review -> Quanta worker decision readback",
+  "runs": {
+    "ci": {
+      "conclusion": "success",
+      "headSha": "ce14a12725479beb780cfc75caa79591688615fd",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40984771832"
+    },
+    "staging_deploy": {
+      "conclusion": "success",
+      "headSha": "ce14a12725479beb780cfc75caa79591688615fd",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40985695250"
+    }
+  },
+  "confirmed_runtime_fix": "Accept canonical provider submission UUIDs, retaining strict Core case/task/command identities and receipt binding.",
+  "failure_before_fix": {
+    "checked_at": "2026-10-30T01:12:17+00:00",
+    "tenant_id": 2002,
+    "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+    "production_changed": false,
+    "real_employment_approval": false,
+    "independent_human_review": false,
+    "payroll_or_financial_postings": false,
+    "persistent_core_configuration_changed": false,
+    "passed": false,
+    "failed_phase": "attestation_intake",
+    "failure_class": "InvalidArgumentException",
+    "failure_source": "onboarding.php",
+    "failure_line": 14
+  },
+  "receipts": {
+    "quanta-onboarding-config": {
+      "passed": true,
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "document_transfer_enabled": true,
+      "allowed_workspace_count": 1,
+      "outbound_mail": "devoutbox only",
+      "service_healthy": true,
+      "production_services_changed": false,
+      "config_changed": true,
+      "prior_config_sha256": "a3dd02e14bbb3348dd5bdc8349c4440909ffdb4ab97e79a85481cde3d0bef6a9"
+    },
+    "quanta-worker-onboarding": {
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "case_id": "cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+      "production_changed": false,
+      "real_employment_evidence": false,
+      "real_worker_email_sent": false,
+      "employer_approval_granted": false,
+      "attestation": {
+        "receipt_id": "cfs_d40479a98fa4c29be9e7f327caf47117c55e582f19b85c360fe602381dcd148e",
+        "task_id": "1ae0e538-7b7f-4286-a6cc-0547dc90eac1",
+        "status": "awaiting_core_review",
+        "replay_same_receipt": true,
+        "changed_request_rejected": true
+      },
+      "document": {
+        "receipt_id": "cfs_80b180e017f5901815b8cdf11b9c2b762123943eb224da68565658e3a2d323fa",
+        "task_id": "cf1443b1-a424-4854-b4c2-40d618b46e79",
+        "status": "awaiting_core_review",
+        "replay_same_receipt": true,
+        "changed_request_rejected": true,
+        "sha256": "c73ab9af7fcd5b0ee83b187a41e5419f3e7a7ca864a7296508aee16754cc4417"
+      },
+      "passed": true,
+      "portal_case_version": 3,
+      "submission_count": 2,
+      "worker_cannot_submit_staff_task": true,
+      "worker_cannot_view_workspace_or_manage_team": true,
+      "private_test_login_created": true,
+      "notifications": "captured in isolated outbox"
+    },
+    "core-onboarding-return": {
+      "checked_at": "2026-10-30T01:28:01+00:00",
+      "tenant_id": 2002,
+      "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+      "production_changed": false,
+      "real_employment_approval": false,
+      "independent_human_review": false,
+      "payroll_or_financial_postings": false,
+      "persistent_core_configuration_changed": false,
+      "attestation_import": {
+        "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+        "case_version": 6,
+        "task_id": "1ae0e538-7b7f-4286-a6cc-0547dc90eac1",
+        "action": "import_quanta",
+        "provider_receipt_id": "cfs_d40479a98fa4c29be9e7f327caf47117c55e582f19b85c360fe602381dcd148e",
+        "replayed": false
+      },
+      "document_import": {
+        "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+        "case_version": 7,
+        "task_id": "cf1443b1-a424-4854-b4c2-40d618b46e79",
+        "action": "import_quanta",
+        "provider_receipt_id": "cfs_80b180e017f5901815b8cdf11b9c2b762123943eb224da68565658e3a2d323fa",
+        "document_id": 2,
+        "replayed": false
+      },
+      "document_sha256": "c73ab9af7fcd5b0ee83b187a41e5419f3e7a7ca864a7296508aee16754cc4417",
+      "native_private_storage_readback_verified": true,
+      "stale_review_rejected": true,
+      "reviews": [
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 8,
+          "task_id": "1ae0e538-7b7f-4286-a6cc-0547dc90eac1",
+          "action": "review"
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 9,
+          "task_id": "cf1443b1-a424-4854-b4c2-40d618b46e79",
+          "action": "review"
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 10,
+          "task_id": "7660819b-1bcc-42fd-ba37-36d24a53f36b",
+          "action": "submit"
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 11,
+          "task_id": "7660819b-1bcc-42fd-ba37-36d24a53f36b",
+          "action": "review"
+        }
+      ],
+      "delivery": {
+        "id": 35,
+        "state": "delivered",
+        "remote_id": "cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+        "remote_receipt_id": "cfd_1aa50aca7fe7450f69ce7f2d800eaa0a46e5b76fae0dbfd335af0d6f33b3dece"
+      },
+      "passed": true,
+      "case_version": 11,
+      "readiness": "complete",
+      "required_count": 3,
+      "satisfied_count": 3,
+      "provider_version": 4,
+      "review_and_publication_replay_verified": true,
+      "protected_records_unchanged": true
+    },
+    "quanta-worker-review-return": {
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "case_id": "cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+      "production_changed": false,
+      "real_worker_email_sent": false,
+      "rendered_browser_verified": false,
+      "passed": true,
+      "portal_case_version": 4,
+      "approved_task_count": 3,
+      "original_submission_count": 2,
+      "worker_api_decisions_verified": true,
+      "repeat_read_unchanged": true,
+      "worker_tasks_need_no_resubmission": true,
+      "workspace_and_team_access_denied": true
+    },
+    "jobdiva-fresh-source": {
+      "checked_at": "2026-10-30T01:28:17+00:00",
+      "mode": "read-only-source-comparison",
+      "production_changed": false,
+      "provider_records_written": false,
+      "pilot_records_written": false,
+      "source": {
+        "status": "exact_source_observed",
+        "source_refreshed": true,
+        "record_writes": false,
+        "connection_settings_changed": false,
+        "session_token_persisted": false,
+        "provider_calls": [
+          {
+            "operation": "search_exact_start",
+            "http_status": 200,
+            "response_shape": "list",
+            "parsed_rows": 1
+          },
+          {
+            "operation": "assignment_detail_by_start",
+            "http_status": 200,
+            "response_shape": "object",
+            "parsed_rows": 1,
+            "recognized_envelope": "data"
+          }
+        ],
+        "exact_assignment_verified": true,
+        "exact_detail_verified": true,
+        "import_authorized": false,
+        "start_diagnostics": {
+          "parsed_rows": 1,
+          "rows_with_expected_id": 1,
+          "rows_with_expected_person": 1,
+          "rows_with_expected_job": 1,
+          "rows_with_expected_person_and_job": 1,
+          "expected_id_checks": [
+            {
+              "assignment_identity_unambiguous": true,
+              "assignment_row_recognized": true,
+              "person_echo": "exact_match",
+              "job_echo": "exact_match",
+              "start_date_present": true,
+              "lifecycle_reason": "missing_assignment_state"
+            }
+          ]
+        },
+        "start_lifecycle": {
+          "qualified": false,
+          "reason": "missing_assignment_state"
+        },
+        "detail_diagnostics": {
+          "by_start": [
+            {
+              "identity": {
+                "placement": "exact_match",
+                "person": "exact_match",
+                "job": "exact_match"
+              },
+              "sections": {
+                "BILLING": {
+                  "rows": 1,
+                  "generic_id_matches_selected_assignment": false
+                },
+                "SALARY": {
+                  "rows": 1,
+                  "generic_id_matches_selected_assignment": false
+                },
+                "JOB": {
+                  "rows": 1,
+                  "generic_id_matches_selected_assignment": false
+                }
+              }
+            }
+          ]
+        },
+        "contract_lifecycle": {
+          "status": "active",
+          "billing_approved": true,
+          "salary_approved": true,
+          "actual_start": true,
+          "actual_end": false,
+          "billing_closed": false,
+          "salary_closed": false
+        },
+        "observed_at": "2026-10-30T01:28:18+00:00",
+        "alignment": {
+          "status": "compared",
+          "scope": "Nine current Core placement dimensions compared with a fresh exact JobDiva assignment contract.",
+          "source_refreshed": true,
+          "records_changed": false,
+          "limits": [
+            "Tenant mappings and Core overrides can intentionally differ; no overwrite is proposed.",
+            "Employer, rates, custom-field values and downstream delivery require separate evidence."
+          ],
+          "fields": {
+            "branch": "matches_fresh_source",
+            "workers_comp_class": "source_value_missing",
+            "worksite_city": "core_column_unavailable",
+            "worksite_state": "matches_fresh_source",
+            "worksite_country": "matches_fresh_source",
+            "engagement_type": "matches_fresh_source",
+            "start_date": "matches_fresh_source",
+            "end_date": "matches_fresh_source",
+            "status": "matches_fresh_source"
+          },
+          "source_last_synced_at": null
+        },
+        "commercial_alignment": {
+          "status": "observed",
+          "as_of": "2026-10-30",
+          "records_changed": false,
+          "scope": "Current nonsuperseded rate versions and the billing-client company link; no raw values.",
+          "limits": [
+            "Matching drafts are not approved compensation.",
+            "Billing client, end client, legal employer and vendor are distinct roles.",
+            "A source comparison does not authorize import, approval, payroll or payment."
+          ],
+          "rates": {
+            "status": "compared",
+            "draft_versions": 1,
+            "approved_versions": 0,
+            "versions": [
+              {
+                "status": "compared",
+                "approval": "draft",
+                "source_rate_basis_resolved": true,
+                "fields": {
+                  "bill_rate_unit": "matches_fresh_source",
+                  "pay_rate_unit": "matches_fresh_source",
+                  "currency": "matches_fresh_source",
+                  "bill_rate": "matches_fresh_source",
+                  "bill_discount_pct": "source_value_missing",
+                  "invoice_bill_rate": "awaiting_rate_approval",
+                  "pay_rate": "matches_fresh_source",
+                  "payroll_load_pct": "source_value_missing",
+                  "workers_comp_pct": "source_value_missing",
+                  "benefits_load_pct": "source_value_missing",
+                  "c2c_overhead_pct": "source_value_missing",
+                  "other_cost_per_hour": "source_value_missing",
+                  "other_cost_flat": "source_value_missing"
+                }
+              }
+            ]
+          },
+          "billing_client_company": {
+            "status": "matches_fresh_source"
+          }
+        },
+        "party_alignment": {
+          "status": "compared",
+          "records_changed": false,
+          "as_of": "2026-10-30",
+          "scope": "Explicit end-client identity, subcontract links, current primary labor routing and persisted company/client/vendor numbers.",
+          "limits": [
+            "Name agreement alone does not establish a company or payee identity.",
+            "Current graph routing does not establish approved compensation, payroll readiness or payment authorization.",
+            "Referral, commission, additional parties and custom values need separate review."
+          ],
+          "end_client": {
+            "source_evidence": "missing",
+            "company": "source_identity_missing",
+            "name": "source_name_missing"
+          },
+          "subcontract_link": {
+            "current": "absent",
+            "company": "not_required_for_source_classification",
+            "vendor": "not_compared"
+          },
+          "primary_labor_route": "matches_source_identity_and_route",
+          "persisted_numbers": {
+            "client": "schema_unavailable",
+            "end_client_company": "schema_unavailable",
+            "subcontract_company": "reference_missing",
+            "subcontract_vendor": "reference_missing"
+          }
+        },
+        "person_source": {
+          "status": "exact_person_observed",
+          "source_refreshed": true,
+          "record_writes": false,
+          "exact_person_verified": true,
+          "http_status": 200,
+          "provider_calls": [
+            {
+              "operation": "candidate_search",
+              "http_status": 404
+            },
+            {
+              "operation": "candidate_detail",
+              "http_status": 200
+            }
+          ],
+          "parsed_rows": 1,
+          "fields": {
+            "first_name": "present",
+            "last_name": "present",
+            "email_primary": "present",
+            "phone_primary": "missing"
+          },
+          "native_review_profile": "ready_for_review"
+        },
+        "person_alignment": {
+          "status": "compared",
+          "records_changed": false,
+          "fields": {
+            "first_name": "matches_fresh_source",
+            "last_name": "matches_fresh_source",
+            "email_primary": "matches_fresh_source",
+            "phone_primary": "source_value_missing"
+          },
+          "scope": "Four current person fields against an exact candidate read; no overwrite proposed.",
+          "limits": [
+            "Core overrides and tenant mappings may intentionally differ.",
+            "Names are case-sensitive; phone formatting alone is ignored, with no country inference.",
+            "This does not verify addresses, custom fields, worker access or payroll eligibility."
+          ]
+        },
+        "employment_setup_source_presence": {
+          "workers_comp_class": false,
+          "branch": false,
+          "job_division": true
+        },
+        "authentication_attempts": 1,
+        "authentication_http_status": 200
+      },
+      "source_refreshed": true
+    }
+  },
+  "sample_fixture": "tests/fixtures/thunderhawk_onboarding_sample.pdf",
+  "limits": [
+    "Synthetic evidence and operator test approvals only; no independent human employment review.",
+    "Worker checks used its native authenticated API, not a rendered browser.",
+    "Pilot sign-in mail was captured locally; no real worker was emailed.",
+    "Core delivery/document flags were scoped to the acceptance process and restored; persistent UI enablement remains pending.",
+    "JobDiva refresh compared live source with the production source records, without importing or overwriting records.",
+    "Workers compensation class remains absent in fresh JobDiva; production rates remain drafts.",
+    "No real payroll, payment, financial posting or production deployment."
+  ]
+}

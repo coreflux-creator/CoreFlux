@@ -1,6 +1,6 @@
 {
   "name": "ar_invoice_happy_path",
-  "description": "Billing invoice sent via event engine — verifies posting rule for billing.invoice.sent + AR side balance.",
+  "description": "Billing invoice issued via event engine — verifies posting rule for ar.invoice.issued + AR side balance.",
   "default_seed": 7,
   "expected": { "events_emitted": 1, "je_posted": 1, "assertions_failed": 0 },
   "invariants": [
@@ -20,7 +20,7 @@
     },
     {
       "action": "emit_event",
-      "event_type": "billing.invoice.sent",
+      "event_type": "ar.invoice.issued",
       "source_module": "billing",
       "source_record_id": "sim:invoice:0001",
       "entity_id": 1,

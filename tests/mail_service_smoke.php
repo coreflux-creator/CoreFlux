@@ -66,6 +66,9 @@ catch (\InvalidArgumentException $e) { $assert("rejects invalid recipient", true
 try { $svc->send(7, 'time', 'x', ['a@b.co'], '', 'b'); $assert("rejects empty subject", false); }
 catch (\InvalidArgumentException $e) { $assert("rejects empty subject", true); }
 
+try { $svc->send(7, 'time', 'x', ['a@b.co'], 's', 'b', null, [], ['cc' => ['invalid']]); $assert("rejects invalid CC", false); }
+catch (\InvalidArgumentException $e) { $assert("rejects invalid CC", true); }
+
 echo "\nSend (LogDriver) end-to-end\n";
 $res = $svc->send(
     7,
@@ -76,7 +79,8 @@ $res = $svc->send(
     'Plaintext body',
     '<p>HTML body</p>',
     [101, 102],
-    ['from' => 'timesheets@acmestaffing.com', 'reply_to' => 'no-reply@acmestaffing.com']
+    ['from' => 'timesheets@acmestaffing.com', 'reply_to' => 'no-reply@acmestaffing.com',
+     'cc' => ['controller@acmestaffing.com']]
 );
 $assert("send returns status=sent",                 ($res['status'] ?? null) === 'sent');
 $assert("send returns provider_message_id",         !empty($res['provider_message_id']));
@@ -91,6 +95,7 @@ $assert("row.module=time",                          ($row['module']    ?? null) 
 $assert("row.purpose=token_approval",               ($row['purpose']   ?? null) === 'token_approval');
 $assert("row.from preserved",                       ($row['from_address'] ?? null) === 'timesheets@acmestaffing.com');
 $assert("row.to_addresses_json is JSON array",      is_array(json_decode($row['to_addresses_json'] ?? '', true)));
+$assert("row.cc_addresses_json records CC",        json_decode($row['cc_addresses_json'] ?? '', true) === ['controller@acmestaffing.com']);
 $assert("row.attachments_json is JSON array",       is_array(json_decode($row['attachments_json'] ?? '', true)));
 $assert("row.status=sent",                          ($row['status']    ?? null) === 'sent');
 $assert("row.driver=log",                           ($row['driver']    ?? null) === 'log');
@@ -103,6 +108,30 @@ $logged = json_decode($lines[0] ?? '', true) ?: [];
 $assert("logged subject matches",                   ($logged['subject'] ?? null) === 'Approve timesheet — Jane Doe — Week of 2026-02-09');
 $assert("logged has_html=true",                     ($logged['has_html'] ?? null) === true);
 $assert("logged attach_n=2",                        ($logged['attach_n'] ?? null) === 2);
+$assert("logged cc is preserved",                    ($logged['cc'] ?? null) === ['controller@acmestaffing.com']);
+$failedLog = new LogDriver(sys_get_temp_dir());
+$failedWrite = $failedLog->send(['tenant_id' => 7, 'module' => 'billing', 'purpose' => 'invoice_sent',
+    'to' => ['test@example.test'], 'subject' => 'QA invoice', 'attachments' => []]);
+$assert('unwritable test mail log cannot claim delivery',
+    ($failedWrite['status'] ?? null) === 'failed' && empty($failedWrite['provider_message_id']));
+
+$priorLogPath = getenv('MAIL_LOG_PATH');
+putenv('MAIL_LOG_PATH');
+try {
+    $defaultLog = new LogDriver();
+    $defaultResult = $defaultLog->send(['tenant_id' => 7, 'module' => 'billing',
+        'purpose' => 'invoice_sent', 'to' => ['test@example.test'], 'subject' => 'Hosted test invoice']);
+    $defaultPath = $defaultLog->log_path();
+    $assert('unconfigured hosted log writes without an /app directory',
+        ($defaultResult['status'] ?? '') === 'sent' && is_file($defaultPath)
+        && str_contains((string) file_get_contents($defaultPath), 'Hosted test invoice'));
+    $assert('default test mail log is private on Unix',
+        PHP_OS_FAMILY === 'Windows' || (fileperms($defaultPath) & 0777) === 0600);
+    $assert('same log driver instance retains its log path', $defaultLog->log_path() === $defaultPath);
+} finally {
+    if (isset($defaultPath)) @unlink($defaultPath);
+    $priorLogPath === false ? putenv('MAIL_LOG_PATH') : putenv('MAIL_LOG_PATH=' . $priorLogPath);
+}
 
 echo "\nDuplicate recipients deduped\n";
 $res2 = $svc->send(7, 'time', 'x', ['a@b.co', 'a@b.co', 'c@d.co'], 'subj', 'body');
@@ -149,6 +178,22 @@ $assert("custom driver registered",                 $svc->driver('mock') === $mo
 $res4 = $svc->send(7, 'time', 'x', ['a@b.co'], 'subj', 'body', null, [], ['driver' => 'mock']);
 $assert("custom driver invoked on send",            count($mock->sent) === 1);
 $assert("custom driver provider_message_id used",   ($res4['provider_message_id'] ?? null) === 'mock-id');
+
+$secret = 'https://billing.example.test/invoice.php?t=' . str_repeat('a', 64);
+$svc->send(7, 'billing', 'invoice_sent', ['client@acme.com'], 'Invoice',
+    'View: ' . $secret, '<a href="' . $secret . '">View invoice</a>', [],
+    ['driver' => 'mock', 'outbox_redactions' => [$secret]]);
+$providerEnvelope = end($mock->sent);
+$storedEnvelope = end($outbox);
+$assert('provider receives the actual customer link',
+    str_contains($providerEnvelope['body_text'], $secret)
+    && str_contains($providerEnvelope['body_html'], $secret));
+$assert('mail audit copy omits the customer link',
+    !str_contains($storedEnvelope['body_text'], $secret)
+    && !str_contains($storedEnvelope['body_html'], $secret));
+$assert('mail audit copy retains non-secret context',
+    str_contains($storedEnvelope['body_text'], 'View: [redacted]')
+    && str_contains($storedEnvelope['body_html'], '>View invoice</a>'));
 
 $poll2 = $svc->poll_folder(1, 'mock');
 $assert("custom driver poll returns messages",      count($poll2['messages']) === 1);

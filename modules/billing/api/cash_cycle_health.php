@@ -54,6 +54,7 @@ $dso = $tryOne(
        JOIN billing_payment_allocations a ON a.invoice_id = i.id
        JOIN billing_payments p             ON p.id = a.payment_id
       WHERE i.tenant_id = :t
+        AND a.reversed_at IS NULL AND p.voided_at IS NULL
         AND i.status = 'paid'
         AND i.amount_due < 0.005
         AND p.received_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)",

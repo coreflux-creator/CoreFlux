@@ -1,0 +1,374 @@
+{
+  "observed_at": "2026-10-30T01:01:02Z",
+  "scope": "Thunderhawk source-copy company in isolated pilot only",
+  "core_tenant_id": 2002,
+  "production_cutover": false,
+  "runtime_revision": "3d9ca8a35d350a1136cccaf81b210571a4dfb9ef",
+  "acceptance": "assignment -> Quanta approved synthetic time -> Core review -> held manual PurePayroll draft -> Core result reconciliation",
+  "receipts": {
+    "quanta-assignment": {
+      "checked_at": "2026-10-30T00:39:48+00:00",
+      "tenant_id": 2002,
+      "passed": true,
+      "delivery_id": 28,
+      "assignment_id": "cfa_871bbe898ab463057f86d3ef6b135de333e88f3e5595f4b6b23028d9da66453a",
+      "receipt_id": "cfd_6201d8519459b4f9b6a78e212d8283cfc2ffba8cb80c82a2c5585d45191a8b97",
+      "repeated_send_same_assignment": true,
+      "fresh_preview": "unchanged",
+      "production_changed": false
+    },
+    "core-commercial-approval": {
+      "checked_at": "2026-10-30T00:42:16+00:00",
+      "tenant_id": 2002,
+      "placement_id": 864,
+      "source_sha256": "eb0bf8278b5db12847567a82ec96af995751d0d507562fac4602a038e14de8d5",
+      "production_approved": false,
+      "payroll_or_financial_postings": false,
+      "workers_comp_class_still_missing": true,
+      "commission_currency_or_due_date_inferred": false,
+      "rate_id": 2,
+      "native_approval_passed": true,
+      "bill_rate": "98.0000",
+      "pay_rate": "65.0000",
+      "employer_load_fraction": "0.200000",
+      "modeled_hourly_cost": "78.000000",
+      "modeled_hourly_margin": "20.000000",
+      "cycles": {
+        "20": 7,
+        "30": 8
+      },
+      "source_party_mapping": {
+        "32430": 72,
+        "32431": 73,
+        "32432": 74,
+        "32433": 75,
+        "32434": 76
+      },
+      "commercial_source_revision": "e8dc2569bb4b913a461b371c080869bc9083379a9f971c10eb5b64d3ed5b72b1",
+      "term_periods": 1,
+      "informational_source_roles": [
+        "source_recruiter_allocation",
+        "source_sales_allocation",
+        "unresolved_c2c_vendor",
+        "end_client"
+      ],
+      "passed": true
+    },
+    "purepay-assignment": {
+      "checked_at": "2026-10-30T00:42:43+00:00",
+      "tenant_id": 2002,
+      "delivery_id": 29,
+      "input_id": "cpa_745cc59ea16c57979b2513ab70fbb5e91442908892e0ee871a37e5c893f224e4",
+      "source_revision": "e8dc2569bb4b913a461b371c080869bc9083379a9f971c10eb5b64d3ed5b72b1",
+      "repeat_send_same_receipt": true,
+      "provider_review": {
+        "state": "ready",
+        "assignment_id": null,
+        "assignment_status": null,
+        "accepted_revision": null
+      },
+      "passed": true,
+      "production_changed": false
+    },
+    "purepay-native-assignment": {
+      "checked_at": "2026-10-30T00:43:26.391856+00:00",
+      "passed": true,
+      "input_id": "cpa_745cc59ea16c57979b2513ab70fbb5e91442908892e0ee871a37e5c893f224e4",
+      "assignment_id": "asg_core_329879a277eb3fb0398832357ad55998706add368dad8c75386e2058745ba2d6",
+      "assignment_status": "active",
+      "accepted_revision": "e8dc2569bb4b913a461b371c080869bc9083379a9f971c10eb5b64d3ed5b72b1",
+      "native_session_login": true,
+      "operator_permissions": [
+        "payables.create",
+        "payables.view"
+      ],
+      "create_then_activate_reviewed": true,
+      "repeat_create_same_assignment": true,
+      "billing_automation_enabled": false,
+      "payroll_approval_held": true,
+      "production_changed": false
+    },
+    "quanta-time-acceptance": {
+      "checked_at": "2026-10-30T00:50:29.239468+00:00",
+      "entry_id": "ad44e619-7f34-4f8e-a008-1cd1bf33992e",
+      "mode": "isolated_test_hours",
+      "outbound_mail": "devoutbox only",
+      "passed": true,
+      "production_changed": false,
+      "real_payroll_executed": false,
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "worker_login_created": false,
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "timesheet_id": "96c12ef7-bd65-4909-b27e-eb68fb551f4d",
+      "minutes": 480,
+      "date": "2026-10-19",
+      "submitted_by": "8041205e-b179-4991-8dbe-65d51a474e22",
+      "approved_by": "ff6fdfe9-291c-4fac-91aa-51782ba5585f",
+      "separate_approver_verified": true,
+      "worker_has_login_after": false,
+      "source_status": "approved"
+    },
+    "core-time-import": {
+      "checked_at": "2026-10-30T00:53:18+00:00",
+      "tenant_id": 2002,
+      "source_entry_id": "ad44e619-7f34-4f8e-a008-1cd1bf33992e",
+      "mode": "isolated_test_hours",
+      "production_changed": false,
+      "core_time_approved": false,
+      "payroll_or_financial_postings": false,
+      "route_id": 2,
+      "entry_id": 2,
+      "timesheet_id": 3,
+      "import": {
+        "inserted": 0,
+        "updated": 0,
+        "already_imported": 1,
+        "source_verified": 0,
+        "source_workspace": {
+          "id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+          "name": "Thunderhawk \u2014 isolated pilot"
+        },
+        "timesheets": []
+      },
+      "replay": {
+        "inserted": 0,
+        "updated": 0,
+        "already_imported": 1,
+        "source_verified": 0,
+        "source_workspace": {
+          "id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+          "name": "Thunderhawk \u2014 isolated pilot"
+        },
+        "timesheets": []
+      },
+      "source_approval_preserved": true,
+      "delivery": {
+        "id": 31,
+        "state": "delivered",
+        "remote_id": "cft_858c5c6d8a6847c50b1f0201716671ace2c55fbecc5e19c82af3fa5fcd91a02a",
+        "remote_receipt_id": "cfd_18c6b766abab09b0bed0f108a67398a3e2f4b77a627354549ee7a178e3d6d88c"
+      },
+      "provider_core_review_status": "pending_review",
+      "passed": true
+    },
+    "core-time-approval": {
+      "checked_at": "2026-10-30T00:55:02+00:00",
+      "tenant_id": 2002,
+      "entry_id": 2,
+      "hours": 8,
+      "production_changed": false,
+      "independent_human_review": false,
+      "payroll_or_financial_postings": false,
+      "reviewer": {
+        "user_id": 52,
+        "membership_id": 38,
+        "display_name": "Thunderhawk Pilot Test Approver",
+        "tenant_id": 2002,
+        "time_review_allowed_in_both_models": true,
+        "other_modules_denied": true,
+        "global_admin": false,
+        "other_active_tenant_memberships": 0,
+        "audit_verified": true,
+        "created": true,
+        "credentials_issued": false,
+        "invitation_sent": false
+      },
+      "self_approval_rejected": true,
+      "duplicate_approval_rejected": true,
+      "native_approval_state": "approved",
+      "rate_snapshot_id": 2,
+      "delivery": {
+        "id": 32,
+        "state": "delivered",
+        "remote_id": "cft_858c5c6d8a6847c50b1f0201716671ace2c55fbecc5e19c82af3fa5fcd91a02a",
+        "remote_receipt_id": "cfd_99c014377ca24b995c68d48a583c52e2bbcef63aff3b5b3d43de45bcd33c5466"
+      },
+      "provider_core_review_status": "accepted",
+      "reviewer_retirement": {
+        "user_id": 52,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "protected_tables_unchanged": 326,
+      "passed": true
+    },
+    "core-payroll-input": {
+      "checked_at": "2026-10-30T00:57:17+00:00",
+      "tenant_id": 2002,
+      "mode": "isolated_test_hours",
+      "production_changed": false,
+      "payroll_execution_requested": false,
+      "financial_posting_requested": false,
+      "provider_assignment": {
+        "state": "created",
+        "assignment_id": "asg_core_329879a277eb3fb0398832357ad55998706add368dad8c75386e2058745ba2d6",
+        "assignment_status": "active",
+        "accepted_revision": "e8dc2569bb4b913a461b371c080869bc9083379a9f971c10eb5b64d3ed5b72b1"
+      },
+      "assignment_link_delivery_id": 33,
+      "input_delivery_id": 34,
+      "input_id": "cpi_2c219ec937ea221bead21b8b4cb3391b099bd7bdbe19deb570d42882d726bcd9",
+      "input_replay_verified": true,
+      "authority_id": "cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+      "provider_receipt": {
+        "authority": {
+          "components": 1,
+          "content_hash": "9807a9b8a648b0be07b76fda783ee79a13a911ef9e77fbd279554ccec61651ad",
+          "contract_version": "2026-10-21.1",
+          "id": "cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+          "input_id": "cpi_2c219ec937ea221bead21b8b4cb3391b099bd7bdbe19deb570d42882d726bcd9",
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "organization_id": "org_0369a63ff2cb",
+          "source_time_reserved": true,
+          "time_tenant_id": 2002
+        },
+        "state": "available",
+        "provider_usable": true,
+        "payroll_created": false,
+        "release_confirmed": false,
+        "release_receipt_id": null
+      },
+      "source_time_unchanged": true,
+      "passed": true
+    },
+    "purepay-payroll-mode": {
+      "passed": true,
+      "organization_id": "org_0369a63ff2cb",
+      "calculation": "MANUAL",
+      "payments": "RECORD_ONLY",
+      "production_changed": false,
+      "execution_held": true
+    },
+    "purepay-payroll-draft": {
+      "checked_at": "2026-10-30T00:59:59.616785+00:00",
+      "organization_id": "org_0369a63ff2cb",
+      "input_id": "cpi_2c219ec937ea221bead21b8b4cb3391b099bd7bdbe19deb570d42882d726bcd9",
+      "authority_id": "cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+      "production_changed": false,
+      "real_payroll_executed": false,
+      "passed": true,
+      "run_id": "run_core_792fd19f59a1a78e389b3885a4ebbf5d13e2690e223126af839f8378826045ab",
+      "status": "draft",
+      "gross": "520.00",
+      "hours": "8.00",
+      "pay_rate": "65.0000",
+      "currency": "USD",
+      "execution_hold": true,
+      "duplicate_request_same_draft": true,
+      "execution_rejected": true,
+      "payments_bills_invoices_unchanged": true
+    },
+    "core-payroll-draft-result": {
+      "checked_at": "2026-10-30T01:01:02+00:00",
+      "tenant_id": 2002,
+      "authority_id": "cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+      "production_changed": false,
+      "payroll_executed": false,
+      "financial_postings": false,
+      "tax_calculation_validated": false,
+      "worker_onboarding_completed": false,
+      "passed": true,
+      "observation_id": 3,
+      "run_id": "run_core_792fd19f59a1a78e389b3885a4ebbf5d13e2690e223126af839f8378826045ab",
+      "state": "draft",
+      "calculation_mode": "manual",
+      "source_gross": "520.00",
+      "gross": "520.00",
+      "execution_hold": true,
+      "result_hash": "fad44d6ab1a5013eda8823974b8f01707eb8798c72ef60b58fa84d5ba6f52b56",
+      "original_source_reconciled": true,
+      "replay_reuses_observation": true,
+      "encrypted_result_verified": true,
+      "source_time_unchanged": true
+    },
+    "core-onboarding-publication": {
+      "checked_at": "2026-10-30T00:49:12+00:00",
+      "tenant_id": 2002,
+      "fixture": "pilot:thunderhawk:20261030",
+      "mode": "synthetic_onboarding_publication",
+      "application_deployed": false,
+      "persistent_configuration_changed": false,
+      "permissions_changed": false,
+      "login_or_invitation_created": false,
+      "worker_submissions_created": false,
+      "evidence_approved": false,
+      "time_approved": false,
+      "payroll_or_financial_writes": false,
+      "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+      "commands": [
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 1,
+          "task_id": null,
+          "action": "create",
+          "replayed": false,
+          "replay_verified": true
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 2,
+          "task_id": "cf1443b1-a424-4854-b4c2-40d618b46e79",
+          "action": "add_task",
+          "replayed": false,
+          "replay_verified": true
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 3,
+          "task_id": "1ae0e538-7b7f-4286-a6cc-0547dc90eac1",
+          "action": "add_task",
+          "replayed": false,
+          "replay_verified": true
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 4,
+          "task_id": "7660819b-1bcc-42fd-ba37-36d24a53f36b",
+          "action": "add_task",
+          "replayed": false,
+          "replay_verified": true
+        },
+        {
+          "case_id": "4e861f71-d0bd-45cb-b31b-0ccd27b0e957",
+          "case_version": 5,
+          "task_id": null,
+          "action": "confirm_plan",
+          "replayed": false,
+          "replay_verified": true
+        }
+      ],
+      "delivery": {
+        "id": 30,
+        "state": "delivered",
+        "remote_id": "cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+        "remote_receipt_id": "cfd_695c236e97f3d88698975bfa7d81a4a63e7331bb6e5d6e7b31c15f3a536bfdd4"
+      },
+      "delivery_replay_verified": true,
+      "remote": {
+        "id": "cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+        "projection_hash": "8d59132a90728f08576f6e602f07f6f122c38c804908392d09ccb910ada355cd",
+        "version": 1,
+        "assignment_id": "cfa_871bbe898ab463057f86d3ef6b135de333e88f3e5595f4b6b23028d9da66453a",
+        "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa"
+      },
+      "required_count": 3,
+      "satisfied_count": 0,
+      "readiness": "incomplete",
+      "fresh_comparison": "unchanged",
+      "passed": true,
+      "publication_flag_restored": true,
+      "document_intake_enabled_after": false
+    }
+  },
+  "limitations": [
+    "Test hours are synthetic; this is not employee or independent human sign-off.",
+    "Manual payroll calculation proves the approved source gross; tax, withholding, YTD, payment, and filing correctness are not validated.",
+    "One held draft and its source reservation remain for further pilot review. No real payroll, payments, invoices, or ledger postings were executed.",
+    "Onboarding requirements were published; worker document and attestation submissions and employer review remain incomplete.",
+    "A fresh JobDiva fetch, current-host ownership/conflict/isolation acceptance, worker-portal UI validation, and production deployment remain outstanding.",
+    "Workers compensation class remains absent. Recruiter commission remains INR 7,500 one-time; exact due date and payable recipient identity need reconciliation.",
+    "The pilot payroll mode correction changes the isolated organization only; production payroll processing was not changed."
+  ]
+}

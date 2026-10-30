@@ -16,6 +16,8 @@
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
+require_once __DIR__ . '/../../../core/tx_helpers.php';
+require_once __DIR__ . '/../../accounting/lib/credit_balances.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 
 /**
@@ -51,6 +53,170 @@ function apNextInternalRef(int $tenantId): string
         if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+}
+
+/** Keep staffing costs in direct cost accounts, using the reviewed vendor type. */
+function apGeneratedExpenseAccountCode(array $line, string $vendorType): string
+{
+    $chosen = trim((string) ($line['gl_expense_account_code'] ?? ''));
+    if ($chosen !== '') return $chosen;
+
+    if (($line['item_type'] ?? '') === 'labor') {
+        return match ($vendorType) {
+            '1099_individual' => '5070',
+            'c2c_corp', 'w9_business' => '5010',
+            default => throw new \RuntimeException(
+                'Classify the staffing vendor as an individual or business before generating labor bills.'
+            ),
+        };
+    }
+    return '5080';
+}
+
+/** Generated placement costs may use a custom, active COGS account, never operating expense. */
+function apValidateGeneratedBillExpenseAccounts(int $tenantId, array $codes): void
+{
+    $lookup = getDB()->prepare(
+        'SELECT account_type, subtype, active, is_postable, is_system_account
+           FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :code LIMIT 1'
+    );
+    foreach (array_unique($codes) as $code) {
+        $code = trim((string) $code);
+        if ($code === '') {
+            throw new \InvalidArgumentException('Choose a direct-cost expense account for every generated bill line.');
+        }
+        $lookup->execute(['tenant_id' => $tenantId, 'code' => $code]);
+        $account = $lookup->fetch(\PDO::FETCH_ASSOC);
+        if (!$account || $account['account_type'] !== 'expense' || $account['subtype'] !== 'cogs'
+            || (int) $account['active'] !== 1 || (int) $account['is_postable'] !== 1
+            || ((int) $account['is_system_account'] === 1
+                && !in_array($code, ['5010', '5070', '5080'], true))) {
+            throw new \InvalidArgumentException(
+                "Account {$code} is not an active, postable direct-cost expense account."
+            );
+        }
+    }
+}
+
+/** Bill coding rules are shared by its read model and compare-and-swap editor. */
+function apBillCodingMode(array $bill, array $lines): ?string
+{
+    if (!$lines) return null;
+    if (($bill['source'] ?? '') === 'manual' && empty($bill['placement_id'])) {
+        foreach ($lines as $line) {
+            if (($line['source_type'] ?? '') !== 'manual' || !empty($line['placement_id'])) return null;
+        }
+        return 'direct';
+    }
+    if (in_array((string) ($bill['source'] ?? ''), ['time_entries', 'time_bundle', 'staffing_economics'], true)) {
+        foreach ($lines as $line) {
+            if ((int) ($line['placement_id'] ?? 0) <= 0
+                || !in_array((string) ($line['source_type'] ?? ''),
+                    ['time_entry', 'time', 'economic_item', 'economic_party'], true)) return null;
+        }
+        return 'generated';
+    }
+    return null;
+}
+
+function apRequireGeneratedBillExpenseCoding(int $tenantId, array $bill, array $lines): void
+{
+    if (!in_array((string) ($bill['source'] ?? ''),
+        ['time_entries', 'time_bundle', 'staffing_economics'], true)) return;
+    if (apBillCodingMode($bill, $lines) !== 'generated') {
+        throw new \RuntimeException('Generated bill lines need placement and source review before posting.');
+    }
+    apValidateGeneratedBillExpenseAccounts(
+        $tenantId, array_map(
+            static fn(array $line): ?string => $line['gl_expense_account_code'] ?? null,
+            $lines
+        )
+    );
+}
+
+/** Resolve a staffing-generated bill against the reviewed tenant vendor record. */
+function apPrepareGeneratedDraftVendor(int $tenantId, array $draft): array
+{
+    $pdo = getDB();
+    if (!$pdo->inTransaction()) {
+        throw new \LogicException('Generated AP bills must be prepared inside a transaction.');
+    }
+
+    $vendorId = (int) ($draft['ap_vendor_id'] ?? 0);
+    $vendorName = trim((string) ($draft['bill']['vendor_name'] ?? ''));
+    if ($vendorId > 0) {
+        $stmt = $pdo->prepare(
+            'SELECT id, vendor_name, vendor_type, company_id, requires_1099
+               FROM ap_vendors_index WHERE tenant_id = :t AND id = :id FOR UPDATE'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $vendorId]);
+    } elseif ($vendorName !== '') {
+        // Older rate snapshots can lack an ID; the tenant-unique name is the only safe fallback.
+        $stmt = $pdo->prepare(
+            'SELECT id, vendor_name, vendor_type, company_id, requires_1099
+               FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :name FOR UPDATE'
+        );
+        $stmt->execute(['t' => $tenantId, 'name' => $vendorName]);
+    } else {
+        throw new \RuntimeException('Generated AP bill has no vendor. Review the placement recipient.');
+    }
+    $vendor = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$vendor) {
+        throw new \RuntimeException('Generated AP vendor is unavailable. Review the placement recipient before creating bills.');
+    }
+
+    $draft['ap_vendor_id'] = (int) $vendor['id'];
+    $draft['bill']['vendor_name'] = (string) $vendor['vendor_name'];
+    $draft['bill']['vendor_type'] = (string) $vendor['vendor_type'];
+    $draft['bill']['vendor_company_id'] = $vendor['company_id'] ?: null;
+    foreach ($draft['lines'] as &$line) {
+        $line['is_1099_eligible'] = (int) $vendor['requires_1099'];
+        $line['gl_expense_account_code'] = apGeneratedExpenseAccountCode(
+            $line, (string) $vendor['vendor_type']
+        );
+    }
+    unset($line);
+    apValidateGeneratedBillExpenseAccounts(
+        $tenantId, array_column($draft['lines'], 'gl_expense_account_code')
+    );
+
+    $placementId = (int) ($draft['lines'][0]['placement_id'] ?? 0);
+    $pdo->prepare(
+        'UPDATE ap_vendors_index
+            SET last_bill_at = NOW(), placement_id_last = COALESCE(:pid, placement_id_last)
+          WHERE tenant_id = :t AND id = :id'
+    )->execute([
+        'pid' => $placementId > 0 ? $placementId : null,
+        't' => $tenantId,
+        'id' => $draft['ap_vendor_id'],
+    ]);
+
+    return $draft;
+}
+
+/** A generated bill must belong to the placement's active legal entity. */
+function apGeneratedActiveEntityIds(int $tenantId): array
+{
+    $stmt = getDB()->prepare(
+        'SELECT id FROM accounting_entities WHERE tenant_id = :t AND active = 1 ORDER BY id'
+    );
+    $stmt->execute(['t' => $tenantId]);
+    return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+}
+
+function apGeneratedEntityId(int $placementId, int $configuredEntityId, array $activeEntityIds): int
+{
+    if (!$activeEntityIds) {
+        throw new \RuntimeException('Set up an active legal entity before generating bills.');
+    }
+    if ($configuredEntityId > 0) {
+        if (!in_array($configuredEntityId, $activeEntityIds, true)) {
+            throw new \RuntimeException("Placement #{$placementId} has no active legal entity in this workspace.");
+        }
+        return $configuredEntityId;
+    }
+    if (count($activeEntityIds) === 1) return $activeEntityIds[0];
+    throw new \RuntimeException("Set the owning legal entity on placement #{$placementId} before generating bills.");
 }
 
 /**
@@ -93,7 +259,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
 
     $bundles = scopedQuery(
         'SELECT tdf.*, p.title AS placement_title, p.person_id,
-                p.engagement_type,
+                p.engagement_type, p.accounting_entity_id,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
          FROM time_downstream_feed tdf
@@ -124,10 +290,12 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         }
     }
 
-    // Group bundles
+    // Keep generated bills within one legal entity, even for per-vendor aggregation.
+    $activeEntityIds = apGeneratedActiveEntityIds($tenantId);
     $groups = [];
     foreach ($bundles as $b) {
         $placementId = (int) $b['placement_id'];
+        $entityId = apGeneratedEntityId($placementId, (int) ($b['accounting_entity_id'] ?? 0), $activeEntityIds);
         placementEconomicsReconcile($tenantId, $placementId);
         $hours = (float) $b['total_hours_billable'];
         $charges = placementEconomicsApCharges(
@@ -142,7 +310,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
             );
         }
         foreach ($charges as $party) {
-            $key = 'V:' . (int) $party['ap_vendor_id'];
+            $key = 'V:' . (int) $party['ap_vendor_id'] . ':E:' . $entityId;
             if ($aggregation === 'per_placement') $key .= ':P:' . $placementId;
             $groups[$key][] = [
                 'bundle' => $b,
@@ -151,6 +319,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'vendor_type' => (string) ($party['vendor_type'] ?: 'other'),
                 'vendor_company_id' => $party['company_id'] ?: null,
                 'ap_vendor_id' => $party['ap_vendor_id'] ?: null,
+                'entity_id' => $entityId,
                 'economic_party_id' => $party['id'] ?: null,
                 'payment_terms' => (string) ($party['resolved_payment_terms'] ?? $terms),
                 'pwp_enabled' => !empty($party['resolved_pwp']),
@@ -260,10 +429,12 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         if (empty($lines)) continue;
 
         $bills[] = [
+            'ap_vendor_id' => $first['ap_vendor_id'],
             'bill' => [
                 'vendor_name'   => $vendorName,
                 'vendor_type'   => $vendorType,
                 'vendor_company_id' => $first['vendor_company_id'],
+                'entity_id' => $first['entity_id'],
                 'received_at'   => $today,
                 'bill_date'     => $today,
                 'due_date'      => $billDue,
@@ -340,8 +511,8 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $entries = scopedQuery(
         'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
-                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
-                p.title AS placement_title, p.engagement_type,
+                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id, te.dimension_snapshot_hash,
+                p.title AS placement_title, p.engagement_type, p.accounting_entity_id,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
@@ -355,6 +526,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
     );
     if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
 
+    $activeEntityIds = apGeneratedActiveEntityIds($tenantId);
     $payable = [];
     foreach ($entries as $e) {
         if ((int) $e['payable'] !== 1) continue;
@@ -364,6 +536,9 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
             );
         }
         if ((float) $e['hours'] <= 0) continue;
+        $e['_entity_id'] = apGeneratedEntityId(
+            (int) $e['placement_id'], (int) ($e['accounting_entity_id'] ?? 0), $activeEntityIds
+        );
         $payable[] = $e;
     }
     if (empty($payable)) throw new \RuntimeException('Selected entries have no payable hours');
@@ -409,10 +584,14 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
     $groups = [];
     foreach (array_filter($payable, static fn(array $row): bool => !empty($row['_primary_ap_party'])) as $e) {
+        $vendorKey = !empty($e['_ap_vendor_id'])
+            ? 'I:' . (int) $e['_ap_vendor_id']
+            : 'N:' . $e['_vendor_name'];
+        $vendorKey .= ':E:' . $e['_entity_id'];
         $key = match ($aggregation) {
-            'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $e['_vendor_name'],
-            'per_placement' => 'P:' . $e['placement_id'],
-            'per_vendor'    => 'V:' . (int) ($e['_ap_vendor_id'] ?? 0),
+            'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $vendorKey,
+            'per_placement' => 'P:' . $e['placement_id'] . ':' . $vendorKey,
+            'per_vendor'    => 'V:' . $vendorKey,
         };
         $groups[$key][] = $e;
     }
@@ -449,7 +628,8 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
         $linesByKey = [];
         foreach ($rows as $r) {
-            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type'];
+            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type']
+                . '|' . $r['_rate_snapshot_id'] . '|' . ($r['dimension_snapshot_hash'] ?? '');
             if (!isset($linesByKey[$lk])) {
                 $linesByKey[$lk] = [
                     'placement_id'    => (int) $r['placement_id'],
@@ -462,10 +642,16 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                     'rate_snapshot_id'=> $r['_rate_snapshot_id'] ?? null,
                     'hours'           => 0.0,
                     'source_refs'     => [],
+                    'entries'         => [],
                 ];
             }
             $linesByKey[$lk]['hours']       += (float) $r['hours'];
             $linesByKey[$lk]['source_refs'][]= (int) $r['id'];
+            $linesByKey[$lk]['entries'][] = [
+                'id' => (int) $r['id'],
+                'hours' => (float) $r['hours'],
+                'amount_cents' => (int) round(round((float) $r['hours'] * (float) $r['_pay_rate'], 2) * 100),
+            ];
             if (!$minDate || strcmp((string) $r['work_date'], $minDate) < 0) $minDate = (string) $r['work_date'];
             if (!$maxDate || strcmp((string) $r['work_date'], $maxDate) > 0) $maxDate = (string) $r['work_date'];
         }
@@ -473,7 +659,15 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
         $lines = []; $lineNo = 1; $subtotal = 0.0;
         foreach ($linesByKey as $ld) {
-            $sub = round($ld['hours'] * $ld['pay_rate'], 2);
+            $groupCents = (int) round(round($ld['hours'] * $ld['pay_rate'], 2) * 100);
+            $entryCents = array_sum(array_column($ld['entries'], 'amount_cents'));
+            $parts = $groupCents === $entryCents
+                ? [['hours' => $ld['hours'], 'amount_cents' => $groupCents, 'source_refs' => $ld['source_refs']]]
+                : array_map(static fn(array $entry): array => [
+                    'hours' => $entry['hours'],
+                    'amount_cents' => $entry['amount_cents'],
+                    'source_refs' => [$entry['id']],
+                ], $ld['entries']);
             $consultant = trim($ld['first_name'] . ' ' . $ld['last_name']) ?: 'Consultant';
             $desc = sprintf(
                 '%s — %s · %s · %s',
@@ -482,35 +676,39 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 $ld['work_date'],
                 $ld['hour_type']
             );
-            $primaryRef = $ld['source_refs'][0];
-            $lines[] = [
-                'line_no'                 => $lineNo++,
-                'source_type'             => 'time_entry',
-                'item_type'               => 'labor',
-                'source_ref_id'           => $primaryRef,
-                'placement_id'            => $ld['placement_id'],
-                'rate_snapshot_id'        => $ld['rate_snapshot_id'] ? (int) $ld['rate_snapshot_id'] : null,
-                'description'             => $desc . (count($ld['source_refs']) > 1 ? ' (' . count($ld['source_refs']) . ' entries)' : ''),
-                'quantity'                => round($ld['hours'], 4),
-                'unit'                    => 'hour',
-                'unit_price'              => $ld['pay_rate'],
-                'subtotal'                => $sub,
-                'tax_rate_pct'            => 0,
-                'tax_amount'              => 0,
-                'total'                   => $sub,
-                'gl_expense_account_code' => null,
-                'is_1099_eligible'        => $is1099 ? 1 : 0,
-                '_entry_ids'              => $ld['source_refs'],
-            ];
-            $subtotal += $sub;
+            foreach ($parts as $part) {
+                $sub = $part['amount_cents'] / 100;
+                $lines[] = [
+                    'line_no'                 => $lineNo++,
+                    'source_type'             => 'time_entry',
+                    'item_type'               => 'labor',
+                    'source_ref_id'           => $part['source_refs'][0],
+                    'placement_id'            => $ld['placement_id'],
+                    'rate_snapshot_id'        => $ld['rate_snapshot_id'] ? (int) $ld['rate_snapshot_id'] : null,
+                    'description'             => $desc . (count($part['source_refs']) > 1 ? ' (' . count($part['source_refs']) . ' entries)' : ''),
+                    'quantity'                => round($part['hours'], 4),
+                    'unit'                    => 'hour',
+                    'unit_price'              => $ld['pay_rate'],
+                    'subtotal'                => $sub,
+                    'tax_rate_pct'            => 0,
+                    'tax_amount'              => 0,
+                    'total'                   => $sub,
+                    'gl_expense_account_code' => null,
+                    'is_1099_eligible'        => $is1099 ? 1 : 0,
+                    '_entry_ids'              => $part['source_refs'],
+                ];
+                $subtotal += $sub;
+            }
         }
         if (empty($lines)) continue;
 
         $bills[] = [
+            'ap_vendor_id' => $first['_ap_vendor_id'],
             'bill' => [
                 'vendor_name'    => $vendorName,
                 'vendor_type'    => $vendorType,
                 'vendor_company_id' => $first['_vendor_company_id'],
+                'entity_id' => $first['_entity_id'],
                 'received_at'    => $today,
                 'bill_date'      => $today,
                 'due_date'       => $resolvedDueDate,
@@ -581,6 +779,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                 ? $economicItemId
                 : ($obligationSourceType === 'manual' ? $placementId : $sourceRef);
             $bills[] = [
+                'ap_vendor_id' => $charge['ap_vendor_id'] ?: null,
                 'bill' => [
                     'vendor_name' => (string) ($charge['vendor_name'] ?: $charge['display_name']),
                     'vendor_type' => (string) ($charge['vendor_type'] ?: 'other'),
@@ -597,6 +796,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
                     'amount_due' => $amount,
                     'status' => 'pending_approval',
                     'source' => 'staffing_economics',
+                    'entity_id' => $rows[0]['_entity_id'],
                     'placement_id' => $placementId,
                     'payment_terms' => $termsForCharge,
                     'pwp_status' => $pwpForCharge ? 'awaiting_ar' : 'not_pwp',
@@ -699,6 +899,38 @@ function apComputeTotals(array $lines, float $taxPct = 0.0): array
     return ['lines' => $lines, 'subtotal' => round($sub, 2), 'tax_total' => round($tax, 2), 'total' => round($sub + $tax, 2)];
 }
 
+function apValidPositiveBillDecimal4(mixed $value): bool
+{
+    if (!is_int($value) && !is_float($value) && !is_string($value)) return false;
+    $raw = trim((string) $value);
+    return (bool) preg_match('/^[0-9]+(?:\.[0-9]{1,4})?$/D', $raw)
+        && is_finite((float) $raw)
+        && (float) $raw > 0
+        && (float) $raw <= 99999999.9999;
+}
+
+/** Imported payable lines must satisfy the same positive-line approval rule. */
+function apValidateImportedBillLineAmounts(array $row, array $amounts): void
+{
+    $quantity = (float) $amounts['quantity'];
+    $price = (float) $amounts['unitPrice'];
+    $subtotal = (float) $amounts['subtotal'];
+    $tax = (float) $amounts['tax'];
+    $total = (float) $amounts['total'];
+    if (!apValidPositiveBillDecimal4(($row['line_quantity'] ?? '') === '' ? '1' : $row['line_quantity'])) {
+        throw new InvalidArgumentException('Bill line quantity must be positive with at most four decimals');
+    }
+    if (!apValidPositiveBillDecimal4($row['line_unit_price'] ?? null)) {
+        throw new InvalidArgumentException('Bill line unit price must be positive with at most four decimals');
+    }
+    if ($subtotal <= 0 || $tax < 0 || $total <= 0 || $total > 9999999999.99) {
+        throw new InvalidArgumentException('Bill line subtotal and total must be positive; tax cannot be negative');
+    }
+    if ((int) round($subtotal * 100) !== (int) round($quantity * $price * 100)) {
+        throw new InvalidArgumentException('Bill line subtotal must equal quantity times unit price');
+    }
+}
+
 /**
  * Bill state machine per SPEC §9.
  *
@@ -706,8 +938,8 @@ function apComputeTotals(array $lines, float $taxPct = 0.0): array
  *  - pending_review → pending_approval | void | disputed
  *  - pending_approval → approved | void | disputed
  *  - approved → partially_paid | paid | void | disputed
- *  - partially_paid → paid | void
- *  - paid → void (with reason; A0 permissive)
+ *  - partially_paid → paid
+ *  - paid → terminal until a controlled payment/accounting correction exists
  *  - disputed → pending_approval | void
  *  - void → (terminal)
  */
@@ -718,8 +950,8 @@ function apBillTransitionAllowed(string $from, string $to): bool
         'pending_review'    => ['pending_approval','void','disputed'],
         'pending_approval'  => ['approved','void','disputed'],
         'approved'          => ['partially_paid','paid','void','disputed'],
-        'partially_paid'    => ['paid','void'],
-        'paid'              => ['void'],
+        'partially_paid'    => ['paid'],
+        'paid'              => [],
         'disputed'          => ['pending_approval','void'],
         'void'              => [],
     ];
@@ -727,15 +959,188 @@ function apBillTransitionAllowed(string $from, string $to): bool
     return in_array($to, $allowed[$from], true);
 }
 
-/**
- * Payment state machine.
- *  - draft → queued | sent | void
- *  - queued → sent | void
- *  - sent → cleared | failed | void
- *  - failed → queued | void
- *  - cleared → void  (treat as reversal)
- *  - void → terminal
- */
+/** A bill with any ledger or payment lineage needs source-level correction. */
+function apBillHasLedgerOrPaymentActivity(\PDO $pdo, int $tenantId, array $bill): bool
+{
+    if (!empty($bill['journal_entry_id']) || (float) ($bill['amount_paid'] ?? 0) > 0.005) return true;
+    $billId = (int) ($bill['id'] ?? 0);
+    if ($billId <= 0) return false;
+
+    $allocations = $pdo->prepare('SELECT 1 FROM ap_payment_allocations WHERE bill_id = :bill_id LIMIT 1');
+    $allocations->execute(['bill_id' => $billId]);
+    if ($allocations->fetchColumn()) return true;
+
+    $journals = $pdo->prepare(
+        'SELECT 1 FROM accounting_journal_entries
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_ref_type = "ap_bill" AND source_ref_id = :bill_id LIMIT 1'
+    );
+    $journals->execute(['tenant_id' => $tenantId, 'bill_id' => $billId]);
+    if ($journals->fetchColumn()) return true;
+
+    $links = $pdo->prepare(
+        'SELECT 1 FROM accounting_subledger_links
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_record_id = :source_record_id LIMIT 1'
+    );
+    $links->execute(['tenant_id' => $tenantId, 'source_record_id' => 'ap_bill:' . $billId]);
+    return (bool) $links->fetchColumn();
+}
+
+/** Attach a posted journal only while the bill is still payable and unlinked. */
+function apAttachPostedBillJournal(\PDO $pdo, int $tenantId, int $billId, int $journalId, ?string $intercompanyGroupId = null): bool
+{
+    $update = $pdo->prepare(
+        'UPDATE ap_bills SET journal_entry_id = :journal_id, intercompany_group_id = :group_id
+          WHERE tenant_id = :tenant_id AND id = :bill_id
+            AND status IN ("approved", "partially_paid", "paid") AND journal_entry_id IS NULL'
+    );
+    $update->execute([
+        'journal_id' => $journalId, 'group_id' => $intercompanyGroupId,
+        'tenant_id' => $tenantId, 'bill_id' => $billId,
+    ]);
+    if ($update->rowCount() === 1) return false;
+
+    $read = $pdo->prepare('SELECT status, journal_entry_id FROM ap_bills WHERE tenant_id = :tenant_id AND id = :bill_id');
+    $read->execute(['tenant_id' => $tenantId, 'bill_id' => $billId]);
+    $current = $read->fetch(\PDO::FETCH_ASSOC);
+    if ($current && in_array($current['status'], ['approved', 'partially_paid', 'paid'], true)
+        && (int) $current['journal_entry_id'] === $journalId) {
+        return true;
+    }
+    throw new \RuntimeException('Bill changed during posting; no accounting journal was committed');
+}
+
+/** A payment with posted accounting cannot be voided without a source-level reversal. */
+function apPaymentHasLedgerActivity(\PDO $pdo, int $tenantId, array $payment): bool
+{
+    if (($payment['status'] ?? '') === 'cleared' || !empty($payment['journal_entry_id'])) return true;
+    $paymentId = (int) ($payment['id'] ?? 0);
+    if ($paymentId <= 0) return false;
+
+    $link = $pdo->prepare(
+        'SELECT 1 FROM accounting_subledger_links
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_record_id = :source_record_id LIMIT 1'
+    );
+    $link->execute(['tenant_id' => $tenantId, 'source_record_id' => 'ap_payment:' . $paymentId]);
+    if ($link->fetchColumn()) return true;
+
+    $event = $pdo->prepare(
+        'SELECT 1 FROM accounting_events
+          WHERE tenant_id = :tenant_id AND source_module = "ap"
+            AND source_record_id = :source_record_id AND status = "posted" LIMIT 1'
+    );
+    $event->execute(['tenant_id' => $tenantId, 'source_record_id' => 'ap_payment:' . $paymentId]);
+    return (bool) $event->fetchColumn();
+}
+
+/** Caller holds the payment row lock; provider attempts outlive missing UI receipts. */
+function apAssertProviderPaymentAction(PDO $pdo, int $tenantId, array $payment, string $action): bool
+{
+    if (!$pdo->inTransaction() || !in_array($action, ['allocate', 'void', 'clear'], true)) {
+        throw new LogicException('Provider payment checks require the locked AP transaction');
+    }
+    $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
+    $bankAction = apBankAssertAction($pdo, $tenantId, $payment, $action);
+    require_once __DIR__.'/../../../core/mercury_ap_claims.php';
+    $mercuryAction = mercuryApAssertAction($pdo, $tenantId, $payment, $action);
+    if ($mercuryAction !== null && $bankAction !== null) throw new DomainException('Multiple payment services claim this AP payment; reconcile the original deliveries.');
+    $allocated = $pdo->query($mysql
+        ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_allocated_payments'"
+        : "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purepay_allocated_payments'")->fetchColumn();
+    if ($allocated) {
+        require_once __DIR__.'/../../../core/purepay_allocated_payments.php';
+        if (purepayAllocationAssertAction($pdo,$tenantId,$payment,$action)) {
+            if ($mercuryAction !== null || $bankAction !== null) throw new DomainException('Multiple payment services claim this AP payment; reconcile the original deliveries.');
+            return true;
+        }
+    }
+    $exists = $pdo->query($mysql
+        ? "SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='purepay_payment_links'"
+        : "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purepay_payment_links'")->fetchColumn();
+    $attempt = null;
+    if ($exists) {
+        $q = $pdo->prepare('SELECT * FROM purepay_payment_links WHERE tenant_id=:t
+            AND (core_payment_id=:p OR source_ref=:s) ORDER BY id LIMIT 2'.($mysql ? ' FOR UPDATE' : ''));
+        $q->execute(['t'=>$tenantId,'p'=>(int)$payment['id'],'s'=>'ap_payment:'.$payment['id']]);
+        $attempt = $q->fetch(PDO::FETCH_ASSOC);
+        if ($q->fetch(PDO::FETCH_ASSOC)) throw new DomainException('Multiple PurePay attempts need reconciliation before changing this payment');
+    }
+    if (!$attempt) {
+        if (($payment['disbursement_rail'] ?? '') === 'purepay'
+            && (!empty($payment['rail_external_ref']) || !empty($payment['rail_originated_at']) || !empty($payment['rail_status']))) {
+            throw new DomainException('The PurePay attempt is missing; reconcile this payment before changing it');
+        }
+        return $mercuryAction ?? $bankAction ?? false;
+    }
+    if ($mercuryAction !== null || $bankAction !== null) throw new DomainException('Multiple payment services claim this AP payment; reconcile the original deliveries.');
+    $allowed = $action === 'void' ? ['failed','payment_failed','declined','returned','reversed','cancelled','canceled','void','voided']
+        : ($action === 'clear' ? ['settled','paid','completed','cleared'] : []);
+    if (!in_array(strtolower((string)$attempt['status']), $allowed, true)
+        || $attempt['source_ref'] !== 'ap_payment:'.$payment['id']
+        || (!empty($attempt['core_payment_id']) && (int)$attempt['core_payment_id'] !== (int)$payment['id'])
+        || (int)$attempt['amount_cents'] !== (int)round((float)$payment['amount']*100)
+        || strtoupper((string)$payment['currency']) !== 'USD'
+        || empty($attempt['purepay_bill_id']) || empty($attempt['purepay_payment_id'])
+        || empty($attempt['last_synced_at']) || empty($attempt['connection_fingerprint'])) {
+        throw new DomainException('This PurePay attempt still reserves its bills. Reconcile its provider result before changing the payment.');
+    }
+    $service = __DIR__.'/../../../core/purepay_service.php';
+    if (!is_file($service)) throw new DomainException('PurePay reconciliation is required in full Core');
+    require_once $service;
+    require_once __DIR__.'/../../../core/purepay_payment_evidence.php';
+    if (!purepayStoredPaymentEvidence($attempt)) {
+        throw new DomainException('This PurePay result lacks verified payment amount and currency. Reconcile it before changing the payment.');
+    }
+    if (!purepayPaymentEvidenceOwned($pdo, $tenantId, $attempt)) {
+        throw new DomainException('This PurePay payment is claimed by another Core attempt. Reconcile both records before changing either reservation.');
+    }
+    $q = $pdo->prepare('SELECT api_key_ct,status FROM purepay_connections WHERE tenant_id=:t'.($mysql ? ' FOR UPDATE' : ''));
+    $q->execute(['t'=>$tenantId]); $connection=$q->fetch(PDO::FETCH_ASSOC);
+    $key=$connection ? (string)decryptField($connection['api_key_ct']) : '';
+    if (!$connection || $connection['status'] !== 'active' || $key===''
+        || !hash_equals((string)$attempt['connection_fingerprint'], purepayConnectionFingerprint($tenantId,$key))) {
+        throw new DomainException('The PurePay company connection changed; reconcile this attempt before changing the payment');
+    }
+    try { purepayFinancialRequire($pdo,$tenantId); }
+    catch (Throwable $e) { throw new DomainException('Confirm the PurePay financial company before changing this reserved payment.'); }
+    return true;
+}
+
+/** The API and recovery tests share the same locked cancellation path. */
+function apVoidPayment(int $tenantId, int $paymentId, string $reason): array
+{
+    if (trim($reason) === '') throw new DomainException('A reason is required');
+    $pdo=getDB(); $ownsTxn=!$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
+    try {
+        $q=$pdo->prepare('SELECT * FROM ap_payments WHERE tenant_id=:t AND id=:id FOR UPDATE');
+        $q->execute(['t'=>$tenantId,'id'=>$paymentId]); $row=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['status']==='void') throw new DomainException('Payment is already void or unavailable');
+        $verifiedProvider=apAssertProviderPaymentAction($pdo,$tenantId,$row,'void');
+        if (apPaymentHasLedgerActivity($pdo,$tenantId,$row)) {
+            throw new DomainException('Cleared payments need a linked accounting and bank correction; they cannot be voided here');
+        }
+        if (!$verifiedProvider && !empty($row['rail_external_ref'])
+            && !in_array((string)($row['rail_status']??''),['failed','returned','cancelled','rejected'],true)) {
+            throw new DomainException('This payout has been sent to its provider. Confirm a failure or cancellation before voiding it');
+        }
+        $q=$pdo->prepare('UPDATE ap_payments SET status="void",voided_at=NOW(),void_reason=:reason
+            WHERE tenant_id=:t AND id=:id AND status<>"void"');
+        $q->execute(['reason'=>$reason,'t'=>$tenantId,'id'=>$paymentId]);
+        if ($q->rowCount()!==1) throw new DomainException('Payment changed while voiding it');
+        apRefreshReleasedPaymentBillsForPayment($pdo,$tenantId,$paymentId);
+        if ($ownsTxn) $pdo->commit();
+        return ['before'=>$row];
+    } catch (Throwable $e) {
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/** Payment state transitions; provider and ledger checks remain separately required. */
 function apPaymentTransitionAllowed(string $from, string $to): bool
 {
     static $allowed = [
@@ -900,19 +1305,43 @@ function apClearPayment(
         throw new \InvalidArgumentException('cleared_date must use YYYY-MM-DD');
     }
 
+    $pdo = getDB();
+    $ownsTransaction = cf_tx_begin($pdo);
+    try {
+        $result = apClearPaymentLocked($tenantId, $paymentId, $clearedDate, $bankAccountId, $actorUserId);
+        cf_tx_commit($pdo, $ownsTransaction);
+        return $result;
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTransaction);
+        throw $e;
+    }
+}
+
+/** The caller owns a transaction, including the payment row lock and journal post. */
+function apClearPaymentLocked(
+    int $tenantId,
+    int $paymentId,
+    string $clearedDate,
+    ?int $bankAccountId,
+    ?int $actorUserId
+): array {
+    $pdo = getDB();
     $row = scopedFind(
-        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
+        'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
         ['id' => $paymentId]
     );
     if (!$row) throw new \RuntimeException('Payment not found');
 
     if (($row['status'] ?? '') === 'cleared') {
+        if ($bankAccountId && (int) ($row['bank_account_id'] ?? 0) !== $bankAccountId) {
+            throw new \RuntimeException('This payment cleared through a different bank account.');
+        }
         $journalEntryId = (int) ($row['journal_entry_id'] ?? 0);
         $journal = $journalEntryId > 0 ? scopedFind(
             'SELECT id, status FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id',
             ['id' => $journalEntryId]
         ) : null;
-        if (!$journal || !in_array((string) $journal['status'], ['posted', 'reversed'], true)) {
+        if (!$journal || (string) $journal['status'] !== 'posted') {
             throw new \RuntimeException('This payment is marked cleared but has no valid ledger posting. Repair the payment before matching it.');
         }
         $posting = apPaymentPostingContext($tenantId, $row, $bankAccountId);
@@ -935,6 +1364,7 @@ function apClearPayment(
     if ((float) ($row['unallocated_amount'] ?? 0) > 0.005) {
         throw new \RuntimeException('Allocate the full payment before clearing it.');
     }
+    apAssertProviderPaymentAction($pdo, $tenantId, $row, 'clear');
 
     $posting = apPaymentPostingContext($tenantId, $row, $bankAccountId);
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
@@ -999,6 +1429,8 @@ function apClearPayment(
             throw new \RuntimeException('The payment changed while it was being cleared. Refresh and review it before retrying.');
         }
     }
+
+    apRefreshReleasedPaymentBillsForPayment($pdo, $tenantId, $paymentId);
 
     $after = scopedFind(
         'SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id',
@@ -1097,7 +1529,7 @@ function apSuggestPaymentRun(
                     SELECT SUM(a.amount_applied)
                       FROM ap_payment_allocations a
                       JOIN ap_payments p ON p.id = a.payment_id
-                     WHERE a.bill_id = b.id AND p.status IN ('draft', 'queued')
+                     WHERE a.bill_id = b.id AND p.status IN ('draft', 'queued', 'sent')
                 ), 0) AS reserved_amount
            FROM ap_bills b
            LEFT JOIN ap_vendors_index v
@@ -1341,7 +1773,7 @@ function apExecutePaymentRun(
                         SELECT SUM(a.amount_applied)
                           FROM ap_payment_allocations a
                           JOIN ap_payments p ON p.id = a.payment_id
-                         WHERE a.bill_id = b.id AND p.status IN ("draft", "queued")
+                         WHERE a.bill_id = b.id AND p.status IN ("draft", "queued", "sent")
                     ), 0) AS reserved_amount
                FROM ap_bills
                   b
@@ -1454,9 +1886,8 @@ function apExecutePaymentRun(
 }
 
 /**
- * Recompute bill settlement from released payments only. Draft and queued
- * allocations reserve a bill for a payment run, but they are not cash and
- * must not reduce AP aging or mark the bill paid.
+ * Recompute bill settlement from cleared, posted payments only. Draft,
+ * queued, and sent allocations reserve a bill but do not extinguish AP.
  */
 function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds): void
 {
@@ -1464,7 +1895,7 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
     if (!$billIds) return;
 
     $load = $pdo->prepare(
-        'SELECT id, total, status
+        'SELECT id, total, status, opening_cutover_id, amount_credited
            FROM ap_bills
           WHERE tenant_id = :tenant_id AND id = :id
           FOR UPDATE'
@@ -1473,9 +1904,11 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
         'SELECT COALESCE(SUM(a.amount_applied), 0)
            FROM ap_payment_allocations a
            JOIN ap_payments p ON p.id = a.payment_id
+           JOIN accounting_journal_entries je ON je.id = p.journal_entry_id
+             AND je.tenant_id = p.tenant_id AND je.status = "posted"
           WHERE a.bill_id = :bill_id
             AND p.tenant_id = :tenant_id
-            AND p.status IN ("sent", "cleared")'
+            AND p.status = "cleared"'
     );
     $update = $pdo->prepare(
         'UPDATE ap_bills
@@ -1492,15 +1925,17 @@ function apRefreshReleasedPaymentBills(PDO $pdo, int $tenantId, array $billIds):
         $load->execute(['tenant_id' => $tenantId, 'id' => $billId]);
         $bill = $load->fetch(PDO::FETCH_ASSOC);
         if (!$bill) continue;
+        // Opening credits are not cash-payable bills; a payment refresh cannot settle them.
+        if (!empty($bill['opening_cutover_id']) && (float) $bill['total'] < 0) continue;
 
         $paid->execute(['bill_id' => $billId, 'tenant_id' => $tenantId]);
         $amountPaid = min((float) $bill['total'], max(0, round((float) $paid->fetchColumn(), 2)));
-        $amountDue = max(0, round((float) $bill['total'] - $amountPaid, 2));
+        $amountDue = max(0, round((float) $bill['total'] - $amountPaid - (float) $bill['amount_credited'], 2));
         if (in_array($bill['status'], ['void', 'disputed'], true)) {
             $status = $bill['status'];
         } elseif ($amountDue <= 0.005) {
             $status = 'paid';
-        } elseif ($amountPaid > 0.005) {
+        } elseif ($amountPaid > 0.005 || (float) $bill['amount_credited'] > 0.005) {
             $status = 'partially_paid';
         } else {
             $status = 'approved';
@@ -1549,30 +1984,37 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         $payStmt->execute(['id' => $paymentId]);
         $pay = $payStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$pay) throw new \RuntimeException("payment {$paymentId} not found");
+        apAssertProviderPaymentAction($pdo, (int)$pay['tenant_id'], $pay, 'allocate');
+        if (!in_array($pay['status'], ['draft', 'queued'], true)) {
+            throw new \RuntimeException('A released payment cannot be reallocated. Void or correct it, then create a replacement.');
+        }
         $remaining = (float) $pay['unallocated_amount'];
         if ($remaining <= 0) throw new \RuntimeException('payment has no unallocated amount');
-        $released = in_array($pay['status'], ['sent', 'cleared'], true);
-        $touchedBillIds = [];
 
         $targets = [];
-        if (isset($request['auto']) && $request['auto'] === 'fifo') {
-            $entityClause = !empty($pay['entity_id']) ? ' AND entity_id = :entity_id' : '';
-            $fifoParams = ['t' => $pay['tenant_id'], 'v' => $pay['vendor_name']];
+        $autoFifo = ($request['auto'] ?? null) === 'fifo';
+        if ($autoFifo) {
+            $entityClause = !empty($pay['entity_id']) ? ' AND b.entity_id = :entity_id' : '';
+            $fifoParams = [
+                't' => $pay['tenant_id'],
+                'v' => $pay['vendor_name'],
+            ];
             if (!empty($pay['entity_id'])) $fifoParams['entity_id'] = (int) $pay['entity_id'];
             $q = $pdo->prepare(
-                'SELECT id, amount_due FROM ap_bills
-                 WHERE tenant_id = :t AND vendor_name = :v
-                   AND status IN ("approved","partially_paid")
-                   AND amount_due > 0
+                'SELECT b.id
+                   FROM ap_bills b
+                 WHERE b.tenant_id = :t AND b.vendor_name = :v
+                   AND b.status IN ("approved","partially_paid")
+                   AND b.amount_due > 0
                    ' . $entityClause . '
-                 ORDER BY due_date ASC, id ASC'
+                 ORDER BY b.due_date ASC, b.id ASC FOR UPDATE'
             );
             $q->execute($fifoParams);
             foreach ($q->fetchAll(\PDO::FETCH_ASSOC) as $bill) {
-                if ($remaining <= 0) break;
-                $apply = min($remaining, (float) $bill['amount_due']);
-                $targets[] = ['bill_id' => (int) $bill['id'], 'amount' => round($apply, 2)];
-                $remaining -= $apply;
+                // Select candidates from current rows, then consume the current
+                // reservation balance below. A snapshot-based preallocation can
+                // skip released funds or stop before the next available bill.
+                $targets[] = ['bill_id' => (int) $bill['id'], 'amount' => $remaining];
             }
         } else {
             foreach ((array) ($request['allocations'] ?? []) as $a) {
@@ -1584,12 +2026,13 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         }
         if (empty($targets)) throw new \RuntimeException('no allocations specified');
         $totalRequested = array_sum(array_column($targets, 'amount'));
-        if ($totalRequested - 0.005 > (float) $pay['unallocated_amount']) {
+        if (!$autoFifo && $totalRequested - 0.005 > (float) $pay['unallocated_amount']) {
             throw new \RuntimeException('total allocation exceeds payment unallocated amount');
         }
 
         $applied = [];
         foreach ($targets as $t) {
+            if ($remaining <= 0) break;
             $bill = $pdo->prepare('SELECT * FROM ap_bills WHERE id = :id AND tenant_id = :t FOR UPDATE');
             $bill->execute(['id' => $t['bill_id'], 't' => $pay['tenant_id']]);
             $bRow = $bill->fetch(\PDO::FETCH_ASSOC);
@@ -1609,21 +2052,23 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             }
 
             $available = (float) $bRow['amount_due'];
-            if (!$released) {
-                $reservedStmt = $pdo->prepare(
-                    'SELECT COALESCE(SUM(a.amount_applied), 0)
-                       FROM ap_payment_allocations a
-                       JOIN ap_payments p ON p.id = a.payment_id
-                      WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
-                        AND p.status IN ("draft", "queued")'
-                );
-                $reservedStmt->execute([
-                    'bill_id' => (int) $bRow['id'],
-                    'tenant_id' => (int) $pay['tenant_id'],
-                ]);
-                $available = max(0, round($available - (float) $reservedStmt->fetchColumn(), 2));
-            }
-            $apply = min($t['amount'], $available);
+            // The bill lock serializes allocators, but a plain SELECT would
+            // still use an older read view in a caller-owned REPEATABLE READ
+            // transaction. Read and lock the current reservations as well.
+            $reservedStmt = $pdo->prepare(
+                'SELECT a.amount_applied
+                   FROM ap_payment_allocations a
+                   JOIN ap_payments p ON p.id = a.payment_id
+                  WHERE a.bill_id = :bill_id AND p.tenant_id = :tenant_id
+                    AND p.status IN ("draft", "queued", "sent") FOR UPDATE'
+            );
+            $reservedStmt->execute([
+                'bill_id' => (int) $bRow['id'],
+                'tenant_id' => (int) $pay['tenant_id'],
+            ]);
+            $reserved = array_sum(array_map('floatval', $reservedStmt->fetchAll(PDO::FETCH_COLUMN)));
+            $available = max(0, round($available - $reserved, 2));
+            $apply = min($t['amount'], $available, $remaining);
             if ($apply <= 0) continue;
 
             $pdo->prepare(
@@ -1633,26 +2078,19 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
             )->execute([
                 'p' => $paymentId, 'b' => $bRow['id'], 'a' => $apply, 'u' => $actorUserId,
             ]);
-
-            $touchedBillIds[] = (int) $bRow['id'];
+            $remaining = round($remaining - $apply, 2);
 
             $applied[] = [
                 'bill_id'        => (int) $bRow['id'],
                 'internal_ref'   => $bRow['internal_ref'],
                 'amount_applied' => $apply,
-                'new_status'     => $released ? null : $bRow['status'],
-                'reserved'       => !$released,
+                'new_status'     => $bRow['status'],
+                'reserved'       => true,
             ];
         }
-        $newUnalloc = round((float) $pay['unallocated_amount'] - array_sum(array_column($applied, 'amount_applied')), 2);
+        $newUnalloc = $remaining;
         $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE tenant_id = :tenant_id AND id = :id')
             ->execute(['u' => $newUnalloc, 'tenant_id' => (int) $pay['tenant_id'], 'id' => $paymentId]);
-
-        if ($released) {
-            apRefreshReleasedPaymentBills($pdo, (int) $pay['tenant_id'], $touchedBillIds);
-            foreach ($applied as &$application) $application['new_status'] = null;
-            unset($application);
-        }
 
         if ($ownsTxn) $pdo->commit();
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc];
@@ -1664,11 +2102,14 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
 
 /**
  * Compute AP aging buckets on-read for a tenant + as_of date.
+ * An entity filter follows the bill journal, including dated reversals.
  * Returns array keyed by vendor_name.
  */
-function apComputeAging(int $tenantId, string $asOf): array
+function apComputeAging(int $tenantId, string $asOf, ?int $entityId = null): array
 {
     $pdo = getDB();
+    $entityFilter = $entityId === null ? '' : ' AND je.entity_id = :entity_id';
+    $credits = accountingCreditAsOfSql($pdo, 'ap', 'b', $asOf);
     $q = $pdo->prepare(
         'SELECT aged.vendor_name,
                 SUM(CASE WHEN aged.due_date >= :a1 THEN aged.amount_due ELSE 0 END) AS bucket_current,
@@ -1679,23 +2120,39 @@ function apComputeAging(int $tenantId, string $asOf): array
                 SUM(aged.amount_due) AS total_due
            FROM (
                 SELECT b.id, b.vendor_name, b.due_date,
-                       GREATEST(0, ROUND(b.total - COALESCE(SUM(
-                           CASE WHEN p.pay_date <= :payment_as_of AND p.status IN ("sent", "cleared")
+                       CASE WHEN b.opening_cutover_id IS NOT NULL AND b.total < 0 THEN b.total
+                       ELSE GREATEST(0, ROUND(b.total - COALESCE(SUM(
+                           CASE WHEN p.status IN ("cleared", "void")
+                                     AND p.cleared_at IS NOT NULL
+                                     AND DATE(p.cleared_at) <= :payment_as_of
+                                     AND (p.status = "cleared" OR DATE(p.voided_at) > :payment_void_as_of)
+                                     AND payment_je.status IN ("posted", "reversed")
+                                     AND payment_je.posting_date <= :payment_posted_as_of
+                                     AND (payment_je.status = "posted"
+                                          OR payment_reversal.posting_date > :payment_reversed_as_of)
                                 THEN alloc.amount_applied ELSE 0 END
-                       ), 0), 2)) AS amount_due
+                       ), 0), 2)) END - ' . $credits . ' AS amount_due
                   FROM ap_bills b
                   JOIN accounting_journal_entries je
                     ON je.id = b.journal_entry_id
                    AND je.tenant_id = b.tenant_id
-                   AND je.status = "posted"
+                   AND je.status IN ("posted", "reversed")
                    AND je.posting_date <= :posted_as_of
+             LEFT JOIN accounting_journal_entries reversal
+                    ON reversal.id = je.reversed_by_je_id AND reversal.tenant_id = b.tenant_id
              LEFT JOIN ap_payment_allocations alloc ON alloc.bill_id = b.id
              LEFT JOIN ap_payments p ON p.id = alloc.payment_id AND p.tenant_id = b.tenant_id
-                 WHERE b.tenant_id = :tid
+             LEFT JOIN accounting_journal_entries payment_je
+                    ON payment_je.id = p.journal_entry_id AND payment_je.tenant_id = b.tenant_id
+             LEFT JOIN accounting_journal_entries payment_reversal
+                    ON payment_reversal.id = payment_je.reversed_by_je_id
+                   AND payment_reversal.tenant_id = b.tenant_id
+                 WHERE b.tenant_id = :tid' . $entityFilter . '
                    AND b.bill_date <= :document_as_of
+                   AND (je.status = "posted" OR reversal.posting_date > :reversed_as_of)
                    AND (b.status <> "void" OR b.voided_at IS NULL OR DATE(b.voided_at) > :void_as_of)
-              GROUP BY b.id, b.vendor_name, b.due_date, b.total
-                HAVING amount_due > 0
+              GROUP BY b.id, b.vendor_name, b.due_date, b.total, b.opening_cutover_id
+                HAVING amount_due <> 0
            ) aged
        GROUP BY aged.vendor_name
          ORDER BY total_due DESC'
@@ -1703,10 +2160,15 @@ function apComputeAging(int $tenantId, string $asOf): array
     $bind = [
         'tid' => $tenantId,
         'payment_as_of' => $asOf,
+        'payment_void_as_of' => $asOf,
+        'payment_posted_as_of' => $asOf,
+        'payment_reversed_as_of' => $asOf,
         'posted_as_of' => $asOf,
+        'reversed_as_of' => $asOf,
         'document_as_of' => $asOf,
         'void_as_of' => $asOf,
     ];
+    if ($entityId !== null) $bind['entity_id'] = $entityId;
     foreach (['a1','a2','a3','a4','a5','a6','a7','a8','a9'] as $k) $bind[$k] = $asOf;
     $q->execute($bind);
     return $q->fetchAll(\PDO::FETCH_ASSOC);
@@ -1728,7 +2190,7 @@ function apBuild1099Ledger(int $tenantId, int $taxYear): array
     // Sum cleared payment $ attributable to 1099-eligible lines per vendor, via
     // proportional line share: bill_lines_eligible_total / bill_total.
     $q = $pdo->prepare(
-        'SELECT b.vendor_name, b.vendor_type,
+        'SELECT b.vendor_name, v.vendor_type,
                 SUM(a.amount_applied * (
                     COALESCE((SELECT SUM(bl.total) FROM ap_bill_lines bl WHERE bl.bill_id = b.id AND bl.is_1099_eligible = 1), 0) /
                     NULLIF(b.total, 0)
@@ -1736,11 +2198,12 @@ function apBuild1099Ledger(int $tenantId, int $taxYear): array
          FROM ap_payments p
          JOIN ap_payment_allocations a ON a.payment_id = p.id
          JOIN ap_bills b                ON b.id        = a.bill_id
+         JOIN ap_vendors_index v ON v.tenant_id = b.tenant_id AND v.vendor_name = b.vendor_name
          WHERE p.tenant_id = :t
            AND p.status = "cleared"
            AND YEAR(p.cleared_at) = :y
-           AND b.vendor_type IN ("1099_individual","c2c_corp")
-         GROUP BY b.vendor_name, b.vendor_type'
+           AND v.requires_1099 = 1
+         GROUP BY b.vendor_name, v.vendor_type'
     );
     $q->execute(['t' => $tenantId, 'y' => $taxYear]);
     $rows = $q->fetchAll(\PDO::FETCH_ASSOC);
@@ -1765,7 +2228,7 @@ function apBuild1099Ledger(int $tenantId, int $taxYear): array
             'v'  => $r['vendor_name'],
             'vt' => $r['vendor_type'],
             'tp' => $total,
-            'r'  => ($total >= $threshold && $r['vendor_type'] === '1099_individual') ? 1 : 0,
+            'r'  => $total >= $threshold ? 1 : 0,
         ]);
         $upserted++;
     }

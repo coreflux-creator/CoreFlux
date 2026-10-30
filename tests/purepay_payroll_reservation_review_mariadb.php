@@ -1,0 +1,43 @@
+<?php
+/** Operator scoping against the real database and source-claim fixture. */
+declare(strict_types=1);
+require __DIR__.'/purepay_payroll_authority_mariadb.php';
+require_once __DIR__.'/../core/integrations/purepay_payroll_reservation_review.php';
+$passed=0;$operatorPosts=0;
+$GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use(&$context,&$operatorPosts,$cancelled,$body):array{
+    $path=substr(parse_url($url,PHP_URL_PATH),strlen('/api/v1'.PUREPAY_CORE_PATH));
+    if($method==='GET'&&$path==='/context')return ['status'=>200,'body'=>json_encode($context)];
+    if($method==='GET'&&$path==='/payroll/authorities/'.$body['id'])return ['status'=>200,'body'=>json_encode($cancelled)];
+    $operatorPosts++;throw new RuntimeException('Unexpected operator provider write');
+};
+$id=(int)$p['delivery']['id'];$hash=$p['delivery']['review_hash'];
+$list=static fn(?string $before=null):array=>purepayPayrollReservationHistory($pdo,1,$instance,$owners,$id,$hash,$before);
+$act=static fn(string $action):array=>purepayPayrollReservationAct($pdo,1,7,$instance,$owners,$id,$hash,$authority['id'],$action);
+$history=$list();
+$check(count($history['items'])===1&&$history['items'][0]['state']==='released'&&!$history['changes_enabled']&&!$history['has_held'],'history recovers an exact released reservation while changes are disabled');
+$check(!str_contains(json_encode($history),'payload_ct')&&!str_contains(json_encode($history),'request_id'),'history excludes ciphertext and internal request token');
+$check($act('reconcile')['provider_receipt']===$cancelled&&$operatorPosts===0,'receipt check works with mutation feature held');
+$check($fails(fn()=>$act('send'))&&$fails(fn()=>$act('release'))&&$operatorPosts===0,'disabled changes reject send and cancellation before provider writes');
+$check($fails(fn()=>purepayPayrollReservationReserve($pdo,1,7,$instance,$owners,$id,$hash,str_repeat('e',64))),'disabled changes reject reservation');
+$check($fails(fn()=>purepayPayrollReservationHistory($pdo,2,$instance,$owners,$id,$hash)),'foreign company cannot open history');
+$check($fails(fn()=>purepayPayrollReservationHistory($pdo,1,$instance,['time'=>1,'people'=>10,'placements'=>21],$id,$hash)),'changed directory cannot adopt reservation');
+$check($fails(fn()=>purepayPayrollReservationHistory($pdo,1,$instance,$owners,$id,str_repeat('f',64))),'stale input hash held');
+$check($fails(fn()=>$list('invalid')),'malformed cursor rejected');
+$check($list($authority['id'])['items']===[],'cursor excludes original row');
+$check($fails(fn()=>$act('pay'))&&$operatorPosts===0,'no execution action exists');
+putenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY=1');
+$check($list()['changes_enabled'],'feature and capability enable review');
+$check($act('send')['provider_receipt']===$cancelled&&$act('release')['authority']['state']==='released'&&$operatorPosts===0,'released replay cannot reactivate a grant');
+$originalCaps=$context['capabilities'];$context['capabilities']=array_values(array_diff($context['capabilities'],['write:payroll_authority']));
+$review=purepayCoreReview($pdo,1,$instance);purepayCoreConfirm($pdo,1,7,$instance,$review['review_hash'],'org-a');
+$check(!$list()['changes_enabled']&&$fails(fn()=>$act('send')),'missing write capability overrides enabled environment');
+$context['capabilities']=$originalCaps;$review=purepayCoreReview($pdo,1,$instance);purepayCoreConfirm($pdo,1,7,$instance,$review['review_hash'],'org-a');
+$other=(int)$pdo->query('SELECT id FROM integration_deliveries WHERE tenant_id=1 AND id<>'.$id.' ORDER BY id LIMIT 1')->fetchColumn();
+$pdo->beginTransaction();$pdo->prepare('UPDATE payroll_source_authorities SET input_delivery_id=? WHERE tenant_id=1 AND id=?')->execute([$other,$authority['id']]);
+$check($fails(fn()=>$act('reconcile'))&&$operatorPosts===0,'wrong input reservation cannot be reconciled');$pdo->rollBack();
+$pdo->beginTransaction();$row=purepayPayrollAuthorityRead($pdo,1,$authority['id']);$value=json_decode((string)decryptField($row['payload_ct']),true);
+$value['owners']['people']=11;$pdo->prepare('UPDATE payroll_source_authorities SET payload_ct=? WHERE tenant_id=1 AND id=?')->execute([encryptField(integrationDeliveryJson($value)),$authority['id']]);
+$check($fails($list)&&$fails(fn()=>$act('reconcile')),'stored owner drift blocks history and receipt recovery');$pdo->rollBack();
+$check((int)$pdo->query('SELECT COUNT(*) FROM payroll_source_claims')->fetchColumn()===0&&$operatorPosts===0,'reads and rejected actions preserve released source');
+unset($GLOBALS['__purepay_transport']);putenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY');
+echo "PurePayroll operator reservation MariaDB: $passed passed\n";

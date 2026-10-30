@@ -182,10 +182,10 @@ $overloadedName = [
     'candidateName' => 'Naga Ganesh Sai Karthik Sadanala',
     '_jd_job' => ['COMPANYNAME' => 'TCS'],
 ];
-$a('end-client helper ignores top-level generic name and uses _jd_job.COMPANYNAME',
-    jobdivaEndClientNameFromPayload($overloadedName) === 'TCS');
-$a('projector end-client helper ignores top-level generic name and uses _jd_job.COMPANYNAME',
-    jobdivaProjectorEndClientNameFromPayload($overloadedName) === 'TCS');
+$a('end-client helper excludes generic person and job company labels',
+    jobdivaEndClientNameFromPayload($overloadedName) === '');
+$a('projector end-client helper excludes generic person and job company labels',
+    jobdivaProjectorEndClientNameFromPayload($overloadedName) === '');
 $exactContractClient = [
     'companyName' => 'Michelle Lee',
     '_jd_job' => ['COMPANYNAME' => 'Wrong Job Mirror'],
@@ -194,9 +194,9 @@ $exactContractClient = [
         'client_company_name' => 'TCS',
     ],
 ];
-$a('exact assignment billing company outranks broader Start and Job names',
-    jobdivaEndClientNameFromPayload($exactContractClient) === 'TCS'
-    && jobdivaProjectorEndClientNameFromPayload($exactContractClient) === 'TCS');
+$a('exact billing company does not fabricate an end client',
+    jobdivaEndClientNameFromPayload($exactContractClient) === ''
+    && jobdivaProjectorEndClientNameFromPayload($exactContractClient) === '');
 
 echo "\n2. Source-level wire-up — deep pluck is actually consumed downstream\n";
 
@@ -219,12 +219,12 @@ $a('sync.php placement start_date fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['startDate'"));
 $a('sync.php placement end_client_name fallback uses dedicated end-client resolver',
     str_contains($sync, 'function jobdivaEndClientNameFromPayload')
-    && str_contains($sync, 'static fn() => jobdivaEndClientNameFromPayload($jd)')
+    && str_contains($sync, "static fn() => jobdivaAssignmentEndClientEvidence(\$jd)['name']")
     && str_contains($sync, "'companyName', 'company_name', 'company name', 'COMPANYNAME'"));
 $a('sync.php placement status fallback uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, ['status'"));
-$a('sync.php placement engagement_type uses deep pluck',
-    str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'engagementType'"));
+$a('placement classification uses authoritative assignment evidence',
+    str_contains($sync, '$engagement = jobdivaClassificationRequire($jd);'));
 $a('sync.php placement worksite_state uses deep pluck',
     str_contains($sync, "jobdivaPluckFieldDeep(\$jd, [\n            'worksiteState'"));
 $a('sync.php placement approver_name uses deep pluck',

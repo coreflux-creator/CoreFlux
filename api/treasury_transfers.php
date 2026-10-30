@@ -28,12 +28,32 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'treasury.payment.view');
     $where = ['tenant_id = :t'];
     $p = ['t' => $tid];
-    foreach (['status' => 'status', 'kind' => 'transfer_kind'] as $q => $col) {
+    foreach (['kind' => 'transfer_kind'] as $q => $col) {
         $v = api_query($q);
         if ($v !== null && $v !== '') {
             $where[] = "{$col} = :{$q}";
             $p[$q] = (string) $v;
         }
+    }
+    $statusFilter = (string) (api_query('status') ?? '');
+    if ($statusFilter === 'open') {
+        $where[] = "status IN ('draft', 'pending_approval', 'approved', 'scheduled', 'failed')";
+    } elseif ($statusFilter === 'pending') {
+        $where[] = "status IN ('draft', 'pending_approval', 'approved', 'scheduled')";
+    } elseif ($statusFilter !== '') {
+        $where[] = 'status = :status';
+        $p['status'] = $statusFilter;
+    }
+    $recordId = (int) (api_query('id') ?? 0);
+    if ($recordId > 0) {
+        $where[] = 'id = :record_id';
+        $p['record_id'] = $recordId;
+    }
+    $entityId = (int) (api_query('entity_id') ?? 0);
+    if ($entityId > 0) {
+        $where[] = '(source_entity_id = :source_entity_id OR destination_entity_id = :destination_entity_id)';
+        $p['source_entity_id'] = $entityId;
+        $p['destination_entity_id'] = $entityId;
     }
     $from = api_query('from');
     if ($from !== null && $from !== '') {
@@ -49,6 +69,9 @@ if ($method === 'GET') {
     $offset = max(0, (int) (api_query('offset') ?? 0));
 
     $pdo = getDB();
+    $countStmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_transfers WHERE ' . implode(' AND ', $where));
+    $countStmt->execute($p);
+    $total = (int) $countStmt->fetchColumn();
     $stmt = $pdo->prepare(
         'SELECT id, transfer_number, transfer_kind, source_bank_account_id, destination_bank_account_id,
                 source_entity_id, destination_entity_id, amount, currency, transfer_date, memo,
@@ -60,7 +83,9 @@ if ($method === 'GET') {
           LIMIT ' . $limit . ' OFFSET ' . $offset
     );
     $stmt->execute($p);
-    api_ok(['rows' => $stmt->fetchAll(\PDO::FETCH_ASSOC), 'limit' => $limit, 'offset' => $offset]);
+    api_ok(['entity_id' => $entityId ?: null, 'record_id' => $recordId ?: null,
+        'status_filter' => $statusFilter, 'total' => $total,
+        'rows' => $stmt->fetchAll(\PDO::FETCH_ASSOC), 'limit' => $limit, 'offset' => $offset]);
 }
 
 if ($method === 'POST' && $action === '') {

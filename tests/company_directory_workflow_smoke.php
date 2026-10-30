@@ -14,6 +14,9 @@ $addressDeleteAt = strpos($api, "if (\$method === 'DELETE' && \$action === 'addr
 $genericDeleteAt = strpos($api, "if (\$method === 'DELETE')");
 
 $checks = [
+    'company endpoint resolves its own directory after authentication' =>
+        str_contains($api, '$tid    = companiesUseDirectoryScope();')
+        && strpos($api, '$ctx    = api_require_auth();') < strpos($api, '$tid    = companiesUseDirectoryScope();'),
     'duplicate candidates route is reachable before the generic list route' =>
         $duplicatesAt !== false && $listAt !== false && $duplicatesAt < $listAt,
     'address edit route is reachable before the generic company patch route' =>
@@ -34,6 +37,16 @@ $checks = [
         && str_contains($ui, '<BulkEditBar')
         && str_contains($api, "\$action === 'bulk_update'"),
 ];
+
+foreach (['chain', 'referrals', 'economics', 'csv_import', 'placements'] as $endpoint) {
+    $source = (string) file_get_contents($root . '/modules/placements/api/' . $endpoint . '.php');
+    $checks["$endpoint validates selected companies against the Companies directory"] =
+        preg_match('/companiesGet\([^;]+placementsCompanyDirectoryTenantId\(\)\)/', $source) === 1;
+    if ($endpoint !== 'placements') {
+        $checks["$endpoint creates companies in the Companies directory"] =
+            str_contains($source, 'companiesUpsertByName(placementsCompanyDirectoryTenantId(),');
+    }
+}
 
 foreach ($checks as $label => $passed) {
     if (!$passed) {

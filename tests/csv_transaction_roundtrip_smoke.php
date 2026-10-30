@@ -12,6 +12,9 @@ $arPaymentsImport = (string) file_get_contents($root . '/modules/billing/api/pay
 $arPaymentsExport = (string) file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
 $exportDatasets = (string) file_get_contents($root . '/core/export_datasets.php');
 $bulk = (string) file_get_contents($root . '/dashboard/src/pages/CsvBulkImport.jsx');
+$invoiceUi = (string) file_get_contents($root . '/modules/billing/ui/InvoicesCsvImport.jsx');
+$billUi = (string) file_get_contents($root . '/modules/ap/ui/BillsCsvImport.jsx');
+$groupHelper = (string) file_get_contents($root . '/core/accounting/csv_document_entity.php');
 
 $passed = 0;
 $failed = 0;
@@ -31,6 +34,24 @@ $check('invoice export is line-level',
 $check('invoice export carries stable record and line ids',
     str_contains($billingExport, 'i.id AS invoice_id')
     && str_contains($billingExport, 'l.id AS line_id'));
+$check('invoice CSV round trip retains line item types',
+    str_contains($billingImport, "'line_item_type'   => ['label' => 'Line item type'")
+    && str_contains($billingImport, "'item_type'  => \$metadata['item_type']")
+    && str_contains($billingExport, 'l.item_type AS line_item_type')
+    && str_contains($billingExport, "'line_item_type'   => 'Line item type'"));
+$check('invoice CSV round trip retains catalog and revenue account identity',
+    str_contains($billingImport, "'line_catalog_item_id' => ['label' => 'Line catalog item ID'")
+    && str_contains($billingImport, "'line_gl_revenue_account_code' => ['label' => 'Line revenue account'")
+    && str_contains($billingImport, "'catalog_item_id' => \$metadata['catalog_item_id']")
+    && str_contains($billingImport, "'gl_rev'     => \$metadata['gl_revenue_account_code']")
+    && str_contains($billingExport, 'l.catalog_item_id AS line_catalog_item_id')
+    && str_contains($billingExport, 'l.gl_revenue_account_code AS line_gl_revenue_account_code'));
+$check('invoice CSV round trip retains customer company identity',
+    str_contains($billingImport, "'client_company_id' => ['label' => 'Client company ID'")
+    && str_contains($billingImport, 'billingResolveDirectInvoiceClientCompanyId(')
+    && str_contains($billingImport, "'client_company_id' => \$clientCompanyId")
+    && str_contains($billingExport, 'i.client_company_id')
+    && str_contains($billingExport, "'client_company_id' => 'Client company ID'"));
 $check('invoice import exposes update mode',
     str_contains($billingImport, "_GET['update_existing']")
     && str_contains($billingImport, "scopedUpdate('billing_invoices'"));
@@ -41,6 +62,10 @@ $check('invoice CSV updates only unpaid unposted drafts',
 $check('time-sourced invoice lines remain source-controlled',
     str_contains($billingImport, 'source_type <> "manual"')
     && str_contains($billingImport, 'must be rebuilt from Time settlement'));
+$check('invoice CSV preserves legal entity and validates whole groups on commit',
+    str_contains($billingImport, "'entity_id'      => \$entity['id']")
+    && substr_count($billingImport, 'accountingCsvReviewDocumentGroups(') === 2
+    && str_contains($billingExport, 'e.code AS entity_code'));
 
 $check('bill export is line-level',
     str_contains($billsExport, 'LEFT JOIN ap_bill_lines')
@@ -58,6 +83,29 @@ $check('bill CSV updates only editable manual records',
 $check('source-generated bill lines remain source-controlled',
     str_contains($billsImport, 'source_type <> "manual"')
     && str_contains($billsImport, 'must be rebuilt from their source'));
+$check('bill CSV preserves legal entity and validates whole groups on commit',
+    str_contains($billsImport, "'entity_id'      => \$entity['id']")
+    && substr_count($billsImport, 'accountingCsvReviewDocumentGroups(') === 2
+    && str_contains($billsExport, 'e.code AS entity_code'));
+$check('invoice and bill previews show resolved legal entity',
+    str_contains($invoiceUi, "key: 'entity_code'")
+    && str_contains($billUi, "key: 'entity_code'"));
+$check('invoice and bill imports link directly to committed documents',
+    str_contains($invoiceUi, 'resultLinks={(result) => Object.entries(result.ids || {})')
+    && str_contains($billUi, 'resultLinks={(result) => Object.entries(result.ids || {})')
+    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'importedLinks.map'));
+$check('document import controls describe whole-document behavior',
+    str_contains($invoiceUi, 'groupLabel="invoice"')
+    && str_contains($billUi, 'groupLabel="bill"')
+    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'Skip invalid documents'));
+$check('document and line counts stay separate in import history',
+    str_contains($billingImport, "'imported_row_count' => \$importedRows")
+    && str_contains($billsImport, "'imported_row_count' => \$importedRows")
+    && str_contains((string) file_get_contents($root . '/dashboard/src/lib/csvImportAudit.js'), 'result?.imported_row_count'));
+$check('unassigned document lines block partial invoice and bill imports',
+    str_contains($billingImport, "!empty(\$dry['blocking_error'])")
+    && str_contains($billsImport, "!empty(\$dry['blocking_error'])")
+    && str_contains((string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx'), 'preview.blocking_error'));
 
 $check('AP payment export carries round-trip identity',
     str_contains($apPaymentsExport, "'payment_id'         => 'Payment ID'")
@@ -94,8 +142,10 @@ $check('shared payment datasets expose external identity',
     && str_contains($exportDatasets, 'p.external_id')
     && str_contains($exportDatasets, 'p.source_system'));
 
-$check('blank computed amounts use quantity times unit price',
-    substr_count($billingImport . $billsImport, "round(\$quantity * \$unitPrice, 2)") === 2);
+$check('preview and commit share validated document arithmetic',
+    str_contains($groupHelper, 'round($quantity * $unitPrice, 2)')
+    && str_contains($groupHelper, 'Line total must equal subtotal plus tax')
+    && substr_count($billingImport . $billsImport, 'accountingCsvDocumentLineAmounts($r)') === 4);
 $check('bulk importer uses a quote-aware CSV row parser',
     str_contains($bulk, 'function parseCsvRow(')
     && str_contains($bulk, 'function firstCsvRecord(')

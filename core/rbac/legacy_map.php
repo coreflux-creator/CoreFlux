@@ -58,10 +58,14 @@ final class RbacLegacyMap
             'accounting.je.reverse'              => ['accounting', 'admin'],
             'accounting.je.void'                 => ['accounting', 'write'],
             'accounting.je.view'                 => ['accounting', 'read'],
+            'accounting.ledger.import'           => ['accounting', 'write'],
             'accounting.manage_integrations'     => ['accounting', 'admin'],
             'accounting.manage_posting_rules'    => ['accounting', 'admin'],
             'accounting.view'                    => ['accounting', 'read'],
             'accounting.period.view'             => ['accounting', 'read'],
+            'accounting.period.close'            => ['accounting', 'admin'],
+            'accounting.period.lock'             => ['accounting', 'admin'],
+            'accounting.period.reopen'           => ['accounting', 'admin'],
             'accounting.reports.export'          => ['accounting', 'write'],
             'accounting.reports.view'            => ['accounting', 'read'],
 
@@ -102,6 +106,7 @@ final class RbacLegacyMap
 
             // ── billing ───────────────────────────────────────────────────
             'billing.invoice.approve'            => ['billing', 'admin'],
+            'billing.approvals.manage'            => ['billing', 'admin'],
             'billing.invoice.create'             => ['billing', 'write'],
             'billing.invoice.draft'              => ['billing', 'write'],
             'billing.invoice.post'               => ['billing', 'admin'],
@@ -184,6 +189,9 @@ final class RbacLegacyMap
             'people.custom_fields.manage'        => ['people', 'write'],
             'people.docs.manage'                 => ['people', 'write'],
             'people.docs.view'                   => ['people', 'read'],
+            'people.onboarding.view'             => ['people', 'admin'],
+            'people.onboarding.manage'           => ['people', 'admin'],
+            'people.onboarding.review'           => ['people', 'admin'],
             'people.manage'                      => ['people', 'write'],
             'people.merge'                       => ['people', 'admin'],
             'people.pii.audit.view'              => ['people', 'admin'],

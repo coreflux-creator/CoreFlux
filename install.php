@@ -88,6 +88,15 @@ function installCoreflux(string $openaiKey): array {
     //    so the user can retry cleanly without seeing 'already configured'.
     try {
         $migrations = runMigrationsInProcess();
+        foreach ($migrations as $migration) {
+            if (in_array($migration['status'] ?? '', ['failed', 'unreadable'], true)) {
+                $detail = implode('; ', (array) ($migration['errors'] ?? []));
+                throw new RuntimeException(
+                    'Database migration ' . ($migration['file'] ?? 'unknown') . ' did not complete'
+                    . ($detail !== '' ? ': ' . $detail : '')
+                );
+            }
+        }
         $smoke      = runSmokeInProcess($localCfg);
     } catch (Throwable $e) {
         @unlink($localCfg);

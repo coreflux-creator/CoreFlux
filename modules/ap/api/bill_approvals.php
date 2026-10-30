@@ -58,8 +58,10 @@ if ($method === 'GET') {
     rbac_legacy_require($user, 'ap.view');
     if (!empty($_GET['count_pending'])) {
         $stmt = $pdo->prepare(
-            "SELECT COUNT(*) FROM ap_bill_approvals
-              WHERE tenant_id = :t AND approver_user_id = :u AND state = 'pending'"
+            "SELECT COUNT(*) FROM ap_bill_approvals a
+              JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = a.tenant_id
+              WHERE a.tenant_id = :t AND a.approver_user_id = :u
+                AND a.state = 'pending' AND b.status = 'pending_approval'"
         );
         $stmt->execute(['t' => $tenantId, 'u' => $userId]);
         api_ok(['count' => (int) $stmt->fetchColumn()]);
@@ -89,6 +91,7 @@ if ($method === 'GET') {
               WHERE a.tenant_id        = :t
                 AND a.approver_user_id = :u
                 AND a.state            = 'pending'
+                AND b.status           = 'pending_approval'
               ORDER BY a.created_at ASC LIMIT 200"
         );
         $stmt->execute(['t' => $tenantId, 'u' => $userId]);

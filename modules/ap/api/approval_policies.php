@@ -86,7 +86,11 @@ if ($method === 'POST' && $action === 'route') {
     if (!$billId) api_error('bill_id required', 422);
     $bill = _apFetchBillForRouting($tenantId, $billId);
     if (!$bill) api_error('Bill not found', 404);
-    $result = apRouteBillForApproval($tenantId, $bill, (int) ($user['id'] ?? 0));
+    try {
+        $result = apRouteBillForApproval($tenantId, $bill, (int) ($user['id'] ?? 0));
+    } catch (\RuntimeException $e) {
+        api_error($e->getMessage(), 409);
+    }
     api_ok(['bill_id' => $billId, 'routing' => $result]);
 }
 
@@ -117,6 +121,7 @@ function _apFetchBillForRouting(int $tenantId, int $billId): ?array {
             'id'             => (int) $row['id'],
             'entity_id'      => isset($row['entity_id']) ? (int) $row['entity_id'] : null,
             'total_amount'   => (float) ($row['total'] ?? 0),
+            'created_by_user_id' => isset($row['created_by_user_id']) ? (int) $row['created_by_user_id'] : null,
             'vendor_id'      => isset($row['indexed_vendor_id']) ? (int) $row['indexed_vendor_id'] : null,
             'vendor_type'    => $row['indexed_vendor_type'] ?? ($row['vendor_type'] ?? null),
             'gl_account_code'=> $row['default_gl_code'] ?? null,

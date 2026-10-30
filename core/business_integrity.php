@@ -364,6 +364,30 @@ function businessIntegrityAudit(int $tenantId): array
         ['time_entries', 'staffing_timesheets']
     );
 
+    if (businessIntegrityTableExists('time_entries')
+        && businessIntegrityColumnExists('time_entries', 'dimension_snapshot_json')
+        && businessIntegrityColumnExists('time_entries', 'dimension_snapshot_hash')) {
+        $checks[] = businessIntegrityCountCheck(
+            $staffingTenantId,
+            'time_dimension_snapshot_pairs',
+            'Approved time has a complete or absent dimension snapshot',
+            'critical',
+            "SELECT COUNT(*) FROM time_entries
+              WHERE tenant_id = :tenant_id AND status = 'approved'
+                AND ((dimension_snapshot_json IS NULL) <> (dimension_snapshot_hash IS NULL)
+                     OR (dimension_snapshot_hash IS NOT NULL
+                         AND dimension_snapshot_hash NOT REGEXP '^[0-9a-f]{64}$'))",
+            "SELECT id, timesheet_id, placement_id, work_date, dimension_snapshot_hash
+               FROM time_entries
+              WHERE tenant_id = :tenant_id AND status = 'approved'
+                AND ((dimension_snapshot_json IS NULL) <> (dimension_snapshot_hash IS NULL)
+                     OR (dimension_snapshot_hash IS NOT NULL
+                         AND dimension_snapshot_hash NOT REGEXP '^[0-9a-f]{64}$'))
+              ORDER BY id DESC LIMIT 25",
+            ['time_entries']
+        );
+    }
+
     $checks[] = businessIntegrityCountCheck(
         $placementsTenantId,
         'placement_person_ownership',
@@ -452,6 +476,93 @@ function businessIntegrityAudit(int $tenantId): array
         ['ap_bills', 'ap_bill_lines']
     );
 
+    $arAllocationIssues = "SELECT i.id AS invoice_id, i.invoice_number, i.amount_paid,
+                COALESCE(SUM(CASE WHEN p.tenant_id = i.tenant_id THEN a.amount_applied ELSE 0 END), 0) AS allocated,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (p.id IS NULL OR p.tenant_id <> i.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM billing_invoices i
+      LEFT JOIN billing_payment_allocations a ON a.invoice_id = i.id
+      LEFT JOIN billing_payments p ON p.id = a.payment_id
+          WHERE i.tenant_id = :tenant_id
+          GROUP BY i.id, i.invoice_number, i.amount_paid
+         HAVING ABS(amount_paid - allocated) >= 0.01 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $billingTenantId,
+        'ar_invoice_allocations',
+        'Invoice paid balances agree with same-tenant payment allocations',
+        'critical',
+        "SELECT COUNT(*) FROM ({$arAllocationIssues}) bad_allocations",
+        "{$arAllocationIssues} ORDER BY i.id DESC LIMIT 25",
+        ['billing_invoices', 'billing_payment_allocations', 'billing_payments']
+    );
+
+    $arPaymentIssues = "SELECT p.id AS payment_id, p.reference, p.amount, p.unallocated_amount,
+                COALESCE(SUM(a.amount_applied), 0) AS allocated,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (i.id IS NULL OR i.tenant_id <> p.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM billing_payments p
+      LEFT JOIN billing_payment_allocations a ON a.payment_id = p.id
+      LEFT JOIN billing_invoices i ON i.id = a.invoice_id
+          WHERE p.tenant_id = :tenant_id
+          GROUP BY p.id, p.reference, p.amount, p.unallocated_amount
+         HAVING ABS(amount - unallocated_amount - allocated) >= 0.01
+             OR amount < 0 OR unallocated_amount < 0 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $billingTenantId,
+        'ar_payment_allocations',
+        'Receipt allocations and unallocated cash add up to the payment',
+        'critical',
+        "SELECT COUNT(*) FROM ({$arPaymentIssues}) bad_payments",
+        "{$arPaymentIssues} ORDER BY p.id DESC LIMIT 25",
+        ['billing_payments', 'billing_payment_allocations', 'billing_invoices']
+    );
+
+    $apAllocationIssues = "SELECT b.id AS bill_id, b.internal_ref, b.amount_paid,
+                COALESCE(SUM(CASE WHEN p.tenant_id = b.tenant_id
+                    AND p.status IN ('sent','cleared') THEN a.amount_applied ELSE 0 END), 0) AS released,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (p.id IS NULL OR p.tenant_id <> b.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM ap_bills b
+      LEFT JOIN ap_payment_allocations a ON a.bill_id = b.id
+      LEFT JOIN ap_payments p ON p.id = a.payment_id
+          WHERE b.tenant_id = :tenant_id
+          GROUP BY b.id, b.internal_ref, b.amount_paid
+         HAVING ABS(amount_paid - released) >= 0.01 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $apTenantId,
+        'ap_bill_allocations',
+        'Bill paid balances agree with released, same-tenant payment allocations',
+        'critical',
+        "SELECT COUNT(*) FROM ({$apAllocationIssues}) bad_allocations",
+        "{$apAllocationIssues} ORDER BY b.id DESC LIMIT 25",
+        ['ap_bills', 'ap_payment_allocations', 'ap_payments']
+    );
+
+    $apPaymentIssues = "SELECT p.id AS payment_id, p.reference, p.status, p.amount,
+                p.unallocated_amount, COALESCE(SUM(a.amount_applied), 0) AS allocated,
+                SUM(CASE WHEN a.id IS NOT NULL AND
+                    (b.id IS NULL OR b.tenant_id <> p.tenant_id OR a.amount_applied <= 0)
+                    THEN 1 ELSE 0 END) AS invalid_links
+           FROM ap_payments p
+      LEFT JOIN ap_payment_allocations a ON a.payment_id = p.id
+      LEFT JOIN ap_bills b ON b.id = a.bill_id
+          WHERE p.tenant_id = :tenant_id
+          GROUP BY p.id, p.reference, p.status, p.amount, p.unallocated_amount
+         HAVING ABS(amount - unallocated_amount - allocated) >= 0.01
+             OR amount < 0 OR unallocated_amount < 0 OR invalid_links > 0";
+    $checks[] = businessIntegrityCountCheck(
+        $apTenantId,
+        'ap_payment_allocations',
+        'Vendor payment allocations and unallocated balance add up to the payment',
+        'critical',
+        "SELECT COUNT(*) FROM ({$apPaymentIssues}) bad_payments",
+        "{$apPaymentIssues} ORDER BY p.id DESC LIMIT 25",
+        ['ap_payments', 'ap_payment_allocations', 'ap_bills']
+    );
+
     $checks[] = businessIntegrityCountCheck(
         $payrollTenantId,
         'payroll_run_totals',
@@ -497,55 +608,7 @@ function businessIntegrityAudit(int $tenantId): array
         ['payroll_runs', 'payroll_line_items']
     );
 
-    $checks[] = businessIntegrityCountCheck(
-        $accountingTenantId,
-        'bank_match_integrity',
-        'Matched bank lines point to a posted journal touching that bank account',
-        'critical',
-        "SELECT COUNT(*)
-           FROM accounting_bank_statement_lines bank_line
-           JOIN accounting_bank_accounts bank
-             ON bank.tenant_id = bank_line.tenant_id AND bank.id = bank_line.bank_account_id
-           LEFT JOIN accounting_accounts account
-             ON account.tenant_id = bank.tenant_id AND account.code = bank.gl_account_code
-           LEFT JOIN accounting_journal_entries journal
-             ON journal.tenant_id = bank_line.tenant_id AND journal.id = bank_line.matched_je_id
-          WHERE bank_line.tenant_id = :tenant_id
-            AND bank_line.match_status = 'matched'
-            AND (
-                bank_line.matched_je_id IS NULL OR account.id IS NULL OR journal.id IS NULL
-                OR journal.status NOT IN ('posted','reversed')
-                OR NOT EXISTS (
-                    SELECT 1 FROM accounting_journal_entry_lines journal_line
-                     WHERE journal_line.je_id = journal.id AND journal_line.account_id = account.id
-                )
-            )",
-        "SELECT bank_line.id AS bank_line_id, bank_line.posted_date, bank_line.amount,
-                bank_line.matched_je_id, journal.status AS journal_status,
-                bank.id AS bank_account_id, bank.gl_account_code
-           FROM accounting_bank_statement_lines bank_line
-           JOIN accounting_bank_accounts bank
-             ON bank.tenant_id = bank_line.tenant_id AND bank.id = bank_line.bank_account_id
-           LEFT JOIN accounting_accounts account
-             ON account.tenant_id = bank.tenant_id AND account.code = bank.gl_account_code
-           LEFT JOIN accounting_journal_entries journal
-             ON journal.tenant_id = bank_line.tenant_id AND journal.id = bank_line.matched_je_id
-          WHERE bank_line.tenant_id = :tenant_id
-            AND bank_line.match_status = 'matched'
-            AND (
-                bank_line.matched_je_id IS NULL OR account.id IS NULL OR journal.id IS NULL
-                OR journal.status NOT IN ('posted','reversed')
-                OR NOT EXISTS (
-                    SELECT 1 FROM accounting_journal_entry_lines journal_line
-                     WHERE journal_line.je_id = journal.id AND journal_line.account_id = account.id
-                )
-            )
-          ORDER BY bank_line.id DESC LIMIT 25",
-        [
-            'accounting_bank_statement_lines', 'accounting_bank_accounts',
-            'accounting_accounts', 'accounting_journal_entries', 'accounting_journal_entry_lines',
-        ]
-    );
+    array_push($checks, ...businessIntegrityBankChecks($accountingTenantId));
 
     $checks[] = businessIntegrityCountCheck(
         $accountingTenantId,
@@ -773,7 +836,7 @@ function businessIntegrityAudit(int $tenantId): array
     $dimensionGapWhere = "(
            COALESCE(p.person_id, 0) = 0
         OR (p.engagement_type <> 'internal'
-                AND COALESCE(p.end_client_company_id, sc.company_id, 0) = 0)
+                AND COALESCE(sc.company_id, 0) = 0)
         OR (COALESCE(p.staffing_job_id, 0) = 0 AND COALESCE(p.jobdiva_job_id, '') = '')
         OR (COALESCE(p.recruiter_name, '') = '' AND COALESCE(p.recruiter_email, '') = ''
             AND NOT EXISTS (
@@ -823,7 +886,7 @@ function businessIntegrityAudit(int $tenantId): array
         "SELECT p.id AS placement_id, p.external_id, p.title, p.engagement_type,
                 CONCAT_WS(', ',
                     IF(COALESCE(p.person_id, 0) = 0, 'worker', NULL),
-                    IF(p.engagement_type <> 'internal' AND COALESCE(p.end_client_company_id, sc.company_id, 0) = 0, 'client', NULL),
+                    IF(p.engagement_type <> 'internal' AND COALESCE(sc.company_id, 0) = 0, 'client', NULL),
                     IF(COALESCE(p.staffing_job_id, 0) = 0 AND COALESCE(p.jobdiva_job_id, '') = '', 'job', NULL),
                     IF(COALESCE(p.recruiter_name, '') = '' AND COALESCE(p.recruiter_email, '') = ''
                         AND NOT EXISTS (
@@ -888,6 +951,169 @@ function businessIntegrityAudit(int $tenantId): array
         'checks' => $checks,
         'ran_at' => date(DATE_ATOM),
     ];
+}
+
+function businessIntegrityBankChecks(int $accountingTenantId): array
+{
+    if ($accountingTenantId <= 0) throw new InvalidArgumentException('accountingTenantId required');
+    $checks = [];
+    $bankMappingFrom = 'FROM accounting_bank_accounts bank
+        LEFT JOIN accounting_entities entity
+          ON entity.tenant_id = bank.tenant_id AND entity.id = bank.entity_id
+        LEFT JOIN accounting_accounts cash_account
+          ON cash_account.tenant_id = bank.tenant_id
+         AND cash_account.code = bank.gl_account_code';
+    $bankMappingInvalid = "bank.entity_id IS NULL OR entity.id IS NULL OR cash_account.id IS NULL
+        OR UPPER(bank.currency) <> UPPER(entity.base_currency)
+        OR (cash_account.currency IS NOT NULL AND cash_account.currency <> ''
+            AND UPPER(cash_account.currency) <> UPPER(bank.currency))
+        OR (bank.status = 'active' AND (
+            entity.active <> 1 OR cash_account.active <> 1
+            OR cash_account.is_postable <> 1 OR cash_account.account_type <> 'asset'
+            OR cash_account.normal_side <> 'debit'
+            OR NOT ((cash_account.is_system_account = 0
+                     AND COALESCE(cash_account.cash_flow_tag, '') = 'cash_and_equivalents')
+                    OR (cash_account.code = '1000' AND cash_account.is_system_account = 1))
+        ))";
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_account_mapping_integrity',
+        'Bank accounts have a valid legal entity, currency and cash ledger mapping',
+        'critical',
+        "SELECT COUNT(*) {$bankMappingFrom}
+          WHERE bank.tenant_id = :tenant_id AND ({$bankMappingInvalid})",
+        "SELECT bank.id AS bank_account_id, bank.name AS bank_account_name,
+                bank.status, bank.entity_id,
+                bank.gl_account_code, bank.currency AS bank_currency,
+                entity.active AS entity_active, entity.base_currency AS entity_currency,
+                cash_account.id AS cash_account_id, cash_account.active AS cash_account_active,
+                cash_account.is_postable, cash_account.is_system_account,
+                cash_account.account_type,
+                cash_account.normal_side, cash_account.cash_flow_tag,
+                cash_account.currency AS cash_account_currency
+           {$bankMappingFrom}
+          WHERE bank.tenant_id = :tenant_id AND ({$bankMappingInvalid})
+          ORDER BY bank.id DESC LIMIT 25",
+        ['accounting_bank_accounts', 'accounting_entities', 'accounting_accounts']
+    );
+    $bankCashMovement = 'COALESCE((
+        SELECT ROUND(SUM(journal_line.debit - journal_line.credit), 2)
+          FROM accounting_journal_entry_lines journal_line
+          JOIN accounting_accounts cash_account
+            ON cash_account.id = journal_line.account_id
+           AND cash_account.tenant_id = bank_line.tenant_id
+           AND cash_account.code = bank.gl_account_code
+         WHERE journal_line.je_id = journal.id
+    ), 0)';
+    $bankMatchFrom = 'FROM accounting_bank_statement_lines bank_line
+        LEFT JOIN accounting_bank_accounts bank
+          ON bank.tenant_id = bank_line.tenant_id AND bank.id = bank_line.bank_account_id
+        LEFT JOIN accounting_accounts account
+          ON account.tenant_id = bank_line.tenant_id AND account.code = bank.gl_account_code
+        LEFT JOIN accounting_journal_entries journal
+          ON journal.tenant_id = bank_line.tenant_id AND journal.id = bank_line.matched_je_id';
+    $bankMatchInvalid = "bank.id IS NULL OR bank_line.matched_je_id IS NULL
+        OR account.id IS NULL OR journal.id IS NULL OR journal.status <> 'posted'
+        OR bank.entity_id IS NULL OR journal.entity_id IS NULL
+        OR bank.entity_id <> journal.entity_id
+        OR COALESCE(NULLIF(bank.currency, ''), 'USD') <> COALESCE(NULLIF(journal.currency, ''), 'USD')
+        OR ABS({$bankCashMovement} - bank_line.amount) >= 0.005";
+    $bankTables = [
+        'accounting_bank_statement_lines', 'accounting_bank_accounts',
+        'accounting_accounts', 'accounting_journal_entries', 'accounting_journal_entry_lines',
+    ];
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_match_integrity',
+        'Matched bank lines have one posted journal with the same entity, currency and cash movement',
+        'critical',
+        "SELECT COUNT(*) {$bankMatchFrom}
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'matched'
+            AND ({$bankMatchInvalid})",
+        "SELECT bank_line.id AS bank_line_id, bank_line.posted_date, bank_line.amount,
+                bank_line.matched_je_id, journal.status AS journal_status,
+                bank.id AS bank_account_id, bank.gl_account_code,
+                bank.entity_id AS bank_entity_id, journal.entity_id AS journal_entity_id,
+                bank.currency AS bank_currency, journal.currency AS journal_currency,
+                {$bankCashMovement} AS cash_movement
+           {$bankMatchFrom}
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'matched'
+            AND ({$bankMatchInvalid})
+          ORDER BY bank_line.id DESC LIMIT 25",
+        $bankTables
+    );
+
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_duplicate_journal_matches',
+        'One journal is not claimed by multiple matched bank lines',
+        'critical',
+        "SELECT COUNT(*) FROM (
+            SELECT matched_je_id FROM accounting_bank_statement_lines
+             WHERE tenant_id = :tenant_id AND match_status = 'matched' AND matched_je_id IS NOT NULL
+             GROUP BY matched_je_id HAVING COUNT(*) > 1
+        ) duplicates",
+        "SELECT matched_je_id, COUNT(*) AS line_count,
+                GROUP_CONCAT(CONCAT(id, ':', bank_account_id) ORDER BY id) AS bank_line_refs
+           FROM accounting_bank_statement_lines
+          WHERE tenant_id = :tenant_id AND match_status = 'matched' AND matched_je_id IS NOT NULL
+          GROUP BY matched_je_id HAVING COUNT(*) > 1
+          ORDER BY line_count DESC, matched_je_id LIMIT 25",
+        ['accounting_bank_statement_lines']
+    );
+
+    $unmatchedLineage = "bank_line.matched_je_id IS NOT NULL
+        OR EXISTS (
+            SELECT 1 FROM accounting_journal_entries direct_je
+             WHERE direct_je.tenant_id = bank_line.tenant_id AND direct_je.status = 'posted'
+               AND direct_je.source_module = 'treasury_feed'
+               AND direct_je.source_ref_type = 'bank_statement_line'
+               AND CAST(direct_je.source_ref_id AS CHAR) = CAST(bank_line.id AS CHAR)
+        )
+        OR EXISTS (
+            SELECT 1 FROM accounting_subledger_links link
+            JOIN accounting_journal_entries linked_je
+              ON linked_je.tenant_id = link.tenant_id AND linked_je.id = link.journal_entry_id
+             WHERE link.tenant_id = bank_line.tenant_id AND link.source_module = 'treasury_feed'
+               AND link.link_kind = 'primary' AND linked_je.status = 'posted'
+               AND link.source_record_id IN (CONCAT('bank_line:', bank_line.id),
+                                             CONCAT('bank_line:split:', bank_line.id))
+        )";
+    $checks[] = businessIntegrityCountCheck(
+        $accountingTenantId,
+        'bank_unmatched_explicit_lineage',
+        'Unmatched bank lines with ledger references need review',
+        'error',
+        "SELECT COUNT(*) FROM accounting_bank_statement_lines bank_line
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
+            AND ({$unmatchedLineage})",
+        "SELECT bank_line.id AS bank_line_id, bank_line.bank_account_id, bank_line.posted_date,
+                bank_line.amount, bank_line.matched_je_id,
+                (SELECT GROUP_CONCAT(DISTINCT direct_je.id ORDER BY direct_je.id)
+                   FROM accounting_journal_entries direct_je
+                  WHERE direct_je.tenant_id = bank_line.tenant_id AND direct_je.status = 'posted'
+                    AND direct_je.source_module = 'treasury_feed'
+                    AND direct_je.source_ref_type = 'bank_statement_line'
+                    AND CAST(direct_je.source_ref_id AS CHAR) = CAST(bank_line.id AS CHAR))
+                  AS direct_posted_journal_ids,
+                (SELECT GROUP_CONCAT(DISTINCT linked_je.id ORDER BY linked_je.id)
+                   FROM accounting_subledger_links link
+                   JOIN accounting_journal_entries linked_je
+                     ON linked_je.tenant_id = link.tenant_id
+                    AND linked_je.id = link.journal_entry_id AND linked_je.status = 'posted'
+                  WHERE link.tenant_id = bank_line.tenant_id
+                    AND link.source_module = 'treasury_feed' AND link.link_kind = 'primary'
+                    AND link.source_record_id IN (CONCAT('bank_line:', bank_line.id),
+                                                  CONCAT('bank_line:split:', bank_line.id)))
+                  AS linked_posted_journal_ids
+           FROM accounting_bank_statement_lines bank_line
+          WHERE bank_line.tenant_id = :tenant_id AND bank_line.match_status = 'unmatched'
+            AND ({$unmatchedLineage})
+          ORDER BY bank_line.id DESC LIMIT 25",
+        ['accounting_bank_statement_lines', 'accounting_journal_entries', 'accounting_subledger_links']
+    );
+
+    return $checks;
 }
 
 function businessIntegrityArtifactCoverageCheck(

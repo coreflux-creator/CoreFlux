@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-26",
+  "scope": "Original staffing workbook review for Thunderhawk person 358 / placement 864; no operational import",
+  "source": {
+    "file": "Placements.xlsx",
+    "sha256": "1a416dc2f339d28d97c495e9a8a2a0202977c796f6af3462bcbb8617da87fd6c",
+    "sheet": "Active Billables",
+    "headings_row": 2,
+    "data_range": "B37:AB37",
+    "workbook_modified": "2026-09-17T20:19:52",
+    "historical_source": true,
+    "workbook_changed": false,
+    "private_cell_receipt": "output/thunderhawk-remaining-alignment-20261026/staffing-source-review.json"
+  },
+  "resolved_meaning": {
+    "B37": "Formula-derived row ordinal 35, not a person or placement number",
+    "D37": "Client label; does not expressly distinguish bill-to from end client",
+    "Q37": "Derived margin 20 = 98 - (65 * 1.2); not a referral payment or commission",
+    "T37": "Recruiter display name; a payable recipient still requires a verified link",
+    "W37": "Recruiter commission 7500.00, INR established by the cell number format",
+    "X37": "Team commission due month 2026-08; displayed Aug-26. Underlying first-day date does not establish an exact payment deadline",
+    "AB37": "Centurion Category Full; not full-time employment"
+  },
+  "recipient_read": {
+    "checked_at": "2026-10-26T19:29:50-04:00",
+    "mode": "enforced_read_only_transaction_rolled_back",
+    "source_refreshed": false,
+    "stored_jobdiva_snapshot_date": "2026-09-21 10:02:10",
+    "source_recruiter_id": "1602627",
+    "source_allocation_exists": true,
+    "core_user_id_linked": false,
+    "core_person_id_linked": false,
+    "money_flow": "informational",
+    "settlement_channel": "none",
+    "private_receipt": "output/thunderhawk-remaining-alignment-20261026/recipient.json"
+  },
+  "user_clarification": {
+    "date": "2026-10-26",
+    "source": "User answered the placement commission clarification with onetime",
+    "commission_amount": "7500.00",
+    "commission_currency": "INR",
+    "commission_timing": "one_time_placement",
+    "due_month": "2026-08",
+    "exact_due_date_confirmed": false,
+    "payable_recipient_confirmed": false,
+    "payment_authorized": false,
+    "operational_records_changed": false
+  },
+  "implementation": {
+    "native_commission_api": "Reject unsupported fields and unsupported bases before either create or update writes; do not discard currency or timing and accept the amount",
+    "dictionary_version": "2026-10-26.2",
+    "dictionary_definitions_added": 10,
+    "schema_changes": false,
+    "foreign_currency_commission_settlement_implemented": false,
+    "connector_imports_covered_by_new_api_guard": false,
+    "source_workbook_imported": false,
+    "staging_deployed": true
+  },
+  "local_validation": {
+    "commission_input_checks": 73,
+    "commission_api_harness": "Exact API source copied into a disposable process fixture with authentication/DB adapters; verifies POST and PATCH reject before writes and supported edits still reach the writer. Not live HTTP or database acceptance",
+    "record_number_and_dictionary_checks": 314,
+    "jobdiva_graph_checks": 54,
+    "placement_spec_checks": 99,
+    "total": 540,
+    "php_syntax": "passed"
+  },
+  "remaining": [
+    "One-time placement basis confirmed by the user; confirm the actual payable recipient",
+    "Implement reviewed currency, timing and approval semantics before using the source commission in settlement",
+    "Resolve WC and explicit end-client evidence; complete normal rate approval and actual Thunderhawk operational acceptance",
+    "Complete the separate hosted financial callback exchange and reconciliation",
+    "Resolve supported production deployment/recovery and obtain explicit cutover authorization"
+  ],
+  "boundaries": {
+    "production_or_provider_records_changed": false,
+    "rates_or_commissions_approved": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "arabella_changed": false,
+    "full_thunderhawk_round_trip_proven": false
+  },
+  "staging_release": {
+    "commit": "ee3edad5b177a64a2878699e0e806a18de282a1c",
+    "ci_run": 40420932771,
+    "ci_jobs_passed": 9,
+    "deployment_run": 40421251045,
+    "deployment_conclusion": "success",
+    "standard_acceptance": "passed",
+    "migrations_applied": [],
+    "readback_at": "2026-10-26T19:42:45-04:00",
+    "dictionary_version": "2026-10-26.2",
+    "verified_economic_definitions": 10,
+    "native_validator_rejects_foreign_currency": true,
+    "runtime_hashes_match": 4,
+    "protected_demo_sets_unchanged": [
+      "connection",
+      "deliveries_22_23",
+      "client_2",
+      "company_709"
+    ],
+    "customer_payload_fields_preserved": 8,
+    "production_changed": false,
+    "readback_http_api_test": false,
+    "installed_changed_files": 9,
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/ee3edad5b177a64a2878699e0e806a18de282a1c-20261026234153"
+  }
+}

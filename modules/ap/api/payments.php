@@ -8,6 +8,7 @@
  *   POST /api/ap/payments?action=send&id=N     → transition queued/draft → sent  (ap.payment.send; SoD-guarded)
  *   POST /api/ap/payments?action=clear&id=N    → mark cleared (manual bank rec)
  *   POST /api/ap/payments?action=void&id=N     → body: {reason}
+ *   POST /api/ap/payments?action=correct_cleared&id=N → reverse a manual clearance
  *
  * SPEC: /app/modules/ap/SPEC.md §5.3.
  */
@@ -22,6 +23,75 @@ $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+if (!coreAccountingAllowsApPaymentAction($method, (string) $action, (string) getenv('COREFLUX_ENV'))) {
+    api_error('Payment-provider origination is not available in CoreAccounting', 403);
+}
+
+if ($method === 'GET' && in_array($action, ['bank_delivery', 'bank_file'], true)) {
+    rbac_legacy_require($user, 'ap.view');
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') api_error('Provider deliveries belong in full Core', 403);
+    if ($action === 'bank_file') rbac_legacy_require($user, 'ap.payment.send');
+    require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
+    try {
+        $delivery = apBankDelivery(getDB(), $tid, (int) ($_GET['id'] ?? 0), $action === 'bank_file');
+        $delivery['can_download'] = $delivery['can_download'] && rbac_legacy_can($user, 'ap.payment.send');
+        api_ok(['delivery' => $delivery]);
+    } catch (DomainException $e) { api_error($e->getMessage(), 409); }
+}
+
+if (in_array($action, ['purepay_review', 'purepay_resume', 'purepay_release', 'purepay_reconcile'], true)) {
+    rbac_legacy_require($user, 'ap.view');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('Payment id required', 400);
+    require_once __DIR__ . '/../../../core/purepay_allocation_operations.php';
+    $permitted = rbac_legacy_can($user, 'ap.payment.send');
+    $actor = (int) ($user['id'] ?? 0);
+    try {
+        if ($method === 'GET' && $action === 'purepay_review') {
+            api_ok(['review' => purepayAllocationReview(getDB(), $tid, $id, $actor, $permitted)]);
+        }
+        if ($method !== 'POST' || $action === 'purepay_review') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'ap.payment.send');
+        // Require the app's JSON request and reject cross-origin session writes.
+        $requestOrigin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
+        if (!str_starts_with(strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? '')), 'application/json')
+            || ($requestOrigin !== '' && strcasecmp((string) parse_url($requestOrigin, PHP_URL_HOST),
+                (string) parse_url('https://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST)) !== 0)) {
+            api_error('Use the payment review in Core to perform this action', 403);
+        }
+        if ($action === 'purepay_resume') {
+            $payment = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+            if (!$payment) api_error('Payment not found', 404);
+            apPaymentReleaseGateOrError($tid, $payment, $actor, 'purepay_resume');
+        }
+        $body = api_json_body();
+        $review = purepayAllocationOperate(getDB(), $tid, $id, $actor, $permitted, substr($action, 8),
+            (string) ($body['review_hash'] ?? ''), (string) ($body['reason'] ?? ''));
+        api_ok(['review' => $review]);
+    } catch (\DomainException|\PurePayApiException $e) {
+        api_error($e->getMessage(), 409);
+    }
+}
+
+if ($method === 'GET' && $action === 'correction_check') {
+    rbac_legacy_require($user, 'ap.view');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $payment = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$payment) api_error('Payment not found', 404);
+    $permitted = rbac_legacy_can($user, 'ap.payment.send')
+        && rbac_legacy_can($user, 'accounting.je.reverse');
+    if (!$permitted) {
+        api_ok(['available' => false, 'reason' => 'An authorized AP and accounting reviewer must correct this payment']);
+    }
+    require_once __DIR__ . '/../lib/payment_correction.php';
+    try {
+        $review = apInspectClearedManualPayment(getDB(), $tid, $payment);
+        api_ok(['available' => true, 'review' => $review]);
+    } catch (\Throwable $e) {
+        api_ok(['available' => false, 'reason' => $e->getMessage()]);
+    }
+}
 
 if ($method === 'GET' && $action === 'export_template') {
     rbac_legacy_require($user, 'ap.payment.send');
@@ -142,15 +212,58 @@ if ($method === 'GET') {
             unset($row);
         }
     }
+    require_once __DIR__ . '/../../../core/purepay_payment_evidence.php';
+    if ($rows && purepayAllocatedSchemaAvailable(getDB())) {
+        $ids = array_column($rows, 'id');
+        $q = getDB()->prepare('SELECT core_payment_id,status FROM purepay_allocated_payments WHERE tenant_id=? AND core_payment_id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $q->execute(array_merge([$tid], $ids));
+        $deliveries = $q->fetchAll(\PDO::FETCH_KEY_PAIR);
+        foreach ($rows as &$row) $row['purepay_allocation_status'] = $deliveries[$row['id']] ?? null;
+        unset($row);
+    }
+    require_once __DIR__.'/../../../core/ap_bank_dispatches.php';
+    if ($rows && apBankSchemaAvailable(getDB())) {
+        $ids = array_column($rows, 'id');
+        $q = getDB()->prepare('SELECT c.payment_id,d.state FROM ap_bank_payment_claims c JOIN ap_bank_dispatches d
+            ON d.tenant_id=c.tenant_id AND d.dispatch_id=c.dispatch_id WHERE c.tenant_id=? AND c.payment_id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $q->execute(array_merge([$tid], $ids));
+        $deliveries = $q->fetchAll(PDO::FETCH_KEY_PAIR);
+        foreach ($rows as &$row) $row['bank_dispatch_state'] = $deliveries[$row['id']] ?? null;
+        unset($row);
+    }
+    $journalIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int) ($row['journal_entry_id'] ?? 0), $rows
+    ))));
+    if ($journalIds) {
+        $placeholders = implode(',', array_fill(0, count($journalIds), '?'));
+        $reversals = getDB()->prepare(
+            'SELECT id, reversed_by_je_id FROM accounting_journal_entries
+              WHERE tenant_id = ? AND id IN (' . $placeholders . ')'
+        );
+        $reversals->execute(array_merge([$tid], $journalIds));
+        $byJournal = [];
+        foreach ($reversals->fetchAll(\PDO::FETCH_ASSOC) as $journal) {
+            $byJournal[(int) $journal['id']] = $journal['reversed_by_je_id'] ?: null;
+        }
+        foreach ($rows as &$row) {
+            $row['reversal_journal_entry_id'] = $byJournal[(int) ($row['journal_entry_id'] ?? 0)] ?? null;
+        }
+        unset($row);
+    }
     api_ok([
         'rows'                  => $rows,
         'total'                 => (int) ($count['c'] ?? 0),
         'page'                  => $page,
         'per_page'              => $perPage,
-        'plaid_enabled'         => apPlaidConfigured(),
-        'plaid_transfer_linked' => $plaidLinked,
-        'mercury_connected'     => $mercuryConnected,
-        'purepay_connected'     => $purepayConnected,
+        'plaid_enabled'         => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : apPlaidConfigured(),
+        'plaid_transfer_linked' => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : $plaidLinked,
+        'mercury_connected'     => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : $mercuryConnected,
+        'purepay_connected'     => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : $purepayConnected,
+        'can_void_payment'      => rbac_legacy_can($user, 'ap.payment.send'),
+        'can_correct_manual_payment' => rbac_legacy_can($user, 'ap.payment.send')
+            && rbac_legacy_can($user, 'accounting.je.reverse'),
     ]);
 }
 
@@ -158,38 +271,80 @@ if ($method === 'POST' && $action === '') {
     rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     api_require_fields($body, ['vendor_name', 'pay_date', 'method', 'amount']);
+    if (getenv('COREFLUX_ENV') === 'coreaccounting'
+        && in_array((string) $body['method'], ['plaid', 'mercury'], true)) {
+        api_error('Choose a manual payment method in CoreAccounting', 422);
+    }
     $amount = round((float) $body['amount'], 2);
     if ($amount <= 0) api_error('amount must be > 0', 422);
 
-    $id = scopedInsert('ap_payments', [
-        'tenant_id'          => $tid,
-        'entity_id'          => !empty($body['entity_id']) ? (int) $body['entity_id'] : null,
-        'vendor_name'        => (string) $body['vendor_name'],
-        'pay_date'           => (string) $body['pay_date'],
-        'method'             => (string) $body['method'],
-        'reference'          => $body['reference'] ?? null,
-        'amount'             => $amount,
-        'currency'           => (string) ($body['currency'] ?? 'USD'),
-        'unallocated_amount' => $amount,
-        'bank_account_id'    => !empty($body['bank_account_id']) ? (int) $body['bank_account_id'] : null,
-        'status'             => 'draft',
-        'notes'              => $body['notes'] ?? null,
-        'created_by_user_id' => $user['id'] ?? null,
-    ]);
-    apAudit('ap.payment.drafted', [
-        'payment_id' => $id, 'vendor_name' => $body['vendor_name'], 'amount' => $amount, 'method' => $body['method'],
-    ], $id, [
-        'after' => apPaymentAuditRow($tid, $id),
-    ]);
-
-    if (!empty($body['auto_allocate'])) {
-        try {
-            $alloc = apAllocatePayment($id, ['auto' => 'fifo'], $user['id'] ?? null);
-            return api_ok(['id' => $id, 'auto_allocation' => $alloc], 201);
-        } catch (\Throwable $e) {
-            return api_ok(['id' => $id, 'auto_allocation_error' => $e->getMessage()], 201);
+    $entityId = !empty($body['entity_id']) ? (int) $body['entity_id'] : null;
+    $bankAccountId = !empty($body['bank_account_id']) ? (int) $body['bank_account_id'] : null;
+    $currency = strtoupper(trim((string) ($body['currency'] ?? 'USD')));
+    if (!preg_match('/^[A-Z]{3}$/', $currency)) api_error('Choose a valid payment currency', 422);
+    if ($bankAccountId !== null) {
+        $bank = scopedFind('SELECT id, entity_id, currency FROM accounting_bank_accounts
+            WHERE tenant_id = :tenant_id AND id = :id AND status = "active"',
+            ['id' => $bankAccountId]);
+        if (!$bank) api_error('Choose an active funding bank account', 422);
+        if (strcasecmp((string) ($bank['currency'] ?: 'USD'), $currency) !== 0) {
+            api_error('Payment and funding bank account currencies differ', 422);
+        }
+        $bankEntityId = !empty($bank['entity_id']) ? (int) $bank['entity_id'] : null;
+        if ($entityId !== null && $bankEntityId !== null && $entityId !== $bankEntityId) {
+            api_error('The funding bank account belongs to a different entity', 422);
+        }
+        $entityId ??= $bankEntityId;
+    }
+    if ($entityId !== null) {
+        $entity = scopedFind('SELECT id, base_currency FROM accounting_entities
+            WHERE tenant_id = :tenant_id AND id = :id AND active = 1', ['id' => $entityId]);
+        if (!$entity) api_error('Choose an active legal entity', 422);
+        if (strcasecmp((string) $entity['base_currency'], $currency) !== 0) {
+            api_error('Payment and legal entity currencies differ', 422);
         }
     }
+
+    $autoAllocate = !empty($body['auto_allocate']);
+    $pdo = getDB();
+    if ($autoAllocate) $pdo->beginTransaction();
+    try {
+        $id = scopedInsert('ap_payments', [
+            'tenant_id'          => $tid,
+            'entity_id'          => $entityId,
+            'vendor_name'        => (string) $body['vendor_name'],
+            'pay_date'           => (string) $body['pay_date'],
+            'method'             => (string) $body['method'],
+            'reference'          => $body['reference'] ?? null,
+            'amount'             => $amount,
+            'currency'           => $currency,
+            'unallocated_amount' => $amount,
+            'bank_account_id'    => $bankAccountId,
+            'status'             => 'draft',
+            'notes'              => $body['notes'] ?? null,
+            'created_by_user_id' => $user['id'] ?? null,
+        ]);
+        apAudit('ap.payment.drafted', [
+            'payment_id' => $id, 'vendor_name' => $body['vendor_name'], 'amount' => $amount, 'method' => $body['method'],
+        ], $id, [
+            'after' => apPaymentAuditRow($tid, $id),
+        ]);
+        $alloc = $autoAllocate ? apAllocatePayment($id, ['auto' => 'fifo'], $user['id'] ?? null) : null;
+        if ($autoAllocate && (float) ($alloc['unallocated_remaining'] ?? $amount) > 0.005) {
+            throw new \RuntimeException('Eligible approved bills do not cover the full payment. Reduce the amount or turn off auto-allocation to save an unallocated draft.');
+        }
+        if ($autoAllocate) $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($autoAllocate && $pdo->inTransaction()) $pdo->rollBack();
+        if ($autoAllocate && ($e instanceof \RuntimeException || $e instanceof \InvalidArgumentException)) {
+            $message = $e->getMessage() === 'no allocations specified'
+                ? 'No approved, unpaid bills are available for this vendor and company. Turn off auto-allocation to save an unallocated draft.'
+                : 'Automatic allocation failed: ' . $e->getMessage();
+            api_error($message, 422);
+        }
+        throw $e;
+    }
+    if ($autoAllocate) api_ok(['id' => $id, 'auto_allocation' => $alloc], 201);
     api_ok(['id' => $id], 201);
 }
 
@@ -215,6 +370,10 @@ if ($method === 'POST' && $action === 'send') {
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
+    if (getenv('COREFLUX_ENV') === 'coreaccounting'
+        && in_array((string) $row['method'], ['plaid', 'mercury'], true)) {
+        api_error('Provider-linked payments cannot be released in CoreAccounting', 403);
+    }
     if (!apPaymentTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
     apPaymentReleaseGateOrError($tid, $row, (int) ($user['id'] ?? 0), 'send');
 
@@ -265,6 +424,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
 
     // Validate state transitions up-front so we never half-originate a batch.
     foreach ($rows as $r) {
+        apPaymentRequireFreshRailOrError($tid, (int) $r['id']);
         if ($r['status'] === 'sent' && empty($r['rail_external_ref'])) {
             // OK — already sent, just hasn't been originated yet.
         } elseif ($r['status'] === 'draft' || $r['status'] === 'queued') {
@@ -366,6 +526,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
         $v = $vendors[$vname];
         $itemData = [
             'external_ref'   => 'ap_payment:' . $r['id'],
+            'effective_date' => (string)$r['pay_date'],
             'recipient_name' => (string) $vname,
             'recipient_ref'  => 'ap_vendor:' . (int) $v['id'],
             'recipient_email'=> (string) ($v['remit_to_email'] ?: $v['contact_email'] ?: ''),
@@ -393,6 +554,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
 
     try {
         $res = paymentRailsDispatch('ap', [
+            'actor_user_id' => (int) ($user['id'] ?? 0),
             'tenant_id' => (int) currentTenantId(),
             'effective_date' => date('Y-m-d', strtotime('+1 day')),
             'disbursement_rail' => $railOverride,
@@ -409,6 +571,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
     // Pure//Pay can partially accept a batch. Failed items stay eligible for
     // review and retry; successful provider payouts are never rolled back.
     $failedItems = [];
+    $needsReviewItems = [];
     $originatedIds = [];
     $pdo->beginTransaction();
     try {
@@ -425,11 +588,15 @@ if ($method === 'POST' && $action === 'originate_batch') {
         foreach ($res['items'] as $it) $byRef[$it['external_ref']] = $it;
         foreach ($rows as $r) {
             $itemRes = $byRef['ap_payment:' . $r['id']] ?? ['status' => $res['status'] ?? 'submitted', 'rail_external_ref' => $res['batch_id']];
+            if (!empty($res['ap_dispatch_recorded']) && ($itemRes['status'] ?? '') === 'unknown') {
+                $needsReviewItems[] = ['payment_id' => (int) $r['id'], 'error' => 'Open the original bank delivery to reconcile its outcome'];
+                continue;
+            }
             if (($itemRes['status'] ?? '') === 'failed') {
                 $failedItems[] = ['payment_id' => (int) $r['id'], 'error' => (string) ($itemRes['error'] ?? 'Provider rejected payment')];
                 continue;
             }
-            $upd->execute([
+            if (empty($res['ap_dispatch_recorded'])) $upd->execute([
                 'r'  => $res['rail'],
                 'x'  => array_key_exists('rail_external_ref', $itemRes) ? $itemRes['rail_external_ref'] : $res['batch_id'],
                 's'  => $itemRes['status']            ?? 'submitted',
@@ -472,6 +639,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
         'item_count'  => count($items),
         'originated_count' => count($originatedIds),
         'failed_items'=> $failedItems,
+        'needs_review_items' => $needsReviewItems,
         'amount_total'=> $originatedAmount,
     ];
     if ($res['rail'] === 'nacha' && !empty($res['payload']['content'])) {
@@ -490,6 +658,7 @@ if ($method === 'POST' && $action === 'send_via_mercury') {
     require_once __DIR__ . '/../../../core/mercury_payments.php';
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
+    apPaymentRequireFreshRailOrError($tid, $id);
     try {
         $instr = mpCreateFromApPayment($tid, $id, $user['id'] ?? null);
     } catch (\Throwable $e) {
@@ -505,6 +674,7 @@ if ($method === 'POST' && $action === 'originate') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['status'] !== 'sent') api_error('Originate requires status=sent', 409);
+    apPaymentRequireFreshRailOrError($tid, $id);
     if (!in_array($row['method'], ['ach','plaid'], true)) api_error('Originate only supports ach/plaid methods', 422);
     if (!empty($row['rail_external_ref']))      api_error('Already originated on rail ' . $row['disbursement_rail'], 409);
     apPaymentReleaseGateOrError($tid, $row, null, 'originate');
@@ -537,6 +707,7 @@ if ($method === 'POST' && $action === 'originate') {
 
     $itemData = [
         'external_ref'   => 'ap_payment:' . $row['id'],
+        'effective_date' => (string)$row['pay_date'],
         'recipient_name' => (string) $row['vendor_name'],
         'recipient_ref'  => 'ap_vendor:' . (int) $vendor['id'],
         'recipient_email'=> (string) ($vendor['remit_to_email'] ?: $vendor['contact_email'] ?: ''),
@@ -562,6 +733,7 @@ if ($method === 'POST' && $action === 'originate') {
     $item = paymentRailsBuildItem($itemData, $targetRail === 'purepay');
 
     try {
+        $row['actor_user_id'] = (int) ($user['id'] ?? 0);
         $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
     } catch (PaymentRailsOriginateException $e) {
         apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id, [
@@ -571,7 +743,11 @@ if ($method === 'POST' && $action === 'originate') {
     }
 
     $itemRes = $res['items'][0] ?? ['status' => 'failed'];
-    getDB()->prepare(
+    if (($itemRes['status'] ?? '') === 'failed' && empty($itemRes['rail_external_ref'])) {
+        // A rejected competing request must never erase another service's claim.
+        api_error((string) ($itemRes['error'] ?? 'Payment service did not return a payment reference. Review the original delivery before retrying.'), 409);
+    }
+    if (empty($res['ap_dispatch_recorded'])) getDB()->prepare(
         'UPDATE ap_payments SET disbursement_rail = :r, rail_external_ref = :x,
                 rail_status = :s, rail_originated_at = NOW()
          WHERE tenant_id = :t AND id = :id'
@@ -619,23 +795,45 @@ if ($method === 'POST' && $action === 'clear') {
         api_error($e->getMessage(), 422, ['retryable' => true]);
     }
 
-    $cleared = $result['after'] ?? (apPaymentAuditRow($tid, $id) ?? $row);
-    apAudit('ap.payment.cleared', [
-        'payment_id' => $id,
-        'journal_entry_id' => $result['journal_entry_id'],
-        'bank_account_id' => $result['posting']['bank_account_id'] ?? null,
-        'event_layer_status' => $result['event_layer_status'] ?? null,
-        'event_layer_error' => $result['event_layer_error'] ?? null,
-        'idempotent_replay' => !empty($result['idempotent_replay']),
-    ], $id, [
-        'before' => $row,
-        'after' => $cleared,
-    ]);
+    if (empty($result['idempotent_replay'])) {
+        $cleared = $result['after'] ?? (apPaymentAuditRow($tid, $id) ?? $row);
+        apAudit('ap.payment.cleared', [
+            'payment_id' => $id,
+            'journal_entry_id' => $result['journal_entry_id'],
+            'bank_account_id' => $result['posting']['bank_account_id'] ?? null,
+            'event_layer_status' => $result['event_layer_status'] ?? null,
+            'event_layer_error' => $result['event_layer_error'] ?? null,
+        ], $id, [
+            'before' => $row,
+            'after' => $cleared,
+        ]);
+    }
     api_ok([
         'ok' => true,
         'journal_entry_id' => (int) $result['journal_entry_id'],
         'idempotent_replay' => !empty($result['idempotent_replay']),
     ]);
+}
+
+if ($method === 'POST' && $action === 'correct_cleared') {
+    rbac_legacy_require($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'accounting.je.reverse');
+    $id = (int) ($_GET['id'] ?? 0);
+    $reason = trim((string) (api_json_body()['reason'] ?? ''));
+    if ($id <= 0 || $reason === '') api_error('Payment and correction reason are required', 422);
+    require_once __DIR__ . '/../lib/payment_correction.php';
+    $before = apPaymentAuditRow($tid, $id);
+    if (!$before) api_error('Payment not found', 404);
+    try {
+        $result = apCorrectClearedManualPayment($tid, $id, $reason, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    apAudit('ap.payment.corrected', $result + ['reason' => $reason], $id, [
+        'before' => $before,
+        'after' => apPaymentAuditRow($tid, $id),
+    ]);
+    api_ok(['ok' => true] + $result);
 }
 
 if ($method === 'POST' && $action === 'void') {
@@ -644,26 +842,15 @@ if ($method === 'POST' && $action === 'void') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['status'] === 'void') api_error('Already void', 409);
-    if (($row['disbursement_rail'] ?? '') === 'purepay' && !empty($row['rail_external_ref'])
-        && !in_array((string) ($row['rail_status'] ?? ''), ['failed','returned','cancelled'], true)) {
-        api_error('Pure//Pay has already received this payout. Confirm a provider failure or cancellation before voiding it.', 409);
-    }
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     if ($reason === '') api_error('reason required', 422);
 
-    $pdo = getDB();
-    $pdo->beginTransaction();
     try {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_payments SET status = "void", voided_at = NOW(), void_reason = :r WHERE id = :id')
-            ->execute(['r' => $reason, 'id' => $id]);
-        apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id);
-
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
+        $result = apVoidPayment($tid, $id, $reason);
+        $row = $result['before'];
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
     }
 
     $voided = apPaymentAuditRow($tid, $id) ?? $row;
@@ -672,6 +859,15 @@ if ($method === 'POST' && $action === 'void') {
         'after' => $voided,
     ]);
     api_ok(['ok' => true]);
+}
+
+function apPaymentRequireFreshRailOrError(int $tenantId, int $paymentId): void
+{
+    require_once __DIR__ . '/../../../core/purepay_payment_evidence.php';
+    if (!purepayAllocatedSchemaAvailable(getDB())) return;
+    $q = getDB()->prepare('SELECT 1 FROM purepay_allocated_payments WHERE tenant_id=? AND core_payment_id=?');
+    $q->execute([$tenantId, $paymentId]);
+    if ($q->fetchColumn()) api_error('This payment has an original PurePay delivery. Open Review PurePay delivery to reconcile, resume or cancel it.', 409);
 }
 
 function apPaymentReleaseGateOrError(int $tenantId, array $payment, ?int $userId, string $surface): void
@@ -721,9 +917,9 @@ function apPaymentReleaseIssue(int $tenantId, array $payment, ?int $userId): ?ar
     $checkStmt = $pdo->prepare(
         'SELECT b.status, b.internal_ref
          FROM ap_payment_allocations a
-         JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = a.tenant_id
-         WHERE a.tenant_id = :t
-           AND a.payment_id = :id AND b.status IN ("disputed","void")'
+         JOIN ap_payments p ON p.id = a.payment_id AND p.tenant_id = :t
+         JOIN ap_bills b ON b.id = a.bill_id AND b.tenant_id = p.tenant_id
+         WHERE a.payment_id = :id AND b.status IN ("disputed","void")'
     );
     $checkStmt->execute(['t' => $tenantId, 'id' => $paymentId]);
     $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);

@@ -8,18 +8,22 @@
  *   POST   /api/ap/bills?action=from-time-bundle
  *          body: {period_id, placement_ids[], aggregation}
  *   PATCH  /api/ap/bills?id=N                   → edit (only inbox/pending_review/pending_approval)
+ *   PATCH  /api/ap/bills?action=coding&id=N     → recode an unposted bill without changing approved amounts
  *   POST   /api/ap/bills?action=approve&id=N    → two-eye gate
  *   POST   /api/ap/bills?action=void&id=N       → body: {reason}
+ *   POST   /api/ap/bills?action=correct_posted&id=N → reverse an unpaid manual bill with reason
  *   POST   /api/ap/bills?action=dispute&id=N    → body: {reason}
  *   POST   /api/ap/bills?action=post&id=N       → GL post (stub until Accounting v1.0)
  *
  * SPEC: /app/modules/ap/SPEC.md §5.1, §9.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/active_entity.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/bill_drafts.php';
 require_once __DIR__ . '/../lib/pwp.php';
 require_once __DIR__ . '/../lib/workflow_bridge.php';
 
@@ -255,20 +259,54 @@ if ($method === 'GET' && !empty($_GET['id'])) {
                 $params[$key] = $entryId;
             }
             $entryStmt = $pdo->prepare(
-                'SELECT id, timesheet_id, work_date
+                'SELECT id, timesheet_id, work_date, hours, category, status, description
                    FROM time_entries
                   WHERE tenant_id = :tenant_id AND id IN (' . implode(',', $ph) . ')'
             );
             $entryStmt->execute($params);
             $entriesById = [];
+            $timesheetIds = [];
             foreach ($entryStmt->fetchAll(\PDO::FETCH_ASSOC) as $entry) {
                 $entriesById[(int) $entry['id']] = $entry;
+                if (!empty($entry['timesheet_id'])) $timesheetIds[(int) $entry['timesheet_id']] = true;
+            }
+            $timesheetsById = [];
+            if ($timesheetIds) {
+                try {
+                    $tsParams = ['tenant_id' => $tid];
+                    $tsPh = [];
+                    foreach (array_keys($timesheetIds) as $i => $timesheetId) {
+                        $key = 'timesheet_id_' . $i;
+                        $tsPh[] = ':' . $key;
+                        $tsParams[$key] = $timesheetId;
+                    }
+                    $tsStmt = $pdo->prepare(
+                        'SELECT id, artifact_id, period_start, period_end, status
+                           FROM staffing_timesheets
+                          WHERE tenant_id = :tenant_id AND id IN (' . implode(',', $tsPh) . ')'
+                    );
+                    $tsStmt->execute($tsParams);
+                    foreach ($tsStmt->fetchAll(\PDO::FETCH_ASSOC) as $timesheet) {
+                        $timesheetsById[(int) $timesheet['id']] = $timesheet;
+                    }
+                } catch (\Throwable $_) { /* AP can still show the entry when staffing headers are unavailable */ }
             }
             foreach ($lines as &$l) {
                 $entry = $entriesById[(int) ($l['source_ref_id'] ?? 0)] ?? null;
                 if (!$entry) continue;
                 $l['source_timesheet_id'] = isset($entry['timesheet_id']) ? (int) $entry['timesheet_id'] : null;
                 $l['source_work_date'] = $entry['work_date'] ?? null;
+                $l['source_hours'] = $entry['hours'] ?? null;
+                $l['source_category'] = $entry['category'] ?? null;
+                $l['source_status'] = $entry['status'] ?? null;
+                $l['source_entry_description'] = $entry['description'] ?? null;
+                $timesheet = $timesheetsById[(int) ($entry['timesheet_id'] ?? 0)] ?? null;
+                if ($timesheet) {
+                    $l['source_timesheet_artifact_id'] = $timesheet['artifact_id'] ?? null;
+                    $l['source_period_start'] = $timesheet['period_start'];
+                    $l['source_period_end'] = $timesheet['period_end'];
+                    $l['source_timesheet_status'] = $timesheet['status'];
+                }
             }
             unset($l);
         }
@@ -282,7 +320,70 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     );
     $allocStmt->execute(['id' => $id]);
     $allocations = $allocStmt->fetchAll(\PDO::FETCH_ASSOC);
-    api_ok(['bill' => $bill, 'lines' => $lines, 'allocations' => $allocations]);
+    if (!empty($bill['journal_entry_id'])) {
+        $reversed = $pdo->prepare(
+            'SELECT reversed_by_je_id FROM accounting_journal_entries
+              WHERE tenant_id = :tenant_id AND id = :journal_entry_id'
+        );
+        $reversed->execute(['tenant_id' => $tid, 'journal_entry_id' => (int) $bill['journal_entry_id']]);
+        $bill['reversal_journal_entry_id'] = $reversed->fetchColumn() ?: null;
+    }
+    $bill['correction_available'] = false;
+    $bill['correction_permitted'] = rbac_legacy_can($user, 'ap.bill.void')
+        && rbac_legacy_can($user, 'accounting.je.reverse');
+    if ($bill['status'] === 'approved' && $bill['source'] === 'manual' && !empty($bill['journal_entry_id'])) {
+        require_once __DIR__ . '/../lib/bill_correction.php';
+        try {
+            apAssertPostedManualBillCorrectable($pdo, $tid, $bill);
+            $bill['correction_available'] = true;
+            if (!$bill['correction_permitted']) {
+                $bill['correction_unavailable_reason'] = 'An authorized AP and accounting reviewer must correct this posted bill';
+            }
+        } catch (\RuntimeException $e) {
+            $bill['correction_unavailable_reason'] = $e->getMessage();
+        } catch (\Throwable $_) {
+            $bill['correction_unavailable_reason'] = 'Correction needs an accounting review';
+        }
+    }
+    $bill['coding_mode'] = apBillCodingMode($bill, $lines);
+    $bill['coding_permitted'] = $bill['coding_mode'] !== null
+        && in_array($bill['status'], ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
+        && !apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)
+        && rbac_legacy_can($user, 'ap.bill.create')
+        && ($bill['status'] !== 'approved' || rbac_legacy_can($user, 'ap.bill.post'));
+    $approval = ['can_approve' => false, 'reason' => null];
+    if (in_array($bill['status'], ['pending_review', 'pending_approval'], true)) {
+        $actorId = (int) ($user['id'] ?? 0);
+        if ($actorId === (int) ($bill['created_by_user_id'] ?? 0)) {
+            $approval['reason'] = 'Another authorized user must approve this bill.';
+        } elseif (!rbac_legacy_can($user, 'ap.bill.approve')) {
+            $approval['reason'] = 'Your workspace role cannot approve bills.';
+        } else {
+            try {
+                $instance = apWorkflowFindBillInstance($tid, $id, true);
+                if ($instance) {
+                    $approverIds = apWorkflowCurrentApproverUserIds($tid, $id);
+                    $approval['reason'] = 'This bill is assigned to another approver.';
+                } else {
+                    require_once __DIR__ . '/../lib/approval_router.php';
+                    $policy = apEvaluateApprovalPolicy($tid, $bill);
+                    $approverIds = (array) ($policy['chain'][0]['approver_user_ids'] ?? []);
+                    $approval['reason'] = (string) ($policy['routing_error'] ?? 'This bill is assigned to another approver.');
+                    if (empty($policy['matched'])) {
+                        $approval['reason'] = 'No approval policy covers this bill.';
+                    }
+                }
+                $approval['can_approve'] = in_array($actorId, array_map('intval', $approverIds), true);
+                if ($approval['can_approve']) $approval['reason'] = null;
+            } catch (\Throwable $e) {
+                error_log('[ap.bill.approval_availability] ' . $e->getMessage());
+                $approval['reason'] = 'Approval availability could not be checked. Refresh and try again.';
+            }
+        }
+    }
+    $bill['purepay_link_permitted'] = getenv('COREFLUX_ENV') !== 'coreaccounting'
+        && rbac_legacy_can($user, 'accounting.bank.manage');
+    api_ok(['bill' => $bill, 'lines' => $lines, 'allocations' => $allocations, 'approval' => $approval]);
 }
 
 if ($method === 'GET') {
@@ -292,14 +393,16 @@ if ($method === 'GET') {
     if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :vn';  $params['vn'] = $_GET['vendor_name']; }
     if (!empty($_GET['status'])) {
         $statusFilter = (string) $_GET['status'];
-        if ($statusFilter === 'ready_to_pay') {
+        if ($statusFilter === 'needs_action') {
+            $where[] = "status IN ('inbox', 'pending_review', 'pending_approval', 'approved', 'partially_paid', 'disputed')";
+        } elseif ($statusFilter === 'ready_to_pay') {
             $where[] = "status IN ('approved', 'partially_paid')";
             $where[] = '(amount_due - COALESCE((
                 SELECT SUM(ready_alloc.amount_applied)
                   FROM ap_payment_allocations ready_alloc
                   JOIN ap_payments ready_payment ON ready_payment.id = ready_alloc.payment_id
                  WHERE ready_alloc.bill_id = ap_bills.id
-                   AND ready_payment.status IN ("draft", "queued")
+                   AND ready_payment.status IN ("draft", "queued", "sent")
             ), 0)) > 0.005';
         } elseif ($statusFilter === 'needs_review') {
             $where[] = "status IN ('inbox', 'pending_review', 'disputed')";
@@ -333,14 +436,14 @@ if ($method === 'GET') {
                     SELECT SUM(a.amount_applied)
                       FROM ap_payment_allocations a
                       JOIN ap_payments p ON p.id = a.payment_id
-                     WHERE a.bill_id = ap_bills.id AND p.status IN ("draft", "queued")
+                     WHERE a.bill_id = ap_bills.id AND p.status IN ("draft", "queued", "sent")
                 ), 0) AS payment_reserved,
                 GREATEST(0, amount_due - COALESCE((
                     SELECT SUM(available_alloc.amount_applied)
                       FROM ap_payment_allocations available_alloc
                       JOIN ap_payments available_payment ON available_payment.id = available_alloc.payment_id
                      WHERE available_alloc.bill_id = ap_bills.id
-                       AND available_payment.status IN ("draft", "queued")
+                       AND available_payment.status IN ("draft", "queued", "sent")
                 ), 0)) AS payment_available
          FROM ap_bills WHERE ' . implode(' AND ', $where) . '
          ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
@@ -361,6 +464,7 @@ if ($method === 'GET') {
     $summary = scopedFind(
         'SELECT
             COUNT(*) AS total_count,
+            SUM(CASE WHEN status IN (\'inbox\', \'pending_review\', \'pending_approval\', \'approved\', \'partially_paid\', \'disputed\') THEN 1 ELSE 0 END) AS action_count,
             SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN 1 ELSE 0 END) AS open_count,
             COALESCE(SUM(CASE WHEN status NOT IN (\'paid\', \'void\') THEN amount_due ELSE 0 END), 0) AS open_amount,
             COALESCE(SUM(CASE WHEN status IN (\'approved\', \'partially_paid\') THEN GREATEST(amount_due - payment_reserved, 0) ELSE 0 END), 0) AS ready_amount,
@@ -379,7 +483,7 @@ if ($method === 'GET') {
                          FROM ap_payment_allocations summary_alloc
                          JOIN ap_payments summary_payment ON summary_payment.id = summary_alloc.payment_id
                         WHERE summary_alloc.bill_id = b.id
-                          AND summary_payment.status IN ("draft", "queued")
+                          AND summary_payment.status IN ("draft", "queued", "sent")
                    ), 0) AS payment_reserved
               FROM ap_bills b
              WHERE ' . implode(' AND ', $summaryWhere) . '
@@ -388,6 +492,7 @@ if ($method === 'GET') {
     ) ?: [];
 
     api_ok([
+        'entity_id' => !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null,
         'rows' => $rows,
         'total' => (int) ($cnt[0]['c'] ?? 0),
         'page' => $page,
@@ -397,6 +502,9 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'suggest-payment-run') {
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        api_error('Provider-backed payment runs are not available in CoreAccounting', 403);
+    }
     rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     $days = (int) ($body['days_ahead'] ?? 7);
@@ -412,6 +520,9 @@ if ($method === 'POST' && $action === 'suggest-payment-run') {
 }
 
 if ($method === 'POST' && $action === 'execute-payment-run') {
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        api_error('Provider-backed payment runs are not available in CoreAccounting', 403);
+    }
     rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     $rail = trim((string) ($body['rail'] ?? ''));
@@ -446,7 +557,12 @@ if ($method === 'POST' && $action === 'from-time-entries') {
     $created = [];
     cf_begin_transaction();
     try {
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)$tid, $entryIds);
+        $drafts = apBuildDraftFromTimeEntries($tid, $entryIds, $aggregation);
+        if (!$drafts) throw new RuntimeException('No payable entries remain. Refresh the selection.');
         foreach ($drafts as $d) {
+            $d = apPrepareGeneratedDraftVendor($tid, $d);
             $bill = $d['bill'];
             $bill['tenant_id']          = $tid;
             $bill['internal_ref']       = apNextInternalRef($tid);
@@ -483,36 +599,6 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                 );
             }
 
-            // Upsert vendors_index + companies for corporate vendors.
-            $companyId = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
-            if (!$companyId && in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
-                require_once __DIR__ . '/../../people/lib/companies.php';
-                $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
-                    'created_by_user_id' => $user['id'] ?? null,
-                ], ['vendor']);
-                companiesBumpUsage($companyId);
-                // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-                $pdo->prepare('UPDATE ap_bills SET vendor_company_id = :cid WHERE id = :id')
-                    ->execute(['cid' => $companyId, 'id' => $billId]);
-            }
-            $pdo->prepare(
-                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
-                 VALUES (:t, :v, :cid, :vt, :r, NOW(), :pid)
-                 ON DUPLICATE KEY UPDATE
-                   company_id = COALESCE(VALUES(company_id), company_id),
-                   vendor_type = VALUES(vendor_type),
-                   requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
-                   last_bill_at = NOW(),
-                   placement_id_last = VALUES(placement_id_last)'
-            )->execute([
-                't'  => $tid,
-                'v'  => $bill['vendor_name'],
-                'cid'=> $companyId,
-                'vt' => $bill['vendor_type'],
-                'r'  => $bill['vendor_type'] === '1099_individual' ? 1 : 0,
-                'pid'=> !empty($d['lines'][0]['placement_id']) ? (int) $d['lines'][0]['placement_id'] : null,
-            ]);
-
             apAudit('ap.bill.created', [
                 'bill_id'     => $billId,
                 'internal_ref'=> $bill['internal_ref'],
@@ -520,6 +606,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
                 'source'      => 'time_entries',
                 'aggregation' => $aggregation,
                 'entry_ids'   => $d['entry_ids'],
+                'quanta_source_check' => $sourceCheck ?: null,
             ], $billId);
 
             $created[] = [
@@ -562,7 +649,11 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
     $created = [];
     cf_begin_transaction();
     try {
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $bundleIds = array_merge(...array_column($drafts, 'bundle_ids'));
+        quantaTimeAssertLegacyBundles($pdo, (int)$tid, $bundleIds);
         foreach ($drafts as $d) {
+            $d = apPrepareGeneratedDraftVendor($tid, $d);
             $bill = $d['bill'];
             $bill['tenant_id']          = $tid;
             $bill['internal_ref']       = apNextInternalRef($tid);
@@ -607,36 +698,6 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
                 )->execute(['bid_id' => $billId, 'bid' => (int) $bid, 'tid' => $tid]);
             }
 
-            // Upsert into vendors_index + companies directory for non-individuals
-            $companyId = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
-            if (!$companyId && in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
-                require_once __DIR__ . '/../../people/lib/companies.php';
-                $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
-                    'created_by_user_id' => $user['id'] ?? null,
-                ], ['vendor']);
-                companiesBumpUsage($companyId);
-                // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-                $pdo->prepare('UPDATE ap_bills SET vendor_company_id = :cid WHERE id = :id')
-                    ->execute(['cid' => $companyId, 'id' => $billId]);
-            }
-            $pdo->prepare(
-                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
-                 VALUES (:t, :v, :cid, :vt, :r, NOW(), :pid)
-                 ON DUPLICATE KEY UPDATE
-                   company_id = COALESCE(VALUES(company_id), company_id),
-                   vendor_type = VALUES(vendor_type),
-                   requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
-                   last_bill_at = NOW(),
-                   placement_id_last = VALUES(placement_id_last)'
-            )->execute([
-                't'  => $tid,
-                'v'  => $bill['vendor_name'],
-                'cid'=> $companyId,
-                'vt' => $bill['vendor_type'],
-                'r'  => $bill['vendor_type'] === '1099_individual' ? 1 : 0,
-                'pid'=> !empty($d['lines'][0]['placement_id']) ? (int) $d['lines'][0]['placement_id'] : null,
-            ]);
-
             apAudit('ap.bill.created', [
                 'bill_id' => $billId, 'internal_ref' => $bill['internal_ref'],
                 'vendor' => $bill['vendor_name'], 'source' => 'time_bundle',
@@ -665,132 +726,118 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 if ($method === 'POST' && $action === '') {
     rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
-    api_require_fields($body, ['vendor_name', 'lines']);
-    if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
-
-    $pdo = getDB();
-    $taxStmt = $pdo->prepare('SELECT ap_default_terms FROM tenants WHERE id = :id');
-    $taxStmt->execute(['id' => $tid]);
-    $cfg = $taxStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['ap_default_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
-
-    // Per-vendor override: if the companies row (or ap_vendors_index) has
-    // a non-null payment_terms_days, use that. Look up by vendor_company_id
-    // first; fall back to name match.
     try {
-        $vc = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : 0;
-        if ($vc > 0) {
-            $vt = $pdo->prepare("SELECT payment_terms_days FROM companies WHERE tenant_id = :t AND id = :id AND payment_terms_days IS NOT NULL LIMIT 1");
-            $vt->execute(['t' => $tid, 'id' => $vc]);
-            $perVendor = $vt->fetchColumn();
-        } else {
-            $vt = $pdo->prepare("SELECT payment_terms_days FROM companies WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1");
-            $vt->execute(['t' => $tid, 'n' => (string) $body['vendor_name']]);
-            $perVendor = $vt->fetchColumn();
-        }
-        if ($perVendor !== false && $perVendor !== null && (int) $perVendor > 0) {
-            $netDays = (int) $perVendor;
-        }
-    } catch (\Throwable $_) { /* companies.payment_terms_days may not exist yet — fall through */ }
-    $taxPct  = (float) ($body['tax_rate_pct'] ?? 0);
-
-    $computed = apComputeTotals($body['lines'], $taxPct);
-    try {
-        $issuingEntity = activeEntityResolveForTenant(
-            $tid,
-            !empty($body['entity_id']) ? (int) $body['entity_id'] : null
-        );
-    } catch (\Throwable $e) {
+        $created = apCreateManualBill($tid, $body, $user['id'] ?? null);
+    } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
+    } catch (\DomainException $e) {
+        api_error($e->getMessage(), 409);
     }
-    if (!$issuingEntity) api_error('An active issuing entity is required', 422);
+    apAudit('ap.bill.created', ['bill_id' => $created['id'],
+        'internal_ref' => $created['internal_ref'], 'source' => 'manual'], $created['id']);
+    api_ok(['id' => $created['id'], 'internal_ref' => $created['internal_ref']], 201);
+}
 
+if ($method === 'PATCH' && $action === 'coding') {
+    rbac_legacy_require($user, 'ap.bill.create');
+    $id = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    $requested = $body['lines'] ?? null;
+    if ($id <= 0 || !is_array($requested) || !array_is_list($requested)
+        || !$requested || count($requested) > 500) {
+        api_error('Supply every bill line with its current and replacement expense account', 422);
+    }
+    $pdo = getDB();
     cf_begin_transaction();
     try {
-        $internalRef = apNextInternalRef($tid);
-        $vendorType = (string) ($body['vendor_type'] ?? 'other');
-        $vendorCompanyId = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : null;
-        if (!$vendorCompanyId && in_array($vendorType, ['c2c_corp','w9_business','utility','other'], true)) {
-            require_once __DIR__ . '/../../people/lib/companies.php';
-            $vendorCompanyId = companiesUpsertByName($tid, (string) $body['vendor_name'], [
-                'created_by_user_id' => $user['id'] ?? null,
-            ], ['vendor']);
-            companiesBumpUsage($vendorCompanyId);
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $bill = $locked->fetch(PDO::FETCH_ASSOC);
+        if (!$bill) throw new \DomainException('Bill not found in this workspace');
+        if (!in_array($bill['status'], ['inbox', 'pending_review', 'pending_approval', 'approved'], true)
+            || apBillHasLedgerOrPaymentActivity($pdo, $tid, $bill)) {
+            throw new \DomainException('Only unposted, unpaid bills awaiting review or posting can be recoded');
         }
-        $billId = scopedInsert('ap_bills', [
-            'tenant_id'         => $tid,
-            'bill_number'       => (string) ($body['bill_number'] ?? $internalRef),
-            'internal_ref'      => $internalRef,
-            'vendor_name'       => (string) $body['vendor_name'],
-            'vendor_company_id' => $vendorCompanyId,
-            'vendor_type'       => $vendorType,
-            'received_at'       => (string) ($body['received_at'] ?? date('Y-m-d')),
-            'bill_date'         => (string) ($body['bill_date']   ?? date('Y-m-d')),
-            'due_date'          => (string) ($body['due_date']    ?? date('Y-m-d', strtotime("+{$netDays} days"))),
-            'currency'          => (string) ($body['currency']    ?? 'USD'),
-            'po_number'         => $body['po_number']     ?? null,
-            'placement_id'      => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
-            'entity_id'         => (int) $issuingEntity['id'],
-            'notes_internal'    => $body['notes_internal'] ?? null,
-            'subtotal'          => $computed['subtotal'],
-            'tax_total'         => $computed['tax_total'],
-            'total'             => $computed['total'],
-            'amount_due'        => $computed['total'],
-            'status'            => 'pending_approval',
-            'source'            => 'manual',
-            'created_by_user_id'=> $user['id'] ?? null,
-        ]);
-        $pdo->prepare(
-            'INSERT INTO ap_vendors_index
-                (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
-             VALUES (:tenant_id, :vendor_name, :company_id, :vendor_type, :requires_1099, NOW(), :placement_id)
-             ON DUPLICATE KEY UPDATE
-                company_id = COALESCE(VALUES(company_id), company_id),
-                vendor_type = VALUES(vendor_type),
-                requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
-                last_bill_at = NOW(),
-                placement_id_last = COALESCE(VALUES(placement_id_last), placement_id_last)'
-        )->execute([
-            'tenant_id' => $tid,
-            'vendor_name' => (string) $body['vendor_name'],
-            'company_id' => $vendorCompanyId,
-            'vendor_type' => $vendorType,
-            'requires_1099' => $vendorType === '1099_individual' ? 1 : 0,
-            'placement_id' => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
-        ]);
-        $line_no = 1;
-        foreach ($computed['lines'] as $l) {
-            $stmt = $pdo->prepare(
-                'INSERT INTO ap_bill_lines
-                  (bill_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
-                   subtotal, tax_rate_pct, tax_amount, total, gl_expense_account_code, is_1099_eligible)
-                 VALUES
-                  (:bill_id, :line_no, "manual", :item_type, :description, :quantity, :unit, :unit_price,
-                   :subtotal, :tax_rate_pct, :tax_amount, :total, :gl, :is_1099)'
-            );
-            $stmt->execute([
-                'bill_id'     => $billId,
-                'line_no'     => $line_no++,
-                'item_type'   => apNormalizeItemType($l['item_type'] ?? null, 'manual'),
-                'description' => $l['description'] ?? '',
-                'quantity'    => $l['quantity']    ?? 0,
-                'unit'        => $l['unit']        ?? 'each',
-                'unit_price'  => $l['unit_price']  ?? 0,
-                'subtotal'    => $l['subtotal'],
-                'tax_rate_pct'=> $l['tax_rate_pct'],
-                'tax_amount'  => $l['tax_amount'],
-                'total'       => $l['total'],
-                'gl'          => $l['gl_expense_account_code'] ?? null,
-                'is_1099'     => !empty($l['is_1099_eligible']) ? 1 : 0,
+        if ($bill['status'] === 'approved' && !rbac_legacy_can($user, 'ap.bill.post')) {
+            throw new \DomainException('Posting permission is required to recode an approved bill');
+        }
+        $lineQuery = $pdo->prepare(
+            'SELECT id, source_type, placement_id, gl_expense_account_code
+               FROM ap_bill_lines WHERE bill_id = :bill_id ORDER BY line_no FOR UPDATE'
+        );
+        $lineQuery->execute(['bill_id' => $id]);
+        $storedLines = $lineQuery->fetchAll(PDO::FETCH_ASSOC);
+        $codingMode = apBillCodingMode($bill, $storedLines);
+        if ($codingMode === null) {
+            throw new \DomainException('This bill must be corrected through its source workflow');
+        }
+        if (count($storedLines) !== count($requested)) {
+            throw new \DomainException('The bill lines changed. Refresh before saving coding.');
+        }
+        $wanted = [];
+        foreach ($requested as $choice) {
+            if (!is_array($choice) || !isset($choice['line_id'])
+                || !array_key_exists('expected_gl_expense_account_code', $choice)
+                || !array_key_exists('gl_expense_account_code', $choice)
+                || !is_numeric($choice['line_id'])
+                || (int) $choice['line_id'] <= 0
+                || isset($wanted[(int) $choice['line_id']])) {
+                throw new \InvalidArgumentException('Supply each bill line once with its current expense account');
+            }
+            $wanted[(int) $choice['line_id']] = $choice;
+        }
+        $changes = [];
+        $update = $pdo->prepare(
+            'UPDATE ap_bill_lines SET gl_expense_account_code = :code
+              WHERE bill_id = :bill_id AND id = :line_id
+                AND EXISTS (SELECT 1 FROM ap_bills b
+                             WHERE b.id = :scoped_bill_id AND b.tenant_id = :tenant_id)'
+        );
+        foreach ($storedLines as $line) {
+            $lineId = (int) $line['id'];
+            $choice = $wanted[$lineId] ?? null;
+            if (!$choice) throw new \DomainException('The bill lines changed. Refresh before saving coding.');
+            $old = trim((string) ($line['gl_expense_account_code'] ?? '')) ?: null;
+            $expected = $choice['expected_gl_expense_account_code'];
+            $replacement = $choice['gl_expense_account_code'];
+            if (($expected !== null && !is_scalar($expected))
+                || ($replacement !== null && !is_scalar($replacement))) {
+                throw new \InvalidArgumentException('Choose a valid expense account for each line');
+            }
+            $expected = trim((string) $expected) ?: null;
+            $replacement = trim((string) $replacement) ?: null;
+            if ($old !== $expected) {
+                throw new \DomainException('The bill coding changed. Refresh before saving.');
+            }
+            if ($codingMode === 'generated') {
+                apValidateGeneratedBillExpenseAccounts($tid, [$replacement]);
+            } else {
+                apValidateDirectBillExpenseAccounts($tid, [['gl_expense_account_code' => $replacement]]);
+            }
+            if ($old === $replacement) continue;
+            $update->execute([
+                'code' => $replacement, 'bill_id' => $id, 'line_id' => $lineId,
+                'scoped_bill_id' => $id, 'tenant_id' => $tid,
             ]);
+            if ($update->rowCount() !== 1) throw new \DomainException('Bill coding changed. Refresh before saving.');
+            $changes[] = ['line_id' => $lineId, 'from' => $old, 'to' => $replacement];
         }
-        apAudit('ap.bill.created', ['bill_id' => $billId, 'internal_ref' => $internalRef, 'source' => 'manual'], $billId);
+        if ($changes) {
+            apAudit('ap.bill.updated', ['bill_id' => $id, 'fields' => ['gl_expense_account_code'],
+                'coding_changes' => $changes], $id);
+        }
         $pdo->commit();
+    } catch (\InvalidArgumentException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 422);
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
-    api_ok(['id' => $billId, 'internal_ref' => $internalRef], 201);
+    api_ok(['ok' => true, 'changed' => count($changes)]);
 }
 
 if ($method === 'PATCH') {
@@ -798,9 +845,6 @@ if ($method === 'PATCH') {
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    if (!in_array($row['status'], ['inbox','pending_review','pending_approval'], true)) {
-        api_error('Only inbox/pending_review/pending_approval bills can be edited', 409);
-    }
 
     $body = api_json_body();
     $editable = ['vendor_name','vendor_company_id','vendor_type','bill_number','bill_date','due_date','po_number','notes_internal','placement_id'];
@@ -812,7 +856,28 @@ if ($method === 'PATCH') {
         }
     }
     if (!$sets) api_error('Nothing to update', 422);
-    getDB()->prepare('UPDATE ap_bills SET ' . implode(',', $sets) . ' WHERE id = :id')->execute($binds);
+    $pdo = getDB();
+    cf_begin_transaction();
+    try {
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || !in_array($row['status'], ['inbox','pending_review','pending_approval'], true)) {
+            throw new \DomainException('Only unposted bills awaiting review or approval can be edited');
+        }
+        if (apBillHasLedgerOrPaymentActivity($pdo, $tid, $row)) {
+            throw new \DomainException('A posted or paid bill must be corrected through its source workflow');
+        }
+        $pdo->prepare('UPDATE ap_bills SET ' . implode(',', $sets) . ' WHERE tenant_id = :tenant_id AND id = :id')
+            ->execute($binds + ['tenant_id' => $tid]);
+        $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
     apAudit('ap.bill.updated', ['bill_id' => $id, 'fields' => array_keys(array_intersect_key($body, array_flip($editable)))], $id);
     api_ok(['ok' => true]);
 }
@@ -911,33 +976,37 @@ if ($method === 'POST' && $action === 'void') {
     $pdo = getDB();
     cf_begin_transaction();
     try {
-        $allocCount = $pdo->prepare('SELECT COUNT(*) FROM ap_payment_allocations WHERE bill_id = :id');
-        $allocCount->execute(['id' => $id]);
-        $hasPayments = (int) $allocCount->fetchColumn() > 0;
-
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE time_downstream_feed
-                 SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
-                 WHERE tenant_id = :t AND consumed_by_module = "ap" AND consumed_ref_id = :id'
-            )->execute(['t' => $tid, 'id' => $id]);
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] === 'void') throw new \DomainException('Bill is already void or unavailable');
+        if (apBillHasLedgerOrPaymentActivity($pdo, $tid, $row)
+            || in_array($row['status'], ['partially_paid', 'paid'], true)) {
+            throw new \DomainException('Posted or paid bills cannot be voided here; correct the linked journal and payments first');
         }
+
+        $pdo->prepare(
+            'UPDATE time_downstream_feed
+             SET status = "ready", consumed_at = NULL, consumed_by_module = NULL, consumed_ref_id = NULL
+             WHERE tenant_id = :t AND consumed_by_module = "ap" AND consumed_ref_id = :id'
+        )->execute(['t' => $tid, 'id' => $id]);
 
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
-            'UPDATE ap_bills SET status = "void", voided_at = NOW(),
+            'UPDATE ap_bills SET status = "void", amount_due = 0, voided_at = NOW(),
              voided_by_user_id = :u, void_reason = :r WHERE id = :id'
         )->execute(['u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
 
-        if (!$hasPayments) {
-            $pdo->prepare(
-                'UPDATE placement_economic_obligations
-                    SET status = "void"
-                  WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
-            )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
-        }
+        $pdo->prepare(
+            'UPDATE placement_economic_obligations
+                SET status = "void"
+              WHERE tenant_id = :tenant_id AND ap_bill_id = :bill_id'
+        )->execute(['tenant_id' => $tid, 'bill_id' => $id]);
 
         $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
@@ -945,9 +1014,25 @@ if ($method === 'POST' && $action === 'void') {
 
     apAudit('ap.bill.voided', [
         'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
-        'reason' => $reason, 'had_payments' => $hasPayments,
+        'reason' => $reason, 'had_payments' => false,
     ], $id);
-    api_ok(['ok' => true, 'bundles_released' => !$hasPayments]);
+    api_ok(['ok' => true, 'bundles_released' => true]);
+}
+
+if ($method === 'POST' && $action === 'correct_posted') {
+    rbac_legacy_require($user, 'ap.bill.void');
+    rbac_legacy_require($user, 'accounting.je.reverse');
+    $id = (int) ($_GET['id'] ?? 0);
+    $reason = trim((string) (api_json_body()['reason'] ?? ''));
+    if ($id <= 0 || $reason === '') api_error('Bill and correction reason are required', 422);
+    require_once __DIR__ . '/../lib/bill_correction.php';
+    try {
+        $result = apCorrectPostedManualBill($tid, $id, $reason, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    apAudit('ap.bill.corrected', $result + ['reason' => $reason], $id);
+    api_ok(['ok' => true] + $result);
 }
 
 if ($method === 'POST' && $action === 'dispute') {
@@ -955,13 +1040,33 @@ if ($method === 'POST' && $action === 'dispute') {
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    if (!apBillTransitionAllowed($row['status'], 'disputed')) api_error("Cannot dispute from status {$row['status']}", 409);
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
     if ($reason === '') api_error('reason required', 422);
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE ap_bills SET status = "disputed", disputed_at = NOW(), dispute_reason = :r WHERE id = :id')
-        ->execute(['r' => $reason, 'id' => $id]);
+    $pdo = getDB();
+    cf_begin_transaction();
+    try {
+        $locked = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE');
+        $locked->execute(['tenant_id' => $tid, 'id' => $id]);
+        $row = $locked->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || !apBillTransitionAllowed($row['status'], 'disputed')) {
+            throw new \DomainException('Bill cannot be disputed from its current status');
+        }
+        if (apBillHasLedgerOrPaymentActivity($pdo, $tid, $row)) {
+            throw new \DomainException('A posted or paid bill must be corrected through its source workflow');
+        }
+        $pdo->prepare(
+            'UPDATE ap_bills SET status = "disputed", disputed_at = NOW(), dispute_reason = :r
+              WHERE tenant_id = :tenant_id AND id = :id'
+        )->execute(['r' => $reason, 'tenant_id' => $tid, 'id' => $id]);
+        $pdo->commit();
+    } catch (\DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error($e->getMessage(), 409);
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
     apAudit('ap.bill.disputed', ['bill_id' => $id, 'internal_ref' => $row['internal_ref'], 'reason' => $reason], $id);
     api_ok(['ok' => true]);
 }
@@ -981,34 +1086,24 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
     require_once __DIR__ . '/../../accounting/lib/dimensions.php';
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
+    require_once __DIR__ . '/../../accounting/lib/source_accrual.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
     require_once __DIR__ . '/../../staffing/lib/dimensions.php';
 
-    // Accrual-at-approval reclassification gate (2026-02). When the
-    // tenant has `multi_period_split_enabled=1` and every bill line came
-    // from approved-time accruals, expense + AP Accrued were already
-    // recognised by `accountingPostBundleAccrual()`. The bill post becomes
-    // a pure RECLASSIFICATION (single JE on bill_date):
-    //   Dr  AP Accrued     (subtotal — clears the prior accrual)
-    //   Dr  Input Tax 1310 (tax_total, if any)
-    //   Cr  Accounts Payable (full total)
-    // No expense line — recognition is owned by the bundle accrual.
+    // Clear verified posted source accruals line by line. Other bill charges
+    // retain their expense coding even when they share a document with time.
     $settings = accountingSettingsGet($tid);
 
     $pdo = getDB();
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
     $billLines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
-    $accruedLineCount = count(array_filter(
-        $billLines,
-        static fn(array $line): bool => in_array(
-            (string) ($line['source_type'] ?? ''),
-            ['time', 'time_entry', 'economic_item'],
-            true
-        )
-    ));
-    $allLinesWereAccrued = count($billLines) > 0 && $accruedLineCount === count($billLines);
-    $reclassifyOnly = !empty($settings['multi_period_split_enabled']) && $allLinesWereAccrued;
+    try {
+        apRequireGeneratedBillExpenseCoding($tid, $row, $billLines);
+    } catch (\InvalidArgumentException|\RuntimeException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    $reclassifyOnly = false;
 
     try {
         $postingEntity = activeEntityResolveForTenant(
@@ -1173,33 +1268,32 @@ if ($method === 'POST' && $action === 'post') {
 
     $jeLines = $payloadLines; // reused if we have to fall back to legacy direct post
     $reclassLines = [];
-    if ($reclassifyOnly) {
-        accountingEnsureAccrualAccounts($tid, $settings);
-        $apAccrued = (string) $settings['ap_accrued_account_code'];
-        foreach ($placementSubtotals as $placementId => $amount) {
-            $amount = round((float) $amount, 2);
+    foreach ($billLines as $lineIndex => $sourceLine) {
+        $sourceLine['placement_id'] = $sourceLine['placement_id'] ?? $row['placement_id'] ?? null;
+        try {
+            $parts = accountingSourceAccrualParts($tid, $sourceLine, 'ap', $id, $documentEntityId);
+        } catch (\Throwable $e) {
+            api_error('Bill source accrual could not be verified: ' . $e->getMessage(), 422);
+        }
+        if (!$parts) {
+            $reclassLines[] = $payloadLines[$lineIndex];
+            continue;
+        }
+        $reclassifyOnly = true;
+        foreach ($parts as $part) {
+            $amount = round((float) $part['amount'], 2);
             if (abs($amount) <= 0.005) continue;
-            $placementId = (int) $placementId;
-            $lineDimensions = $placementId > 0
-                ? (array) ($placementContexts[$placementId]['dimensions'] ?? [])
-                : $documentDimensions;
-            if ($placementId > 0) {
-                $reclassVendorDimension = $placementContexts[$placementId]['vendor_dimension']
-                    ?? ($documentDimensions['vendor'] ?? null);
-                if ($reclassVendorDimension !== null && $reclassVendorDimension !== '') {
-                    $lineDimensions['vendor'] = $reclassVendorDimension;
-                }
-            }
             $reclassLines[] = [
-                'account_code' => $apAccrued,
+                'account_code' => $part['account_code'],
                 'debit' => $amount > 0 ? $amount : 0,
                 'credit' => $amount < 0 ? abs($amount) : 0,
                 'memo' => "Clear AP Accrued — {$row['internal_ref']}",
                 'counterparty_company_id' => $vendorCompanyId,
-                'dims' => $lineDimensions,
+                'dims' => $part['dims'],
             ];
         }
-        if ($billTaxTotal > 0.005) {
+    }
+    if ($billTaxTotal > 0.005) {
             $reclassLines[] = [
                 'account_code' => '1310',
                 'debit' => $billTaxTotal,
@@ -1208,18 +1302,18 @@ if ($method === 'POST' && $action === 'post') {
                 'counterparty_company_id' => $vendorCompanyId,
                 'dims' => $documentDimensions,
             ];
-        }
-        $reclassLines[] = [
+    }
+    $reclassLines[] = [
             'account_code' => '2000',
             'debit' => 0,
             'credit' => round((float) $row['total'], 2),
             'memo' => "AP {$row['internal_ref']} / {$row['vendor_name']}",
             'counterparty_company_id' => $vendorCompanyId,
             'dims' => $documentDimensions,
-        ];
-    }
+    ];
     $eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines;
 
+    $pdo->beginTransaction();
     // Sprint 7e — preferred path: emit ap.bill.approved into the event
     // layer; the engine renders + posts via the seed-pack passthrough
     // template, writes the accounting_subledger_links row, and stamps
@@ -1250,21 +1344,27 @@ if ($method === 'POST' && $action === 'post') {
     }
 
     if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-            ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
+        try {
+            $alreadyLinked = apAttachPostedBillJournal(
+                $pdo, $tid, $id, (int) $eventResult['journal_entry_id']
+            );
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            api_error($e->getMessage(), 409);
+        }
         apAudit('ap.bill.posted', [
             'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
             'journal_entry_id' => (int) $eventResult['journal_entry_id'],
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
-            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']) || $alreadyLinked,
             'via' => 'event_layer',
         ], $id);
         api_ok([
             'ok' => true,
             'journal_entry_id' => (int) $eventResult['journal_entry_id'],
             'je_number' => $eventResult['je_number'] ?? null,
-            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']) || $alreadyLinked,
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
             'via' => 'event_layer',
         ]);
@@ -1301,23 +1401,31 @@ if ($method === 'POST' && $action === 'post') {
                 'memo'            => "Reclassify AP Accrued → AP — Bill {$row['internal_ref']}",
                 'lines'           => $reclassLines,
             ], $user['id'] ?? null, true);
+            $pdo->prepare(
+                'INSERT IGNORE INTO accounting_subledger_links
+                    (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+                 VALUES (:tenant_id, "ap", :source_record_id, :journal_entry_id, "primary")'
+            )->execute([
+                'tenant_id' => $tid, 'source_record_id' => 'ap_bill:' . $id,
+                'journal_entry_id' => (int) $resRc['je_id'],
+            ]);
+            $alreadyLinked = apAttachPostedBillJournal($pdo, $tid, $id, (int) $resRc['je_id']);
+            $pdo->commit();
         } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             api_error('AP reclassification post failed: ' . $e->getMessage(), 422);
         }
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-            ->execute(['j' => (int) $resRc['je_id'], 'id' => $id]);
         apAudit('ap.bill.posted', [
             'bill_id'           => $id,
             'journal_entry_id'  => (int) $resRc['je_id'],
-            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false) || $alreadyLinked,
             'via'               => 'ap_reclassification',
         ], $id);
         api_ok([
             'ok'                => true,
             'journal_entry_id'  => (int) $resRc['je_id'],
             'je_number'         => $resRc['je_number'] ?? null,
-            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false) || $alreadyLinked,
             'via'               => 'ap_reclassification',
         ]);
     }
@@ -1334,18 +1442,7 @@ if ($method === 'POST' && $action === 'post') {
             'memo'            => "AP Bill {$row['internal_ref']} / {$row['vendor_name']}",
             'lines'           => $jeLines,
         ], $user['id'] ?? null, true);
-    } catch (\Throwable $e) {
-        api_error('GL post failed: ' . $e->getMessage()
-                . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
-    }
-
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-        ->execute(['j' => $res['je_id'], 'id' => $id]);
-
-    // Sprint 7e fallback also writes a subledger_links row + flips any
-    // 'ignored' event to 'posted' so the audit trail is intact.
-    try {
+        // Keep the source link and bill header in the posting transaction.
         $pdo->prepare(
             'INSERT IGNORE INTO accounting_subledger_links
                 (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
@@ -1361,15 +1458,25 @@ if ($method === 'POST' && $action === 'post') {
                 'UPDATE accounting_events
                     SET status = "posted", journal_entry_id = :je, posted_at = NOW(),
                         error_message = "fallback: legacy direct post (no rule matched)"
-                  WHERE id = :id AND status IN ("ignored","failed","received","mapped")'
-            )->execute(['je' => (int) $res['je_id'], 'id' => (int) $eventResult['event_id']]);
+                  WHERE tenant_id = :tenant_id AND id = :id
+                    AND status IN ("ignored","failed","received","mapped")'
+            )->execute([
+                'je' => (int) $res['je_id'], 'tenant_id' => $tid,
+                'id' => (int) $eventResult['event_id'],
+            ]);
         }
-    } catch (\Throwable $_) { /* tables absent in pre-7b tenants — non-fatal */ }
+        $alreadyLinked = apAttachPostedBillJournal($pdo, $tid, $id, (int) $res['je_id']);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error('GL post failed: ' . $e->getMessage()
+                . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
+    }
 
     apAudit('ap.bill.posted', [
         'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
         'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'],
-        'idempotent_replay' => $res['idempotent_replay'],
+        'idempotent_replay' => $res['idempotent_replay'] || $alreadyLinked,
         'via' => 'legacy_direct',
         'event_layer_status' => $eventResult['status'] ?? null,
     ], $id);
@@ -1377,7 +1484,7 @@ if ($method === 'POST' && $action === 'post') {
         'ok' => true,
         'journal_entry_id' => $res['je_id'],
         'je_number' => $res['je_number'],
-        'idempotent_replay' => $res['idempotent_replay'],
+        'idempotent_replay' => $res['idempotent_replay'] || $alreadyLinked,
         'via' => 'legacy_direct',
     ]);
 }
@@ -1417,6 +1524,17 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
         ]);
     }
 
+    $codingLines = getDB()->prepare(
+        'SELECT source_type, placement_id, gl_expense_account_code
+           FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no'
+    );
+    $codingLines->execute(['id' => $id]);
+    try {
+        apRequireGeneratedBillExpenseCoding($tid, $row, $codingLines->fetchAll(\PDO::FETCH_ASSOC));
+    } catch (\InvalidArgumentException|\RuntimeException $e) {
+        api_error($e->getMessage(), 422);
+    }
+
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
     require_once __DIR__ . '/../../accounting/lib/intercompany.php';
 
@@ -1435,6 +1553,8 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
     $splits = $body['splits'] ?? [];
     if (!is_array($splits) || !$splits) api_error('splits[] required', 422);
 
+    $pdo = getDB();
+    $pdo->beginTransaction();
     try {
         $res = intercompanyPostSplit($tid, [
             'posting_date' => $row['bill_date'],
@@ -1458,30 +1578,31 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
                 'ic_override'  => $s['ic_override'] ?? null,
             ], $splits),
         ], $user['id'] ?? null);
+        $sourceLeg = null;
+        foreach ($res['jes'] as $leg) if ($leg['role'] === 'source') { $sourceLeg = $leg; break; }
+        if (!$sourceLeg) $sourceLeg = $res['jes'][0] ?? null;
+        if (!$sourceLeg) throw new \RuntimeException('Intercompany posting returned no source journal');
+        $alreadyLinked = apAttachPostedBillJournal(
+            $pdo, $tid, $id, (int) $sourceLeg['je_id'], (string) $res['group_id']
+        );
+        $pdo->commit();
     } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         api_error('GL post failed: ' . $e->getMessage(), 422);
     }
-
-    $sourceLeg = null;
-    foreach ($res['jes'] as $leg) if ($leg['role'] === 'source') { $sourceLeg = $leg; break; }
-    if (!$sourceLeg) $sourceLeg = $res['jes'][0] ?? null;
-
-    getDB()->prepare(
-        'UPDATE ap_bills SET journal_entry_id = :j, intercompany_group_id = :g WHERE id = :id AND tenant_id = :t'
-    )->execute([
-        'j'  => $sourceLeg['je_id'], 'g' => $res['group_id'], 'id' => $id, 't' => $tid,
-    ]);
 
     apAudit('ap.bill.posted_ic', [
         'bill_id'               => $id, 'internal_ref' => $row['internal_ref'],
         'journal_entry_id'      => (int) $sourceLeg['je_id'],
         'intercompany_group_id' => $res['group_id'],
         'leg_count'             => count($res['jes']),
+        'idempotent_replay'      => $alreadyLinked,
     ], $id);
     api_ok([
         'ok' => true,
         'journal_entry_id'       => (int) $sourceLeg['je_id'],
         'intercompany_group_id'  => $res['group_id'],
+        'idempotent_replay'      => $alreadyLinked,
         'jes'                    => $res['jes'],
     ]);
 }

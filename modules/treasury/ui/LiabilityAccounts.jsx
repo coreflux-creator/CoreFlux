@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 const SUBTYPE_LABELS = {
   credit_card:     'Credit card',
@@ -27,10 +29,9 @@ export default function LiabilityAccounts() {
 }
 
 function LiabilityList() {
-  const { data, loading, reload } = useApi('/modules/treasury/api/liability_accounts.php');
-  const entitiesApi = useApi('/modules/accounting/api/entities.php');
-  const rows = data?.rows || [];
-  const entities = (entitiesApi.data?.rows || []).filter((entity) => Number(entity.active) !== 0);
+  const scope = useAccountingEntityScope();
+  const { data, error, loading, reload } = useApi('/modules/treasury/api/liability_accounts.php', { enabled: scope.ready });
+  const rows = (data?.rows || []).filter((row) => scope.allEntities || Number(row.entity_id) === scope.entityId);
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
 
@@ -47,16 +48,22 @@ function LiabilityList() {
         <button
           className="btn btn--primary"
           onClick={() => setShowNew((v) => !v)}
+          disabled={!scope.ready}
           data-testid="treasury-liability-new-btn"
         >
           {showNew ? 'Cancel' : '+ New liability account'}
         </button>
       </header>
 
-      {showNew && <NewLiabilityForm entities={entities} onDone={() => { setShowNew(false); reload(); }} />}
+      {scope.loaded && scope.entities.length > 0 && (
+        <AccountingEntitySelector scope={scope} testId="treasury-liabilities-entity" />
+      )}
+      {showNew && <NewLiabilityForm entities={scope.entities} selectedEntityId={scope.entityId} onDone={() => { setShowNew(false); reload(); }} />}
 
-      {loading && <p>Loading…</p>}
-      {!loading && rows.length === 0 && (
+      {(!scope.loaded || loading) && <p>Loading…</p>}
+      {scope.error && <p className="error" role="alert">{scope.error}</p>}
+      {error && <p className="error" role="alert">Could not load liability accounts: {error.message} <button type="button" className="btn btn--ghost" onClick={reload}>Retry</button></p>}
+      {scope.ready && !loading && !error && rows.length === 0 && (
         <p className="empty-state" data-testid="treasury-liabilities-empty">
           No liability accounts yet.
         </p>
@@ -79,7 +86,7 @@ function LiabilityList() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <LiabilityRow key={r.id} row={r} navigate={navigate} onChanged={reload} />
+              <LiabilityRow key={r.id} row={r} navigate={navigate} onChanged={reload} scope={scope} />
             ))}
           </tbody>
         </table>
@@ -88,7 +95,7 @@ function LiabilityList() {
   );
 }
 
-function LiabilityRow({ row: r, navigate, onChanged }) {
+function LiabilityRow({ row: r, navigate, onChanged, scope }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
   // "Outstanding" prefers the live Plaid current balance when available
@@ -100,6 +107,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
   const util = r.credit_limit && r.credit_limit > 0
     ? Math.round((outstanding / r.credit_limit) * 100)
     : null;
+  const detailPath = scope.withScope(`/modules/treasury/liabilities/${r.id}`);
 
   const sync = async (e) => {
     e.stopPropagation();
@@ -143,10 +151,13 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     <tr
       data-testid={`treasury-liability-row-${r.id}`}
       style={{ cursor: 'pointer' }}
-      onClick={() => navigate(`/modules/treasury/liabilities/${r.id}`)}
+      onClick={() => navigate(detailPath)}
     >
-      <td><AccountLink accountId={r.id} accountCode={r.code} onClick={(e) => e.stopPropagation()}><code>{r.code}</code></AccountLink></td>
-      <td><AccountLink accountId={r.id} accountCode={r.code} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink></td>
+      <td><AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}><code>{r.code}</code></AccountLink></td>
+      <td>
+        <AccountLink accountId={r.id} accountCode={r.code} entityId={r.entity_id} onClick={(e) => e.stopPropagation()}>{r.name}</AccountLink>
+        {r.normal_side !== 'credit' && <div data-testid={`treasury-liability-normal-side-${r.id}`} style={{ color: '#b91c1c', fontSize: 11 }}>Review normal balance</div>}
+      </td>
       <td>{r.entity_code || r.entity_name || <span style={{ color: '#b91c1c' }}>Assign entity</span>}</td>
       <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
       <td>{r.institution_name || '—'}</td>
@@ -163,7 +174,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
       <td>{r.apr_pct !== null && r.apr_pct !== undefined ? `${r.apr_pct.toFixed(2)}%` : '—'}</td>
       <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
         <Link
-          to={`/modules/treasury/liabilities/${r.id}`}
+          to={detailPath}
           className="btn btn--ghost"
           data-testid={`treasury-liability-view-${r.id}`}
           style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
@@ -217,9 +228,13 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
 
 function LiabilityDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const accountId = Number(id);
   const { data: listData } = useApi('/modules/treasury/api/liability_accounts.php');
   const account = (listData?.rows || []).find((r) => r.id === accountId);
+  const requestedScope = searchParams.get('entity_id');
+  const backScope = requestedScope === 'all' ? 'all' : account?.entity_id || requestedScope;
+  const backPath = `/modules/treasury/liabilities${backScope ? `?entity_id=${backScope}` : ''}`;
 
   const label = account
     ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
@@ -228,7 +243,7 @@ function LiabilityDetail() {
   return (
     <section data-testid="treasury-liability-detail">
       <p style={{ marginBottom: 12 }}>
-        <Link to="/modules/treasury/liabilities" className="muted" style={{ fontSize: 13 }} data-testid="treasury-liability-detail-back">← Back to liability accounts</Link>
+        <Link to={backPath} className="muted" style={{ fontSize: 13 }} data-testid="treasury-liability-detail-back">← Back to liability accounts</Link>
         {account && <>{' '}<AccountLink accountId={account.id} accountCode={account.code} entityId={account.entity_id}>Account terms</AccountLink></>}
       </p>
       <AccountTransactions
@@ -240,10 +255,10 @@ function LiabilityDetail() {
   );
 }
 
-function NewLiabilityForm({ entities, onDone }) {
+function NewLiabilityForm({ entities, selectedEntityId, onDone }) {
   const [f, setF] = useState({
     code: '', name: '', subtype: 'credit_card',
-    entity_id: '',
+    entity_id: selectedEntityId ? String(selectedEntityId) : '',
     institution_name: '', last4: '',
     credit_limit: '', apr_pct: '', statement_day: '',
   });

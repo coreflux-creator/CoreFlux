@@ -16,10 +16,10 @@ import { useApi } from '../lib/api';
  */
 export default function EntityPicker({
   value, onChange, required = false, testId = 'entity-picker',
-  label = 'Entity', allowNone = true,
+  label = 'Entity', allowNone = true, activeOnly = false,
 }) {
   const { data } = useApi('/modules/accounting/api/entities.php');
-  const entities = data?.rows || data?.entities || [];
+  const entities = (data?.rows || data?.entities || []).filter(en => !activeOnly || Number(en.active) === 1);
   return (
     <label style={{ fontSize: 12 }}>
       {label}
@@ -32,6 +32,7 @@ export default function EntityPicker({
         style={{ display: 'block' }}
       >
         {allowNone && <option value="">— Default entity —</option>}
+        {!allowNone && <option value="" disabled>— Select an entity —</option>}
         {entities.map(en => (
           <option key={en.id} value={en.id}>
             {en.legal_name || en.code}

@@ -49,7 +49,7 @@ $endDate  = date('Y-m-d', strtotime("+{$days} days"));
 $pdo = getDB();
 
 $billStmt = $pdo->prepare(
-    "SELECT id, amount_due, status, vendor_name
+    "SELECT id, entity_id, amount_due, status, vendor_name
        FROM ap_bills
       WHERE tenant_id = :t AND id = :b LIMIT 1"
 );
@@ -71,6 +71,20 @@ if ($billAmount <= 0) {
     ]);
 }
 
+$entityId = (int) ($bill['entity_id'] ?? 0);
+if ($entityId <= 0) {
+    api_ok([
+        'bill_id'      => $billId,
+        'bill_amount'  => $billAmount,
+        'pay_date'     => $today,
+        'days_horizon' => $days,
+        'note'         => 'Assign this bill to a legal entity before projecting its cash impact.',
+        'baseline'     => null,
+        'simulated'    => null,
+        'delta'        => null,
+    ]);
+}
+
 // Pay date — defaults to today, clamped inside the forecast window.
 $payDate = (string) (api_query('pay_date') ?? $today);
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $payDate)) $payDate = $today;
@@ -79,7 +93,19 @@ if ($payDate > $endDate) $payDate = $endDate;
 
 // Skip the bill we're simulating from baseline outflows. Otherwise a bill
 // due in window would be double-counted on its due_date AND on $payDate.
-$datasets = liquidityBaselineDatasets($tid, $today, $endDate, null, $billId);
+$datasets = liquidityBaselineDatasets($tid, $today, $endDate, $entityId, $billId);
+if ($datasets['bank_count'] === 0) {
+    api_ok([
+        'bill_id'      => $billId,
+        'bill_amount'  => $billAmount,
+        'pay_date'     => $payDate,
+        'days_horizon' => $days,
+        'note'         => 'Add an active bank account and opening balance to see a reliable liquidity projection.',
+        'baseline'     => null,
+        'simulated'    => null,
+        'delta'        => null,
+    ]);
+}
 $buckets  = liquidityBucketDatasets($datasets);
 
 $baseline  = liquidityWalkProjection(

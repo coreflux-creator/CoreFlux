@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/contract_projection.php';
+require_once __DIR__ . '/classification_mapping.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
@@ -74,17 +75,20 @@ function jobdivaProjectorSourceContractDrift(
     string $expectedStartId = ''
 ): array {
     $projection = jobdivaContractProjectionBuild($payload, $currentGraph, $expectedStartId);
+    $overrides = json_decode((string) ($currentGraph['placement']['coreflux_overridden_fields'] ?? ''), true);
+    $overrides = is_array($overrides) ? $overrides : [];
     $owned = [
         'engagement_type', 'status', 'start_date', 'end_date',
-        'end_client_name',
-        'bill_rate', 'pay_rate',
+        'end_client_name', 'billing_client_name',
+        'bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit', 'currency', 'worksite_country', 'worksite_city',
         'client_bill_cycle', 'vendor_pay_cycle',
         'vendor_payment_terms', 'paid_when_paid',
     ];
 
     return array_values(array_filter(
         $projection['fields'] ?? [],
-        static function (array $field) use ($owned): bool {
+        static function (array $field) use ($owned, $overrides): bool {
+            if (in_array((string) ($field['field'] ?? ''), $overrides, true)) return false;
             if (empty($field['changes']) || !in_array((string) ($field['field'] ?? ''), $owned, true)) {
                 return false;
             }
@@ -178,6 +182,11 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             (string) ($sourceIdentity['channel'] ?? 'projector')
         );
 
+        $payload = jobdivaClassificationPayloadForTenant($tenantId, $payload);
+        jobdivaClassificationRequire($payload);
+        if (jobdivaAssignmentEndClientEvidence($payload)['status'] === 'ambiguous') {
+            throw new \RuntimeException('Conflicting explicit end-client identities require review.');
+        }
         $personId = (int) ($opts['person_id'] ?? 0);
         if ($personId <= 0 && !function_exists('jobdivaPlacementsAutoCreatePerson')) {
             // The stored-assignment reconciliation path loads the canonical
@@ -329,6 +338,10 @@ function jobdivaProjectorBindPlacementSourceIdentities(
         $externalId = trim($externalId);
         if ($externalId === '' || $internalId <= 0) return;
         try {
+            $existing = mappingFindInternal($tenantId, 'jobdiva', $entityType, $externalId);
+            if ($existing && (int) $existing['internal_entity_id'] !== $internalId) {
+                throw new \RuntimeException('Source identity already belongs to a different Core record.');
+            }
             mappingUpsert($tenantId, 'jobdiva', $entityType, $externalId, $internalId, $sourcePayload, 'pull', $userId);
             $summary['mapping_writes']++;
         } catch (\Throwable $e) {
@@ -345,16 +358,10 @@ function jobdivaProjectorBindPlacementSourceIdentities(
     ], ['_jd_candidate', 'person', 'candidate', 'Candidate', 'jobdiva_candidate']);
     $bind('person', $candidateExtId, $personId, $candidatePayload);
 
-    $companyPayload = jobdivaProjectorNestedPayload($payload, [
-        '_jd_customer', 'company', 'customer', 'Customer', 'client', 'Client', 'jobdiva_customer',
-    ]) ?: $payload;
-    $companyExtId = jobdivaProjectorPluckDeep($payload, [
-        'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID',
-        'endClientCompanyId', 'end_client_company_id',
-    ], jobdivaProjectorEndClientNestOrder());
-    $bind('company', $companyExtId, $endClientCompanyId, $companyPayload);
-    $trustedCustomerExtId = jobdivaProjectorTrustedCustomerCompanyExternalId($payload);
-    $bind('jobdiva_customer', $trustedCustomerExtId, $endClientCompanyId, $companyPayload);
+    // Billing is bound by its exact assignment resolver. Generic customer/job
+    // enrichment must never alias either company role to the other.
+    $endClientEvidence = jobdivaAssignmentEndClientEvidence($payload);
+    $bind('company', $endClientEvidence['external_id'], $endClientCompanyId, $payload);
 
     $jobPayload = jobdivaProjectorNestedPayload($payload, [
         '_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord', 'staffing_job', 'jobdiva_job',
@@ -384,12 +391,16 @@ function jobdivaProjectorBindPlacementSourceIdentities(
             'clientApprover', 'client_approver', 'clientContactName',
         ], ['_jd_contact', 'contact', 'Contact', 'jobdiva_contact']);
     }
-    if ($contactExtId !== '' && $endClientCompanyId > 0 && $contactName !== '' && function_exists('jobdivaSyncUpsertContact')) {
+    $contactCompanyExternalId = jobdivaProjectorPluck($contactPayload, ['companyId', 'company_id', 'companyID', 'COMPANYID']);
+    $contactCompanyMapping = $contactCompanyExternalId !== ''
+        ? mappingFindInternal($tenantId, 'jobdiva', 'company', $contactCompanyExternalId) : null;
+    $contactCompanyId = (int) ($contactCompanyMapping['internal_entity_id'] ?? 0);
+    if ($contactExtId !== '' && $contactCompanyId > 0 && $contactName !== '' && function_exists('jobdivaSyncUpsertContact')) {
         try {
             if (jobdivaProjectorPluck($contactPayload, ['id', 'contactId', 'contact_id', 'contactID']) === '') {
                 $contactPayload['id'] = $contactExtId;
             }
-            $contactId = (int) jobdivaSyncUpsertContact($tenantId, $endClientCompanyId, $contactPayload, $contactName);
+            $contactId = (int) jobdivaSyncUpsertContact($tenantId, $contactCompanyId, $contactPayload, $contactName);
             if ($contactId > 0) {
                 $summary['contact_id'] = $contactId;
                 $bind('contact', $contactExtId, $contactId, $contactPayload);
@@ -439,9 +450,8 @@ function jobdivaProjectorPlacementReadiness(int $tenantId, int $placementId): ar
         ] as $column => $code) {
             if (empty($row[$column]) || (int) $row[$column] <= 0) $out['missing'][] = $code;
         }
-        if (!empty($row['end_client_company_id']) && !empty($row['client_company_id'])
-            && (int) $row['end_client_company_id'] !== (int) $row['client_company_id']) {
-            $out['missing'][] = 'staffing_client_company_match';
+        if (empty($row['client_company_id'])) {
+            $out['missing'][] = 'billing_company_link';
         }
 
         $rateFacts = jobdivaProjectorPlacementRateFacts($tenantId, $placementId, (string) ($row['start_date'] ?? ''));
@@ -563,9 +573,11 @@ function jobdivaProjectorReadinessCounts(int $tenantId): array
                   WHERE m.tenant_id = :t
                     AND m.source_system = 'jobdiva'
                     AND m.internal_entity_type = 'placement'
-                    AND p.end_client_company_id IS NOT NULL
-                    AND sc.company_id IS NOT NULL
-                    AND sc.company_id <> p.end_client_company_id",
+                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+                    AND (sc.company_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM companies bc WHERE bc.id = sc.company_id
+                          AND bc.tenant_id = sc.tenant_id AND bc.deleted_at IS NULL
+                    ))",
                 ['t' => $tenantId]
             );
         }
@@ -706,83 +718,62 @@ function jobdivaProjectorAssignmentClientEvidence(array $payload): array
     ];
 }
 
-function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, ?int $userId): ?int
+function jobdivaProjectorResolveBillingClientCompany(int $tenantId, array $payload, ?int $userId): ?int
 {
     $evidence = jobdivaProjectorAssignmentClientEvidence($payload);
     if (empty($evidence['authoritative'])) return null;
-
-    $companyExtId = (string) $evidence['external_id'];
-    $endClientName = (string) $evidence['name'];
-    if ($companyExtId !== '') {
-        $companyId = jobdivaProjectorMappedCompanyIdIfNameMatches($tenantId, 'company', $companyExtId, $endClientName);
-        if ($companyId !== null && $companyId > 0) {
-            staffingClientEnsureForCompany($tenantId, $companyId, $endClientName, [
-                'created_by_user_id' => $userId,
-                'status' => 'active',
-                'source_system' => 'jobdiva',
-            ]);
-            return $companyId;
-        }
+    $companyId = jobdivaProjectorResolvePartyCompany($tenantId, $payload, $evidence, $userId);
+    if ($companyId) {
+        staffingClientEnsureForCompany($tenantId, $companyId, $evidence['name'], [
+            'created_by_user_id' => $userId, 'status' => 'active', 'source_system' => 'jobdiva',
+        ]);
     }
-
-    return jobdivaProjectorEnsureEndClientCompany(
-        $tenantId,
-        $endClientName,
-        $userId,
-        $payload,
-        $companyExtId,
-        $companyExtId !== '' ? 'company' : 'jobdiva_customer'
-    );
+    return $companyId;
 }
 
-function jobdivaProjectorEnsureEndClientCompany(
-    int $tenantId,
-    string $name,
-    ?int $userId,
-    array $payload,
-    string $externalId = '',
-    string $mapType = 'jobdiva_customer'
-): ?int {
-    $name = trim($name);
-    if ($tenantId <= 0 || $name === '') return null;
+function jobdivaProjectorResolveEndClientCompany(int $tenantId, array $payload, ?int $userId): ?int
+{
+    $evidence = jobdivaAssignmentEndClientEvidence($payload);
+    if ($evidence['status'] === 'ambiguous') throw new RuntimeException('Conflicting explicit end-client identities require review.');
+    if (!in_array($evidence['status'], ['resolved', 'identity_only'], true)) return null;
+    return jobdivaProjectorResolvePartyCompany($tenantId, $payload, $evidence, $userId);
+}
 
-    try {
-        if (function_exists('staffingClientEnsureForCompany')) {
-            $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
-                'created_by_user_id' => $userId,
-                'status' => 'active',
-                'source_system' => 'jobdiva',
-            ]);
-            $companyId = (int) ($clientRef['company_id'] ?? 0);
-        } elseif (function_exists('companiesUpsertByName')) {
-            $companyId = companiesUpsertByName($tenantId, $name, [
-                'created_by_user_id' => $userId,
-            ], ['client']);
-        } else {
-            return null;
+/** Resolve an exact provider company without retargeting an existing provider ID. */
+function jobdivaProjectorResolvePartyCompany(int $tenantId, array $payload, array $evidence, ?int $userId): ?int
+{
+    $externalId = trim((string) $evidence['external_id']);
+    $name = trim((string) $evidence['name']);
+    $owner = effectiveTenantIdForModule('companies', $tenantId) ?? $tenantId;
+    $pdo = getDB();
+    $mapping = $externalId !== '' ? mappingFindInternal($tenantId, 'jobdiva', 'company', $externalId) : null;
+    if ($mapping) {
+        if ((string) $mapping['external_id'] !== $externalId) throw new RuntimeException('Company source identity needs exact review.');
+        $s = $pdo->prepare('SELECT id, name FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
+        $s->execute(['t' => $owner, 'i' => $mapping['internal_entity_id']]);
+        $company = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$company || ($name !== '' && !jobdivaProjectorCompanyNameCompatible($company['name'], $name))) {
+            throw new RuntimeException('Mapped company is missing, outside this directory, or has a conflicting source name. Review the existing identity.');
         }
-
-        if ($companyId > 0) {
-            if (trim($externalId) !== '') {
-                try {
-                    mappingUpsert($tenantId, 'jobdiva', $mapType, trim($externalId), $companyId, $payload, 'pull', $userId);
-                } catch (\Throwable $e) {
-                    error_log('[jobdiva projector] end-client mapping bind skipped: ' . $e->getMessage());
-                }
-            }
-            if (function_exists('integrationPayloadFieldIndexRecord')) {
-                try {
-                    integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', 'company', $payload);
-                } catch (\Throwable $e) {
-                    error_log('[jobdiva projector] company index failed: ' . $e->getMessage());
-                }
-            }
-            return $companyId;
-        }
-    } catch (\Throwable $e) {
-        error_log('[jobdiva projector] end-client company ensure failed: ' . $e->getMessage());
+        return (int) $company['id'];
     }
-    return null;
+    if ($name === '') return null;
+    $s = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND name = :n AND deleted_at IS NULL LIMIT 2');
+    $s->execute(['t' => $owner, 'n' => $name]);
+    $matches = $s->fetchAll(PDO::FETCH_COLUMN);
+    if (count($matches) > 1) throw new RuntimeException('Multiple companies have this source name; review their identities.');
+    $companyId = $matches ? (int) $matches[0] : 0;
+    if ($companyId && $externalId !== '') {
+        $reverse = mappingFindExternal($tenantId, 'jobdiva', 'company', $companyId);
+        if ($reverse && (string) $reverse['external_id'] !== $externalId) {
+            throw new RuntimeException('Company already has a different provider identity; no mapping was changed.');
+        }
+    }
+    if (!$companyId) $companyId = companiesUpsertByName($owner, $name, ['created_by_user_id' => $userId], []);
+    if ($companyId && $externalId !== '') {
+        mappingUpsert($tenantId, 'jobdiva', 'company', $externalId, $companyId, $payload, 'pull', $userId);
+    }
+    return $companyId ?: null;
 }
 
 function jobdivaProjectorEndClientNestOrder(): array
@@ -796,53 +787,8 @@ function jobdivaProjectorEndClientNestOrder(): array
 
 function jobdivaProjectorEndClientNameFromPayload(array $payload): string
 {
-    $companySpecific = [
-        'endClientCompanyName', 'end_client_company_name', 'end client company name',
-        'companyName', 'company_name', 'company name', 'COMPANYNAME',
-        'jobCompanyName', 'job_company_name', 'job company name',
-    ];
-    $ambiguousNames = [
-        'endClientName', 'end_client_name', 'end client name',
-        'customerName', 'customer_name', 'customer name',
-        'clientName', 'client_name', 'client name',
-    ];
-
-    if (isset($payload['_jd_contract']) && is_array($payload['_jd_contract'])) {
-        $v = jobdivaProjectorPluck($payload['_jd_contract'], [
-            'client_company_name', 'clientCompanyName', 'endClientCompanyName',
-        ]);
-        if ($v !== '') return $v;
-    }
-
-    // A JobDiva Start/Assignment owns the billing company. The linked Job is
-    // useful enrichment, but can legitimately name a different customer.
-    foreach (['_jd_start', 'assignment', 'start', 'Start'] as $nest) {
-        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], $companySpecific);
-        if ($v !== '') return $v;
-    }
-    $v = jobdivaProjectorPluck($payload, $companySpecific);
-    if ($v !== '') return $v;
-    foreach (['_jd_customer', 'customer', 'Customer', 'company', 'Company', 'client', 'Client'] as $nest) {
-        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], array_merge($companySpecific, ['legalName', 'legal_name', 'name']));
-        if ($v !== '') return $v;
-    }
-    foreach (['_jd_job', 'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
-        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], $companySpecific);
-        if ($v !== '') return $v;
-    }
-
-    $v = jobdivaProjectorPluck($payload, $ambiguousNames);
-    if ($v !== '') return $v;
-
-    foreach (['_jd_customer', 'customer', 'Customer', 'client', 'Client'] as $nest) {
-        if (!isset($payload[$nest]) || !is_array($payload[$nest])) continue;
-        $v = jobdivaProjectorPluck($payload[$nest], array_merge($ambiguousNames, ['name']));
-        if ($v !== '') return $v;
-    }
-    return '';
+    $evidence = jobdivaAssignmentEndClientEvidence($payload);
+    return $evidence['status'] === 'ambiguous' ? '' : $evidence['name'];
 }
 
 function jobdivaProjectorPlacementRateFacts(int $tenantId, int $placementId, string $startDate): array

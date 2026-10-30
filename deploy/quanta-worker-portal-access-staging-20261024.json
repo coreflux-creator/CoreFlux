@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T17:55:16.149861+00:00",
+  "scope": "Explicit worker-only portal access for an existing Core-imported Quanta profile",
+  "provider_source_commit": "79332871db81acf99ac2d7637870d8dbe061605c",
+  "source_patch": "deploy\\quanta-worker-portal-access-20261024.patch",
+  "source_patch_sha256": "2e9f7f1bab13ba4ac1c7c105f339f82082af3d864a374511c771d1bf1c92fdd8",
+  "local_validation": {
+    "backend_passed": 50,
+    "ui_passed": 11,
+    "database": "isolated mongomock",
+    "outbound_email": "captured only"
+  },
+  "hosted_acceptance": {
+    "backend": {
+      "runtime_hashes": {
+        "app/routers/tenant.py": "6007f920e09d251afb0d61c0e66a48ccd01adf896dda5112c032cbcc3d9d5dae",
+        "app/routers/core_assignments.py": "e3da057065bf372839c53afe03b7a068ba09af483885b508775a94ed536115b5"
+      },
+      "test_files": [
+        "test_core_portal.py",
+        "test_coreflux.py",
+        "test_membership_reactivation.py",
+        "test_worker_profiles.py"
+      ],
+      "pytest_exit": 0,
+      "network_attempts": 0,
+      "full_application": true,
+      "lifespan_started": false,
+      "candidate_hashes": {
+        "app/routers/tenant.py": "2b729cf8ac3505e7a209659f5146d0c82a14b9d659b90f2da595044dfaecc00d",
+        "app/routers/core_assignments.py": "f12ba93f3538a44c5de4e839047436f0d0e00a90f7708be596db2f0237707e90"
+      },
+      "real_database_used": false,
+      "live_workspace_acceptance": false,
+      "report_directory": "/tmp/quanta-core-full-app-kul0wlxx"
+    },
+    "backend_summary": [
+      "112 passed in 1.47s"
+    ],
+    "frontend_exit": 0,
+    "frontend_candidate_hashes": {
+      "src/pages/CoreAssignmentsPage.jsx": "aa57683d9f7ccf71a0c1ec1bba11945e144498a708e0b23ee2f524fdac51072c",
+      "src/pages/WorkerPortalAccess.jsx": "8c5d0d2c2a86b1f2d69c0b0d9eeeabbb0de05dbb62577d8ae9986578d8acc415"
+    },
+    "shared_head_unchanged": true,
+    "shared_source_unchanged": true,
+    "shared_index_unchanged": true,
+    "protected_configuration_unchanged": true,
+    "live_database_used": false,
+    "published": false,
+    "directory": "/tmp/quanta-worker-portal-access-acceptance-98fxf7ml"
+  },
+  "preview_installation": {
+    "candidate": "79332871db81acf99ac2d7637870d8dbe061605c",
+    "backup_directory": "/tmp/quanta-onboarding-preview-install-ur7r4fzr",
+    "access_before": {
+      "tenants": {
+        "count": 5,
+        "sha256": "4a2930396bae342840fd34b19c25cdfb6083617b729a3b3fa2e12f14484b5c1c"
+      },
+      "identities": {
+        "count": 150,
+        "sha256": "72db1cf84928382ef54a0fe8a3d51bbaa4f2c3b0d47c8cbb6e19e2e89da661a1"
+      },
+      "users": {
+        "count": 137,
+        "sha256": "8a2fcbcb69c022ae41d72908abc791287a3ba428d642ddf30b4c480205ae8127"
+      },
+      "api_keys": {
+        "count": 373,
+        "sha256": "8eb93463fd46898e5369d51363bb62be3c40e2bd7c0ebf5b3de6c70e147d9d68"
+      },
+      "invites": {
+        "count": 7,
+        "sha256": "b1c5f2c26af96c1b7d797aee3da8b2418dbbb3e80db83aa9d7fae476a7a48586"
+      },
+      "webhook_subscriptions": {
+        "count": 3,
+        "sha256": "b6b93602c3da86f070a255aa9bace8b35163375071d2583c037adb4da1d72855"
+      },
+      "coreflux_person_links": {
+        "count": 2,
+        "sha256": "94d024048344184c5c654c6f29b397f6d278207b2b3e7e16b13cd92c92d684bd"
+      },
+      "coreflux_assignments": {
+        "count": 5,
+        "sha256": "6a096fecea24a35d5831c61873a60de737ab8ffb1c866dc4026ab07209768560"
+      },
+      "coreflux_onboarding": {
+        "count": 2,
+        "sha256": "9b9ac9595c6ee35eb651a7d5578865b8be55dfb3ed6ac196a3f2fcc68f544a3e"
+      },
+      "coreflux_document_transfers": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "time_entries": {
+        "count": 94,
+        "sha256": "2197b3b16f2a8c57756faaf8f3c5072d007f50a9b130b8ec7b2b8fcfc69e4cb5"
+      },
+      "timesheets": {
+        "count": 14,
+        "sha256": "95ef622998f78405dba1b6dbf99c5ccc28352ffac75985502d2e69d59a830f1c"
+      }
+    },
+    "protected_configuration_unchanged": true,
+    "background_workers_disabled": true,
+    "document_transfer_enabled": false,
+    "published": false,
+    "stage": "verified",
+    "health_status": 200,
+    "access_after": {
+      "tenants": {
+        "count": 5,
+        "sha256": "4a2930396bae342840fd34b19c25cdfb6083617b729a3b3fa2e12f14484b5c1c"
+      },
+      "identities": {
+        "count": 150,
+        "sha256": "72db1cf84928382ef54a0fe8a3d51bbaa4f2c3b0d47c8cbb6e19e2e89da661a1"
+      },
+      "users": {
+        "count": 137,
+        "sha256": "8a2fcbcb69c022ae41d72908abc791287a3ba428d642ddf30b4c480205ae8127"
+      },
+      "api_keys": {
+        "count": 373,
+        "sha256": "8eb93463fd46898e5369d51363bb62be3c40e2bd7c0ebf5b3de6c70e147d9d68"
+      },
+      "invites": {
+        "count": 7,
+        "sha256": "b1c5f2c26af96c1b7d797aee3da8b2418dbbb3e80db83aa9d7fae476a7a48586"
+      },
+      "webhook_subscriptions": {
+        "count": 3,
+        "sha256": "b6b93602c3da86f070a255aa9bace8b35163375071d2583c037adb4da1d72855"
+      },
+      "coreflux_person_links": {
+        "count": 2,
+        "sha256": "94d024048344184c5c654c6f29b397f6d278207b2b3e7e16b13cd92c92d684bd"
+      },
+      "coreflux_assignments": {
+        "count": 5,
+        "sha256": "6a096fecea24a35d5831c61873a60de737ab8ffb1c866dc4026ab07209768560"
+      },
+      "coreflux_onboarding": {
+        "count": 2,
+        "sha256": "9b9ac9595c6ee35eb651a7d5578865b8be55dfb3ed6ac196a3f2fcc68f544a3e"
+      },
+      "coreflux_document_transfers": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "time_entries": {
+        "count": 94,
+        "sha256": "2197b3b16f2a8c57756faaf8f3c5072d007f50a9b130b8ec7b2b8fcfc69e4cb5"
+      },
+      "timesheets": {
+        "count": 14,
+        "sha256": "95ef622998f78405dba1b6dbf99c5ccc28352ffac75985502d2e69d59a830f1c"
+      }
+    },
+    "installed_hashes": {
+      "frontend/src/pages/CoreAssignmentsPage.jsx": "aa57683d9f7ccf71a0c1ec1bba11945e144498a708e0b23ee2f524fdac51072c",
+      "frontend/src/pages/WorkerPortalAccess.jsx": "8c5d0d2c2a86b1f2d69c0b0d9eeeabbb0de05dbb62577d8ae9986578d8acc415",
+      "backend/app/routers/tenant.py": "2b729cf8ac3505e7a209659f5146d0c82a14b9d659b90f2da595044dfaecc00d",
+      "backend/app/routers/core_assignments.py": "f12ba93f3538a44c5de4e839047436f0d0e00a90f7708be596db2f0237707e90"
+    },
+    "shared_head_unchanged": true,
+    "staged_source_unchanged": true,
+    "unrelated_source_unchanged": true,
+    "existing_records_unchanged": true,
+    "service_status": "backend                          RUNNING   pid 7671, uptime 0:00:03\nfrontend                         RUNNING   pid 7719, uptime 0:00:02\n"
+  },
+  "browser_verification": {
+    "url": "https://clockin-hub-16.preview.emergentagent.com/app/assignments",
+    "workspace": "Acme Construction",
+    "person_number": "P-15",
+    "placement_number": "PL-13",
+    "confirmed_worker_status": "active",
+    "confirmed_login_identity": "not linked",
+    "review_screen_opened": true,
+    "review_cancelled": true,
+    "enable_action_clicked": false,
+    "screenshot": "quanta-worker-portal-access-review-20261024.png"
+  },
+  "limitations": [
+    "Actual worker login and onboarding submission await a test mailbox and user approval.",
+    "This does not provide the pending independent Core time reviewer or restore the separately managed PurePay preview."
+  ],
+  "boundaries": {
+    "login_created": false,
+    "access_granted": false,
+    "email_sent": false,
+    "time_approved": false,
+    "real_payroll_or_payment_executed": false,
+    "provider_published": false,
+    "core_production_changed": false
+  }
+}

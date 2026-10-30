@@ -24,6 +24,16 @@ $check('AP screen delegates to the shared clearing operation', str_contains($apA
 $check('clearing is idempotent only with a valid journal',
     str_contains($apLib, '(($row[\'status\'] ?? \'\') === \'cleared\'')
     && str_contains($apLib, 'has no valid ledger posting'));
+$check('AP clearing locks payment and owns its journal transaction',
+    str_contains($apLib, 'function apClearPaymentLocked(')
+    && str_contains($apLib, 'FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE')
+    && str_contains($apLib, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($apLib, 'cf_tx_rollback($pdo, $ownsTransaction)'));
+$check('ordinary void refuses payment ledger activity under lock',
+    str_contains($apApi, 'apVoidPayment($tid, $id, $reason)')
+    && str_contains($apLib, 'apPaymentHasLedgerActivity($pdo,$tenantId,$row)')
+    && str_contains($apLib, 'Cleared payments need a linked accounting and bank correction')
+    && str_contains($apLib, 'ap_payments WHERE tenant_id=:t AND id=:id FOR UPDATE'));
 $check('clearing requires a real entity bank account',
     str_contains($apLib, 'Connect or create an active bank account for this entity before clearing the payment.'));
 $check('payment and bank currencies must agree',
@@ -55,22 +65,46 @@ $check('endpoint clears once and then reconciles the resulting journal',
     str_contains($bankApi, 'apClearPayment(')
     && str_contains($bankApi, 'bankRecMatchLine(')
     && str_contains($bankApi, 'accounting.bank.ap_payment_matched'));
+$check('exact AP match retry is allowed only for its cleared payment journal',
+    str_contains($bankApi, "\$sameMatch = (\$line['match_status'] ?? '') === 'matched'")
+    && str_contains($bankApi, "(\$payment['status'] ?? '') === 'cleared'")
+    && str_contains($bankApi, "(int) (\$line['matched_je_id'] ?? 0) === (int) \$payment['journal_entry_id']"));
+$check('bank-match replay reflects the line transition, not a prior AP clear',
+    str_contains($bankApi, "'idempotent_replay' => !empty(\$match['idempotent_replay'])")
+    && str_contains($bankApi, "if (empty(\$match['idempotent_replay'])) {"));
+$check('AP clear retry does not duplicate its business audit event',
+    str_contains($apApi, "if (empty(\$result['idempotent_replay'])) {")
+    && str_contains($apApi, "apAudit('ap.payment.cleared'"));
+$matchAction = substr($bankApi, (int) strpos($bankApi, "if (\$method === 'POST' && \$action === 'match_ap_payment')"), 6000);
+$check('AP clear and bank match commit or roll back together',
+    str_contains($matchAction, 'cf_tx_begin($pdo)')
+    && str_contains($matchAction, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($matchAction, 'cf_tx_rollback($pdo, $ownsTransaction)'));
 
 echo "\nReconciliation integrity\n";
 $check('manual journal match requires a posted journal', str_contains($bankLib, 'Only a posted journal entry can be matched'));
+$matchFunction = substr($bankLib, (int) strpos($bankLib, 'function bankRecMatchLine('), 4200);
+$journalLock = strpos($matchFunction, 'accounting_journal_entries') !== false
+    ? strpos($matchFunction, 'WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE') : false;
+$bankLineLock = strpos($matchFunction, 'WHERE bl.tenant_id = :tenant_id AND bl.id = :id FOR UPDATE');
+$check('manual match serializes journal reversal before locking the bank line',
+    str_contains($matchFunction, 'cf_tx_begin($pdo)')
+    && $journalLock !== false && $bankLineLock !== false && $journalLock < $bankLineLock
+    && str_contains($matchFunction, 'cf_tx_commit($pdo, $ownsTransaction)')
+    && str_contains($matchFunction, 'cf_tx_rollback($pdo, $ownsTransaction)'));
 $check('manual journal match validates signed bank movement',
     str_contains($bankLib, 'line.debit - line.credit')
     && str_contains($bankLib, 'does not contain the matching cash movement'));
 $check('manual journal match rejects currency, entity, and duplicate-use conflicts',
-    str_contains($bankLib, 'journal entry belongs to a different entity')
+    str_contains($bankLib, 'journal entry and bank account must belong to the same legal entity')
     && str_contains($bankLib, 'journal entry uses a different currency')
     && str_contains($bankLib, 'already matched to another bank line'));
 $check('line match uses a conditional write to prevent double resolution',
     str_contains($bankLib, 'AND match_status = "unmatched"')
     && str_contains($bankLib, 'changed while it was being matched'));
 $check('line-created journals cannot be silently detached',
-    str_contains($bankLib, 'cannot be detached from it')
-    && str_contains($bankLib, 'Reverse or correct the posted transaction instead.'));
+    str_contains($bankLib, 'function bankRecUnmatchBlocker(')
+    && str_contains($bankLib, 'Correct the source transaction to keep the books in sync.'));
 $check('Treasury bulk unmatch routes through the same guard',
     str_contains($treasuryApi, 'bankRecUnmatchLine($tenantId, $eligibleId)')
     && str_contains($treasuryUi, 'Transactions created from a bank line must be reversed instead.'));

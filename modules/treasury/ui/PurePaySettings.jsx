@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import PurePayCoreConnection from './PurePayCoreConnection';
+import PurePayFinancialObservations from './PurePayFinancialObservations';
 
 export default function PurePaySettings() {
   const status = useApi('/api/purepay_connection.php?action=status');
@@ -9,10 +11,12 @@ export default function PurePaySettings() {
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
+  const [review, setReview] = useState(null);
+  const [companyChecked, setCompanyChecked] = useState(false);
 
   const run = async (kind, fn) => {
     setBusy(kind); setMessage(null);
-    try { await fn(); setMessage({ kind: 'success', text: kind === 'connect' ? 'Pure//Pay connected.' : kind === 'secret' ? 'Webhook secret saved.' : kind === 'disconnect' ? 'Pure//Pay disconnected.' : 'Connection probe passed.' }); await status.reload(); }
+    try { await fn(); setMessage({ kind: 'success', text: kind === 'connect' ? 'Key saved. Review the company to finish connecting.' : kind === 'review' ? 'Check the two companies below.' : kind === 'confirm' ? 'Company confirmed. Check the connection to refresh its status.' : kind === 'secret' ? 'Webhook secret saved.' : kind === 'disconnect' ? 'Pure//Pay disconnected.' : 'Connection probe passed.' }); await status.reload(); }
     catch (e) { setMessage({ kind: 'error', text: e.message || String(e) }); }
     finally { setBusy(''); }
   };
@@ -26,13 +30,15 @@ export default function PurePaySettings() {
         <p style={{ margin: 0, fontSize: 12, color: 'var(--cf-text-secondary)' }}>Admin · Integrations · Payment rails</p>
         <h2 style={{ margin: '4px 0' }}>Pure//Pay</h2>
         <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-          Release approved AP bills through the Pure//Pay wallet and receive signed settlement/failure events.
+          Release approved AP bills through the Pure//Pay wallet and receive signed payment outcomes.
           Vendor bank onboarding remains in Pure//Pay; CoreFlux sends vendor identity, bill, and amount only.
         </p>
       </header>
 
       {message && <p data-testid={`purepay-message-${message.kind}`} className={message.kind === 'error' ? 'error' : 'success'}>{message.text}</p>}
       {status.error && <p className="error">{status.error.message}</p>}
+
+      <PurePayCoreConnection />
 
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
@@ -42,16 +48,19 @@ export default function PurePaySettings() {
         <div style={{ padding: 10, margin: '12px 0', background: '#fff7ed', color: '#9a3412', borderRadius: 6, fontSize: 12 }}>
           Pure//Pay keys can read organization data. Read-write keys can also create bills and release payments. Use a dedicated key with the least access needed and revoke it in Pure//Pay when retired.
         </div>
-        {data.connected ? (
+        {data.has_connection ? (
           <>
             <dl style={facts}>
               <dt>Key</dt><dd>••••{data.api_key_last4}</dd>
-              <dt>Scope</dt><dd>{data.key_scope === 'read_write' ? 'Read-write: AP payouts enabled' : 'Read-only: monitoring only'}</dd>
+              <dt>Core access</dt><dd>{data.key_scope === 'read_write' ? 'Read-write: approved AP payouts after company confirmation' : 'Read-only: monitoring only'}</dd>
+              <dt>PurePay company</dt><dd>{data.financial_company?.organization?.name || 'Not reviewed'}</dd>
+              <dt>Company review</dt><dd>{data.financial_company?.verified ? 'Confirmed' : 'Required'}</dd>
               <dt>Wallet</dt><dd>{money}</dd>
               <dt>Last probe</dt><dd>{data.last_probe_at || '—'}</dd>
             </dl>
             {data.last_probe_error && <p className="error">{data.last_probe_error}</p>}
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn" disabled={!!busy} onClick={() => run('review', async () => { setReview(null); setCompanyChecked(false); setReview(await api.post('/api/purepay_connection.php?action=review_company', {})); })} data-testid="purepay-review-company">Review company</button>
               <button className="btn" disabled={!!busy} onClick={() => run('probe', () => api.post('/api/purepay_connection.php?action=probe', {}))} data-testid="purepay-probe">{busy === 'probe' ? 'Probing…' : 'Probe connection'}</button>
               <button className="btn btn--danger" disabled={!!busy} onClick={() => window.confirm('Disconnect Pure//Pay? Existing lifecycle history is preserved.') && run('disconnect', () => api.post('/api/purepay_connection.php?action=disconnect', {}))} data-testid="purepay-disconnect">Disconnect</button>
             </div>
@@ -64,15 +73,30 @@ export default function PurePaySettings() {
             <button className="btn btn--primary" disabled={!!busy || !apiKey.trim()} onClick={() => run('connect', async () => { await api.post('/api/purepay_connection.php', { api_key: apiKey, label, key_scope: keyScope }); setApiKey(''); })} data-testid="purepay-connect">{busy === 'connect' ? 'Connecting…' : 'Connect and verify'}</button>
           </div>
         )}
+        {data.has_connection && review && <div style={{ marginTop: 16, padding: 12, border: '1px solid var(--cf-border)', borderRadius: 6 }} data-testid="purepay-company-review">
+          <strong>Confirm the company connection</strong>
+          <dl style={facts}>
+            <dt>Core company</dt><dd>{data.core_company?.name} (#{data.core_company?.id})</dd>
+            <dt>PurePay company</dt><dd>{review.organization?.name} ({review.organization?.id})</dd>
+            <dt>Key allows</dt><dd>{review.provider_key_scope === 'write' ? 'Read and write' : 'Read only'}</dd>
+            <dt>Core will use</dt><dd>{review.local_key_scope === 'read_write' ? 'Read and write' : 'Read only'}</dd>
+          </dl>
+          <p style={hint}>This company association remains after disconnecting or replacing a key. Confirmation does not approve bills or release payments.</p>
+          <label><input type="checkbox" checked={companyChecked} onChange={e => setCompanyChecked(e.target.checked)} /> These are the intended companies for this connection.</label>
+          <div style={{ marginTop: 10 }}><button className="btn btn--primary" disabled={!!busy || !companyChecked} data-testid="purepay-confirm-company" onClick={() => run('confirm', async () => { await api.post('/api/purepay_connection.php?action=confirm_company', { review_hash: review.review_hash, organization_id: review.organization.id }); setReview(null); setCompanyChecked(false); })}>Confirm company</button></div>
+        </div>}
       </div>
+
+      {data.connected && <PurePayFinancialObservations tenantId={data.core_company?.id} connectionVersion={`${data.financial_company?.reviewed_at}:${data.api_key_last4}:${data.status}`} />}
 
       <div style={card}>
         <strong>Signed webhooks</strong>
-        <p style={hint}>In Pure//Pay → Settings → Developer API, add this HTTPS endpoint and subscribe to payment.settled and payment.failed.</p>
+        <p style={hint}>In Pure//Pay → Settings → Developer API, add this HTTPS endpoint and select Payment updates only: payment.settled, payment.failed, payment.returned and payment.cancelled.</p>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-          <code data-testid="purepay-webhook-url" style={{ flex: 1, overflowWrap: 'anywhere', background: '#f8fafc', padding: 8, borderRadius: 4 }}>{data.delivery_url}</code>
-          <button className="btn" onClick={() => navigator.clipboard?.writeText(data.delivery_url)} data-testid="purepay-copy-webhook">Copy</button>
+          <code data-testid="purepay-webhook-url" style={{ flex: 1, overflowWrap: 'anywhere', background: '#f8fafc', padding: 8, borderRadius: 4 }}>{data.delivery_url || 'Callback address unavailable'}</code>
+          <button className="btn" disabled={!data.delivery_url} onClick={() => data.delivery_url && navigator.clipboard?.writeText(data.delivery_url)} data-testid="purepay-copy-webhook">Copy</button>
         </div>
+        {data.delivery_url_error && <p className="error" role="alert">{data.delivery_url_error}</p>}
         <p style={hint}>Paste the <code>whsec_…</code> secret Pure//Pay shows for that endpoint. It is encrypted at rest and only its last four characters return here.</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <input className="input" type="password" autoComplete="new-password" value={secret} onChange={e => setSecret(e.target.value)} placeholder={data.webhook_configured ? `Configured ••••${data.webhook_secret_last4}` : 'whsec_…'} data-testid="purepay-webhook-secret" />
