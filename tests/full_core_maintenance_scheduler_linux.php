@@ -106,4 +106,17 @@ $assert($host->crontab() === $cron && $webState() === $webBefore, 'process-loss 
 $install(''); $empty = bin2hex(random_bytes(16));
 $emptyResult = $host->pauseScheduler($empty, hash('sha256',''), []); $host->restoreScheduler($empty);
 $assert($emptyResult['paused_jobs'] === 0 && $host->crontab() === '', 'installed empty scheduler remains empty after explicit recovery');
+$assert($command(['/usr/bin/crontab', '-l'])[0] === 0, 'separate-owner installed empty table remains installed');
+$assert($command(['/usr/bin/crontab', '-r'])[0] === 0, 'remove only the disposable scheduler-account fixture table');
+$absent = bin2hex(random_bytes(16));
+$absentResult = $host->pauseScheduler($absent, hash('sha256',''), []);
+$host->assertSchedulerHeld($absent);
+$assert($absentResult['paused_jobs'] === 0 && $command(['/usr/bin/crontab', '-l'])[0] === 1,
+    'separate-owner pause leaves native absent scheduler untouched');
+$host->restoreScheduler($absent); $host->restoreScheduler($absent);
+$assert($command(['/usr/bin/crontab', '-l'])[0] === 1 && $webState() === $webBefore,
+    'separate-owner recovery preserves absence and unrelated web ownership');
+$install('* * * * * true' . "\n");
+$refuses(fn() => $host->restoreScheduler($absent), 'new separate-owner schedule blocks absent-table recovery');
+$assert($host->crontab() === '* * * * * true' . "\n", 'new separate-owner schedule remains intact');
 echo "PASS $checks separate-owner native scheduler checks; disposable container only\n";

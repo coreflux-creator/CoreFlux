@@ -36,7 +36,7 @@ final class FullCoreMaintenanceHost
         if (is_resource($this->lock)) { flock($this->lock, LOCK_UN); fclose($this->lock); }
     }
 
-    /** The caller must keep the command text private. Empty installed crontabs are supported. */
+    /** Keep command text private. Absent and installed-empty schedules both have no job bytes. */
     public function crontab(): string
     {
         return $this->cronCommand(['-l']);
@@ -52,6 +52,14 @@ final class FullCoreMaintenanceHost
         if (!is_resource($process)) throw new RuntimeException('Cannot invoke the current user scheduler.');
         $output = stream_get_contents($pipes[1], 1048577); fclose($pipes[1]);
         $exit = proc_close($process);
+        if ($args === ['-l'] && $inputFile === null && $output === '' && $exit === 1) {
+            $account = posix_getpwuid(posix_geteuid());
+            $message = file_get_contents($diagnostic, false, null, 0, 4097);
+            if (is_string($message) && fullCoreMaintenanceCrontabAbsent($exit, $output, $message, $account['name'] ?? '')) {
+                unlink($diagnostic);
+                return '';
+            }
+        }
         if ($exit !== 0 || $output === false || strlen($output) > 1048576) {
             throw new RuntimeException('Scheduler command failed (exit ' . $exit . '); private diagnostic: ' . basename($diagnostic));
         }
@@ -135,6 +143,9 @@ final class FullCoreMaintenanceHost
     {
         fullCoreMaintenanceDigest($this->privateRead($path), $nextHash);
         fullCoreMaintenanceDigest($this->crontab(), $expectedHash);
+        // In particular, do not install an empty table over an absent one. A reviewed no-op
+        // preserves the native state and needs no scheduler mutation during pause or recovery.
+        if (hash_equals($expectedHash, $nextHash)) return;
         // Some native crontab clients truncate long filename arguments. Pass the verified file
         // descriptor as stdin; never shorten/move the private recovery file or expose its bytes.
         $this->cronCommand(['-'], $path);

@@ -189,6 +189,19 @@ $refuses(fn() => $host->activate($sameRouting, $candidateRevision, $candidateMan
 $cronInstall('');
 $empty = bin2hex(random_bytes(16)); $host->pause($empty, $web, hash('sha256',''), []); $host->restore($empty);
 $assert($host->crontab() === '' && $host->webSnapshot() === $web, 'installed empty scheduler survives pause and recovery');
+$assert($command(['/usr/bin/crontab', '-l'])[0] === 0, 'installed empty scheduler remains installed');
+$assert($command(['/usr/bin/crontab', '-r'])[0] === 0, 'remove only the disposable fixture schedule to exercise native absence');
+$assert($host->crontab() === '', 'native absent scheduler can be inspected');
+$absent = bin2hex(random_bytes(16)); $host->pause($absent, $web, hash('sha256',''), []);
+$host->assertHeld($absent);
+$assert($command(['/usr/bin/crontab', '-l'])[0] === 1, 'pause does not create a scheduler for an account without one');
+$host->restore($absent); $host->restore($absent);
+$assert($command(['/usr/bin/crontab', '-l'])[0] === 1 && $host->webSnapshot() === $web,
+    'recovery preserves native absence and original web metadata');
+$cronInstall('* * * * * true' . "\n");
+$refuses(fn() => $host->restore($absent), 'a new concurrent schedule prevents absent-schedule recovery');
+$assert($host->crontab() === '* * * * * true' . "\n", 'concurrent new schedule is preserved');
+$cronInstall('');
 chmod($root . '/.htaccess', 0664); $groupWritable = $host->webSnapshot();
 $groupOperation = bin2hex(random_bytes(16)); $host->pause($groupOperation, $groupWritable, hash('sha256',''), []);
 $host->restore($groupOperation);

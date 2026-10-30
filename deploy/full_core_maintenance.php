@@ -9,6 +9,14 @@ function fullCoreMaintenanceDigest(string $bytes, string $expected): void
     }
 }
 
+/** Only the native C-locale missing-table result is an empty scheduler; other errors stay fatal. */
+function fullCoreMaintenanceCrontabAbsent(int $exit, string $output, string $diagnostic, string $account): bool
+{
+    return $exit === 1 && $output === '' && $account !== ''
+        && !preg_match('/[\x00-\x20\x7f]/', $account)
+        && $diagnostic === 'no crontab for ' . $account . "\n";
+}
+
 /** The original file belongs in a private recovery receipt, never in this public replacement. */
 function fullCoreMaintenanceWebRule(string $operation): string
 {

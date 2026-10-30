@@ -13,6 +13,20 @@ $refuses = static function (callable $fn, string $name) use ($assert): void {
 $hash = static fn(string $s): string => hash('sha256', $s);
 $root = '/home/123.cloudwaysapps.com/example/public_html';
 $operation = str_repeat('a', 32);
+$assert(fullCoreMaintenanceCrontabAbsent(1, '', "no crontab for fixture\n", 'fixture'),
+    'exact native missing-table result is recognized');
+foreach ([
+    [0, '', "no crontab for fixture\n", 'fixture'],
+    [2, '', "no crontab for fixture\n", 'fixture'],
+    [1, '* * * * * true', "no crontab for fixture\n", 'fixture'],
+    [1, '', "permission denied\n", 'fixture'],
+    [1, '', "no crontab for another-user\n", 'fixture'],
+    [1, '', "no crontab for fixture\npermission denied\n", 'fixture'],
+    [1, '', '', 'fixture'],
+    [1, '', "no crontab for \n", ''],
+] as $unexpected) {
+    $assert(!fullCoreMaintenanceCrontabAbsent(...$unexpected), 'scheduler failure cannot masquerade as absent table');
+}
 $lines = ['# installed crontab', 'MAILTO=""', 'SHELL=/bin/bash',
     '* * * * * cd ' . $root . ' && php cron/a.php; php cron/b.php > /tmp/test',
     '0 3 * * * php /another/app/job.php', '@reboot php ' . $root . '/cron/start.php',
