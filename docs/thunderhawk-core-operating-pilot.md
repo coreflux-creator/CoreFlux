@@ -1,3 +1,31 @@
+## October 30 hosted provider company-isolation and conflict checks passed
+
+105 native HTTP and data-integrity checks passed on the isolated Quanta and
+PurePay services. A second synthetic company in each service used the same Core
+person, placement and client numbers but retained distinct provider identities.
+Both directions rejected foreign people, assignments and client reads; control
+lists excluded Thunderhawk. Source time, onboarding, document contents, delivery
+receipts, payroll inputs, runs, observations and reservations remained scoped.
+
+Stale assignment, worker and onboarding updates and conflicting person links
+were rejected. Rejected-request retries returned the original receipt. A second
+company could neither acquire nor release Thunderhawk's payroll reservations,
+and modified payroll input could not replay the original content key.
+
+Protected Thunderhawk record hashes and counts were unchanged. Document access
+was enabled briefly for the control workspace so its 404 proved ownership,
+then the original private settings were restored byte-for-byte. Both temporary
+control keys were revoked and failed native authentication with 401. The
+synthetic control records remain for repeatable checks, with the Quanta worker
+disabled; no login invitation, payroll, payment or financial posting occurred.
+
+Core remains at runtime 43007a5a. Cloudways still shows Login, so the existing
+staff-browser handoff is pending. This checkpoint closes hosted provider
+isolation/conflict evidence; the original plan's remaining portal/report,
+reverse-change and AP/AR/actual-result acceptance still needs a full evidence
+audit. Missing WC and commission details remain explicit source gaps.
+Evidence: deploy/thunderhawk-hosted-provider-isolation-20261030.json.
+
 ## October 30 browser-created hour completed its held payroll round trip
 
 The actual Quanta worker-browser hour for October 26 completed native Core
