@@ -1,4 +1,4 @@
-## Authoritative invoice currency verified; retention fix prepared — October 30, 2026
+## Authoritative invoice currency verified; retention fix released — October 30, 2026
 
 QuickBooks production company Thunderhawk Technology Partners LLC, realm
 9341453235663641, confirms USD on all five invoices whose selected lines were
@@ -21,9 +21,12 @@ an explicit three-letter source currency in the invoice and its QuickBooks facts
 Absent currency stays null and clears a stale value on refresh; malformed values
 refuse before invoice changes. The fix neither infers service dates nor changes
 amounts, links or payment history. Eighty-six offline checks passed, with zero
-network attempts. The narrow delta was pushed and handed to the authorized
-publishing chat; this checkpoint does not claim that currency fix is deployed or
-that historical production invoices have been refreshed.
+network attempts. The authorized publishing chat applied the narrow delta to
+its current production baseline as `cf2b3d6`, verified 198 combined checks with
+zero network attempts, and released it with healthy payroll/import workers.
+Production digest is `6afe17e21a3c8f791f42408658472746f90ea0b0b268828e4255089e1d7ef736`.
+No source import, backfill, payment or historical snapshot rewrite was triggered;
+currency is retained on subsequent ordinary source imports/refreshes.
 
 The publishing chat separately reported verified production PurePay `94efa5c`
 (read-only financial observations, preserving the earlier AP balance repair) and
@@ -35,6 +38,13 @@ Evidence: `deploy/thunderhawk-qbo-invoice-currency-20261030.json`, the bounded
 GET-only reader beside it, and its private source packet on the provider host.
 Matching-period time/payroll reconciliation and the full production Core upgrade
 remain open; the overall integration goal is incomplete.
+
+A follow-up read found no PurePay time entries or Quanta worker link for existing
+employee `emp_ea232efec736`. Thunderhawk's live Quanta workspace has zero workers,
+so it cannot supply that person's historical time. The existing October 23 pay
+run records 80 hours for October 5–18, with no source-time references or explicit
+currency. The user was asked where the approved hours for that period are kept.
+No identity or approval was inferred and no operational record was changed.
 
 ## Confirmed historical invoice lines linked to PL-864 — October 30, 2026
 

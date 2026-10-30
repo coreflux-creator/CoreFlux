@@ -123,7 +123,14 @@
     "offline_checks": 86,
     "network_attempts": 0,
     "live_data_rewritten": false,
-    "production_release_status": "handed_to_authorized_publishing_chat"
+    "production_release_status": "live_verified_by_authorized_publishing_chat",
+    "production_commit": "cf2b3d6",
+    "production_base": "94efa5c",
+    "production_source_digest": "6afe17e21a3c8f791f42408658472746f90ea0b0b268828e4255089e1d7ef736",
+    "deployment_id": "27d8c370-58cb-4f0a-b23d-6cfd8f8633e1",
+    "combined_production_baseline_checks": 198,
+    "production_workers_healthy": true,
+    "provider_import_or_backfill_triggered": false
   },
   "existing_core_captures_changed": false,
   "existing_line_associations_changed": false,
@@ -131,10 +138,29 @@
   "structured_service_dates_inferred": false,
   "publication_report": {
     "source": "authorized publishing chat 01a12bce-fe4b-7ae3-823d-308310a2ae4d",
-    "purepay_commit": "94efa5c",
+    "purepay_commit": "cf2b3d6",
     "quanta_commit": "92b662e",
     "full_core_upgrade_published": false,
     "dependent_quanta_portal_published": false
   },
-  "reader_compatibility_note": "Initial attempt passed integration-only expect_realm/expect_env arguments to the older production wrapper and failed before transport. The final reader pins organization, company, environment and GET-only paths at connection and transport; fresh tokens required, no refresh allowed. Existing usage and backoff behavior retained."
+  "reader_compatibility_note": "Initial attempt passed integration-only expect_realm/expect_env arguments to the older production wrapper and failed before transport. The final reader pins organization, company, environment and GET-only paths at connection and transport; fresh tokens required, no refresh allowed. Existing usage and backoff behavior retained.",
+  "follow_up_source_checks": {
+    "checked_at": "2026-10-30T16:34:27.932374+00:00",
+    "purepay_person_id": "emp_ea232efec736",
+    "purepay_time_entries_for_person": 0,
+    "purepay_quanta_links_for_person": 0,
+    "quanta_workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+    "quanta_workspace_name": "Thunderhawk",
+    "quanta_workspace_timezone": "America/New_York",
+    "quanta_worker_count": 0,
+    "historical_payroll_run": "run_54dde5d17c05",
+    "period_start": "2026-10-05",
+    "period_end": "2026-10-18",
+    "pay_date": "2026-10-23",
+    "payroll_line_hours": "80.0",
+    "payroll_line_has_source_time_refs": false,
+    "payroll_line_currency": null,
+    "question_pending": "Location/system holding approved Alexander hours for October 5\u201318",
+    "source_records_changed": false
+  }
 }
