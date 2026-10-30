@@ -5,7 +5,8 @@ declare(strict_types=1);
 function staffingWorkflowFieldTables(): array
 {
     return ['integration_deliveries', 'staffing_onboarding_cases', 'staffing_onboarding_events',
-        'quanta_onboarding_document_transfers', 'payroll_provider_results', 'payroll_native_observations', 'purepay_financial_observations'];
+        'quanta_onboarding_document_transfers', 'payroll_provider_results', 'payroll_native_observations', 'purepay_financial_observations',
+        'purepay_financial_line_links'];
 }
 
 /** Logical fields inside stored workflow envelopes, separately from physical SQL columns. */
@@ -217,5 +218,22 @@ function staffingWorkflowPayloadFields(array $columns): array
             'core/integrations/purepay_financial_observation_contract.php',$fields,'purepay',
             'reviewed_read_only_evidence; preserve_unknown_currency_and_original_units; no_execution','','financial_evidence');
     }
+    $links=[];
+    foreach(['tenant_id','capture_id','owners.people','owners.placements','context.tenant_id','context.connection_id',
+        'target.placement_id','target.person_id']as$path)$links[$path]=['integer','Authorized local capture or owning-directory identity; not a provider ID.'];
+    foreach(['context.instance_id','context.organization_id','context.api_base','source.kind','source.document_id','source.line_id',
+        'source.observation_hash','source.observed_at','target.person_name','target.title','target.status','basis','subject_hash','link_hash']as$path)
+        $links[$path]=['string','Immutable source-line review context; no future-item, time, currency or accounting authority.'];
+    foreach(['source.document_currency','source.customer_id','source.vendor_id','target.start_date','target.end_date']as$path)
+        $links[$path]=['string|null','Recorded source or placement value. Unknown values remain null.'];
+    foreach(['future_item_rule','time_entries_matched','currency_verified','ledger_posted','provider_changed']as$path)
+        $links[$path]=['boolean','Always false for a source-line association; separate workflows establish other facts.'];
+    foreach(['placement','person']as$type)foreach($reference as$path=>$definition)$links['target.'.$type.'.'.$path]=$definition;
+    foreach($fields as$path=>$definition)if(str_starts_with($path,'document.line_items[].'))
+        $links['source.line.'.substr($path,strlen('document.line_items[].'))]=$definition;
+    $add('purepay_financial_line_association','purepay_financial_line_links.payload_ct','','purepay',
+        '/api/purepay_financial_line_links.php','core_review_only','2026-10-30.1',
+        'core/integrations/purepay_financial_line_links.php',$links,'core_financial_review',
+        'explicit_line_and_canonical_placement_review; immutable_encrypted_history; no_provider_write_or_future_item_rule','','financial_evidence');
     return $rows;
 }

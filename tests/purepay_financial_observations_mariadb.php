@@ -6,7 +6,9 @@ $local=getenv('COREFLUX_DELIVERY_LOCAL_FIXTURE')==='1'&&in_array('--confirm-disp
 if(!$ci&&!$local)throw new RuntimeException('Explicit disposable fixture required');
 putenv('COREFLUX_DISABLE_DATABASE=1');putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));
 require_once __DIR__.'/../core/integrations/purepay_financial_observations.php';
+require_once __DIR__.'/../core/integrations/purepay_financial_line_links.php';
 require_once __DIR__.'/../core/migrate.php';
+require_once __DIR__.'/fixtures/staffing_dictionary_checks.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$ci?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
 $database='coreflux_financial_observations_'.getmypid();$pdo->exec('CREATE DATABASE '.$database);$pdo->exec('USE '.$database);
 $passed=0;$check=static function(bool $ok,string $label)use(&$passed):void{if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
@@ -36,7 +38,8 @@ $save=static fn(array $r,?callable $fn=null)=>purepayFinancialObservationSave($p
 $history=static fn(?int $before=null)=>purepayFinancialObservationHistory($pdo,1,$instance,'bill','bill-synthetic',$before);
 $count=static fn()=>(int)$pdo->query('SELECT COUNT(*) FROM purepay_financial_observations')->fetchColumn();
 try {
-    foreach(['146_purepay_rail.sql','176_purepay_financial_company.sql','183_purepay_financial_observations.sql','183_purepay_financial_observations.sql'] as $name)
+    foreach(['146_purepay_rail.sql','176_purepay_financial_company.sql','183_purepay_financial_observations.sql','183_purepay_financial_observations.sql',
+        '184_purepay_financial_line_links.sql','184_purepay_financial_line_links.sql'] as $name)
         foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$name)) as $sql)$pdo->exec($sql);
     $pdo->exec('CREATE TABLE fixture_audit(id INT AUTO_INCREMENT PRIMARY KEY,meta TEXT)');
     foreach(['ap_bills'=>'bill_number','billing_invoices'=>'invoice_number'] as $table=>$number) {
@@ -80,6 +83,58 @@ try {
     $check($save($read())['replayed']&&$count()===5,'unchanged v2 labels replay without duplicate evidence');
     $check($history()['items'][0]['saved']['observation']['document']['line_items'][0]['description']==="Sep’26\nService — synthetic only",'v2 source prose survives encrypted history');
     $check($history($modern['id'])['items'][0]['id']===$third['id'],'v1 evidence remains reachable after a v2 capture');
+    $pdo->exec('CREATE TABLE people(id INT PRIMARY KEY,tenant_id INT,first_name VARCHAR(50),last_name VARCHAR(50),deleted_at DATETIME NULL)');
+    $pdo->exec('CREATE TABLE placements(id INT PRIMARY KEY,tenant_id INT,person_id INT,title VARCHAR(100),status VARCHAR(30),start_date DATE,end_date DATE,actual_end_date DATE,deleted_at DATETIME NULL)');
+    $pdo->exec('CREATE TABLE core_record_numbers(tenant_id INT,entity_type VARCHAR(20),record_id INT,canonical_record_id INT,record_number VARCHAR(40),UNIQUE(tenant_id,entity_type,record_number))');
+    $pdo->exec('INSERT INTO people VALUES(1,1,"Synthetic","Person",NULL),(2,2,"Foreign","Person",NULL)');
+    $pdo->exec('INSERT INTO placements VALUES(1,1,1,"Synthetic placement","Active","2026-01-01","2026-12-31",NULL,NULL),
+        (2,2,2,"Foreign placement","Active","2026-01-01",NULL,NULL,NULL),(3,1,1,"Second placement","Active","2026-01-01",NULL,NULL,NULL)');
+    $pdo->exec('INSERT INTO core_record_numbers VALUES(1,"person",1,1,"P-1"),(2,"person",2,2,"P-2"),
+        (1,"placement",1,1,"PL-1"),(2,"placement",2,2,"PL-2"),(1,"placement",3,3,"PL-3")');
+    $owners=['people'=>1,'placements'=>1];$lineId=$wire['bill']['document']['line_items'][0]['line_id'];$captureId=$modern['id'];
+    $linePreview=static fn(string $number='PL-1')=>purepayFinancialLinePreview($pdo,1,$instance,$owners,$captureId,$lineId,$number);
+    $lineSave=static fn(array $review,?callable $fn=null)=>purepayFinancialLineSave($pdo,1,7,$instance,$owners,$review['capture_id'],$review['source']['line_id'],$review['target']['placement']['number'],$review['review_hash'],$fn??$audit);
+    $lineCount=static fn()=>(int)$pdo->query('SELECT COUNT(*) FROM purepay_financial_line_links')->fetchColumn();
+    $preview=$linePreview();
+    $check($preview['target']['person']['number']==='P-1'&&$preview['basis']==='reviewer_confirmed_document_line'
+        &&$preview['future_item_rule']===false&&$lineCount()===0,'source-line preview resolves canonical placement/person without a write or future rule');
+    $check($fails(fn()=>$linePreview('PL-2')),'foreign placement number cannot be associated');
+    $check($fails(fn()=>purepayFinancialLinePreview($pdo,1,$instance,['people'=>2,'placements'=>1],$captureId,$lineId,'PL-1')),'wrong authorized person directory cannot expose placement worker');
+    $check($fails(fn()=>purepayFinancialLinePreview($pdo,2,$instance,$owners,$captureId,$lineId,'PL-1')),'foreign financial tenant cannot borrow captured line');
+    $check($fails(fn()=>purepayFinancialLinePreview($pdo,1,$instance,$owners,$captureId,'missing-line','PL-1')),'unknown source line cannot be fabricated');
+    $check($fails(fn()=>$lineSave($preview,static function(){throw new RuntimeException('Audit unavailable');}))&&$lineCount()===0,'association audit failure rolls back the link');
+    $linked=$lineSave($preview);$check($lineCount()===1&&!$linked['replayed'],'confirmed source line appends a reviewed association');
+    staffingDictionaryAssertPayload('purepay_financial_line_association','purepay',$linked['link']['saved']);
+    $row=$pdo->query('SELECT * FROM purepay_financial_line_links')->fetch(PDO::FETCH_ASSOC);
+    $check(!str_contains($row['payload_ct'],'Synthetic')&&purepayFinancialLineSaved($row,$preview['context'],$owners)['saved']['target']['placement']['number']==='PL-1','source association and person snapshot are encrypted');
+    $check($lineSave($linePreview())['replayed']&&$lineCount()===1,'source association replay creates no duplicate');
+    $check($fails(fn()=>$linePreview('PL-3'))&&$lineCount()===1,'same source line cannot silently switch to a different placement');
+    $before=$linePreview();$pdo->exec('UPDATE placements SET title="Revised placement" WHERE id=1');
+    $check($fails(fn()=>$lineSave($before))&&$lineCount()===1,'placement change invalidates the previous line review');
+    $revised=$lineSave($linePreview());$check($lineCount()===2&&!$revised['replayed'],'reviewed placement correction appends evidence instead of overwriting history');
+    $before=$linePreview();$connect('another-synthetic-rotation');
+    $check($fails(fn()=>$lineSave($before)),'credential rotation invalidates pending source-line review');
+    $check($lineSave($linePreview())['replayed']&&$lineCount()===2,'same-company rotation preserves association replay identity');
+    $lh=purepayFinancialLineHistory($pdo,1,$instance,$owners,$captureId,$lineId);
+    $older=purepayFinancialLineHistory($pdo,1,$instance,$owners,$captureId,$lineId,$lh['next_before']);
+    $check(count($lh['items'])===1&&$lh['items'][0]['id']===$revised['link']['id']&&$older['items'][0]['id']===$linked['link']['id']
+        &&$older['next_before']===null&&$lh['historical_evidence'],'bounded line association history reaches original and reviewed snapshots');
+    $check($fails(fn()=>purepayFinancialLineHistory($pdo,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',$owners,$captureId,$lineId)),'foreign installation cannot read association history');
+    $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3 WHERE entity_type="placement" AND record_id=1');
+    $check($fails($linePreview),'merged placement number cannot silently redirect an association');
+    $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1 WHERE entity_type="placement" AND record_id=1');
+    $wire['bill']['document']['line_items'][0]['description']='Corrected source period';
+    $wire['bill']['observation_hash']=purepayFinancialObservationHash($wire['bill']);
+    $check($fails($linePreview)&&$lineCount()===2,'changed source description requires a new capture before association');
+    $wire['bill']['document']['line_items'][0]['service_start']='2025-12-31';
+    $wire['bill']['unavailable_fields']=purepayFinancialObservationMissing(array_diff_key($wire['bill'],array_flip(['unavailable_fields','observed_at','observation_hash'])));
+    $wire['bill']['observation_hash']=purepayFinancialObservationHash($wire['bill']);
+    $outside=$save($read());
+    $check($fails(fn()=>purepayFinancialLinePreview($pdo,1,$instance,$owners,$outside['id'],$lineId,'PL-1')),'explicit service date outside placement is refused');
+    $check($lineCount()===2,'failed source/date checks leave reviewed associations unchanged');
+    $changed=$linked['link']['saved'];$changed['ledger_posted']=true;
+    $damaged=$row;$damaged['payload_ct']=encryptField(purepayFinancialObservationJson($changed));
+    $check($fails(fn()=>purepayFinancialLineSaved($damaged,$preview['context'],$owners)),'saved association cannot acquire posting authority');
     $check((int)$pdo->query('SELECT COUNT(*) FROM purepay_payment_links')->fetchColumn()===0,'capture creates no payment links');
     $check(!in_array('accounting_journal_entries',$pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN),true),'capture needs no posting or payroll tables');
     echo "Financial observations MariaDB: $passed passed\n";

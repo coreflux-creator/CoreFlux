@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, getPinnedTenantId } from '../../../dashboard/src/lib/api';
+import PurePayFinancialLineLinks from './PurePayFinancialLineLinks';
 
 const endpoint = '/api/purepay_financial_observations.php?action=';
 const title = value => value.replaceAll('_', ' ').replace(/\bqbo\b/g, 'QuickBooks').replace(/\bid\b/g, 'ID');
@@ -21,7 +22,7 @@ function Rows({ rows, label }) {
   </section>;
 }
 
-function FinancialLines({ rows }) {
+function FinancialLines({ rows, onChooseLine }) {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const selected = rows.filter(row => [row.line_id, row.item_id, row.item_name, row.description, row.assignment_id]
@@ -36,12 +37,14 @@ function FinancialLines({ rows }) {
       {row.description !== undefined && <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>Source description: {display(row.description)}</p>}
       <p>Service dates: {display(row.service_start)} → {display(row.service_end)}. Hours: {display(row.hours)}. Bill rate: {display(row.bill_rate)}. Pay rate: {display(row.pay_rate)}.</p>
       <Facts value={row} />
+      {onChooseLine && row.line_id && <button className="btn" onClick={() => onChooseLine(row.line_id)}>Associate this line with a placement</button>}
     </details>)}
     {selected.length > 25 && <p>Showing {start + 1}–{Math.min(start + 25, selected.length)} of {selected.length}. <button className="btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous lines</button>{' '}<button className="btn" disabled={start + 25 >= selected.length} onClick={() => setPage(p => p + 1)}>Next lines</button></p>}
   </section>;
 }
 
-export function PurePayFinancialObservationView({ capture, savedAt }) {
+export function PurePayFinancialObservationView({ capture, savedAt, captureId }) {
+  const [selectedLine, setSelectedLine] = useState(null);
   const source = capture.observation;
   const { line_items: lines, invoice_line_splits: splits, recorded_receipts: receipts, quickbooks_receipts: qboReceipts, ...document } = source.document;
   return <section aria-label="Financial source evidence" key={source.observation_hash}>
@@ -52,7 +55,8 @@ export function PurePayFinancialObservationView({ capture, savedAt }) {
     <p>{capture.comparison.core_record ? `Selected Core record ${capture.comparison.core_record.number} (#${capture.comparison.core_record.id}), ${capture.comparison.core_record.currency}.` : 'No Core record selected.'} Selecting a record or finding equal amounts does not establish that the records represent the same obligation.</p>
     <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>Provider figure</th><th>Stored value</th><th>Core figure</th><th>Core value</th><th>Provider − Core</th><th>Review</th></tr></thead><tbody>{capture.comparison.amounts.map(row => <tr key={row.provider_field}><td>{title(row.provider_field)}</td><td>{display(row.provider_value)}</td><td>{title(row.core_field)}</td><td>{display(row.core_value)}</td><td>{display(row.difference)}</td><td>{reviewLabels[row.status]}</td></tr>)}</tbody></table></div>
     <details><summary>Document amounts and source references</summary><Facts value={document} /></details>
-    <FinancialLines key={`lines-${source.observation_hash}`} rows={lines} />
+    <FinancialLines key={`lines-${source.observation_hash}`} rows={lines} onChooseLine={captureId ? setSelectedLine : null} />
+    {captureId && selectedLine && <PurePayFinancialLineLinks tenantId={capture.tenant_id} captureId={captureId} lineId={selectedLine} />}
     <Rows key={`split-${source.observation_hash}`} rows={splits} label="Invoice allocations" />
     <p>Payment amounts are in the recorded currency where available. Fields labelled cents retain that unit; gross, net and fees are shown separately.</p>
     <Rows key={`payments-${source.observation_hash}`} rows={source.outgoing_payments} label="Outgoing payments" />
@@ -116,6 +120,6 @@ export default function PurePayFinancialObservations({ tenantId, connectionVersi
     <p><button className="btn" disabled={busy || !valid} onClick={() => run('read')}>Review source</button>{' '}<button className="btn" disabled={busy || !documentId.trim()} onClick={() => run('history')}>Saved captures</button></p>
     {error && <p role="alert" className="error">{error}</p>}{message && <p role="status">{message}</p>}
     {current() && review && <><PurePayFinancialObservationView capture={review} /><p><label><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} /> I reviewed these source records and any comparison gaps.</label></p><button className="btn btn--primary" disabled={busy || !confirmed} onClick={() => run('save')}>Save evidence capture</button></>}
-    {current() && history && <>{history.items.length === 0 ? <p>No captures saved for this record.</p> : history.items.map(item => <PurePayFinancialObservationView key={item.id} capture={item.saved} savedAt={item.saved_at} />)}{history.next_before && <button className="btn" disabled={busy} onClick={() => run('history', history.next_before)}>Older capture</button>}</>}
+    {current() && history && <>{history.items.length === 0 ? <p>No captures saved for this record.</p> : history.items.map(item => <PurePayFinancialObservationView key={`${tenantId}:${connectionVersion}:${item.id}`} capture={item.saved} savedAt={item.saved_at} captureId={item.id} />)}{history.next_before && <button className="btn" disabled={busy} onClick={() => run('history', history.next_before)}>Older capture</button>}</>}
   </section>;
 }
