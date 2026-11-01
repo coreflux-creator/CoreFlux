@@ -85,8 +85,15 @@ $a('updater only collapses bundle siblings when no manifest exists',
 if ($lightDeploy !== null) {
     $a('light workspace release packages the updater',
         str_contains($lightDeploy, "            update.php \\\n"));
+    $lintManifestPath = 'scripts/light_workspace_php_lint.txt';
+    $lintManifest = is_file($root . '/' . $lintManifestPath)
+        ? file($root . '/' . $lintManifestPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     $a('light workspace release lints the updater on production',
-        str_contains($lightDeploy, "            for PHP_FILE in \\\n              update.php \\\n"));
+        in_array('update.php', $lintManifest, true)
+        && str_contains($lightDeploy, $lintManifestPath . " \\\n")
+        && str_contains($lightDeploy, 'while IFS= read -r PHP_FILE; do')
+        && str_contains($lightDeploy, 'php -l "$PHP_FILE"')
+        && str_contains($lightDeploy, 'done < ' . $lintManifestPath));
     $a('light workspace release runs the SPA asset regression on production',
         str_contains($lightDeploy, 'php tests/spa_asset_manifest_smoke.php'));
 }

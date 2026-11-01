@@ -82,6 +82,18 @@ $a('two category radio cards',                      strpos($vq, "vendor-quick-cr
                                                      && strpos($vq, "value: 'hourly_labor'") !== false);
 $a('hourly_labor blocks shortcut',                  strpos($vq, 'vendor-quick-create-hourly-notice') !== false);
 $a('hourly_labor redirects to onboarding',          strpos($vq, 'window.location.href = ') !== false);
+$a('standalone contractor vendor can be created inline',
+    strpos($vq, "standaloneAccounting && <option value=\"1099_individual\"") !== false
+    && strpos($vq, "standaloneAccounting && <option value=\"c2c_corp\"") !== false
+    && strpos($vq, "!standaloneAccounting && category === 'hourly_labor'") !== false
+    && strpos($vq, 'requires_1099: requires1099') !== false
+    && strpos($vq, 'vendor-quick-create-requires-1099') !== false
+    && strpos($vq, 'extractedRequires1099(d, current)') !== false);
+$a('standalone hides provider payment defaults',
+    strpos($vq, '!standaloneAccounting && <option value="plaid"') !== false
+    && strpos($vq, '!standaloneAccounting && <option value="mercury"') !== false);
+$a('quick create returns selected vendor type',
+    preg_match('/name: name\.trim\(\),\s+vendor_type: vendorType,/', $vq) === 1);
 $a('service_provider posts to vendors.php',         strpos($vq, "/modules/ap/api/vendors.php") !== false);
 $a('payment_method picker',                         strpos($vq, 'vendor-quick-create-payment-method') !== false);
 $a('remit_to_email field',                          strpos($vq, 'vendor-quick-create-remit-email') !== false);
@@ -90,6 +102,8 @@ $a('bank acct last4 field',                         strpos($vq, 'vendor-quick-cr
 echo "\nBillCreate wiring\n";
 $bc = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/BillCreate.jsx');
 $a('imports VendorQuickCreate',                     strpos($bc, "import VendorQuickCreate") !== false);
+$a('BillCreate passes standalone product mode',
+    strpos($bc, "standaloneAccounting={session?.product_mode === 'coreaccounting'}") !== false);
 $a('imports uploads helper',                        strpos($bc, "import { uploadFileViaPresignedPost }") !== false);
 $a('typeahead has onCreate prop',                   strpos($bc, 'onCreate={(typedName)') !== false);
 $a('FileDropZone for invoice PDF',                  strpos($bc, 'testIdPrefix="ap-bill-create-attachment"') !== false);
@@ -98,7 +112,13 @@ $a('25MB client-side limit',                        strpos($bc, '25 * 1024 * 102
 $a('post-create attach via uploadFileViaPresignedPost', strpos($bc, 'uploadFileViaPresignedPost(') !== false
                                                      && strpos($bc, "action=upload_url&id=") !== false
                                                      && strpos($bc, "action=attach&id=") !== false);
-$a('attach failure does not lose bill (route to detail with error)', strpos($bc, 'attach_error=') !== false);
+$billDetail = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/BillDetail.jsx');
+$billNavigation = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/billNavigation.mjs');
+$a('attach failure keeps bill and points to a retry in detail',
+    strpos($bc, 'billDetailUrl(res.id, contextParams, res.entity_id ?? entityId, true)') !== false
+    && strpos($billNavigation, "params.set('attach_error', '1')") !== false
+    && strpos($billDetail, 'data-testid="ap-bill-attachment-warning"') !== false
+    && strpos($billDetail, 'href="#ap-bill-evidence-section"') !== false);
 $a('VendorQuickCreate renders conditionally',       strpos($bc, '{showCreateVendor && (') !== false);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";

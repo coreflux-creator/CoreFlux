@@ -207,6 +207,10 @@ $a('always returns 200',                      substr_count($wh, 'http_response_c
 
 echo "\ndashboard/src/components/PlaidLinkButton.jsx\n";
 $jsx = (string) file_get_contents(__DIR__ . '/../dashboard/src/components/PlaidLinkButton.jsx');
+$bankRec = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/BankReconciliation.jsx');
+$a('Manual bank reconciliation defers Plaid setup until click',
+    str_contains($bankRec, 'deferUntilClick')
+    && str_contains($jsx, 'if (deferUntilClick && retry === 0) return undefined;'));
 $a('loads Plaid Link from cdn.plaid.com',     $c($jsx, 'cdn.plaid.com/link/v2/stable/link-initialize.js'));
 $a('POSTs /api/plaid_link_token',             $c($jsx, "/api/plaid_link_token"));
 $a('POSTs /api/plaid_exchange on success',    $c($jsx, "/api/plaid_exchange"));

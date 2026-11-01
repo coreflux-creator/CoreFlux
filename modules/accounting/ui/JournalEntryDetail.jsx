@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import { receiptSourcePath } from '../../../dashboard/src/lib/paymentNavigation';
 import JeTracePane from './JeTracePane';
 import {
   ArrowLeft, ExternalLink, FileCheck2, Pencil, RotateCcw, Trash2, X,
@@ -9,13 +11,16 @@ import {
 
 /**
  * Journal Entry detail and correction hub.
- * Drafts can be edited directly. Posted entries can be corrected or removed
- * from active books while their original rows remain available for audit.
+ * User-created entries can be corrected here; source-owned entries are
+ * changed through their originating workflow.
  */
 export default function JournalEntryDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi(`/modules/accounting/api/journal_entries.php?id=${id}`);
+  const entryEntityId = String(data?.entry?.id) === String(id) ? data.entry.entity_id : null;
+  const scopedPath = path => addEntityScope(path, entryEntityId);
   const [busy, setBusy] = useState(false);
   const [actionErr, setErr] = useState(null);
   const [reverseOpen, setReverseOpen] = useState(false);
@@ -23,12 +28,28 @@ export default function JournalEntryDetail() {
   const [reason, setReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
 
+  useEffect(() => {
+    if (!entryEntityId || searchParams.get('entity_id') === String(entryEntityId)) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('entity_id', String(entryEntityId));
+    setSearchParams(next, { replace: true });
+  }, [entryEntityId, searchParams, setSearchParams]);
+
   const reverse = async () => {
     if (!reason.trim()) return;
     setBusy(true); setErr(null);
     try {
-      const res = await api.post(`/modules/accounting/api/journal_entries.php?action=reverse&id=${id}`, { reason: reason.trim() });
-      navigate(`/modules/accounting/journal-entries/${res.je_id}`);
+      const endpoint = data?.entry?.source_module === 'recurring_je'
+        ? '/modules/accounting/api/recurring_journal_entries.php'
+        : '/modules/accounting/api/journal_entries.php';
+      const action = data?.entry?.source_module === 'recurring_je' ? 'reverse_run' : 'reverse';
+      const res = await api.post(`${endpoint}?action=${action}&id=${id}`, { reason: reason.trim() });
+      if (data?.entry?.source_module === 'recurring_je') {
+        setReverseOpen(false);
+        await reload();
+      } else {
+        navigate(scopedPath(`/modules/accounting/journal-entries/${res.je_id}`));
+      }
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
   };
@@ -36,7 +57,10 @@ export default function JournalEntryDetail() {
   const postDraft = async () => {
     setBusy(true); setErr(null);
     try {
-      await api.post(`/modules/accounting/api/journal_entries.php?action=post_draft&id=${id}`, {});
+      const endpoint = data?.entry?.source_module === 'recurring_je'
+        ? '/modules/accounting/api/recurring_journal_entries.php'
+        : '/modules/accounting/api/journal_entries.php';
+      await api.post(`${endpoint}?action=post_draft&id=${id}`, {});
       setDeleteOpen(false);
       await reload();
     } catch (e) { setErr(e.message || String(e)); }
@@ -49,7 +73,7 @@ export default function JournalEntryDetail() {
       await api.post(`/modules/accounting/api/journal_entries.php?action=delete&id=${id}`, {
         reason: deleteReason.trim(),
       });
-      navigate('/modules/accounting/journal-entries', { replace: true });
+      navigate(scopedPath('/modules/accounting/journal-entries'), { replace: true });
     } catch (e) { setErr(e.message || String(e)); }
     finally { setBusy(false); }
   };
@@ -62,27 +86,29 @@ export default function JournalEntryDetail() {
   const isDraft = entry.status === 'draft';
   const isPosted = entry.status === 'posted';
   const isReversed = entry.status === 'reversed';
+  const isManual = entry.source_module === 'manual';
+  const isRecurring = entry.source_module === 'recurring_je';
   const approvalControlled = entry.source_module === 'system'
     || ['ai_workflow', 'workflow_run'].includes(entry.source_ref_type);
-  const canManageDraft = isDraft && !approvalControlled;
-  const canCorrect = isPosted || isReversed;
+  const canManageDraft = isDraft && isManual;
+  const canCorrect = isManual && (isPosted || isReversed);
   const canDelete = canManageDraft || canCorrect;
 
   return (
     <section className="entry-detail" data-testid="accounting-je-detail">
-      <Link to="/modules/accounting/journal-entries" className="entry-detail__back-link">
+      <Link to={scopedPath('/modules/accounting/journal-entries')} className="entry-detail__back-link">
         <ArrowLeft size={14} aria-hidden="true" />Journal entries
       </Link>
 
       <header className="entry-detail__header">
         <div>
           <div className="entry-detail__eyebrow">Journal entry</div>
-          <h2>JE #{entry.je_number} <StatusPill status={entry.status} /></h2>
+          <h2>{entry.je_number} <StatusPill status={entry.status} /></h2>
         </div>
         <div className="entry-detail__actions" aria-label="Journal entry actions">
           {canManageDraft && (
             <>
-              <Link className="btn btn--ghost" to={`/modules/accounting/journal-entries/${id}/edit`} data-testid="accounting-je-edit-draft">
+              <Link className="btn btn--ghost" to={scopedPath(`/modules/accounting/journal-entries/${id}/edit`)} data-testid="accounting-je-edit-draft">
                 <Pencil size={15} aria-hidden="true" />Edit draft
               </Link>
               <button type="button" className="btn btn--primary" onClick={postDraft} disabled={busy} data-testid="accounting-je-post-draft">
@@ -93,9 +119,31 @@ export default function JournalEntryDetail() {
               </button>
             </>
           )}
+          {isDraft && isRecurring && (
+            <>
+              {entry.source_ref_type === 'replaces_je' && (
+                <Link className="btn btn--ghost" to={`/modules/accounting/recurring/replace/${entry.source_ref_id}`} data-testid="accounting-je-edit-recurring-replacement">
+                  <Pencil size={15} aria-hidden="true" />Edit replacement
+                </Link>
+              )}
+              <button type="button" className="btn btn--primary" onClick={postDraft} disabled={busy} data-testid="accounting-je-post-recurring-draft">
+                <FileCheck2 size={15} aria-hidden="true" />{busy ? 'Posting…' : 'Post draft'}
+              </button>
+            </>
+          )}
+          {isReversed && isRecurring && (!entry.corrected_by_je_id || entry.corrected_by_je_status === 'draft') && (
+            <Link className="btn btn--primary" to={`/modules/accounting/recurring/replace/${id}`} data-testid="accounting-je-prepare-recurring-replacement">
+              <Pencil size={15} aria-hidden="true" />{entry.corrected_by_je_id ? 'Edit replacement draft' : 'Prepare replacement'}
+            </Link>
+          )}
+          {isPosted && isRecurring && (
+            <button type="button" className="btn btn--ghost" onClick={() => setReverseOpen(true)} disabled={busy} data-testid="accounting-je-reverse-recurring-run">
+              <RotateCcw size={15} aria-hidden="true" />Reverse run
+            </button>
+          )}
           {canCorrect && (
             <>
-              <Link className="btn btn--primary" to={`/modules/accounting/journal-entries/new?replace_id=${id}`} data-testid="accounting-je-correct">
+              <Link className="btn btn--primary" to={scopedPath(`/modules/accounting/journal-entries/new?replace_id=${id}`)} data-testid="accounting-je-correct">
                 <Pencil size={15} aria-hidden="true" />Correct entry
               </Link>
               <button type="button" className="btn btn--danger-quiet" onClick={() => { setDeleteReason(''); setDeleteOpen(true); }} disabled={busy} data-testid="accounting-je-delete">
@@ -111,7 +159,18 @@ export default function JournalEntryDetail() {
         </div>
       </header>
 
-      <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} />
+      <EntryStatusNote status={entry.status} approvalControlled={approvalControlled} managedBySource={!isManual} recurring={isRecurring} />
+
+      {entry.status === 'void' && (entry.voided_at || entry.void_reason) && (
+        <div className="entry-related entry-related--audit" data-testid="accounting-je-deletion-audit">
+          <span>Deletion record</span>
+          <div>
+            {entry.voided_at && <div>Deleted {formatUtcDateTime(entry.voided_at)}</div>}
+            {entry.voided_by_user_id && <div>By {entry.voided_by_name || `User #${entry.voided_by_user_id}`}</div>}
+            {entry.void_reason && <div>Reason: {entry.void_reason}</div>}
+          </div>
+        </div>
+      )}
 
       {isDraft && approvalControlled && (
         <div className="entry-related" data-testid="accounting-je-approval-workflow-note">
@@ -123,7 +182,7 @@ export default function JournalEntryDetail() {
       {(entry.reverses_je_id || entry.reversed_by_je_id) && (
         <div className="entry-related" data-testid="accounting-je-related-entry">
           <span>{entry.reverses_je_id ? 'Reverses' : 'Reversed by'}</span>
-          <Link to={`/modules/accounting/journal-entries/${entry.reverses_je_id || entry.reversed_by_je_id}`}>
+          <Link to={scopedPath(`/modules/accounting/journal-entries/${entry.reverses_je_id || entry.reversed_by_je_id}`)}>
             Open linked journal entry <ExternalLink size={13} aria-hidden="true" />
           </Link>
         </div>
@@ -132,7 +191,7 @@ export default function JournalEntryDetail() {
       {entry.corrected_by_je_id && (
         <div className="entry-related" data-testid="accounting-je-corrected-by">
           <span>Corrected by</span>
-          <Link to={`/modules/accounting/journal-entries/${entry.corrected_by_je_id}`}>
+          <Link to={scopedPath(`/modules/accounting/journal-entries/${entry.corrected_by_je_id}`)}>
             {entry.corrected_by_je_number || 'Open corrected entry'} <ExternalLink size={13} aria-hidden="true" />
           </Link>
         </div>
@@ -164,12 +223,14 @@ export default function JournalEntryDetail() {
         </table>
       </div>
 
-      {reverseOpen && isPosted && (
+      {reverseOpen && (canCorrect || isRecurring) && isPosted && (
         <div className="entry-action-modal-backdrop" onClick={() => setReverseOpen(false)}>
         <section className="entry-action-panel entry-action-panel--warning entry-action-panel--modal" role="dialog" aria-modal="true" aria-labelledby="reverse-entry-heading" data-testid="accounting-je-reverse-panel" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="btn btn--ghost btn--icon entry-action-panel__close" onClick={() => setReverseOpen(false)} aria-label="Close reversal form" title="Close"><X size={15} /></button>
-          <h3 id="reverse-entry-heading">Reverse this posted entry</h3>
-          <p>The original remains in the audit trail and a new entry posts the opposite debits and credits. Use Correct entry when you need to replace it with edited lines.</p>
+          <h3 id="reverse-entry-heading">{isRecurring ? 'Reverse this recurring run' : 'Reverse this posted entry'}</h3>
+          <p>{isRecurring
+            ? 'The original and reversal remain linked in the audit trail. Future scheduled runs are unchanged.'
+            : 'The original remains in the audit trail and a new entry posts the opposite debits and credits. Use Correct entry when you need to replace it with edited lines.'}</p>
           <label htmlFor="accounting-je-reversal-reason">Reason for reversal</label>
           <textarea
             id="accounting-je-reversal-reason"
@@ -207,6 +268,7 @@ export default function JournalEntryDetail() {
                 id="accounting-je-delete-reason"
                 className="input"
                 rows={3}
+                maxLength={1000}
                 value={deleteReason}
                 onChange={(event) => setDeleteReason(event.target.value)}
                 placeholder="What was wrong with this entry?"
@@ -232,11 +294,40 @@ export default function JournalEntryDetail() {
   );
 }
 
-function EntryStatusNote({ status, approvalControlled = false }) {
+function EntryStatusNote({ status, approvalControlled = false, managedBySource = false, recurring = false }) {
   if (status === 'draft' && approvalControlled) {
     return (
       <div className="entry-status-note entry-status-note--draft" data-testid="accounting-je-status-note">
         <strong>Awaiting approval</strong><span>This system-generated draft stays off the ledger until it completes its review workflow.</span>
+      </div>
+    );
+  }
+  if (recurring && status === 'draft') {
+    return (
+      <div className="entry-status-note entry-status-note--draft" data-testid="accounting-je-status-note">
+        <strong>Ready for review</strong><span>This recurring entry does not affect balances or reports until posted.</span>
+      </div>
+    );
+  }
+  if (recurring && status === 'posted') {
+    return (
+      <div className="entry-status-note entry-status-note--posted" data-testid="accounting-je-status-note">
+        <strong>Posted</strong><span>Template changes affect future runs only; this posting remains in the audit trail.</span>
+      </div>
+    );
+  }
+  if (recurring && status === 'reversed') {
+    return (
+      <div className="entry-status-note entry-status-note--reversed" data-testid="accounting-je-status-note">
+        <strong>Reversed</strong><span>This run and its reversal remain linked for audit. The template's future schedule is unchanged.</span>
+      </div>
+    );
+  }
+  if (managedBySource && ['draft', 'posted', 'reversed'].includes(status)) {
+    return (
+      <div className={`entry-status-note entry-status-note--${status}`} data-testid="accounting-je-status-note">
+        <strong>{status === 'draft' ? 'Draft' : status === 'reversed' ? 'Reversed' : 'Posted'}</strong>
+        <span>This entry is managed by its source transaction. Change the source record to keep the ledger in sync.</span>
       </div>
     );
   }
@@ -255,6 +346,16 @@ function EntryStatusNote({ status, approvalControlled = false }) {
 }
 
 function renderSource(entry) {
+  const receiptPath = receiptSourcePath(entry);
+  if (receiptPath) {
+    return <Link to={receiptPath} data-testid="accounting-je-source-link">Customer receipt RCP-{entry.source_ref_id} <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
+  if (entry.source_document?.type === 'billing_invoice') {
+    return <Link to={`/modules/billing/invoices/${entry.source_document.id}`} data-testid="accounting-je-source-link">{entry.source_document.label} <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
+  if (entry.source_document?.type === 'bank_statement_line') {
+    return <Link to={`/modules/accounting/bank-rec/${entry.source_document.bank_account_id}?match_status=matched`} data-testid="accounting-je-source-link">{entry.source_document.label} <ExternalLink size={12} aria-hidden="true" /></Link>;
+  }
   if (entry.source_ref_type === 'replaces_je' && entry.source_ref_id) {
     return <Link to={`/modules/accounting/journal-entries/${entry.source_ref_id}`} data-testid="accounting-je-source-link">Correction of journal entry <ExternalLink size={12} aria-hidden="true" /></Link>;
   }
@@ -262,8 +363,10 @@ function renderSource(entry) {
   const source = entry.source_module;
   const sourceId = entry.source_ref_id;
   const links = {
+    recurring_je: sourceId ? `/modules/accounting/recurring/${sourceId}` : null,
     ap_bills: sourceId ? `/modules/ap/bills/${sourceId}` : null,
     ap_payments: sourceId ? `/modules/ap/payments/${sourceId}` : null,
+    billing_invoice: sourceId ? `/modules/billing/invoices/${sourceId}` : null,
     billing_invoices: sourceId ? `/modules/billing/invoices/${sourceId}` : null,
     payroll_runs: sourceId ? `/modules/payroll/runs/${sourceId}` : null,
   };
@@ -289,4 +392,10 @@ function Field({ label, value, testid }) {
 
 function fmt(value) {
   return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatUtcDateTime(value) {
+  const iso = `${String(value).replace(' ', 'T')}Z`;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }

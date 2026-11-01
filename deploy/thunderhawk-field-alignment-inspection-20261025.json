@@ -1,0 +1,155 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "read_only_thunderhawk_stored_field_alignment",
+  "inspector_commit": "603a7fe2bf9f9da790bb7dd52439c0f47dca96ac",
+  "ci": {
+    "databaseId": 40188377339,
+    "headSha": "603a7fe2bf9f9da790bb7dd52439c0f47dca96ac",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40188377339",
+    "jobs": [
+      {
+        "databaseId": 121153915492,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915580,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915593,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915600,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915603,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915610,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915666,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915700,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121153915723,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "inspection": {
+    "databaseId": 40188370446,
+    "headSha": "603a7fe2bf9f9da790bb7dd52439c0f47dca96ac",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40188370446",
+    "jobs": [
+      {
+        "databaseId": 121153896873,
+        "name": "core-integration-staging",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "database_fixture_checks": 61,
+  "pilot_identity": {
+    "status": "observed",
+    "tenant_id": 2,
+    "placement_id": 864,
+    "person_id": 358,
+    "person_directory_id": 2,
+    "missing_schema": [],
+    "note": "Presence and exact identity evidence only; this does not approve employment, compensation, routing or delivery.",
+    "placement_fields": {
+      "accounting_entity_id": "empty",
+      "branch": "present",
+      "workers_comp_class": "empty",
+      "client_id": "present",
+      "end_client_company_id": "present",
+      "staffing_job_id": "present",
+      "jobdiva_job_id": "present",
+      "worksite_country": "present",
+      "worksite_state": "present",
+      "engagement_type": "present",
+      "start_date": "present",
+      "end_date": "present",
+      "status": "present"
+    },
+    "employer_references": {
+      "accounting_directory_id": 2,
+      "placement": "empty",
+      "person": "empty"
+    },
+    "jobdiva_identity": {
+      "job": {
+        "status": "exact_match"
+      },
+      "person": {
+        "status": "exact_match"
+      },
+      "placement": {
+        "status": "exact_match"
+      }
+    },
+    "persisted_numbers": {
+      "person": "schema_unavailable",
+      "placement": "schema_unavailable"
+    }
+  },
+  "stored_field_alignment": {
+    "status": "compared",
+    "scope": "Nine placement dimensions against the stored exact-assignment contract; no raw worker values.",
+    "source_refreshed": false,
+    "records_changed": false,
+    "limits": [
+      "Stored evidence may be stale.",
+      "Default source dimensions only; tenant mappings and Core overrides can intentionally differ. No overwrite is proposed.",
+      "Employer, rates, custom-field values and downstream delivery require separate evidence."
+    ],
+    "fields": {
+      "branch": "source_value_missing",
+      "workers_comp_class": "source_value_missing",
+      "worksite_city": "core_column_unavailable",
+      "worksite_state": "matches_stored_source",
+      "worksite_country": "matches_stored_source",
+      "engagement_type": "matches_stored_source",
+      "start_date": "matches_stored_source",
+      "end_date": "matches_stored_source",
+      "status": "matches_stored_source"
+    },
+    "source_last_synced_at": "2026-09-21 10:02:10"
+  },
+  "production": {
+    "live_bundle": "spa-assets/index-95sB_8ni.js",
+    "pending_migration_count": 76,
+    "activation_performed": false,
+    "runtime_installed": false,
+    "records_changed": false
+  },
+  "remaining": [
+    "Refresh exact JobDiva source evidence without applying broad lifecycle repairs",
+    "Resolve employer and WC from reviewed source information",
+    "Verify person, company, rate and custom-field values beyond these nine dimensions",
+    "Complete controlled release readiness before production numbering migration",
+    "Complete worker/document access, independent time approval and the full Thunderhawk round trip"
+  ]
+}

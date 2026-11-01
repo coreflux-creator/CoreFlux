@@ -58,7 +58,7 @@ jobs:
             core/migrations/146_purepay_rail.sql \
             core/payment_rails.php core/payment_rails/originate_helpers.php \
             core/payment_rails/purepay_driver.php \
-            core/purepay_adapter.php core/purepay_service.php core/purepay_webhooks.php \
+            core/purepay_adapter.php core/purepay_service.php core/purepay_webhooks.php core/purepay_payment_evidence.php \
             cron/purepay_health_probe.php cron/purepay_payment_sync.php \
             dashboard/dist/index.html dashboard/src/components/RailPicker.jsx \
             dashboard/src/pages/AdminModule.jsx dashboard/src/pages/IntegrationTriage.jsx \

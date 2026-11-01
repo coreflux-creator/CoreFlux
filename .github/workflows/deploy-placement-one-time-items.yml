@@ -2,16 +2,838 @@ name: Deploy placement one-time items
 
 on:
   workflow_dispatch:
+    inputs:
+      integration_staging:
+        description: Full-Core staging (prepare inspects; deploy installs the exact CI-passed revision)
+        type: choice
+        options: [none, inspect, pilot_readiness, pilot_payment_preview, pilot_purepay_continuity, pilot_purepay_origin, pilot_purepay_replay, pilot_location_review, pilot_quanta_location, pilot_purepay_commercial, pilot_payroll_capture, pilot_payroll_input, pilot_payroll_reservation, pilot_payroll_result, pilot_payroll_cancellation, pilot_onboarding, pilot_time_review, pilot_time_approver, pilot_time_approval, pilot_time_approval_verify, prepare, deploy, maintenance_rehearsal, maintenance_inspect, production_preflight, production_jobdiva_pilot, production_source_audit, production_prepare_settings, production_pilot_entity_alignment, cleanup_known_uploads]
+        default: none
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: coreflux-cloudways-production
   cancel-in-progress: false
 
 jobs:
+  reserve-demo-payroll-source:
+    if: inputs.integration_staging == 'pilot_payroll_reservation' || inputs.integration_staging == 'pilot_payroll_result' || inputs.integration_staging == 'pilot_payroll_cancellation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact bounded reservation acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the demo-only runner and native source comparisons
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/accept_synthetic_payroll_reservation.php,deploy/observe_synthetic_payroll_result.php,deploy/synthetic_payroll_input_guard.php,core/integrations/purepay_payroll_reservation_review.php,core/integrations/purepay_payroll_authority.php,core/integrations/purepay_payroll_results.php,core/integrations/purepay_payroll_inputs.php,core/integrations/purepay_links.php,core/integrations/purepay_core.php,core/integrations/delivery.php,core/integrations/purepay_observations.php,core/integrations/purepay_observation_contract.php,core/memberships.php,core/RBAC.php,core/rbac/permissions.php,core/rbac/legacy_map.php,api/purepay_core.php
+          target: /tmp/core-payroll-reservation-${{ github.run_id }}
+      - name: Rehearse the selected demo reservation or held-result review
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 9m
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-payroll-reservation-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            test -d "$PACKAGE/deploy"
+            trap 'find "$PACKAGE" -type f -delete; find "$PACKAGE" -depth -type d -empty -delete' EXIT
+            php -l "$PACKAGE/deploy/accept_synthetic_payroll_reservation.php"
+            php -l "$PACKAGE/deploy/observe_synthetic_payroll_result.php"
+            cd "$ROOT"
+            if [ '${{ inputs.integration_staging }}' = 'pilot_payroll_result' ]; then
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/observe_synthetic_payroll_result.php" --observe-demo-draft
+            elif [ '${{ inputs.integration_staging }}' = 'pilot_payroll_cancellation' ]; then
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/observe_synthetic_payroll_result.php" --cancel-demo-draft
+            else
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_payroll_reservation.php" --reserve-demo-hours
+            fi
+
+  receive-demo-payroll-input:
+    if: inputs.integration_staging == 'pilot_payroll_input'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact bounded input acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the demo-only runner and native source comparisons
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/accept_synthetic_payroll_input.php,deploy/synthetic_payroll_input_guard.php,deploy/synthetic_time_approval_guard.php,deploy/synthetic_time_reviewer.php,core/integrations/purepay_payroll_inputs.php,core/integrations/purepay_links.php,core/integrations/purepay_core.php,core/integrations/delivery.php,core/integrations/purepay_observations.php,core/integrations/purepay_observation_contract.php,core/quanta/time_current.php,core/quanta/time_review_delivery.php,core/quanta/time_review_contract.php,core/quanta/core_contract.php,core/quanta/sync.php,core/quanta/workspace.php,modules/time/lib/time.php,core/memberships.php,core/RBAC.php,core/rbac/permissions.php,core/rbac/legacy_map.php,api/purepay_core.php
+          target: /tmp/core-payroll-input-${{ github.run_id }}
+      - name: Receive approved demo hours for review without creating payroll
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 9m
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-payroll-input-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            test -d "$PACKAGE/deploy"
+            trap 'find "$PACKAGE" -type f -delete; find "$PACKAGE" -depth -type d -empty -delete' EXIT
+            php -l "$PACKAGE/deploy/accept_synthetic_payroll_input.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_payroll_input.php" --receive-approved-demo-hours
+
+  approve-demo-time:
+    if: inputs.integration_staging == 'pilot_time_approval' || inputs.integration_staging == 'pilot_time_approval_verify'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact bounded approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the guarded approval and native source comparison files
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/approve_synthetic_time_review.php,deploy/verify_synthetic_time_approval.php,deploy/synthetic_time_approval_guard.php,deploy/synthetic_time_reviewer.php,modules/time/lib/time.php,core/quanta/time_current.php,core/quanta/time_review_delivery.php,core/quanta/time_review_contract.php,core/quanta/core_contract.php,core/quanta/sync.php,core/quanta/workspace.php,core/integrations/delivery.php,core/memberships.php,core/RBAC.php,core/rbac_config.php,core/rbac/permissions.php,core/rbac/legacy_map.php,core/audit.php
+          target: /tmp/core-time-approval-${{ github.run_id }}
+      - name: Run the selected bounded demo approval or read-only completion check
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 5m
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-time-approval-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            cleanup() {
+              for FILE in deploy/approve_synthetic_time_review.php deploy/verify_synthetic_time_approval.php deploy/synthetic_time_approval_guard.php deploy/synthetic_time_reviewer.php modules/time/lib/time.php core/quanta/time_current.php core/quanta/time_review_delivery.php core/quanta/time_review_contract.php core/quanta/core_contract.php core/quanta/sync.php core/quanta/workspace.php core/integrations/delivery.php core/memberships.php core/RBAC.php core/rbac_config.php core/rbac/permissions.php core/rbac/legacy_map.php core/audit.php; do rm -f -- "$PACKAGE/$FILE"; done
+              rmdir -- "$PACKAGE/deploy" "$PACKAGE/modules/time/lib" "$PACKAGE/modules/time" "$PACKAGE/modules" "$PACKAGE/core/quanta" "$PACKAGE/core/integrations" "$PACKAGE/core/rbac" "$PACKAGE/core" "$PACKAGE"
+            }
+            trap cleanup EXIT
+            php -l "$PACKAGE/deploy/approve_synthetic_time_review.php"
+            cd "$ROOT"
+            if [ '${{ inputs.integration_staging }}' = 'pilot_time_approval_verify' ]; then
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/verify_synthetic_time_approval.php" --verify-approved-demo-time
+            else
+              COREFLUX_ENV=staging php "$PACKAGE/deploy/approve_synthetic_time_review.php" --approve-demo-time-review
+            fi
+
+  provision-demo-time-approver:
+    if: inputs.integration_staging == 'pilot_time_approver'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact reviewer setup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the bounded runner and native permission comparison files
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/provision_synthetic_time_reviewer.php,deploy/synthetic_time_reviewer.php,core/memberships.php,core/RBAC.php,core/rbac_config.php,core/rbac/permissions.php,core/rbac/legacy_map.php
+          target: /tmp/core-test-approver-${{ github.run_id }}
+      - name: Create and repeat the simulation-only reviewer
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-test-approver-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/provision_synthetic_time_reviewer.php" "$PACKAGE/deploy/synthetic_time_reviewer.php" "$PACKAGE/core/memberships.php" "$PACKAGE/core/RBAC.php" "$PACKAGE/core/rbac_config.php" "$PACKAGE/core/rbac/permissions.php" "$PACKAGE/core/rbac/legacy_map.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE/core/rbac" "$PACKAGE/core" "$PACKAGE"' EXIT
+            php -l "$PACKAGE/deploy/provision_synthetic_time_reviewer.php"
+            php -l "$PACKAGE/deploy/synthetic_time_reviewer.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/provision_synthetic_time_reviewer.php" --create-demo-time-reviewer
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/provision_synthetic_time_reviewer.php" --create-demo-time-reviewer
+
+  refresh-demo-assignment-location:
+    if: inputs.integration_staging == 'pilot_quanta_location' || inputs.integration_staging == 'pilot_purepay_commercial'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact guarded publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the guarded runner and source comparison files
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/accept_synthetic_assignment_refresh.php,core/integrations/delivery.php,core/integrations/identity.php,core/sub_tenants.php,core/quanta/metadata_delivery.php,core/quanta/core_contract.php,core/quanta/workspace.php,core/quanta/client.php,core/integrations/purepay_assignment_inputs.php,core/integrations/purepay_assignment_contract.php,core/integrations/purepay_links.php,core/integrations/purepay_core.php
+          target: /tmp/core-assignment-refresh-${{ github.run_id }}
+      - name: Publish and repeat only the existing demo location extension
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-assignment-refresh-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/accept_synthetic_assignment_refresh.php" "$PACKAGE/core/integrations/delivery.php" "$PACKAGE/core/integrations/identity.php" "$PACKAGE/core/sub_tenants.php" "$PACKAGE/core/quanta/metadata_delivery.php" "$PACKAGE/core/quanta/core_contract.php" "$PACKAGE/core/quanta/workspace.php" "$PACKAGE/core/quanta/client.php" "$PACKAGE/core/integrations/purepay_assignment_inputs.php" "$PACKAGE/core/integrations/purepay_assignment_contract.php" "$PACKAGE/core/integrations/purepay_links.php" "$PACKAGE/core/integrations/purepay_core.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE/core/integrations" "$PACKAGE/core/quanta" "$PACKAGE/core" "$PACKAGE"' EXIT
+            if [ '${{ inputs.integration_staging }}' = 'pilot_quanta_location' ]; then MODE='--publish-demo-location'; else MODE='--publish-demo-commercial'; fi
+            php -l "$PACKAGE/deploy/accept_synthetic_assignment_refresh.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_assignment_refresh.php" "$MODE"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_assignment_refresh.php" "$MODE"
+
+  review-demo-location-contract:
+    if: inputs.integration_staging == 'pilot_location_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact reviewed helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -qv '^0$'
+      - name: Upload the bounded company review and original receipt verifier
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/refresh_purepay_demo_location_review.php,deploy/verify_purepay_preview_replay.php
+          target: /tmp/core-demo-location-review-${{ github.run_id }}
+      - name: Reconfirm the unchanged demo identity and recover original receipts
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-demo-location-review-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/refresh_purepay_demo_location_review.php" "$PACKAGE/deploy/verify_purepay_preview_replay.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE"' EXIT
+            php -l "$PACKAGE/deploy/refresh_purepay_demo_location_review.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/refresh_purepay_demo_location_review.php" --refresh-reviewed-demo-location
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/refresh_purepay_demo_location_review.php" --refresh-reviewed-demo-location
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/verify_purepay_preview_replay.php" --verify-native-demo-replay
+
+  configure-financial-preview:
+    if: inputs.integration_staging == 'pilot_payment_preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact reviewed setup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the bounded setup and runtime comparison files
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/configure_purepay_financial_preview.php,deploy/purepay_financial_preview_probe.php.template,core/purepay_adapter.php,core/purepay_service.php,scripts/opcache_flush_deploy.php.template
+          target: /tmp/core-financial-preview-${{ github.run_id }}
+      - name: Enable the empty demo observation lane and verify PHP-FPM
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 4m
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-financial-preview-${{ github.run_id }}'
+            ORIGIN='https://phpstack-1516771-6707602.cloudwaysapps.com'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            RESET="$ROOT/api/admin/financial_reset_${{ github.run_id }}.php"
+            PROBE="$ROOT/api/admin/financial_probe_${{ github.run_id }}.php"
+            trap 'rm -f -- "$RESET" "$PROBE"' EXIT
+            php -l "$PACKAGE/deploy/configure_purepay_financial_preview.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/configure_purepay_financial_preview.php" --enable-reviewed-financial-preview
+            TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            for KIND in reset probe; do
+              if [ "$KIND" = reset ]; then SOURCE="$PACKAGE/scripts/opcache_flush_deploy.php.template"; DEST="$RESET"; else SOURCE="$PACKAGE/deploy/purepay_financial_preview_probe.php.template"; DEST="$PROBE"; fi
+              test ! -e "$DEST"
+              php -r '$s=file_get_contents($argv[1]);if(substr_count($s,"__COREFLUX_OPCACHE_TOKEN__")!==1)exit(1);if(file_put_contents($argv[2],str_replace("__COREFLUX_OPCACHE_TOKEN__",$argv[3],$s))===false)exit(2);chmod($argv[2],0644);' "$SOURCE" "$DEST" "$TOKEN"
+              curl -fsS --max-time 30 -X POST -H "X-CoreFlux-Deploy-Reset: $TOKEN" "$ORIGIN/api/admin/financial_${KIND}_${{ github.run_id }}.php" \
+                | php -r '$r=json_decode(stream_get_contents(STDIN),true);if(($r["ok"]??false)!==true)exit(1);echo "Verified financial preview deployment step.\n";'
+            done
+            unset TOKEN
+            rm -f -- "$RESET" "$PROBE"
+
+  accept-synthetic-payroll-capture:
+    if: inputs.integration_staging == 'pilot_payroll_capture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for this capture runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload only the guarded runner and runtime comparison copies
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/accept_synthetic_payroll_capture.php,core/integrations/purepay_observations.php,core/integrations/purepay_observation_contract.php,core/integrations/purepay_core.php,core/integrations/purepay_links.php,core/integrations/purepay_payroll_inputs.php,core/integrations/delivery.php,api/purepay_core.php
+          target: /tmp/core-payroll-capture-${{ github.run_id }}
+      - name: Capture and replay only the previously reviewed Meridian demo observation
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-payroll-capture-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/accept_synthetic_payroll_capture.php" "$PACKAGE/core/integrations/purepay_observations.php" "$PACKAGE/core/integrations/purepay_observation_contract.php" "$PACKAGE/core/integrations/purepay_core.php" "$PACKAGE/core/integrations/purepay_links.php" "$PACKAGE/core/integrations/purepay_payroll_inputs.php" "$PACKAGE/core/integrations/delivery.php" "$PACKAGE/api/purepay_core.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE/core/integrations" "$PACKAGE/core" "$PACKAGE/api" "$PACKAGE"' EXIT
+            php -l "$PACKAGE/deploy/accept_synthetic_payroll_capture.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_payroll_capture.php" --capture-reviewed-demo-payroll
+
+  accept-synthetic-time-review:
+    if: inputs.integration_staging == 'pilot_time_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for this acceptance runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the guarded runner and source comparison files
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/accept_synthetic_time_review.php,core/quanta/time_review_delivery.php,core/quanta/time_review_contract.php,core/quanta/core_contract.php,core/quanta/sync.php,core/quanta/workspace.php,core/integrations/delivery.php
+          target: /tmp/core-time-review-${{ github.run_id }}
+      - name: Share and reconcile only the existing demo pending time review
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-time-review-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/accept_synthetic_time_review.php" "$PACKAGE/core/quanta/time_review_delivery.php" "$PACKAGE/core/quanta/time_review_contract.php" "$PACKAGE/core/quanta/core_contract.php" "$PACKAGE/core/quanta/sync.php" "$PACKAGE/core/quanta/workspace.php" "$PACKAGE/core/integrations/delivery.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE/core/quanta" "$PACKAGE/core/integrations" "$PACKAGE/core" "$PACKAGE"' EXIT
+            php -l "$PACKAGE/deploy/accept_synthetic_time_review.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/accept_synthetic_time_review.php" --share-demo-pending-review
+
+  verify-purepay-preview-replay:
+    if: inputs.integration_staging == 'pilot_purepay_replay'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the exact receipt verifier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload only the native demo receipt verifier
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/verify_purepay_preview_replay.php
+          target: /tmp/core-purepay-replay-${{ github.run_id }}
+      - name: Verify original receipts through Core's native recovery functions
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            RUNNER='/tmp/core-purepay-replay-${{ github.run_id }}/deploy/verify_purepay_preview_replay.php'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$RUNNER")" = "$RUNNER"
+            trap 'rm -f -- "$RUNNER"; rmdir -- "$(dirname "$RUNNER")" "$(dirname "$(dirname "$RUNNER")")"' EXIT
+            php -l "$RUNNER"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$RUNNER" --verify-native-demo-replay
+
+  migrate-purepay-preview-origin:
+    if: inputs.integration_staging == 'pilot_purepay_origin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the reviewed origin move
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload the bounded demo migration and runtime comparison source
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/inspect_purepay_preview_continuity.php,deploy/migrate_purepay_preview_origin.php,core/integrations/purepay_core.php
+          target: /tmp/core-purepay-origin-${{ github.run_id }}
+      - name: Move only the reviewed Meridian demo origin and verify fresh company review
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 6m
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            PACKAGE='/tmp/core-purepay-origin-${{ github.run_id }}'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$PACKAGE")" = "$PACKAGE"
+            trap 'rm -f -- "$PACKAGE/deploy/migrate_purepay_preview_origin.php" "$PACKAGE/deploy/inspect_purepay_preview_continuity.php" "$PACKAGE/core/integrations/purepay_core.php"; rmdir -- "$PACKAGE/deploy" "$PACKAGE/core/integrations" "$PACKAGE/core" "$PACKAGE"' EXIT
+            php -l "$PACKAGE/deploy/migrate_purepay_preview_origin.php"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$PACKAGE/deploy/migrate_purepay_preview_origin.php" --move-reviewed-demo-origin
+
+  inspect-purepay-preview-continuity:
+    if: inputs.integration_staging == 'pilot_purepay_continuity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the read-only continuity inspector
+        run: php tests/purepay_preview_continuity_smoke.php
+      - name: Upload only the guarded continuity inspector
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/inspect_purepay_preview_continuity.php
+          target: /tmp/core-purepay-continuity-${{ github.run_id }}
+      - name: Compare the existing demo records without changing their binding
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            INSPECT='/tmp/core-purepay-continuity-${{ github.run_id }}/deploy/inspect_purepay_preview_continuity.php'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$INSPECT")" = "$INSPECT"
+            trap 'rm -f -- "$INSPECT"; rmdir -- "$(dirname "$INSPECT")" "$(dirname "$(dirname "$INSPECT")")"' EXIT
+            php -l "$INSPECT"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$INSPECT" --inspect-reviewed-preview
+
+  accept-synthetic-onboarding:
+    if: inputs.integration_staging == 'pilot_onboarding'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for this acceptance runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Upload only the guarded demo acceptance runner
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/accept_synthetic_onboarding.php
+          target: /tmp/core-onboarding-acceptance-${{ github.run_id }}
+      - name: Publish and reconcile the approved synthetic checklist
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            RUNNER='/tmp/core-onboarding-acceptance-${{ github.run_id }}/deploy/accept_synthetic_onboarding.php'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$RUNNER")" = "$RUNNER"
+            trap 'rm -f -- "$RUNNER"; rmdir -- "$(dirname "$RUNNER")" "$(dirname "$(dirname "$RUNNER")")"' EXIT
+            php -l "$RUNNER"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$RUNNER" --publish-demo-checklist
+
+  inspect-synthetic-integration:
+    if: inputs.integration_staging == 'pilot_readiness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload only the read-only simulation inspector
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: deploy/inspect_synthetic_integration.php
+          target: /tmp/core-integration-readiness-${{ github.run_id }}
+      - name: Inspect the existing simulation without installing a release
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            INSPECT='/tmp/core-integration-readiness-${{ github.run_id }}/deploy/inspect_synthetic_integration.php'
+            test "$(readlink -f "$ROOT")" = "$ROOT"
+            test "$(readlink -f "$INSPECT")" = "$INSPECT"
+            trap 'rm -f -- "$INSPECT"; rmdir -- "$(dirname "$INSPECT")" "$(dirname "$(dirname "$INSPECT")")"' EXIT
+            php -l "$INSPECT"
+            cd "$ROOT"
+            COREFLUX_ENV=staging php "$INSPECT" --inspect-pilot
+
+  staging-maintenance-rehearsal:
+    if: inputs.integration_staging == 'maintenance_rehearsal' || inputs.integration_staging == 'maintenance_inspect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for this rehearsal revision
+        if: inputs.integration_staging == 'maintenance_rehearsal'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - name: Package the two staging-only rehearsal files
+        run: |
+          tar -czf core-maintenance-rehearsal.tar.gz -C deploy full_core_maintenance.php rehearse_core_staging_maintenance.php
+          sha256sum core-maintenance-rehearsal.tar.gz > core-maintenance-rehearsal.sha256
+      - name: Upload the private rehearsal package
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: core-maintenance-rehearsal.tar.gz,core-maintenance-rehearsal.sha256
+          target: /tmp/core-maintenance-${{ github.run_id }}
+      - name: Verify Cloudways staging pause and exact restoration
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 5m
+          script: |
+            set -eu
+            umask 077
+            upload='/tmp/core-maintenance-${{ github.run_id }}'
+            test ! -L "$upload"
+            test "$(readlink -f "$upload")" = "$upload"
+            test "$(stat -c %u "$upload")" = "$(id -u)"
+            chmod 700 "$upload"
+            cd "$upload"
+            sha256sum -c core-maintenance-rehearsal.sha256
+            mkdir -m 700 package
+            tar -xzf core-maintenance-rehearsal.tar.gz -C package
+            php -l package/full_core_maintenance.php
+            php -l package/rehearse_core_staging_maintenance.php
+            if [ '${{ inputs.integration_staging }}' = 'maintenance_inspect' ]; then
+              COREFLUX_ENV=staging php package/rehearse_core_staging_maintenance.php --inspect-staging-web
+            else
+              COREFLUX_ENV=staging php package/rehearse_core_staging_maintenance.php --rehearse-staging-web
+            fi
+
+  production-source-audit:
+    if: inputs.integration_staging == 'production_source_audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read production source fingerprints without file contents
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+            php <<'PHP'
+            <?php
+            $root = getenv('COREFLUX_PRODUCTION_PREFLIGHT_ROOT');
+            if (realpath($root) !== $root || basename(dirname($root)) === 'muzqvdvqbx') exit(2);
+            $paths = ['core/config.php', 'session.php', 'modules/people/lib/companies.php',
+              'modules/placements/lib/economics.php', 'core/migrations/007_subtenant_provisioning.sql',
+              'core/migrations/041_csv_mapping_presets.sql', 'core/migrations/043_simulation_harness.sql'];
+            $rows = [];
+            foreach ($paths as $path) {
+              $full = $root.'/'.$path;
+              if (is_link($full) || !is_file($full) || !str_starts_with((string)realpath($full), $root.'/')) exit(3);
+              $raw = file_get_contents($full);
+              if ($raw === false) exit(4);
+              $lf = str_replace("\r\n", "\n", $raw);
+              $rows[] = ['path'=>$path, 'bytes'=>strlen($raw),
+                'git_blob'=>hash('sha1', 'blob '.strlen($raw)."\0".$raw),
+                'normalized_git_blob'=>hash('sha1', 'blob '.strlen($lf)."\0".$lf)];
+            }
+            $metadata = [];
+            foreach (['app'=>dirname($root), 'webroot'=>$root, 'private'=>dirname($root).'/private_html',
+              'live_config'=>$root.'/core/config.php', 'web_config'=>$root.'/.htaccess', 'db_local'=>$root.'/core/db.local.php',
+              'user_ini'=>$root.'/.user.ini'] as $name=>$path) {
+              $stat = @stat($path);
+              $metadata[$name] = ['exists'=>$stat!==false, 'linked'=>is_link($path),
+                'readable'=>is_readable($path), 'writable'=>is_writable($path),
+                'uid'=>$stat ? $stat['uid'] : null, 'gid'=>$stat ? $stat['gid'] : null,
+                'mode'=>$stat ? decoct($stat['mode'] & 0777) : null,
+                'link_count'=>$stat ? $stat['nlink'] : null,
+                'inside_webroot'=>$stat ? (realpath($path)===$root || str_starts_with((string)realpath($path),$root.'/')) : null];
+            }
+            $configured = [];
+            $ownerIdentity = ['sudo_available'=>is_executable('/usr/bin/sudo'),'can_act_as_web_file_owner'=>false];
+            $ownerAccount=isset($metadata['web_config']['uid']) ? posix_getpwuid($metadata['web_config']['uid']) : false;
+            $ownerIdentity['matches_existing_core_application_user']=($ownerAccount['name']??'')==='kunalverma2';
+            $ownerIdentity['file_owner_account']=$ownerAccount['name']??null;
+            if ($ownerIdentity['sudo_available'] && isset($metadata['web_config']['uid'])) {
+              $identity = proc_open(['/usr/bin/sudo','-n','-u','#'.$metadata['web_config']['uid'],'/usr/bin/id','-u'],
+                [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$identityPipes);
+              if (is_resource($identity)) {
+                $ownerOutput=trim(stream_get_contents($identityPipes[1])); fclose($identityPipes[1]);
+                $ownerExit=proc_close($identity);
+                $ownerIdentity['can_act_as_web_file_owner']=$ownerExit===0 && $ownerOutput===(string)$metadata['web_config']['uid'];
+                $ownerIdentity['identity_command_exit']=$ownerExit;
+              }
+            }
+            // Cloudways' blanket reset changes every webroot file to 0664 and directory
+            // to 0775. Inventory metadata only before anyone proposes that operation.
+            // Never follow links or read file contents; an incomplete walk is not safe.
+            $permissionInventory=['scope'=>'public_html_only','complete'=>false,'files'=>0,'directories'=>0,
+              'symlinks'=>0,'other_objects'=>0,'hardlinked_files'=>0,'file_modes'=>[],
+              'directory_modes'=>[],'owner_counts'=>[],'reset_would_expand_world_read'=>false,
+              'reset_would_expand_group_write'=>false,'reset_would_remove_executable_bits'=>false];
+            try {
+              $walk=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST);
+              foreach($walk as $item) {
+                $stat=lstat($item->getPathname());
+                if($stat===false)throw new RuntimeException('File metadata unavailable');
+                if($item->isLink()){$permissionInventory['symlinks']++;continue;}
+                $type=$stat['mode'] & 0170000;$mode=$stat['mode'] & 07777;
+                if($type===0100000){$permissionInventory['files']++;$modeKey='file_modes';$target=0664;
+                  if($stat['nlink']>1)$permissionInventory['hardlinked_files']++;
+                  if(($mode & 0111)!==0)$permissionInventory['reset_would_remove_executable_bits']=true;
+                }elseif($type===0040000){$permissionInventory['directories']++;$modeKey='directory_modes';$target=0775;}
+                else{$permissionInventory['other_objects']++;continue;}
+                $octal=sprintf('%04o',$mode);$uid=(string)$stat['uid'];
+                $permissionInventory[$modeKey][$octal]=($permissionInventory[$modeKey][$octal]??0)+1;
+                $permissionInventory['owner_counts'][$uid]=($permissionInventory['owner_counts'][$uid]??0)+1;
+                if(($target & 0005 & ~$mode)!==0)$permissionInventory['reset_would_expand_world_read']=true;
+                if(($target & 0020 & ~$mode)!==0)$permissionInventory['reset_would_expand_group_write']=true;
+              }
+              foreach(['file_modes','directory_modes','owner_counts'] as $key)ksort($permissionInventory[$key],SORT_STRING);
+              $permissionInventory['complete']=true;
+            }catch(Throwable $error){$permissionInventory['failure_class']=get_class($error);}
+            foreach (['DB_HOST','DB_NAME','DB_USER','DB_PASS','COREFLUX_DB_CONFIG_PATH',
+              'SMTP_HOST','SMTP_USER','SMTP_PASS','DATA_KEY'] as $key) $configured[$key] = getenv($key)!==false && getenv($key)!=='';
+            require_once $root.'/core/db.php';
+            $db = getDB();
+            if (!$db || $db->query('SELECT DATABASE()')->fetchColumn() !== basename(dirname($root))) exit(5);
+            $db->exec('SET TRANSACTION READ ONLY'); $db->beginTransaction();
+            try {
+              $storage = $db->query("SELECT COALESCE(ENGINE, 'VIEW') AS engine, COUNT(*) AS object_count,
+                COALESCE(SUM(DATA_LENGTH),0) AS estimated_data_bytes, COALESCE(SUM(INDEX_LENGTH),0) AS estimated_index_bytes,
+                COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH),0) AS estimated_bytes
+                FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() GROUP BY ENGINE")->fetchAll(PDO::FETCH_ASSOC);
+              $largest = $db->query("SELECT TABLE_NAME AS table_name, TABLE_ROWS AS estimated_rows,
+                DATA_LENGTH AS estimated_data_bytes, INDEX_LENGTH AS estimated_index_bytes
+                FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'
+                ORDER BY DATA_LENGTH + INDEX_LENGTH DESC LIMIT 8")->fetchAll(PDO::FETCH_ASSOC);
+              $active = $db->query("SELECT COMMAND AS command_type, COUNT(*) AS connection_count, MAX(TIME) AS longest_seconds
+                FROM information_schema.PROCESSLIST WHERE DB=DATABASE() AND ID<>CONNECTION_ID() GROUP BY COMMAND")->fetchAll(PDO::FETCH_ASSOC);
+              $objects = [];
+              foreach (['TRIGGERS'=>'TRIGGER_SCHEMA','ROUTINES'=>'ROUTINE_SCHEMA','EVENTS'=>'EVENT_SCHEMA'] as $table=>$column) {
+                $objects[strtolower($table)] = (int)$db->query("SELECT COUNT(*) FROM information_schema.$table WHERE $column=DATABASE()")->fetchColumn();
+              }
+              $counts = [];
+              foreach (['people','companies','staffing_clients','ap_vendors_index','placements'] as $table) {
+                $counts[$table] = (int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
+              }
+              $history = ['canonical'=>$db->query('SELECT filename, sha256, applied_at, (last_error IS NOT NULL) AS failed FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC),
+                'legacy'=>$db->query('SELECT file_path, checksum_sha, applied_at FROM coreflux_migrations ORDER BY file_path')->fetchAll(PDO::FETCH_ASSOC),
+                'deployed'=>[]];
+              foreach ($history['canonical'] as $record) {
+                $path = str_contains($record['filename'], '/') ? $record['filename'] : 'core/migrations/'.$record['filename'];
+                if (!preg_match('~^(core/migrations|modules/[a-zA-Z0-9][a-zA-Z0-9_-]*/migrations)/[a-zA-Z0-9][a-zA-Z0-9_.-]*\.sql$~D', $path)) exit(7);
+                $full = $root.'/'.$path;
+                if (!is_file($full)) { $history['deployed'][] = ['path'=>$path,'exists'=>false]; continue; }
+                if (is_link($full) || !str_starts_with((string)realpath($full),$root.'/')) exit(8);
+                $raw = file_get_contents($full); if ($raw === false) exit(9);
+                $lf = str_replace("\r\n", "\n", $raw);
+                $history['deployed'][] = ['path'=>$path,'exists'=>true,'sha256'=>hash('sha256',$raw),
+                  'normalized_sha256'=>hash('sha256',$lf),'normalized_git_blob'=>hash('sha1','blob '.strlen($lf)."\0".$lf)];
+              }
+              $database = ['storage'=>$storage,'largest_tables'=>$largest,'stored_objects'=>$objects,'active_connections'=>$active,
+                'numbering_source_counts'=>$counts,'server_version'=>$db->query('SELECT VERSION()')->fetchColumn()];
+            } finally { $db->rollBack(); }
+            $cron = proc_open(['crontab','-l'], [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes);
+            if (!is_resource($cron)) exit(6);
+            $cronText = stream_get_contents($pipes[1]); fclose($pipes[1]);
+            stream_get_contents($pipes[2]); fclose($pipes[2]); $cronExit = proc_close($cron);
+            $workerPaths = []; $matchingCronLines = 0; $enabledFlags = []; $cronReview = [];
+            foreach (preg_split('/\r?\n/', $cronText) as $lineIndex=>$line) {
+              $trimmed = ltrim($line);
+              if ($trimmed !== '' && !str_starts_with($trimmed,'#') && !preg_match('/^[A-Za-z_][A-Za-z0-9_]*\s*=/', $trimmed)) {
+                $cronReview[] = ['line'=>$lineIndex+1,'sha256'=>hash('sha256',$line),'contains_target_root'=>str_contains($line,$root)];
+              }
+              if (preg_match('/^\s*#/', $line) || !str_contains($line, $root)) continue;
+              $matchingCronLines++;
+              preg_match_all('~'.preg_quote($root,'~').'/([A-Za-z0-9_./-]+\.php)~', $line, $matches);
+              $workerPaths = array_merge($workerPaths, $matches[1]);
+              if (preg_match('~\bcd\s+["\x27]?'.preg_quote($root,'~').'["\x27]?\s*&&~', $line)) {
+                preg_match_all('~(?:^|\s)((?:cron|scripts)/[A-Za-z0-9_.-]+\.php)\b~', $line, $relativeMatches);
+                $workerPaths = array_merge($workerPaths, $relativeMatches[1]);
+              }
+              foreach (['COREFLUX_QUANTA_METADATA_DELIVERY','COREFLUX_QUANTA_WORKER_DELIVERY','COREFLUX_QUANTA_ONBOARDING_DELIVERY','COREFLUX_PUREPAY_CORE_LINK_DELIVERY',
+                'COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY','COREFLUX_PUREPAY_PAYROLL_AUTHORITY','COREFLUX_PUREPAY_PEOPLE_DELIVERY','COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY'] as $flag) {
+                if (preg_match('/\b'.preg_quote($flag,'/').'=["\x27]?1\b/', $line)) $enabledFlags[] = $flag;
+              }
+            }
+            $temporaryPackages = [];
+            foreach (glob('/tmp/core-integration-*', GLOB_ONLYDIR) as $upload) {
+              if (!preg_match('~^/tmp/core-integration-[0-9]+$~D', $upload)
+                || is_link($upload) || realpath($upload) !== $upload
+                || fileowner($upload) !== posix_geteuid()) continue;
+              $manifestPath = $upload.'/package/integration-manifest.json';
+              $manifest = is_file($manifestPath) && !is_link($manifestPath)
+                ? json_decode(file_get_contents($manifestPath), true) : null;
+              $du = proc_open(['du','-sk','--',$upload], [0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']], $duPipes);
+              if (!is_resource($du)) exit(10);
+              $duText = stream_get_contents($duPipes[1]); fclose($duPipes[1]); $duExit = proc_close($du);
+              $entries = [];
+              foreach (scandir($upload) as $entry) {
+                if ($entry === '.' || $entry === '..') continue;
+                $p = $upload.'/'.$entry;
+                $entries[] = ['name'=>$entry,'type'=>is_link($p)?'link':(is_dir($p)?'directory':'file')];
+              }
+              $temporaryPackages[] = ['directory'=>basename($upload), 'entries'=>$entries,
+                'allocated_bytes'=>$duExit===0 && preg_match('/^(\d+)\s/', $duText, $duMatch) ? (int)$duMatch[1]*1024 : null,
+                'product'=>$manifest['product']??null,'commit'=>$manifest['commit']??null,
+                'manifest_sha256'=>is_file($manifestPath)?hash_file('sha256',$manifestPath):null];
+            }
+            echo json_encode(['mode'=>'read-only-source-fingerprints', 'files'=>$rows,
+              'paths'=>$metadata, 'web_owner_identity_check'=>$ownerIdentity,'file_permission_inventory'=>$permissionInventory, 'environment_configured'=>$configured,
+              'database_operations'=>$database,
+              'migration_history'=>$history,
+              'ssh_user_crontab'=>['readable'=>$cronExit===0,'sha256'=>$cronExit===0?hash('sha256',$cronText):null,
+                'active_line_reviews'=>$cronReview,'matching_line_count'=>$matchingCronLines,
+                'php_paths'=>array_values(array_unique($workerPaths)),'explicit_enabled_delivery_flags'=>array_values(array_unique($enabledFlags)),
+                'app_owner_crontab_verified'=>false],
+              'backup_tools'=>['mysqldump'=>is_executable('/usr/bin/mysqldump'),'mariadb_dump'=>is_executable('/usr/bin/mariadb-dump'),
+                'private_free_bytes'=>disk_free_space(dirname($root).'/private_html')],
+              'temporary_release_packages'=>$temporaryPackages,
+              'cli_uid'=>function_exists('posix_geteuid') ? posix_geteuid() : null,
+              'cli_gid'=>function_exists('posix_getegid') ? posix_getegid() : null], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
+            PHP
+
   deploy:
+    if: inputs.integration_staging == 'none' || inputs.integration_staging == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -56,6 +878,15 @@ jobs:
             core/migrations/138_placement_one_time_items.sql \
             core/staffing_economics.php \
             core/jobdiva/sync.php \
+            core/jobdiva/assignment_contract.php \
+            core/jobdiva/classification.php \
+            core/jobdiva/classification_mapping.php \
+            core/jobdiva/contract_projection.php \
+            core/jobdiva/projector.php \
+            core/integrations/field_map_apply.php \
+            core/integrations/field_map.php \
+            core/integrations/source_values.php \
+            core/integrations/data \
             dashboard/dist \
             index.html \
             modules/ap/api/bills.php \
@@ -64,8 +895,11 @@ jobs:
             modules/billing/api/invoices.php \
             modules/billing/lib/billing.php \
             modules/billing/migrations/012_economic_item_source.sql \
+            modules/placements/api/cycles.php \
             modules/placements/api/economics.php \
+            modules/placements/api/placements.php \
             modules/placements/lib/economics.php \
+            modules/people/lib/companies.php \
             modules/placements/ui/PlacementDetail.jsx \
             modules/time/lib/settlement_create.php \
             "${ROOT_ASSETS[@]}" \
@@ -76,6 +910,8 @@ jobs:
             tests/placement_rate_source_repair_smoke.php \
             tests/placement_one_time_items_smoke.php \
             tests/tenant_staffing_economics_defaults_smoke.php \
+            tests/staffing_economics_tenant_scope_smoke.php \
+            tests/placement_client_save_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/jobdiva_contract_projection_smoke.php
 
@@ -143,7 +979,10 @@ jobs:
             php -l modules/placements/lib/economics.php
             php -l core/staffing_economics.php
             php -l core/jobdiva/sync.php
+            php -l modules/placements/api/cycles.php
             php -l modules/placements/api/economics.php
+            php -l modules/placements/api/placements.php
+            php -l modules/people/lib/companies.php
             php -l modules/billing/lib/billing.php
             php -l modules/billing/api/invoices.php
             php -l modules/ap/lib/ap.php
@@ -153,6 +992,8 @@ jobs:
             php tests/placement_commercial_contract_smoke.php
             php tests/placement_rate_source_repair_smoke.php
             php tests/tenant_staffing_economics_defaults_smoke.php
+            php tests/staffing_economics_tenant_scope_smoke.php
+            php tests/placement_client_save_smoke.php
             php tests/staffing_economic_graph_smoke.php
             php tests/jobdiva_contract_projection_smoke.php
 
@@ -164,3 +1005,300 @@ jobs:
             test "$OPCACHE_STATUS" = "200"
             php -r '$r=json_decode((string) file_get_contents($argv[1]), true); if (!is_array($r) || ($r["ok"] ?? false) !== true) exit(1);' "$OPCACHE_RESPONSE"
             echo "Deployed and verified commit ${{ github.sha }}."
+
+  inspect-integration-staging:
+    if: inputs.integration_staging == 'inspect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect existing isolated staging access
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            STAGING_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            test "$(readlink -f "$STAGING_ROOT")" = "$STAGING_ROOT"
+            test -d "$STAGING_ROOT"
+            test -r "$STAGING_ROOT/index.html"
+            test -w "$STAGING_ROOT"
+            printf 'isolated_staging_access=read_write\n'
+            df -h "$STAGING_ROOT" /tmp
+            df -i "$STAGING_ROOT" /tmp
+            find /tmp -maxdepth 1 -type d -user "$(id -un)" -name 'core-integration-*' -print | while IFS= read -r upload; do
+              du -sh -- "$upload"
+            done
+            for path in core/db.local.php core/standalone_env.php private_runtime/vendor/autoload.php .deploy-version; do
+              if test -r "$STAGING_ROOT/$path"; then printf 'readable=%s\n' "$path"; fi
+            done
+            php -v | head -1
+            command -v composer || true
+            command -v mysqldump || command -v mariadb-dump || true
+            cd "$STAGING_ROOT"
+            COREFLUX_ENV=staging php <<'PHP'
+            <?php
+            require 'core/db.php';
+            $pdo = getDB();
+            if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'muzqvdvqbx') exit(2);
+            require 'core/mail_bootstrap.php';
+            $mail = cf_mail_bootstrap();
+            $log = $mail->driver('log');
+            $logPath = $log ? $log->log_path() : '';
+            echo json_encode(['mail_driver' => $mail->default_driver_name(),
+              'mail_log_path' => $logPath,
+              'mail_log_exists' => is_file($logPath),
+              'mail_log_writable_cli' => is_writable($logPath),
+              'mail_log_parent_writable_cli' => is_writable(dirname($logPath))], JSON_UNESCAPED_SLASHES), "\n";
+            $attempts = $pdo->query('SELECT i.id AS invoice_id, t.delivery_status, t.delivery_error,
+                t.delivery_started_at, t.delivery_finished_at
+              FROM billing_invoice_tokens t JOIN billing_invoices i ON i.id=t.invoice_id AND i.tenant_id=t.tenant_id
+              WHERE i.tenant_id=999 AND i.notes_internal LIKE "Synthetic staging delivery acceptance %"
+              ORDER BY t.id DESC LIMIT 3')->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['synthetic_delivery_attempts' => $attempts], JSON_UNESCAPED_SLASHES), "\n";
+            $ledger = $pdo->query('SELECT filename, sha256 FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_KEY_PAIR);
+            echo json_encode([
+              'database_identity_verified' => true,
+              'simulation_tenant' => (int) $pdo->query('SELECT is_simulation FROM tenants WHERE id=999')->fetchColumn(),
+              'migration_count' => count($ledger),
+              'root_standalone_rules' => str_contains(file_get_contents('.htaccess'), 'CoreAccounting'),
+              'user_ini_present' => is_file('.user.ini'),
+              'mail_driver' => defined('MAIL_DRIVER') ? MAIL_DRIVER : getenv('MAIL_DRIVER'),
+              'php_environment' => getenv('COREFLUX_ENV'),
+            ], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
+            PHP
+
+  cleanup-known-staging-uploads:
+    if: inputs.integration_staging == 'cleanup_known_uploads'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify completed superseded run identities before reclaiming temporary copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for release in \
+            39303643430:1d52f1558c2468b26e0635b053817306276f2ec3 \
+            39304118567:3f275c73b0520c9ab656954337e55afa7e4cff9b \
+            39313356371:bea5b603f9d5f4c00d7678a4305dc7a3d96d3d5a \
+            39314431084:c2b9d27fbe6bbfcdc103569974bab885d301400f \
+            39316097948:48694b850a1bc01e9eb7a39c0979e072ba383f23 \
+            39317749728:908a7b9d1b21c769f8c725f48de14e211035c616 \
+            39522652801:4481d969885131e97958aff081a0c25d4b4ee64e \
+            39702452549:4e601ac385abeed76f32cf4150f8ebff351f02fc \
+            39528812913:8f68486b1aa0bf82732d52aa62875fb8f0b1430a \
+            39531315383:96ecd35d5b4e852a92391b730bbfa4aa1576efe0 \
+            39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
+            39534626249:dcd1b6465190163407184bae5dca3ed660745a44 \
+            39527685302:9edaad80bd3e30c137dae404c322b5fe323ae79f \
+            39686512795:08c4eadceb94ec8a4c33bf57b469b799cb756c38 \
+            39686720751:e9d887e3c2de463213d6ae00d662189abfe1366a \
+            39686986781:e3fdb0a6f3db698357084add71b65fec7d3350b7 \
+            39484184799:28f766640775054c13ae3612e2a661387a7502fa; do
+            run="${release%%:*}"
+            expected="${release#*:}"
+            actual="$(gh api "repos/${{ github.repository }}/actions/runs/$run" --jq '[.status,.conclusion,.head_sha] | join(" ")')"
+            # Four old staging failures have been diagnosed and superseded; their logs are retained.
+            outcome=success
+            case "$run" in 39303643430|39313356371|39314431084|39316097948) outcome=failure ;; esac
+            test "$actual" = "completed $outcome $expected"
+          done
+      - name: Remove only verified temporary release copies
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            set -eu
+            umask 077
+            receipt="/tmp/core-upload-cleanup-${{ github.run_id }}"
+            test ! -e "$receipt" && test ! -L "$receipt"
+            mkdir -m 700 "$receipt"
+            for release in \
+              39303643430:1d52f1558c2468b26e0635b053817306276f2ec3 \
+              39304118567:3f275c73b0520c9ab656954337e55afa7e4cff9b \
+              39313356371:bea5b603f9d5f4c00d7678a4305dc7a3d96d3d5a \
+              39314431084:c2b9d27fbe6bbfcdc103569974bab885d301400f \
+              39316097948:48694b850a1bc01e9eb7a39c0979e072ba383f23 \
+              39317749728:908a7b9d1b21c769f8c725f48de14e211035c616 \
+              39522652801:4481d969885131e97958aff081a0c25d4b4ee64e \
+              39702452549:4e601ac385abeed76f32cf4150f8ebff351f02fc \
+              39528812913:8f68486b1aa0bf82732d52aa62875fb8f0b1430a \
+              39531315383:96ecd35d5b4e852a92391b730bbfa4aa1576efe0 \
+              39533737236:eac339b7b5eb0abef18994400042674ac0d0e227 \
+              39534626249:dcd1b6465190163407184bae5dca3ed660745a44 \
+              39527685302:9edaad80bd3e30c137dae404c322b5fe323ae79f \
+              39686512795:08c4eadceb94ec8a4c33bf57b469b799cb756c38 \
+              39686720751:e9d887e3c2de463213d6ae00d662189abfe1366a \
+              39686986781:e3fdb0a6f3db698357084add71b65fec7d3350b7 \
+              39484184799:28f766640775054c13ae3612e2a661387a7502fa; do
+              run="${release%%:*}"
+              expected="${release#*:}"
+              upload="/tmp/core-integration-$run"
+              if [ ! -e "$upload" ] && [ ! -L "$upload" ]; then continue; fi
+              test ! -L "$upload"
+              test "$(readlink -f "$upload")" = "$upload"
+              test "$(stat -c %u "$upload")" = "$(id -u)"
+              test ! -L "$upload/package"
+              test "$(readlink -f "$upload/package")" = "$upload/package"
+              export CLEANUP_UPLOAD="$upload" CLEANUP_COMMIT="$expected" CLEANUP_RECEIPT="$receipt/$run"
+              php <<'PHP'
+            <?php
+            $upload = getenv('CLEANUP_UPLOAD'); $package = $upload.'/package';
+            $entries = array_values(array_diff(scandir($upload), ['.','..'])); sort($entries);
+            if ($entries !== ['core-integration-release.sha256','core-integration-release.tar.gz','package']) exit(20);
+            foreach ($entries as $entry) if (is_link($upload.'/'.$entry)) exit(21);
+            $manifest = $package.'/integration-manifest.json';
+            if (is_link($manifest)) exit(22);
+            $m = json_decode(file_get_contents($manifest), true, 512, JSON_THROW_ON_ERROR);
+            if (($m['product']??'') !== 'full-core-staging' || ($m['commit']??'') !== getenv('CLEANUP_COMMIT') || !is_array($m['files']??null)) exit(23);
+            $seen = [];
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $item) {
+              if ($item->isLink() || $item->getOwner() !== posix_geteuid()) exit(24);
+              if ($item->isDir()) continue;
+              if (!$item->isFile() || $item->getRealPath() !== $item->getPathname()) exit(25);
+              $path = substr($item->getPathname(), strlen($package)+1);
+              if ($path === 'integration-manifest.json') continue;
+              if (!isset($m['files'][$path]) || !hash_equals($m['files'][$path], hash_file('sha256',$item->getPathname()))) exit(26);
+              $seen[$path] = true;
+            }
+            if (array_diff_key($m['files'],$seen)) exit(27);
+            $checksum = file_get_contents($upload.'/core-integration-release.sha256');
+            if (!preg_match('/^([a-f0-9]{64})[ *]+core-integration-release\.tar\.gz\s*$/D', $checksum, $match)
+              || !hash_equals($match[1], hash_file('sha256',$upload.'/core-integration-release.tar.gz'))) exit(28);
+            $receipt = getenv('CLEANUP_RECEIPT');
+            if (!copy($manifest, $receipt.'-manifest.json') || !copy($upload.'/core-integration-release.sha256', $receipt.'-archive.sha256')) exit(29);
+            echo 'Verified source-only upload ', basename($upload), ' (', count($seen), " files)\n";
+            PHP
+              du -sh -- "$upload"
+              rm -rf -- "$upload"
+              printf 'Removed verified temporary upload %s\n' "$run"
+            done
+            df -h /tmp
+
+  core-integration-staging:
+    if: inputs.integration_staging == 'prepare' || inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_preflight' || inputs.integration_staging == 'production_jobdiva_pilot' || inputs.integration_staging == 'production_prepare_settings' || inputs.integration_staging == 'production_pilot_entity_alignment'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require passing CI for the selected deployment revision
+        if: inputs.integration_staging == 'deploy' || inputs.integration_staging == 'production_prepare_settings' || inputs.integration_staging == 'production_pilot_entity_alignment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&status=success" \
+            --jq '.workflow_runs | length' | grep -Eq '^[1-9][0-9]*$'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl
+          tools: composer:v2
+      - name: Build full Core release
+        run: |
+          git fetch origin main --depth=1
+          npm ci --prefix dashboard --no-audit --no-fund
+          node --test dashboard/tests/*.test.mjs
+          npm run build --prefix dashboard
+          node scripts/build_core_integration_release.mjs "$RUNNER_TEMP/core-integration-package"
+          tar -czf core-integration-release.tar.gz -C "$RUNNER_TEMP/core-integration-package" .
+          sha256sum core-integration-release.tar.gz > core-integration-release.sha256
+      - name: Upload private staging package
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: core-integration-release.tar.gz,core-integration-release.sha256
+          target: /tmp/core-integration-${{ github.run_id }}
+      - name: Inspect or install isolated full-Core staging
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          command_timeout: 15m
+          script: |
+            set -eu
+            export COREFLUX_ENV=staging
+            export COREFLUX_STAGING_PUBLIC_ORIGIN='https://phpstack-1516771-6707602.cloudwaysapps.com'
+            UPLOAD='/tmp/core-integration-${{ github.run_id }}'
+            test "$(readlink -f "$UPLOAD")" = "$UPLOAD"
+            cd "$UPLOAD"
+            sha256sum -c core-integration-release.sha256
+            mkdir -m 700 package
+            tar -xzf core-integration-release.tar.gz -C package
+            if [ '${{ inputs.integration_staging }}' = 'production_prepare_settings' ]; then
+              unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
+              export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+              php package/deploy/prepare_full_core_settings.php --prepare-private-settings
+              php package/deploy/verify_full_core_web_settings.php --verify-private-web-settings
+              # Private settings stay outside the webroot. The token-protected
+              # read-only web probe is removed. No runtime bridge or activation.
+              exit 0
+            fi
+            if [ '${{ inputs.integration_staging }}' = 'production_pilot_entity_alignment' ]; then
+              unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
+              export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+              export COREFLUX_PILOT_ALIGNMENT_RUN='${{ github.run_id }}'
+              php package/deploy/apply_thunderhawk_pilot_entity.php --apply-reviewed-existing-default
+              # Independent read-only inspection after the exact one-field transaction.
+              (umask 077; php package/deploy/inspect_full_core_production.php --inspect-production > "$UPLOAD/production-after-alignment.json")
+              cat "$UPLOAD/production-after-alignment.json"
+              # No runtime installation, migration, approval, or financial execution.
+              exit 0
+            fi
+            if [ '${{ inputs.integration_staging }}' = 'production_preflight' ] || [ '${{ inputs.integration_staging }}' = 'production_jobdiva_pilot' ]; then
+              unset COREFLUX_ENV COREFLUX_STAGING_PUBLIC_ORIGIN
+              export COREFLUX_PRODUCTION_PREFLIGHT_ROOT='${{ secrets.CW_REMOTE_PATH }}/public_html'
+              test ! -e "$UPLOAD/production-preflight.json"
+              if [ '${{ inputs.integration_staging }}' = 'production_jobdiva_pilot' ]; then
+                (umask 077; php package/deploy/inspect_full_core_production.php --inspect-production --refresh-jobdiva-pilot > "$UPLOAD/production-preflight.json")
+              else
+                (umask 077; php package/deploy/inspect_full_core_production.php --inspect-production > "$UPLOAD/production-preflight.json")
+              fi
+              cat "$UPLOAD/production-preflight.json"
+              # The inspection has no install or migration path. Retain the private
+              # package as the exact candidate for review; no production files change.
+              exit 0
+            fi
+            php package/deploy/core_integration_staging.php --inspect
+            if [ '${{ inputs.integration_staging }}' != 'deploy' ]; then exit 0; fi
+            php package/deploy/core_integration_staging.php --apply
+            STAGING_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
+            test "$(readlink -f "$STAGING_ROOT")" = "$STAGING_ROOT"
+            cd "$STAGING_ROOT"
+            OPCACHE_ENDPOINT="$STAGING_ROOT/api/admin/opcache_integration_${{ github.run_id }}.php"
+            trap 'rm -f -- "$OPCACHE_ENDPOINT"' EXIT
+            OPCACHE_TOKEN="$(php -r 'echo bin2hex(random_bytes(32));')"
+            php -r '$s=file_get_contents($argv[1]); if(substr_count($s,"__COREFLUX_OPCACHE_TOKEN__")!==1)exit(1); file_put_contents($argv[2],str_replace("__COREFLUX_OPCACHE_TOKEN__",$argv[3],$s)); chmod($argv[2],0644);' \
+              "$UPLOAD/package/scripts/opcache_flush_deploy.php.template" "$OPCACHE_ENDPOINT" "$OPCACHE_TOKEN"
+            curl -fsS --max-time 30 -X POST -H "X-CoreFlux-Deploy-Reset: $OPCACHE_TOKEN" \
+              "$COREFLUX_STAGING_PUBLIC_ORIGIN/api/admin/opcache_integration_${{ github.run_id }}.php" \
+              | php -r '$r=json_decode(stream_get_contents(STDIN),true); if(($r["ok"]??false)!==true)exit(1); echo "Staging PHP cache refreshed.\n";'
+            unset OPCACHE_TOKEN
+            rm -f -- "$OPCACHE_ENDPOINT"
+            INDEX_SHA="$(sha256sum index.html | cut -d' ' -f1)"
+            php deploy/verify_coreaccounting_staging_release.php --expected-index-sha256="$INDEX_SHA"
+            php tests/accounting_staging_lifecycle.php --execute
+            php tests/accounting_split_receipt_staging.php --execute
+            DB_NAME=muzqvdvqbx php tests/accounting_credit_applications_mariadb.php --execute
+            php tests/billing_delivery_staging_http.php --execute
+            php tests/staffing_onboarding_staging_http.php --execute
+            echo 'Full-Core staging acceptance passed for ${{ github.sha }}.'
+            # Rollback files and database dumps are retained separately under the SSH home.
+            # This directory contains only this run's reproducible upload package.
+            cd /tmp
+            test ! -L "$UPLOAD"
+            test "$(readlink -f "$UPLOAD")" = "/tmp/core-integration-${{ github.run_id }}"
+            rm -rf -- "$UPLOAD"

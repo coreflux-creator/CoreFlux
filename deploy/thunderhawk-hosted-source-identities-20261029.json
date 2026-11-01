@@ -1,0 +1,56 @@
+{
+  "observed_at": "2026-10-30 00:05:43 UTC",
+  "read_only": true,
+  "source": "Current Core and provider databases; this is not a fresh JobDiva API fetch",
+  "core": {
+    "production_tenant_id": 2,
+    "company": "Thunderhawk",
+    "person_id": 358,
+    "person_label": "P-358",
+    "placement_id": 864,
+    "placement_label": "PL-864",
+    "persisted_number_registry_verified": false,
+    "person_name": "Alexander Serebriiskii",
+    "person_status": "active",
+    "classification": "w2",
+    "jobdiva_candidate_id": "18424007240614",
+    "jobdiva_start_id": "57862243",
+    "jobdiva_job_id": "27926305",
+    "placement_status": "active",
+    "start_date": "2026-05-18",
+    "end_date": "2027-03-20",
+    "worksite_state": "NJ",
+    "worksite_country": "US",
+    "branch": "Jen/Saurabh",
+    "accounting_entity_id": 2,
+    "workers_comp_class": null,
+    "client_id": 1280,
+    "end_client_company_id": 1902,
+    "staffing_job_id": 1972
+  },
+  "purepay": {
+    "organization_id": "org_0369a63ff2cb",
+    "organization_name": "Thunderhawk Technology Partners",
+    "employee_id": "emp_ea232efec736",
+    "employee_name": "Alex Serebriiskii",
+    "normalized_email_exact_match_with_core": true,
+    "email_addresses_included": false
+  },
+  "quanta": {
+    "tenant_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+    "name": "Thunderhawk",
+    "worker_count": 0
+  },
+  "staging": {
+    "database": "muzqvdvqbx",
+    "tenant_2_name": "Beta Industries (Sandbox)",
+    "must_not_reuse_tenant_2_as_thunderhawk": true,
+    "thunderhawk_pilot_company_created": false
+  },
+  "next_requirements": [
+    "Preserve the existing PurePay employee identity in the isolated pilot rather than creating a second employee.",
+    "Provision a separate, clearly labelled Thunderhawk pilot company and retain source/target identity mappings.",
+    "Use Core for initial Quanta worker publication, then test owned metadata changes in both directions.",
+    "Resolve the missing workers compensation class from evidence; do not invent it or treat it as approved."
+  ]
+}

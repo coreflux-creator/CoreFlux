@@ -401,8 +401,9 @@ function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): ar
  * Resolve (or create) the internal person_id for a JobDiva placement
  * record. Order of resolution:
  *   1. Existing person mapping via external_entity_mappings
- *   2. Existing person by email_primary (case-insensitive)
- *   3. Auto-create a minimal people row
+ *   2. Exact durable JobDiva external ID, with ambiguity checks
+ *   3. Email/spreadsheet collisions require explicit identity review
+ *   4. Auto-create a minimal people row when no collision exists
  *
  * Returns the internal person_id, or null if we couldn't produce one
  * (e.g. no candidate ID at all — placement is uninterpretable).
@@ -511,9 +512,8 @@ function jobdivaPersonIdentityFromPlacement(array $jd): array
 }
 
 /**
- * A durable candidate mapping is invalid when both independent human
- * identifiers disagree with the current Start. Requiring both name and email
- * avoids splitting a person after an ordinary name or email change.
+ * Contact disagreement is a review hint, not authority to detach a durable ID.
+ * Requiring both name and email avoids flagging an ordinary contact change.
  */
 function jobdivaPersonIdentityConflicts(array $jd, array $person): bool
 {
@@ -600,6 +600,23 @@ function jobdivaLegacyImportPersonCandidate(
 
 function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
 {
+    require_once __DIR__.'/person_directory.php';
+    $pdo=getDB(); $own=!$pdo->inTransaction();
+    if ($own) $pdo->beginTransaction();
+    try {
+        jobdivaPersonDirectoryCheck($pdo,$tid,true);
+        $id=jobdivaPlacementsResolvePerson($tid,$jd,$userId);
+        if ($own) $pdo->commit();
+        return $id;
+    } catch (Throwable $e) {
+        if ($own && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/** Runs inside the caller's transaction so creation and the durable link commit together. */
+function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
+{
     require_once __DIR__ . '/../integrations/field_map.php';
     $candidateExtId = jobdivaPluckField($jd, [
         'candidate id',
@@ -610,83 +627,26 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
 
     $canonicalPersonExternalId = 'jd:' . $candidateExtId;
 
-    // Channel 1: existing mapping. The mapping alone is not sufficient:
-    // historical alignment bugs could point candidate A at a person row whose
-    // durable external_id belongs to candidate B. Refuse that cross-candidate
-    // reuse and let the exact-id/email/create channels repair the mapping.
+    // Durable IDs survive contact changes. Damaged links require explicit repair.
+    $pdo = getDB();
     $mapping = mappingFindInternal($tid, 'jobdiva', 'person', $candidateExtId);
     if ($mapping) {
         $mappedPersonId = (int) $mapping['internal_entity_id'];
-        if ($mappedPersonId > 0) {
-            // Lifecycle repair may retire or archive a source-backed person
-            // when its placement mapping is temporarily misclassified. A
-            // later verified Start is authoritative current-use evidence:
-            // restore the same canonical person instead of leaving it hidden
-            // or creating a duplicate.
-            try {
-                $pdo = getDB();
-                if ($pdo instanceof \PDO) {
-                    $identityStmt = $pdo->prepare(
-                        'SELECT external_id, first_name, last_name, email_primary, source FROM people
-                          WHERE tenant_id = :t AND id = :id
-                          LIMIT 1'
-                    );
-                    $identityStmt->execute(['t' => $tid, 'id' => $mappedPersonId]);
-                    $mappedPerson = $identityStmt->fetch(\PDO::FETCH_ASSOC);
-                    $mappedExternalId = is_array($mappedPerson)
-                        ? (string) ($mappedPerson['external_id'] ?? '')
-                        : '';
-                    $identityConflict = is_array($mappedPerson)
-                        && jobdivaPersonIdentityConflicts($jd, $mappedPerson);
-                    if (!is_array($mappedPerson)
-                        || jobdivaPersonExternalIdConflicts($mappedExternalId, $candidateExtId)
-                        || $identityConflict) {
-                        mappingDelete($tid, 'jobdiva', 'person', $candidateExtId);
-                        if ($identityConflict && $mappedExternalId === $canonicalPersonExternalId) {
-                            $pdo->prepare(
-                                "UPDATE people
-                                    SET external_id = NULL, updated_at = NOW()
-                                  WHERE tenant_id = :t AND id = :id AND external_id = :ext"
-                            )->execute([
-                                't' => $tid,
-                                'id' => $mappedPersonId,
-                                'ext' => $canonicalPersonExternalId,
-                            ]);
-                        }
-                        $mappedPersonId = 0;
-                    }
-                }
-                if ($pdo instanceof \PDO && $mappedPersonId > 0) {
-                    $stmt = $pdo->prepare(
-                        "UPDATE people
-                            SET status = 'active', deleted_at = NULL, updated_at = NOW()
-                          WHERE tenant_id = :t
-                            AND id = :id
-                            AND (status <> 'active' OR deleted_at IS NOT NULL)"
-                    );
-                    $stmt->execute(['t' => $tid, 'id' => $mappedPersonId]);
-                }
-            } catch (\Throwable $e) {
-                error_log('[jobdiva person sync] lifecycle reactivation failed: ' . $e->getMessage());
-            }
-            if ($mappedPersonId <= 0) {
-                $mapping = null;
-            } else {
-                // Re-observation also clears stale/deleted mapping state and
-                // refreshes the source snapshot used by field mapping.
-                mappingUpsert(
-                    $tid,
-                    'jobdiva',
-                    'person',
-                    $candidateExtId,
-                    $mappedPersonId,
-                    $jd,
-                    'pull',
-                    $userId
-                );
-            }
+        $identityStmt = $pdo->prepare(
+            'SELECT external_id FROM people WHERE tenant_id=:t AND id=:id FOR UPDATE'
+        );
+        $identityStmt->execute(['t'=>$tid,'id'=>$mappedPersonId]);
+        $mappedPerson = $identityStmt->fetch(PDO::FETCH_ASSOC);
+        $mappedExternalId = (string) ($mappedPerson['external_id']??'');
+        if (!$mappedPerson || jobdivaPersonExternalIdConflicts($mappedExternalId, $candidateExtId)) {
+            throw new RuntimeException('The JobDiva candidate link conflicts with its Core person. Review the existing identity before importing this assignment.');
         }
-        if ($mappedPersonId > 0) return $mappedPersonId;
+        $pdo->prepare(
+            "UPDATE people SET status = 'active', deleted_at = NULL, updated_at = NOW()
+              WHERE tenant_id=:t AND id=:id AND (status <> 'active' OR deleted_at IS NOT NULL)"
+        )->execute(['t'=>$tid,'id'=>$mappedPersonId]);
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $mappedPersonId, $jd, 'pull', $userId);
+        return $mappedPersonId;
     }
 
     // Slice 4 wiring — each person field consults the tenant registry
@@ -739,10 +699,12 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         'SELECT id FROM people
           WHERE tenant_id = :t AND external_id = :ext
           ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
-          LIMIT 1'
+          LIMIT 2 FOR UPDATE'
     );
     $stmt->execute(['t' => $tid, 'ext' => $canonicalPersonExternalId]);
-    $existingId = (int) $stmt->fetchColumn();
+    $exactIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (count($exactIds)>1) throw new RuntimeException('More than one Core person carries this JobDiva candidate ID. Review the duplicate identities.');
+    $existingId = (int) ($exactIds[0]??0);
     if ($existingId > 0) {
         $pdo->prepare(
             "UPDATE people SET status = 'active', deleted_at = NULL, updated_at = NOW()
@@ -752,44 +714,22 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         return $existingId;
     }
 
-    // Channel 3: existing person by email (covers manual-create-before-sync
-    // races), excluding a row explicitly owned by another JobDiva candidate.
+    // Email is collision evidence, never permission to adopt or overwrite a person.
     $stmt = $pdo->prepare(
         "SELECT id FROM people
-          WHERE tenant_id = :t AND LOWER(email_primary) = LOWER(:e) AND deleted_at IS NULL
-            AND (external_id IS NULL OR external_id = '' OR external_id = :ext_filter OR external_id NOT LIKE 'jd:%')
-          ORDER BY CASE WHEN external_id = :ext_order THEN 0 WHEN external_id IS NULL OR external_id = '' THEN 1 ELSE 2 END,
-                   id ASC
-          LIMIT 1"
+          WHERE tenant_id = :t AND LOWER(email_primary) = LOWER(:e)
+          LIMIT 1 FOR UPDATE"
     );
     $stmt->execute([
         't' => $tid,
         'e' => $email,
-        'ext_filter' => $canonicalPersonExternalId,
-        'ext_order' => $canonicalPersonExternalId,
     ]);
     $existingId = (int) $stmt->fetchColumn();
     if ($existingId > 0) {
-        $pdo->prepare(
-            "UPDATE people
-                SET external_id = CASE WHEN external_id IS NULL OR external_id = '' THEN :ext ELSE external_id END,
-                    updated_at = NOW()
-              WHERE tenant_id = :t AND id = :id"
-        )->execute(['ext' => $canonicalPersonExternalId, 't' => $tid, 'id' => $existingId]);
-        // Bind the mapping so future syncs find this person directly.
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
-        try {
-            require_once __DIR__ . '/../integrations/field_map_apply.php';
-            integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $existingId]);
-        } catch (\Throwable $e) {
-            error_log('[jobdiva person sync] applyAll failed: ' . $e->getMessage());
-        }
-        return $existingId;
+        throw new RuntimeException('A Core person already has this candidate email. Open JobDiva settings and review the candidate/person link before syncing again.');
     }
 
-    // Channel 4: adopt a person already created by the reconciled placement
-    // spreadsheet. The placement evidence makes this materially stronger than
-    // a broad name-only people merge.
+    // Spreadsheet evidence also requires an operator-reviewed identity link.
     $legacyPersonId = jobdivaLegacyImportPersonCandidate(
         $tid,
         $firstName,
@@ -798,14 +738,7 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         $jd
     );
     if ($legacyPersonId > 0) {
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $legacyPersonId, $jd, 'pull', $userId);
-        try {
-            require_once __DIR__ . '/../integrations/field_map_apply.php';
-            integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $legacyPersonId]);
-        } catch (\Throwable $e) {
-            error_log('[jobdiva person sync] legacy-import applyAll failed: ' . $e->getMessage());
-        }
-        return $legacyPersonId;
+        throw new RuntimeException('A spreadsheet-imported person may match this candidate. Open JobDiva settings and review the candidate/person link before syncing again.');
     }
 
     // Channel 5: auto-create.

@@ -99,15 +99,10 @@ $assert('financial detail lookup prefers the verified Start identity',
     str_contains($sync, "['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'placementId', 'id']"));
 $assert('rate-field overrides receive the source payload before their fallback callback',
     str_contains($sync, "            \$field,\n            \$jd,\n            static fn() => \$fallbackKeys"));
-$assert('the exact Start billing company outranks broader Job enrichment',
-    str_contains($sync, 'The Start/Assignment owns the billing company')
-    && str_contains($sync, "\$assignmentContract['client_company_name']")
-    && str_contains($sync, '$endClientName = $contractEndClientName;')
-    && str_contains($projector, 'A JobDiva Start/Assignment owns the billing company')
-    && preg_match(
-        "/return \[\s*'_jd_start'.*?'_jd_customer'.*?'_jd_job'/s",
-        $projector
-    ) === 1);
+$assert('exact billing company is resolved separately from the explicit end client',
+    str_contains($sync, 'jobdivaProjectorResolveBillingClientCompany($tid, $jd, $userId)')
+    && str_contains($projector, 'jobdivaAssignmentEndClientEvidence($payload)')
+    && !str_contains($sync, '$endClientName = $clientRef'));
 $assert('the API exposes a separately bounded contract action',
     str_contains($api, "case 'assignment_contracts_batch':")
     && str_contains($api, 'jobdivaSyncAssignmentContractsBatch'));

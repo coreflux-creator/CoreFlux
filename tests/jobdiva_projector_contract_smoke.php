@@ -39,19 +39,17 @@ $a('placement projector function exists',
     str_contains($projector, 'function jobdivaProjectorProjectPlacement(int $tenantId, array $payload'));
 $a('projector joins native mirrors before projection',
     str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId)'));
-$a('projector resolves end client through JobDiva customer/company mappings',
-    str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany')
-    && str_contains($projector, 'jobdivaProjectorAssignmentClientEvidence($payload)')
-    && str_contains($projector, "jobdivaProjectorMappedCompanyIdIfNameMatches(\$tenantId, 'company'"));
+$a('projector independently resolves billing and explicit work-recipient evidence',
+    str_contains($projector, 'function jobdivaProjectorResolveBillingClientCompany')
+    && str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany'));
 $a('projector does not treat shallow placement customer id as company identity',
     str_contains($projector, 'function jobdivaProjectorTrustedCustomerCompanyExternalId')
     && str_contains($projector, 'Placement-level `customer id` is not safe as a company identity')
     && str_contains($projector, "foreach (['_jd_customer'] as \$nest)")
     && !str_contains($projector, "\$bind('jobdiva_customer', \$customerExtId, \$endClientCompanyId"));
-$a('projector can ensure name-only end-client companies from joined JobDiva job/customer data',
-    str_contains($projector, 'function jobdivaProjectorEnsureEndClientCompany')
-    && str_contains($projector, "'COMPANYNAME'")
-    && str_contains($projector, 'staffingClientEnsureForCompany($tenantId, null, $name'));
+$a('end-client resolution requires explicit provider identity',
+    str_contains($projector, "['resolved', 'identity_only']")
+    && str_contains($projector, 'jobdivaAssignmentEndClientEvidence($payload)'));
 $a('projector delegates placement/rate write to canonical sync writer',
     str_contains($projector, 'jobdivaSyncUpsertPlacement('));
 $a('projector binds canonical placement mapping',
@@ -59,7 +57,7 @@ $a('projector binds canonical placement mapping',
 $a('projector reinforces adjacent canonical source mappings',
     str_contains($projector, 'function jobdivaProjectorBindPlacementSourceIdentities')
     && str_contains($projector, "\$bind('person', \$candidateExtId, \$personId")
-    && str_contains($projector, "\$bind('jobdiva_customer', \$trustedCustomerExtId, \$endClientCompanyId")
+    && str_contains($projector, "\$bind('company', \$endClientEvidence['external_id'], \$endClientCompanyId")
     && str_contains($projector, "\$bind('staffing_job', \$jobExtId, \$staffingJobId")
     && str_contains($projector, "\$bind('contact', \$contactExtId, \$contactId"));
 $a('projector indexes joined canonical roots',

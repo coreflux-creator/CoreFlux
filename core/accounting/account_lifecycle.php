@@ -19,8 +19,8 @@
  *     consistent.
  *
  * Soft path (`accountingAccountDeactivate()`):
- *   - Always permitted; just flips `active = 0`.  The row still shows
- *     in historical reports but is hidden from active-account pickers.
+ *   - Preserves system/control accounts required by source workflows.
+ *     Other rows remain in historical reports when deactivated.
  *
  * Both are tenant-scoped via the explicit $tenantId parameter — no
  * implicit session lookup — so the API layer can pre-authorise the
@@ -29,6 +29,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/account_mutation.php';
 
 class AccountingAccountDeleteBlockedException extends \RuntimeException
 {
@@ -52,7 +53,7 @@ function accountingAccountDelete(int $tenantId, int $accountId): array
 
     // Tenant-bound row lookup.
     $row = $pdo->prepare(
-        "SELECT id, code, name FROM accounting_accounts
+        "SELECT id, code, name, is_system_account FROM accounting_accounts
           WHERE id = :id AND tenant_id = :t LIMIT 1"
     );
     $row->execute(['id' => $accountId, 't' => $tenantId]);
@@ -63,6 +64,10 @@ function accountingAccountDelete(int $tenantId, int $accountId): array
 
     // Reference checks.
     $reasons = [];
+    if ((int) $acct['is_system_account'] === 1
+        || in_array((string) $acct['code'], ACCOUNTING_SOURCE_OWNED_CONTROL_CODES, true)) {
+        $reasons['system_account'] = 1;
+    }
 
     // tenant-leak-allow: account_id is tenant-bound by the lookup above;
     // the join below makes the tenant scope explicit so the static
@@ -138,6 +143,13 @@ function accountingAccountDeactivate(int $tenantId, int $accountId): array
         throw new \InvalidArgumentException('tenant_id + account_id required');
     }
     $pdo = getDB();
+    $find = $pdo->prepare(
+        'SELECT * FROM accounting_accounts WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $find->execute(['t' => $tenantId, 'id' => $accountId]);
+    $current = $find->fetch(\PDO::FETCH_ASSOC);
+    if (!$current) throw new \InvalidArgumentException('Account not found in this workspace.');
+    accountingReviewAccountChange($tenantId, $current, ['active' => 0]);
     $up = $pdo->prepare(
         "UPDATE accounting_accounts
             SET active = 0, updated_at = NOW()

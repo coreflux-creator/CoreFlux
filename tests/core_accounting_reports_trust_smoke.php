@@ -24,6 +24,23 @@ require_once $root . '/modules/accounting/lib/standard_reports.php';
 
 echo "Cash-flow classification defaults\n";
 $cases = [
+    'renamed system receivable retains its classification' => [
+        ['code' => '1100', 'name' => 'Customer obligations', 'account_type' => 'asset', 'is_system_account' => 1],
+        'operating_wc_ar', 'inferred',
+    ],
+    'renamed system payable retains its classification' => [
+        ['code' => '2000', 'name' => 'Vendor obligations', 'account_type' => 'liability', 'is_system_account' => 1],
+        'operating_wc_ap', 'inferred',
+    ],
+    'explicit classification wins over system identity' => [
+        ['code' => '2000', 'name' => 'Vendor obligations', 'account_type' => 'liability', 'is_system_account' => 1,
+            'cash_flow_tag' => 'operating_wc_other'],
+        'operating_wc_other', 'configured',
+    ],
+    'custom account code alone does not imply system identity' => [
+        ['code' => '2000', 'name' => 'Other obligations', 'account_type' => 'liability', 'is_system_account' => 0],
+        'untagged', 'unclassified',
+    ],
     'explicit tag wins' => [
         ['code' => '1000', 'name' => 'Cash', 'account_type' => 'asset', 'cash_flow_tag' => 'investing_custom', 'is_bank_linked' => 1],
         'investing_custom', 'configured',
@@ -36,6 +53,10 @@ $cases = [
         ['code' => '1100', 'name' => 'Accounts Receivable', 'account_type' => 'asset'],
         'operating_wc_ar', 'inferred',
     ],
+    'system clearing account is operating working capital' => [
+        ['code' => '1010', 'name' => 'Clearing Accounts', 'account_type' => 'asset'],
+        'operating_wc_other', 'inferred',
+    ],
     'AR abbreviation is operating' => [
         ['code' => '1100', 'name' => 'AR', 'account_type' => 'asset'],
         'operating_wc_ar', 'inferred',
@@ -43,6 +64,14 @@ $cases = [
     'accounts payable is operating' => [
         ['code' => '2000', 'name' => 'Accounts Payable', 'account_type' => 'liability'],
         'operating_wc_ap', 'inferred',
+    ],
+    'payroll payable is operating' => [
+        ['code' => '2200', 'name' => 'Payroll Payable', 'account_type' => 'liability'],
+        'operating_wc_other', 'inferred',
+    ],
+    'payroll deduction payable is operating' => [
+        ['code' => '2220', 'name' => 'Payroll Deduction Payable', 'account_type' => 'liability'],
+        'operating_wc_other', 'inferred',
     ],
     'card-brand liability is recognized as debt' => [
         ['code' => '2007', 'name' => 'Visa', 'account_type' => 'liability'],
@@ -83,6 +112,7 @@ $trialBalance = (string) file_get_contents($root . '/modules/accounting/ui/Trial
 $glDetail = (string) file_get_contents($root . '/api/gl_detail.php');
 $accounting = (string) file_get_contents($root . '/modules/accounting/lib/accounting.php');
 $booksHealth = (string) file_get_contents($root . '/api/books_health.php');
+$booksHealthMetrics = (string) file_get_contents($root . '/core/accounting/books_health_metrics.php');
 $consolidation = (string) file_get_contents($root . '/modules/accounting/lib/consolidation.php');
 $intercompany = (string) file_get_contents($root . '/modules/accounting/lib/intercompany.php');
 $accountInterest = (string) file_get_contents($root . '/modules/accounting/lib/account_interest.php');
@@ -95,10 +125,11 @@ $lightWorkspaceDeployPath = $root . '/.github/workflows/deploy-light-workspace.y
 $assert('AR aging is ledger-backed', str_contains($billing, 'JOIN accounting_journal_entries je'));
 $assert('AR aging excludes future invoices and payments', str_contains($billing, 'i.issue_date <= :document_as_of') && str_contains($billing, 'p.received_at <= :payment_as_of'));
 $assert('AP aging is ledger-backed', str_contains($ap, 'JOIN accounting_journal_entries je'));
-$assert('AP aging excludes future bills and undisbursed payments',
+$assert('AP aging excludes future bills and unposted payments',
     str_contains($ap, 'b.bill_date <= :document_as_of')
-    && str_contains($ap, 'p.pay_date <= :payment_as_of')
-    && str_contains($ap, 'p.status IN ("sent", "cleared")'));
+    && str_contains($ap, 'DATE(p.cleared_at) <= :payment_as_of')
+    && str_contains($ap, 'payment_je.status IN ("posted", "reversed")')
+    && str_contains($ap, 'payment_reversal.posting_date > :payment_reversed_as_of'));
 $assert('report library links all core statements',
     str_contains($library, '/modules/accounting/pnl')
     && str_contains($library, '/modules/accounting/balance')
@@ -130,13 +161,15 @@ $assert('trial balance hides zero-only rows and reports accounts with activity',
     && str_contains($trialBalance, 'data-testid="rpt-tb-toggle-zero-rows"')
     && str_contains($trialBalance, 'label="Accounts with activity"'));
 $assert('GL detail scopes through the parent journal entry',
-    substr_count($glDetail, 'WHERE je.tenant_id = :t') === 2
+    str_contains($glDetail, '$rangeWhere = "je.tenant_id = :t AND jl.account_id = :aid')
+    && substr_count($glDetail, 'WHERE {$rangeWhere}') === 3
     && !str_contains($glDetail, 'WHERE jl.tenant_id = :t'));
 $assert('reversed originals remain in ledger-backed financial reports',
     str_contains($glDetail, "je.status IN ('posted','reversed')")
     && substr_count($standardReportsLib, 'je.status IN ("posted","reversed")') >= 2
     && str_contains($accounting, 'je.status IN ("posted","reversed")')
-    && substr_count($booksHealth, "je.status IN ('posted','reversed')") >= 2);
+    && str_contains($booksHealth, "je.status IN ('posted','reversed')")
+    && str_contains($booksHealthMetrics, 'je.status IN ("posted", "reversed")'));
 $assert('reversal-aware balances stay consistent in consolidation treasury tax and interest',
     substr_count($consolidation, 'je.status IN ("posted","reversed")') >= 7
     && substr_count($intercompany, "je.status IN ('posted','reversed')") >= 2

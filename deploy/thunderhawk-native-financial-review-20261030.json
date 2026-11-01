@@ -1,0 +1,236 @@
+{
+  "recorded_at": "2026-10-30T14:54:37.611299+00:00",
+  "scope": "Native Core financial observation review in isolated staging company 2002",
+  "runtime_commit": "5bd0645a52baf819799be9ebe0d119793cdcaf53",
+  "provider_contract": "2026-10-30.1",
+  "provider_pilot_commit": "acb474daae863643ac700d756ea43a9b8be80399",
+  "continuous_integration": {
+    "conclusion": "success",
+    "headSha": "5bd0645a52baf819799be9ebe0d119793cdcaf53",
+    "jobs": [
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542242"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542646"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542707"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542738"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542846"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542849"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542850"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123542878"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969/job/124123543167"
+      }
+    ],
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41073528969"
+  },
+  "staging_release": {
+    "conclusion": "success",
+    "headSha": "5bd0645a52baf819799be9ebe0d119793cdcaf53",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "conclusion": "success",
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41074018437/job/124125267551"
+      }
+    ],
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41074018437"
+  },
+  "local_checks": {
+    "contract_cases_passed": 56,
+    "mariadb_cases_passed": 29,
+    "new_rendered_ui_tests_passed": 7,
+    "database": {
+      "passed": true,
+      "isolated_local_database": true,
+      "external_http_disabled": true,
+      "database_pid": 68968
+    }
+  },
+  "native_captures": {
+    "checked_at": "2026-10-30T14:47:05+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "passed": true,
+    "tenant_id": 2002,
+    "captures": [
+      {
+        "kind": "bill",
+        "document_id": "pay_041311ec10",
+        "capture_id": 1,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "b40b11b2fc5a9994fc9a446af58b265938b53e1d4e2047e08bef625016a39a76",
+        "line_count": 2,
+        "outgoing_payment_count": 2,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_05611deda7",
+        "capture_id": 2,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "e1d8f1cfa03c03efb7ea2f98c8f6b4bfecad157a563f0818dbde33fdae6c8964",
+        "line_count": 42,
+        "outgoing_payment_count": 0,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      },
+      {
+        "kind": "invoice",
+        "document_id": "inv_13c40a9026",
+        "capture_id": 3,
+        "existing_capture_reused": false,
+        "replay_reused": true,
+        "observation_hash": "4939f0aa1d1d0f129a21e4c0346e3f54699adffd70b317ff30098f5572dc9455",
+        "line_count": 1,
+        "outgoing_payment_count": 0,
+        "currency_missing": true,
+        "core_identity_unlinked": true,
+        "encrypted_readback_verified": true,
+        "history_verified": true
+      }
+    ],
+    "other_company_reads_denied": 3,
+    "all_protected_business_records_unchanged": true,
+    "cash_delivery_proven": false,
+    "staff_browser_acceptance": false
+  },
+  "native_http": {
+    "checked_at": "2026-10-30T14:53:44+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "browser_test": false,
+    "passed": true,
+    "synthetic_actor_retired": true,
+    "synthetic_actor_id": 57,
+    "private_session_removed": true,
+    "checks": [
+      "anonymous API read denied",
+      "synthetic native login succeeded",
+      "ungranted financial access denied",
+      "missing AP read denied",
+      "missing billing read denied",
+      "authorized API returns exact source evidence",
+      "HTTP retains unknown currency and unlinked identity",
+      "foreign pinned company denied",
+      "save requires explicit review confirmation",
+      "stale review refused",
+      "native API save reuses previously captured evidence",
+      "native API history decrypts requested capture",
+      "revoked billing access blocks saved history",
+      "HTTP checks created no duplicate captures"
+    ],
+    "requests": [
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 401
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "read",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "read",
+        "tenant_id": 999,
+        "status": 403
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 403
+      }
+    ]
+  },
+  "limitations": {
+    "staff_browser_acceptance": false,
+    "core_document_identity_link_established": false,
+    "source_currency_established": false,
+    "independent_bank_delivery_proven": false,
+    "end_to_end_financial_reconciliation_complete": false,
+    "production_release": false,
+    "financial_postings": false,
+    "payroll_or_payments_executed": false
+  },
+  "coordination": {
+    "purepay_production_correction_to_preserve": "a154525",
+    "source": "Authorized PurePay hardening chat report; not deployed by this acceptance run"
+  }
+}

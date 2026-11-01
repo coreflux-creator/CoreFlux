@@ -238,7 +238,7 @@ class MercuryRailDriver implements PaymentRailsDriver
     private function upsertRecipient(int $tenantId, array $it, ?int $userId): int
     {
         $pdo  = getDB();
-        $name = trim((string) $it['recipient_name']);
+        $name = trim((string) ($it['recipient_full_name'] ?? $it['recipient_name']));
         $acct = preg_replace('/\s+/', '', (string) $it['account_number']);
         $last4= substr($acct, -4);
 
@@ -270,9 +270,10 @@ class MercuryRailDriver implements PaymentRailsDriver
         return (int) $created['id'];
     }
 
-    /** Parse `module:id` (ap_payment:42) → 'ap_payment'. */
+    /** AP's canonical source module must agree with the direct draft path. */
     private function parseSourceModule(string $externalRef): string
     {
+        if (str_starts_with($externalRef, 'ap_payment:')) return 'ap';
         if (preg_match('/^([a-z_]+):/i', $externalRef, $m)) return strtolower($m[1]);
         return 'manual';
     }

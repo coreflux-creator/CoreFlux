@@ -150,12 +150,31 @@ function _evidenceDecodePayloads(array $rows): array {
     return $rows;
 }
 
+function evidenceIsProtectedImportAttachment(array $row): bool {
+    return ($row['subject_type'] ?? null) === 'csv_import_run';
+}
+
+function _evidenceRequireMutableAttachment(\PDO $pdo, int $tenantId, int $id): void {
+    $stmt = $pdo->prepare(
+        'SELECT subject_type FROM evidence_attachments
+          WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row && evidenceIsProtectedImportAttachment($row)) {
+        throw new \DomainException('Import evidence cannot be deleted or superseded.');
+    }
+}
+
 function evidenceSupersede(int $tenantId, int $oldId, int $newId): bool {
     if (!_evidenceAttachmentsTableExists()) return false;
-    $stmt = getDB()->prepare(
+    $pdo = getDB();
+    _evidenceRequireMutableAttachment($pdo, $tenantId, $oldId);
+    $stmt = $pdo->prepare(
         "UPDATE evidence_attachments
             SET superseded_by_id = :new
-          WHERE id = :old AND tenant_id = :t AND superseded_by_id IS NULL"
+          WHERE id = :old AND tenant_id = :t AND superseded_by_id IS NULL
+            AND subject_type <> 'csv_import_run'"
     );
     $stmt->execute(['new' => $newId, 'old' => $oldId, 't' => $tenantId]);
     return $stmt->rowCount() > 0;
@@ -163,10 +182,13 @@ function evidenceSupersede(int $tenantId, int $oldId, int $newId): bool {
 
 function evidenceSoftDelete(int $tenantId, int $id, int $userId): bool {
     if (!_evidenceAttachmentsTableExists()) return false;
-    $stmt = getDB()->prepare(
+    $pdo = getDB();
+    _evidenceRequireMutableAttachment($pdo, $tenantId, $id);
+    $stmt = $pdo->prepare(
         "UPDATE evidence_attachments
             SET deleted_at = NOW()
-          WHERE id = :id AND tenant_id = :t AND deleted_at IS NULL"
+          WHERE id = :id AND tenant_id = :t AND deleted_at IS NULL
+            AND subject_type <> 'csv_import_run'"
     );
     $stmt->execute(['id' => $id, 't' => $tenantId]);
     return $stmt->rowCount() > 0;

@@ -8,18 +8,26 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * live in the same CSV, grouped by `invoice_number`. Powered by
  * Core\CsvImportService via /api/billing/csv_import.php.
  */
-export default function InvoicesCsvImport() {
+export default function InvoicesCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/billing/api/csv_import.php"
       entityLabel="AR Invoices"
+      groupLabel="invoice"
+      description="Create or update invoices in bulk. Every file is validated before import."
       backTo="../invoices"
       backLabel="← Invoices"
       testidPrefix="billing-invoices-csv-import"
       presetEntity="billing_invoices"
+      standaloneAccounting={standaloneAccounting}
+      resultLinks={(result) => Object.entries(result.ids || {}).map(([number, id]) => ({
+        label: number,
+        to: `/modules/billing/invoices/${id}`,
+      }))}
       previewColumns={[
         { key: 'invoice_number',   label: 'Invoice #' },
         { key: 'client_name',      label: 'Client' },
+        { key: 'entity_code',      label: 'Entity' },
         { key: 'issue_date',       label: 'Issue' },
         { key: 'due_date',         label: 'Due' },
         { key: 'line_description', label: 'Line' },

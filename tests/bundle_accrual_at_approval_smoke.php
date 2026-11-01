@@ -63,7 +63,7 @@ $a('AR accrual: Dr AR Unbilled debit, Cr Revenue credit (per period)',
 $a('AR accrual revenue code defaults to 4000',
    str_contains($lib, "\$revenueCode = '4000';"));
 $a('AR accrual carries counterparty_company_id (client) when known',
-   str_contains($lib, "\$partyCompanyId = !empty(\$dimensionContext['placement']['end_client_company_id'])"));
+   str_contains($lib, "\$partyCompanyId = !empty(\$dimensionContext['placement']['staffing_client_company_id'])"));
 
 // AP shape:
 $a('AP accrual: Dr Expense debit, Cr AP Accrued credit (per period)',

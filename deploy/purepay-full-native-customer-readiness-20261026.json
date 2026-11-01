@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-26T21:15:49+00:00",
+  "provider_candidate": "0a0534818f574c6e4b85cc309ede156cbb4da138",
+  "provider_source_tree": "50bde200ffab0f04f9fdfdb2358e75dec8a7de5c",
+  "core_installed_revision": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+  "tenant_id": 999,
+  "organization": {
+    "id": "org_purepay_demo",
+    "name": "Meridian Holdings LLC"
+  },
+  "candidate_source_files_verified": 1005,
+  "http_health": {
+    "message": "Pure//Pay API",
+    "startup_mode": "review",
+    "background_jobs": false,
+    "startup_migrations": false,
+    "scheduled_operations": false
+  },
+  "health_proofs": [
+    "Actual local backend GET http://127.0.0.1:8001/api/",
+    "Ordinary Chrome GET https://pure-pay-support.preview.emergentagent.com/api/"
+  ],
+  "native_readiness": {
+    "at": "2026-10-26T21:15:15+00:00",
+    "mode": "--inspect-demo-customer-exchange",
+    "tenant_id": 999,
+    "production_changed": false,
+    "application_deployed": false,
+    "credentials_changed": false,
+    "financial_execution": false,
+    "contract_version": "2026-10-26.1",
+    "customer_permission": false,
+    "legacy_customer_id": "cus_2851af69d9",
+    "creation_already_present": false,
+    "local_writes": false,
+    "provider_record_writes": false,
+    "passed": true,
+    "persistent_configuration_changed": false,
+    "flags_restored": true
+  },
+  "native_context": {
+    "at": "2026-10-26T21:15:49+00:00",
+    "mode": "--inspect-demo-customer-exchange",
+    "tenant_id": 999,
+    "production_changed": false,
+    "application_deployed": false,
+    "credentials_changed": false,
+    "financial_execution": false,
+    "review": {
+      "tenant_id": 999,
+      "organization": {
+        "id": "org_purepay_demo",
+        "name": "Meridian Holdings LLC"
+      },
+      "capabilities": [
+        "read:coreflux",
+        "read:payroll",
+        "read:people_setup",
+        "write:assignment_inputs",
+        "write:coreflux",
+        "write:payroll_authority",
+        "write:payroll_inputs",
+        "write:people_inputs"
+      ],
+      "verified": true,
+      "contract_version": "2026-10-20.1",
+      "link_contract_version": "2026-10-21.1",
+      "payroll_input_contract_version": "2026-10-21.1",
+      "payroll_authority_contract_version": "2026-10-21.1",
+      "people_input_contract_version": "2026-10-22.1",
+      "assignment_input_contract_version": "2026-10-25.1",
+      "people_setup_contract_version": "2026-10-22.1",
+      "payroll_observation_contract_version": "2026-10-25.1",
+      "customer_input_contract_version": "2026-10-26.1"
+    },
+    "local_writes": false,
+    "provider_record_writes": false,
+    "passed": true
+  },
+  "credential_preflight": {
+    "passed": true,
+    "connection_id": 1,
+    "current_revision": 4,
+    "current_last4": "SpQA",
+    "company_review_verified": true,
+    "mutations": false
+  },
+  "customer_acceptance_executed": false,
+  "company_reconfirmed": false,
+  "credentials_changed": false,
+  "local_business_data_writes": false,
+  "provider_record_writes": false,
+  "financial_execution": false,
+  "production_changed": false,
+  "preview_attempts": [
+    {
+      "version": "v1",
+      "status": "restored",
+      "started_at": "2026-10-26T21:10:43.000167+00:00",
+      "restored_at": "2026-10-26T21:11:00.609654+00:00",
+      "source_paths_restored": 1012,
+      "source_config_git_verified": true,
+      "receipt_sha256": "8b08fc06d429645f2051987ed39f0f5f3ed732159d80e3d6c379c6ac726789bc",
+      "health": null
+    },
+    {
+      "version": "v2",
+      "status": "restored",
+      "started_at": "2026-10-26T21:12:49.665427+00:00",
+      "restored_at": "2026-10-26T21:13:06.963846+00:00",
+      "source_paths_restored": 1012,
+      "source_config_git_verified": true,
+      "receipt_sha256": "db5a6783ed705be78d1dfffd4b57674cc174f8f5883c1d28df420dce5c6fecf0",
+      "health": null
+    },
+    {
+      "version": "v3",
+      "status": "restored",
+      "started_at": "2026-10-26T21:14:17.318237+00:00",
+      "restored_at": "2026-10-26T21:16:19.888590+00:00",
+      "source_paths_restored": 1012,
+      "source_config_git_verified": true,
+      "receipt_sha256": "dd143e698e1adaaa102636add38ba55ba9df03fed61c45fdd71a99aa780f55ee",
+      "health": {
+        "message": "Pure//Pay API",
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      }
+    }
+  ],
+  "preview_helper_corrections": [
+    "v1 restored automatically after server-side public HTTPS returned 403 with bounded body error code: 1010",
+    "v2 restored automatically after an immediate local health GET raced backend startup",
+    "v3 waited up to 30 seconds for actual local health, then separately proved public review health in Chrome; exact source and native reads passed"
+  ],
+  "gateway_auth_review_binding_changed": false,
+  "restored_services": {
+    "backend": "STOPPED",
+    "frontend": "RUNNING",
+    "webhook-crond": "RUNNING"
+  },
+  "preserved_cache_symlink": true,
+  "receipt_archive_sha256": "f2fb33b86a0ea9fb5bcfda9ec7aad363cceff8782fd2e4d2c121c149a89a5bd9",
+  "human_handoff_preparation": {
+    "local_form_tests_passed": 12,
+    "all_credentials_fictional_in_tests": true,
+    "ssh_mocked_in_tests": true,
+    "local_form_started": false,
+    "replacement_created": false,
+    "permission_approval_pending": true
+  },
+  "next_requirements": [
+    "Obtain action-time approval for write:customer_inputs on the isolated Meridian demo connection",
+    "Coordinate a new bounded preview reservation when the human is ready",
+    "Human creates and submits the replacement demo key; preserve existing eight capabilities",
+    "Run native fictional CL-2 customer acceptance with failure recovery, reconciliation, replay, and CL-1 preservation",
+    "Complete actual Thunderhawk setup and acceptance; this synthetic proof does not establish production readiness"
+  ]
+}

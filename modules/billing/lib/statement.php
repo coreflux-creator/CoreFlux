@@ -3,7 +3,7 @@
  * AR Statement library — renders a per-client open-invoice statement
  * and resolves which AR contacts it should be emailed to.
  *
- * Reuses billing_client_contacts (ar_primary_email + ar_escalation_email)
+ * Reuses entity-owned billing_client_contacts (ar_primary_email + ar_escalation_email)
  * so the same roster used by the dunning engine doubles as the statement
  * distribution list — no second source of truth.
  *
@@ -14,6 +14,27 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/billing.php';
 require_once __DIR__ . '/../../../core/tenant_branding.php';
+require_once __DIR__ . '/../../../core/accounting/books_health_metrics.php';
+require_once __DIR__ . '/entity_delivery.php';
+
+function billingStatementEntity(int $tenantId, mixed $requested): array
+{
+    if ($requested === null || $requested === '' || $requested === 'all') {
+        throw new InvalidArgumentException('Select one legal entity before preparing a customer statement.');
+    }
+    $entityId = booksHealthResolveEntity(getDB(), $tenantId, $requested);
+    $query = getDB()->prepare('SELECT id, legal_name FROM accounting_entities WHERE tenant_id = :t AND id = :e');
+    $query->execute(['t' => $tenantId, 'e' => $entityId]);
+    $entity = $query->fetch(\PDO::FETCH_ASSOC);
+    if (!$entity) throw new OutOfBoundsException('Legal entity not found.');
+    return $entity;
+}
+
+function billingStatementIdempotencyKey(int $tenantId, int $entityId, string $clientName, string $sentDate): string
+{
+    $slug = substr(trim(preg_replace('/[^a-z0-9]+/', '-', strtolower($clientName)) ?? '', '-'), 0, 48) ?: 'client';
+    return "statement-{$tenantId}-{$entityId}-{$slug}-" . substr(hash('sha256', $clientName), 0, 12) . "-{$sentDate}";
+}
 
 /**
  * Pull every open invoice for $clientName, oldest first, with the
@@ -21,20 +42,15 @@ require_once __DIR__ . '/../../../core/tenant_branding.php';
  *
  * @return array<int,array<string,mixed>>
  */
-function billingStatementOpenInvoices(int $tenantId, string $clientName, string $asOf): array
+function billingStatementOpenInvoices(int $tenantId, string $clientName, string $asOf, ?int $entityId = null): array
 {
-    $pdo = getDB();
-    $st  = $pdo->prepare(
-        'SELECT id, invoice_number, issue_date, due_date, amount_due, total, currency,
-                GREATEST(0, DATEDIFF(:asof, due_date)) AS days_overdue
-           FROM billing_invoices
-          WHERE tenant_id   = :tid
-            AND client_name = :cn
-            AND status IN ("sent","partially_paid","approved","overdue")
-            AND amount_due  > 0
-          ORDER BY due_date ASC, id ASC'
+    [$sourceSql, $params] = billingOpenInvoiceAsOfSource($tenantId, $asOf, $entityId, $clientName);
+    $st = getDB()->prepare(
+        'SELECT aged.*, GREATEST(0, DATEDIFF(:asof, aged.due_date)) AS days_overdue
+           FROM (' . $sourceSql . ') aged
+          ORDER BY aged.due_date ASC, aged.id ASC'
     );
-    $st->execute(['tid' => $tenantId, 'cn' => $clientName, 'asof' => $asOf]);
+    $st->execute($params + ['asof' => $asOf]);
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
@@ -70,16 +86,10 @@ function billingStatementBucket(array $invoices): array
  *
  * @return array{to: ?string, cc: array<int,string>, reason: string}
  */
-function billingStatementResolveRecipients(int $tenantId, string $clientName): array
+function billingStatementResolveRecipients(int $tenantId, int $entityId, string $clientName): array
 {
     try {
-        $st = getDB()->prepare(
-            'SELECT ar_primary_email, ar_escalation_email
-               FROM billing_client_contacts
-              WHERE tenant_id = :t AND client_name = :c LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'c' => $clientName]);
-        $row = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $row = billingClientContactForEntity($tenantId, $entityId, $clientName);
     } catch (\Throwable $_) { $row = null; }
 
     $primary = (!empty($row['ar_primary_email']) && filter_var($row['ar_primary_email'], FILTER_VALIDATE_EMAIL))
@@ -145,7 +155,7 @@ function billingStatementRenderEmail(string $tenantName, string $clientName, arr
            . '<thead><tr style="background:#f1f5f9"><th style="text-align:left;padding:6px 8px">Invoice</th><th style="text-align:left;padding:6px 8px">Due</th><th style="text-align:right;padding:6px 8px">Age</th><th style="text-align:right;padding:6px 8px">Amount</th></tr></thead>'
            . '<tbody>' . $rowsHtml . '</tbody>'
            . '</table>'
-           . '<p style="margin-top:24px;color:#64748b;font-size:13px">Reply to this email if any invoice on this statement is in dispute or has been paid recently and you need it reconciled.</p>'
+           . '<p style="margin-top:24px;color:#64748b;font-size:13px">Please contact the accounts receivable team if any invoice is in dispute or has been paid recently.</p>'
            . cf_branding_footer_html($branding, $tenantName)
            . '</div>';
 

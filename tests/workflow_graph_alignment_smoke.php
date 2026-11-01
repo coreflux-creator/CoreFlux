@@ -122,6 +122,7 @@ $a('payroll preflight maps employee to shared person before placement-rate check
     str_contains($payrollPreflight, 'employee_user_id')
     && str_contains($payrollPreflight, 'LOWER(email_primary)')
     && str_contains($payrollPreflight, 'pl.person_id IN (')
-    && str_contains($payrollPreflight, 'pr.tenant_id = :placements_tid'));
+    && str_contains($payrollPreflight, 'pr.tenant_id = :placements_rate_tid')
+    && str_contains($payrollPreflight, 'pl.tenant_id = :placements_record_tid'));
 
 exit($fail ? 1 : 0);

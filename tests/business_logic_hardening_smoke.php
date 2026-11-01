@@ -70,9 +70,9 @@ $assert('lineage writes are idempotent',
 
 echo "\nFinancial outputs and transactions\n";
 $cash = $read('core/ai/cash_forecast.php');
-$assert('cash forecast reads posted bank GL balances',
+$assert('cash forecast reads posted and reversed-original bank GL balances',
     str_contains($cash, 'accounting_journal_entry_lines')
-    && str_contains($cash, "j.status = 'posted'")
+    && str_contains($cash, "j.status IN ('posted','reversed')")
     && !str_contains($cash, 'last_known_balance'));
 $assert('cash forecast uses live AR and payroll schema',
     str_contains($cash, 'SUM(amount_due)')
@@ -160,7 +160,8 @@ foreach ([
     'event_registry_coverage', 'event_lineage', 'timesheet_entry_ownership',
     'timesheet_header_totals', 'placement_person_ownership',
     'billing_invoice_totals', 'ap_bill_totals', 'payroll_run_totals',
-    'bank_match_integrity', 'reconciliation_balance_integrity',
+    'bank_account_mapping_integrity', 'bank_match_integrity',
+    'reconciliation_balance_integrity',
     'active_placement_rates', 'active_placement_receivables',
     'active_placement_payable_parties', 'active_contractor_vendor_linkage',
     'active_placement_dimension_coverage',

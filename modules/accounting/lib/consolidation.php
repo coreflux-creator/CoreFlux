@@ -178,17 +178,15 @@ function consolidateTrialBalance(int $tenantId, array $entityIds, string $asOf):
     $pdo = getDB();
     $stmt = $pdo->prepare(
         'SELECT a.code, a.name, a.account_type, a.normal_side,
-                COALESCE(SUM(l.debit), 0)  AS debit,
-                COALESCE(SUM(l.credit), 0) AS credit
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.debit ELSE 0 END), 0)  AS debit,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.credit ELSE 0 END), 0) AS credit
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
+           AND je.tenant_id = :t_je AND je.status IN ("posted","reversed")
+           AND je.posting_date <= :asof
+           AND je.entity_id IN (' . $in . ')
          WHERE a.tenant_id = :t_a
-           AND (je.id IS NULL OR (
-                je.tenant_id = :t_je AND je.status IN ("posted","reversed")
-                AND je.posting_date <= :asof
-                AND je.entity_id IN (' . $in . ')
-           ))
          GROUP BY a.id
          ORDER BY a.code'
     );
@@ -580,18 +578,16 @@ function consolidateIncomeStatement(int $tenantId, array $entityIds, string $fro
 
     $stmt = $pdo->prepare(
         'SELECT a.code, a.name, a.account_type, a.normal_side,
-                COALESCE(SUM(l.debit),  0) AS debit,
-                COALESCE(SUM(l.credit), 0) AS credit
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.debit ELSE 0 END), 0) AS debit,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN l.credit ELSE 0 END), 0) AS credit
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
+           AND je.tenant_id = :t_je AND je.status IN ("posted","reversed")
+           AND je.posting_date >= :f AND je.posting_date <= :tx
+           AND je.entity_id IN (' . $in . ')
          WHERE a.tenant_id = :t_a
            AND a.account_type IN ("revenue","expense")
-           AND (je.id IS NULL OR (
-                je.tenant_id = :t_je AND je.status IN ("posted","reversed")
-                AND je.posting_date >= :f AND je.posting_date <= :tx
-                AND je.entity_id IN (' . $in . ')
-           ))
          GROUP BY a.id'
     );
     $stmt->execute(['t_a' => $tenantId, 't_je' => $tenantId, 'f' => $from, 'tx' => $to]);

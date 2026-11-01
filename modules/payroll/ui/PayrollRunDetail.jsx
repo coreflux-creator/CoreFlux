@@ -156,7 +156,7 @@ export default function PayrollRunDetail() {
               </button>
               <button
                 className="btn btn--primary"
-                onClick={approve} disabled={busy === 'approve' || lines.length === 0 || preflightBlocksRun}
+                onClick={approve} disabled={busy === 'approve' || lines.length === 0}
                 data-testid="payroll-run-approve"
               >
                 Approve run
@@ -241,8 +241,8 @@ export default function PayrollRunDetail() {
         </div>
       </div>
 
-      {run.pay_period_id && (
-        <PayrollPreflightCard periodId={run.pay_period_id} onChange={setPreflightSummary} />
+      {run.status === 'draft' && run.pay_period_id && (
+        <PayrollPreflightCard periodId={run.pay_period_id} runId={run.id} onChange={setPreflightSummary} />
       )}
 
       <PayrollAccountingCard
@@ -798,7 +798,7 @@ function GustoSyncPanel({ run, reload, runId }) {
 }
 
 
-function PayrollPreflightCard({ periodId, onChange }) {
+function PayrollPreflightCard({ periodId, runId, onChange }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState(null);
@@ -808,7 +808,7 @@ function PayrollPreflightCard({ periodId, onChange }) {
   useEffect(() => {
     let cancelled = false;
     setBusy(true); setErr(null);
-    api.get(`/api/v1/payroll/preflight?period_id=${periodId}`)
+    api.get(`/api/v1/payroll/preflight?period_id=${periodId}&run_id=${runId}`)
       .then((d) => {
         if (!cancelled) {
           setData(d);
@@ -823,7 +823,7 @@ function PayrollPreflightCard({ periodId, onChange }) {
       })
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
-  }, [periodId, refreshToken, onChange]);
+  }, [periodId, runId, refreshToken, onChange]);
 
   if (busy && !data) {
     return <p className="muted" data-testid="payroll-preflight-loading">Running preflight checks…</p>;
@@ -847,8 +847,10 @@ function PayrollPreflightCard({ periodId, onChange }) {
     ? `${summary.total_w2_employees} employees ready to run`
     : (summary.total_w2_employees === 0
         ? 'No employees are enrolled in this pay period'
-        : summary.blockers > 0
-        ? `${summary.blockers} blocker${summary.blockers === 1 ? '' : 's'} across ${employees.filter((e) => !e.ready).length} employee${employees.filter((e) => !e.ready).length === 1 ? '' : 's'}`
+        : !summary.approval?.ready
+        ? 'Payroll reviewer setup needed'
+        : summary.employee_blockers > 0
+        ? `${summary.employee_blockers} blocker${summary.employee_blockers === 1 ? '' : 's'} across ${employees.filter((e) => !e.ready).length} employee${employees.filter((e) => !e.ready).length === 1 ? '' : 's'}`
         : `${summary.warnings} warning${summary.warnings === 1 ? '' : 's'} — review before submit`);
 
   return (
@@ -892,6 +894,12 @@ function PayrollPreflightCard({ periodId, onChange }) {
       </header>
       {open && (
         <div style={{ marginTop: 12 }}>
+          {summary.approval && (
+            <p className={summary.approval.ready ? 'muted' : 'error'} data-testid="payroll-preflight-approval">
+              {summary.approval.message}{' '}
+              {!summary.approval.ready && <Link to="/modules/payroll/settings">Open payroll settings</Link>}
+            </p>
+          )}
           {employees.length === 0 && (
             <p className="muted" data-testid="payroll-preflight-empty">
               No W2 employees enrolled on this schedule. Enable payroll profiles

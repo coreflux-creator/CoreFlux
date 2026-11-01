@@ -2,8 +2,7 @@
 /**
  * Phase 1a — Event Registry seed.
  *
- * 51 canonical events for v1 (per /app/memory/EVENT_REGISTRY.md, user-
- * approved 2026-02-14).
+ * Canonical v1 events, including later CoreAccounting source events.
  *
  * Run via the seed runner or manually:
  *   php core/seeds/event_registry_seed.php
@@ -54,6 +53,36 @@ function eventRegistrySeedRows(): array {
             ['client_company_id','reference','invoice_ids'],
             'customer', ['accounting','treasury'], [],
             'Dr cash / Cr AR (or unapplied cash if not yet matched).'],
+        ['billing.processor_payout.settled', 'ar',
+            'Captured processor receipts settled to a bank account net of reviewed fees.',
+            $req(['payout_id','bank_line_id','gross_amount','fee_amount','net_amount','currency','lines']),
+            ['payment_ids','source_ref_type','source_ref_id','memo'],
+            'processor', ['accounting','treasury'], ['ar.payment.received'],
+            'Dr bank and processor fee expense / Cr processor clearing.'],
+        ['billing.manual_receipt.posted', 'ar',
+            'Manual customer receipt posted and allocated or held as a deposit.',
+            $req(['payment_id','amount','currency','lines','source_ref_type','source_ref_id','memo']),
+            ['bank_account_id','client_name','invoice_ids','unapplied_amount'],
+            'customer', ['accounting','treasury'], [],
+            'Dr bank / Cr receivables and customer deposits.'],
+        ['billing.customer_deposit.applied', 'ar',
+            'Posted customer deposit applied to an open invoice.',
+            $req(['payment_id','invoice_id','amount','currency','lines','source_ref_type','source_ref_id','memo']),
+            ['request_key'],
+            'customer', ['accounting'], ['billing.manual_receipt.posted'],
+            'Dr customer deposits / Cr receivables.'],
+        ['billing.customer_deposit.refunded', 'ar',
+            'Recorded cash refund of a posted customer deposit.',
+            $req(['payment_id','bank_account_id','amount','currency','lines','source_ref_type','source_ref_id','memo']),
+            ['request_key','reference'],
+            'customer', ['accounting','treasury'], ['billing.manual_receipt.posted'],
+            'Dr customer deposits / Cr bank.'],
+        ['coreone.journal.posted', 'accounting',
+            'External CoreOne general journal posted through the shared ledger.',
+            $req(['external_journal_id','currency','memo','lines']),
+            [],
+            'system', ['accounting'], [],
+            'Balanced general journal; AR, AP and other protected controls are not accepted by the v1 API.'],
         ['ar.cash.applied', 'ar',
             'Customer payment applied to a specific invoice.',
             $req(['payment_id','application_id','amount','invoice_id']),

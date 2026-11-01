@@ -1,0 +1,338 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "CoreFlux private document storage. Creates an S3 bucket, KMS key, and unattached runtime access policy. Does not create credentials or change Core settings.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "pilot",
+      "AllowedValues": [
+        "pilot",
+        "production"
+      ],
+      "Description": "Deploy separate stacks for isolated pilot and production storage."
+    },
+    "AllowedOrigins": {
+      "Type": "CommaDelimitedList",
+      "Default": "https://corefluxapp.com,https://www.corefluxapp.com",
+      "AllowedPattern": "https://[A-Za-z0-9.-]+(:[0-9]+)?",
+      "Description": "Exact HTTPS browser origins, without paths, trailing slashes, or wildcards. Include the pilot origin if different."
+    }
+  },
+  "Resources": {
+    "DocumentsKey": {
+      "Type": "AWS::KMS::Key",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": {
+          "Fn::Sub": "CoreFlux ${Environment} private documents (${AWS::StackName})"
+        },
+        "Enabled": true,
+        "EnableKeyRotation": true,
+        "KeySpec": "SYMMETRIC_DEFAULT",
+        "KeyUsage": "ENCRYPT_DECRYPT",
+        "PendingWindowInDays": 30,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EnableOwningAccountIAMPermissions",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": "kms:*",
+              "Resource": "*"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "CoreFlux"
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          }
+        ]
+      }
+    },
+    "DocumentsKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "AliasName": {
+          "Fn::Sub": "alias/coreflux-${AWS::StackName}"
+        },
+        "TargetKeyId": {
+          "Ref": "DocumentsKey"
+        }
+      }
+    },
+    "DocumentsBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "IgnorePublicAcls": true,
+          "BlockPublicPolicy": true,
+          "RestrictPublicBuckets": true
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "ObjectLockEnabled": true,
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "DocumentsKey",
+                    "Arn"
+                  ]
+                }
+              },
+              "BucketKeyEnabled": true
+            }
+          ]
+        },
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedOrigins": {
+                "Ref": "AllowedOrigins"
+              },
+              "AllowedMethods": [
+                "GET",
+                "HEAD",
+                "POST",
+                "PUT"
+              ],
+              "AllowedHeaders": [
+                "*"
+              ],
+              "ExposedHeaders": [
+                "ETag",
+                "x-amz-version-id"
+              ],
+              "MaxAge": 300
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": "CoreFlux"
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          }
+        ]
+      }
+    },
+    "DocumentsBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Bucket": {
+          "Ref": "DocumentsBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "DocumentsBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${DocumentsBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Sid": "RequireExplicitKMSEncryption",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:PutObject",
+              "Resource": {
+                "Fn::Sub": "${DocumentsBucket.Arn}/*"
+              },
+              "Condition": {
+                "StringNotEquals": {
+                  "s3:x-amz-server-side-encryption": "aws:kms"
+                }
+              }
+            },
+            {
+              "Sid": "RequireThisKMSKeyArn",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:PutObject",
+              "Resource": {
+                "Fn::Sub": "${DocumentsBucket.Arn}/*"
+              },
+              "Condition": {
+                "StringNotEquals": {
+                  "s3:x-amz-server-side-encryption-aws-kms-key-id": {
+                    "Fn::GetAtt": [
+                      "DocumentsKey",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "RuntimeAccessPolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": {
+          "Fn::Sub": "CoreFlux ${Environment} document access; attach only to the corresponding server identity."
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "BucketMetadataAndExistenceChecks",
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetBucketLocation",
+                "s3:ListBucket"
+              ],
+              "Resource": {
+                "Fn::GetAtt": [
+                  "DocumentsBucket",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Sid": "DocumentObjects",
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+                "s3:DeleteObject",
+                "s3:PutObjectTagging",
+                "s3:GetObjectTagging"
+              ],
+              "Resource": {
+                "Fn::Sub": "${DocumentsBucket.Arn}/*"
+              }
+            },
+            {
+              "Sid": "DocumentEncryptionThroughS3",
+              "Effect": "Allow",
+              "Action": [
+                "kms:GenerateDataKey",
+                "kms:Decrypt"
+              ],
+              "Resource": {
+                "Fn::GetAtt": [
+                  "DocumentsKey",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "kms:ViaService": {
+                    "Fn::Sub": "s3.${AWS::Region}.${AWS::URLSuffix}"
+                  },
+                  "kms:CallerAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                },
+                "ArnLike": {
+                  "kms:EncryptionContext:aws:s3:arn": [
+                    {
+                      "Fn::GetAtt": [
+                        "DocumentsBucket",
+                        "Arn"
+                      ]
+                    },
+                    {
+                      "Fn::Sub": "${DocumentsBucket.Arn}/*"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "StorageBucket": {
+      "Description": "STORAGE_S3_BUCKET",
+      "Value": {
+        "Ref": "DocumentsBucket"
+      }
+    },
+    "StorageRegion": {
+      "Description": "STORAGE_S3_REGION",
+      "Value": {
+        "Ref": "AWS::Region"
+      }
+    },
+    "StorageKMSKeyArn": {
+      "Description": "STORAGE_S3_KMS_KEY_ID; use the full ARN, not an alias or key ID.",
+      "Value": {
+        "Fn::GetAtt": [
+          "DocumentsKey",
+          "Arn"
+        ]
+      }
+    },
+    "RuntimePolicyArn": {
+      "Description": "Unattached policy for the corresponding Core server identity. No access keys are created.",
+      "Value": {
+        "Ref": "RuntimeAccessPolicy"
+      }
+    },
+    "Environment": {
+      "Description": "Keep pilot credentials and resources separate from production.",
+      "Value": {
+        "Ref": "Environment"
+      }
+    }
+  }
+}

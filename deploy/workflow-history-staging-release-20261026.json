@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "scope": "Isolated full-Core staging; production read-only inspection only",
+  "installed_revision": "6613a8e42eedd52b87fb83676be61cb4dbeee0e0",
+  "ci": {
+    "run_id": 40407295457,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40407295457",
+    "conclusion": "success",
+    "jobs_passed": 9
+  },
+  "deployment": {
+    "run_id": 40408066556,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40408066556",
+    "conclusion": "success",
+    "changed_files": 38,
+    "applied_migrations": [
+      "182_workflow_pending_subject_identity.sql"
+    ],
+    "accounting_schema": "ready",
+    "payroll_source_guards": "ready",
+    "payroll_authority_enabled": false,
+    "standard_staging_acceptance": "passed",
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/6613a8e42eedd52b87fb83676be61cb4dbeee0e0-20261026215541"
+  },
+  "workflow_preservation": {
+    "existing_workflow_rows_preserved": true,
+    "existing_workflow_counts": {
+      "workflow_definitions": 4,
+      "workflow_instances": 508,
+      "workflow_step_actions": 507,
+      "workflow_runs": 0,
+      "workflow_checkpoints": 0,
+      "workflow_approvals": 0
+    },
+    "new_acceptance_reviews": 5,
+    "new_acceptance_actions": 5,
+    "new_rows_tenant": 999,
+    "original_canonical_rows_preserved": 328,
+    "legacy_rows_preserved": 5,
+    "only_added_migration": [
+      "182_workflow_pending_subject_identity.sql"
+    ],
+    "business_data_changed_by_inspection": false
+  },
+  "production_preflight": {
+    "run_id": 40407584081,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40407584081",
+    "conclusion": "success",
+    "candidate_commit": "6613a8e42eedd52b87fb83676be61cb4dbeee0e0",
+    "pending_migrations": 76,
+    "source_review_ready": true,
+    "plan_sha256": "7cf77d3a0256bb94c6b053b5f8dd98a3d7c0c76171d8c1941bd483011fdd1d50",
+    "activation_authorized": false,
+    "source_divergence_total": 103,
+    "test_paths": 94,
+    "runtime_paths": [
+      "core/config.php",
+      "core/migrations/007_subtenant_provisioning.sql",
+      "core/migrations/041_csv_mapping_presets.sql",
+      "core/migrations/043_simulation_harness.sql",
+      "modules/people/lib/companies.php",
+      "modules/placements/api/economics.php",
+      "modules/placements/api/placements.php",
+      "modules/placements/lib/economics.php",
+      "session.php"
+    ],
+    "runtime_source_matches_prior_review": true,
+    "runtime_git_blobs": {
+      "core/config.php": "296510537cedf7c66433479e922cd636023be9de",
+      "core/migrations/007_subtenant_provisioning.sql": "9d2477212bf669aec2d5be613ede9e22a4517dbb",
+      "core/migrations/041_csv_mapping_presets.sql": "8f8a853bc225dd2a96391c0fb6d0e7c16a2e4bdc",
+      "core/migrations/043_simulation_harness.sql": "09515e5b299f867e6b120009a5e3982690e082ca",
+      "modules/people/lib/companies.php": "90967191c03f82a2c8843834110db37ca2d5d8fa",
+      "modules/placements/api/economics.php": "4775d5ba7aba0ce8caec445fcf756b0358f09713",
+      "modules/placements/api/placements.php": "5bc84c71e1b99b04dcdf6944f9c6423cbc2b6824",
+      "modules/placements/lib/economics.php": "0757876c1b462785b82fee0c07d9df26f167174e",
+      "session.php": "098d9312e390785535cf3ba5ec8503507041e8e1"
+    }
+  },
+  "artifacts": {
+    "ci.json": "c7df52fcc160393fa4b8bd63a818bcd7d6f0f7edf22889ec63bdc7b586a5126d",
+    "deployment.json": "cf3efbd860d3498b0f7519b1970841a8f3e17a3844b2f8b4eb54f2819635b633",
+    "staging-before.json": "11f956dba3940730580c9a7b7837eba5f7fc62ce6985594781a3cb15a5729be3",
+    "staging-after-detail.json": "7b01196f3fc19678a090e4a3960c50b75ec9856d64f5dc371d78ba13e8cffe61",
+    "staging-preservation-result.json": "f94996abbeb750ddb42f5fd195679c106c61a1ea2a4447883d43b96af96a4fb7",
+    "staging-deployment-workflow.log": "6f59f2a60be772802fe0d65b1d0d2f8b8c87e0920acb75d54908b6a39826a8a0",
+    "full-package-production-preflight.json": "56819ee39336c1cca5b14b7cb2cdb648dec23b0316e696ebb77a5bacdd9ef82c",
+    "production-source-fingerprints.json": "f548786fe791f0e6b71ecad262c1f83077fdf4815136fe0d788963ba18f7b56a"
+  },
+  "production_runtime_changed": false,
+  "production_migrations_run": false,
+  "real_payroll_or_payments_executed": false,
+  "arabella_changed": false,
+  "remaining": [
+    "Demo customer capability and human credential setup, then hosted exchange/reconciliation acceptance.",
+    "Actual Thunderhawk field evidence, normal commercial approval and operational round trip.",
+    "Supported Cloudways owner/scheduler procedure, populated-data and recovery proof, and explicit production cutover authorization."
+  ]
+}

@@ -8,6 +8,27 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/classification.php';
+require_once __DIR__ . '/dates.php';
+require_once __DIR__ . '/assignment_parties.php';
+
+/** JobDiva uses zero for an absent subcontract company; other provider IDs stay opaque. */
+function jobdivaAssignmentCompanyId(mixed $value): string
+{
+    if (!is_scalar($value)) return '';
+    $id = trim((string) $value);
+    if (strtolower($id) === 'null' || preg_match('/^[+-]?0+(?:\.0+)?$/D', $id)) return '';
+    return $id;
+}
+
+/** Only authoritative C2C evidence may create or resolve a subcontract payee. */
+function jobdivaAssignmentSubcontractCompanyId(array $payload): string
+{
+    $review = jobdivaClassificationFromPayload($payload);
+    if ($review['status'] !== 'resolved' || $review['engagement_type'] !== 'c2c') return '';
+    return jobdivaAssignmentCompanyId($payload['_jd_contract']['corporation_id'] ?? null);
+}
+
 function jobdivaAssignmentContractNormaliseKey(string $value): string
 {
     $value = str_replace('%', ' percent ', $value);
@@ -167,6 +188,22 @@ function jobdivaAssignmentContractSectionRows(array $records, string $section): 
     return $rows;
 }
 
+/** A division label is a reporting dimension, never a legal employer or WC class. */
+function jobdivaAssignmentContractJobDivision(array $sourceRows): string
+{
+    $labels = [];
+    foreach (jobdivaAssignmentContractSectionRows($sourceRows, 'JOB') as $job) {
+        foreach (['DIVISIONNAME', 'DIVISION'] as $key) {
+            $value = jobdivaAssignmentContractShallowPick($job, [$key]);
+            if (!is_string($value)) continue;
+            $label = trim($value);
+            if (in_array(strtolower($label), ['', 'null', '-', '--', 'n/a'], true) || is_numeric($label)) continue;
+            $labels[strtolower($label)] = $label;
+        }
+    }
+    return count($labels) === 1 ? (string) reset($labels) : '';
+}
+
 function jobdivaAssignmentContractAmount(mixed $raw): ?float
 {
     if ($raw === null) return null;
@@ -246,21 +283,8 @@ function jobdivaAssignmentContractSnapshotIsStronglyActive(array $payload): bool
 
 function jobdivaAssignmentContractEngagement(string $category, ?bool $w2, ?bool $c2c): string
 {
-    $value = strtolower(trim($category));
-    $value = preg_replace('/[\s_\-\/]+/', ' ', $value) ?: $value;
-    if ($value !== '') {
-        if ($value === 'ref' || str_contains($value, 'referral')) return 'referral';
-        if (str_contains($value, 'subcontract') || str_contains($value, 'corp to corp')
-            || str_contains($value, 'c2c')) return 'c2c';
-        if (str_contains($value, 'independent contractor') || str_contains($value, '1099')) return '1099';
-        if (str_contains($value, 'hourly employee') || str_contains($value, 'salaried employee')
-            || $value === 'employee' || str_contains($value, 'w2')) return 'w2';
-        if (str_contains($value, 'temp to perm') || str_contains($value, 'contract to hire')) return 'temp_to_perm';
-        if (str_contains($value, 'direct hire') || str_contains($value, 'direct placement')) return 'direct_hire';
-    }
-    if ($c2c === true) return 'c2c';
-    if ($w2 === true) return 'w2';
-    return '';
+    // These legacy flags describe cost profiles, not an employment category.
+    return jobdivaClassificationValue($category, true) ?? '';
 }
 
 function jobdivaAssignmentContractCadence(mixed $raw): ?string
@@ -269,8 +293,13 @@ function jobdivaAssignmentContractCadence(mixed $raw): ?string
     if ($value === '') return null;
     $value = str_replace(['_', '-'], ' ', $value);
     $value = preg_replace('/\s+/', ' ', $value) ?: $value;
-    if (str_contains($value, 'semi monthly') || str_contains($value, 'twice a month')) return 'semimonthly';
-    if (str_contains($value, 'bi weekly') || str_contains($value, 'every two week')) return 'biweekly';
+    if (str_contains($value, 'semimonthly') || str_contains($value, 'semi monthly')
+        || str_contains($value, 'twice a month')) return 'semimonthly';
+    if (str_contains($value, 'biweekly') || str_contains($value, 'bi weekly')
+        || str_contains($value, 'every two week')) return 'biweekly';
+    // "Bimonthly" can mean twice a month or every two months. It must not
+    // become monthly just because the word contains the monthly token.
+    if (preg_match('/\bbi\s*monthly\b/', $value)) return null;
     if (str_contains($value, 'weekly')) return 'weekly';
     if (str_contains($value, 'monthly')) return 'monthly';
     if (str_contains($value, 'adhoc') || str_contains($value, 'ad hoc')
@@ -377,26 +406,35 @@ function jobdivaAssignmentContractRowsForStart(
         // Read both shapes before deciding that a financial record belongs
         // to this Start.
         $entries = jobdivaAssignmentContractEntries([$row]);
-        $rowPick = static function (array $labels) use ($row, $entries): string {
-            $value = jobdivaAssignmentContractShallowPick($row, $labels);
-            if (jobdivaAssignmentContractHasValue($value)) return trim((string) $value);
-            return trim((string) (jobdivaAssignmentContractPick($entries, $labels) ?? ''));
+        // Identity aliases must agree across the compound record. A shallow
+        // match cannot hide another worker or Start in BILLING/SALARY.
+        $identityValues = static function (array $labels) use ($entries): array {
+            $keys = array_map('jobdivaAssignmentContractNormaliseKey', $labels);
+            $values = [];
+            foreach ($entries as $entry) {
+                if (!in_array($entry['norm_key'], $keys, true)) continue;
+                $value = trim((string) $entry['value']);
+                if ($value !== '') $values[] = $value;
+            }
+            return array_values(array_unique($values));
         };
-        $rowStartId = $rowPick([
+        $startIds = $identityValues([
             'Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId',
         ]);
+        $candidateIds = $identityValues([
+            'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
+        ]);
+        $jobIds = $identityValues(['Job ID', 'jobId', 'job_id']);
+        if (count($startIds) > 1 || count($candidateIds) > 1 || count($jobIds) > 1) continue;
+        $rowStartId = $startIds[0] ?? '';
         $explicitStartMatch = false;
         if ($expectedStartId !== '' && $rowStartId !== '') {
             if ($rowStartId !== $expectedStartId) continue;
             $explicitStartMatch = true;
         }
 
-        $rowCandidateId = $rowPick([
-            'Candidate ID', 'candidateId', 'candidate_id', 'Employee ID', 'employeeId', 'employee_id',
-        ]);
-        $rowJobId = $rowPick([
-            'Job ID', 'jobId', 'job_id',
-        ]);
+        $rowCandidateId = $candidateIds[0] ?? '';
+        $rowJobId = $jobIds[0] ?? '';
         $contextMatched = false;
         $contextComplete = true;
         foreach ([
@@ -431,6 +469,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
 {
     $expectedStartId = trim($expectedStartId);
     $matching = jobdivaAssignmentContractRowsForStart($rows, $fallback, $expectedStartId);
+    $sourceRows = $matching;
     // Never fall back to explicitly mismatched assignment rows. The source
     // Start remains useful for non-financial identity and lifecycle fields,
     // but a related employee/job row cannot provide rates or terms.
@@ -459,14 +498,23 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $salaryPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($salaryEntries, $labels);
     $billingCompanyPick = static fn(array $labels): mixed => jobdivaAssignmentContractPick($billingCompanyEntries, $labels);
     $startId = trim((string) ($pick(['Start ID', 'startId', 'start_id', 'Assignment ID', 'assignmentId']) ?? $expectedStartId));
-    $employmentCategory = trim((string) $pick([
+    $employmentCategory = trim((string) ($salaryPick([
         'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
-    ]));
+    ]) ?? $pick([
+        'Employment Category', 'employmentCategory', 'employment_category', 'Employee Category',
+    ])));
     $w2 = jobdivaAssignmentContractBool($pick(['W2', 'W-2', 'W2 Overheads', 'W2 Overhead']))
         || jobdivaAssignmentContractProfileSelected($entries, ['w2']);
     $c2c = jobdivaAssignmentContractBool($pick(['C2C', 'Corp To Corp', 'Crop To Crop', 'C2C Overheads', 'C2C Overhead']))
         || jobdivaAssignmentContractProfileSelected($entries, ['c2c', 'corp to corp', 'crop to crop']);
-    $engagement = jobdivaAssignmentContractEngagement($employmentCategory, $w2, $c2c);
+    $classificationReview = jobdivaClassificationReview($salaryEntries, 'assignment_salary');
+    if (!$classificationReview['has_evidence']) {
+        $classificationReview = jobdivaClassificationReview(jobdivaAssignmentContractEntries($sourceRows), 'assignment_detail');
+    }
+    if (!$classificationReview['has_evidence']) {
+        $classificationReview = jobdivaClassificationFromPayload($fallback);
+    }
+    $engagement = $classificationReview['engagement_type'] ?? '';
 
     $paymentFrequencyRaw = $salaryPick([
         'Payment Frequency', 'paymentFrequency', 'payment_frequency', 'Vendor Payment Frequency',
@@ -521,20 +569,24 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'Benefits Load %', 'Benefits Load Percent', 'benefitsLoadPct', 'benefits_load_pct',
     ]));
 
-    $billRate = jobdivaAssignmentContractAmount(
+    $billRateRaw = (
         $billingPick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate'])
         ?? $pick(['Bill Rate', 'billRate', 'bill_rate', 'Final Bill Rate'])
     );
-    $basePayRate = jobdivaAssignmentContractAmount(
+    $basePayRateRaw = (
         $salaryPick(['Salary', 'Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate'])
         ?? $pick(['Pay Rate', 'payRate', 'pay_rate', 'Agreed Pay Rate'])
     );
-    $vendorPayRate = jobdivaAssignmentContractAmount($salaryPick([
+    $vendorPayRateRaw = ($salaryPick([
         'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
     ]) ?? $pick([
         'Pay Rate to Vendor', 'payRateToVendor', 'pay_rate_to_vendor', 'Vendor Pay Rate',
     ]));
-    $payRate = in_array($engagement, ['c2c', '1099', 'referral'], true) && $vendorPayRate !== null && $vendorPayRate > 0
+    $billRate = jobdivaAssignmentContractAmount($billRateRaw);
+    $basePayRate = jobdivaAssignmentContractAmount($basePayRateRaw);
+    $vendorPayRate = jobdivaAssignmentContractAmount($vendorPayRateRaw);
+    $useVendorRate = in_array($engagement, ['c2c', '1099', 'referral'], true) && $vendorPayRate !== null && $vendorPayRate > 0;
+    $payRate = $useVendorRate
         ? $vendorPayRate
         : $basePayRate;
     $primarySales = trim((string) $pick([
@@ -583,7 +635,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     $salaryBlocked = !$salaryReady;
     $censusScope = strtolower(trim((string) ($fallback['__cf_jobdiva_census_scope'] ?? '')));
     $enforceSalaryLifecycle = true;
-    $endDate = function_exists('jobdivaNormaliseDate') ? jobdivaNormaliseDate($endDateRaw) : null;
+    $endDate = jobdivaNormaliseDate($endDateRaw);
     if ($closed === true
         || ($enforceSalaryLifecycle && $salaryClosed === true)
         || $actualEnd === true
@@ -592,7 +644,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
     } elseif ($salaryBlocked && $approved === true) {
         $placementStatus = 'draft';
     } elseif ($actualStart === true
-        && $approved !== false
+        && $approved === true
         && $salaryReady) {
         $placementStatus = 'active';
     } elseif ($approved === true
@@ -618,12 +670,17 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         ? round(($vmsBillRate - $netBillRate) / $vmsBillRate, 6)
         : null;
 
+    $corporationIdRaw = $pick([
+        'Corporation ID', 'corporationId', 'corporation_id', 'Vendor ID', 'vendorId',
+        'Subcontract Company ID', 'SUBCONTRACT_COMPANYID', 'subcontractCompanyId',
+    ]);
     $contract = [
         'contract_version' => 1,
         'source' => 'EmployeeAssignmentRecordsDetail',
         'start_id' => $startId,
         'employment_category' => $employmentCategory,
         'engagement_type' => $engagement,
+        'classification_review' => $classificationReview,
         'placement_status' => $placementStatus,
         'start_date' => $startDateRaw,
         'end_date' => $endDateRaw,
@@ -644,6 +701,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'branch' => trim((string) ($billingPick([
             'Branch', 'Branch Name', 'Office', 'Office Name', 'Business Unit', 'businessUnit',
         ]) ?? $pick(['Branch', 'Branch Name', 'Office', 'Office Name', 'Business Unit', 'businessUnit']) ?? '')),
+        'job_division' => jobdivaAssignmentContractJobDivision($sourceRows),
         'service_line' => trim((string) ($billingPick([
             'Service Line', 'serviceLine', 'Business Line', 'businessLine',
         ]) ?? $pick(['Service Line', 'serviceLine', 'Business Line', 'businessLine']) ?? '')),
@@ -676,6 +734,10 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         'c2c_flag' => $c2c,
         'bill_rate' => $billRate,
         'pay_rate' => $payRate,
+        'bill_rate_raw' => $billRateRaw,
+        'pay_rate_raw' => $useVendorRate ? $vendorPayRateRaw : $basePayRateRaw,
+        'bill_currency' => $billingPick(['Currency', 'currencyCode', 'currency_code', 'Bill Currency', 'BILL_CURRENCY']),
+        'pay_currency' => $salaryPick(['Currency', 'currencyCode', 'currency_code', 'Pay Currency', 'PAY_CURRENCY']),
         'bill_rate_unit' => $billingPick([
             'Bill Rate Unit', 'billRateUnit', 'bill_rate_unit', 'Bill Rate Per', 'BILL_RATE_PER',
         ]) ?? $pick(['Bill Rate Unit', 'billRateUnit', 'bill_rate_unit', 'Bill Rate Per', 'BILL_RATE_PER']),
@@ -704,10 +766,7 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
             'Corporation', 'Corporation Name', 'corporationName', 'corporation_name',
             'Subcontractor Company', 'Vendor Company',
         ])),
-        'corporation_id' => trim((string) $pick([
-            'Corporation ID', 'corporationId', 'corporation_id', 'Vendor ID', 'vendorId',
-            'Subcontract Company ID', 'SUBCONTRACT_COMPANYID', 'subcontractCompanyId',
-        ])),
+        'corporation_id' => jobdivaAssignmentCompanyId($corporationIdRaw),
         'payment_frequency' => $paymentFrequencyRaw,
         'vendor_pay_cycle' => jobdivaAssignmentContractCadence($paymentFrequencyRaw),
         'billing_frequency' => $billingFrequencyRaw,
@@ -795,5 +854,21 @@ function jobdivaAssignmentContractBuild(array $rows, array $fallback = [], strin
         }
         return $out;
     };
-    return $prune($contract);
+    $endClient=jobdivaAssignmentExplicitEndClient($sourceRows);
+    if ($endClient['status']==='missing') $endClient=jobdivaAssignmentEndClientEvidence($fallback);
+    if ($endClient['status']!=='missing') {
+        $contract['end_client_review']=['status'=>$endClient['status']];
+        if ($endClient['status']!=='ambiguous') {
+            $contract['end_client_company_id']=$endClient['external_id'];
+            $contract['end_client_company_name']=$endClient['name'];
+        }
+    }
+    $result = $prune($contract);
+    // Preserve an explicit no-company sentinel separately from a missing field.
+    if (jobdivaAssignmentContractHasValue($corporationIdRaw)) {
+        $result['corporation_id'] = jobdivaAssignmentCompanyId($corporationIdRaw);
+    }
+    // Missing/negative observations are part of the review evidence, not empty display fields.
+    $result['classification_review'] = $classificationReview;
+    return $result;
 }

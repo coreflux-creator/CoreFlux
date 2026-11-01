@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-10-25T20:59:20.596294+00:00",
+  "scope": "Placement company selection and create-on-the-fly; isolated Core staging only",
+  "installed_core_sha": "2a65068e02321eb29379c3dfb473b8ea367e78cf",
+  "ci": {
+    "run_id": 40232874257,
+    "conclusion": "success",
+    "headSha": "2a65068e02321eb29379c3dfb473b8ea367e78cf",
+    "jobs": [
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40232874257"
+  },
+  "staging_release": {
+    "run_id": 40233070598,
+    "conclusion": "success",
+    "headSha": "2a65068e02321eb29379c3dfb473b8ea367e78cf",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "conclusion": "success"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40233070598"
+  },
+  "problem": "Placement company selection inherited placement scope and new companies used the active or placement owner, disagreeing with the Companies picker.",
+  "result": "Native overview/bulk, chain, referral, CSV and manual economic-party paths resolve Companies independently. Optional explicit workspace arguments keep background callers unchanged. Company lookups do not redirect subsequent placement writes.",
+  "validation": {
+    "company_owner_database_checks_total": 40,
+    "new_placement_company_database_checks": 21,
+    "fully_migrated_disposable_database": true,
+    "company_placement_scope_cases": [
+      "shared/isolated",
+      "isolated/shared",
+      "shared/shared"
+    ],
+    "selected_company_and_foreign_directory_rejection": true,
+    "create_and_replay_one_company": true,
+    "overview_company_role_resolution": true,
+    "manual_vendor_company_link_and_placement_owner": true,
+    "subsequent_placement_insert_keeps_its_owner": true,
+    "deleted_company_lookup_rejection": true,
+    "fixture_transaction_rolled_back": true,
+    "local_company_checks": 133,
+    "local_workflow_checks": 17,
+    "local_placement_client_checks": 21,
+    "local_csv_checks": 62,
+    "native_placement_http_submission_exercised": false,
+    "all_cross_module_company_joins_audited": false
+  },
+  "production_changed": false,
+  "actual_thunderhawk_business_records_changed": false,
+  "arabella_changed": false,
+  "provider_business_records_changed": false,
+  "credentials_changed": false,
+  "payroll_payments_or_financial_postings_executed": false,
+  "remaining": [
+    "Company-aware reads and automatic economic reconciliation when Companies and Placements use different owners; service coverage here is not full mixed-scope workflow acceptance",
+    "Existing misplaced records and company merge references need separate reviewed treatment",
+    "Human creation and secure installation of the prepared demo source-reservation key",
+    "Held payroll draft/result/cancellation, actual Thunderhawk acceptance, financial callbacks and authorized production release"
+  ]
+}

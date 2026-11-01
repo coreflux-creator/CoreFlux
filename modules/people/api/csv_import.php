@@ -27,7 +27,7 @@ CsvImportService::registerSchema('people', [
         // person_id wins over email_primary for update-existing rows.
         // Leave blank for new people (insert path resolves on
         // email_primary + external_id uniqueness).
-        'person_id'            => ['label' => 'Person ID',            'type' => 'integer'],
+        'person_id'            => ['label' => 'Person ID',            'type' => 'integer', 'reference_type' => 'person', 'aliases' => ['person_number', 'Person Number']],
         'first_name'           => ['label' => 'First name',           'required' => true],
         'middle_name'          => ['label' => 'Middle name'],
         'last_name'            => ['label' => 'Last name',            'required' => true],

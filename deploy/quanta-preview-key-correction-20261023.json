@@ -1,0 +1,13 @@
+{
+  "issue": "Quanta preview key creation returned HTTP 500 for onboarding scopes already offered by the UI and permitted by API authorization.",
+  "cause": "The persisted ApiKey model omitted three opt-in onboarding scope literals; construction failed before database insertion.",
+  "quanta_local_commit": "b38e201",
+  "quanta_hosted_review": "4f7bca6c277876ff62e99389a4f736ee0a11ea5b",
+  "quanta_hosted_parent": "ef354ff52a3dc389a412152ac7557fcd99765ce9",
+  "quanta_runtime_files_changed": ["backend/app/models.py"],
+  "quanta_acceptance": {"local_checks_passed":73,"full_application_checks_passed":111,"network_attempts":0,"real_database_used":false},
+  "quanta_installation": {"health":200,"existing_records_unchanged":true,"protected_configuration_unchanged":true,"shared_head_and_index_unchanged":true,"background_workers_disabled":true,"document_transfer_enabled":false,"published":false},
+  "user_retry": "User retried Create; the one-time key result is visibly present. Credential held privately for isolated Core configuration, never included in this receipt.",
+  "core_endpoint_acceptance": {"isolated_scenarios_passed":10,"io_boundaries_per_scenario":6,"quanta_smoke_suites_passed":10,"actual_network_used":false},
+  "limitations": ["Core endpoint change still requires CI and staging installation.","No provider credential has yet been installed in Core for this acceptance.","No authenticated Thunderhawk end-to-end round trip is claimed."]
+}

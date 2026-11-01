@@ -229,12 +229,12 @@ $a('plaid route mounted under /admin/integrations',
 echo "\nUI — PaymentsList inline CTA\n";
 $plPath = __DIR__ . '/../modules/ap/ui/PaymentsList.jsx';
 $pl = (string) file_get_contents($plPath);
-$a('reads plaid_transfer_linked from API',
-    $c($pl, 'plaidTransferLinked = !!data?.plaid_transfer_linked'));
+$a('reads plaid_transfer_linked for ERP but hides origination in standalone',
+    $c($pl, 'plaidTransferLinked = !standaloneAccounting && !!data?.plaid_transfer_linked'));
 $a('renders inline link-CTA testid when configured but unlinked',
     $c($pl, 'data-testid="ap-plaid-link-cta"'));
-$a('CTA links to /admin/integrations/plaid',
-    $c($pl, 'to="/admin/integrations/plaid"'));
+$a('CTA keeps the ERP Plaid route and uses Treasury in standalone accounting',
+    $c($pl, "session?.product_mode === 'coreaccounting' ? '/modules/treasury/overview' : '/admin/integrations/plaid'"));
 $a('CTA Link has its own testid',                $c($pl, 'data-testid="ap-plaid-link-cta-link"'));
 $a('still surfaces ready badge when linked',
     $c($pl, 'Online payments ready'));
@@ -273,8 +273,8 @@ $a('falls back to currentTenantContext when missing',
 
 // ----------------------------------------------------------------- API: payments.php returns flag
 echo "\nAPI — modules/ap/api/payments.php\n";
-$a('returns plaid_transfer_linked in GET response',
-    $c($ap, "'plaid_transfer_linked' => \$plaidLinked"));
+$a('returns plaid_transfer_linked for ERP but not standalone',
+    $c($ap, "'plaid_transfer_linked' => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : \$plaidLinked"));
 $a('reads tenant_payment_rails row before returning',
     $c($ap, "FROM tenant_payment_rails WHERE tenant_id = :tenant_id AND rail = 'plaid_transfer'"));
 $a('degrades gracefully (try/catch around rail lookup)',

@@ -96,7 +96,7 @@ $peopleSync = (string) file_get_contents(dirname(__DIR__) . '/core/jobdiva/sync_
 $assert('future projections adopt a legacy placement before inserting',
     str_contains($sync, 'jobdivaFindLegacyPlacementAdoptionCandidate(')
     && str_contains($sync, '$legacyPlacementId = jobdivaFindLegacyPlacementAdoptionCandidate('));
-$assert('future projections adopt a legacy person before auto-create',
+$assert('future projections detect legacy people for explicit identity review',
     str_contains($peopleSync, 'jobdivaLegacyImportPersonCandidate(')
     && str_contains($peopleSync, '$legacyPersonId = jobdivaLegacyImportPersonCandidate('));
 

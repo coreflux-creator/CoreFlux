@@ -1,0 +1,117 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "reviewed_thunderhawk_existing_entity_inheritance",
+  "canonical_person": "P-358",
+  "canonical_placement": "PL-864",
+  "authorization": "User directed following the rest of the sync alignment for the selected pilot placement.",
+  "ci": {
+    "databaseId": 40197899827,
+    "headSha": "9b527b1b602bdda332927aa812f4bd54670d887b",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40197899827",
+    "successful_jobs": 9,
+    "database_checks": 105,
+    "new_mutation_audit_rollback_and_isolation_checks": 23,
+    "native_audit_schema_checks": 3
+  },
+  "before_inspection": {
+    "databaseId": 40196021136,
+    "headSha": "b59c0eba14cb7fd1a72d094ade3fd5a0413bc042",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40196021136"
+  },
+  "execution_and_independent_readback": {
+    "databaseId": 40198138420,
+    "headSha": "9b527b1b602bdda332927aa812f4bd54670d887b",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40198138420"
+  },
+  "held_attempt": {
+    "run_id": 40197253805,
+    "reason": "Live hybrid audit schema retains required legacy aliases alongside canonical columns",
+    "readback_confirming_empty_reference": 40197504610
+  },
+  "before": {
+    "status": "unique_existing_default",
+    "records_changed": false,
+    "native_sync_rule": "first_active_entity_by_id_in_effective_accounting_directory",
+    "can_follow_existing_sync_rule": true,
+    "accounting_directory_verified": true,
+    "active_entity_count": 1,
+    "existing_default": {
+      "id": 2,
+      "code": "THUN",
+      "legal_name": "Thunderhawk"
+    },
+    "placement_reference": "empty",
+    "person_reference": "empty",
+    "placement_matches_default": false,
+    "entity_override": "absent"
+  },
+  "applied": {
+    "status": "aligned",
+    "record_writes": true,
+    "placement_fields_changed": [
+      "accounting_entity_id"
+    ],
+    "audit_written": true,
+    "person_changed": false,
+    "rates_approved": false,
+    "placement_id": 864,
+    "entity_id": 2,
+    "entity_code": "THUN",
+    "candidate_commit": "9b527b1b602bdda332927aa812f4bd54670d887b",
+    "run_id": "40198138420",
+    "production_runtime_changed": false,
+    "payroll_or_payments_executed": false,
+    "arabella_changed": false
+  },
+  "independent_readback": {
+    "status": "unique_existing_default",
+    "records_changed": false,
+    "native_sync_rule": "first_active_entity_by_id_in_effective_accounting_directory",
+    "can_follow_existing_sync_rule": false,
+    "accounting_directory_verified": true,
+    "active_entity_count": 1,
+    "existing_default": {
+      "id": 2,
+      "code": "THUN",
+      "legal_name": "Thunderhawk"
+    },
+    "placement_reference": "active_in_expected_directory",
+    "person_reference": "empty",
+    "placement_matches_default": true,
+    "entity_override": "absent"
+  },
+  "source_identity_after": {
+    "job": {
+      "status": "exact_match"
+    },
+    "person": {
+      "status": "exact_match"
+    },
+    "placement": {
+      "status": "exact_match"
+    }
+  },
+  "boundaries": {
+    "only_placement_entity_and_audit_changed": true,
+    "person_changed": false,
+    "rates_approved": false,
+    "production_runtime_changed": false,
+    "production_cutover": false,
+    "real_payroll_or_payments_executed": false,
+    "arabella_changed": false,
+    "full_thunderhawk_round_trip_proven": false
+  },
+  "remaining": [
+    "Source WC evidence and remaining field review",
+    "Normal pilot rate approval",
+    "Pending credential rotation and independent time reviewer",
+    "Remaining onboarding, document, payroll and financial-result exchanges",
+    "Complete Thunderhawk round trip and authorized production release"
+  ]
+}

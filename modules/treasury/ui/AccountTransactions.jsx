@@ -1,8 +1,9 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDown, ArrowUp, ArrowUpDown, CheckSquare, ChevronLeft, ChevronRight,
-  ListFilter, RefreshCw, Save, Search, SlidersHorizontal, WandSparkles, X,
+  ListFilter, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, WandSparkles, X,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
@@ -15,36 +16,57 @@ const fmtMoneyOriginal = (n) =>
 // Keep backwards compatibility for inline calls; prefer the imported fmtMoney
 // from ../../../dashboard/src/lib/format which handles null/empty/strings.
 
-function DuplicateActivityRepair({ accountId, onRepaired }) {
-  const { data, loading, reload } = useApi(`/api/bank_transaction_dedupe.php?account_id=${accountId}`);
-  const [repairing, setRepairing] = useState(false);
-  const [result, setResult] = useState(null);
+function ReviewBankLine({ line }) {
+  return (
+    <div>
+      Line #{line.line_id} · {line.description} · Source ID {line.external_id || line.fitid || 'not supplied'}
+      {line.source_system && <> · {line.source_system}</>}
+      {line.bank_reference && <> · Ref {line.bank_reference}</>}
+      {line.matched_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>JE #{line.matched_je_id}</Link></>}
+    </div>
+  );
+}
+
+function BankLineReview({ accountId }) {
+  const { data, error: loadError, loading, reload } = useApi(`/api/bank_transaction_dedupe.php?account_id=${accountId}`);
+  const [activePair, setActivePair] = useState(null);
+  const [reason, setReason] = useState('');
+  const [evidenceRef, setEvidenceRef] = useState('');
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
 
-  if (loading || !data || Number(data.duplicate_rows || 0) === 0) {
-    if (!result?.conflicts?.length) return null;
-  }
+  if (loading) return null;
+  if (loadError) return <div className="error" role="alert">Could not load bank-line reviews: {loadError.message}</div>;
+  if (!data || !(data.review_pairs || []).length) return null;
+  const pending = Number(data.unreviewed_pairs || 0);
+  const reviewed = Number(data.reviewed_pairs || 0);
+  const pairs = [...(data.review_pairs || [])].sort((a, b) =>
+    (a.status === 'needs_review' ? 0 : 1) - (b.status === 'needs_review' ? 0 : 1));
 
-  const duplicateRows = Number(data?.duplicate_rows || 0);
-  const generatedEntries = Number(data?.reversible_rows || 0);
-  const conflictRows = Number(data?.conflict_rows || 0);
-
-  const repair = async () => {
-    const accountingNote = generatedEntries > 0
-      ? ` CoreFlux will create ${generatedEntries} formal reversal entr${generatedEntries === 1 ? 'y' : 'ies'} for duplicate postings.`
-      : '';
-    if (!window.confirm(`Repair ${duplicateRows} duplicate bank-feed row${duplicateRows === 1 ? '' : 's'}? Original feed rows remain in the audit trail.${accountingNote}`)) return;
-
-    setRepairing(true); setError(null); setResult(null);
+  const openDecision = (pair, decision) => {
+    setActivePair(`${pair.first.line_id}:${pair.second.line_id}:${decision}`);
+    setReason(''); setEvidenceRef(''); setError(null); setNotice(null);
+  };
+  const saveDecision = async (pair, decision) => {
+    setSaving(true); setError(null); setNotice(null);
     try {
-      const response = await api.post('/api/bank_transaction_dedupe.php?action=run', { account_id: accountId });
-      setResult(response);
+      await api.post('/api/bank_transaction_dedupe.php?action=review_pair', {
+        account_id: accountId,
+        first_line_id: pair.first.line_id,
+        second_line_id: pair.second.line_id,
+        fingerprint: pair.fingerprint,
+        decision,
+        reason: reason.trim(),
+        evidence_ref: evidenceRef.trim(),
+      });
       await reload();
-      onRepaired();
+      setActivePair(null);
+      setNotice(decision === 'distinct' ? 'Pair recorded as distinct. Both bank lines and journals remain unchanged.' : 'Pair reopened for review.');
     } catch (e) {
-      setError(e.message || 'Duplicate repair failed');
+      setError(e.message || 'Could not save bank-line review');
     } finally {
-      setRepairing(false);
+      setSaving(false);
     }
   };
 
@@ -52,41 +74,56 @@ function DuplicateActivityRepair({ accountId, onRepaired }) {
     <div
       data-testid="treasury-duplicate-activity-banner"
       style={{
-        border: '1px solid #f59e0b', background: '#fffbeb', color: '#78350f',
-        padding: 12, marginBottom: 14, display: 'flex', gap: 12,
-        alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
+        border: `1px solid ${pending ? '#f59e0b' : '#cbd5e1'}`,
+        background: pending ? '#fffbeb' : '#f8fafc', color: '#334155',
+        padding: 12, marginBottom: 14,
       }}
     >
-      <div>
-        {duplicateRows > 0 && (
-          <>
-            <strong>{duplicateRows} duplicate bank transaction{duplicateRows === 1 ? '' : 's'} detected</strong>
-            <div style={{ fontSize: 12, marginTop: 3 }}>
-              Same bank events were replayed by a prior connection.
-              {generatedEntries > 0 ? ` ${generatedEntries} duplicate CoreFlux posting${generatedEntries === 1 ? '' : 's'} will be reversed.` : ''}
-              {conflictRows > 0 ? ` ${conflictRows} manually linked row${conflictRows === 1 ? '' : 's'} will be left for review.` : ''}
-            </div>
-          </>
-        )}
-        {result && (
-          <div style={{ fontSize: 12, marginTop: 3 }}>
-            Repaired {result.rows_marked || 0} rows and reversed {result.journal_entries_reversed || 0} duplicate postings.
-            {result.conflicts?.length ? ` ${result.conflicts.length} manual conflict${result.conflicts.length === 1 ? '' : 's'} remain.` : ''}
-          </div>
-        )}
-        {error && <div className="error" style={{ fontSize: 12, marginTop: 3 }}>{error}</div>}
+      <strong>{pending} bank-line pair{pending === 1 ? '' : 's'} to review</strong>
+      {reviewed > 0 && <span style={{ fontSize: 12, marginLeft: 10 }}>{reviewed} reviewed as distinct</span>}
+      <div style={{ fontSize: 12, marginTop: 3 }}>
+        Similar dates, amounts and descriptions do not establish a duplicate. Compare bank IDs and source documents before deciding.
       </div>
-      {duplicateRows > 0 && (
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={repair}
-          disabled={repairing}
-          data-testid="treasury-duplicate-activity-repair"
-        >
-          {repairing ? 'Repairing...' : 'Repair duplicate activity'}
-        </button>
-      )}
+      {!data.review_available && <div className="error" style={{ fontSize: 12 }}>Bank-line review is unavailable until its database update is installed.</div>}
+      {error && <div className="error" role="alert" style={{ fontSize: 12, marginTop: 5 }}>{error}</div>}
+      {notice && <div role="status" style={{ fontSize: 12, marginTop: 5 }}>{notice}</div>}
+      <details open={pairs.length <= 3} style={{ fontSize: 12, marginTop: 8 }}>
+        <summary style={{ cursor: 'pointer' }}>Review line pairs</summary>
+        {pairs.map((pair) => {
+          const decision = pair.status === 'distinct' ? 'reopened' : 'distinct';
+          const pairKey = `${pair.first.line_id}:${pair.second.line_id}:${decision}`;
+          return (
+            <div key={`${pair.first.line_id}:${pair.second.line_id}`} style={{ borderTop: '1px solid #d6dee8', padding: '9px 0' }}>
+              <div><strong>{fmtDate(pair.posted_date)} · {fmtMoney(pair.amount)}</strong> · {pair.status === 'distinct' ? 'Reviewed distinct' : 'Needs review'}</div>
+              <ReviewBankLine line={pair.first} />
+              <ReviewBankLine line={pair.second} />
+              {pair.shared_journal && pair.status !== 'distinct' && <div>Both lines share one journal. Correct the source match or posting before marking them distinct.</div>}
+              {pair.review && <div>Review: {pair.review.reason}{pair.review.evidence_ref && ` · Ref ${pair.review.evidence_ref}`} · {fmtDate(pair.review.decided_at)}</div>}
+              {data.review_available && !(pair.shared_journal && decision === 'distinct') && activePair !== pairKey && (
+                <button type="button" className="btn btn--ghost" onClick={() => openDecision(pair, decision)}>
+                  {decision === 'distinct' ? 'Mark distinct' : 'Reopen review'}
+                </button>
+              )}
+              {data.review_available && activePair === pairKey && (
+                <div style={{ display: 'grid', gap: 6, maxWidth: 520, marginTop: 6 }}>
+                  <label>Reason
+                    <textarea value={reason} maxLength={500} rows={2} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} />
+                  </label>
+                  <label>Bank or document reference (optional)
+                    <input value={evidenceRef} maxLength={255} onChange={(e) => setEvidenceRef(e.target.value)} style={{ width: '100%' }} />
+                  </label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" className="btn btn--primary" disabled={saving || reason.trim().length < 10} onClick={() => saveDecision(pair, decision)}>
+                      {saving ? 'Saving...' : decision === 'distinct' ? 'Save distinct review' : 'Reopen pair'}
+                    </button>
+                    <button type="button" className="btn btn--ghost" disabled={saving} onClick={() => setActivePair(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </details>
     </div>
   );
 }
@@ -123,14 +160,16 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
     return `/modules/treasury/api/account_transactions.php?${params.toString()}`;
   }, [accountId, type, page, perPage, sort, filters, deferredQuery]);
   const { data, loading, error: loadError, reload } = useApi(requestUrl);
-  // Postable expense / revenue accounts for the categorize dropdown. Filtered
-  // to is_postable=1 (no header rows) when the API supplies it.
+  // The shared chart marks accounts that are safe for direct bank posting.
   const { data: coa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState(null);
   const [syncErr, setSyncErr] = useState(null);
   const [categorizingId, setCategorizingId] = useState(null);
+  const [correctionId, setCorrectionId] = useState(null);
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionBusy, setCorrectionBusy] = useState(false);
   const [rowError, setRowError] = useState(null);
   // Sprint 6h — AI cat. + Split/IC affordances now mirror Bank Rec.
   const [aiBusyId, setAiBusyId] = useState(null);
@@ -168,11 +207,13 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const plaidItemPk         = data?.plaid_item_pk;
   const plaidItemExternalId = data?.plaid_item_external_id;
 
-  const eligibleAccounts = (coa?.rows || [])
-    .filter((a) => a.is_postable !== 0 && a.id !== accountId);
-  const accountsById = new Map(eligibleAccounts.map((a) => [a.id, a]));
-  const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
-  const allPageSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
+  const allAccounts = coa?.rows || [];
+  const eligibleAccounts = allAccounts.filter((a) => a.direct_category_eligible
+    && (type !== 'liability' || Number(a.id) !== Number(accountId)));
+  const accountsById = new Map(eligibleAccounts.map((a) => [Number(a.id), a]));
+  const selectableRows = rows.filter((row) => !row.lineage_conflict);
+  const selectedRows = selectableRows.filter((row) => selectedIds.includes(row.id));
+  const allPageSelected = selectableRows.length > 0 && selectableRows.every((row) => selectedIds.includes(row.id));
   const hasFilters = Object.values(filters).some((value) => value !== '');
 
   useEffect(() => { setPage(1); }, [deferredQuery, filters.status, filters.direction,
@@ -202,23 +243,43 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const ignoreLine  = (lineId) => lineAction(lineId, 'ignore');
   const unmatchLine = (lineId) => lineAction(lineId, 'unmatch');
+  const correctPosting = async (event, lineId) => {
+    event.preventDefault();
+    if (!correctionReason.trim()) return;
+    setCorrectionBusy(true); setRowError(null);
+    try {
+      await api.post('/modules/treasury/api/account_transactions.php?action=correct_categorization', {
+        line_id: lineId, type, reason: correctionReason.trim(),
+      });
+      setCorrectionId(null); setCorrectionReason(''); reload();
+    } catch (e) {
+      setRowError(`Correction failed: ${e.message}`);
+    } finally { setCorrectionBusy(false); }
+  };
 
   const toggleRow = (lineId) => setSelectedIds((current) => (
     current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]
   ));
-  const togglePage = () => setSelectedIds(allPageSelected ? [] : rows.map((row) => row.id));
+  const togglePage = () => setSelectedIds(allPageSelected ? [] : selectableRows.map((row) => row.id));
 
   const runBulkState = async (bulkAction) => {
     if (!selectedRows.length) return;
+    const actionableRows = selectedRows.filter((row) => (
+      bulkAction === 'unmatch' ? row.match_status === 'matched' && !row.unmatch_blocker
+        : bulkAction === 'ignore' ? row.match_status === 'unmatched'
+          : row.match_status === 'ignored'
+    ));
+    if (!actionableRows.length) return;
     const labels = { ignore: 'ignore', restore: 'restore', unmatch: 'unmatch' };
     if (bulkAction === 'unmatch'
       && !window.confirm('Remove the selected reconciliation links? Links to existing journal entries can be removed. Transactions created from a bank line must be reversed instead.')) return;
     setBulkBusy(true); setRowError(null); setBulkNotice(null);
     try {
       const result = await api.post('/modules/treasury/api/account_transactions.php?action=bulk_update', {
-        account_id: accountId, type, line_ids: selectedRows.map((row) => row.id), bulk_action: bulkAction,
+        account_id: accountId, type, line_ids: actionableRows.map((row) => row.id), bulk_action: bulkAction,
       });
-      setBulkNotice(`${result.updated || 0} transaction${result.updated === 1 ? '' : 's'} ${labels[bulkAction]}d.`);
+      const skipped = selectedRows.length - actionableRows.length;
+      setBulkNotice(`${result.updated || 0} transaction${result.updated === 1 ? '' : 's'} ${labels[bulkAction]}d.${skipped ? ` ${skipped} selected line${skipped === 1 ? '' : 's'} needed a different action.` : ''}`);
       setSelectedIds([]);
       reload();
     } catch (e) {
@@ -277,15 +338,19 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       const modified = res.modified || 0;
       const removed  = res.removed  || 0;
       const unmapped = res.unmapped || 0;
+      const reviewRequired = res.review_required || 0;
+      const possibleReplays = res.possible_replays || 0;
       const total = added + modified + removed;
       const summary = total === 0
         ? `Up to date — no new transactions from Plaid (${res.pages || 0} page${res.pages === 1 ? '' : 's'} checked).`
             + (unmapped ? ` ${unmapped} txn${unmapped === 1 ? '' : 's'} skipped (account not mirrored).` : '')
-        : `Pulled ${added} new + ${modified} updated`
+        : `Pulled ${added} new + ${modified} provider changes`
             + (removed  ? ` − ${removed} removed`            : '')
             + (unmapped ? ` (skipped ${unmapped} unmapped)`  : '')
             + ` across ${res.pages || 0} page${res.pages === 1 ? '' : 's'}.`;
-      setSyncMsg(summary);
+      setSyncMsg(summary
+        + (reviewRequired ? ` ${reviewRequired} matched or ignored line${reviewRequired === 1 ? ' was' : 's were'} left unchanged for review.` : '')
+        + (possibleReplays ? ` ${possibleReplays} similar-looking new line${possibleReplays === 1 ? ' was' : 's were'} kept separate.` : ''));
       reload();
     } catch (e) {
       setSyncErr(e.message || 'Sync failed');
@@ -371,7 +436,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           <label style={filterLabelStyle}>To<input type="date" className="input" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} /></label>
           <label style={filterLabelStyle}>Amount from<input type="number" step="0.01" className="input" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} placeholder="-500.00" /></label>
           <label style={filterLabelStyle}>Amount to<input type="number" step="0.01" className="input" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} placeholder="500.00" /></label>
-          <label style={{ ...filterLabelStyle, minWidth: 240 }}>Posted category<select className="input" value={filters.categoryAccountId} onChange={(e) => setFilter('categoryAccountId', e.target.value)}><option value="">All categories</option>{eligibleAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+          <label style={{ ...filterLabelStyle, minWidth: 240 }}>Posted category<select className="input" value={filters.categoryAccountId} onChange={(e) => setFilter('categoryAccountId', e.target.value)}><option value="">All categories</option>{allAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
         </div>
       )}
 
@@ -417,10 +482,15 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       )}
 
       {type === 'deposit' && (
-        <DuplicateActivityRepair accountId={accountId} onRepaired={reload} />
+        <BankLineReview accountId={accountId} />
       )}
 
       {loading && <p>Loading…</p>}
+      {Number(data?.lineage_conflict_count) > 0 && (
+        <p className="error" role="alert" data-testid="treasury-bank-lineage-conflicts">
+          {data.lineage_conflict_count} bank line{Number(data.lineage_conflict_count) === 1 ? '' : 's'} linked to posted journals need ledger review before they can be resolved.
+        </p>
+      )}
       {!loading && rows.length === 0 && (
         <div
           data-testid={`treasury-${type}-transactions-empty`}
@@ -470,7 +540,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           <button type="button" className="btn btn--ghost" onClick={() => runBulkState('restore')}
             disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'ignored')}>Restore</button>
           <button type="button" className="btn btn--ghost" onClick={() => runBulkState('unmatch')}
-            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'matched')}>Unmatch</button>
+            disabled={bulkBusy || !selectedRows.some((row) => row.match_status === 'matched' && !row.unmatch_blocker)}>Unmatch</button>
           <button type="button" className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkBusy} title="Clear selection"><X size={14} /></button>
         </div>
       )}
@@ -480,7 +550,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         <table className="data-table" data-testid={`treasury-${type}-transactions-table`}>
           <thead>
             <tr>
-              <th style={{ width: 36 }}><input type="checkbox" checked={allPageSelected} onChange={togglePage} aria-label="Select all visible transactions" /></th>
+              <th style={{ width: 36 }}><input type="checkbox" checked={allPageSelected} onChange={togglePage} disabled={selectableRows.length === 0} aria-label="Select all visible transactions" /></th>
               <SortableHeader label="Date" sortKey="date" sort={sort} onSort={changeSort} />
               <SortableHeader label="Description" sortKey="description" sort={sort} onSort={changeSort} />
               {type === 'liability' && <th>Category</th>}
@@ -493,7 +563,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             {rows.map((r) => (
               <React.Fragment key={r.id}>
                 <tr data-testid={`treasury-txn-row-${r.id}`}>
-                  <td><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggleRow(r.id)} aria-label={`Select ${r.description || 'transaction'}`} /></td>
+                  <td><input type="checkbox" checked={selectedIds.includes(r.id) && !r.lineage_conflict} onChange={() => toggleRow(r.id)} disabled={!!r.lineage_conflict} aria-label={`Select ${r.description || 'transaction'}`} /></td>
                   <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {fmtDate(r.posted_date)}
                   </td>
@@ -506,6 +576,24 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                     {r.bank_reference && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Reference {r.bank_reference}</div>
+                    )}
+                    {r.lineage_conflict && (
+                      <div role="alert" data-testid={`treasury-txn-conflict-${r.id}`}
+                           style={{ color: '#92400e', fontSize: 12, marginTop: 4 }}>
+                        {r.lineage_conflict.message}
+                        {(r.lineage_conflict.journal_ids || []).map(journalId => (
+                          <Link key={journalId} to={`/modules/accounting/journal-entries/${journalId}`}
+                                style={{ marginLeft: 8 }}>Journal #{journalId}</Link>
+                        ))}
+                      </div>
+                    )}
+                    {Number(r.correction_count) > 0 && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                        Corrected {r.correction_count} time{Number(r.correction_count) === 1 ? '' : 's'}
+                        {r.last_reversal_je_id > 0 && <>
+                          {' · '}<Link to={`/modules/accounting/journal-entries/${r.last_reversal_je_id}`}>View reversal</Link>
+                        </>}
+                      </div>
                     )}
                     {Array.isArray(r.categorization) && r.categorization.length > 0 && (
                       <div
@@ -563,7 +651,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                   </td>
                   <td>
-                    {r.match_status === 'unmatched' && r.ai_suggestion?.suggested_account_id && (
+                    {r.match_status === 'unmatched' && !r.lineage_conflict && accountsById.has(Number(r.ai_suggestion?.suggested_account_id)) && (
                       <AiSuggestionPill
                         suggestion={r.ai_suggestion}
                         suggestedAccount={accountsById.get(r.ai_suggestion.suggested_account_id)}
@@ -575,7 +663,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         )}
                       />
                     )}
-                    {r.match_status === 'unmatched' && (
+                    {r.match_status === 'unmatched' && !r.lineage_conflict && (
                       <>
                         <button
                           type="button"
@@ -620,7 +708,8 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         </button>
                       </>
                     )}
-                    {r.match_status === 'matched' && (
+                    {r.lineage_conflict && <span style={{ color: '#92400e', fontSize: 12 }}>Ledger review required</span>}
+                    {r.match_status === 'matched' && !r.unmatch_blocker && (
                       <button
                         type="button"
                         className="btn btn--ghost"
@@ -630,6 +719,28 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       >
                         Unmatch
                       </button>
+                    )}
+                    {r.can_correct_categorization && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => { setCorrectionId(correctionId === r.id ? null : r.id); setCorrectionReason(''); setRowError(null); }}
+                        data-testid={`treasury-txn-correct-${r.id}`}
+                        aria-expanded={correctionId === r.id}
+                        title="Reverse this Treasury posting and reopen the statement line"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                      >
+                        <RotateCcw size={13} aria-hidden="true" /> Correct posting
+                      </button>
+                    )}
+                    {r.match_status === 'matched' && r.unmatch_blocker && !r.can_correct_categorization && (
+                      type === 'deposit' && r.journal_entry?.source_module === 'billing'
+                        ? <Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/${accountId}`}
+                            title="Review the source receipt or processor payout before correcting it"
+                            style={{ padding: '2px 8px', fontSize: 11 }}>Review source</Link>
+                        : <span className="muted" style={{ fontSize: 11 }} title={r.unmatch_blocker}>
+                            Source-managed
+                          </span>
                     )}
                     {r.match_status === 'ignored' && (
                       <button
@@ -644,6 +755,32 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                   </td>
                 </tr>
+                {correctionId === r.id && r.can_correct_categorization && (
+                  <tr data-testid={`treasury-txn-correction-row-${r.id}`}>
+                    <td colSpan={type === 'liability' ? 7 : 6}
+                        style={{ background: '#fff7ed', padding: 12, borderLeft: '3px solid #ea580c' }}>
+                      <form onSubmit={(event) => correctPosting(event, r.id)}>
+                        <strong>Correct Treasury posting</strong>
+                        <p style={{ margin: '5px 0 10px', fontSize: 12 }}>
+                          Reverse the matched journal and reopen this line. The original and reversal remain in the audit trail; no money is moved.
+                        </p>
+                        <label htmlFor={`treasury-correction-reason-${r.id}`}>Reason</label>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                          <input id={`treasury-correction-reason-${r.id}`} className="input"
+                            value={correctionReason} maxLength={500} required
+                            onChange={(event) => setCorrectionReason(event.target.value)}
+                            placeholder="What needs to be corrected?"
+                            style={{ flex: '1 1 260px' }} />
+                          <button type="submit" className="btn btn--primary" disabled={correctionBusy || !correctionReason.trim()}>
+                            {correctionBusy ? 'Correcting…' : 'Reverse and reopen'}
+                          </button>
+                          <button type="button" className="btn btn--ghost" disabled={correctionBusy}
+                            onClick={() => { setCorrectionId(null); setCorrectionReason(''); }}>Cancel</button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                )}
                 {categorizingId === r.id && (
                   <CategorizeRow
                     line={r}
@@ -663,6 +800,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                       <TreasuryAiResultPanel
                         line={r}
                         ai={aiPanelByLine[r.id]}
+                        canPost={accountsById.has(Number(aiPanelByLine[r.id]?.suggestion?.suggested_account_id))}
                         onDismiss={() => dismissAi(r.id)}
                         onAccept={(accountId) => {
                           const sug = aiPanelByLine[r.id]?.suggestion || {};
@@ -983,9 +1121,8 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
 
   const suggestedAccount = accounts.find((a) => Number(a.id) === Number(aiSuggestion?.suggested_account_id));
   const [counterpartId, setCounterpartId] = useState(
-    aiSuggestion?.suggested_account_id && !(isCustomerReceipt && String(suggestedAccount?.code) === '1100')
-      ? String(aiSuggestion.suggested_account_id)
-      : ''
+    suggestedAccount && !(isCustomerReceipt && String(suggestedAccount.code) === '1100')
+      ? String(suggestedAccount.id) : ''
   );
   const [memo, setMemo]                   = useState('');
   const [busy, setBusy]                   = useState(false);
@@ -1082,7 +1219,7 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
  * version). Renders the structured `bank_ai.php?action=suggest_categorize`
  * response as confidence + reasoning + Accept button instead of raw JSON.
  */
-function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
+function TreasuryAiResultPanel({ line, ai, canPost, onDismiss, onAccept }) {
   // bank_ai.php returns { suggestion: {...}, review_required }.
   const sug = ai.suggestion || {};
   const conf = Math.round(((sug.confidence ?? 0)) * 100);
@@ -1119,7 +1256,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
         </>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        {!noSuggest && (
+        {!noSuggest && canPost && (
           <button type="button" className="btn btn--primary"
                   onClick={() => onAccept(suggestedAccountId)}
                   data-testid={`treasury-ai-result-accept-${line.id}`}
@@ -1127,6 +1264,7 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
             Accept &amp; post
           </button>
         )}
+        {!noSuggest && !canPost && <span className="muted" style={{ fontSize: 12 }}>Use the source workflow or choose another category.</span>}
         <button type="button" className="btn btn--ghost"
                 onClick={onDismiss}
                 data-testid={`treasury-ai-result-dismiss-${line.id}`}
@@ -1143,19 +1281,36 @@ function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
  * accounts. Every cent must be assigned so the bank line, subledger, and JE
  * stay in agreement. Outflows retain the original GL/intercompany behavior.
  */
-export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, onCancel }) {
+export function SplitIcPanel({ line, type, accounts, entities = [], initialInvoice = null, onSubmit, onCancel }) {
   const total = Math.abs(Number(line.amount));
   const allowInvoiceTargets = type === 'deposit' && Number(line.amount) > 0;
+  const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [settledSearch, setSettledSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledSearch(invoiceSearch.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [invoiceSearch]);
   const { data: invoiceData, loading: invoicesLoading, error: invoicesError } = useApi(
-    `/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id=${line.id}`,
+    `/modules/accounting/api/bank_statements.php?action=invoice_candidates&line_id=${line.id}&q=${encodeURIComponent(settledSearch)}`,
     { enabled: allowInvoiceTargets }
   );
   const invoices = invoiceData?.rows || [];
   const blankRow = (amount = '0.00') => ({
     target_type: allowInvoiceTargets ? 'invoice' : 'account',
-    invoice_id: '', account_id: '', amount, entity_id: '', memo: '',
+    invoice_id: '', invoice_label: '', invoice_due: null, account_id: '', amount, entity_id: '', memo: '',
   });
-  const [rows, setRows] = useState([blankRow(total.toFixed(2))]);
+  const [rows, setRows] = useState(() => {
+    const row = blankRow(total.toFixed(2));
+    if (allowInvoiceTargets && initialInvoice?.can_apply_partial) {
+      row.invoice_id = String(initialInvoice.invoice_id);
+      row.invoice_label = initialInvoice.label;
+      row.invoice_due = Number(initialInvoice.amount_due);
+    }
+    return [row];
+  });
+  const selectedInvoices = [...new Map(rows
+    .filter(r => r.invoice_id && r.invoice_label && !invoices.some(inv => String(inv.id) === String(r.invoice_id)))
+    .map(r => [String(r.invoice_id), { id: r.invoice_id, label: r.invoice_label, amount_due: r.invoice_due }])).values()];
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
 
@@ -1168,12 +1323,14 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
   const selectInvoice = (i, invoiceId) => {
     const invoice = invoices.find(inv => Number(inv.id) === Number(invoiceId));
     setRows(rs => {
-      if (!invoice) return rs.map((r, idx) => idx === i ? { ...r, invoice_id: invoiceId } : r);
+      if (!invoice) return rs.map((r, idx) => idx === i
+        ? { ...r, invoice_id: invoiceId, invoice_label: '', invoice_due: null } : r);
       const assignedElsewhere = rs.reduce((sum, r, idx) => idx === i ? sum : sum + (Number(r.amount) || 0), 0);
       const available = Math.max(total - assignedElsewhere, 0);
       const applyAmount = Math.min(Number(invoice.amount_due), available);
       const next = rs.map((r, idx) => idx === i
-        ? { ...r, invoice_id: invoiceId, amount: applyAmount.toFixed(2) }
+        ? { ...r, invoice_id: invoiceId, invoice_label: invoice.label,
+            invoice_due: Number(invoice.amount_due), amount: applyAmount.toFixed(2) }
         : r);
       const remainder = total - assignedElsewhere - applyAmount;
       if (rs.length === 1 && remainder > 0.005) next.push(blankRow(remainder.toFixed(2)));
@@ -1189,7 +1346,8 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
     const overApplied = rows.find(r => {
       if (r.target_type !== 'invoice' || !r.invoice_id) return false;
       const invoice = invoices.find(inv => Number(inv.id) === Number(r.invoice_id));
-      return invoice && Number(r.amount) - Number(invoice.amount_due) > 0.005;
+      const due = invoice ? Number(invoice.amount_due) : r.invoice_due;
+      return due !== null && Number(r.amount) - Number(due) > 0.005;
     });
     if (overApplied) { setErr('An invoice allocation cannot exceed its open balance.'); return; }
     if (!balanced) { setErr('Splits must sum to the line amount.'); return; }
@@ -1226,6 +1384,16 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
       </div>
       {invoicesLoading && <p className="muted" style={{ fontSize: 12, margin: '6px 0' }}>Loading open invoices…</p>}
       {invoicesError && <p className="error" style={{ fontSize: 12, margin: '6px 0' }}>Invoices unavailable: {invoicesError.message}</p>}
+      {allowInvoiceTargets && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
+          <Search size={15} aria-hidden="true" />
+          <input type="search" value={invoiceSearch} onChange={e => setInvoiceSearch(e.target.value)}
+                 aria-label="Find customer or invoice" placeholder="Find customer or invoice number"
+                 data-testid={`treasury-txn-split-invoice-search-${line.id}`}
+                 style={{ flex: 1, minWidth: 0 }} />
+          {invoiceData?.has_more && <span className="muted" style={{ fontSize: 11 }}>More results available; narrow the search</span>}
+        </div>
+      )}
       <table style={{ width: '100%', fontSize: 12 }}>
         <thead>
           <tr style={{ textAlign: 'left' }}>
@@ -1253,9 +1421,9 @@ export function SplitIcPanel({ line, type, accounts, entities = [], onSubmit, on
                           data-testid={`treasury-txn-split-invoice-${line.id}-${i}`}
                           style={{ width: '100%' }} disabled={invoicesLoading}>
                     <option value="">— select client and invoice —</option>
-                    {invoices.map(inv => (
+                    {[...invoices, ...selectedInvoices].map(inv => (
                       <option key={inv.id} value={inv.id}>
-                        {inv.client_name} · {inv.invoice_number} · {fmtMoney(Number(inv.amount_due))} due
+                        {inv.label || `${inv.client_name} · ${inv.invoice_number}`} · {fmtMoney(Number(inv.amount_due))} due
                       </option>
                     ))}
                   </select>

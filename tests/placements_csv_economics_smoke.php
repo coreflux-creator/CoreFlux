@@ -78,9 +78,9 @@ echo "\n5. Commit writer targets the right graphs\n";
 $a('requires companies + staffing clients libs',
     str_contains($import, 'people/lib/companies.php')
     && str_contains($import, 'staffing/lib/clients.php'));
-$a('end-client import resolves companies and staffing client consumer row',
-    str_contains($import, 'companiesUpsertByName(currentTenantId()')
-    && str_contains($import, 'staffingClientEnsureForCompany('));
+$a('CSV import resolves each company role independently',
+    str_contains($import, 'placementsResolveCompanyRoles(')
+    && str_contains($import, "'Bill-to client ID'"));
 $a('rate importer updates/creates placement_rates drafts',
     str_contains($import, 'function placementsCsvUpsertDraftRate')
     && str_contains($import, 'FROM placement_rates')

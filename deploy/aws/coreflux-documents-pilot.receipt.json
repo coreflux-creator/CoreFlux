@@ -1,0 +1,178 @@
+{
+  "recorded_at": "2026-10-23",
+  "environment": "pilot",
+  "account_id": "041304781980",
+  "region": "us-east-1",
+  "account_plan": {
+    "selected_by_user": "Free",
+    "credits_usd_at_activation": 100,
+    "expires_on": "2027-04-23",
+    "expires_earlier_when_credits_depleted": true,
+    "paid_upgrade_authorized": false
+  },
+  "source_template": "deploy/aws/private-documents.cloudformation.json",
+  "local_source_template_sha256": "2574f831c0fc8007bcd3f2fa5dcc2277f9a1de36135c8a325996f515d0dcf8c7",
+  "source_commit": "faa511c178572f25e7fcd5a56da487c135084368",
+  "template_bucket": "cf-templates-jkww681z8gl3-us-east-1",
+  "template_object": "2026-10-23T153836.745Z6sy-template.json",
+  "stack_name": "coreflux-documents-pilot",
+  "stack_id": "arn:aws:cloudformation:us-east-1:041304781980:stack/coreflux-documents-pilot/eb2dfe60-cef7-11f1-aeca-12ffeab41f33",
+  "change_set_id": "arn:aws:cloudformation:us-east-1:041304781980:changeSet/coreflux-private-documents-20261023/2cc2ee76-1226-4c7e-ad3f-46ed69180bb3",
+  "stack_status": "CREATE_COMPLETE",
+  "stack_completed_at": "2026-10-23T11:40:39-04:00",
+  "termination_protection": true,
+  "termination_protection_note": "Enabled and verified separately after change-set execution; the create-stack selection was not retained.",
+  "outputs": {
+    "Environment": "pilot",
+    "StorageBucket": "coreflux-documents-pilot-documentsbucket-58usklwrp9sz",
+    "StorageRegion": "us-east-1",
+    "StorageKMSKeyArn": "arn:aws:kms:us-east-1:041304781980:key/da6364d0-e0d5-44bb-8b06-856d66da36bb",
+    "RuntimePolicyArn": "arn:aws:iam::041304781980:policy/coreflux-documents-pilot-RuntimeAccessPolicy-sntfqX9gDpQT"
+  },
+  "browser_origins": [
+    "https://corefluxapp.com",
+    "https://www.corefluxapp.com"
+  ],
+  "verification": {
+    "cloudformation_template_valid": true,
+    "change_set_reported_deployment_validations_passed": true,
+    "five_stack_resources_created": true,
+    "runtime_identity_created": true,
+    "runtime_policy_attached": true,
+    "access_credentials_created": true,
+    "host_settings_changed": true,
+    "web_process_storage_acceptance_passed": true,
+    "live_worker_documents_uploaded": false,
+    "cli_storage_acceptance_passed": true,
+    "application_s3_active": true,
+    "existing_invoice_cache_unchanged": true,
+    "quanta_document_intake_enabled": false
+  },
+  "next_step": "Complete the browser-origin/CORS and application tenant/permission document checks, then finish the Quanta onboarding document round trip in the authorized pilot. Quanta intake remains disabled; production activation and the full Thunderhawk/PurePayroll round trip are not complete.",
+  "runtime_identity": {
+    "name": "coreflux-documents-pilot",
+    "arn": "arn:aws:iam::041304781980:user/coreflux-documents-pilot",
+    "console_access": false,
+    "attached_policy_arn": "arn:aws:iam::041304781980:policy/coreflux-documents-pilot-RuntimeAccessPolicy-sntfqX9gDpQT",
+    "access_key_created_by_user": true,
+    "credential_delivery_destination": "isolated Cloudways Core pilot muzqvdvqbx",
+    "credential_delivered": true
+  },
+  "acceptance": {
+    "cli": {
+      "passed": true,
+      "checks": {
+        "versioned_upload": true,
+        "exact_kms_encryption": true,
+        "bounded_read_matches": true,
+        "oversized_read_rejected": true,
+        "reserved_overwrite_rejected": true,
+        "signed_download_matches": true,
+        "anonymous_download_denied": true,
+        "plain_http_denied": true,
+        "expired_download_denied": true,
+        "missing_encryption_denied": true,
+        "presigned_post_matches": true,
+        "presigned_post_other_key_denied": true,
+        "soft_delete_hides_current_object": true,
+        "soft_delete_preserves_version": true
+      },
+      "synthetic_only": true,
+      "active_application_backend": true,
+      "sapi": "cli",
+      "bucket": "coreflux-documents-pilot-documentsbucket-58usklwrp9sz",
+      "key": "people/999/document/storage-probe/a9b12372-synthetic.txt",
+      "version_id": "aapcqDf5XV.DTe0RHiHw4loOrKs2VSyv",
+      "quanta_document_intake_disabled": true,
+      "temporary_web_probes_remaining": 0
+    },
+    "web": {
+      "passed": true,
+      "checks": {
+        "versioned_upload": true,
+        "exact_kms_encryption": true,
+        "bounded_read_matches": true,
+        "oversized_read_rejected": true,
+        "reserved_overwrite_rejected": true,
+        "signed_download_matches": true,
+        "anonymous_download_denied": true,
+        "plain_http_denied": true,
+        "expired_download_denied": true,
+        "missing_encryption_denied": true,
+        "presigned_post_matches": true,
+        "presigned_post_other_key_denied": true,
+        "soft_delete_hides_current_object": true,
+        "soft_delete_preserves_version": true
+      },
+      "synthetic_only": true,
+      "active_application_backend": true,
+      "sapi": "fpm-fcgi",
+      "bucket": "coreflux-documents-pilot-documentsbucket-58usklwrp9sz",
+      "key": "people/999/document/storage-probe/bd2c0e35-synthetic.txt",
+      "version_id": "gdBg7QdRNVWd6F.z.R7vc.1NWpmeheLb",
+      "quanta_storage_ready": true,
+      "quanta_document_intake_disabled": true,
+      "invoice_cache": {
+        "files": 42,
+        "all_readable": true,
+        "hashes_unchanged": true,
+        "manifest_sha256": "e7bff805fd3d7491cc6e79d3ca45994fb1edb1b1422cf24c5d0073d8650291a6"
+      },
+      "putenv_still_disabled": true
+    },
+    "registry_references_before_switch": {
+      "people_documents.storage_path": 0,
+      "people_documents.storage_object_id": 0,
+      "storage_objects.s3_key": 0,
+      "time_uploaded_documents.storage_object_id": 0,
+      "time_uploaded_documents.storage_key": 0,
+      "evidence_attachments.storage_key": 0,
+      "accounting_close_packets.storage_object_id": 0,
+      "quanta_onboarding_document_transfers.storage_key": 0,
+      "ap_vendor_portal_documents.storage_object_id": 0,
+      "placement_documents.storage_object_id": 0,
+      "storage_signed_url_audit.storage_object_id": 0
+    },
+    "invoice_cache": {
+      "files": 42,
+      "all_readable": true,
+      "hashes_unchanged": true,
+      "manifest_sha256": "e7bff805fd3d7491cc6e79d3ca45994fb1edb1b1422cf24c5d0073d8650291a6"
+    },
+    "temporary_probe_access_without_token": 404,
+    "temporary_web_probes_removed": true,
+    "synthetic_versions_retained": true
+  },
+  "activation": {
+    "code_commit": "58b2eda8822c70ed97f8142c79fd875b37653416",
+    "ci_run": 39985491754,
+    "ci_jobs_passed": 9,
+    "mode": "narrow storage patch over the existing 9f656c59 staging runtime; not a full-Core redeploy",
+    "host_root": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html",
+    "host_app_id": 6707602,
+    "private_settings_directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux-storage-pilot",
+    "credential_file_mode": "0640",
+    "directory_mode": "0750",
+    "configuration_method": "private COREFLUX_STORAGE_CONFIG constant loaded by the isolated db.local.php bootstrap",
+    "putenv_security_restriction_preserved": true,
+    "production_changed": false,
+    "source_files": {
+      "/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html/core/StorageService.php": {
+        "sha256": "eaa14242b2cadc4d487abdee88729256273ad9d5689bcaf89a27d7132ad7a904",
+        "mode": "644"
+      },
+      "/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html/core/quanta/onboarding_documents.php": {
+        "sha256": "93933eae111be0bc580cc795369beadee5d00edc641c30e951b1b03404560c79",
+        "mode": "644"
+      },
+      "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux-storage-pilot/bootstrap.php": {
+        "sha256": "b2a3ca044eb48f041bc065ce4a3564cd8025b43e8c1de639f8d2c94084fe7c1c",
+        "mode": "640"
+      },
+      "/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html/core/db.local.php": {
+        "sha256": "ae52272d90f2d1aa2a15d103e5e1cb5a43fb6d5f3a17dcdca3b8b8e79219a9b1",
+        "mode": "640"
+      }
+    }
+  }
+}

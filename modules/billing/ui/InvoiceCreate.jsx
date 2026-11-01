@@ -1,26 +1,44 @@
 import React, { useEffect, useState } from 'react';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
+import { selectedCompanyMatchesQuery, uniqueExactCompany } from '../../../dashboard/src/lib/companySelection';
 
 /**
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
  * invoices go through InvoiceFromTimeBundleModal instead.
  */
-export default function InvoiceCreate() {
+export default function InvoiceCreate({ session }) {
   const nav = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
-  const { activeEntityId, loaded: activeEntityLoaded } = useActiveEntity();
+  const workspace = session?.tenants?.find((tenant) => Number(tenant.id) === Number(session?.tenant_id));
+  const requestedScope = searchParams.get('entity_id');
+  const requestedEntityId = requestedScope && /^[1-9][0-9]*$/.test(requestedScope)
+    ? Number(requestedScope) : null;
+  const { activeEntityId, entities, loaded: activeEntityLoaded } = useActiveEntity();
+  const requestedEntity = entities.find((row) => Number(row.id) === requestedEntityId);
+  const invalidScope = !isEdit && activeEntityLoaded && requestedScope !== null
+    && requestedScope !== 'all' && !requestedEntity;
+  const listPath = addEntityScope('/modules/billing/invoices', requestedEntityId, requestedScope === 'all');
+  const detailPath = (invoiceId, issuingEntityId) => addEntityScope(
+    `/modules/billing/invoices/${invoiceId}`,
+    requestedScope === 'all' ? null : issuingEntityId,
+    requestedScope === 'all',
+  );
   const accountsApi = useApi('/modules/accounting/api/accounts.php?type=revenue&active=1');
   const itemsApi = useApi('/modules/billing/api/items.php?active=1&per_page=500');
   const invoiceApi = useApi(isEdit ? `/api/v1/billing/invoices?id=${id}` : null, { enabled: isEdit });
   const revenueAccounts = accountsApi.data?.rows ?? [];
 
   const [client, setClient]   = useState(null);
+  const [clientQuery, setClientQuery] = useState('');
   const [issueDate, setIssue] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDue]     = useState('');
   const [poNumber, setPo]     = useState('');
@@ -40,6 +58,7 @@ export default function InvoiceCreate() {
     const invoice = invoiceApi.data.invoice;
     const savedLines = invoiceApi.data.lines ?? [];
     setClient({ id: invoice.client_company_id, name: invoice.client_name });
+    setClientQuery(invoice.client_name || '');
     setIssue(invoice.issue_date || '');
     setDue(invoice.due_date || '');
     setPo(invoice.po_number || '');
@@ -68,36 +87,59 @@ export default function InvoiceCreate() {
       setEntityInitialized(true);
       return;
     }
-    setEntityId(activeEntityId ?? null);
+    if (invalidScope) return;
+    setEntityId(requestedEntityId ?? activeEntityId ?? null);
     setEntityInitialized(true);
-  }, [activeEntityId, activeEntityLoaded, entityId, entityInitialized, hydrated, isEdit]);
+  }, [activeEntityId, activeEntityLoaded, entityId, entityInitialized, hydrated, invalidScope, isEdit, requestedEntityId]);
 
-  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-  const taxableSubtotal = lines.reduce((sum, line) => (
-    Object.prototype.hasOwnProperty.call(line, 'taxable') && line.taxable === false
-      ? sum
-      : sum + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0)
-  ), 0);
-  const taxTotal = taxableSubtotal * ((Number(taxPct) || 0) / 100);
-  const total    = subtotal + taxTotal;
+  const { subtotal, taxTotal, total } = calculateDocumentTotals(lines, taxPct, { discountsUntaxed: true });
 
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      if (!client) throw new Error('Pick a client');
+      const enteredClient = clientQuery.trim();
+      let selectedClient = selectedCompanyMatchesQuery(client, enteredClient) ? client : null;
+      if (!selectedClient && enteredClient) {
+        const params = new URLSearchParams({ q: enteredClient, role: 'client', per_page: '100' });
+        const matches = await api.get(`/modules/people/api/companies.php?${params}`);
+        selectedClient = uniqueExactCompany(matches.rows, enteredClient);
+      }
+      if (!selectedClient) throw new Error(enteredClient
+        ? 'Choose a client from the suggestions, or create a new client there.'
+        : 'Pick a client');
+      const activeLines = lines.filter((line) =>
+        String(line.description || '').trim() !== ''
+        || String(line.unit_price ?? '').trim() !== ''
+        || String(line.gl_account_code || '').trim() !== ''
+        || line.catalog_item_id
+        || line.item_type !== 'other'
+        || String(line.unit || '').trim() !== 'each'
+        || Number(line.quantity) !== 1
+      );
+      if (activeLines.length === 0) throw new Error('Add at least one line item');
+      activeLines.forEach((line, index) => {
+        if (!String(line.description || '').trim()) throw new Error(`Line ${index + 1}: add a description.`);
+        if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0) {
+          throw new Error(`Line ${index + 1}: quantity must be positive.`);
+        }
+        const price = Number(line.unit_price);
+        if (line.unit_price === '' || line.unit_price == null) throw new Error(`Line ${index + 1}: enter a unit price.`);
+        if (!Number.isFinite(price) || (line.item_type === 'discount' ? price >= 0 : price < 0)) {
+          throw new Error(`Line ${index + 1}: ${line.item_type === 'discount' ? 'discount price must be negative' : 'unit price cannot be negative'}.`);
+        }
+      });
+      if (Math.round(total * 100) <= 0) throw new Error('Invoice total must be positive.');
       const payload = {
         entity_id: entityId,
-        client_name: client.name,
-        client_company_id: client.id,
+        client_name: selectedClient.name,
+        client_company_id: selectedClient.id,
         issue_date: issueDate,
         due_date: dueDate || null,
         po_number: poNumber || null,
         notes_internal: notesInt || null,
         notes_external: notesExt || null,
         tax_rate_pct: Number(taxPct) || 0,
-        lines: lines
-          .filter((l) => l.description && (Number(l.quantity) || 0) !== 0 && l.unit_price !== '')
-          .map((l) => ({
+        lines: activeLines.map((l) => ({
             catalog_item_id: l.catalog_item_id || null,
             item_type: l.item_type,
             description: l.description,
@@ -108,13 +150,14 @@ export default function InvoiceCreate() {
             ...(Object.prototype.hasOwnProperty.call(l, 'taxable') ? { taxable: l.taxable } : {}),
           })),
       };
-      if (payload.lines.length === 0) throw new Error('Add at least one line item');
       if (isEdit) {
         await api.patch(`/api/v1/billing/invoices?id=${id}`, payload);
-        nav(`/modules/billing/invoices/${id}`);
+        bustApiCachePrefix('billing-invoices-list:');
+        nav(detailPath(id, entityId));
       } else {
         const res = await api.post('/api/v1/billing/invoices', payload);
-        nav(`/modules/billing/invoices/${res.id}`);
+        bustApiCachePrefix('billing-invoices-list:');
+        nav(detailPath(res.id, entityId));
       }
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
@@ -122,14 +165,20 @@ export default function InvoiceCreate() {
 
   if (isEdit && invoiceApi.loading && !hydrated) return <p>Loading...</p>;
   if (isEdit && invoiceApi.error) return <p className="error">Error: {invoiceApi.error.message}</p>;
+  if (invalidScope) return <section className="error" data-testid="billing-invoice-create-entity-error">
+    That legal entity is not available for a new invoice. <Link to="/modules/billing/invoices">Back to invoices</Link>
+  </section>;
 
   return (
     <section data-testid="billing-invoice-create">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>{isEdit ? 'Edit invoice' : 'New invoice'}</h2>
+          {workspace?.name && <p className="muted" style={{ margin: '6px 0 0' }} data-testid="billing-invoice-workspace">
+            Workspace: <strong>{workspace.name}</strong>
+          </p>}
         </div>
-        <Link to="/modules/billing/invoices" className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
+        <Link to={listPath} className="btn btn--ghost" data-testid="billing-invoice-create-back">← Back</Link>
       </header>
 
       <form onSubmit={submit}>
@@ -139,9 +188,14 @@ export default function InvoiceCreate() {
               role="client"
               value={client}
               onChange={setClient}
+              onQueryChange={setClientQuery}
               testId="billing-invoice-create-client"
               placeholder="Search clients…"
             />
+            <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
+              Type a name to search the client directory. The initial suggestions show up to 12 clients.
+              {' '}For another workspace, use the workspace selector.
+            </p>
           </Field>
           <Field label="Issue date *">
             <input type="date" className="input" value={issueDate} onChange={(e) => setIssue(e.target.value)} data-testid="billing-invoice-create-issue" required />
@@ -165,6 +219,7 @@ export default function InvoiceCreate() {
               label="Issuing entity"
               required
               allowNone={false}
+              activeOnly={!isEdit}
             />
           </div>
         </div>
@@ -203,7 +258,7 @@ export default function InvoiceCreate() {
         {err && <p className="error" data-testid="billing-invoice-create-error">Error: {err.message}</p>}
 
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Link to="/modules/billing/invoices" className="btn btn--ghost" data-testid="billing-invoice-create-cancel">Cancel</Link>
+          <Link to={listPath} className="btn btn--ghost" data-testid="billing-invoice-create-cancel">Cancel</Link>
           <button type="submit" className="btn btn--primary" data-testid="billing-invoice-create-submit" disabled={busy}>
             {busy ? 'Saving...' : (isEdit ? 'Save draft' : 'Create draft invoice')}
           </button>

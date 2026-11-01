@@ -1,0 +1,622 @@
+{
+  "checked_at": "2026-10-24T03:00:11.729Z",
+  "environment": "isolated Core simulation tenant 999; Acme and Meridian previews",
+  "user_approved_demo_pairing": true,
+  "bindings": {
+    "ok": true,
+    "tenant_id": 999,
+    "operator_id": 4,
+    "quanta_workspace": {
+      "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+      "name": "Acme Construction"
+    },
+    "purepay_organization": {
+      "id": "org_purepay_demo",
+      "name": "Meridian Holdings LLC"
+    },
+    "both_bindings_verified": true,
+    "synthetic_only": true,
+    "provider_record_writes_at_confirmation": false
+  },
+  "fixture": {
+    "ok": true,
+    "fixture": "pilot:core-quanta-purepay:20261023",
+    "records": {
+      "person": {
+        "id": 15,
+        "number": "P-15"
+      },
+      "placement": {
+        "id": 13,
+        "number": "PL-13"
+      },
+      "company": {
+        "id": 449,
+        "number": "CO-449"
+      },
+      "client": {
+        "id": 1,
+        "number": "CL-1"
+      }
+    },
+    "rates_created": true,
+    "status": "active",
+    "at_creation": {
+      "status": "draft",
+      "rates_created": false,
+      "provider_record_writes": false
+    },
+    "rate": {
+      "id": 1,
+      "bill_rate": "60.0000",
+      "pay_rate": "30.0000",
+      "currency": "USD",
+      "unit": "hour",
+      "approved": true,
+      "synthetic_only": true
+    },
+    "local_payroll_setup": {
+      "placement": "PL-13",
+      "status": "active",
+      "core_employee_id": 3,
+      "profile_id": 2
+    }
+  },
+  "email": {
+    "person": "P-15",
+    "email": "core-integration-20261023@example.com",
+    "synthetic_only": true
+  },
+  "quanta_worker": {
+    "delivery": {
+      "id": 3,
+      "provider": "quanta",
+      "entity_type": "person",
+      "entity_tenant_id": 999,
+      "entity_id": 15,
+      "operation": "worker.profile.create",
+      "review_hash": "9c30f6cf9055d557cd79e8aac585c1bcc93dde1fad8e3c16aa558cb0917c4ab1",
+      "state": "delivered",
+      "remote_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+      "error_code": null,
+      "created_at": "2026-10-23 22:30:39",
+      "expires_at": "2026-10-23 23:00:39",
+      "approved_at": "2026-10-23 22:30:48",
+      "attempted_at": "2026-10-23 22:30:48",
+      "finished_at": "2026-10-23 22:30:48",
+      "remote_receipt_id": "cfd_e59f5bd7db04c91fdb2a631a6c2c1d7f88d3b1113f1e65dc14ffd6136d714fa5"
+    },
+    "replay": {
+      "id": 3,
+      "provider": "quanta",
+      "entity_type": "person",
+      "entity_tenant_id": 999,
+      "entity_id": 15,
+      "operation": "worker.profile.create",
+      "review_hash": "9c30f6cf9055d557cd79e8aac585c1bcc93dde1fad8e3c16aa558cb0917c4ab1",
+      "state": "delivered",
+      "remote_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+      "error_code": null,
+      "created_at": "2026-10-23 22:30:39",
+      "expires_at": "2026-10-23 23:00:39",
+      "approved_at": "2026-10-23 22:30:48",
+      "attempted_at": "2026-10-23 22:30:48",
+      "finished_at": "2026-10-23 22:30:48",
+      "remote_receipt_id": "cfd_e59f5bd7db04c91fdb2a631a6c2c1d7f88d3b1113f1e65dc14ffd6136d714fa5"
+    }
+  },
+  "quanta_assignment": {
+    "delivery": {
+      "id": 4,
+      "provider": "quanta",
+      "entity_type": "placement",
+      "entity_tenant_id": 999,
+      "entity_id": 13,
+      "operation": "assignment.create",
+      "review_hash": "06109e229c9405e526f87671faf688ed5d0830f1ed4ff5859591a7dd98d47f79",
+      "state": "delivered",
+      "remote_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+      "error_code": null,
+      "created_at": "2026-10-23 22:30:56",
+      "expires_at": "2026-10-23 23:00:56",
+      "approved_at": "2026-10-23 22:31:04",
+      "attempted_at": "2026-10-23 22:31:04",
+      "finished_at": "2026-10-23 22:31:04",
+      "remote_receipt_id": "cfd_25e76ba3d3c0fd855d42812251e838c2a06d79adf65f2c6c86506d714ed40000"
+    },
+    "replay": {
+      "id": 4,
+      "provider": "quanta",
+      "entity_type": "placement",
+      "entity_tenant_id": 999,
+      "entity_id": 13,
+      "operation": "assignment.create",
+      "review_hash": "06109e229c9405e526f87671faf688ed5d0830f1ed4ff5859591a7dd98d47f79",
+      "state": "delivered",
+      "remote_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+      "error_code": null,
+      "created_at": "2026-10-23 22:30:56",
+      "expires_at": "2026-10-23 23:00:56",
+      "approved_at": "2026-10-23 22:31:04",
+      "attempted_at": "2026-10-23 22:31:04",
+      "finished_at": "2026-10-23 22:31:04",
+      "remote_receipt_id": "cfd_25e76ba3d3c0fd855d42812251e838c2a06d79adf65f2c6c86506d714ed40000"
+    }
+  },
+  "purepay_person": {
+    "delivery": {
+      "id": 2,
+      "provider": "purepayroll",
+      "entity_type": "person",
+      "entity_tenant_id": 999,
+      "entity_id": 15,
+      "operation": "people.inputs",
+      "review_hash": "cdec6f187700194e90c42a102cc5fb99378ff69d69952497804673a0bdb3c7d7",
+      "state": "delivered",
+      "remote_id": "cpp_e0e0ca46fcd420f377b010f0f2a1a8d333cdf36dbb9939e6f7d5f37bdcd65810",
+      "error_code": null,
+      "created_at": "2026-10-23 22:29:23",
+      "expires_at": "2026-10-23 22:59:23",
+      "approved_at": "2026-10-23 22:29:33",
+      "attempted_at": "2026-10-23 22:29:33",
+      "finished_at": "2026-10-23 22:29:43",
+      "remote_receipt_id": "cpp_e0e0ca46fcd420f377b010f0f2a1a8d333cdf36dbb9939e6f7d5f37bdcd65810"
+    },
+    "provider_review": {
+      "state": "created",
+      "employee_id": "emp_core_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3"
+    }
+  },
+  "purepay_person_replay": {
+    "delivery": {
+      "id": 2,
+      "provider": "purepayroll",
+      "entity_type": "person",
+      "entity_tenant_id": 999,
+      "entity_id": 15,
+      "operation": "people.inputs",
+      "review_hash": "cdec6f187700194e90c42a102cc5fb99378ff69d69952497804673a0bdb3c7d7",
+      "state": "delivered",
+      "remote_id": "cpp_e0e0ca46fcd420f377b010f0f2a1a8d333cdf36dbb9939e6f7d5f37bdcd65810",
+      "error_code": null,
+      "created_at": "2026-10-23 22:29:23",
+      "expires_at": "2026-10-23 22:59:23",
+      "approved_at": "2026-10-23 22:29:33",
+      "attempted_at": "2026-10-23 22:29:33",
+      "finished_at": "2026-10-23 22:29:43",
+      "remote_receipt_id": "cpp_e0e0ca46fcd420f377b010f0f2a1a8d333cdf36dbb9939e6f7d5f37bdcd65810"
+    },
+    "replay": {
+      "id": 2,
+      "provider": "purepayroll",
+      "entity_type": "person",
+      "entity_tenant_id": 999,
+      "entity_id": 15,
+      "operation": "people.inputs",
+      "review_hash": "cdec6f187700194e90c42a102cc5fb99378ff69d69952497804673a0bdb3c7d7",
+      "state": "delivered",
+      "remote_id": "cpp_e0e0ca46fcd420f377b010f0f2a1a8d333cdf36dbb9939e6f7d5f37bdcd65810",
+      "error_code": null,
+      "created_at": "2026-10-23 22:29:23",
+      "expires_at": "2026-10-23 22:59:23",
+      "approved_at": "2026-10-23 22:29:33",
+      "attempted_at": "2026-10-23 22:29:33",
+      "finished_at": "2026-10-23 22:29:43",
+      "remote_receipt_id": "cpp_e0e0ca46fcd420f377b010f0f2a1a8d333cdf36dbb9939e6f7d5f37bdcd65810"
+    }
+  },
+  "time": {
+    "work_date": "2026-10-19",
+    "hours": 8,
+    "workspace": "Acme Construction",
+    "worker": "Synthetic Core Integration",
+    "worksite": "Acme Northside",
+    "ui_saved": true,
+    "approved": true,
+    "imported_into_core": true,
+    "source_approval_method": "Native Quanta admin submission and approval handlers using the existing scoped owner; outbound notifications held in the test process.",
+    "entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676",
+    "timesheet_id": "8c9e9039-109f-421c-9e7d-585adb8400a7",
+    "core_time_entry_id": 1,
+    "core_timesheet_id": 2,
+    "core_status": "pending_review",
+    "import": {
+      "preview": {
+        "rows": [
+          {
+            "id": "d9caaf9a-877b-4f59-89d9-c2b71983a676",
+            "status": "ready",
+            "worker_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+            "worksite_id": "f143a992-6f30-4f01-a294-1cde6591e80e",
+            "dimension_values": [],
+            "dimension_key": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "work_date": "2026-10-19",
+            "source_status": "approved",
+            "source_approval": {
+              "version": 1,
+              "timesheet_id": "8c9e9039-109f-421c-9e7d-585adb8400a7",
+              "timesheet_status": "approved",
+              "approved_at": "2026-10-24T02:40:14.533740Z",
+              "approved_by_email": "owner@acme.test",
+              "entry_updated_at": "2026-10-24T02:40:14.533740Z"
+            },
+            "components": {
+              "regular": 8
+            },
+            "hours": 8,
+            "description": "",
+            "placement_id": 13,
+            "placement_number": "PL-13",
+            "person_number": "P-15",
+            "person_name": "Synthetic Core Integration",
+            "message": "Ready for CoreFlux review"
+          }
+        ],
+        "counts": {
+          "ready": 1,
+          "update": 0,
+          "imported": 0,
+          "conflict": 0,
+          "verify_source": 0
+        },
+        "total": 1,
+        "source_workspace": {
+          "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+          "name": "Acme Construction"
+        }
+      },
+      "import": {
+        "inserted": 1,
+        "updated": 0,
+        "already_imported": 0,
+        "source_verified": 0,
+        "source_workspace": {
+          "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+          "name": "Acme Construction"
+        },
+        "timesheets": [
+          {
+            "id": 2,
+            "display_id": "TS-2",
+            "artifact_id": "ff5a14f8-68e7-4d28-8a04-d793bfdc5887",
+            "status": "submitted"
+          }
+        ]
+      },
+      "replay": {
+        "inserted": 0,
+        "updated": 0,
+        "already_imported": 1,
+        "source_verified": 0,
+        "source_workspace": {
+          "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+          "name": "Acme Construction"
+        },
+        "timesheets": []
+      }
+    },
+    "review_controls": {
+      "self_approval_blocked": true,
+      "unapproved_payroll_export_blocked": true,
+      "time": {
+        "id": 1,
+        "status": "pending_review",
+        "hours": "8.00",
+        "rate_snapshot_id": null,
+        "payroll_extracted_at": null
+      }
+    }
+  },
+  "production_changed": false,
+  "payroll_executed": false,
+  "payments_executed": false,
+  "core_runtime": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+  "quanta_assignment_update": {
+    "delivery": {
+      "id": 6,
+      "provider": "quanta",
+      "entity_type": "placement",
+      "entity_tenant_id": 999,
+      "entity_id": 13,
+      "operation": "assignment.update",
+      "review_hash": "15e28cd358503326db3eb90e971efaedbce8082cf0e3ae627f90d004544f7fee",
+      "state": "delivered",
+      "remote_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+      "error_code": null,
+      "created_at": "2026-10-23 22:56:15",
+      "expires_at": "2026-10-23 23:26:15",
+      "approved_at": "2026-10-23 22:56:29",
+      "attempted_at": "2026-10-23 22:56:29",
+      "finished_at": "2026-10-23 22:56:29",
+      "remote_receipt_id": "cfd_0245bc482fa4dc62afc687591849190a090a4fac354636bd11ff5ad11616d5cd"
+    },
+    "replay": {
+      "id": 6,
+      "provider": "quanta",
+      "entity_type": "placement",
+      "entity_tenant_id": 999,
+      "entity_id": 13,
+      "operation": "assignment.update",
+      "review_hash": "15e28cd358503326db3eb90e971efaedbce8082cf0e3ae627f90d004544f7fee",
+      "state": "delivered",
+      "remote_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+      "error_code": null,
+      "created_at": "2026-10-23 22:56:15",
+      "expires_at": "2026-10-23 23:26:15",
+      "approved_at": "2026-10-23 22:56:29",
+      "attempted_at": "2026-10-23 22:56:29",
+      "finished_at": "2026-10-23 22:56:29",
+      "remote_receipt_id": "cfd_0245bc482fa4dc62afc687591849190a090a4fac354636bd11ff5ad11616d5cd"
+    }
+  },
+  "purepay_assignment_input": {
+    "delivery": {
+      "id": 5,
+      "provider": "purepayroll",
+      "entity_type": "placement",
+      "entity_tenant_id": 999,
+      "entity_id": 13,
+      "operation": "assignments.inputs",
+      "review_hash": "0fc462d975b6167535772d2ab8a7361fdbbcba9200afc6a661db678d95a9c0ee",
+      "state": "delivered",
+      "remote_id": "cpa_de9dbfa0c4990d1c1342fffa1ce5de4e9f260d0c95b890655af2a8145f4bc7a4",
+      "error_code": null,
+      "created_at": "2026-10-23 22:40:14",
+      "expires_at": "2026-10-23 23:10:14",
+      "approved_at": "2026-10-23 22:40:32",
+      "attempted_at": "2026-10-23 22:40:32",
+      "finished_at": "2026-10-23 22:40:32",
+      "remote_receipt_id": "cpa_de9dbfa0c4990d1c1342fffa1ce5de4e9f260d0c95b890655af2a8145f4bc7a4"
+    },
+    "replay": {
+      "id": 5,
+      "provider": "purepayroll",
+      "entity_type": "placement",
+      "entity_tenant_id": 999,
+      "entity_id": 13,
+      "operation": "assignments.inputs",
+      "review_hash": "0fc462d975b6167535772d2ab8a7361fdbbcba9200afc6a661db678d95a9c0ee",
+      "state": "delivered",
+      "remote_id": "cpa_de9dbfa0c4990d1c1342fffa1ce5de4e9f260d0c95b890655af2a8145f4bc7a4",
+      "error_code": null,
+      "created_at": "2026-10-23 22:40:14",
+      "expires_at": "2026-10-23 23:10:14",
+      "approved_at": "2026-10-23 22:40:32",
+      "attempted_at": "2026-10-23 22:40:32",
+      "finished_at": "2026-10-23 22:40:32",
+      "remote_receipt_id": "cpa_de9dbfa0c4990d1c1342fffa1ce5de4e9f260d0c95b890655af2a8145f4bc7a4"
+    }
+  },
+  "purepay_native_person": {
+    "person_state": "created",
+    "employee_id": "emp_core_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3",
+    "employee_status": "inactive",
+    "employee_pay_method": "record_only",
+    "replay_same_employee": true,
+    "client_id": "cus_2851af69d9",
+    "client_name": "Synthetic Core Integration Client 20261023",
+    "assignment_state": "needs_mapping",
+    "missing_links": [
+      {
+        "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+        "directory_tenant_id": 999,
+        "entity_type": "client",
+        "number": "CL-1"
+      }
+    ],
+    "outbound_held": 1
+  },
+  "purepay_native_assignment": {
+    "state": "created",
+    "assignment_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+    "status": "draft",
+    "person_number": "P-15",
+    "placement_number": "PL-13",
+    "client_number": "CL-1",
+    "source_revision": "859d6839ec2cc8830f051778d57a69a664747087bb7cc4012bc3a4afa7021e16",
+    "replay_same_assignment": true,
+    "billing_automation_enabled": false,
+    "compensation_defaults_changed": false
+  },
+  "purepay_links": [
+    {
+      "delivery": {
+        "id": 7,
+        "provider": "purepay",
+        "entity_type": "person",
+        "entity_tenant_id": 999,
+        "entity_id": 15,
+        "operation": "record.link",
+        "review_hash": "90f253f8417317cf8989312b7b93dbf267ab4096607262f5927350aa2b6802c1",
+        "state": "delivered",
+        "remote_id": "emp_core_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3",
+        "error_code": null,
+        "created_at": "2026-10-23 22:56:30",
+        "expires_at": "2026-10-23 23:26:30",
+        "approved_at": "2026-10-23 22:56:38",
+        "attempted_at": "2026-10-23 22:56:38",
+        "finished_at": "2026-10-23 22:56:38",
+        "remote_receipt_id": "cfl_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3"
+      },
+      "replay": {
+        "id": 7,
+        "provider": "purepay",
+        "entity_type": "person",
+        "entity_tenant_id": 999,
+        "entity_id": 15,
+        "operation": "record.link",
+        "review_hash": "90f253f8417317cf8989312b7b93dbf267ab4096607262f5927350aa2b6802c1",
+        "state": "delivered",
+        "remote_id": "emp_core_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3",
+        "error_code": null,
+        "created_at": "2026-10-23 22:56:30",
+        "expires_at": "2026-10-23 23:26:30",
+        "approved_at": "2026-10-23 22:56:38",
+        "attempted_at": "2026-10-23 22:56:38",
+        "finished_at": "2026-10-23 22:56:38",
+        "remote_receipt_id": "cfl_c8af23472bb476f0cdd78341daffaac0b601bea851434a50a61436b5cbe615a3"
+      }
+    },
+    {
+      "delivery": {
+        "id": 8,
+        "provider": "purepay",
+        "entity_type": "client",
+        "entity_tenant_id": 999,
+        "entity_id": 1,
+        "operation": "record.link",
+        "review_hash": "51bd6f98ba8e3a5f81475701acd2497decb7f8bd31ebbb54f99140a4318d1af0",
+        "state": "delivered",
+        "remote_id": "cus_2851af69d9",
+        "error_code": null,
+        "created_at": "2026-10-23 22:56:30",
+        "expires_at": "2026-10-23 23:26:30",
+        "approved_at": "2026-10-23 22:56:39",
+        "attempted_at": "2026-10-23 22:56:39",
+        "finished_at": "2026-10-23 22:56:39",
+        "remote_receipt_id": "cfl_1701c47bc11304fa79bd6966d5df2982f321c28cb721136204ad149b50d29e3a"
+      },
+      "replay": {
+        "id": 8,
+        "provider": "purepay",
+        "entity_type": "client",
+        "entity_tenant_id": 999,
+        "entity_id": 1,
+        "operation": "record.link",
+        "review_hash": "51bd6f98ba8e3a5f81475701acd2497decb7f8bd31ebbb54f99140a4318d1af0",
+        "state": "delivered",
+        "remote_id": "cus_2851af69d9",
+        "error_code": null,
+        "created_at": "2026-10-23 22:56:30",
+        "expires_at": "2026-10-23 23:26:30",
+        "approved_at": "2026-10-23 22:56:39",
+        "attempted_at": "2026-10-23 22:56:39",
+        "finished_at": "2026-10-23 22:56:39",
+        "remote_receipt_id": "cfl_1701c47bc11304fa79bd6966d5df2982f321c28cb721136204ad149b50d29e3a"
+      }
+    },
+    {
+      "delivery": {
+        "id": 9,
+        "provider": "purepay",
+        "entity_type": "placement",
+        "entity_tenant_id": 999,
+        "entity_id": 13,
+        "operation": "record.link",
+        "review_hash": "2cda6b6f0a71b04207013596f626f07f70a31300f519b1db37efc28edf7a99a2",
+        "state": "delivered",
+        "remote_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+        "error_code": null,
+        "created_at": "2026-10-23 22:57:26",
+        "expires_at": "2026-10-23 23:27:26",
+        "approved_at": "2026-10-23 22:57:36",
+        "attempted_at": "2026-10-23 22:57:36",
+        "finished_at": "2026-10-23 22:57:36",
+        "remote_receipt_id": "cfl_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e"
+      },
+      "replay": {
+        "id": 9,
+        "provider": "purepay",
+        "entity_type": "placement",
+        "entity_tenant_id": 999,
+        "entity_id": 13,
+        "operation": "record.link",
+        "review_hash": "2cda6b6f0a71b04207013596f626f07f70a31300f519b1db37efc28edf7a99a2",
+        "state": "delivered",
+        "remote_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+        "error_code": null,
+        "created_at": "2026-10-23 22:57:26",
+        "expires_at": "2026-10-23 23:27:26",
+        "approved_at": "2026-10-23 22:57:36",
+        "attempted_at": "2026-10-23 22:57:36",
+        "finished_at": "2026-10-23 22:57:36",
+        "remote_receipt_id": "cfl_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e"
+      }
+    }
+  ],
+  "resolved_issues": [
+    "Synthetic .test email rejected before creation; corrected to example.com.",
+    "Interrupted Core audit callback recovered the existing PurePay receipt without resending.",
+    "Native profile and assignment tested with process-local provisioning flags; persistent web flags stay off.",
+    "Core local employee and payroll profile created for synthetic activation.",
+    "Core-before-time-module source enum gap fixed by module migration 012.",
+    "Placement audit writes now use the column-aware shared writer.",
+    "PurePay preview restart verified unchanged source, protected configuration and 20,599 existing documents before resuming."
+  ],
+  "open_issues": [
+    "Simulation has one reviewer; imported hours await a distinct reviewer before payroll input delivery.",
+    "Actual Thunderhawk round trip, document intake, held payroll/result acceptance and production release remain open."
+  ],
+  "service_test_limits": [
+    "Native Quanta submission/approval and PurePay provisioning used real service handlers with actual scoped demo owners, not browser action coverage.",
+    "No invitations, real worker access, compensation activation, payroll runs, payments, accounting postings or provider publication."
+  ],
+  "evidence": [
+    "core-purepay-native-person-20261023.png",
+    "core-purepay-native-assignment-20261023.png",
+    "core-quanta-active-assignment-20261023.png"
+  ],
+  "quanta_current_alignment": {
+    "quanta_assignment": {
+      "status": "unchanged",
+      "operation": "assignment.update",
+      "workspace": {
+        "id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+        "name": "Acme Construction"
+      },
+      "reference": {
+        "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+        "directory_tenant_id": 999,
+        "entity_type": "placement",
+        "number": "PL-13"
+      },
+      "proposed": {
+        "expected_version": 2
+      },
+      "current": {
+        "id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+        "tenant_id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+        "placement": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 999,
+          "entity_type": "placement",
+          "number": "PL-13"
+        },
+        "person": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 999,
+          "entity_type": "person",
+          "number": "P-15"
+        },
+        "worksite_id": "f143a992-6f30-4f01-a294-1cde6591e80e",
+        "client": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 999,
+          "entity_type": "client",
+          "number": "CL-1"
+        },
+        "vendor": null,
+        "end_client": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 999,
+          "entity_type": "company",
+          "number": "CO-449"
+        },
+        "title": "Synthetic Core Integration 20261023",
+        "engagement_type": "w2",
+        "start_date": "2026-10-01",
+        "end_date": "2026-10-31",
+        "status": "active",
+        "worker_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+        "person_link_id": "cfl_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+        "version": 2,
+        "created_at": "2026-10-24T02:31:04.960592+00:00",
+        "updated_at": "2026-10-24T02:56:29.141723+00:00",
+        "created_by_delivery_id": "cfd_25e76ba3d3c0fd855d42812251e838c2a06d79adf65f2c6c86506d714ed40000",
+        "last_delivery_id": "cfd_0245bc482fa4dc62afc687591849190a090a4fac354636bd11ff5ad11616d5cd"
+      },
+      "delivery_enabled": false
+    },
+    "both_bindings_verified": true
+  }
+}

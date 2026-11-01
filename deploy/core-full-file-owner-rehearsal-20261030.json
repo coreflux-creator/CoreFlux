@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-30T17:36:50.706962+00:00",
+  "candidate_commit": "569c55d2a57fa68349737396374ec057d1f37f5f",
+  "scope": "Complete reviewed candidate path layout and native two-account file replacement/recovery with synthetic bytes outside all application roots",
+  "production_preflight": {
+    "run_id": 41097858926,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41097858926",
+    "conclusion": "success",
+    "report_sha256": "3e03a943d60d2b7ab2d232fc9ca8b0b671f7488a66e649afe761d9ba05f30af6",
+    "plan_sha256": "68b166e985f9ac3428c89c6fd874c2c136623ea63e1054c0464c9695c5c48f16",
+    "pending_migrations": 78,
+    "activation_performed": false
+  },
+  "file_plan": {
+    "file_paths": 7118,
+    "directory_paths": 2103,
+    "actions": {
+      "replace": 438,
+      "defer_to_maintenance_activation": 1,
+      "unchanged": 1696,
+      "add": 4980,
+      "retain_reviewed_deployed_migration": 3
+    },
+    "mutations_by_login": {
+      "master_fpepuvndbb": 72,
+      "kunalverma2": 5346
+    },
+    "new_directories": 1960,
+    "metadata_permission_blockers": [],
+    "production_write_performed": false
+  },
+  "native_rehearsal": {
+    "fixture": "/tmp/core-file-owner-fixture-20261030-9de4cec4ded24687",
+    "rsync_version": "3.2.7",
+    "synthetic_bytes_only": true,
+    "steps": [
+      {
+        "action": "verify-original",
+        "checked_paths": 9221,
+        "file_paths": 7118,
+        "directory_paths": 2103,
+        "passed": true
+      },
+      {
+        "action": "verify-applied",
+        "checked_paths": 9221,
+        "file_paths": 7118,
+        "directory_paths": 2103,
+        "passed": true
+      },
+      {
+        "action": "verify-original",
+        "checked_paths": 9221,
+        "file_paths": 7118,
+        "directory_paths": 2103,
+        "passed": true
+      },
+      {
+        "action": "verify-original",
+        "checked_paths": 9221,
+        "file_paths": 7118,
+        "directory_paths": 2103,
+        "passed": true
+      }
+    ],
+    "original_bytes_uid_gid_mode_mtime_preserved_after_recovery": true,
+    "all_candidate_bytes_and_metadata_verified": true,
+    "root_routing_and_three_retained_migrations_untouched": true,
+    "private_backups_separate_per_uid": true,
+    "rollback_of_added_files_and_empty_directories_verified": true,
+    "interruption_after_master_batch_recovered": true,
+    "production_changed": false,
+    "database_opened": false
+  },
+  "copy_options": [
+    "-rt",
+    "--checksum",
+    "--no-perms",
+    "--no-owner",
+    "--no-group",
+    "--omit-dir-times",
+    "--backup",
+    "--backup-dir=<private owner-specific directory>",
+    "--files-from=<reviewed owner-specific list>"
+  ],
+  "artifacts": {
+    "full-file-inventory.private.json": {
+      "path": "output/native-populated-recovery-20261030/full-file-inventory.private.json",
+      "sha256": "b2ff263a8476f3345701e7212d2ad9a8f22b0669117e6257f2220e0d59eef486"
+    },
+    "full-file-ownership-plan.private.json": {
+      "path": "output/native-populated-recovery-20261030/full-file-ownership-plan.private.json",
+      "sha256": "db088bfae24e27143a04911b6906d7ff8253818bcd50f725ab60fe88c510b1ac"
+    },
+    "file-owner-fixture.php": {
+      "path": "output/native-populated-recovery-20261030/file-owner-fixture.php",
+      "sha256": "e18021695a5819f964c068359622798d4c1ac396e3ba84e1dc4346f74a7871c6"
+    },
+    "file-owner-fixture-receipt.json": {
+      "path": "output/native-populated-recovery-20261030/file-owner-fixture-receipt.json",
+      "sha256": "4f6ea71fa8095b1f7e8229c62a5c252061deb938d0bd91848f5e13cd80638cdc"
+    }
+  },
+  "harness": {
+    "plan_core_release_files.py": "aab077e2f07b098e532167ac51fc59796426c9d0fa8a44270e09895ed7f9b966",
+    "rehearse_core_file_owners.py": "90c75b32af60b6201cd9665fc585216590d3ce2e1c32b872837253f6a7b8f388"
+  },
+  "production_cutover_performed": false,
+  "limitations": [
+    "Synthetic bytes exercise the complete path and metadata layout; actual private source backups and candidate bytes must be verified during an authorized release.",
+    "No live HTTP ingress, master jobs, workers or other writers were held.",
+    "In-flight populated native backup/upgrade/recovery is separate evidence and is not claimed complete here.",
+    "Production execution remains coordinated with the publishing chat and requires a matched file/database recovery point."
+  ]
+}

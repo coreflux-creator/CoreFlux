@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-10-25T08:09:35.858900+00:00",
+  "kind": "offline_source_candidate",
+  "provider_source_commit": "ed40d8dbb5581730136b9563d37c02871262c730",
+  "provider_branch": "codex/payroll-native-observations",
+  "provider_source_hashes_lf": {
+    "backend/server.py": "22bfc12cc407aa16635b92ef51e8bbf27a46a4734584a02b95f562c900dd0839",
+    "backend/integration_bill_reservations.py": "e138758837e2c0cf25e91af2514d9330ffaf5882bf59bc8c87e4c6621d9a8892",
+    "contract_tests/full_app_acceptance.py": "da9b42f8135ab0012514ad0859f0f38fd7bf0a8b527628866434761572ef8e76",
+    "contract_tests/test_bill_reservations.py": "ed49765385a5f874c34d430f48994edc10caf9a019ed4532f59a4a7426b0429e",
+    "contract_tests/test_payment_results.py": "9595573b91c54296cf9f4109b9249745bd8fb8a2cf0c06248ec0bec0bb18a08d",
+    "contract_tests/BILL_RESERVATIONS.md": "671e7dee3e51f70d920b541456b27317ebf46ccca95f005b68c80f658f9e5004"
+  },
+  "validation": {
+    "full_application_passed": 163,
+    "standalone_source_passed": 82,
+    "network_attempts": 0,
+    "real_database_used": false,
+    "live_workspace_acceptance": false,
+    "wallet_execution_stopped_before_provider_io": true
+  },
+  "deployment": {
+    "provider_preview_changed": false,
+    "core_staging_changed": false,
+    "production_changed": false
+  },
+  "remaining": [
+    "Core canonical dispatch not connected",
+    "No real Mongo concurrency test",
+    "No live financial execution or provider callback test",
+    "Failed funding/native-attempt recovery workflow incomplete",
+    "Provider source-change conflict handling still needs review",
+    "Core parent payment aggregation, AP guards and callback ownership updates"
+  ]
+}

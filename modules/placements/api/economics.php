@@ -10,7 +10,9 @@ require_once __DIR__ . '/../lib/economics.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
-$tenantId = (int) $ctx['tenant_id'];
+// Contract parties and cycles belong to the same shared placement catalog
+// as the overview. Keep the authenticated tenant unchanged for RBAC.
+$tenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $placementId = (int) ($_GET['placement_id'] ?? 0);
@@ -38,7 +40,21 @@ if ($method === 'GET') {
     if ($placementId <= 0) api_error('placement_id required', 400);
     $context = placementEconomicsContext($tenantId, $placementId, true);
     if (empty($context['available'])) {
-        api_error('Staffing economic graph is not available. Apply migration 126.', 409, $context['reconcile'] ?? []);
+        $failure = $context['reconcile'] ?? [];
+        $detail = (string) ($failure['errors'][0] ?? '');
+        $schemaMissing = preg_match('/SQLSTATE\[(42S02|42S22)\]/', $detail) === 1;
+        $message = $schemaMissing
+            ? 'Placement contract setup is incomplete. Run pending database updates.'
+            : 'Placement contract could not be loaded. Please retry or contact your administrator.';
+        if ($detail === 'placement not found') {
+            api_error('Placement not found', 404);
+        }
+        if (($user['global_role'] ?? $user['role'] ?? '') === 'master_admin' && $detail !== '') {
+            $message .= ' Details: ' . substr($detail, 0, 500);
+        }
+        api_error($message, $schemaMissing ? 409 : 503, array_merge($failure, [
+            'migration_pending' => $schemaMissing,
+        ]));
     }
     api_ok($context);
 }
@@ -202,12 +218,12 @@ if ($method === 'POST' && $action === 'party') {
     }
     if ($displayName === '') api_error('display_name required', 422);
     if ($companyId) {
-        $company = companiesGet($companyId);
+        $company = companiesGet($companyId, placementsCompanyDirectoryTenantId());
         if (!$company) api_error('company_id not found in this tenant', 422);
         $displayName = (string) $company['name'];
         companiesAddRole($companyId, $channel === 'ar' ? 'client' : 'vendor');
     } elseif ($channel === 'ap' && !$personId) {
-        $companyId = companiesUpsertByName($tenantId, $displayName, [
+        $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), $displayName, [
             'created_by_user_id' => $user['id'] ?? null,
         ], ['vendor']);
     }
@@ -232,7 +248,8 @@ if ($method === 'POST' && $action === 'party') {
             $personId ? '1099_individual' : (string) ($body['vendor_type'] ?? 'w9_business'),
             $terms,
             $pwp,
-            $placementId
+            $placementId,
+            currentTenantId()
         );
     }
     $feeBasis = (string) ($body['fee_basis'] ?? 'none');

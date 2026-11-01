@@ -1,0 +1,35 @@
+{
+  "code_commit": "163a08e524454fc5d6b4c1bc390fb572e0540d17",
+  "ci": {"run":40049443874,"conclusion":"success","jobs_passed":9,"url":"https://github.com/coreflux-creator/CoreFlux/actions/runs/40049443874"},
+  "staging": {
+    "run":40049649900,
+    "url":"https://github.com/coreflux-creator/CoreFlux/actions/runs/40049649900",
+    "conclusion":"success",
+    "app_id":6707602,
+    "database":"muzqvdvqbx",
+    "synthetic_tenant":999,
+    "private_backup":"/home/master/.coreflux-integration-backups/muzqvdvqbx/163a08e524454fc5d6b4c1bc390fb572e0540d17-20261024012704",
+    "installed_changed_files":10,
+    "pending_migrations":[],
+    "migrations_applied":[],
+    "integration_identity":"retained unchanged",
+    "payroll_authority_enabled":false,
+    "document_intake":"disabled before provider or storage IO"
+  },
+  "acceptance": {
+    "quanta_endpoint_scenarios":10,
+    "io_boundaries_per_scenario":6,
+    "local_quanta_suites_passed":10,
+    "native_onboarding_http":"passed",
+    "accounting_lifecycle":"passed",
+    "split_receipt_and_correction":"passed",
+    "credit_applications":"passed",
+    "invoice_statement_delivery":"log-only passed"
+  },
+  "limitations": [
+    "Deployment installs endpoint-selection capability; no preview URL or provider credential has yet been configured in the isolated Core host.",
+    "Quanta user key creation succeeded after the preview model fix. Its one-time page remains open pending secure transfer.",
+    "PurePay key creation and Cloudways sign-in require user completion.",
+    "No new S3 acceptance, production runtime change, provider exchange, payroll execution, payment or financial posting occurred."
+  ]
+}

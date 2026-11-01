@@ -61,7 +61,12 @@ echo "\nData sources — delegated to shared engine\n";
 $assert('imports core/treasury/liquidity_projection.php',
     strpos($api, "require_once __DIR__ . '/../core/treasury/liquidity_projection.php'") !== false);
 $assert('calls liquidityBaselineDatasets with excludeBillId',
-    strpos($api, 'liquidityBaselineDatasets($tid, $today, $endDate, null, $billId)') !== false);
+    strpos($api, 'liquidityBaselineDatasets($tid, $today, $endDate, $entityId, $billId)') !== false);
+$assert('bill without entity does not show another entity cash forecast',
+    strpos($api, 'Assign this bill to a legal entity') !== false);
+$assert('no bank account yields a setup note instead of a runway claim',
+    strpos($api, "if (\$datasets['bank_count'] === 0)") !== false
+    && strpos($api, 'reliable liquidity projection') !== false);
 $assert('calls liquidityBucketDatasets',
     strpos($api, 'liquidityBucketDatasets($datasets)') !== false);
 $assert('comment explains why simulated bill is excluded from baseline',

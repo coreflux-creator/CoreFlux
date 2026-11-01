@@ -30,7 +30,8 @@ $c = function (string $hay, string $needle): bool { return strpos($hay, $needle)
 // 1) Source surface — accountingNextJeNumber participates in outer txn.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── modules/accounting/lib/accounting.php source ──\n";
-$acc = (string) file_get_contents('/app/modules/accounting/lib/accounting.php');
+$accountingPath = dirname(__DIR__) . '/modules/accounting/lib/accounting.php';
+$acc = (string) file_get_contents($accountingPath);
 
 $a('accountingNextJeNumber still defined',
     $c($acc, 'function accountingNextJeNumber(int $tenantId): string'));
@@ -63,7 +64,7 @@ $a('accountingPromoteDraftToPosted preserves caller transaction ownership',
     preg_match('/function\s+accountingPromoteDraftToPosted\b.*?\$ownsTransaction\s*=\s*cf_tx_begin\(\$pdo\).*?cf_tx_commit\(\$pdo, \$ownsTransaction\).*?cf_tx_rollback\(\$pdo, \$ownsTransaction\)/s', $acc) === 1);
 
 // php -l clean.
-exec('php -l /app/modules/accounting/lib/accounting.php 2>&1', $out, $rc);
+exec('php -l ' . escapeshellarg($accountingPath) . ' 2>&1', $out, $rc);
 $a('accounting.php passes php -l',                   $rc === 0);
 
 // ──────────────────────────────────────────────────────────────────────

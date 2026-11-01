@@ -1,0 +1,84 @@
+{
+  "hosted_acceptance": {
+    "backend": {
+      "runtime_hashes": {
+        "app/routers/tenant.py": "2b729cf8ac3505e7a209659f5146d0c82a14b9d659b90f2da595044dfaecc00d",
+        "app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca"
+      },
+      "test_files": [
+        "test_core_portal.py",
+        "test_coreflux.py",
+        "test_invitation_mail_shape.py",
+        "test_membership_reactivation.py",
+        "test_worker_profiles.py"
+      ],
+      "pytest_exit": 0,
+      "network_attempts": 0,
+      "full_application": true,
+      "lifespan_started": false,
+      "candidate_hashes": {
+        "app/routers/tenant.py": "fbf5574eeba3d0517b9da16f25ffc4994351e740d8fdb3d81d63ed5fd2404fd6",
+        "app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca"
+      },
+      "real_database_used": false,
+      "live_workspace_acceptance": false,
+      "report_directory": "/tmp/quanta-core-full-app-005ye8nx"
+    },
+    "backend_summary": [
+      "120 passed in 1.60s"
+    ],
+    "frontend_exit": 0,
+    "frontend_candidate_hashes": {
+      "src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193",
+      "src/pages/WorkerPortalAccess.jsx": "f9e279d08b529e6c39c2953093c4e571f20e5be2aa69474605e4434abf7945be"
+    },
+    "shared_head_unchanged": true,
+    "shared_source_unchanged": true,
+    "shared_index_unchanged": true,
+    "protected_configuration_unchanged": true,
+    "live_database_used": false,
+    "published": false,
+    "directory": "/tmp/quanta-worker-portal-access-acceptance-gpv4adi_"
+  },
+  "preview_installation": {
+    "candidate": "d3d7ada184f1030b6ce68a2259fc3850d3ed4423",
+    "backup_directory": "/tmp/quanta-onboarding-preview-install-c9o3rl8_",
+    "protected_configuration_unchanged": true,
+    "background_workers_disabled": true,
+    "document_transfer_enabled": false,
+    "published": false,
+    "stage": "verified",
+    "health_status": 200,
+    "installed_hashes": {
+      "backend/app/routers/tenant.py": "fbf5574eeba3d0517b9da16f25ffc4994351e740d8fdb3d81d63ed5fd2404fd6",
+      "frontend/src/pages/WorkerPortalAccess.jsx": "f9e279d08b529e6c39c2953093c4e571f20e5be2aa69474605e4434abf7945be",
+      "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+      "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193"
+    },
+    "shared_head_unchanged": true,
+    "staged_source_unchanged": true,
+    "unrelated_source_unchanged": true,
+    "existing_records_unchanged": true,
+    "service_status": "backend RUNNING pid 4955, uptime 0:00:03\nfrontend RUNNING pid 4983, uptime 0:00:01\n",
+    "scheduler_stopped": true,
+    "protected_collections": 13,
+    "protected_collection_names": [
+      "tenants",
+      "identities",
+      "users",
+      "api_keys",
+      "invites",
+      "webhook_subscriptions",
+      "coreflux_person_links",
+      "coreflux_assignments",
+      "coreflux_onboarding",
+      "coreflux_document_transfers",
+      "coreflux_time_reviews",
+      "time_entries",
+      "timesheets"
+    ],
+    "record_snapshots_identical": true
+  },
+  "actual_thunderhawk_acceptance": false,
+  "production_published": false
+}

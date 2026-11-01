@@ -34,18 +34,21 @@ $a('billing time-bundle line stamps item_type=labor', strpos($bl, "'item_type'  
 
 echo "\nAPI persistence\n";
 $bills = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
-$a('AP manual POST inserts item_type column',   strpos($bills, 'INSERT INTO ap_bill_lines') !== false
-                                                 && strpos($bills, 'item_type') !== false);
-$a('AP manual POST normalises item_type',       strpos($bills, "apNormalizeItemType(\$l['item_type'] ?? null, 'manual')") !== false);
+$billDrafts = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/bill_drafts.php');
+$a('AP manual POST inserts item_type column',   strpos($bills, 'apCreateManualBill(') !== false
+                                                 && strpos($billDrafts, 'INSERT INTO ap_bill_lines') !== false
+                                                 && strpos($billDrafts, 'item_type') !== false);
+$a('AP manual POST normalises item_type',       strpos($billDrafts, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false);
 $a('AP time-bundle path threads item_type',     strpos($bills, "\$l['item_type'] = apNormalizeItemType") !== false);
 
 $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
+$invoiceDrafts = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_drafts.php');
 $a('Billing requires AP lib for normalisation', strpos($inv, "require_once __DIR__ . '/../../ap/lib/ap.php'") !== false);
-$a('Billing manual POST inserts item_type',     strpos($inv, 'item_type, description, quantity') !== false);
-$a('Billing manual POST inserts gl_revenue_account_code', strpos($inv, 'gl_revenue_account_code') !== false);
+$a('Billing manual POST inserts item_type',     strpos($inv, 'billingCreateDirectInvoiceDraft(') !== false
+    && strpos($invoiceDrafts, 'item_type, description, quantity') !== false);
+$a('Billing manual POST inserts gl_revenue_account_code', strpos($invoiceDrafts, 'gl_revenue_account_code') !== false);
 $a('Billing manual POST normalises item_type',
-   strpos($inv, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false
-   || strpos($inv, "apNormalizeItemType(\$l['item_type'] ?? null, 'manual')") !== false);
+   strpos($invoiceDrafts, "apNormalizeItemType(\$line['item_type'] ?? null, 'manual')") !== false);
 $a('Billing time-bundle path threads item_type', strpos($inv, "\$l['item_type']  = apNormalizeItemType") !== false);
 
 echo "\nGL post groups by revenue account\n";
@@ -76,9 +79,27 @@ $a('page testid',                               strpos($bc, 'data-testid="ap-bil
 $a('vendor typeahead',                          strpos($bc, 'VendorTypeahead') !== false && strpos($bc, 'testId="ap-bill-create-vendor"') !== false);
 $a('uses LineItemEditor',                       strpos($bc, "import LineItemEditor") !== false);
 $a('passes glField=gl_expense_account_code',    strpos($bc, 'glField="gl_expense_account_code"') !== false);
-$a('fetches expense accounts only',             strpos($bc, '/modules/accounting/api/accounts.php?type=expense') !== false);
+$choices = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/directBillAccounts.js');
+$a('fetches active account dimension rules',    strpos($bc, '/modules/accounting/api/accounts.php?active=1&include_required_dimensions=1') !== false);
+$a('offers only postable expense classes',      strpos($choices, "['expense', 'other_expense'].includes(account.account_type)") !== false
+    && strpos($choices, 'Number(account.is_postable) === 1') !== false);
+$a('disables accounts needing absent dimensions', strpos($choices, 'disabled: missing.length > 0 || blocked.length > 0') !== false);
 $a('vendor type select',                        strpos($bc, 'data-testid="ap-bill-create-vendor-type"') !== false);
-$a('1099 individual auto-flag',                 strpos($bc, "is_1099_eligible: vendorType === '1099_individual'") !== false);
+$a('manual bill sends saved vendor ID and 1099 flag', strpos($bc, 'vendor_id: vendor.id || null') !== false
+    && strpos($bc, 'is_1099_eligible: Number(vendor.requires_1099) === 1') !== false
+    && strpos($bc, 'disabled={Boolean(vendor?.id)}') !== false);
+$vendorPick = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/VendorTypeahead.jsx');
+$vendorQuick = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/VendorQuickCreate.jsx');
+$a('vendor pick carries the saved 1099 setting', strpos($vendorPick, 'requires_1099: Number(row.requires_1099) === 1') !== false
+    && strpos($vendorQuick, 'requires_1099: requires1099') !== false
+    && strpos($vendorQuick, 'id: res.id') !== false);
+$a('AP service verifies saved vendor and never promotes its 1099 flag from bill type',
+    strpos($billDrafts, 'WHERE tenant_id = :t AND id = :id FOR UPDATE') !== false
+    && strpos($billDrafts, "\$vendorRequires1099 = (int) \$savedVendor['requires_1099'] === 1") !== false
+    && strpos($billDrafts, 'requires_1099 = GREATEST') === false);
+$apDomain = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
+$a('1099 ledger uses saved vendor classification', strpos($apDomain, 'AND v.requires_1099 = 1') !== false
+    && strpos($apDomain, 'AND b.vendor_type IN ("1099_individual","c2c_corp")') === false);
 $a('submit posts to bills.php',                 strpos($bc, "api.post('/modules/ap/api/bills.php'") !== false);
 
 echo "\nReact InvoiceCreate page\n";

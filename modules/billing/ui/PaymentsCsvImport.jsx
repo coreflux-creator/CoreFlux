@@ -8,7 +8,7 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * scope (done via the Payment Detail UI). Powered by
  * Core\CsvImportService via /api/billing/payments_csv_import.php.
  */
-export default function PaymentsCsvImport() {
+export default function PaymentsCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/billing/api/payments_csv_import.php"
@@ -17,6 +17,7 @@ export default function PaymentsCsvImport() {
       backLabel="← Payments"
       testidPrefix="billing-payments-csv-import"
       presetEntity="billing_payments"
+      standaloneAccounting={standaloneAccounting}
       previewColumns={[
         { key: 'client_name', label: 'Client' },
         { key: 'received_at', label: 'Received' },

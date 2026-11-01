@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
 import QboPaymentsCollectModal from './QboPaymentsCollectModal';
@@ -12,6 +14,7 @@ import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 import {
   BookOpenCheck, CheckCheck, ChevronDown, ChevronLeft, ChevronRight,
   Clock3, Download, Plus, Send, Upload,
+  Settings2,
 } from 'lucide-react';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
@@ -21,6 +24,7 @@ const STATUS_LABELS = {
 };
 
 export default function InvoicesList({ session }) {
+  const scope = useAccountingEntityScope({ defaultAll: true });
   const [status, setStatus] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [showEntries, setShowEntries] = useState(false);
@@ -35,19 +39,31 @@ export default function InvoicesList({ session }) {
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
   if (query) qs.set('q', query);
+  if (scope.entityId) qs.set('entity_id', String(scope.entityId));
   qs.set('page', String(page));
   qs.set('per_page', String(perPage));
-  const path = '/api/v1/billing/invoices' + (qs.toString() ? `?${qs}` : '');
+  const path = scope.ready ? `/api/v1/billing/invoices?${qs}` : null;
   const { data, loading, error, reload } = useApiCached(
     path,
-    { cacheKey: `billing-invoices-list:${path}` }
+    { cacheKey: `billing-invoices-list:${path}`, enabled: scope.ready }
   );
+  const scopedData = scope.ready
+    && Number(data?.entity_id || 0) === Number(scope.entityId || 0) ? data : null;
+  const showEntityColumn = scope.entities.length > 1 || scope.allEntities;
+  const exportParams = new URLSearchParams();
+  if (status !== 'all') exportParams.set('status', status);
+  if (scope.entityId) exportParams.set('entity_id', String(scope.entityId));
+  if (query) exportParams.set('q', query);
+  const exportQuery = exportParams.toString();
+  const exportHref = `/modules/billing/api/csv_export.php${exportQuery ? `?${exportQuery}` : ''}`;
   // The charge endpoint is tenant/master-admin gated and requires the
   // separate Intuit Payments OAuth scope. Hide the CTA when either
   // condition is absent instead of letting users discover it via 403/412.
   const user = session?.user || {};
   const canCollectViaQbo = ['master_admin', 'tenant_admin'].includes(user.global_role)
     || ['master_admin', 'tenant_admin'].includes(user.role);
+  const canManageApprovals = ['admin', 'tenant_admin', 'master_admin'].includes(user.role)
+    || user.global_role === 'master_admin';
   const qboStatus = useApiCached('/api/qbo/status.php?action=status', {
     enabled: canCollectViaQbo,
     cacheKey: 'qbo-status:invoice-collections',
@@ -56,8 +72,9 @@ export default function InvoicesList({ session }) {
     && qboStatus.data?.connected === true
     && qboStatus.data?.payments_enabled === true
     && qboStatus.data?.payments_recaptcha_enabled === true;
-  const rows = data?.rows ?? [];
-  const total = Number(data?.total ?? 0);
+  const rows = scopedData?.rows ?? [];
+  const total = Number(scopedData?.total ?? 0);
+  const listPending = scope.ready && !scopedData && !error;
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   useEffect(() => {
@@ -71,7 +88,9 @@ export default function InvoicesList({ session }) {
   useEffect(() => {
     setSelected(new Set());
     setBulkResult(null);
-  }, [status, query, page, perPage]);
+  }, [status, query, page, perPage, scope.scopeKey]);
+
+  useEffect(() => { setPage(1); }, [scope.scopeKey]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -102,7 +121,7 @@ export default function InvoicesList({ session }) {
     ['approved', 'sent', 'partially_paid', 'paid'].includes(row.status) && !row.journal_entry_id
   )), [selectedRows]);
   const sendableItems = useMemo(
-    () => selectedRows.filter((row) => row.status === 'approved'),
+    () => selectedRows.filter((row) => row.status === 'approved' && row.journal_status === 'posted'),
     [selectedRows]
   );
   const allActionableSelected = selectableItems.length > 0
@@ -189,7 +208,7 @@ export default function InvoicesList({ session }) {
     const ids = sendableItems.map((row) => row.id);
     if (ids.length === 0) return;
     if (!confirm(
-      `Email ${ids.length} approved invoice${ids.length === 1 ? '' : 's'} now?\n\n` +
+      `Email ${ids.length} posted invoice${ids.length === 1 ? '' : 's'} now?\n\n` +
       'Each message will use the invoice bill-to email or the client’s saved AR contact. Rows without a valid recipient will stay selected with an explanation.'
     )) return;
 
@@ -233,8 +252,8 @@ export default function InvoicesList({ session }) {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Link to="new" className="btn btn--primary" data-testid="billing-new-invoice"><Plus size={16} /> New invoice</Link>
-          <details style={{ position: 'relative' }}>
+          <Link to={scope.withScope('/modules/billing/invoices/new')} className="btn btn--primary" data-testid="billing-new-invoice"><Plus size={16} /> New invoice</Link>
+          {session?.product_mode !== 'coreaccounting' && <details style={{ position: 'relative' }}>
             <summary className="btn btn--ghost" style={{ listStyle: 'none', cursor: 'pointer' }} data-testid="billing-create-from-time-menu">
               <Clock3 size={15} /> Create from time <ChevronDown size={14} />
             </summary>
@@ -242,13 +261,18 @@ export default function InvoicesList({ session }) {
               <button className="btn btn--ghost" onClick={() => setShowCreate(true)} data-testid="billing-new-from-time-bundle">Time bundle</button>
               <button className="btn btn--ghost" onClick={() => setShowEntries(true)} data-testid="billing-new-from-time-entries">Approved hours</button>
             </div>
-          </details>
-          <Link to="csv_import" className="btn btn--ghost" data-testid="billing-invoices-import-csv"><Upload size={15} /> Import</Link>
-          <a className="btn btn--ghost" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv"><Download size={15} /> Export</a>
+          </details>}
+          <Link to={scope.withScope('/modules/billing/invoices/csv_import')} className="btn btn--ghost" data-testid="billing-invoices-import-csv"><Upload size={15} /> Import</Link>
+          <a className="btn btn--ghost" href={scope.ready ? exportHref : undefined} aria-disabled={!scope.ready} data-testid="billing-invoices-export-csv"><Download size={15} /> Export</a>
+          {canManageApprovals && (
+            <Link to="/modules/billing/approvals" className="btn btn--ghost" title="Invoice approval settings"
+              aria-label="Invoice approval settings" data-testid="billing-invoices-approval-settings"><Settings2 size={16} /></Link>
+          )}
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+        <AccountingEntitySelector scope={scope} testId="billing-invoices-entity" />
         <input
           type="search"
           className="input"
@@ -325,9 +349,12 @@ export default function InvoicesList({ session }) {
         </div>
       )}
 
-      {loading && <p>Loading…</p>}
+      {!scope.loaded && <p>Loading legal entities…</p>}
+      {scope.error && <p className="error" data-testid="billing-invoices-entity-error">{scope.error}</p>}
+      {scope.ready && (loading || listPending) && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-invoices-error">Error: {error.message}</p>}
 
+      {scope.ready && <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Invoices" tabIndex={0}>
       <table className="data-table" data-testid="billing-invoices-table">
         <thead><tr>
           <th style={{ width: 34 }}>
@@ -343,6 +370,7 @@ export default function InvoicesList({ session }) {
           <th>ID</th>
           <th {...headerProps('invoice_number', 'billing-invoices-sort')}># <SortIndicator active={sortKey === 'invoice_number'} dir={sortDir} /></th>
           <th {...headerProps('client_name', 'billing-invoices-sort')}>Client <SortIndicator active={sortKey === 'client_name'} dir={sortDir} /></th>
+          {showEntityColumn && <th {...headerProps('entity_code', 'billing-invoices-sort')}>Legal entity <SortIndicator active={sortKey === 'entity_code'} dir={sortDir} /></th>}
           <th {...headerProps('issue_date', 'billing-invoices-sort')}>Issue <SortIndicator active={sortKey === 'issue_date'} dir={sortDir} /></th>
           <th {...headerProps('due_date', 'billing-invoices-sort')}>Due <SortIndicator active={sortKey === 'due_date'} dir={sortDir} /></th>
           <th {...headerProps('total', 'billing-invoices-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Total <SortIndicator active={sortKey === 'total'} dir={sortDir} /></th>
@@ -351,7 +379,7 @@ export default function InvoicesList({ session }) {
           <th style={{ textAlign: 'right' }}>Actions</th>
         </tr></thead>
         <tbody>
-          {items.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
+          {items.length === 0 && scopedData && !loading && !error && <tr><td colSpan={showEntityColumn ? 11 : 10} className="empty" data-testid="billing-invoices-empty">No invoices in this view.</td></tr>}
           {items.map(r => {
             const collectable = qboPaymentsEnabled
               && Number(r.amount_due) > 0
@@ -373,7 +401,7 @@ export default function InvoicesList({ session }) {
               <td><IdBadge id={r.id} prefix="INV" /></td>
               <td>
                 <Link
-                  to={`/modules/billing/invoices/${r.id}`}
+                  to={scope.withScope(`/modules/billing/invoices/${r.id}`)}
                   data-testid={`billing-invoice-link-${r.id}`}
                   onMouseEnter={() => prefetchApi(
                     `/api/v1/billing/invoices?id=${r.id}`,
@@ -384,10 +412,11 @@ export default function InvoicesList({ session }) {
                 </Link>
               </td>
               <td>{r.client_name}</td>
+              {showEntityColumn && <td title={r.entity_name || ''}>{r.entity_code || 'Needs entity'}</td>}
               <td>{fmtDate(r.issue_date)}</td>
               <td>{fmtDate(r.due_date)}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
-              <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
+              <td style={{ textAlign: 'right' }}>{r.status === 'void' ? '—' : Number(r.amount_due).toFixed(2)}</td>
               <td><span className={`badge badge--${r.status}`}>{STATUS_LABELS[r.status] || r.status}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
               <td style={{ textAlign: 'right' }}>
                 {collectable && (
@@ -406,6 +435,7 @@ export default function InvoicesList({ session }) {
           })}
         </tbody>
       </table>
+      </div>}
 
       {total > 0 && (
         <div
@@ -448,10 +478,10 @@ export default function InvoicesList({ session }) {
         </div>
       )}
 
-      <details style={{ marginTop: 14 }} data-testid="billing-approved-time-ready-section">
+      {session?.product_mode !== 'coreaccounting' && <details style={{ marginTop: 14 }} data-testid="billing-approved-time-ready-section">
         <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>Approved time ready to bill</summary>
         <ApprovedHoursReadyTile variant="billing" onPick={() => setShowEntries(true)} />
-      </details>
+      </details>}
 
       {showCreate && (
         <InvoiceFromTimeBundleModal

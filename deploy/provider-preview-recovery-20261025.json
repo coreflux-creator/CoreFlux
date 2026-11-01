@@ -1,0 +1,206 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "existing_provider_previews_recovered_and_native_receipts_reverified",
+  "quanta_recovery": {
+    "checked_at": "2026-10-25T12:33:32.138981+00:00",
+    "host": "agent-env-14a1f661-002e-4d95-969e-ebcfd6ce88ba",
+    "source_hashes_verified": {
+      "backend/server.py": "d7f76914cfa87cf8cec85a585aa92be0dd02a4c09d12a0e78e8d19c41b1fbd08",
+      "backend/app/indexes.py": "4d3a3217c574e4b0471d409ce9dda75dc58cc18068632d6e5791053235f56fd4",
+      "backend/app/routers/tenant.py": "2b729cf8ac3505e7a209659f5146d0c82a14b9d659b90f2da595044dfaecc00d",
+      "backend/app/coreflux_contract.py": "81982b21339363a6510ecca3f565f7bbad588aa72f9b877263c3b783cc96bd1f",
+      "backend/app/coreflux_workers.py": "625ce467379f15b77bfa906f9201525279f567a0f4d1e8252d7584804766d64b",
+      "backend/app/coreflux_documents.py": "a9a5f2287580c242d53358e66854342f99ac071d2cd192f95141148be4b88e05",
+      "backend/app/coreflux_time_reviews.py": "d6498b4f13ea33a25c51b2be0fefa4fcdcf28cad70ceef4cb8e1da3d0397d531",
+      "backend/app/routers/v1/coreflux.py": "3149eaee0c7241e0dbfb8c4d98c9339597e1a7cd18405005bc437cdf50001094",
+      "backend/app/routers/v1/time_entries.py": "df854286f08415df7bbbf109a9a63e9d2c5dfae3685bd4d6fadc31a75fa0847a",
+      "backend/app/routers/core_assignments.py": "e6db446012714b26f587dc586a98c431de185f93b340a753f18151ef3b82bdf0",
+      "backend/app/api_scopes.py": "0b8262dfc1b3fa8d4e2d6d8e9b309213cab2a36f886a4053697ceb58f07fa804",
+      "backend/app/routers/v1/_common.py": "88f6335cc2010cd26a9164d64c3ceba069af22761822c96bd82fb64616177441",
+      "frontend/src/pages/CoreAssignmentsPage.jsx": "55b38c9583afe5cb322d3e736b88e5c46ec1f8e321904ed09ab699fdd13c4be4",
+      "frontend/src/pages/CoreTimeReviewPanel.jsx": "d7d52fa2ead754db6d4cc52cdfa401c359260fffbebf7251ec238ac397e9c1f7",
+      "frontend/src/pages/WorkerPortalAccess.jsx": "8c5d0d2c2a86b1f2d69c0b0d9eeeabbb0de05dbb62577d8ae9986578d8acc415"
+    },
+    "before": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "mongodb": "RUNNING",
+      "webhook-crond": "RUNNING"
+    },
+    "after": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "mongodb": "RUNNING",
+      "webhook-crond": "STOPPED"
+    },
+    "local_health_status": 200,
+    "background_hold": true,
+    "document_transfer_disabled": true,
+    "source_changed": false,
+    "business_records_written": false
+  },
+  "quanta_core_read": {
+    "databaseId": 40193680103,
+    "headSha": "61dd1470891b737cdfa59e1cb5cc8270b3d304ea",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40193680103",
+    "checked_at": "2026-10-25T12:34:51+00:00",
+    "quanta_binding": {
+      "available": true,
+      "http_status": 200
+    },
+    "time_review_gate": {
+      "eligible_in_both_permission_models": 1,
+      "entries": [
+        {
+          "entry_id": 1,
+          "status": "pending_review",
+          "independent_eligible_reviewers": 0,
+          "existing_operator_is_creator": true
+        }
+      ]
+    },
+    "onboarding_delivery_enabled": false,
+    "document_intake_enabled": false
+  },
+  "purepay_initial_check": {
+    "databaseId": 40193533185,
+    "headSha": "61dd1470891b737cdfa59e1cb5cc8270b3d304ea",
+    "status": "completed",
+    "conclusion": "failure",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40193533185",
+    "failure_phase": "company_binding",
+    "interpretation": "The subsequent editor check returned Not Found and the resumed service reported backend STOPPED. This failure did not prove the stored key or organization invalid.",
+    "send_called": false
+  },
+  "purepay_recovery": {
+    "before": {
+      "backend": "STOPPED",
+      "webhook-crond": "RUNNING"
+    },
+    "webhook_scheduler_stopped": true,
+    "preview": {
+      "at": "2026-10-25T12:38:29.454650+00:00",
+      "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+      "health": {
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      },
+      "source_files_verified": 6324,
+      "head_and_configuration_unchanged": true,
+      "protected_differences": {
+        "index": {
+          "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+          "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+        }
+      },
+      "demo_unchanged": true,
+      "demo_counts": {
+        "pay_runs": 50,
+        "coreflux_payroll_inputs": 0,
+        "coreflux_payroll_authorities": 0
+      },
+      "demo_run_count": 50,
+      "published": false,
+      "credential_changes": false,
+      "candidate_installed": true,
+      "index_semantics": {
+        "equals_current_head": true,
+        "entries": 6256,
+        "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+        "historical_byte_equivalence_proven": false
+      }
+    }
+  },
+  "purepay_native_replay": {
+    "databaseId": 40194032390,
+    "headSha": "61dd1470891b737cdfa59e1cb5cc8270b3d304ea",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40194032390",
+    "receipt": {
+      "verified": true,
+      "tenant_id": 999,
+      "organization_id": "org_purepay_demo",
+      "deliveries": [
+        {
+          "delivery_id": 2,
+          "operation": "people.inputs",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 5,
+          "operation": "assignments.inputs",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 7,
+          "operation": "record.link",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 8,
+          "operation": "record.link",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        },
+        {
+          "delivery_id": 9,
+          "operation": "record.link",
+          "state": "delivered",
+          "same_original_receipt": true,
+          "replay_identical": true
+        }
+      ],
+      "native_lookups": 10,
+      "original_deliveries_unchanged": true,
+      "connection_unchanged": true,
+      "ap_connection_unchanged": true,
+      "provider_record_writes": false,
+      "payroll_or_payments_executed": false,
+      "native_payroll_observation": {
+        "available": true,
+        "contract_version": "2026-10-25.1",
+        "page_size": 1,
+        "more_runs": true,
+        "capture_saved": false,
+        "detail_verified": true,
+        "empty_collection": false,
+        "observation_hash": "db95cf444407b8bd786028bf7fedf05e624fd09a4aced1c2bc6dd147e4b3c8c9",
+        "line_count": 2,
+        "linked_people": 0,
+        "repeated_review_identical": true,
+        "core_time_match_evaluated": false,
+        "settlement_evaluated": false
+      }
+    }
+  },
+  "boundaries": {
+    "same_provider_environments": true,
+    "source_edits": false,
+    "new_business_records_requested": false,
+    "credentials_changed": false,
+    "real_payroll_or_payments_executed": false,
+    "production_published": false,
+    "arabella_changed": false,
+    "full_thunderhawk_round_trip_proven": false
+  },
+  "remaining": [
+    "The native demo payroll observation has two lines and zero linked Core people; this is observation evidence, not a Core-time-to-payroll round trip.",
+    "The eight synthetic hours remain pending an independent reviewer; the existing operator is their creator.",
+    "The separate demo financial credential and signed callbacks remain unconfigured.",
+    "Worker portal and document delivery remain disabled pending their acceptance steps.",
+    "Thunderhawk replacement-key consumer verification remains pending the user credential handoff.",
+    "Remaining Thunderhawk source field values and the actual end-to-end exchange still require evidence."
+  ]
+}

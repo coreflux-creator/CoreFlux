@@ -16,7 +16,7 @@ import { api } from '../../../dashboard/src/lib/api';
  */
 export default function CompanyTypeahead({
   role, value, onChange, onCreate, placeholder = 'Search companies…',
-  testId = 'company-typeahead', autoFocus = false, allowFreeText = false,
+  testId = 'company-typeahead', autoFocus = false, allowFreeText = false, onQueryChange,
 }) {
   const [query, setQuery]   = useState(value?.name || '');
   const [open, setOpen]     = useState(false);
@@ -25,9 +25,17 @@ export default function CompanyTypeahead({
   const [highlighted, setHighlighted] = useState(0);
   const wrapRef = useRef(null);
   const debounceRef = useRef(null);
+  const preserveEditedQueryRef = useRef(false);
 
   // Sync external value → input
-  useEffect(() => { setQuery(value?.name || ''); }, [value?.id, value?.name]);
+  useEffect(() => {
+    if (value?.id) {
+      setQuery(value.name || '');
+    } else if (!preserveEditedQueryRef.current) {
+      setQuery('');
+    }
+    preserveEditedQueryRef.current = false;
+  }, [value?.id, value?.name]);
 
   // Debounced lookup
   useEffect(() => {
@@ -61,6 +69,7 @@ export default function CompanyTypeahead({
   const pick = (row) => {
     onChange({ id: row.id, name: row.name, roles: row.roles || [] });
     setQuery(row.name);
+    onQueryChange?.(row.name);
     setOpen(false);
   };
 
@@ -100,7 +109,16 @@ export default function CompanyTypeahead({
         className="input"
         placeholder={placeholder}
         value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onChange={(e) => {
+          const nextQuery = e.target.value;
+          setQuery(nextQuery);
+          onQueryChange?.(nextQuery);
+          if (value?.id && nextQuery !== value.name) {
+            preserveEditedQueryRef.current = true;
+            onChange(null);
+          }
+          setOpen(true);
+        }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
         autoFocus={autoFocus}
@@ -110,7 +128,7 @@ export default function CompanyTypeahead({
       {value?.id && (
         <span style={{ position: 'absolute', right: 8, top: 8, fontSize: 11, color: '#6b7280' }} data-testid={`${testId}-chip`}>
           ✓ #{value.id}
-          <button type="button" onClick={() => { onChange(null); setQuery(''); }} style={{ marginLeft: 6, border: 0, background: 'transparent', cursor: 'pointer', color: '#6b7280' }} data-testid={`${testId}-clear`}>×</button>
+          <button type="button" onClick={() => { onChange(null); setQuery(''); onQueryChange?.(''); }} style={{ marginLeft: 6, border: 0, background: 'transparent', cursor: 'pointer', color: '#6b7280' }} data-testid={`${testId}-clear`}>×</button>
         </span>
       )}
       {open && (

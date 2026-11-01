@@ -90,7 +90,7 @@ $a('AP bills imports discipline helper',    str_contains($bills, "require_once _
 $a('AP bills logs fallback fire',           str_contains($bills, "moduleEmissionDisciplineLog('ap', 'ap.bill.approved'"));
 $a('AP bills logs BEFORE direct post',      strpos($bills, "moduleEmissionDisciplineLog('ap'") < strpos($bills, "accountingPostJe(\$tid, ["));
 $a('Billing imports discipline helper',     str_contains($inv, "require_once __DIR__ . '/../../../core/module_emission_discipline.php'"));
-$a('Billing logs fallback fire',            str_contains($inv, "moduleEmissionDisciplineLog('billing', 'billing.invoice.sent'"));
+$a('Billing logs fallback fire',            str_contains($inv, "moduleEmissionDisciplineLog('billing', 'ar.invoice.issued'"));
 
 echo "\nHarness scenarios cover the refactor\n";
 foreach ([
@@ -104,8 +104,10 @@ $tsc = json_decode($read(__DIR__ . '/../sim/scenarios/treasury_bank_feed_categor
 $a('treasury scenario declares no_direct_gl invariant',
     in_array('no_direct_gl', $tsc['invariants'] ?? [], true));
 $a('treasury scenario step emits matched event',
-    isset($tsc['steps'][0]['event_type'])
-    && str_starts_with((string) $tsc['steps'][0]['event_type'], 'treasury.bank_transaction.'));
+    ($tsc['steps'][0]['action'] ?? null) === 'create_bank_line'
+    && ($tsc['steps'][1]['action'] ?? null) === 'emit_event'
+    && str_starts_with((string) ($tsc['steps'][1]['event_type'] ?? ''), 'treasury.bank_transaction.')
+    && in_array('bank_line_matched', $tsc['invariants'] ?? [], true));
 
 echo "\nContract smoke (no NEW direct-GL callers) still green\n";
 $out = (string) shell_exec('php -d zend.assertions=1 ' . escapeshellarg(__DIR__ . '/module_emission_discipline_smoke.php') . ' 2>&1');

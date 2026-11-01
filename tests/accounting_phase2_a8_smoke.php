@@ -111,9 +111,17 @@ $a('PersonCreate form state carries entity_id',      $c($pc, 'entity_id: null'))
 
 echo "\nBackend accepts entity_id in create payload\n";
 $apiBills = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
-$a("ap_bills INSERT includes resolved entity_id",    $c($apiBills, "'entity_id'         => (int) \$issuingEntity['id']"));
+$billDrafts = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/bill_drafts.php');
+$a("manual AP bill persists resolved entity_id",
+    $c($apiBills, 'apCreateManualBill($tid, $body,')
+    && $c($billDrafts, 'activeEntityResolveForTenant(')
+    && $c($billDrafts, "'entity_id' => (int) \$issuingEntity['id']"));
 $apiInv = $inv;
-$a("billing_invoices INSERT includes resolved entity_id", $c($apiInv, "'entity_id'         => (int) \$issuingEntity['id']"));
+$invoiceDrafts = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/invoice_drafts.php');
+$a("direct invoice persists resolved entity_id",
+    $c($apiInv, 'billingCreateDirectInvoiceDraft($tid, $body,')
+    && $c($invoiceDrafts, 'activeEntityResolveForTenant(')
+    && $c($invoiceDrafts, "'entity_id' => (int) \$issuingEntity['id']"));
 $apiPpl = (string) file_get_contents(__DIR__ . '/../modules/people/api/people.php');
 $a("people INSERT accepts entity_id",                $c($apiPpl, "\$insert['entity_id'] = (int) \$body['entity_id']"));
 

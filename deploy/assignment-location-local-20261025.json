@@ -1,0 +1,166 @@
+{
+  "date": "2026-10-25",
+  "status": "locally_verified_not_installed",
+  "contract_version": "2026-10-25.1",
+  "checks": {
+    "quanta_backend_and_php_bridge": 67,
+    "quanta_mounted_portal": 11,
+    "purepay_assignment_commercial": 70,
+    "purepay_assignment_ui": 9,
+    "purepay_full_application_and_startup": 18,
+    "core_targeted_php_suites": 10,
+    "core_changed_ui_lint": "passed",
+    "core_frontend_build": "passed"
+  },
+  "runtime_hashes": {
+    "core": {
+      "core/integrations/purepay_assignment_contract.php": "837549856661ab0b084546f780f6fa655ed6e8f85f52f65cafbc26fcbca734d0",
+      "core/quanta/core_contract.php": "ae9f4e2df96a8a646141b0f2447c9fa8e0413a34e0855e6f5cc94d5bb0831f8b",
+      "core/migrations/181_placement_worksite_city.sql": "e118caaea65e8aa37df99b48a1e195a3a65793eb26a5753da4b42e6c79a9cd14"
+    },
+    "quanta": {
+      "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+      "backend/app/routers/v1/coreflux.py": "030413d94f92dc378fe25e421932fcbf52a80eb2e511d1e087556adc11246670",
+      "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+      "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193"
+    },
+    "purepay": {
+      "backend/coreflux_commercial.py": "196672a9b90acee6c74b1beb637222cb65813f3415376397556f8037c5c9ccad",
+      "backend/coreflux_assignments.py": "cfd0e0e2de86ccb013ec732617a7805fc0ead620341026f1ffaf384e6f400bd3",
+      "backend/coreflux_exchange.py": "80ba9b9939364b31a8679a6c0a19fe07bcd047a217a235e1187cd82199cc6fe1",
+      "frontend/src/components/CoreCommercialTerms.jsx": "5534ddf7f58f58742f4dbaa172b93d61eaccebd63a9644fd8b5f279e5d603abb"
+    }
+  },
+  "purepay_full_app": {
+    "runtime_hashes": {
+      "server.py": "f701d5c86189100bdef8e9e58102db17de7ddca87546e07531969eb101e28985",
+      "coreflux_assignments.py": "cfd0e0e2de86ccb013ec732617a7805fc0ead620341026f1ffaf384e6f400bd3",
+      "coreflux_commercial.py": "196672a9b90acee6c74b1beb637222cb65813f3415376397556f8037c5c9ccad",
+      "coreflux_exchange.py": "80ba9b9939364b31a8679a6c0a19fe07bcd047a217a235e1187cd82199cc6fe1"
+    },
+    "dependency_hashes": {},
+    "pytest_exit": 0,
+    "tests": [
+      {
+        "test": "test_full_app_workflow.py::test_real_session_review_creates_only_an_inactive_profile",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_actual_assignment_review_retains_commercial_graph_and_provider_ids[False]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_actual_assignment_review_retains_commercial_graph_and_provider_ids[True]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_stale_assignment_review_requires_refresh",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_real_native_draft_and_result_reconcile_and_remain_held[MANUAL]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_real_native_draft_and_result_reconcile_and_remain_held[PURE_NATIVE]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_stale_draft_review_and_permanent_cancellation",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_full_app_workflow.py::test_live_permissions_and_feature_changes_are_rechecked",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_repeated_real_lifespan_preserves_access_and_financial_records",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/pwp-auto-batch]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/ap-due-digest]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_full_mode_cron_keeps_authentication_and_duplicate_handling",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[agent-env-other-preview]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[production-host]",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_invalid_mode_fails_before_database_or_storage",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_required_index_failure_aborts_review_startup",
+        "phase": "call",
+        "outcome": "passed"
+      },
+      {
+        "test": "test_startup_mode.py::test_default_full_startup_keeps_existing_operations",
+        "phase": "call",
+        "outcome": "passed"
+      }
+    ],
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true,
+    "real_database_used": false,
+    "candidate_hashes": {},
+    "feature_gate_fixture": false,
+    "real_session_authentication": true,
+    "bill_payment_history": false,
+    "wallet_payment_evidence": false,
+    "payment_outbox": false,
+    "moov_inbox": false,
+    "financial_context": false,
+    "bill_reservations": false,
+    "workflow": true,
+    "live_workspace_acceptance": false,
+    "report_directory": "C:\\Users\\kunal\\AppData\\Local\\Temp\\purepay-core-full-app-7qwls2d_"
+  },
+  "semantics": [
+    "Assignment city is independent of worker residence and company address.",
+    "JobDiva working-city ingestion preserves Core manual overrides and sparse source values.",
+    "Quanta location publication requires the advertised additive capability and conditional versions.",
+    "PurePayroll accepts old commercial packets without changing their shape, hash or receipts.",
+    "The new PurePayroll version changes company-context review and requires binding refresh.",
+    "No worksite membership, worker activation, payroll tax setup or financial execution is granted."
+  ],
+  "remaining": [
+    "Core CI and migration checks",
+    "Provider preview installation and hosted acceptance",
+    "Core staging deployment",
+    "Actual Thunderhawk round trip"
+  ]
+}

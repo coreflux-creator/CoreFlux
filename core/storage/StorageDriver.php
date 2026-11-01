@@ -35,6 +35,9 @@ interface StorageDriver
     /** Returns ['size_bytes', 'mime', 'etag', 'version_id', 'last_modified']. */
     public function head(string $key): ?array;
 
+    /** Read a bounded object for server-side evidence verification. */
+    public function read(string $key, int $maxBytes): ?string;
+
     /** Soft delete (delete-marker for versioned backends). */
     public function delete(string $key): void;
 
@@ -43,4 +46,6 @@ interface StorageDriver
     public function set_legal_hold(string $key, bool $on): void;
 
     public function driver_name(): string;
+    /** Non-secret fingerprint of the physical namespace/encryption configuration; excludes rotating credentials. */
+    public function location_fingerprint(): string;
 }

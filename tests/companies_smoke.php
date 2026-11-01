@@ -66,8 +66,8 @@ $assert('DELETE requires people.manage',       strpos($apiSrc, "rbac_legacy_requ
 echo "\nPlacements integration\n";
 $placeApi = (string) file_get_contents(__DIR__ . '/../modules/placements/api/placements.php');
 $assert('placements POST resolves end_client_company_id', strpos($placeApi, 'end_client_company_id') !== false);
-$assert('placements POST tags company role=client',       strpos($placeApi, "'client'") !== false);
-$assert('placements POST upserts company by name',        strpos($placeApi, 'companiesUpsertByName') !== false);
+$assert('placement company roles are resolved independently', strpos($placeApi, 'placementsResolveCompanyRoles') !== false);
+$assert('placements POST preserves the selected bill-to role', strpos($placeApi, 'array_replace($insert, placementsResolveCompanyRoles') !== false);
 $assert('placements safeFields includes end_client_company_id', strpos((string) file_get_contents(__DIR__ . '/../modules/placements/lib/placements.php'), 'end_client_company_id') !== false);
 
 $chainApi = (string) file_get_contents(__DIR__ . '/../modules/placements/api/chain.php');

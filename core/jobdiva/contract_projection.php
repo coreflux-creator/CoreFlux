@@ -9,6 +9,10 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../integrations/source_values.php';
+require_once __DIR__ . '/classification.php';
+require_once __DIR__ . '/assignment_contract.php';
+
 function jobdivaContractProjectionDate(mixed $value): ?string
 {
     if ($value === null || trim((string) $value) === '') return null;
@@ -137,8 +141,14 @@ function jobdivaContractProjectionBuild(
     string $expectedStartId = ''
 ): array {
     $contract = jobdivaContractProjectionContract($payload);
+    $basis = integrationSourceRateBasis($contract);
+    $countryRaw = $contract['worksite_country'] ?? null;
+    $country = integrationSourceCountry($countryRaw);
+    $hourlyBasis = $basis['errors'] === [] && $basis['bill_rate_unit'] === 'hour' && $basis['pay_rate_unit'] === 'hour';
     $startId = trim((string) ($contract['start_id'] ?? $expectedStartId));
-    $engagement = strtolower(trim((string) ($contract['engagement_type'] ?? '')));
+    $classificationReview = jobdivaClassificationFromPayload(array_replace($payload, ['_jd_contract'=>$contract]));
+    $engagement = $classificationReview['engagement_type'] ?? '';
+    $modelReady = $hourlyBasis && $classificationReview['status'] === 'resolved';
     $startDate = jobdivaContractProjectionDate($contract['start_date'] ?? null);
     $endDate = jobdivaContractProjectionDate($contract['end_date'] ?? null);
     $candidateId = jobdivaContractProjectionScalar($payload, [
@@ -152,6 +162,7 @@ function jobdivaContractProjectionBuild(
     ]);
     $clientName = trim((string) ($contract['client_company_name'] ?? ''));
     $clientExternalId = trim((string) ($contract['client_company_id'] ?? ''));
+    $endClient = jobdivaAssignmentEndClientEvidence($payload);
 
     $sourceBill = jobdivaContractProjectionAmount($contract['bill_rate'] ?? null) ?? 0.0;
     $vmsBill = jobdivaContractProjectionAmount($contract['bill_rate_in_vms'] ?? null) ?? 0.0;
@@ -183,7 +194,7 @@ function jobdivaContractProjectionBuild(
         ? !empty($contract['paid_when_paid'])
         : null;
     if (str_starts_with($vendorTerms, 'PWP')) $pwp = true;
-    $corporationId = trim((string) ($contract['corporation_id'] ?? ''));
+    $corporationId = jobdivaAssignmentCompanyId($contract['corporation_id'] ?? null);
     $corporationName = trim((string) ($contract['corporation_name'] ?? ''));
     $referralName = trim((string) ($contract['referral_vendor'] ?? ''));
     $referralAmount = jobdivaContractProjectionAmount($contract['referral_fee_amount'] ?? null) ?? 0.0;
@@ -198,7 +209,7 @@ function jobdivaContractProjectionBuild(
     $participants = [];
     if ($clientName !== '' || $clientExternalId !== '') {
         $participants[] = [
-            'role' => 'end_client',
+            'role' => 'bill_to_client',
             'name' => $clientName,
             'external_id' => $clientExternalId,
             'money_flow' => 'receivable',
@@ -207,7 +218,14 @@ function jobdivaContractProjectionBuild(
             'cadence' => $clientCadence ?: 'monthly',
             'payment_terms' => $clientTerms ?: 'tenant_or_client_default',
             'paid_when_paid' => false,
-            'source' => 'Start/Job company identity + Assignment BILLING',
+            'source' => 'Assignment BILLING.COMPANY',
+        ];
+    }
+    if ($endClient['status'] !== 'ambiguous' && $endClient['name'] !== '') {
+        $participants[] = [
+            'role' => 'end_client', 'name' => $endClient['name'], 'external_id' => $endClient['external_id'],
+            'money_flow' => 'informational', 'settlement_channel' => 'none', 'calculation' => 'none',
+            'cadence' => null, 'payment_terms' => null, 'paid_when_paid' => false, 'source' => $endClient['source'],
         ];
     }
     if (in_array($engagement, ['w2', 'temp_to_perm', 'internal'], true)) {
@@ -297,7 +315,13 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Placement', 'status', 'Lifecycle status', $currentPlacement['status'] ?? null, $contract['placement_status'] ?? null, $sourceFor('placement_status', 'Assignment.BILLING lifecycle flags')),
         jobdivaContractProjectionField('Placement', 'start_date', 'Start date', $currentPlacement['start_date'] ?? null, $startDate, $sourceFor('start_date', 'Assignment.BILLING.START_DATE')),
         jobdivaContractProjectionField('Placement', 'end_date', 'End date', $currentPlacement['end_date'] ?? null, $endDate, $sourceFor('end_date', 'Assignment.BILLING.END_DATE')),
-        jobdivaContractProjectionField('Placement', 'end_client_name', 'Bill-to client', $currentPlacement['end_client_name'] ?? null, $clientName ?: null, $sourceFor('client_company_name', 'Assignment.BILLING.COMPANY.COMPANYNAME')),
+        jobdivaContractProjectionField('Placement', 'billing_client_name', 'Bill-to client', $currentGraph['billing_client']['name'] ?? null, $clientName ?: null, $sourceFor('client_company_name', 'Assignment.BILLING.COMPANY.COMPANYNAME')),
+        jobdivaContractProjectionField('Placement', 'end_client_name', 'End client', $currentPlacement['end_client_name'] ?? null, $endClient['status'] === 'ambiguous' ? null : ($endClient['name'] ?: null), $endClient['source']),
+        jobdivaContractProjectionField('Placement', 'worksite_country', 'Worksite country', $currentPlacement['worksite_country'] ?? null, $country, 'Assignment.BILLING.WORKING_COUNTRY'),
+        jobdivaContractProjectionField('Placement', 'worksite_city', 'Worksite city', $currentPlacement['worksite_city'] ?? null, $contract['worksite_city'] ?? null, 'Assignment.BILLING.WORKING_CITY'),
+        jobdivaContractProjectionField('Rate', 'bill_rate_unit', 'Bill rate unit', $currentRate['bill_rate_unit'] ?? null, $basis['bill_rate_unit'], 'Assignment bill rate / unit'),
+        jobdivaContractProjectionField('Rate', 'pay_rate_unit', 'Pay rate unit', $currentRate['pay_rate_unit'] ?? null, $basis['pay_rate_unit'], 'Assignment salary / unit'),
+        jobdivaContractProjectionField('Rate', 'currency', 'Currency', $currentRate['currency'] ?? null, $basis['currency'], 'Assignment currency / rate descriptor'),
         jobdivaContractProjectionField('Rate', 'bill_rate', 'Gross client rate', $currentRate['bill_rate'] ?? null, $grossBill > 0 ? round($grossBill, 4) : null, $sourceFor($vmsBill > 0 ? 'bill_rate_in_vms' : 'bill_rate', 'Assignment.BILLING.BILL_RATE')),
         jobdivaContractProjectionField('Rate', 'bill_discount_pct', 'VMS / client discount', $currentRate['bill_discount_pct'] ?? null, $discountPct > 0 ? round($discountPct, 6) : null, $sourceFor('net_bill_rate', 'Assignment.BILLING.NET_BILL')),
         jobdivaContractProjectionField('Rate', 'invoice_bill_rate', 'Net invoice rate', $currentRate['adjusted_bill_rate'] ?? null, $invoiceRate > 0 ? round($invoiceRate, 4) : null, $sourceFor('net_bill_rate', 'Assignment.BILLING.NET_BILL')),
@@ -367,6 +391,7 @@ function jobdivaContractProjectionBuild(
         )
         : $laborPayeeCheck;
     $checks = [
+        jobdivaContractProjectionCheck('end_client_evidence', 'End-client evidence', $endClient['status'] !== 'ambiguous', $endClient['status'] === 'ambiguous' ? 'Explicit end-client identities conflict.' : 'Bill-to and end-client identities are separate.'),
         jobdivaContractProjectionCheck('exact_assignment_contract', 'Exact assignment financial contract', $contract !== [] && $startId !== '' && ($expectedStartId === '' || $startId === $expectedStartId), $contract === [] ? 'EmployeeAssignmentRecordsDetail has not been stored for this Start ID.' : "Start ID {$startId}"),
         jobdivaContractProjectionCheck('candidate_identity', 'Candidate identity', $candidateId !== '', $candidateId !== '' ? "Candidate {$candidateId}" : 'Candidate ID is missing.'),
         jobdivaContractProjectionCheck('job_identity', 'Job identity', $jobId !== '', $jobId !== '' ? "Job {$jobId}" : 'Job ID is missing.'),
@@ -381,6 +406,11 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionCheck('payment_frequency', $engagement === 'referral' ? 'Referral payment frequency' : 'Labor payment frequency', $payCadence !== '' || !$requiresHourlyEconomics, $payCadence !== '' ? $payCadence : 'Will use the worker/vendor default.', 'warning'),
         $paymentPayeeCheck,
     ];
+    $hasMoney = $requiresHourlyEconomics || $grossBill > 0 || $laborRate > 0;
+    $checks[] = jobdivaContractProjectionCheck('classification_evidence', 'Assignment classification evidence', $classificationReview['status'] === 'resolved', $classificationReview['status'] === 'resolved' ? 'Explicit ' . strtoupper($engagement) . ' from ' . $classificationReview['source'] . '.' : implode(' ', $classificationReview['issues']));
+    $checks[] = jobdivaContractProjectionCheck('rate_basis', 'Rate units and currency', !$hasMoney || $basis['errors'] === [], $basis['errors'] === [] ? $basis['currency'] . ' / bill ' . $basis['bill_rate_unit'] . ' / pay ' . $basis['pay_rate_unit'] : implode(' ', $basis['errors']));
+    $checks[] = jobdivaContractProjectionCheck('hourly_basis', 'Hourly economics basis', !$hasMoney || $hourlyBasis, $hourlyBasis ? 'Both source rates are hourly.' : 'Automatic JobDiva economics require verified hourly bill/pay rates. Other bases need a reviewed conversion.');
+    $checks[] = jobdivaContractProjectionCheck('worksite_country', 'Worksite country', $countryRaw === null || $countryRaw === '' || $country !== null, $country ?? 'Missing or unrecognized source country; no country is inferred.');
     $blocking = array_values(array_filter($checks, static fn(array $check): bool => $check['status'] === 'blocked'));
     $warnings = array_values(array_filter($checks, static fn(array $check): bool => $check['status'] === 'warning'));
 
@@ -395,6 +425,8 @@ function jobdivaContractProjectionBuild(
             'status' => $contract['placement_status'] ?? null,
             'start_date' => $startDate,
             'end_date' => $endDate,
+            'worksite_country' => $country,
+            'worksite_city' => $contract['worksite_city'] ?? null,
         ],
         'economics' => [
             'gross_client_rate' => round($grossBill, 4),
@@ -403,9 +435,12 @@ function jobdivaContractProjectionBuild(
             'invoice_rate' => round($invoiceRate, 4),
             'labor_rate' => round($canonicalPayRate, 4),
             'referral_payout_rate' => $engagement === 'referral' ? round($referralPayoutRate, 4) : null,
-            'hourly_costs' => round($hourlyCosts, 4),
-            'gross_margin' => round($margin, 4),
-            'gross_margin_pct' => round($marginPct, 6),
+            'bill_rate_unit' => $basis['bill_rate_unit'],
+            'pay_rate_unit' => $basis['pay_rate_unit'],
+            'currency' => $basis['currency'],
+            'hourly_costs' => $modelReady ? round($hourlyCosts, 4) : null,
+            'gross_margin' => $modelReady ? round($margin, 4) : null,
+            'gross_margin_pct' => $modelReady ? round($marginPct, 6) : null,
             'fixed_costs' => round($fixedCosts, 2),
         ],
         'participants' => $participants,
@@ -417,5 +452,6 @@ function jobdivaContractProjectionBuild(
         'blocking_issues' => $blocking,
         'warnings' => $warnings,
         'source_contract' => $contract,
+        'classification_review' => $classificationReview,
     ];
 }

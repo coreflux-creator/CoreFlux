@@ -2,14 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { api } from '../lib/api';
+import { csvImportDocumentLinks } from '../lib/csvImportDocumentLinks';
+import CsvImportRecoveryNotice from '../components/CsvImportRecoveryNotice';
 
 /**
  * CSV Import History — auditor + CFO view of every bulk import committed
  * via /api/<module>/csv_import.php or the bulk wizard.
  *
- * Reads from /api/admin/csv_import_history.php, which is populated by the
- * SPA right after each successful commit (CsvImportPage.jsx +
- * CsvBulkImport.jsx both POST a row on success).
+ * Reads from /api/admin/csv_import_history.php. The CSV screens reserve a
+ * row before committing and finalize it afterward; an interrupted run stays
+ * visible for operator reconciliation.
  *
  * Filterable by entity, status, and date range. Migration may not have
  * run on a brand-new tenant; in that case the endpoint returns
@@ -30,11 +32,17 @@ const ENTITY_LABELS = {
   ap_payments:      'Vendor payments',
   billing_payments: 'Customer payments',
 };
+const FINANCE_ENTITIES = new Set([
+  'ap_vendors', 'accounting_accounts', 'billing_items',
+  'ap_bills', 'billing_invoices', 'ap_payments', 'billing_payments',
+]);
 
 const STATUS_COLORS = {
   success: { bg: 'rgba(34,197,94,0.12)',  fg: '#047857' },
   partial: { bg: 'rgba(245,158,11,0.12)', fg: '#a16207' },
   failed:  { bg: 'rgba(239,68,68,0.12)',  fg: '#b91c1c' },
+  needs_review: { bg: 'rgba(245,158,11,0.16)', fg: '#92400e' },
+  abandoned: { bg: 'rgba(100,116,139,0.14)', fg: '#475569' },
 };
 
 function fmtDateTime(iso) {
@@ -44,22 +52,23 @@ function fmtDateTime(iso) {
   return d.toLocaleString();
 }
 
-function StatusPill({ status }) {
-  const c = STATUS_COLORS[status] || { bg: '#eee', fg: '#333' };
+function StatusPill({ status, needsReview = false, abandoned = false }) {
+  const displayStatus = needsReview ? 'needs_review' : (abandoned ? 'abandoned' : status);
+  const c = STATUS_COLORS[displayStatus] || { bg: '#eee', fg: '#333' };
   return (
     <span
-      data-testid={`csv-history-status-${status}`}
+      data-testid={`csv-history-status-${displayStatus}`}
       style={{
         display: 'inline-block', padding: '2px 8px', borderRadius: 999,
         background: c.bg, color: c.fg, fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
       }}
     >
-      {status}
+      {needsReview ? 'Needs review' : (abandoned ? 'Not imported' : status)}
     </span>
   );
 }
 
-export default function CsvImportHistory() {
+export default function CsvImportHistory({ financeOnly = false }) {
   const [rows,       setRows]       = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
@@ -81,11 +90,11 @@ export default function CsvImportHistory() {
       if (from)   qs.set('from',   from);
       if (to)     qs.set('to',     to);
       const res = await api.get(`/api/admin/csv_import_history.php${qs.toString() ? '?' + qs.toString() : ''}`);
-      setRows(res?.rows || []);
+      setRows(financeOnly ? (res?.rows || []).filter(row => FINANCE_ENTITIES.has(row.entity)) : (res?.rows || []));
       setMigPending(!!res?.migration_pending);
     } catch (e) { setError(e); }
     finally     { setLoading(false); }
-  }, [entity, status, from, to]);
+  }, [entity, status, from, to, financeOnly]);
 
   // Initial load + on filter change.
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
@@ -95,9 +104,11 @@ export default function CsvImportHistory() {
       acc.imports  += 1;
       acc.imported += Number(r.rows_imported || 0);
       acc.skipped  += Number(r.rows_skipped  || 0);
-      acc.failed   += r.status === 'failed' ? 1 : 0;
+      acc.failed   += r.status === 'failed' && !r.needs_review && !r.abandoned ? 1 : 0;
+      acc.review   += r.needs_review ? 1 : 0;
+      acc.abandoned += r.abandoned ? 1 : 0;
       return acc;
-    }, { imports: 0, imported: 0, skipped: 0, failed: 0 });
+    }, { imports: 0, imported: 0, skipped: 0, failed: 0, review: 0, abandoned: 0 });
   }, [rows]);
 
   return (
@@ -106,23 +117,27 @@ export default function CsvImportHistory() {
         <div>
           <h2>CSV Import History</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
-            Audit trail of every bulk CSV import committed through the platform.
-            Filter by entity, status, or date range.
+            {financeOnly ? 'Review accounting CSV imports and their source files.' : 'Audit trail of every bulk CSV import committed through the platform.'}
+            {' '}Filter by entity, status, or date range.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
-          <Link to="/data/bulk-import" className="btn" data-testid="csv-history-go-bulk">+ New bulk import</Link>
-          <Link to="/" className="btn btn--ghost" data-testid="csv-history-back">← Dashboard</Link>
+          <Link to={financeOnly ? '/modules/accounting/imports' : '/data/bulk-import'} className="btn" data-testid="csv-history-go-bulk">+ New bulk import</Link>
+          <Link to={financeOnly ? '/modules/accounting/overview' : '/'} className="btn btn--ghost" data-testid="csv-history-back">← Overview</Link>
         </div>
       </header>
+
+      {financeOnly && <CsvImportRecoveryNotice onRecovered={fetchHistory} />}
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
         {/* KPI strip */}
         <div data-testid="csv-history-kpi-strip" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--cf-space-4)', marginBottom: 'var(--cf-space-4)' }}>
-          <Stat label="Imports"        value={totals.imports}  testid="csv-history-kpi-imports" />
+          <Stat label={financeOnly ? 'Import runs' : 'Imports'} value={totals.imports} testid="csv-history-kpi-imports" />
           <Stat label="Rows imported"  value={totals.imported} testid="csv-history-kpi-imported" />
           <Stat label="Rows skipped"   value={totals.skipped}  testid="csv-history-kpi-skipped" />
           <Stat label="Failed imports" value={totals.failed}   testid="csv-history-kpi-failed" />
+          <Stat label="Needs review" value={totals.review} testid="csv-history-kpi-needs-review" />
+          {financeOnly && <Stat label="Not imported" value={totals.abandoned} testid="csv-history-kpi-abandoned" />}
         </div>
 
         {/* Filters */}
@@ -130,7 +145,7 @@ export default function CsvImportHistory() {
           <Field label="Entity">
             <select value={entity} onChange={e => setEntity(e.target.value)} data-testid="csv-history-filter-entity">
               <option value="">All</option>
-              {Object.entries(ENTITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {Object.entries(ENTITY_LABELS).filter(([key]) => !financeOnly || FINANCE_ENTITIES.has(key)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
           <Field label="Status">
@@ -139,6 +154,8 @@ export default function CsvImportHistory() {
               <option value="success">Success</option>
               <option value="partial">Partial</option>
               <option value="failed">Failed</option>
+              <option value="needs_review">Needs review</option>
+              {financeOnly && <option value="abandoned">Not imported</option>}
             </select>
           </Field>
           <Field label="From">
@@ -157,8 +174,7 @@ export default function CsvImportHistory() {
 
         {migPending && (
           <p data-testid="csv-history-migration-pending" style={{ background: 'rgba(245,158,11,0.1)', color: '#a16207', padding: 12, borderRadius: 6 }}>
-            History table not provisioned yet for this tenant — it&apos;ll populate as
-            soon as the next CSV import commits.
+            Import history is not provisioned for this workspace. Ask an administrator to apply the pending database migration before importing files.
           </p>
         )}
 
@@ -168,7 +184,7 @@ export default function CsvImportHistory() {
 
         {!loading && !error && rows.length === 0 && !migPending && (
           <p className="empty" data-testid="csv-history-empty">
-            No CSV imports recorded yet. Run a bulk import to populate this view.
+            No CSV imports recorded yet. Import an accounting CSV to populate this view.
           </p>
         )}
 
@@ -191,6 +207,11 @@ export default function CsvImportHistory() {
               {rows.map(r => {
                 const open = !!expanded[r.id];
                 const errs = r.error_summary && typeof r.error_summary === 'object' ? r.error_summary : null;
+                const rowErrors = Object.entries(errs || {}).filter(([key]) =>
+                  key !== '_import_outcome_unconfirmed' && key !== '_source_commit_started'
+                  && key !== '_server_outcome_recorded' && key !== '_server_receipt_result'
+                  && key !== '_import_abandoned');
+                const documentLinks = csvImportDocumentLinks(r.entity, errs?._server_receipt_result?.ids);
                 const map  = r.column_map    && typeof r.column_map    === 'object' ? r.column_map    : null;
                 return (
                   <React.Fragment key={r.id}>
@@ -213,12 +234,15 @@ export default function CsvImportHistory() {
                         <DownloadOriginalCsv importRunId={r.id} fallbackName={r.file_name}/>
                         <DownloadColumnMap   importRunId={r.id}/>
                       </td>
-                      <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.rows_imported}</td>
-                      <td style={{ textAlign: 'right' }}>{r.rows_skipped}</td>
-                      <td style={{ textAlign: 'right' }}>{r.errors_count}</td>
-                      <td><StatusPill status={r.status} /></td>
+                      <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.needs_review ? '—' : r.rows_imported}</td>
+                      <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.rows_skipped}</td>
+                      <td style={{ textAlign: 'right' }}>{r.needs_review ? '—' : r.errors_count}</td>
                       <td>
-                        {(errs || map) && (
+                        <StatusPill status={r.status} needsReview={r.needs_review} abandoned={r.abandoned} />
+                        {r.server_outcome_recorded && <span title="Outcome recorded by the import server" style={{ display: 'block', fontSize: 11, color: 'var(--cf-text-secondary)' }}>Server receipt</span>}
+                      </td>
+                      <td>
+                        {(errs || map || r.needs_review) && (
                           <button
                             className="btn btn--ghost"
                             onClick={() => setExpanded(prev => ({ ...prev, [r.id]: !prev[r.id] }))}
@@ -251,9 +275,11 @@ export default function CsvImportHistory() {
                             </div>
                             <div>
                               <strong>Errors</strong>
-                              {errs && Object.keys(errs).length > 0 ? (
+                              {r.needs_review && <p data-testid={`csv-history-row-${r.id}-review-warning`} style={{ color: '#92400e' }}>The import may have changed records, but its outcome was not confirmed. Check the source worklist before retrying. Never assume zero rows were imported.</p>}
+                              {r.abandoned && <p data-testid={`csv-history-row-${r.id}-abandoned`} style={{ color: '#475569' }}>The server closed this run before any source commit. No rows were imported under this run.</p>}
+                              {rowErrors.length > 0 ? (
                                 <ul style={{ marginTop: 6, paddingLeft: '1rem', maxHeight: 240, overflow: 'auto' }}>
-                                  {Object.entries(errs).map(([rn, msgs]) => (
+                                  {rowErrors.map(([rn, msgs]) => (
                                     <li key={rn}>
                                       <strong>Row {rn}:</strong>{' '}
                                       {(Array.isArray(msgs) ? msgs : [String(msgs)]).join('; ')}
@@ -261,6 +287,16 @@ export default function CsvImportHistory() {
                                   ))}
                                 </ul>
                               ) : <p style={{ color: 'var(--cf-text-secondary)' }}>No errors recorded.</p>}
+                              {documentLinks.length > 0 && (
+                                <div style={{ marginTop: 12 }}>
+                                  <strong>Imported documents</strong>
+                                  <ul style={{ marginTop: 6, paddingLeft: 20, maxHeight: 240, overflowY: 'auto' }}>
+                                    {documentLinks.map(link => <li key={link.to}><Link to={link.to}>{link.label}</Link></li>)}
+                                  </ul>
+                                  {Object.keys(errs?._server_receipt_result?.ids || {}).length > documentLinks.length
+                                    && <p>Showing the first {documentLinks.length} links. Find the rest in the document worklist.</p>}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -334,6 +370,7 @@ function DownloadColumnMap({ importRunId }) {
 function DownloadEvidenceByType({ importRunId, documentType, extensionFallback, label, title, testid }) {
   const [attachment, setAttachment] = useState(null);
   const [loading, setLoading]       = useState(true);
+  const [downloadError, setDownloadError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -360,24 +397,31 @@ function DownloadEvidenceByType({ importRunId, documentType, extensionFallback, 
 
   const onClick = async (e) => {
     e.preventDefault(); e.stopPropagation();
+    setDownloadError('');
     try {
       const r = await api.get(`/api/accounting/evidence.php?action=signed_url&id=${attachment.id}`);
-      if (r?.signed_url) window.open(r.signed_url, '_blank', 'noopener');
-    } catch { /* silent */ }
+      if (!r?.signed_url) throw new Error('No download link was returned');
+      window.location.assign(r.signed_url);
+    } catch {
+      setDownloadError('Download unavailable. Try again.');
+    }
   };
 
   return (
-    <button
-      onClick={onClick}
-      data-testid={testid}
-      className="btn btn--ghost"
-      title={title}
-      style={{
-        marginLeft: 6, padding: '1px 6px', fontSize: 11,
-        display: 'inline-flex', alignItems: 'center', gap: 3,
-        color: '#0369a1', verticalAlign: 'middle',
-      }}>
-      <Download size={11}/> {label}
-    </button>
+    <>
+      <button
+        onClick={onClick}
+        data-testid={testid}
+        className="btn btn--ghost"
+        title={title}
+        style={{
+          marginLeft: 6, padding: '1px 6px', fontSize: 11,
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          color: '#0369a1', verticalAlign: 'middle',
+        }}>
+        <Download size={11}/> {label}
+      </button>
+      {downloadError && <span role="alert" style={{ color: '#b91c1c', fontSize: 11 }}>{downloadError}</span>}
+    </>
   );
 }

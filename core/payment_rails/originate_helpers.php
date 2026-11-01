@@ -77,6 +77,8 @@ function paymentRailsBuildItem(array $row, bool $providerVault = false): array
     if (!$providerVault) {
         $item['account_routing'] = (string) $row['routing'];
         $item['account_number'] = (string) $row['account'];
+    } elseif (isset($row['effective_date'])) {
+        $item['effective_date'] = (string)$row['effective_date'];
     }
     return $item;
 }
@@ -110,16 +112,32 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
             'via Admin → Export Templates and upload to your bank manually.'
         );
     }
+    if ($module === 'ap' && $rail === 'nacha') {
+        foreach (['nacha_company_name', 'nacha_company_id', 'nacha_origin_routing'] as $field) {
+            if (trim((string) ($settings[$field] ?? '')) === '') {
+                throw new PaymentRailsNotConfiguredException('Configure the bank-file company name, company ID and origin routing before preparing AP payments');
+            }
+        }
+    }
     $opts = [
+        'user_id'         => isset($sourceRow['actor_user_id']) ? (int) $sourceRow['actor_user_id'] : null,
         'company_name'    => (string) ($settings['nacha_company_name']    ?? ($module === 'payroll' ? 'PAYROLL'  : 'AP')),
         'company_id'      => (string) ($settings['nacha_company_id']      ?? '1234567890'),
         'origin_routing'  => (string) ($settings['nacha_origin_routing']  ?? ''),
         'service_class'   => 'credits_only',
-        'effective_date'  => (string) ($sourceRow['effective_date'] ?? date('Y-m-d', strtotime('+1 day'))),
+        'effective_date'  => (string) ($sourceRow['effective_date'] ?? ($rail==='purepay' ? ($sourceRow['pay_date']??date('Y-m-d')) : date('Y-m-d', strtotime('+1 day')))),
         'tenant_id'       => isset($sourceRow['tenant_id']) ? (int) $sourceRow['tenant_id']
                               : (isset($settings['tenant_id']) ? (int) $settings['tenant_id']
                               : (function_exists('currentTenantContext') ? (int) (currentTenantContext()['tenant_id'] ?? 0) : 0)),
     ];
+    if ($module === 'ap' && in_array($rail, ['nacha', 'plaid_transfer'], true)) {
+        require_once __DIR__ . '/../db.php';
+        require_once __DIR__ . '/../ap_bank_dispatches.php';
+        $pdo = getDB();
+        if (!$pdo) throw new PaymentRailsOriginateException('An AP database connection is required before dispatch');
+        return apBankDispatch($pdo, $opts['tenant_id'], $rail, $items, $opts,
+            static fn(array $packet, array $options): array => $driver->originate($packet, $options));
+    }
     $res = $driver->originate($items, $opts);
     $res['rail'] = $rail;
     return $res;

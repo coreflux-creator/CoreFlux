@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
 require_once __DIR__ . '/../../../core/export_service.php';
+require_once __DIR__ . '/../../../core/export_paging.php';
 require_once __DIR__ . '/../lib/accounting.php';
 
 use Core\CsvExportService;
@@ -43,27 +44,66 @@ rbac_legacy_require($user, 'accounting.reports.export');
 $from = $_GET['from']   ?? null;
 $to   = $_GET['to']     ?? null;
 $asOf = $_GET['as_of']  ?? null;
-$eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
+$eid  = null;
 $code = $_GET['account_code'] ?? $_GET['code'] ?? null;
 $tplId = (int) ($_GET['template_id'] ?? 0);
+if (in_array($type, ['je', 'unposted_jes', 'unposted', 'approval_queue'], true)
+    && array_key_exists('approval_state', $_GET)) {
+    api_error('Journal entries do not have an approval-state field; filter by posting status.', 422);
+}
+if (array_key_exists('entity_id', $_GET)) {
+    if (in_array($type, ['coa', 'audit_log'], true)) {
+        api_error('This export is workspace-wide and does not support a legal-entity filter.', 422);
+    }
+    $rawEntityId = $_GET['entity_id'];
+    if (!is_scalar($rawEntityId) || trim((string) $rawEntityId) === '') {
+        api_error('Choose a legal entity from this workspace.', 422);
+    }
+    try {
+        $eid = accountingValidateActiveEntityId($tid, $rawEntityId);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+if ($eid === null && in_array($type, ['gl_detail', 'unposted_jes', 'unposted', 'approval_queue', 'account_activity'], true)) {
+    api_error('Choose a legal entity from this workspace.', 422);
+}
 
-$emit = function (string $filename, array $headers, iterable $rows) use ($tid, $type): void {
-    if (!headers_sent()) {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: no-store');
+$emit = function (string $filename, array $headers, iterable $rows, bool $snapshot = false) use ($tid, $type): void {
+    $db = getDB();
+    $out = fopen('php://temp/maxmemory:2097152', 'w+');
+    if ($out === false) throw new \RuntimeException('Could not prepare accounting CSV.');
+    $started = false;
+    try {
+        if ($snapshot) {
+            $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $db->beginTransaction();
+            $started = true;
+        }
+        if (fputcsv($out, $headers, ',', '"', '') === false) {
+            throw new \RuntimeException('Could not write accounting CSV header.');
+        }
+        $count = 0;
+        foreach ($rows as $r) {
+            $line = [];
+            foreach ($headers as $h) $line[] = $r[$h] ?? '';
+            if (fputcsv($out, $line, ',', '"', '') === false) {
+                throw new \RuntimeException('Could not write accounting CSV row.');
+            }
+            $count++;
+        }
+        accountingAudit('accounting.ledger.exported', ['type' => $type, 'rows' => $count], null);
+        if ($started) $db->commit();
+    } catch (\Throwable $e) {
+        if ($started && $db->inTransaction()) $db->rollBack();
+        fclose($out);
+        throw $e;
     }
-    $out = fopen('php://output', 'w');
-    fputcsv($out, $headers);
-    $count = 0;
-    foreach ($rows as $r) {
-        $line = [];
-        foreach ($headers as $h) $line[] = $r[$h] ?? '';
-        fputcsv($out, $line);
-        $count++;
-    }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store');
+    exportCopyPreparedStream($out);
     fclose($out);
-    accountingAudit('accounting.ledger.exported', ['type' => $type, 'rows' => $count], null);
     exit;
 };
 
@@ -118,6 +158,7 @@ $governedExports = [
         'columns' => [
             'je_number'       => 'je_number',
             'posting_date'    => 'posting_date',
+            'entity_id'       => 'entity_id',
             'account_code'    => 'account_code',
             'account_name'    => 'account_name',
             'debit'           => 'debit',
@@ -135,6 +176,7 @@ $governedExports = [
         'columns' => [
             'je_number'       => 'je_number',
             'posting_date'    => 'posting_date',
+            'entity_id'       => 'entity_id',
             'account_code'    => 'account_code',
             'account_name'    => 'account_name',
             'debit'           => 'debit',
@@ -169,6 +211,7 @@ $governedExports = [
         'filename' => "accounting-bank-stmts-{$tid}-" . (int) ($_GET['bank_account_id'] ?? 0) . "-{$today}.csv",
         'columns' => [
             'bank_statement_line_id' => 'id',
+            'entity_id'              => 'entity_id',
             'posted_date'            => 'posted_date',
             'description'            => 'description',
             'amount'                 => 'amount',
@@ -240,17 +283,17 @@ $governedExports = [
 ];
 
 $datasetOptionsForType = function (string $exportType, array $cfg) use ($from, $to, $eid, $code): array {
-    $opts = ['limit' => 10000];
+    $opts = [];
     foreach (($cfg['forced_options'] ?? []) as $key => $value) {
         $opts[$key] = $value;
     }
     if ($from) $opts['from'] = (string) $from;
     if ($to) $opts['to'] = (string) $to;
     if ($eid) $opts['entity_id'] = $eid;
+    if ($exportType === 'gl_detail') $opts['statuses'] = ['posted', 'reversed'];
     if (!empty($_GET['status']) && empty($cfg['forced_options']['status'])) {
         $opts['status'] = (string) $_GET['status'];
     }
-    if (!empty($_GET['approval_state'])) $opts['approval_state'] = (string) $_GET['approval_state'];
     if (!empty($_GET['source_module'])) $opts['source_module'] = (string) $_GET['source_module'];
     if (!empty($_GET['period_id'])) $opts['period_id'] = (int) $_GET['period_id'];
     if ($code && in_array($exportType, ['coa', 'je', 'je_lines', 'gl_detail'], true)) {
@@ -275,40 +318,50 @@ if (isset($governedExports[$type])) {
     $cfg = $governedExports[$type];
     $dataset = (string) $cfg['dataset'];
     $options = $datasetOptionsForType($type, $cfg);
-    if ($tplId > 0) {
-        try {
-            exportTemplateStreamDatasetCsv(
-                $tid,
-                $dataset,
-                $tplId,
-                $options,
-                (string) $cfg['prefix'],
-                $uid ?: null,
-                null,
-                [
-                    'type' => $type,
-                    'filename_parts' => [date('Y-m-d')],
-                ]
-            );
-            exit;
-        } catch (ExportServiceException $e) {
-            api_error($e->getMessage(), 422);
-        }
-    }
-
+    $out = fopen('php://temp/maxmemory:2097152', 'w+');
+    if ($out === false) throw new \RuntimeException('Could not prepare accounting CSV.');
     try {
-        $rows = exportDatasetFetchRows($tid, $dataset, $options);
-    } catch (ExportServiceException $e) {
+        $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $db->beginTransaction();
+        $rows = exportPagedRows(
+            static fn (int $size, int $offset): array => exportDatasetFetchRows(
+                $tid, $dataset, array_merge($options, ['limit' => $size, 'offset' => $offset])
+            )
+        );
+        if ($tplId > 0) {
+            $template = exportTemplateGetForDataset($tplId, $tid, $dataset);
+            $filename = exportTemplateCsvFilename((string) $cfg['prefix'],
+                (string) ($template['name'] ?? 'template'), [date('Y-m-d')]);
+            exportTemplateRenderDatasetToStream($tid, $dataset, $tplId, $options, $out,
+                $uid ?: null, null, ['type' => $type, 'filename_parts' => [date('Y-m-d')]],
+                $template, $rows);
+        } else {
+            $filename = (string) $cfg['filename'];
+            $count = (new CsvExportService($cfg['columns']))->writeToStream($out, $rows);
+            exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, exportDatasetAuditMeta([
+                'dataset' => $dataset,
+                'format' => 'csv',
+                'mode' => 'raw',
+                'type' => $type,
+                'rows' => $count,
+            ], $options));
+        }
+        $db->commit();
+    } catch (ExportServiceException|ExportTemplateException $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        fclose($out);
         api_error($e->getMessage(), 422);
+    } catch (\Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        fclose($out);
+        throw $e;
     }
-    exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, exportDatasetAuditMeta([
-        'dataset' => $dataset,
-        'format' => 'csv',
-        'mode' => 'raw',
-        'type' => $type,
-        'rows' => count($rows),
-    ], $options));
-    (new CsvExportService($cfg['columns']))->stream($rows, (string) $cfg['filename']);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . preg_replace('/[^A-Za-z0-9_\-.]/', '_', $filename) . '"');
+    header('Cache-Control: no-store');
+    exportCopyPreparedStream($out);
+    fclose($out);
+    exit;
 }
 
 // Trial balance is computed, so it remains outside the tabular dataset dispatcher.
@@ -322,19 +375,27 @@ if ($type === 'tb') {
 
 // The audit log is specialized tenant/security evidence, not a report-builder dataset.
 if ($type === 'audit_log') {
+    rbac_legacy_require($user, 'accounting.audit.view');
     $where  = ['tenant_id = :t', "event LIKE 'accounting.%'"];
     $params = ['t' => $tid];
     if ($from) { $where[] = 'created_at >= :f';         $params['f']   = $from . ' 00:00:00'; }
     if ($to)   { $where[] = 'created_at <= :to2';       $params['to2'] = $to   . ' 23:59:59'; }
-    $stmt = $db->prepare(
-        'SELECT id, event, actor_user_id, target_id, meta_json, ip_address, created_at
-         FROM audit_log WHERE ' . implode(' AND ', $where) . '
-         ORDER BY created_at DESC LIMIT 5000'
-    );
-    $stmt->execute($params);
+    if (!empty($_GET['event_like'])) {
+        $where[] = 'event LIKE :el';
+        $params['el'] = 'accounting.' . rtrim((string) $_GET['event_like'], '%') . '%';
+    }
+    $rows = exportPagedRows(static function (int $size, int $offset) use ($db, $where, $params): array {
+        $stmt = $db->prepare(
+            'SELECT id, event, actor_user_id, target_id, meta_json, ip_address, created_at
+             FROM audit_log WHERE ' . implode(' AND ', $where) . '
+             ORDER BY created_at DESC, id DESC LIMIT ' . $size . ' OFFSET ' . $offset
+        );
+        $stmt->execute($params);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    });
     $emit("accounting-audit-log-{$tid}-{$today}.csv",
         ['id','event','actor_user_id','target_id','meta_json','ip_address','created_at'],
-        $stmt);
+        $rows, true);
 }
 
 // Account activity adds a computed running balance.
@@ -342,32 +403,29 @@ if ($type === 'account_activity') {
     if (!$code) api_error('code (account_code) required', 422);
     $where  = ['je.tenant_id = :t', "je.status IN ('posted','reversed')", 'a.code = :ac'];
     $params = ['t' => $tid, 'ac' => $code];
+    if ($eid) { $where[] = 'je.entity_id = :entity_id'; $params['entity_id'] = $eid; }
     if ($from) { $where[] = 'je.posting_date >= :f';   $params['f']   = $from; }
     if ($to)   { $where[] = 'je.posting_date <= :to2'; $params['to2'] = $to;   }
-    $stmt = $db->prepare(
-        'SELECT je.je_number, je.posting_date, a.code AS account_code, a.name AS account_name,
-                a.normal_side, l.debit, l.credit, l.memo, je.source_module
-         FROM accounting_journal_entry_lines l
-         JOIN accounting_journal_entries je ON je.id = l.je_id
-         JOIN accounting_accounts a ON a.id = l.account_id
-         WHERE ' . implode(' AND ', $where) . '
-         ORDER BY je.posting_date, je.id, l.line_no'
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-    // Running balance (signed by normal_side).
-    $run = 0.0;
-    foreach ($rows as &$r) {
-        $delta = ($r['normal_side'] === 'debit')
-            ? ((float) $r['debit'] - (float) $r['credit'])
-            : ((float) $r['credit'] - (float) $r['debit']);
-        $run += $delta;
-        $r['running_balance'] = number_format($run, 2, '.', '');
-    }
-    unset($r);
+    $rows = exportAccountActivityRunningBalances(exportPagedRows(
+        static function (int $size, int $offset) use ($db, $where, $params): array {
+            $stmt = $db->prepare(
+                'SELECT je.je_number, je.posting_date, je.entity_id,
+                        a.code AS account_code, a.name AS account_name,
+                        a.normal_side, l.debit, l.credit, l.memo, je.source_module
+                 FROM accounting_journal_entry_lines l
+                 JOIN accounting_journal_entries je ON je.id = l.je_id
+                 JOIN accounting_accounts a ON a.id = l.account_id
+                 WHERE ' . implode(' AND ', $where) . '
+                 ORDER BY je.posting_date, je.id, l.line_no, l.id
+                 LIMIT ' . $size . ' OFFSET ' . $offset
+            );
+            $stmt->execute($params);
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        }
+    ));
     $emit("accounting-account-activity-{$tid}-{$code}-{$today}.csv",
-        ['je_number','posting_date','account_code','account_name','debit','credit','memo','source_module','running_balance'],
-        $rows);
+        ['je_number','posting_date','entity_id','account_code','account_name','debit','credit','memo','source_module','running_balance'],
+        $rows, true);
 }
 
 api_error('Unknown export type: ' . $type, 422);

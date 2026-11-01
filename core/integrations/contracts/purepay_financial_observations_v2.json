@@ -1,0 +1,2836 @@
+{
+  "bill": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "contract_version",
+      "organization_id",
+      "kind",
+      "document_id",
+      "document",
+      "outgoing_payments",
+      "collections",
+      "stored_record_enumeration_complete",
+      "enumerated_sources",
+      "external_sources_refreshed",
+      "consistency",
+      "cash_delivery_proven",
+      "execution_authority",
+      "unavailable_fields",
+      "observation_hash",
+      "observed_at"
+    ],
+    "properties": {
+      "contract_version": {
+        "type": "string",
+        "enum": [
+          "2026-10-30.2"
+        ]
+      },
+      "organization_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "pattern": "^\\S+$"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "bill"
+        ]
+      },
+      "document_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "pattern": "^\\S+$"
+      },
+      "document": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "currency",
+          "invoice_number",
+          "doc_number",
+          "vendor_id",
+          "customer_id",
+          "source_type",
+          "source",
+          "qbo_bill_id",
+          "qbo_invoice_id",
+          "linked_invoice_id",
+          "linked_invoice_line_id",
+          "amount",
+          "total_amt",
+          "subtotal",
+          "tax_total",
+          "balance",
+          "paid_total",
+          "paid_to_date",
+          "qbo_balance",
+          "qbo_total_amt",
+          "released_amount",
+          "bill_date",
+          "txn_date",
+          "due_date",
+          "id",
+          "assignment_ids",
+          "linked_invoice_ids",
+          "line_items",
+          "invoice_line_splits",
+          "recorded_receipts",
+          "quickbooks_receipts"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^[A-Z]{3}$"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "doc_number": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "vendor_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "customer_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "source_type": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "qbo_bill_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "qbo_invoice_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "linked_invoice_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "linked_invoice_line_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "amount": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "total_amt": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "subtotal": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "tax_total": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "balance": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "paid_total": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "paid_to_date": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "qbo_balance": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "qbo_total_amt": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "released_amount": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "bill_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "txn_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^\\S+$"
+          },
+          "assignment_ids": {
+            "type": "array",
+            "maxItems": 2000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^\\S+$"
+            }
+          },
+          "linked_invoice_ids": {
+            "type": "array",
+            "maxItems": 2000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^\\S+$"
+            }
+          },
+          "line_items": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "line_id",
+                "qbo_line_id",
+                "qbo_item_id",
+                "item_name",
+                "assignment_id",
+                "employee_id",
+                "run_id",
+                "vendor_id",
+                "item_id",
+                "linked_invoice_id",
+                "linked_invoice_line_id",
+                "source_invoice_id",
+                "source_invoice_line_id",
+                "linked_payable_id",
+                "amount",
+                "paid_amount",
+                "released_amount",
+                "tax",
+                "hours",
+                "quantity",
+                "rate",
+                "unit_price",
+                "pay_rate",
+                "bill_rate",
+                "discount_percent",
+                "discount_pct",
+                "tax_rate",
+                "service_start",
+                "service_end",
+                "description",
+                "linked_invoice_ids",
+                "allocations"
+              ],
+              "properties": {
+                "line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_item_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "item_name": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "assignment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "employee_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "run_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "vendor_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "item_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "linked_invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "linked_invoice_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "source_invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "source_invoice_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "linked_payable_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "paid_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "released_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "tax": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "hours": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "quantity": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "unit_price": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "pay_rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "bill_rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "discount_percent": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "discount_pct": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "tax_rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "service_start": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "date"
+                },
+                "service_end": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "date"
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true,
+                  "minLength": 0,
+                  "maxLength": 4000,
+                  "format": "plain-text"
+                },
+                "linked_invoice_ids": {
+                  "type": "array",
+                  "maxItems": 2000,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^\\S+$"
+                  }
+                },
+                "allocations": {
+                  "type": "array",
+                  "maxItems": 2000,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "invoice_id",
+                      "invoice_line_id",
+                      "line_id",
+                      "basis",
+                      "amount"
+                    ],
+                    "properties": {
+                      "invoice_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "invoice_line_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "line_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "basis": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "amount": {
+                        "type": "string",
+                        "nullable": true,
+                        "pattern": "^-?\\d+\\.\\d{2}$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "invoice_line_splits": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "invoice_id",
+                "invoice_line_id",
+                "line_id",
+                "basis",
+                "amount"
+              ],
+              "properties": {
+                "invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "invoice_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "basis": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                }
+              }
+            }
+          },
+          "recorded_receipts": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "payment_id",
+                "payable_id",
+                "bill_id",
+                "invoice_id",
+                "status",
+                "pay_status",
+                "currency",
+                "method",
+                "type",
+                "rail",
+                "moov_status",
+                "moov_transfer_id",
+                "qbo_billpayment_id",
+                "qbo_payment_id",
+                "collection_id",
+                "date",
+                "paid_on",
+                "settled_at",
+                "submitted_at",
+                "delivered_on",
+                "created_at",
+                "amount",
+                "invoice_amount",
+                "allocated",
+                "unapplied",
+                "amount_cents",
+                "gross_cents",
+                "net_cents",
+                "fee_cents",
+                "platform_fee_cents",
+                "platform_fee_passed_to_payee"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payable_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "bill_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "pay_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "method": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "rail": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_transfer_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_billpayment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "collection_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "paid_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "settled_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "submitted_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "delivered_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "created_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "invoice_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "allocated": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "unapplied": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "amount_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "gross_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "net_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_passed_to_payee": {
+                  "type": "boolean",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "quickbooks_receipts": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "payment_id",
+                "payable_id",
+                "bill_id",
+                "invoice_id",
+                "status",
+                "pay_status",
+                "currency",
+                "method",
+                "type",
+                "rail",
+                "moov_status",
+                "moov_transfer_id",
+                "qbo_billpayment_id",
+                "qbo_payment_id",
+                "collection_id",
+                "date",
+                "paid_on",
+                "settled_at",
+                "submitted_at",
+                "delivered_on",
+                "created_at",
+                "amount",
+                "invoice_amount",
+                "allocated",
+                "unapplied",
+                "amount_cents",
+                "gross_cents",
+                "net_cents",
+                "fee_cents",
+                "platform_fee_cents",
+                "platform_fee_passed_to_payee"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payable_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "bill_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "pay_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "method": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "rail": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_transfer_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_billpayment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "collection_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "paid_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "settled_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "submitted_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "delivered_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "created_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "invoice_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "allocated": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "unapplied": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "amount_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "gross_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "net_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_passed_to_payee": {
+                  "type": "boolean",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "outgoing_payments": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "payment_id",
+            "payable_id",
+            "bill_id",
+            "invoice_id",
+            "status",
+            "pay_status",
+            "currency",
+            "method",
+            "type",
+            "rail",
+            "moov_status",
+            "moov_transfer_id",
+            "qbo_billpayment_id",
+            "qbo_payment_id",
+            "collection_id",
+            "date",
+            "paid_on",
+            "settled_at",
+            "submitted_at",
+            "delivered_on",
+            "created_at",
+            "amount",
+            "invoice_amount",
+            "allocated",
+            "unapplied",
+            "amount_cents",
+            "gross_cents",
+            "net_cents",
+            "fee_cents",
+            "platform_fee_cents",
+            "platform_fee_passed_to_payee"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payable_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "bill_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "invoice_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "pay_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "currency": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^[A-Z]{3}$"
+            },
+            "method": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "type": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "rail": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_transfer_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_billpayment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "collection_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "date": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "paid_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "settled_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "submitted_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "delivered_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "created_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "invoice_amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "allocated": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "unapplied": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "amount_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "gross_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "net_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_passed_to_payee": {
+              "type": "boolean",
+              "nullable": true
+            }
+          }
+        }
+      },
+      "collections": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "payment_id",
+            "payable_id",
+            "bill_id",
+            "invoice_id",
+            "status",
+            "pay_status",
+            "currency",
+            "method",
+            "type",
+            "rail",
+            "moov_status",
+            "moov_transfer_id",
+            "qbo_billpayment_id",
+            "qbo_payment_id",
+            "collection_id",
+            "date",
+            "paid_on",
+            "settled_at",
+            "submitted_at",
+            "delivered_on",
+            "created_at",
+            "amount",
+            "invoice_amount",
+            "allocated",
+            "unapplied",
+            "amount_cents",
+            "gross_cents",
+            "net_cents",
+            "fee_cents",
+            "platform_fee_cents",
+            "platform_fee_passed_to_payee"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payable_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "bill_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "invoice_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "pay_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "currency": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^[A-Z]{3}$"
+            },
+            "method": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "type": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "rail": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_transfer_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_billpayment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "collection_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "date": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "paid_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "settled_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "submitted_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "delivered_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "created_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "invoice_amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "allocated": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "unapplied": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "amount_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "gross_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "net_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_passed_to_payee": {
+              "type": "boolean",
+              "nullable": true
+            }
+          }
+        }
+      },
+      "stored_record_enumeration_complete": {
+        "type": "boolean",
+        "enum": [
+          true
+        ]
+      },
+      "enumerated_sources": {
+        "type": "array",
+        "enum": [
+          [
+            "payables",
+            "payments"
+          ]
+        ]
+      },
+      "external_sources_refreshed": {
+        "type": "boolean",
+        "enum": [
+          false
+        ]
+      },
+      "consistency": {
+        "type": "string",
+        "enum": [
+          "rechecked_read_not_transactional_snapshot"
+        ]
+      },
+      "cash_delivery_proven": {
+        "type": "boolean",
+        "enum": [
+          false
+        ]
+      },
+      "execution_authority": {
+        "type": "boolean",
+        "enum": [
+          false
+        ]
+      },
+      "unavailable_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "observation_hash": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "observed_at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  },
+  "invoice": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "contract_version",
+      "organization_id",
+      "kind",
+      "document_id",
+      "document",
+      "outgoing_payments",
+      "collections",
+      "stored_record_enumeration_complete",
+      "enumerated_sources",
+      "external_sources_refreshed",
+      "consistency",
+      "cash_delivery_proven",
+      "execution_authority",
+      "unavailable_fields",
+      "observation_hash",
+      "observed_at"
+    ],
+    "properties": {
+      "contract_version": {
+        "type": "string",
+        "enum": [
+          "2026-10-30.2"
+        ]
+      },
+      "organization_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "pattern": "^\\S+$"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "invoice"
+        ]
+      },
+      "document_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "pattern": "^\\S+$"
+      },
+      "document": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "currency",
+          "invoice_number",
+          "doc_number",
+          "vendor_id",
+          "customer_id",
+          "source_type",
+          "source",
+          "qbo_bill_id",
+          "qbo_invoice_id",
+          "linked_invoice_id",
+          "linked_invoice_line_id",
+          "amount",
+          "total_amt",
+          "subtotal",
+          "tax_total",
+          "balance",
+          "paid_total",
+          "paid_to_date",
+          "qbo_balance",
+          "qbo_total_amt",
+          "released_amount",
+          "bill_date",
+          "txn_date",
+          "due_date",
+          "id",
+          "assignment_ids",
+          "linked_invoice_ids",
+          "line_items",
+          "invoice_line_splits",
+          "recorded_receipts",
+          "quickbooks_receipts"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^[A-Z]{3}$"
+          },
+          "invoice_number": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "doc_number": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "vendor_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "customer_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "source_type": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "qbo_bill_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "qbo_invoice_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "linked_invoice_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "linked_invoice_line_id": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "amount": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "total_amt": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "subtotal": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "tax_total": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "balance": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "paid_total": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "paid_to_date": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "qbo_balance": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "qbo_total_amt": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "released_amount": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^-?\\d+\\.\\d{2}$"
+          },
+          "bill_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "txn_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^\\S+$"
+          },
+          "assignment_ids": {
+            "type": "array",
+            "maxItems": 2000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^\\S+$"
+            }
+          },
+          "linked_invoice_ids": {
+            "type": "array",
+            "maxItems": 2000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^\\S+$"
+            }
+          },
+          "line_items": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "line_id",
+                "qbo_line_id",
+                "qbo_item_id",
+                "item_name",
+                "assignment_id",
+                "employee_id",
+                "run_id",
+                "vendor_id",
+                "item_id",
+                "linked_invoice_id",
+                "linked_invoice_line_id",
+                "source_invoice_id",
+                "source_invoice_line_id",
+                "linked_payable_id",
+                "amount",
+                "paid_amount",
+                "released_amount",
+                "tax",
+                "hours",
+                "quantity",
+                "rate",
+                "unit_price",
+                "pay_rate",
+                "bill_rate",
+                "discount_percent",
+                "discount_pct",
+                "tax_rate",
+                "service_start",
+                "service_end",
+                "description",
+                "linked_invoice_ids",
+                "allocations"
+              ],
+              "properties": {
+                "line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_item_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "item_name": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "assignment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "employee_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "run_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "vendor_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "item_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "linked_invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "linked_invoice_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "source_invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "source_invoice_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "linked_payable_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "paid_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "released_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "tax": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "hours": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "quantity": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "unit_price": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "pay_rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "bill_rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "discount_percent": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "discount_pct": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "tax_rate": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{8}$"
+                },
+                "service_start": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "date"
+                },
+                "service_end": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "date"
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true,
+                  "minLength": 0,
+                  "maxLength": 4000,
+                  "format": "plain-text"
+                },
+                "linked_invoice_ids": {
+                  "type": "array",
+                  "maxItems": 2000,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^\\S+$"
+                  }
+                },
+                "allocations": {
+                  "type": "array",
+                  "maxItems": 2000,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "invoice_id",
+                      "invoice_line_id",
+                      "line_id",
+                      "basis",
+                      "amount"
+                    ],
+                    "properties": {
+                      "invoice_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "invoice_line_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "line_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "basis": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 255
+                      },
+                      "amount": {
+                        "type": "string",
+                        "nullable": true,
+                        "pattern": "^-?\\d+\\.\\d{2}$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "invoice_line_splits": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "invoice_id",
+                "invoice_line_id",
+                "line_id",
+                "basis",
+                "amount"
+              ],
+              "properties": {
+                "invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "invoice_line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "line_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "basis": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                }
+              }
+            }
+          },
+          "recorded_receipts": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "payment_id",
+                "payable_id",
+                "bill_id",
+                "invoice_id",
+                "status",
+                "pay_status",
+                "currency",
+                "method",
+                "type",
+                "rail",
+                "moov_status",
+                "moov_transfer_id",
+                "qbo_billpayment_id",
+                "qbo_payment_id",
+                "collection_id",
+                "date",
+                "paid_on",
+                "settled_at",
+                "submitted_at",
+                "delivered_on",
+                "created_at",
+                "amount",
+                "invoice_amount",
+                "allocated",
+                "unapplied",
+                "amount_cents",
+                "gross_cents",
+                "net_cents",
+                "fee_cents",
+                "platform_fee_cents",
+                "platform_fee_passed_to_payee"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payable_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "bill_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "pay_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "method": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "rail": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_transfer_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_billpayment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "collection_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "paid_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "settled_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "submitted_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "delivered_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "created_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "invoice_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "allocated": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "unapplied": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "amount_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "gross_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "net_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_passed_to_payee": {
+                  "type": "boolean",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "quickbooks_receipts": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "payment_id",
+                "payable_id",
+                "bill_id",
+                "invoice_id",
+                "status",
+                "pay_status",
+                "currency",
+                "method",
+                "type",
+                "rail",
+                "moov_status",
+                "moov_transfer_id",
+                "qbo_billpayment_id",
+                "qbo_payment_id",
+                "collection_id",
+                "date",
+                "paid_on",
+                "settled_at",
+                "submitted_at",
+                "delivered_on",
+                "created_at",
+                "amount",
+                "invoice_amount",
+                "allocated",
+                "unapplied",
+                "amount_cents",
+                "gross_cents",
+                "net_cents",
+                "fee_cents",
+                "platform_fee_cents",
+                "platform_fee_passed_to_payee"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "payable_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "bill_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "invoice_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "pay_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "method": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "rail": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_status": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "moov_transfer_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_billpayment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "qbo_payment_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "collection_id": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "paid_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "settled_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "submitted_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "delivered_on": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "created_at": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 255
+                },
+                "amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "invoice_amount": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "allocated": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "unapplied": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^-?\\d+\\.\\d{2}$"
+                },
+                "amount_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "gross_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "net_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_cents": {
+                  "type": "integer",
+                  "nullable": true,
+                  "minimum": -9999999999999,
+                  "maximum": 9999999999999
+                },
+                "platform_fee_passed_to_payee": {
+                  "type": "boolean",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "outgoing_payments": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "payment_id",
+            "payable_id",
+            "bill_id",
+            "invoice_id",
+            "status",
+            "pay_status",
+            "currency",
+            "method",
+            "type",
+            "rail",
+            "moov_status",
+            "moov_transfer_id",
+            "qbo_billpayment_id",
+            "qbo_payment_id",
+            "collection_id",
+            "date",
+            "paid_on",
+            "settled_at",
+            "submitted_at",
+            "delivered_on",
+            "created_at",
+            "amount",
+            "invoice_amount",
+            "allocated",
+            "unapplied",
+            "amount_cents",
+            "gross_cents",
+            "net_cents",
+            "fee_cents",
+            "platform_fee_cents",
+            "platform_fee_passed_to_payee"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payable_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "bill_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "invoice_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "pay_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "currency": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^[A-Z]{3}$"
+            },
+            "method": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "type": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "rail": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_transfer_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_billpayment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "collection_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "date": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "paid_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "settled_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "submitted_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "delivered_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "created_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "invoice_amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "allocated": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "unapplied": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "amount_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "gross_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "net_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_passed_to_payee": {
+              "type": "boolean",
+              "nullable": true
+            }
+          }
+        }
+      },
+      "collections": {
+        "type": "array",
+        "maxItems": 10000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "payment_id",
+            "payable_id",
+            "bill_id",
+            "invoice_id",
+            "status",
+            "pay_status",
+            "currency",
+            "method",
+            "type",
+            "rail",
+            "moov_status",
+            "moov_transfer_id",
+            "qbo_billpayment_id",
+            "qbo_payment_id",
+            "collection_id",
+            "date",
+            "paid_on",
+            "settled_at",
+            "submitted_at",
+            "delivered_on",
+            "created_at",
+            "amount",
+            "invoice_amount",
+            "allocated",
+            "unapplied",
+            "amount_cents",
+            "gross_cents",
+            "net_cents",
+            "fee_cents",
+            "platform_fee_cents",
+            "platform_fee_passed_to_payee"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "payable_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "bill_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "invoice_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "pay_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "currency": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^[A-Z]{3}$"
+            },
+            "method": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "type": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "rail": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_status": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "moov_transfer_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_billpayment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "qbo_payment_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "collection_id": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "date": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "paid_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "settled_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "submitted_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "delivered_on": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "created_at": {
+              "type": "string",
+              "nullable": true,
+              "maxLength": 255
+            },
+            "amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "invoice_amount": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "allocated": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "unapplied": {
+              "type": "string",
+              "nullable": true,
+              "pattern": "^-?\\d+\\.\\d{2}$"
+            },
+            "amount_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "gross_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "net_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_cents": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": -9999999999999,
+              "maximum": 9999999999999
+            },
+            "platform_fee_passed_to_payee": {
+              "type": "boolean",
+              "nullable": true
+            }
+          }
+        }
+      },
+      "stored_record_enumeration_complete": {
+        "type": "boolean",
+        "enum": [
+          true
+        ]
+      },
+      "enumerated_sources": {
+        "type": "array",
+        "enum": [
+          [
+            "invoices",
+            "ar_collections"
+          ]
+        ]
+      },
+      "external_sources_refreshed": {
+        "type": "boolean",
+        "enum": [
+          false
+        ]
+      },
+      "consistency": {
+        "type": "string",
+        "enum": [
+          "rechecked_read_not_transactional_snapshot"
+        ]
+      },
+      "cash_delivery_proven": {
+        "type": "boolean",
+        "enum": [
+          false
+        ]
+      },
+      "execution_authority": {
+        "type": "boolean",
+        "enum": [
+          false
+        ]
+      },
+      "unavailable_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "observation_hash": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "observed_at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}

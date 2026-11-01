@@ -18,8 +18,8 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 echo "\n1. Normalizer can test without guessing w2\n";
 $a('unknown value with empty fallback returns empty string',
     jobdivaNormalisePlacementEngagementType('not a classification', '') === '');
-$a('unknown value with default fallback still returns w2',
-    jobdivaNormalisePlacementEngagementType('not a classification') === 'w2');
+$a('unknown value never defaults to w2',
+    jobdivaNormalisePlacementEngagementType('not a classification') === '');
 
 echo "\n2. C2C evidence overrides stale w2 fallback\n";
 $a('assignment crop_to_crop flag Y -> c2c',
@@ -37,11 +37,11 @@ $a('observed typo crop to crop text -> c2c',
 $a('payee company evidence alone does not infer c2c',
     jobdivaInferPlacementEngagementTypeFromPayload([
         'assignment' => ['payeeCompany' => 'Apex Consulting LLC'],
-    ], 'w2') === 'w2');
+    ], 'w2') === '');
 $a('subcontractor company evidence alone does not infer c2c',
     jobdivaInferPlacementEngagementTypeFromPayload([
         'assignment' => ['subcontractorCompany' => 'Apex Consulting LLC'],
-    ], 'w2') === 'w2');
+    ], 'w2') === '');
 $a('C2C proof helper sees explicit source flags',
     jobdivaPlacementPayloadHasC2CProof(['assignment' => ['crop_to_crop' => 'Y']]) === true);
 $a('C2C proof helper ignores payee/vendor names',
@@ -68,9 +68,9 @@ $a('contractType Contract to Hire -> temp_to_perm',
     jobdivaInferPlacementEngagementTypeFromPayload(['contractType' => 'Contract to Hire'], 'w2') === 'temp_to_perm');
 
 echo "\n4. Negative/absent source does not fabricate C2C\n";
-$a('crop_to_crop N keeps fallback w2',
-    jobdivaInferPlacementEngagementTypeFromPayload(['crop_to_crop' => 'N'], 'w2') === 'w2');
-$a('documented null crop-to-crop flag resolves a Start to w2',
+$a('negative C2C flag does not establish W2',
+    jobdivaInferPlacementEngagementTypeFromPayload(['crop_to_crop' => 'N'], 'w2') === '');
+$a('null crop-to-crop flag leaves a Start unresolved',
     jobdivaInferPlacementEngagementTypeFromPayload([
         'id' => 57065952,
         'job id' => 28100821,
@@ -79,9 +79,9 @@ $a('documented null crop-to-crop flag resolves a Start to w2',
         'startStatus' => 'Offer Accepted',
         'position type' => 'contract',
         'crop to crop' => null,
-    ], '') === 'w2');
-$a('silent payload preserves non-w2 fallback',
-    jobdivaInferPlacementEngagementTypeFromPayload(['title' => 'Analyst'], 'c2c') === 'c2c');
+    ], '') === '');
+$a('silent payload cannot establish a fallback classification',
+    jobdivaInferPlacementEngagementTypeFromPayload(['title' => 'Analyst'], 'c2c') === '');
 $a('silent payload with empty fallback stays empty',
     jobdivaInferPlacementEngagementTypeFromPayload(['title' => 'Analyst'], '') === '');
 $a('company legal name LLC does not imply c2c',

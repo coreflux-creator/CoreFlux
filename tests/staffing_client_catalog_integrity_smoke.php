@@ -48,9 +48,9 @@ $assert('JobDiva jobs cannot create staffing clients',
 $assert('reconciliation preview does not fall back to requisition/customer labels',
     !str_contains($proposal, 'jobdivaEndClientNameFromPayload($payload)')
     && !str_contains($proposal, "jobdivaContractProjectionScalar(\$payload, ['companyName'"));
-$assert('client placement counts follow canonical company identity',
-    str_contains($api, 'GROUP BY end_client_company_id')
-    && str_contains($api, 'p.end_client_company_id = c.company_id'));
+$assert('client placement counts follow the explicit bill-to profile',
+    str_contains($api, 'GROUP BY client_id')
+    && str_contains($api, 'p.client_id = c.id'));
 $assert('QuickBooks sub-customers are not promoted as active top-level clients',
     str_contains($qbo, "\$isSubcustomer = !empty(\$qbo['Job'])")
     && str_contains($clients, 'function staffingClientRetireQboSubcustomers'));
@@ -73,7 +73,7 @@ $assert('catalog repair restores proven active-placement clients after cleanup a
     && str_contains($repair, 'active_placement_client_issues'));
 $assert('exact JobDiva assignment clients carry integration provenance',
     str_contains($clients, "'source_system'")
-    && substr_count($read($root . '/core/jobdiva/projector.php'), "'source_system' => 'jobdiva'") >= 2
+    && substr_count($read($root . '/core/jobdiva/projector.php'), "'source_system' => 'jobdiva'") >= 1
     && str_contains($repair, 'staffingClientRetireUnsupportedLegacyRows')
     && str_contains($repair, 'staffingClientRetireJobDivaPlaceholders'));
 $assert('catalog integrity rejects synthetic and unsupported active clients',

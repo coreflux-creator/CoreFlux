@@ -10,6 +10,8 @@
 declare(strict_types=1);
 
 $ROOT = realpath(__DIR__ . '/..');
+require_once $ROOT . '/core/jobdiva/classification.php';
+$classificationMapping = file_get_contents($ROOT . '/core/jobdiva/classification_mapping.php');
 $sync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 $fieldMap = (string) file_get_contents("{$ROOT}/core/integrations/field_map.php");
 $apply = (string) file_get_contents("{$ROOT}/core/integrations/field_map_apply.php");
@@ -27,42 +29,20 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 
 echo "\n1. Engagement type is resolved, not blindly defaulted\n";
 $a('normalizer exists', str_contains($sync, 'function jobdivaNormalisePlacementEngagementType'));
-$a('classification candidates include JobDiva position/tax/payroll language',
-    str_contains($sync, "'position type'")
-    && str_contains($sync, "'tax type'")
-    && str_contains($sync, "'payroll type'"));
-$a('classification candidates include JobDiva C2C flag fields',
-    str_contains($sync, "'crop to crop'")
-    && str_contains($sync, "'corp to corp'")
-    && str_contains($sync, 'function jobdivaInferPlacementEngagementTypeFromPayload')
-    && str_contains($sync, 'jobdivaBoolishTrue($valueRaw)'));
-$a('C2C requires explicit JobDiva classification/flag proof, not payee/vendor names',
-    str_contains($sync, 'function jobdivaPlacementPayloadHasC2CProof')
-    && str_contains($sync, 'function jobdivaPlacementScalarHasC2CSignal')
-    && str_contains($sync, "if (\$engagement === 'c2c' && !jobdivaPlacementPayloadHasC2CProof(\$jd))")
-    && !str_contains($sync, '$workerCorpKey')
-    && !str_contains($sync, "str_contains(\$keyNorm, 'payeecompany')"));
-$a('normalizer recognizes explicit c2c/corp and observed typo crop-to-crop',
-    str_contains($sync, "str_contains(\$s, 'c2c')")
-    && str_contains($sync, "str_contains(\$s, 'crop to crop')")
-    && !str_contains($sync, "str_contains(\$s, 'vendor')"));
-$a('silent source does not preserve stale imported engagement type',
-    str_contains($sync, '$mappedEngagement = jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')')
-    && (
-        str_contains($sync, '($mappedEngagement !== \'\' ? $mappedEngagement : \'w2\')')
-        || str_contains($sync, '$engagement = $mappedEngagement !== \'\' ? $mappedEngagement : \'w2\';')
-    ));
-$a('strong source engagement evidence beats a generic mapped W2',
-    str_contains($sync, "\$sourceEngagement !== '' && (\$mappedEngagement === '' || \$mappedEngagement === 'w2')")
-    && str_contains($sync, 'flattening every placement to W2'));
-$a('worker classification is owned by the exact Start, not job or candidate facets',
-    str_contains($sync, 'Only the Start/Assignment owns the worker classification')
-    && str_contains($sync, "\$hit = \$scanNested([\n        '_jd_contract', '_jd_start', 'assignment', 'start', 'Start', 'jobdiva_assignment',")
-    && !str_contains($sync, "\$hit = \$scanNested([\n        '_jd_candidate', 'person', 'candidate'"));
-$a('field-map enrichment cannot reapply unsafe JobDiva C2C guesses',
-    str_contains($apply, 'function integrationFieldMapShouldSkipUnsafeJobDivaEngagement')
-    && str_contains($apply, 'unsafe_jobdiva_engagement_c2c')
-    && str_contains($apply, 'jobdivaPlacementPayloadHasC2CProof($payload)'));
+$a('classification recognizes explicit typed fields',
+    jobdivaClassificationFromPayload(['position type'=>'C2C','tax type'=>'C2C'])['engagement_type']==='c2c');
+$a('classification recognizes an explicit Start flag',
+    jobdivaClassificationFromPayload(['crop to crop'=>'Y'])['engagement_type']==='c2c');
+$a('vendor names cannot establish worker classification',
+    jobdivaClassificationFromPayload(['payeeCompany'=>'Synthetic LLC'])['status']==='needs_review');
+$a('observed crop-to-crop label normalizes exactly', jobdivaClassificationValue('crop-to-crop')==='c2c');
+$a('silent source cannot become W2', jobdivaClassificationFromPayload([])['engagement_type']===null);
+$a('explicit source takes precedence over tenant gap mapping',
+    str_contains($classificationMapping, "if (!\$review['has_evidence'])"));
+$a('related job and candidate preferences cannot classify a placement',
+    jobdivaClassificationFromPayload(['_jd_job'=>['workerType'=>'C2C'],'_jd_candidate'=>['workerType'=>'W2']])['status']==='needs_review');
+$a('field-map enrichment cannot reapply conflicting classifications',
+    str_contains($apply, 'jobdiva_classification_needs_review') && str_contains($apply, "\$coercedValue !== \$review['engagement_type']"));
 $a('old direct fallback to w2 is gone',
     !str_contains($sync, '$engagementMap[strtolower(trim($engagementRaw))] ?? \'w2\''));
 

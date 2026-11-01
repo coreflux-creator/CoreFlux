@@ -76,11 +76,15 @@ $assert('QBO invoice push resolves customer from shared catalog',
     && str_contains($qboInvoices, "['t' => \$clientTenantId, 'n' => \$clientName]"));
 
 $billing = $read($root . '/modules/billing/api/invoices.php');
+$invoiceDrafts = $read($root . '/modules/billing/lib/invoice_drafts.php');
 $assert('billing reads client terms from shared catalog',
-    str_contains($billing, '$clientCatalogTenantId = staffingClientCatalogTenantId($tid)')
-    && str_contains($billing, "['t' => \$clientCatalogTenantId"));
+    str_contains($billing, 'billingCreateDirectInvoiceDraft(')
+    && str_contains($invoiceDrafts, '$clientCatalogTenantId = staffingClientCatalogTenantId($tenantId)')
+    && str_contains($invoiceDrafts, "['t' => \$clientCatalogTenantId"));
 $assert('billing invoices link to the shared canonical company',
-    substr_count($billing, 'companiesUpsertByName($clientCatalogTenantId') >= 3);
+    str_contains($billing, 'companiesUpsertByName($clientCatalogTenantId')
+    && str_contains($invoiceDrafts, 'billingResolveDirectInvoiceClientCompanyId(')
+    && str_contains($invoiceDrafts, 'companiesUpsertByName($catalogTenantId'));
 
 $migration = $read($root . '/core/migrations/137_staffing_client_catalog_backfill.sql');
 $assert('migration creates canonical companies from placement clients',
@@ -105,6 +109,7 @@ foreach ([
     'core/qbo/sync_in.php',
     'core/qbo/sync_invoices.php',
     'modules/billing/api/invoices.php',
+    'modules/billing/lib/invoice_drafts.php',
 ] as $relative) {
     $out = [];
     $code = 0;

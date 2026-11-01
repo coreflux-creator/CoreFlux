@@ -75,6 +75,18 @@ function _authGateAllowedUnauthEndpoints(): array {
     ];
 }
 
+function _authGateHasCoreOneBearerGate(string $relativePath, string $source): bool {
+    if (!str_starts_with($relativePath, 'api/coreone/v1/')) return false;
+    $authenticate = strpos($source, 'coreoneV1Authenticate(');
+    $reject = preg_match('/if\s*\(\s*!\$credential\s*\)\s*api_error\([^;]+,\s*401\s*\)/s',
+        $source, $match, PREG_OFFSET_CAPTURE) ? $match[0][1] : false;
+    $bindTenant = strpos($source, "setRequestTenantId((int) \$credential['tenant_id'])");
+    $handler = strpos($source, 'api_method(');
+    return $authenticate !== false && $reject !== false && $bindTenant !== false
+        && $handler !== false && $authenticate < $reject
+        && $reject < $bindTenant && $bindTenant < $handler;
+}
+
 // ----------------------------------------------------------------- file discovery
 $files = [];
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($API, FilesystemIterator::SKIP_DOTS));
@@ -95,7 +107,8 @@ foreach ($files as $path) {
     $src = (string) file_get_contents($path);
 
     // Skip definition-only files (no `<?php` body or only declares functions/constants).
-    $hasAuth = preg_match('/\b(?:api_require_auth|api_require_admin|api_require_role|api_require_cfo|requireAuth)\s*\(/', $src);
+    $hasAuth = preg_match('/\b(?:api_require_auth|api_require_admin|api_require_role|api_require_cfo|requireAuth)\s*\(/', $src)
+        || _authGateHasCoreOneBearerGate($rel, $src);
     $isAllowed = isset($allowed[$rel]);
 
     if ($hasAuth) continue;
@@ -133,6 +146,11 @@ $handles = preg_match('/api_json_body\s*\(/', $src);
 $caught = !$has && $handles;
 @unlink($tmp);
 $a('sentry catches synthetic endpoint with api_json_body() but no api_require_auth()', $caught);
+$a('CoreOne bearer exemption requires rejection and tenant binding before dispatch',
+    !_authGateHasCoreOneBearerGate('api/coreone/v1/synthetic.php',
+        '<?php $credential = coreoneV1Authenticate($header); api_method();')
+    && !_authGateHasCoreOneBearerGate('api/coreone/v1/synthetic.php',
+        '<?php $credential = coreoneV1Authenticate($header); if (!$credential) api_error("Denied", 401); api_method();'));
 
 echo "\n=========================================\n";
 echo "Auth-gate sentry smoke: {$pass} ✓ / {$fail} ✗\n";

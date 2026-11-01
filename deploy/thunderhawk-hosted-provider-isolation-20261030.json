@@ -1,0 +1,1001 @@
+{
+  "checked_at": "2026-10-30T03:34:29.550744+00:00",
+  "production_changed": false,
+  "real_payroll_executed": false,
+  "control_companies": {
+    "quanta": "42257c5a-0055-4cca-96b7-f9c4c4ef0c88",
+    "purepay": "org_iso_28e945ce4b0e"
+  },
+  "checks": [
+    {
+      "provider": "quanta",
+      "check": "control company context",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "Quanta control credential belongs to control workspace",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "original worker profile readable",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "read existing disabled control worker",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "duplicate control worker remains a conflict",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "duplicate control worker remains a conflict",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "check": "Duplicate control worker rejection is replayable",
+      "passed": true
+    },
+    {
+      "check": "Control worker replay preserves identity without granting access",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "read existing control assignment",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "duplicate control assignment does not create a second placement",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "check": "Quanta canonical identities are namespaced by workspace",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /person-links/cfl_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /worker-profiles/cfl_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /assignments/cfa_871bbe898ab463057f86d3ef6b135de333e88f3e5595f4b6b23028d9da66453a",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /onboarding/cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_a03402f8d6d06200ae581011478cfdbbc2f0a69a3e0bc36eb859589c59b14766",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_6201d8519459b4f9b6a78e212d8283cfc2ffba8cb80c82a2c5585d45191a8b97",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_695c236e97f3d88698975bfa7d81a4a63e7331bb6e5d6e7b31c15f3a536bfdd4",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_18c6b766abab09b0bed0f108a67398a3e2f4b77a627354549ee7a178e3d6d88c",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_99c014377ca24b995c68d48a583c52e2bbcef63aff3b5b3d43de45bcd33c5466",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_1aa50aca7fe7450f69ce7f2d800eaa0a46e5b76fae0dbfd335af0d6f33b3dece",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_e8ef442643e781edfad557afd7f0ab10fcbfcc2336f86034774ba24c6201fa06",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_eafe6e4d362993a21141b7b2d9800a4e40af153f6d33de42ab300d94a980fe96",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_0bfb8b626fdf03fcf2fb20b3cc54175a3a1106277d991ed652f1ab7c4d40c03d",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_1d46a8614a7f11b001b41785f9c11313d2849491a7c4786c1a0fc9a20128c02d",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_b21b4c425e1596a5dd18028ba7bf6d3e258b1ca61de4e664df4d06f0ab5399d9",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_16bc10f4d744e269129b3788e8376445af04ff24523e871e9d6d452eac96f93b",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_d098fdd4adc34f404e81c447a4a5945f606c8ef9a56ec10ebf4b2fdc4b929d77",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_d347e7725a55316c9ff1d77d1aedfd3068f8bc3c3116def0e44b1114c831d4d2",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign read denied /deliveries/cfd_396c39ae0b3af61aa90987bd872f16f0995358d2207e9cf77cb003329e009b17",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign worker directory read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign time review denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign source time detail denied ad44e619-7f34-4f8e-a008-1cd1bf33992e",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign source time detail denied 69f7fc04-ce35-497b-ad2d-589eabca1455",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign approval observation hides time details",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "Foreign approval observations contain no time, rates, worker or approval details",
+      "passed": true
+    },
+    {
+      "check": "Existing submitted document is included in company-isolation coverage",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "control document capability is active",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "Document isolation is tested with the transfer feature enabled",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign onboarding document ownership denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "reverse company read denied /api/v1/workers/cfw_0443b32919c1bce567478b0554e2090d9f968736e8dff796a925061ce25ee4ed",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "reverse company read denied /api/v1/integrations/coreflux/person-links/cfl_0443b32919c1bce567478b0554e2090d9f968736e8dff796a925061ce25ee4ed",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "reverse company read denied /api/v1/integrations/coreflux/assignments/cfa_8574ccedf2660ac33dc51484864d3c8730dabd584b75ec1bde5ad18ec05e6e84",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "assignment list stays within company cfa_8574ccedf2660ac33dc51484864d3c8730dabd584b75ec1bde5ad18ec05e6e84",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "Assignment list namespace cfa_8574ccedf2660ac33dc51484864d3c8730dabd584b75ec1bde5ad18ec05e6e84",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "assignment list stays within company cfa_871bbe898ab463057f86d3ef6b135de333e88f3e5595f4b6b23028d9da66453a",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "Assignment list namespace cfa_871bbe898ab463057f86d3ef6b135de333e88f3e5595f4b6b23028d9da66453a",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign assignment edit denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "foreign worker cannot be linked",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "check": "Thunderhawk assignment has a prior revision to reject",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "stale assignment update",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "stale assignment update",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "check": "Rejected stale update replays its original receipt",
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "assignment identity cannot be overwritten",
+      "http_status": 422,
+      "expected_status": 422,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "same native worker cannot acquire a conflicting person identity",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "worker self-service change requires fresh review",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "stale onboarding publication rejected",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "older Core onboarding revision rejected",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control company context",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "PurePay control credential belongs to control company",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control person record readable",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "link control person with same canonical number",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "PurePay person link is company-namespaced",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "reverse control person read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control placement record readable",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "link control placement with same canonical number",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "PurePay placement link is company-namespaced",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "reverse control placement read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "read existing company-scoped control client",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "Shared CL number does not merge companies",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "reverse control client read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign client read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control client list scoped",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "No Thunderhawk client appears in control list",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign person read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control person list scoped",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "No Thunderhawk person appears in control list",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign placement read denied",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control placement list scoped",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "No Thunderhawk placement appears in control list",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign coreflux_assignment_inputs cpa_745cc59ea16c57979b2513ab70fbb5e91442908892e0ee871a37e5c893f224e4",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign coreflux_payroll_inputs cpi_2c219ec937ea221bead21b8b4cb3391b099bd7bdbe19deb570d42882d726bcd9",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign coreflux_payroll_inputs cpi_390401c8dcc2bc7b7e979232c4c294ad6347d42e4a920bd0777dd693572a399b",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign coreflux_payroll_authorities cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign coreflux_payroll_authorities cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign pay_runs run_core_792fd19f59a1a78e389b3885a4ebbf5d13e2690e223126af839f8378826045ab",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign pay_runs run_core_af63f6606e0cdfdb12fb3c9d60df37451d59feb32a1f0316fdc88d995c91c23d",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control payroll list empty /payroll/inputs",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "No Thunderhawk financial data in control /payroll/inputs",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "control payroll list empty /payroll/runs",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "check": "No Thunderhawk financial data in control /payroll/runs",
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll observation denied run_core_792fd19f59a1a78e389b3885a4ebbf5d13e2690e223126af839f8378826045ab",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll observation denied run_core_af63f6606e0cdfdb12fb3c9d60df37451d59feb32a1f0316fdc88d995c91c23d",
+      "http_status": 404,
+      "expected_status": 404,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "original person version readable",
+      "http_status": 200,
+      "expected_status": 200,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "stale native person observation rejected",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "native person cannot bind conflicting Core identity",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "existing Core identity cannot bind another person",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll packet rejected despite matching source reference",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "changed payroll payload cannot replay original idempotency key",
+      "http_status": 409,
+      "expected_status": 409,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll reservation cannot be acquired cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+      "http_status": 403,
+      "expected_status": 403,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll reservation cannot be released cpa_687c5888d2cc9f28aeda46fb8a1251b33562e33075f3563abc09df3073563961",
+      "http_status": 403,
+      "expected_status": 403,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll reservation cannot be acquired cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+      "http_status": 403,
+      "expected_status": 403,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "foreign payroll reservation cannot be released cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+      "http_status": 403,
+      "expected_status": 403,
+      "passed": true
+    },
+    {
+      "provider": "quanta",
+      "check": "temporary verification key no longer authenticates",
+      "http_status": 401,
+      "expected_status": 401,
+      "passed": true
+    },
+    {
+      "provider": "purepay",
+      "check": "temporary verification key no longer authenticates",
+      "http_status": 401,
+      "expected_status": 401,
+      "passed": true
+    }
+  ],
+  "cleanup": {
+    "quanta": {
+      "revoked": true,
+      "key_id": "252d8f5c-f3a0-4eb5-9b35-6ba31f0314c2"
+    },
+    "purepay": {
+      "revoked": true,
+      "key_id": "key_iso_da73d2af1cda"
+    }
+  },
+  "business_records": {
+    "quanta": {
+      "unchanged": true,
+      "before": {
+        "coreflux_assignments": {
+          "count": 1,
+          "sha256": "2648df36eb5ed21ae23288b995f76ce13b7e4eea8b33a765d7944281c32bcb40"
+        },
+        "coreflux_deliveries": {
+          "count": 15,
+          "sha256": "36d154f573f49d82bc678dc2324de57d414153f7f3ab6fd0213cbcb12056aa09",
+          "ids": [
+            "cfd_0bfb8b626fdf03fcf2fb20b3cc54175a3a1106277d991ed652f1ab7c4d40c03d",
+            "cfd_16bc10f4d744e269129b3788e8376445af04ff24523e871e9d6d452eac96f93b",
+            "cfd_18c6b766abab09b0bed0f108a67398a3e2f4b77a627354549ee7a178e3d6d88c",
+            "cfd_1aa50aca7fe7450f69ce7f2d800eaa0a46e5b76fae0dbfd335af0d6f33b3dece",
+            "cfd_1d46a8614a7f11b001b41785f9c11313d2849491a7c4786c1a0fc9a20128c02d",
+            "cfd_396c39ae0b3af61aa90987bd872f16f0995358d2207e9cf77cb003329e009b17",
+            "cfd_6201d8519459b4f9b6a78e212d8283cfc2ffba8cb80c82a2c5585d45191a8b97",
+            "cfd_695c236e97f3d88698975bfa7d81a4a63e7331bb6e5d6e7b31c15f3a536bfdd4",
+            "cfd_99c014377ca24b995c68d48a583c52e2bbcef63aff3b5b3d43de45bcd33c5466",
+            "cfd_a03402f8d6d06200ae581011478cfdbbc2f0a69a3e0bc36eb859589c59b14766",
+            "cfd_b21b4c425e1596a5dd18028ba7bf6d3e258b1ca61de4e664df4d06f0ab5399d9",
+            "cfd_d098fdd4adc34f404e81c447a4a5945f606c8ef9a56ec10ebf4b2fdc4b929d77",
+            "cfd_d347e7725a55316c9ff1d77d1aedfd3068f8bc3c3116def0e44b1114c831d4d2",
+            "cfd_e8ef442643e781edfad557afd7f0ab10fcbfcc2336f86034774ba24c6201fa06",
+            "cfd_eafe6e4d362993a21141b7b2d9800a4e40af153f6d33de42ab300d94a980fe96"
+          ]
+        },
+        "coreflux_onboarding": {
+          "count": 1,
+          "sha256": "728c495a13660d2c6359513254428de5df3132e5d7b99fb485860061b12b1434"
+        },
+        "coreflux_onboarding_files.chunks": {
+          "count": 1,
+          "sha256": "fd2d3876ae8d88f3d112610e1cf259d65f356f2d27de0230a71063b09eddde8e"
+        },
+        "coreflux_onboarding_files.files": {
+          "count": 1,
+          "sha256": "b1a22ae887737548f5d585236cbf3fab10f96040e067afd0e04b8e475199bf04"
+        },
+        "coreflux_onboarding_uploads": {
+          "count": 1,
+          "sha256": "24aed4de31affa821ca94a80bcf7d28d2b9e82255c72978d432eada172c54b14"
+        },
+        "coreflux_person_links": {
+          "count": 1,
+          "sha256": "da749c9636b8a6da96c30807d941407077949744cdd7ca1bcbdef1ee5bf8b7f7"
+        },
+        "coreflux_time_reviews": {
+          "count": 2,
+          "sha256": "0f6fec455f66f8d782711c467515e797b4916555f4b472a9483ee19b450d3ff2"
+        },
+        "tenants": {
+          "count": 1,
+          "sha256": "effcfd0c7ce33ec34eec0c5a5543296d1f8747a9e6db5ae65597991c80c86b7a"
+        },
+        "time_entries": {
+          "count": 2,
+          "sha256": "65887a1eeb0d6dd4b72d68cb411a8d43cec9251e0b74c0f2a75e33f3bd9302ab"
+        },
+        "timesheets": {
+          "count": 2,
+          "sha256": "da58dc782c9a4d2ad7eff23d3a145b888f1fcc3bbe3af6869d14f46552b9452c"
+        },
+        "users": {
+          "count": 3,
+          "sha256": "c8b1241e75ed70c3dbc3399d511ca5c941d798726ae34c01514dc6e04fba0a9e"
+        },
+        "worksite_assignments": {
+          "count": 1,
+          "sha256": "4bd83eb158fef3865efe49f2c6f83a3141f14634767afb1e1d68bfc84a61dec0"
+        },
+        "worksites": {
+          "count": 1,
+          "sha256": "f4ebf1b1e5894f3225d32d3c4c363359f7be130da7ef8f05a4e8ffe6f509dc42"
+        }
+      },
+      "after": {
+        "coreflux_assignments": {
+          "count": 1,
+          "sha256": "2648df36eb5ed21ae23288b995f76ce13b7e4eea8b33a765d7944281c32bcb40"
+        },
+        "coreflux_deliveries": {
+          "count": 15,
+          "sha256": "36d154f573f49d82bc678dc2324de57d414153f7f3ab6fd0213cbcb12056aa09",
+          "ids": [
+            "cfd_0bfb8b626fdf03fcf2fb20b3cc54175a3a1106277d991ed652f1ab7c4d40c03d",
+            "cfd_16bc10f4d744e269129b3788e8376445af04ff24523e871e9d6d452eac96f93b",
+            "cfd_18c6b766abab09b0bed0f108a67398a3e2f4b77a627354549ee7a178e3d6d88c",
+            "cfd_1aa50aca7fe7450f69ce7f2d800eaa0a46e5b76fae0dbfd335af0d6f33b3dece",
+            "cfd_1d46a8614a7f11b001b41785f9c11313d2849491a7c4786c1a0fc9a20128c02d",
+            "cfd_396c39ae0b3af61aa90987bd872f16f0995358d2207e9cf77cb003329e009b17",
+            "cfd_6201d8519459b4f9b6a78e212d8283cfc2ffba8cb80c82a2c5585d45191a8b97",
+            "cfd_695c236e97f3d88698975bfa7d81a4a63e7331bb6e5d6e7b31c15f3a536bfdd4",
+            "cfd_99c014377ca24b995c68d48a583c52e2bbcef63aff3b5b3d43de45bcd33c5466",
+            "cfd_a03402f8d6d06200ae581011478cfdbbc2f0a69a3e0bc36eb859589c59b14766",
+            "cfd_b21b4c425e1596a5dd18028ba7bf6d3e258b1ca61de4e664df4d06f0ab5399d9",
+            "cfd_d098fdd4adc34f404e81c447a4a5945f606c8ef9a56ec10ebf4b2fdc4b929d77",
+            "cfd_d347e7725a55316c9ff1d77d1aedfd3068f8bc3c3116def0e44b1114c831d4d2",
+            "cfd_e8ef442643e781edfad557afd7f0ab10fcbfcc2336f86034774ba24c6201fa06",
+            "cfd_eafe6e4d362993a21141b7b2d9800a4e40af153f6d33de42ab300d94a980fe96"
+          ]
+        },
+        "coreflux_onboarding": {
+          "count": 1,
+          "sha256": "728c495a13660d2c6359513254428de5df3132e5d7b99fb485860061b12b1434"
+        },
+        "coreflux_onboarding_files.chunks": {
+          "count": 1,
+          "sha256": "fd2d3876ae8d88f3d112610e1cf259d65f356f2d27de0230a71063b09eddde8e"
+        },
+        "coreflux_onboarding_files.files": {
+          "count": 1,
+          "sha256": "b1a22ae887737548f5d585236cbf3fab10f96040e067afd0e04b8e475199bf04"
+        },
+        "coreflux_onboarding_uploads": {
+          "count": 1,
+          "sha256": "24aed4de31affa821ca94a80bcf7d28d2b9e82255c72978d432eada172c54b14"
+        },
+        "coreflux_person_links": {
+          "count": 1,
+          "sha256": "da749c9636b8a6da96c30807d941407077949744cdd7ca1bcbdef1ee5bf8b7f7"
+        },
+        "coreflux_time_reviews": {
+          "count": 2,
+          "sha256": "0f6fec455f66f8d782711c467515e797b4916555f4b472a9483ee19b450d3ff2"
+        },
+        "tenants": {
+          "count": 1,
+          "sha256": "effcfd0c7ce33ec34eec0c5a5543296d1f8747a9e6db5ae65597991c80c86b7a"
+        },
+        "time_entries": {
+          "count": 2,
+          "sha256": "65887a1eeb0d6dd4b72d68cb411a8d43cec9251e0b74c0f2a75e33f3bd9302ab"
+        },
+        "timesheets": {
+          "count": 2,
+          "sha256": "da58dc782c9a4d2ad7eff23d3a145b888f1fcc3bbe3af6869d14f46552b9452c"
+        },
+        "users": {
+          "count": 3,
+          "sha256": "c8b1241e75ed70c3dbc3399d511ca5c941d798726ae34c01514dc6e04fba0a9e"
+        },
+        "worksite_assignments": {
+          "count": 1,
+          "sha256": "4bd83eb158fef3865efe49f2c6f83a3141f14634767afb1e1d68bfc84a61dec0"
+        },
+        "worksites": {
+          "count": 1,
+          "sha256": "f4ebf1b1e5894f3225d32d3c4c363359f7be130da7ef8f05a4e8ffe6f509dc42"
+        }
+      }
+    },
+    "purepay": {
+      "unchanged": true,
+      "before": {
+        "assignments": {
+          "count": 1,
+          "sha256": "a9339a53e02dacb2a788c40533988cdc4f6dd9fd793a93a6d5519221a07df6a9"
+        },
+        "bills": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "coreflux_assignment_inputs": {
+          "count": 1,
+          "sha256": "8f77597b2de34794aa14414337d564a43e6c2d69997e731f8e6012275ae57398"
+        },
+        "coreflux_customer_lifecycle": {
+          "count": 1,
+          "sha256": "4efc1f3561944e3adc49569a6c3873829fb0c4d741364ea8deee2ce6222a69b1"
+        },
+        "coreflux_customer_references": {
+          "count": 1,
+          "sha256": "7042a74923e05f94289a271a7afb46f131d8dff099adb0ce2e4cfb39298a0e0f"
+        },
+        "coreflux_customer_requests": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "coreflux_payroll_authorities": {
+          "count": 2,
+          "sha256": "42867058d2ca9663a89a712906a6b9b0fa23a302ca4066c39a14745f27ad2a3a"
+        },
+        "coreflux_payroll_inputs": {
+          "count": 2,
+          "sha256": "ab917ad1dab2f07b5c06ae86743f17a2735242faf4157c62a619c95d4a2838ac"
+        },
+        "coreflux_record_links": {
+          "count": 3,
+          "sha256": "afe273d3204af4bfba9fea8583d099be89e535b79bcca3284e57be1c809896ea"
+        },
+        "customers": {
+          "count": 1,
+          "sha256": "feeeae10f7f4f99f49cbee2185196b2e75825578e8bbecc3a1800450ee136ff4"
+        },
+        "employees": {
+          "count": 1,
+          "sha256": "5af33c6d4cc6f6d55fd78ff414d54e7e1c89c5240b5bfb3297681b7a3a1ad49f"
+        },
+        "invoices": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "organizations": {
+          "count": 1,
+          "sha256": "c759ce334da59813a631f6bd8ab58fc989ef72687cecb32bf2680b9db2155b61"
+        },
+        "pay_runs": {
+          "count": 2,
+          "sha256": "4b8a4dddaf63eaf31a9992235a1a1c926393456acad98dbb1509db1f733a6268"
+        },
+        "payments": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "vendors": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "after": {
+        "assignments": {
+          "count": 1,
+          "sha256": "a9339a53e02dacb2a788c40533988cdc4f6dd9fd793a93a6d5519221a07df6a9"
+        },
+        "bills": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "coreflux_assignment_inputs": {
+          "count": 1,
+          "sha256": "8f77597b2de34794aa14414337d564a43e6c2d69997e731f8e6012275ae57398"
+        },
+        "coreflux_customer_lifecycle": {
+          "count": 1,
+          "sha256": "4efc1f3561944e3adc49569a6c3873829fb0c4d741364ea8deee2ce6222a69b1"
+        },
+        "coreflux_customer_references": {
+          "count": 1,
+          "sha256": "7042a74923e05f94289a271a7afb46f131d8dff099adb0ce2e4cfb39298a0e0f"
+        },
+        "coreflux_customer_requests": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "coreflux_payroll_authorities": {
+          "count": 2,
+          "sha256": "42867058d2ca9663a89a712906a6b9b0fa23a302ca4066c39a14745f27ad2a3a"
+        },
+        "coreflux_payroll_inputs": {
+          "count": 2,
+          "sha256": "ab917ad1dab2f07b5c06ae86743f17a2735242faf4157c62a619c95d4a2838ac"
+        },
+        "coreflux_record_links": {
+          "count": 3,
+          "sha256": "afe273d3204af4bfba9fea8583d099be89e535b79bcca3284e57be1c809896ea"
+        },
+        "customers": {
+          "count": 1,
+          "sha256": "feeeae10f7f4f99f49cbee2185196b2e75825578e8bbecc3a1800450ee136ff4"
+        },
+        "employees": {
+          "count": 1,
+          "sha256": "5af33c6d4cc6f6d55fd78ff414d54e7e1c89c5240b5bfb3297681b7a3a1ad49f"
+        },
+        "invoices": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "organizations": {
+          "count": 1,
+          "sha256": "c759ce334da59813a631f6bd8ab58fc989ef72687cecb32bf2680b9db2155b61"
+        },
+        "pay_runs": {
+          "count": 2,
+          "sha256": "4b8a4dddaf63eaf31a9992235a1a1c926393456acad98dbb1509db1f733a6268"
+        },
+        "payments": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "vendors": {
+          "count": 0,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      }
+    }
+  },
+  "document_allowlist_restored": true,
+  "passed": true,
+  "scope": "Hosted isolated Thunderhawk providers: second-company isolation, stale writes, identity conflicts, reservation ownership and retry recovery",
+  "script_sha256": "de957e3988cabe65b5f7d1e1c5583df22581414d4638717ad3f4f38965b2b9a8",
+  "fixture_notes": [
+    "Second companies are synthetic and retain a disabled Quanta worker and draft assignment for reproducible checks.",
+    "The same P-358, PL-864 and CL-1280 references resolve to distinct provider identities in the two companies.",
+    "Temporary control API credentials were revoked and native HTTP authentication returned 401.",
+    "Document transfer was temporarily enabled for the control workspace to test ownership, then the original private configuration was restored byte-for-byte."
+  ],
+  "limitations": [
+    "This receipt proves provider integration boundaries; it does not certify the Core staff UI, manager reports or full offboarding workflow.",
+    "No AP/AR document, actual payroll, payment, accounting posting or production cutover was executed by this verification. Those required flows need their own acceptance evidence.",
+    "The first comparison flagged a newly created collection with zero Thunderhawk rows. The comparator now equates absent and empty collections while rejecting changed rows, counts or new nonempty collections. Four local comparator controls passed."
+  ]
+}

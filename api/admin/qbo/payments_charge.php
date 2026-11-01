@@ -13,9 +13,9 @@
  *        2. Hit qboCreateCharge / qboCreateECheck via the QBO Payments
  *           client.
  *        3. Idempotently record the charge into qbo_payment_charges.
- *        4. On `status=CAPTURED` (card immediate-capture path), create a
- *           billing_payments row (source_system='qbo', external_id=chargeId)
- *           and allocate against the invoice via billingAllocatePayment.
+ *        4. On `status=CAPTURED` (card immediate-capture path), atomically
+ *           post the processor clearing / AR journal and allocate the
+ *           invoice through the shared Billing and Accounting services.
  *           Pending card/e-check transactions are completed by the
  *           polling worker through the same idempotent apply helper.
  *
@@ -60,6 +60,7 @@ if ($method === 'GET') {
     // retrieve endpoint, so route by the persisted shadow type.
     $live = null;
     $application = null;
+    $postingError = null;
     try {
         $chargeType = (string) ($shadow['charge_type'] ?? 'card');
         $live = qboFetchPaymentTransaction($tenantId, $chargeId, $chargeType);
@@ -78,9 +79,14 @@ if ($method === 'GET') {
             $shadow = $shadowStmt->fetch(\PDO::FETCH_ASSOC) ?: $shadow;
         }
     } catch (\Throwable $e) {
-        $live = ['error' => $e->getMessage()];
+        if ($live === null) {
+            $live = ['error' => $e->getMessage()];
+        } else {
+            $postingError = $e->getMessage();
+        }
     }
-    api_ok(['shadow' => $shadow, 'live' => $live, 'application' => $application]);
+    api_ok(['shadow' => $shadow, 'live' => $live,
+        'application' => $application, 'posting_error' => $postingError]);
 }
 
 if ($method !== 'POST') {
@@ -246,13 +252,15 @@ if (in_array($status, ['CAPTURED', 'SETTLED'], true)) {
         $result['application'] = $application;
         $result['payment_id']  = $application['payment_id'];
         $result['allocation']  = $application['allocation'];
+        $result['journal_entry_id'] = $application['journal_entry_id'] ?? null;
     } catch (\Throwable $e) {
-        billingAudit('billing.qbo_payments.allocation_failed', [
+        billingAudit('billing.qbo_payments.posting_failed', [
             'invoice_id' => $invoiceId,
             'reason'     => substr($e->getMessage(), 0, 240),
             'shadow_id'  => $shadowId,
         ], $invoiceId);
-        $result['allocation_error'] = $e->getMessage();
+        $result['posting_error'] = $e->getMessage();
+        $result['allocation_error'] = $e->getMessage(); // older clients
     }
 } else {
     // ISSUED / PENDING / DECLINED etc. — the polling worker closes the

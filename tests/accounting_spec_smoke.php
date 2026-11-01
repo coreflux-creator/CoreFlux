@@ -36,8 +36,11 @@ echo "\naccounting.lib posting engine\n";
 $lib = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/accounting.php');
 $a('accountingNextJeNumber atomic seq',        strpos($lib, 'FOR UPDATE') !== false);
 $a('JE number format prefix-YYYY-NNNNNN',      strpos($lib, "sprintf('%s-%s-%06d', \$prefix") !== false);
-$a('resolvePeriod auto-creates monthly',       strpos($lib, 'Auto-create a monthly period') !== false);
-$a('defaultEntity auto-creates MAIN',          strpos($lib, "VALUES (:t, \"MAIN\", \"Main Entity\"") !== false);
+$a('resolvePeriod auto-creates non-overlapping monthly periods',
+    strpos($lib, "format('Y-m-01')") !== false
+    && strpos($lib, 'automatic monthly creation would overlap it') !== false);
+$a('defaultEntity requires configured entity', str_contains($lib, 'throw new AccountingSetupRequired(')
+    && !str_contains($lib, '"Main Entity"'));
 $a('accountingPostJe(): idempotency replay',   strpos($lib, 'idempotent_replay') !== false);
 $a('accountingPostJe(): validates active entity ownership',
     strpos($lib, "accountingValidateActiveEntityId(\$tenantId, \$je['entity_id'] ?? null)") !== false);
@@ -62,11 +65,14 @@ $a('accountingTrialBalance signed balance',    strpos($lib, "\$r['normal_side'] 
 
 echo "\naccounts API\n";
 $aapi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/accounts.php');
+$accountRules = (string) file_get_contents(__DIR__ . '/../core/accounting/account_mutation.php');
 $a('GET list perm',                            strpos($aapi, "'accounting.coa.view'") !== false);
 $a('POST requires account_type',               strpos($aapi, "api_require_fields(\$body, ['code','name','account_type'])") !== false);
-$a('rejects invalid type',                     strpos($aapi, "'Invalid account_type'") !== false);
+$a('rejects invalid type',                     strpos($aapi, 'accountingReviewAccountChange') !== false
+    && strpos($accountRules, 'Invalid account type.') !== false);
 $a('DELETE is soft (active=0)',                strpos($aapi, "['active' => 0]") !== false);
-$a('PATCH with non-empty body guard',          strpos($aapi, "'No fields to update'") !== false);
+$a('PATCH with non-empty body guard',          strpos($aapi, 'accountingReviewAccountChange') !== false
+    && strpos($accountRules, 'No account changes were provided.') !== false);
 
 echo "\njournal_entries API\n";
 $japi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/journal_entries.php');
@@ -83,7 +89,10 @@ $a('requires accounting lib',                  strpos($apbills, "require_once __
 $a('idempotency key ap:bill:<id>:post',        strpos($apbills, "sprintf('ap:bill:%d:post', \$id)") !== false);
 $a('Dr expense per bill line',                 strpos($apbills, "'account_code' => \$acct") !== false);
 $a('Cr AP 2000',                               strpos($apbills, "'account_code' => '2000'") !== false);
-$a('updates ap_bills.journal_entry_id',        strpos($apbills, 'UPDATE ap_bills SET journal_entry_id = :j') !== false);
+$apLib = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
+$a('updates ap_bills.journal_entry_id',
+    strpos($apbills, 'apAttachPostedBillJournal(') !== false
+    && strpos($apLib, 'UPDATE ap_bills SET journal_entry_id = :journal_id') !== false);
 $a('audit includes je_number',                 strpos($apbills, "'je_number' => \$res['je_number']") !== false);
 
 echo "\nBilling invoice → GL post\n";

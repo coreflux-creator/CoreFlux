@@ -39,9 +39,17 @@ foreach (['ap_bill_prefix','ap_next_bill_seq','ap_default_terms','ap_1099_thresh
 }
 
 echo "\nLibrary contract\n";
-foreach (['apNextInternalRef','apBuildDraftFromBundle','apComputeTotals','apBillTransitionAllowed','apPaymentTransitionAllowed','apAllocatePayment','apComputeAging','apBuild1099Ledger','apPlaidConfigured','apAudit'] as $f) {
+foreach (['apNextInternalRef','apPrepareGeneratedDraftVendor','apBuildDraftFromBundle','apComputeTotals','apBillTransitionAllowed','apPaymentTransitionAllowed','apAllocatePayment','apComputeAging','apBuild1099Ledger','apPlaidConfigured','apAudit'] as $f) {
     $assert("fn: {$f}",                         function_exists($f));
 }
+$billApi = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
+$settlement = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_create.php');
+$assert('both time and bundle bill routes resolve saved vendors',
+    substr_count($billApi, 'apPrepareGeneratedDraftVendor($tid, $d)') === 2);
+$assert('time settlement resolves saved vendors',
+    str_contains($settlement, 'apPrepareGeneratedDraftVendor($tenantId, $draft)'));
+$assert('generated AP never promotes 1099 based only on vendor type',
+    !str_contains($billApi, 'GREATEST(requires_1099, VALUES(requires_1099))'));
 
 echo "\napComputeTotals math\n";
 $lines = [
@@ -74,7 +82,8 @@ $assert('approved → paid',                     apBillTransitionAllowed('approv
 $assert('approved → disputed',                 apBillTransitionAllowed('approved', 'disputed'));
 $assert('approved → pending_review (NO)',      !apBillTransitionAllowed('approved', 'pending_review'));
 $assert('partially_paid → paid',               apBillTransitionAllowed('partially_paid', 'paid'));
-$assert('paid → void',                         apBillTransitionAllowed('paid', 'void'));
+$assert('partially_paid → void (NO)',          !apBillTransitionAllowed('partially_paid', 'void'));
+$assert('paid → void (NO)',                    !apBillTransitionAllowed('paid', 'void'));
 $assert('paid → approved (NO)',                !apBillTransitionAllowed('paid', 'approved'));
 $assert('disputed → pending_approval',         apBillTransitionAllowed('disputed', 'pending_approval'));
 $assert('void terminal',                       !apBillTransitionAllowed('void', 'approved') && !apBillTransitionAllowed('void', 'pending_review'));
@@ -121,9 +130,14 @@ foreach (['from-time-bundle','approve','void','dispute','post'] as $a) {
 $assert('two-eye approve guard',               strpos($bills, 'cannot approve your own bill') !== false);
 $assert('approve refuses zero-total lines',    strpos($bills, 'All bill lines must have total > 0') !== false);
 $assert('void releases bundles when no pmts',  strpos($bills, 'consumed_by_module = NULL') !== false);
+$assert('bill mutations refuse ledger or payment lineage',
+    substr_count($bills, 'apBillHasLedgerOrPaymentActivity(') >= 3
+    && strpos($bills, 'FOR UPDATE') !== false);
 $assert('approve checks transition allowed',   strpos($bills, "apBillTransitionAllowed(\$row['status'], 'approved')") !== false);
 $assert('from-time-bundle marks bundles consumed', strpos($bills, 'status = "consumed"') !== false);
-$assert('from-time-bundle upserts vendors_index', strpos($bills, 'INSERT INTO ap_vendors_index') !== false);
+$assert('from-time-bundle uses the saved vendor directory',
+    str_contains($bills, 'apPrepareGeneratedDraftVendor($tid, $d)')
+    && !str_contains($bills, 'INSERT INTO ap_vendors_index'));
 $assert('post integrates with Accounting GL',  strpos($bills, "require_once __DIR__ . '/../../accounting/lib/accounting.php'") !== false
                                                 && strpos($bills, 'accountingPostJe') !== false);
 
@@ -137,7 +151,8 @@ $assert('send requires ap.payment.send',       strpos($pay, "rbac_legacy_require
 $assert('send SoD guard',                      strpos($pay, 'cannot release your own payment') !== false);
 $assert('send refuses disputed bills',         strpos($pay, 'disputed","void"') !== false || strpos($pay, "disputed\",\"void") !== false);
 $assert('void recomputes bills from released payments only',
-                                                strpos($pay, 'apRefreshReleasedPaymentBillsForPayment($pdo, $tid, $id)') !== false);
+                                                strpos($pay, 'apVoidPayment($tid, $id, $reason)') !== false
+                                                && strpos((string)file_get_contents(__DIR__.'/../modules/ap/lib/ap.php'), 'apRefreshReleasedPaymentBillsForPayment($pdo,$tenantId,$paymentId)') !== false);
 
 $vend = (string) file_get_contents(__DIR__ . '/../modules/ap/api/vendors.php');
 $assert('vendors typeahead (q filter)',        strpos($vend, "!empty(\$_GET['q'])") !== false);
@@ -174,7 +189,10 @@ echo "\nLibrary source sanity\n";
 $libSrc = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
 $assert('aging includes 5 buckets',            strpos($libSrc, 'bucket_current') !== false && strpos($libSrc, 'bucket_91_plus') !== false);
 $assert('aging includes posted bills only',    strpos($libSrc, 'JOIN accounting_journal_entries je') !== false && strpos($libSrc, 'je.status = "posted"') !== false);
-$assert('aging reconstructs balance as of date', strpos($libSrc, 'p.pay_date <= :payment_as_of') !== false && strpos($libSrc, 'b.bill_date <= :document_as_of') !== false);
+$assert('aging reconstructs balance as of date',
+    strpos($libSrc, 'DATE(p.cleared_at) <= :payment_as_of') !== false
+    && strpos($libSrc, 'payment_je.posting_date <= :payment_posted_as_of') !== false
+    && strpos($libSrc, 'b.bill_date <= :document_as_of') !== false);
 $assert('1099 joins payments + allocations',   strpos($libSrc, 'FROM ap_payments p') !== false && strpos($libSrc, 'ap_payment_allocations a') !== false);
 $assert('1099 only counts cleared',            strpos($libSrc, 'p.status = "cleared"') !== false);
 $assert('1099 threshold is 600 default',       strpos($libSrc, '600.0') !== false);

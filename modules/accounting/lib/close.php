@@ -40,10 +40,13 @@ function accountingDefaultCloseChecklist(): array {
 function accountingSeedCloseChecklist(int $tenantId, int $periodId, ?int $actorUserId = null): int {
     $pdo = getDB();
     if (!$pdo) return 0;
+    $periodStmt = $pdo->prepare('SELECT id FROM accounting_periods WHERE tenant_id = :t AND id = :p');
+    $periodStmt->execute(['t' => $tenantId, 'p' => $periodId]);
+    if (!$periodStmt->fetchColumn()) throw new \RuntimeException('Period not found');
     $template = accountingDefaultCloseChecklist();
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-    $existing = $pdo->prepare("SELECT task_key FROM accounting_close_tasks WHERE period_id = :p");
-    $existing->execute(['p' => $periodId]);
+    $existing = $pdo->prepare('SELECT task_key FROM accounting_close_tasks
+        WHERE tenant_id = :t AND period_id = :p');
+    $existing->execute(['t' => $tenantId, 'p' => $periodId]);
     $have = array_flip(array_column($existing->fetchAll(PDO::FETCH_ASSOC), 'task_key'));
 
     $ins = $pdo->prepare(
@@ -90,7 +93,7 @@ function accountingCompleteCloseTask(int $tenantId, int $taskId, int $actorUserI
 }
 
 /**
- * Build a printable close-packet HTML for a closed period.
+ * Build a printable close-packet HTML for a period, including open previews.
  * Includes: period meta + close summary + JE counts + trial balance.
  */
 function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
@@ -117,7 +120,13 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
     $jeByStatus = [];
     foreach ($jeCounts->fetchAll(PDO::FETCH_ASSOC) as $r) $jeByStatus[$r['status']] = (int) $r['c'];
 
-    $tb = accountingTrialBalance($tenantId, (string) $period['end_date'], (int) $period['entity_id']);
+    $tbRows = accountingTrialBalance($tenantId, (string) $period['end_date'], (int) $period['entity_id']);
+    $totalDebit = 0.0;
+    $totalCredit = 0.0;
+    foreach ($tbRows as $row) {
+        $totalDebit += (float) $row['debit'];
+        $totalCredit += (float) $row['credit'];
+    }
 
     $tasksStmt = $pdo->prepare(
         "SELECT title, status, completed_at,
@@ -131,20 +140,22 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
 
     $h = function ($v) { return htmlspecialchars((string) ($v ?? ''), ENT_QUOTES); };
 
-    $html  = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet — ';
+    $html  = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet - ';
     $html .= $h($period['entity_code']) . ' P' . $h($period['period_number']);
     $html .= '</title><style>body{font-family:-apple-system,Segoe UI,sans-serif;color:#111;max-width:760px;margin:24px auto;padding:0 16px}h1,h2{margin:0 0 8px}h2{margin-top:24px;font-size:16px;text-transform:uppercase;letter-spacing:.5px;color:#374151}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:left;font-size:13px}th{background:#f9fafb;font-weight:600}.r{text-align:right}.muted{color:#6b7280;font-size:12px}.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}.b-done{background:#d1fae5;color:#065f46}.b-pending{background:#fef3c7;color:#92400e}@media print{body{margin:0}}</style></head><body>';
     $html .= '<h1>Close packet</h1>';
-    $html .= '<div class="muted">' . $h($period['entity_code']) . ' — ' . $h($period['entity_name'])
+    $html .= '<div class="muted">' . $h($period['entity_code']) . ' - ' . $h($period['entity_name'])
           .  ' &nbsp;•&nbsp; Period ' . $h($period['period_number'])
-          .  ' &nbsp;•&nbsp; ' . $h($period['start_date']) . ' → ' . $h($period['end_date'])
+          .  ' &nbsp;•&nbsp; ' . $h($period['start_date']) . ' to ' . $h($period['end_date'])
           .  ' &nbsp;•&nbsp; Status: ' . $h($period['status']) . '</div>';
 
     if (!empty($period['closed_at'])) {
         $html .= '<div class="muted">Closed at ' . $h($period['closed_at']) . '</div>';
     }
     if (!empty($period['reopen_reason'])) {
-        $html .= '<div class="muted">Reopen reason: ' . $h($period['reopen_reason']) . '</div>';
+        $html .= '<div class="muted">Most recent reopen'
+              .  (!empty($period['reopened_at']) ? ' at ' . $h($period['reopened_at']) : '')
+              .  ' - reason: ' . $h($period['reopen_reason']) . '</div>';
     }
 
     $html .= '<h2>Journal activity</h2>';
@@ -165,20 +176,109 @@ function accountingBuildClosePacketHtml(int $tenantId, int $periodId): string {
     }
     $html .= '</tbody></table>';
 
-    $html .= '<h2>Trial balance — as of ' . $h($period['end_date']) . '</h2>';
+    $html .= '<h2>Trial balance - as of ' . $h($period['end_date']) . '</h2>';
     $html .= '<table><thead><tr><th>Code</th><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead><tbody>';
-    foreach (($tb['rows'] ?? []) as $r) {
+    foreach ($tbRows as $r) {
+        if ((float) $r['debit'] === 0.0 && (float) $r['credit'] === 0.0) continue;
         $html .= '<tr><td>' . $h($r['code'] ?? '') . '</td>'
               .  '<td>' . $h($r['name'] ?? '') . '</td>'
               .  '<td class="r">' . number_format((float) ($r['debit']  ?? 0), 2) . '</td>'
               .  '<td class="r">' . number_format((float) ($r['credit'] ?? 0), 2) . '</td></tr>';
     }
     $html .= '<tr><th>Total</th><th></th>'
-          .  '<th class="r">' . number_format((float) ($tb['total_debit']  ?? 0), 2) . '</th>'
-          .  '<th class="r">' . number_format((float) ($tb['total_credit'] ?? 0), 2) . '</th></tr>';
+          .  '<th class="r">' . number_format($totalDebit, 2) . '</th>'
+          .  '<th class="r">' . number_format($totalCredit, 2) . '</th></tr>';
     $html .= '</tbody></table>';
 
-    $html .= '<div class="muted" style="margin-top:32px">Generated ' . date('Y-m-d H:i:s') . ' UTC</div>';
+    $html .= '<div class="muted" style="margin-top:32px">Generated ' . gmdate('Y-m-d H:i:s') . ' UTC</div>';
     $html .= '</body></html>';
     return $html;
+}
+
+/** Save one rendered version; existing packet rows are never rewritten. */
+function accountingRecordClosePacket(int $tenantId, int $periodId, ?int $actorUserId = null, array $summary = []): array {
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('SELECT id, entity_id, status, close_cycle FROM accounting_periods
+            WHERE tenant_id = :t AND id = :p FOR UPDATE');
+        $stmt->execute(['t' => $tenantId, 'p' => $periodId]);
+        $period = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$period) throw new \RuntimeException('Period not found');
+        if (!in_array($period['status'], ['closed', 'locked'], true)) {
+            throw new \DomainException('Close the period before saving a packet');
+        }
+
+        $pdo->prepare('UPDATE accounting_close_tasks
+            SET status = "done", completed_at = NOW(), completed_by_user_id = :u
+            WHERE tenant_id = :t AND period_id = :p AND task_key = "build_packet"
+                AND status <> "done"')
+            ->execute(['u' => $actorUserId, 't' => $tenantId, 'p' => $periodId]);
+
+        $html = accountingBuildClosePacketHtml($tenantId, $periodId);
+        $hash = hash('sha256', $html);
+        $metadata = array_merge($summary, [
+            'entity_id' => (int) $period['entity_id'],
+            'period_status' => (string) $period['status'],
+            'close_cycle' => (int) $period['close_cycle'],
+            'html_length' => strlen($html),
+            'content_sha256' => $hash,
+        ]);
+        $pdo->prepare('INSERT INTO accounting_close_packets
+            (tenant_id, period_id, close_cycle, file_format, summary_json, built_by_user_id)
+            VALUES (:t, :p, :cycle, "html", :summary, :user_id)')
+            ->execute(['t' => $tenantId, 'p' => $periodId,
+                'cycle' => (int) $period['close_cycle'],
+                'summary' => json_encode($metadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                'user_id' => $actorUserId]);
+        $packetId = (int) $pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO accounting_close_packet_snapshots
+            (packet_id, tenant_id, period_id, html_snapshot, content_sha256)
+            VALUES (:id, :t, :p, :html, :hash)')
+            ->execute(['id' => $packetId, 't' => $tenantId, 'p' => $periodId,
+                'html' => $html, 'hash' => $hash]);
+        $pdo->commit();
+        return ['id' => $packetId, 'period_id' => $periodId,
+            'entity_id' => (int) $period['entity_id'], 'period_status' => $period['status'],
+            'close_cycle' => (int) $period['close_cycle'],
+            'content_sha256' => $hash, 'length' => strlen($html)];
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/** Return a retained version only when its bytes still match the recorded hash. */
+function accountingLoadRecordedClosePacket(int $tenantId, int $periodId, int $packetId): ?array {
+    $stmt = getDB()->prepare('SELECT p.id, p.period_id, p.close_cycle, p.built_at, p.built_by_user_id,
+            s.html_snapshot, s.content_sha256
+        FROM accounting_close_packets p
+        JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
+            AND s.tenant_id = p.tenant_id AND s.period_id = p.period_id
+        WHERE p.tenant_id = :t AND p.period_id = :p AND p.id = :id');
+    $stmt->execute(['t' => $tenantId, 'p' => $periodId, 'id' => $packetId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($row && !hash_equals((string) $row['content_sha256'], hash('sha256', (string) $row['html_snapshot']))) {
+        throw new \RuntimeException('Saved close packet failed its integrity check');
+    }
+    return $row;
+}
+
+function accountingListRecordedClosePackets(int $tenantId, int $periodId): array {
+    $stmt = getDB()->prepare('SELECT p.id, p.close_cycle, p.built_at, p.built_by_user_id,
+            p.summary_json, s.content_sha256
+        FROM accounting_close_packets p
+        JOIN accounting_close_packet_snapshots s ON s.packet_id = p.id
+            AND s.tenant_id = p.tenant_id AND s.period_id = p.period_id
+        WHERE p.tenant_id = :t AND p.period_id = :p
+        ORDER BY p.id DESC LIMIT 100');
+    $stmt->execute(['t' => $tenantId, 'p' => $periodId]);
+    return array_map(static function (array $row): array {
+        $summary = json_decode((string) ($row['summary_json'] ?? ''), true);
+        unset($row['summary_json']);
+        $row['id'] = (int) $row['id'];
+        $row['close_cycle'] = (int) $row['close_cycle'];
+        $row['summary'] = is_array($summary) ? $summary : [];
+        return $row;
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }

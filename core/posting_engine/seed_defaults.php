@@ -127,7 +127,7 @@ const POSTING_RULES_DEFAULT_PACK = [
     // user explicitly categorizes (single account) or splits (multi-account)
     // a bank statement line. The payload carries the fully rendered, balanced
     // JE lines so the engine just persists them — same pattern as
-    // ap.bill.approved + billing.invoice.sent.
+    // ap.bill.approved + ar.invoice.issued.
     [
         'event_type'  => 'treasury.bank_transaction.categorized',
         'rule_name'   => 'Bank tx categorized — passthrough',
@@ -148,10 +148,10 @@ const POSTING_RULES_DEFAULT_PACK = [
         ],
     ],
     [
-        'event_type'  => 'billing.invoice.sent',
-        'rule_name'   => 'AR invoice sent — passthrough',
+        'event_type'  => 'ar.invoice.issued',
+        'rule_name'   => 'AR invoice issued — passthrough',
         'template'    => [
-            'name'           => 'AR invoice sent — passthrough',
+            'name'           => 'AR invoice issued — passthrough',
             'memo_template'  => 'Invoice {payload.invoice_number} / {payload.client_name}',
             'line_source'    => 'payload',
         ],
@@ -178,6 +178,51 @@ const POSTING_RULES_DEFAULT_PACK = [
                 ['line_no' => 1, 'account_selector' => 'payload.bank_gl_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Bank receipt', 'dimensions' => ['legal_entity' => 'payload.legal_entity_dimension']],
                 ['line_no' => 2, 'account_selector' => 'system:Accounts Receivable', 'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Collect from {payload.client_name}', 'dimensions' => ['client' => 'payload.client_dimension', 'legal_entity' => 'payload.legal_entity_dimension']],
             ],
+        ],
+    ],
+    [
+        'event_type'  => 'billing.processor_payout.settled',
+        'rule_name'   => 'Processor payout settled — passthrough',
+        'template'    => [
+            'name'           => 'Processor payout settled — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'billing.manual_receipt.posted',
+        'rule_name'   => 'Manual receipt posted — passthrough',
+        'template'    => [
+            'name'           => 'Manual receipt posted — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'billing.customer_deposit.applied',
+        'rule_name'   => 'Customer deposit applied — passthrough',
+        'template'    => [
+            'name'           => 'Customer deposit applied — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'billing.customer_deposit.refunded',
+        'rule_name'   => 'Customer deposit refunded — passthrough',
+        'template'    => [
+            'name'           => 'Customer deposit refunded — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'coreone.journal.posted',
+        'rule_name'   => 'CoreOne general journal — passthrough',
+        'template'    => [
+            'name'           => 'CoreOne general journal — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
         ],
     ],
     [
@@ -250,10 +295,16 @@ function postingRulesSeedDefaults(int $tenantId): array {
     foreach (POSTING_RULES_DEFAULT_PACK as $entry) {
         $tplName    = $entry['template']['name'];
         $lineSource = (string) ($entry['template']['line_source'] ?? 'template');
+        $legacyInvoiceName = $entry['event_type'] === 'ar.invoice.issued'
+            ? 'AR invoice sent — passthrough' : null;
 
         // Template
         $findTpl->execute(['t' => $tenantId, 'n' => $tplName]);
         $tplId = (int) ($findTpl->fetchColumn() ?: 0);
+        if (!$tplId && $legacyInvoiceName !== null) {
+            $findTpl->execute(['t' => $tenantId, 'n' => $legacyInvoiceName]);
+            $tplId = (int) ($findTpl->fetchColumn() ?: 0);
+        }
         if (!$tplId) {
             $insTpl->execute([
                 't'  => $tenantId,
@@ -295,7 +346,23 @@ function postingRulesSeedDefaults(int $tenantId): array {
         $findRule->execute([
             't' => $tenantId, 'et' => $entry['event_type'], 'n' => $entry['rule_name'],
         ]);
-        if (!$findRule->fetchColumn()) {
+        $ruleId = $findRule->fetchColumn();
+        if (!$ruleId && $legacyInvoiceName !== null) {
+            $findRule->execute([
+                't' => $tenantId, 'et' => $entry['event_type'], 'n' => $legacyInvoiceName,
+            ]);
+            $ruleId = $findRule->fetchColumn();
+        }
+        if (!$ruleId && $legacyInvoiceName !== null) {
+            foreach ([$entry['rule_name'], $legacyInvoiceName] as $aliasName) {
+                $findRule->execute([
+                    't' => $tenantId, 'et' => 'billing.invoice.sent', 'n' => $aliasName,
+                ]);
+                $ruleId = $findRule->fetchColumn();
+                if ($ruleId) break;
+            }
+        }
+        if (!$ruleId) {
             $insRule->execute([
                 't' => $tenantId,
                 'n' => $entry['rule_name'],

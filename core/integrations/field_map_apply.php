@@ -42,6 +42,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/source_values.php';
+
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/field_map.php';
 require_once __DIR__ . '/payload_field_index.php';
@@ -578,24 +580,14 @@ function integrationFieldMapPlacementEffectiveFrom(int $tenantId, int $placement
     return date('Y-m-d');
 }
 
-function integrationFieldMapRateUnitValue(mixed $raw, string $fallback = 'hour'): string
+function integrationFieldMapRateUnitValue(mixed $raw): ?string
 {
-    $s = strtolower(trim((string) $raw));
-    if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
-    if (str_contains($s, 'day')) return 'day';
-    if (str_contains($s, 'week')) return 'week';
-    if (str_contains($s, 'month')) return 'month';
-    if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
-    return in_array($fallback, ['hour', 'day', 'week', 'month', 'project'], true) ? $fallback : 'hour';
+    return integrationSourceRateUnit($raw);
 }
 
-function integrationFieldMapCurrencyValue(mixed $raw, string $fallback = 'USD'): string
+function integrationFieldMapCurrencyValue(mixed $raw): ?string
 {
-    $s = strtoupper(trim((string) $raw));
-    if (preg_match('/\b([A-Z]{3})\b/', $s, $m)) return $m[1];
-    $s = substr($s, 0, 3);
-    if (strlen($s) === 3 && preg_match('/^[A-Z]{3}$/', $s)) return $s;
-    return preg_match('/^[A-Z]{3}$/', $fallback) ? $fallback : 'USD';
+    return integrationSourceCurrency($raw);
 }
 
 /**
@@ -632,9 +624,11 @@ function integrationFieldMapInsertPlacementRateRow(
         ? integrationFieldMapDateValue($set['effective_to'])
         : null;
 
-    $billUnit = integrationFieldMapRateUnitValue($set['bill_rate_unit'] ?? 'hour');
-    $payUnit  = integrationFieldMapRateUnitValue($set['pay_rate_unit'] ?? $billUnit, $billUnit);
-    $currency = integrationFieldMapCurrencyValue($set['currency'] ?? 'USD');
+    $basis = integrationSourceRateBasis($set);
+    if ($basis['errors'] !== []) return ['id' => 0, 'error' => 'placement_rates_need_review: ' . implode(' ', $basis['errors'])];
+    $billUnit = $basis['bill_rate_unit'];
+    $payUnit = $basis['pay_rate_unit'];
+    $currency = $basis['currency'];
 
     $ot = array_key_exists('ot_multiplier', $set) ? integrationFieldMapNumberValue($set['ot_multiplier']) : null;
     if ($ot === null || $ot <= 0) $ot = 1.50;
@@ -887,22 +881,7 @@ function integrationFieldMapBoolValue(mixed $raw): ?int
 
 function integrationFieldMapEngagementValue(mixed $raw): ?string
 {
-    $s = trim((string) $raw);
-    if ($s === '') return null;
-    if (function_exists('jobdivaNormalisePlacementEngagementType')) {
-        $normalised = jobdivaNormalisePlacementEngagementType($s, '');
-        if ($normalised !== '') return $normalised;
-    }
-    $key = strtolower(str_replace(['-', '/', '\\'], ' ', $s));
-    $key = preg_replace('/\s+/', ' ', $key) ?: $key;
-    if ($key === 'ref' || str_contains($key, 'referral')) return 'referral';
-    if ($key === 'internal') return 'internal';
-    if (str_contains($key, 'temp to perm') || str_contains($key, 'contract to hire')) return 'temp_to_perm';
-    if (str_contains($key, 'direct hire') || str_contains($key, 'perm')) return 'direct_hire';
-    if (str_contains($key, '1099') || str_contains($key, 'independent contractor')) return '1099';
-    if (str_contains($key, 'c2c') || str_contains($key, 'corp to corp') || str_contains($key, 'crop to crop')) return 'c2c';
-    if (str_contains($key, 'w2') || str_contains($key, 'w 2') || str_contains($key, 'employee')) return 'w2';
-    return in_array($key, ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true) ? $key : null;
+    return jobdivaClassificationValue($raw);
 }
 
 function integrationFieldMapPersonClassificationValue(mixed $raw): ?string
@@ -942,6 +921,12 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
     $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
     $col = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     if ($table === '' || $col === '') return $val;
+
+    if ($table === 'placements' && $col === 'worksite_city') {
+        require_once __DIR__ . '/source_values.php';
+        try { return integrationSourceWorksiteCity($val); }
+        catch (InvalidArgumentException) { return null; }
+    }
 
     if ($table === 'placements' && $col === 'engagement_type') {
         return integrationFieldMapEngagementValue($val);
@@ -1019,19 +1004,13 @@ function integrationFieldMapCoerceTargetValue(mixed $val, array $mapping): mixed
         };
     }
     if ($table === 'placement_rates' && in_array($col, ['bill_rate_unit', 'pay_rate_unit'], true)) {
-        $s = strtolower(trim((string) $val));
-        if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
-        if (str_contains($s, 'day')) return 'day';
-        if (str_contains($s, 'week')) return 'week';
-        if (str_contains($s, 'month')) return 'month';
-        if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
-        return null;
+        return integrationSourceRateUnit($val);
     }
     if ($table === 'placement_rates' && $col === 'currency') {
-        $s = strtoupper(trim((string) $val));
-        if (preg_match('/\b([A-Z]{3})\b/', $s, $m)) return $m[1];
-        $s = substr($s, 0, 3);
-        return strlen($s) === 3 ? $s : null;
+        return integrationSourceCurrency($val);
+    }
+    if (in_array($col, ['worksite_country', 'corp_country', 'country'], true)) {
+        return integrationSourceCountry($val);
     }
     if (in_array($col, ['payment_terms_override', 'client_payment_terms_override', 'vendor_payment_terms_override'], true)) {
         $s = strtoupper(trim((string) $val));
@@ -1088,20 +1067,12 @@ function integrationFieldMapShouldSkipUnsafeJobDivaEngagement(
     array $payload
 ): bool {
     if (strtolower($integration) !== 'jobdiva' || strtolower($entityType) !== 'placement') return false;
-    if ($coercedValue !== 'c2c') return false;
     $table = strtolower(trim((string) ($mapping['target_table'] ?? '')));
     $col = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     if ($table !== 'placements' || $col !== 'engagement_type') return false;
+    $review = jobdivaClassificationFromPayload($payload);
+    return $review['status'] !== 'resolved' || $coercedValue !== $review['engagement_type'];
 
-    if (function_exists('jobdivaNormalisePlacementEngagementType')
-        && jobdivaNormalisePlacementEngagementType((string) $rawValue, '') === 'c2c') {
-        return false;
-    }
-    if (function_exists('jobdivaPlacementPayloadHasC2CProof')) {
-        return !jobdivaPlacementPayloadHasC2CProof($payload);
-    }
-
-    return false;
 }
 
 function integrationFieldMapSkippedReason(array $mapping, string $reason): string
@@ -1177,13 +1148,14 @@ function integrationFieldMapJobDivaContractOwnsTarget(
     $column = strtolower(trim((string) ($mapping['target_column'] ?? '')));
     $owned = [
         'placements' => [
-            'end_client_name' => ['client_company_name'],
-            'end_client_company_id' => ['client_company_id'],
+            'end_client_name' => ['end_client_company_name'],
+            'end_client_company_id' => ['end_client_company_id'],
             'client_id' => ['client_company_id', 'client_company_name'],
             'start_date' => ['start_date'],
             'end_date' => ['end_date'],
             'status' => ['placement_status'],
             'engagement_type' => ['engagement_type'],
+            'worksite_city' => ['worksite_city'],
             'worksite_state' => ['worksite_state'],
             'worksite_country' => ['worksite_country'],
             'remote_policy' => ['remote_policy'],
@@ -1250,6 +1222,10 @@ function integrationFieldMapApplyAll(
     if ($tid <= 0 || $integration === '' || $entityType === '') return $summary;
     $maps = integrationFieldMapResolveGeneralised($tid, $integration, $entityType);
     if (!$maps) return $summary;
+    if ($integration === 'jobdiva' && $entityType === 'placement') {
+        require_once __DIR__ . '/../jobdiva/classification_mapping.php';
+        $payload = jobdivaClassificationPayloadForTenant($tid, $payload);
+    }
 
     try {
         $pdo = getDB();
@@ -1263,6 +1239,7 @@ function integrationFieldMapApplyAll(
     // the same row. Halves write count on placements (which often
     // get 10+ mapped columns).
     $bucket = []; // key: "tbl#id" or "placement_rates@placement#id" => write bucket
+    $invalidRateSource = false;
 
     foreach ($maps as $m) {
         $summary['attempted']++;
@@ -1312,6 +1289,7 @@ function integrationFieldMapApplyAll(
         $rawValForSafety = $val;
         $val = integrationFieldMapCoerceTargetValue($val, $m);
         if ($val === null || $val === '') {
+            if (strtolower((string) $m['target_table']) === 'placement_rates') $invalidRateSource = true;
             integrationFieldMapSkip($summary, $m, 'value_not_valid_for_coreflux_field');
             continue;
         }
@@ -1323,8 +1301,8 @@ function integrationFieldMapApplyAll(
             $val,
             $payload
         )) {
-            integrationFieldMapSkip($summary, $m, 'unsafe_jobdiva_engagement_c2c');
-            $summary['errors'][] = "unsafe_jobdiva_engagement_c2c target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
+            integrationFieldMapSkip($summary, $m, 'jobdiva_classification_needs_review');
+            $summary['errors'][] = "jobdiva_classification_needs_review target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
         }
 
@@ -1368,6 +1346,7 @@ function integrationFieldMapApplyAll(
                 'id' => $rowId,
                 'placement_id' => $pendingPlacementRateFor,
                 'set' => [],
+                'raw_set' => [],
                 'cf' => [],
             ];
         }
@@ -1378,6 +1357,7 @@ function integrationFieldMapApplyAll(
             $bucket[$key]['cf'][$col] = $val;
         } else {
             $bucket[$key]['set'][$col] = $val;
+            $bucket[$key]['raw_set'][$col] = $rawValForSafety;
         }
     }
 
@@ -1386,6 +1366,23 @@ function integrationFieldMapApplyAll(
         if (!empty($b['set'])) {
             try {
                 $tableLower = strtolower((string) ($b['table'] ?? ''));
+                if ($integration === 'jobdiva' && $tableLower === 'placement_rates') {
+                    if (jobdivaClassificationFromPayload($payload)['status'] !== 'resolved') {
+                        $summary['skipped'] += count($b['set']);
+                        $summary['errors'][] = 'jobdiva_classification_needs_review: mapped rates require explicit assignment classification.';
+                        continue;
+                    }
+                    $basis = integrationSourceRateBasis($b['raw_set'] + [
+                        'bill_rate_raw' => $b['raw_set']['bill_rate'] ?? null,
+                        'pay_rate_raw' => $b['raw_set']['pay_rate'] ?? null,
+                    ]);
+                    if ($invalidRateSource || $basis['errors'] !== [] || $basis['bill_rate_unit'] !== 'hour' || $basis['pay_rate_unit'] !== 'hour') {
+                        $summary['skipped'] += count($b['set']);
+                        $summary['errors'][] = 'jobdiva_rate_basis_needs_review: complete hourly units and source currency are required for a mapped rate write.';
+                        continue;
+                    }
+                    foreach (['bill_rate_unit', 'pay_rate_unit', 'currency'] as $basisField) $b['set'][$basisField] = $basis[$basisField];
+                }
                 if ($tableLower === 'placement_rates' && (int) ($b['id'] ?? 0) <= 0) {
                     $placementId = (int) ($b['placement_id'] ?? 0);
                     $insert = integrationFieldMapInsertPlacementRateRow($tid, $placementId, $b['set']);
@@ -1441,7 +1438,7 @@ function integrationFieldMapApplyAll(
 
     if ($integration === 'jobdiva' && $entityType === 'placement') {
         $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
-        if ($placementId > 0) {
+        if ($placementId > 0 && $summary['written'] > 0 && $summary['errors'] === []) {
             try {
                 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
                 placementEconomicsReconcile($tid, $placementId);

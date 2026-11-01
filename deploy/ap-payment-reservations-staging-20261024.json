@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T16:37:31.2848435+00:00",
+  "scope": "Core AP allocation transaction safety; isolated synthetic database and staging only",
+  "runtime_sha": "77967e7e817156419475aa557b4d04f684bcd29b",
+  "regression": {
+    "baseline_sha": "2e2aa4d71f26a2fc48adefb02f508c0049cb5795",
+    "run_id": 40111636444,
+    "job_id": 120924412129,
+    "conclusion": "failure",
+    "failure": "draft reservation survives an older explicit transaction snapshot",
+    "scenario": "Session A opens a REPEATABLE READ snapshot. Session B reserves the bill through native apAllocatePayment and commits. Session A then calls the same native service from its older transaction."
+  },
+  "validation": {
+    "ci_run_id": 40111748074,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40111748074",
+    "conclusion": "success",
+    "successful_jobs": 9,
+    "reservation_database_checks": 19,
+    "local_source_smoke_checks": {
+      "ap_workflow": 28,
+      "payment_run": 60,
+      "release_scope": 3
+    },
+    "database": "disposable MariaDB with two real PDO sessions, actual AP migration tables and native allocation service",
+    "external_provider_io": false,
+    "ui_coverage": false
+  },
+  "cases": [
+    "Draft, queued and sent reservation survives an older explicit transaction snapshot.",
+    "Draft, queued and sent reservation survives an older automatic FIFO snapshot.",
+    "Native service preserves its caller-owned transaction.",
+    "Partial reservations leave only current capacity.",
+    "FIFO continues to the next bill after a competing reservation.",
+    "FIFO recognizes a reservation released after its earlier snapshot.",
+    "Repeated bill targets see their own earlier inserts.",
+    "Tenant and legal-entity boundaries remain enforced.",
+    "Reservation does not settle bills or change accounting balances."
+  ],
+  "deployment": {
+    "run_id": 40111958306,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40111958306",
+    "conclusion": "success",
+    "application_id": 6707602,
+    "database": "muzqvdvqbx",
+    "changed_files": 5,
+    "backup_path": "/home/master/.coreflux-integration-backups/muzqvdvqbx/77967e7e817156419475aa557b4d04f684bcd29b-20261024163436",
+    "pending_migrations": [],
+    "migrations_applied": [],
+    "full_staging_acceptance": "passed",
+    "rollback_finance_checks": 61,
+    "native_onboarding_http_checks": 17
+  },
+  "inspection": {
+    "run_id": 40112263532,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40112263532",
+    "result": {
+      "checked_at": "2026-10-24T16:36:16+00:00",
+      "mode": "read_only_synthetic_integration",
+      "tenant_id": 999,
+      "database_identity_verified": true,
+      "private_identity_verified": true,
+      "local_writes": false,
+      "provider_record_writes": false,
+      "configuration_changed": false,
+      "onboarding_delivery_enabled": false,
+      "document_intake_enabled": false,
+      "private_document_storage_ready": true,
+      "synthetic_records": {
+        "person": {
+          "id": 15,
+          "status": "active"
+        },
+        "placement": {
+          "id": 13,
+          "person_id": 15,
+          "status": "active"
+        }
+      },
+      "onboarding_cases": [
+        {
+          "id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+          "version": 5,
+          "plan_version": 4,
+          "confirmed_plan_version": 4
+        }
+      ],
+      "synthetic_time": [
+        {
+          "id": 1,
+          "hours": "8.00",
+          "status": "pending_review",
+          "approved_by_user_id": null,
+          "timesheet_id": 2,
+          "quanta_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676"
+        }
+      ],
+      "saved_purepay_binding": {
+        "id": 1,
+        "status": "active",
+        "revision": 2,
+        "remote_organization_id": "org_purepay_demo"
+      },
+      "quanta_binding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_onboarding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_document_transfer": {
+        "available": false,
+        "reason": "contract_or_configuration_check_failed"
+      },
+      "quanta_document_context": {
+        "http_status": 200,
+        "workspace_matches": true,
+        "contract_matches": true,
+        "transfer_enabled": false,
+        "approval_stays_in_core": true,
+        "size_limit_matches": true
+      },
+      "existing_operator": {
+        "found": true,
+        "active_membership": true,
+        "permissions": {
+          "people.onboarding.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.manage": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.review": {
+            "legacy": true,
+            "membership": true
+          },
+          "placements.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.docs.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "integrations.quanta.manage": {
+            "legacy": true,
+            "membership": true
+          }
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Does not establish provider-side obligation reservations or lost-response reconciliation.",
+    "Does not establish browser-action coverage or a live financial payout.",
+    "Existing TS-2 second-reviewer choice, worker identity/document intake and held payroll round trip remain pending.",
+    "Actual Thunderhawk cohort acceptance, employer/WC alignment and separately authorized Core production cutover remain open."
+  ],
+  "boundaries": {
+    "core_production_changed": false,
+    "provider_source_or_settings_changed": false,
+    "real_payroll_or_payments_executed": false,
+    "existing_demo_time_approved": false
+  }
+}

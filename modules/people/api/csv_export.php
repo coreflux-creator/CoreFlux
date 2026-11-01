@@ -70,7 +70,10 @@ $rows = scopedQuery(
     $params
 );
 
+$rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'person', $rows, 'person_id');
+
 (new CsvExportService([
+    'person_number' => 'Person number',
     'person_id'            => 'Person ID',
     'first_name'           => 'First name',
     'middle_name'          => 'Middle name',

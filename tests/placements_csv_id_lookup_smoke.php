@@ -117,9 +117,15 @@ $a('commit errors out cleanly when neither id nor email present',
     str_contains($svc, "throw new \\RuntimeException('either person_id or person_email is required')"));
 $a('update-existing uses placement_id FIRST',
     strpos($svc, "if (!empty(\$row['placement_id']))")
-  < strpos($svc, "if (!\$existing && !empty(\$row['external_id']))"));
+  < strpos($svc, 'if (!$existing && $externalMatch)'));
 $a('placement_id miss is a hard error (not silent fallback)',
     str_contains($svc, "throw new \\RuntimeException(\"placement_id not found: {\$row['placement_id']}\");"));
+$a('bulk updates reject person and external ID conflicts',
+    str_contains($svc, 'placement identity conflicts with the matched person')
+    && str_contains($svc, 'placement_id and external_id identify different placements'));
+$a('dry-run previews identity conflicts before commit',
+    str_contains($svc, "if (\$result['rows'] && !empty(\$_GET['update_existing']))")
+    && str_contains($svc, 'external_id matches multiple placements'));
 
 echo "\n5. UI — <IdBadge /> + click-to-copy\n";
 $a('IdBadge component exists',
@@ -130,18 +136,18 @@ $a('IdBadge shows ✓ copied feedback briefly',
     str_contains($badgeUi, 'copied') && str_contains($badgeUi, 'setTimeout(() => setCopied(false), 1200)'));
 $a('Placements list imports + uses IdBadge with PL prefix',
     str_contains($listUi, "import IdBadge from '../../../dashboard/src/components/IdBadge'")
-    && str_contains($listUi, '<IdBadge id={p.id} prefix="PL"'));
+    && str_contains($listUi, '<IdBadge id={p.id} number={p.placement_number} prefix="PL"'));
 $a('Placements list also surfaces the linked person_id',
     str_contains($listUi, '<IdBadge id={p.person_id} prefix="P"'));
 $a('Placements list keeps both IDs in the person cell and spans all columns',
-    str_contains($listUi, '<IdBadge id={p.id} prefix="PL"')
+    str_contains($listUi, '<IdBadge id={p.id} number={p.placement_number} prefix="PL"')
     && str_contains($listUi, '<IdBadge id={p.person_id} prefix="P"')
     && str_contains($listUi, 'colSpan={12}'));
 $a('PlacementDetail surfaces PL + linked P badges',
-    str_contains($detailUi, '<IdBadge id={placement.id} prefix="PL"')
+    str_contains($detailUi, '<IdBadge id={placement.id} number={placement.placement_number} prefix="PL"')
     && str_contains($detailUi, '<IdBadge id={placement.person_id} prefix="P"'));
 $a('PersonDetail header surfaces the P badge next to the name',
-    str_contains($personUi, '<IdBadge id={person.id} prefix="P"'));
+    str_contains($personUi, '<IdBadge id={person.id} number={person.person_number} prefix="P"'));
 
 echo "\n6. PHP syntax\n";
 foreach ([

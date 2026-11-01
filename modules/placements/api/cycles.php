@@ -10,7 +10,7 @@ require_once __DIR__ . '/../lib/economics.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
-$tenantId = (int) $ctx['tenant_id'];
+$tenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 

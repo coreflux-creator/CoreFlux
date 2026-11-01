@@ -68,6 +68,7 @@ return [
         'payroll.run.workflow_started',
         'payroll.run.workflow_start_failed',
         'payroll.run.workflow_cancelled',
+        'payroll.run.reviewers_updated',
         'payroll.run.approval_blocked',
         'payroll.run.approval_rejected',
         'payroll.run.approved',
@@ -114,6 +115,17 @@ return [
         'payroll.gusto.webhook_received',
         'payroll.gusto.webhook_signature_invalid',
         'payroll.gusto.webhook_verification_received',
+    ],
+
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'run' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator'],
+                'approval_resource' => 'payroll.run',
+            ],
+        ],
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],

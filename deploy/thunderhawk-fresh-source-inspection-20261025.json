@@ -1,0 +1,106 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "read_only_thunderhawk_fresh_jobdiva_source_attempt",
+  "inspector_commit": "b45713df65213b881c19278291c9e83adf1602cd",
+  "ci": {
+    "databaseId": 40189495137,
+    "headSha": "b45713df65213b881c19278291c9e83adf1602cd",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40189495137",
+    "jobs": [
+      {
+        "databaseId": 121157257789,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157257897,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157257951,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157257988,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157258005,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157258011,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157258036,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157258127,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "databaseId": 121157258128,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "inspection": {
+    "databaseId": 40189499660,
+    "headSha": "b45713df65213b881c19278291c9e83adf1602cd",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40189499660",
+    "jobs": [
+      {
+        "databaseId": 121157273892,
+        "name": "core-integration-staging",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "source_inspection_smoke_checks": 25,
+  "database_fixture_checks": 65,
+  "fresh_source_result": {
+    "status": "exact_assignment_unavailable",
+    "source_refreshed": false,
+    "record_writes": false,
+    "connection_settings_changed": false,
+    "session_token_persisted": false,
+    "provider_calls": [
+      {
+        "operation": "search_exact_start",
+        "http_status": 200
+      }
+    ],
+    "exact_assignment_verified": false,
+    "exact_detail_verified": false,
+    "authentication_attempts": 1,
+    "authentication_http_status": 200
+  },
+  "production": {
+    "live_bundle": "spa-assets/index-95sB_8ni.js",
+    "pending_migration_count": 76,
+    "activation_performed": false,
+    "runtime_installed": false,
+    "records_changed": false
+  },
+  "interpretation": [
+    "Existing JobDiva credentials authenticated successfully; no credential replacement was needed.",
+    "The bounded exact person/job Start search returned HTTP 200, but no row passed all original assignment identity and lifecycle checks.",
+    "This does not establish whether the assignment was absent, omitted identities, or failed lifecycle validation; bounded metadata diagnostics remain necessary.",
+    "No detail request, field comparison, import, token persistence, connection-setting change or production activation occurred.",
+    "The earlier stored-field comparison remains historical evidence; this attempt does not refresh it."
+  ]
+}

@@ -32,6 +32,9 @@ switch (api_method()) {
 
     case 'PUT':
     case 'POST': {
+        if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+            api_error('Payment-provider settings are not available in CoreAccounting', 403);
+        }
         rbac_legacy_require($user, 'ap.payment.create');
         $body = api_json_body();
 

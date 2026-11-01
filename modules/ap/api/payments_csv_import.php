@@ -32,7 +32,9 @@ CsvImportService::registerSchema('ap_payments', [
         'vendor_name' => ['label' => 'Vendor name',  'required' => true],
         'pay_date'    => ['label' => 'Pay date',     'required' => true, 'type' => 'date'],
         'method'      => ['label' => 'Method',
-                          'enum'  => ['ach','wire','check','card','cash','plaid','mercury','other']],
+                          'enum'  => getenv('COREFLUX_ENV') === 'coreaccounting'
+                              ? ['ach','wire','check','card','cash','other']
+                              : ['ach','wire','check','card','cash','plaid','mercury','other']],
         'reference'   => ['label' => 'Reference'],
         // external_id + source_system: stable per-row id from the
         // source-of-truth payment system (Mercury/Plaid txn id, QBO
@@ -127,6 +129,8 @@ if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'ap.payment.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('ap_payments', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
     $columnMap      = CsvImportService::readRequestColumnMap();
@@ -147,7 +151,7 @@ if ($method === 'POST' && $action === 'commit') {
             throw new RuntimeException('CSV import creates payment drafts only. Release and clear payments through the payment workflow.');
         }
         $pdo = getDB();
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_ap_payment');
         try {
             // Stable internal ID wins. External-system identity is the
             // fallback for idempotent integration re-imports.
@@ -207,8 +211,8 @@ if ($method === 'POST' && $action === 'commit') {
                     'unallocated_amount' => $amount,
                     'notes'              => $row['notes']      ?? null,
                 ]);
+                coreAccountingCsvCommitUnit($pdo, 'csv_ap_payment', $ownsUnit);
                 $updated++;
-                $pdo->commit();
                 return (int) $existing['id'];
             }
 
@@ -229,11 +233,11 @@ if ($method === 'POST' && $action === 'commit') {
                 'notes'              => $row['notes']      ?? null,
                 'created_by_user_id' => $user['id']        ?? null,
             ]);
+            coreAccountingCsvCommitUnit($pdo, 'csv_ap_payment', $ownsUnit);
             $created++;
-            $pdo->commit();
             return $id;
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_ap_payment', $ownsUnit);
             throw $e;
         }
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
@@ -250,7 +254,7 @@ if ($method === 'POST' && $action === 'commit') {
         'errors'   => count($result['errors']),
         'update_existing' => $updateExisting,
     ]);
-    api_ok($result);
+    api_ok(coreAccountingRecordCsvImportOutcome($result, (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|sample|inspect|dry_run|commit|ai_suggest_map', 400);

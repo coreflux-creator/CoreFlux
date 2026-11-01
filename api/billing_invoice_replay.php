@@ -13,7 +13,7 @@
  *       failed, errors:[{invoice_id, invoice_number, error}] }
  *
  * Same shape + behaviour as `ap_bill_replay.php`. Records a posted
- * `billing.invoice.sent` audit event with `source_module='billing_replay'`
+ * `ar.invoice.issued` audit event with `source_module='billing_replay'`
  * and links it to the invoice's existing journal entry. Replay never runs
  * posting rules and never creates a second journal entry.
  */
@@ -47,7 +47,7 @@ $pdo = getDB();
 $inPlaceholders = implode(',', array_fill(0, count($statuses), '?'));
 $params  = array_merge([$tid, $since], $statuses);
 $sql = "SELECT id, invoice_number, client_name, client_company_id, issue_date,
-               currency, total, journal_entry_id, entity_id
+               due_date, currency, total, journal_entry_id, entity_id
           FROM billing_invoices
          WHERE tenant_id = ?
            AND issue_date >= ?
@@ -76,7 +76,7 @@ $evCheck = $pdo->prepare(
       WHERE tenant_id = :t
         AND source_module = 'billing_replay'
         AND source_record_id = :sr
-        AND event_type = 'billing.invoice.sent'
+        AND event_type IN ('billing.invoice.sent', 'ar.invoice.issued')
       LIMIT 1"
 );
 $liveEvCheck = $pdo->prepare(
@@ -84,7 +84,7 @@ $liveEvCheck = $pdo->prepare(
       WHERE tenant_id = :t
         AND source_module = 'billing'
         AND source_record_id = :sr
-        AND event_type = 'billing.invoice.sent'
+        AND event_type IN ('billing.invoice.sent', 'ar.invoice.issued')
       LIMIT 1"
 );
 $journalStmt = $pdo->prepare(
@@ -116,7 +116,7 @@ $findEvent = $pdo->prepare(
       WHERE tenant_id = :t
         AND source_module = "billing_replay"
         AND source_record_id = :sr
-        AND event_type = "billing.invoice.sent"
+        AND event_type = "ar.invoice.issued"
       LIMIT 1'
 );
 $insertLink = $pdo->prepare(
@@ -179,7 +179,7 @@ foreach ($rows as $r) {
 
     $event = [
         'entity_id'        => (int) $journalRows[0]['entity_id'],
-        'event_type'       => 'billing.invoice.sent',
+        'event_type'       => 'ar.invoice.issued',
         'source_module'    => 'billing_replay',
         'source_record_id' => $sr,
         'event_date'       => (string) $r['issue_date'],
@@ -188,8 +188,10 @@ foreach ($rows as $r) {
             'invoice_number'    => (string) $r['invoice_number'],
             'client_name'       => (string) $r['client_name'],
             'client_company_id' => $party,
+            'total'            => (float) $r['total'],
             'amount'            => (float) $r['total'],
             'currency'          => (string) $r['currency'],
+            'due_date'          => (string) $r['due_date'],
             'lines'             => $payloadLines,
             'replay'            => true,
             'replay_mode'       => 'audit_link_only',
@@ -206,7 +208,7 @@ foreach ($rows as $r) {
             $insertEvent->execute([
                 't' => $tid,
                 'e' => (int) $event['entity_id'],
-                'et' => 'billing.invoice.sent',
+                'et' => 'ar.invoice.issued',
                 'sm' => 'billing_replay',
                 'sr' => $sr,
                 'ed' => $event['event_date'],

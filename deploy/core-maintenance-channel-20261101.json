@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-01T19:40:47.222611+00:00",
+  "scope": "Operation-scoped maintenance diagnostic and targeted PHP cache channel; no production hold or release",
+  "implementation_commit": "6389402c54dc0575b84fd68a67534e0d0b74bf1e",
+  "production_capability_check": {
+    "checked_at": "2026-10-30T17:53:51.978083+00:00",
+    "temporary_probe_created": true,
+    "production_application_changed": false,
+    "production_cutover_performed": false,
+    "unauthenticated_status": 404,
+    "unauthenticated_body_bytes": 0,
+    "authenticated_status": 200,
+    "runtime": {
+      "sapi": "fpm-fcgi",
+      "php_version": "8.2.35",
+      "fpm_status_available": true,
+      "opcache_invalidate_available": true,
+      "business_code_loaded": false,
+      "database_opened": false,
+      "cache_mutation_requested": false,
+      "fpm_status_returned": true,
+      "expected_pool": true,
+      "listen-queue": 0,
+      "idle-processes": 0,
+      "active-processes": 1,
+      "total-processes": 1,
+      "accepted-conn": 326,
+      "self_running": true,
+      "self_script_matches": true,
+      "self_process_count": 1,
+      "other_busy_processes": 0,
+      "other_idle_processes": 0,
+      "unknown_process_states": 0,
+      "listed_processes": 1,
+      "opcache_status_returned": true,
+      "opcache_enabled": true,
+      "cache_full": false,
+      "restart_pending": false,
+      "restart_in_progress": false,
+      "opcache_validate_timestamps": true,
+      "opcache_revalidate_freq": 2,
+      "opcache_file_cache_configured": false,
+      "opcache_preload_configured": false,
+      "opcache_api_restricted": false
+    },
+    "temporary_probe_removed": true,
+    "web_rule_unchanged": true,
+    "template_sha256": "9bbd68e6e6ecb1d56e4cb41f718f1c2f5c82bac6200b93ae1c4ab4aaa60dc8b9"
+  },
+  "local_validation": {
+    "maintenance_channel_checks": 24,
+    "lane_classifier_checks": 25
+  },
+  "native_validation": {
+    "passed": true,
+    "checks": 47,
+    "fixture": "Disposable network-isolated Apache/PHP8.2-FPM container",
+    "running_request_blocks_quiet": true,
+    "finishing_request_blocks_quiet": true,
+    "ordinary_routes_remain_503": true,
+    "wrong_host_or_token_denied": true,
+    "wrong_method_query_and_path_info_denied": true,
+    "changed_php_bytes_and_stale_cache_plan_denied": true,
+    "reviewed_cache_refresh_with_unchanged_mtime": true,
+    "unrelated_cached_script_preserved": true,
+    "recovery_cache_refresh_verified": true,
+    "original_routing_restored": true,
+    "application_bootstrap": false,
+    "real_data_used": false,
+    "production_changed": false
+  },
+  "prior_ci": {
+    "run": 41103192080,
+    "conclusion": "failure",
+    "host_checks_passed": 57,
+    "separate_owner_scheduler_checks_passed": 29,
+    "failed_checks": [
+      "Core smoke lane exceeded balancing limit after new test",
+      "Apache fixture runtime directory absent; fixed before native47-check pass"
+    ]
+  },
+  "ci_after_fixture_correction": "pending",
+  "limitations": [
+    "Production capability snapshot is not maintenance drain evidence.",
+    "Status proves the Core web pool only; all other schedules, CLI and database writers require separate holds and verification.",
+    "Production migration/controller and actual-content two-owner copy/recovery adapter remain pending.",
+    "No actual production writer hold, cache invalidation, migration or cutover was performed."
+  ],
+  "sources": [
+    "https://www.php.net/manual/en/function.fpm-get-status.php",
+    "https://www.php.net/manual/en/fpm.status.php",
+    "https://www.php.net/manual/en/function.opcache-invalidate.php"
+  ],
+  "source_sha256": {
+    "deploy/full_core_maintenance.php": "85d510b8efdf499744b71fbb5f55d07a9ca8b8a9a40c6ab049f4de04e1c903b9",
+    "deploy/full_core_maintenance_host.php": "d5d9a50e0bd188efe28ddb867e30efa1c48587c9bc359220273be6b8af85fb55",
+    "deploy/full_core_maintenance_channel.php": "6d4b3286dc145f438dfb029dec5983351f02a91fedf204e4b15295dfe367ff07",
+    "deploy/full_core_maintenance_channel_web.php": "aa3b5d8785ef0fc994681a9604357ca5bf57d261d3a432f99ce5a63629f79af6",
+    "tests/full_core_maintenance_channel_fixture.php": "63cec8bca783197a255dcb55a21414573e30cd2aeac84b6ce57009803faa0081",
+    "tests/full_core_maintenance_channel_http.py": "f48e3fa20fb638d1ff7030a1ab248877c10852f3cb62c9f7e1b9383c48d43b27",
+    "tests/full_core_maintenance_channel_http.sh": "2b73131801096821ff3c2e0a1e7781ebbedbf17fb5fab56d1a5cb2aa263a2a25"
+  }
+}

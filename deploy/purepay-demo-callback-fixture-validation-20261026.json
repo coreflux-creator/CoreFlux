@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-26",
+  "status": "Core fixture verified locally and inspected read-only on staging; hosted callback not yet exercised",
+  "source_sha256": {
+    "deploy/purepay_demo_callback_contract.php": "551178ac66479ae0941d2affd89dc54c113d7780e0c892c74eef14a315711464",
+    "deploy/purepay_demo_callback_fixture.php": "4748f3fa47edbd00eb766a5da1543fbcbede1a93c5cad609a601f69e8f75504d",
+    "tests/purepay_demo_callback_contract_smoke.php": "8528fbe61c31d935ae9de7052a211de985d79ef50107ff52f7aab333566be323"
+  },
+  "contract_checks": 17,
+  "native_database_test": {
+    "database": "MariaDB 10.11.18",
+    "fixture_directory": "output/callback-fixture-local-204b3119fefc",
+    "completed_steps": 18,
+    "server_stopped": true,
+    "native_functions": [
+      "purepayStoreConnection",
+      "purepayFinancialConfirm",
+      "purepaySaveWebhookSecret",
+      "purepayWebhookVerify",
+      "purepayWebhookRecord",
+      "purepayWebhookProcess",
+      "purepayWebhookRecordOutcome"
+    ],
+    "results": [
+      "One synthetic USD 1 AP fixture seeded; replay retained the same payment and link",
+      "Native signed settlement updated provider and AP rail status only",
+      "Duplicate event reused the receipt; same event ID with a changed body was rejected",
+      "All 19 protected tenant-999 data sets matched",
+      "Unexpected ledger-line, neighbouring AP-payment and fixture bank-account changes each caused verification to fail; restoring each fixture restored successful verification"
+    ],
+    "limitations": [
+      "Local authentication and host adapters; not a hosted authentication test",
+      "Native receiver functions invoked in process; no HTTP request",
+      "Local database uses native financial/AP migrations and minimal synthetic user, tenant, audit and ledger tables",
+      "Protected sets cover tenant 999 and its AP-allocation and journal-line children, not every company in the database"
+    ],
+    "provider_network": false,
+    "cash_posted": false,
+    "production_changed": false,
+    "receipt_sha256": "b3719c9486a7811c7f9d34cbdce768b5d1d8bd08153dfefb82b2c7e5a1218502"
+  },
+  "staging_inspection": {
+    "private_directory": "/tmp/core-demo-callback-5d3bace16588",
+    "manifest_sha256": "af6097df5b90c8741f7346fd240f997fb591e865b42394ec68aa7343b81e0c27",
+    "helpers": {
+      "purepay_demo_callback_contract.php": "551178ac66479ae0941d2affd89dc54c113d7780e0c892c74eef14a315711464",
+      "purepay_demo_callback_fixture.php": "4748f3fa47edbd00eb766a5da1543fbcbede1a93c5cad609a601f69e8f75504d"
+    },
+    "native_source_files": 18,
+    "database_changed": false,
+    "application_runtime_changed": false,
+    "provider_contacted": false,
+    "inspect": {
+      "checked_at": "2026-10-27T01:39:40+00:00",
+      "tenant": 999,
+      "read_only": true,
+      "financial_company": {
+        "verified": false,
+        "organization": null,
+        "provider_key_scope": null,
+        "reviewed_at": null
+      },
+      "connection_present": false,
+      "key_scope": null,
+      "webhook_configured": false,
+      "counts": {
+        "purepay_payment_links": 0,
+        "purepay_webhook_events": 0
+      },
+      "provider_contacted": false
+    }
+  },
+  "remaining": [
+    "Separate human-created and human-entered Meridian read-only financial key and callback secret",
+    "Fresh PurePay preview service/source/config evidence and a coordinated reversible setup window; do not infer state from disconnected editor",
+    "Native hosted HTTP receipt, lost-response replay, AP status and protected-data verification",
+    "Actual Thunderhawk acceptance and separately authorized production release"
+  ]
+}

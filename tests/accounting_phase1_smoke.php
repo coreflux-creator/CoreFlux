@@ -98,7 +98,12 @@ $rdis = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/reports
 $rapi = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/standard_reports.php');
 $a('income_statement type',                        strpos($rdis, "type === 'income_statement'") !== false);
 $a('balance_sheet type',                           strpos($rdis, "type === 'balance_sheet'") !== false);
-$a('reportIncomeStatement filters revenue|expense', strpos($rapi, 'a.account_type IN ("revenue","expense")') !== false);
+preg_match('/a\.account_type IN\s*\(([^)]+)\)/', $rapi, $incomeFilter);
+$incomeTypes = array_map(static fn(string $value): string => trim($value, " \t\n\r\"'"),
+    explode(',', $incomeFilter[1] ?? ''));
+sort($incomeTypes);
+$a('income statement covers every P&L type and excludes balance-sheet accounts',
+    $incomeTypes === ['contra_revenue', 'cost_of_goods_sold', 'expense', 'other_expense', 'other_income', 'revenue']);
 $a('IS includes posted and reversed ledger entries', strpos($rapi, 'je.status IN ("posted","reversed")') !== false);
 $a('IS computes net_income',                       strpos($rapi, "'net_income'    => round(\$revTotal - \$expTotal, 2)") !== false);
 $a('reportBalanceSheet aggregates per type',       strpos($rapi, "case 'asset'") !== false

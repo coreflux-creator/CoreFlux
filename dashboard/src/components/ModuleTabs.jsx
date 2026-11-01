@@ -1,11 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { addEntityScope } from '../lib/useAccountingEntityScope';
 
-export default function ModuleTabs({ items, primaryCount = 5, label = 'Module sections', testId = 'module-tabs' }) {
+export default function ModuleTabs({ items, primaryCount = 5, label = 'Module sections', testId = 'module-tabs', preserveEntityScope = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const location = useLocation();
+  const requestedEntity = new URLSearchParams(location.search).get('entity_id');
+  const scopedTo = to => {
+    if (!preserveEntityScope) return to;
+    if (requestedEntity === 'all') return addEntityScope(to, null, true);
+    if (requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity)) return addEntityScope(to, requestedEntity);
+    return to;
+  };
   const primary = items.slice(0, primaryCount);
   const overflow = items.slice(primaryCount);
   const overflowActive = overflow.some(item => routeIsActive(location.pathname, item.to));
@@ -21,7 +29,7 @@ export default function ModuleTabs({ items, primaryCount = 5, label = 'Module se
   return (
     <nav className="module-tabs" aria-label={label} data-testid={testId}>
       <div className="module-tabs__primary">
-        {primary.map(item => <ModuleTab key={item.to} item={item} />)}
+        {primary.map(item => <ModuleTab key={item.to} item={item} to={scopedTo(item.to)} />)}
       </div>
       {overflow.length > 0 && (
         <div className="module-tabs__more" ref={ref}>
@@ -35,7 +43,7 @@ export default function ModuleTabs({ items, primaryCount = 5, label = 'Module se
           </button>
           {open && (
             <div className="module-tabs__menu">
-              {overflow.map(item => <ModuleTab key={item.to} item={item} menu onSelect={() => setOpen(false)} />)}
+              {overflow.map(item => <ModuleTab key={item.to} item={item} to={scopedTo(item.to)} menu onSelect={() => setOpen(false)} />)}
             </div>
           )}
         </div>
@@ -44,10 +52,10 @@ export default function ModuleTabs({ items, primaryCount = 5, label = 'Module se
   );
 }
 
-function ModuleTab({ item, menu = false, onSelect }) {
+function ModuleTab({ item, to, menu = false, onSelect }) {
   return (
     <NavLink
-      to={item.to}
+      to={to}
       className={({ isActive }) => `${menu ? 'module-tabs__menu-link' : 'module-tabs__link'}${isActive ? ' is-active' : ''}`}
       data-testid={item.testId}
       onClick={onSelect}

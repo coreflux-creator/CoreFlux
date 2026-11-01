@@ -1,0 +1,374 @@
+{
+  "scope": "Core provider receipt ownership; isolated synthetic database and staging only",
+  "runtime_commit": "098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d",
+  "ci": {
+    "conclusion": "success",
+    "headSha": "098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success",
+        "databaseId": 121095166221,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166221"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success",
+        "databaseId": 121095166310,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166310"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success",
+        "databaseId": 121095166322,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166322"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success",
+        "databaseId": 121095166327,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166327"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success",
+        "databaseId": 121095166344,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166344"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success",
+        "databaseId": 121095166356,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166356"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success",
+        "databaseId": 121095166357,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166357"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success",
+        "databaseId": 121095166371,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166371"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success",
+        "databaseId": 121095166402,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740/job/121095166402"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168772740"
+  },
+  "payment_delivery_database_checks": 301,
+  "local_checks": {
+    "payment_evidence": 87,
+    "webhook_evidence": 40,
+    "payload_contract": 47
+  },
+  "cases": [
+    "A second Core payment cannot adopt an already owned provider payment or trigger another payout.",
+    "Original receipt and both native AP reservations are preserved when ownership conflicts.",
+    "Historical duplicate receipts cannot replay, clear a payment or release a reservation.",
+    "Migration stops with the actual duplicate-key error and leaves historical rows unchanged.",
+    "Migration replays after explicit fixture repair; no automatic production repair exists.",
+    "Two real PDO sessions cannot bind the same receipt before or after the first commit.",
+    "Provider IDs remain case sensitive; Core companies have separate namespaces.",
+    "No test posts a journal or uses a real provider."
+  ],
+  "deployment": {
+    "conclusion": "success",
+    "headSha": "098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d",
+    "jobs": [
+      {
+        "name": "core-integration-staging",
+        "conclusion": "success",
+        "databaseId": 121095667637,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095667637"
+      },
+      {
+        "name": "accept-synthetic-time-review",
+        "conclusion": "skipped",
+        "databaseId": 121095668288,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668288"
+      },
+      {
+        "name": "inspect-purepay-preview-continuity",
+        "conclusion": "skipped",
+        "databaseId": 121095668325,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668325"
+      },
+      {
+        "name": "inspect-synthetic-integration",
+        "conclusion": "skipped",
+        "databaseId": 121095668339,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668339"
+      },
+      {
+        "name": "accept-synthetic-payroll-capture",
+        "conclusion": "skipped",
+        "databaseId": 121095668426,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668426"
+      },
+      {
+        "name": "verify-purepay-preview-replay",
+        "conclusion": "skipped",
+        "databaseId": 121095668510,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668510"
+      },
+      {
+        "name": "staging-maintenance-rehearsal",
+        "conclusion": "skipped",
+        "databaseId": 121095668595,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668595"
+      },
+      {
+        "name": "cleanup-known-staging-uploads",
+        "conclusion": "skipped",
+        "databaseId": 121095668619,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095668619"
+      },
+      {
+        "name": "accept-synthetic-onboarding",
+        "conclusion": "skipped",
+        "databaseId": 121095686162,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095686162"
+      },
+      {
+        "name": "configure-financial-preview",
+        "conclusion": "skipped",
+        "databaseId": 121095687958,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095687958"
+      },
+      {
+        "name": "deploy",
+        "conclusion": "skipped",
+        "databaseId": 121095692112,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095692112"
+      },
+      {
+        "name": "migrate-purepay-preview-origin",
+        "conclusion": "skipped",
+        "databaseId": 121095692427,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095692427"
+      },
+      {
+        "name": "inspect-integration-staging",
+        "conclusion": "skipped",
+        "databaseId": 121095695116,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095695116"
+      },
+      {
+        "name": "production-source-audit",
+        "conclusion": "skipped",
+        "databaseId": 121095696962,
+        "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036/job/121095696962"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40168942036"
+  },
+  "migration_applied": "175_purepay_payment_receipt_owner.sql",
+  "migration_sha256_lf": "caf8f2f1d476f9ccf27ef7a7ae6e14168793d7ba8779b3f3d2869dfc613c3839",
+  "private_recovery_directory": "/home/master/.coreflux-integration-backups/muzqvdvqbx/098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d-20261025062614",
+  "readiness": {
+    "run": {
+      "conclusion": "success",
+      "headSha": "098997ac0e4c1e37b8b1f97e45ce144c9edd6c5d",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40169357076"
+    },
+    "ci_log_redaction_present": true,
+    "report": {
+      "checked_at": "2026-10-25T06:31:47+00:00",
+      "mode": "read_only_synthetic_integration",
+      "tenant_id": 999,
+      "database_identity_verified": true,
+      "private_identity_verified": true,
+      "local_writes": false,
+      "provider_record_writes": false,
+      "configuration_changed": false,
+      "onboarding_delivery_enabled": false,
+      "document_intake_enabled": false,
+      "private_document_storage_ready": true,
+      "field_dictionary": {
+        "contract_version": "2026-10-24.2",
+        "metadata_only": true,
+        "activates_sync": false,
+        "field_count": 1345,
+        "workflow_fields": {
+          "quanta_time_review": 11,
+          "quanta_onboarding_publication": 24,
+          "quanta_onboarding_submission": "[redacted_by_ci]",
+          "purepayroll_result": 104,
+          "purepayroll_native_observation": 131
+        },
+        "unverified_workflow_containers": []
+      },
+      "synthetic_records": {
+        "person": {
+          "id": 15,
+          "status": "active"
+        },
+        "placement": {
+          "id": 13,
+          "person_id": 15,
+          "status": "active"
+        }
+      },
+      "onboarding_cases": [
+        {
+          "id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+          "version": 5,
+          "plan_version": 4,
+          "confirmed_plan_version": 4
+        }
+      ],
+      "synthetic_time": [
+        {
+          "id": 1,
+          "hours": "8.00",
+          "status": "pending_review",
+          "approved_by_user_id": null,
+          "timesheet_id": 2,
+          "quanta_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676"
+        }
+      ],
+      "saved_purepay_binding": {
+        "id": 1,
+        "status": "active",
+        "revision": 3,
+        "remote_organization_id": "org_purepay_demo"
+      },
+      "payment_callback_setup": {
+        "connection_present": false,
+        "connection_status": null,
+        "key_scope": null,
+        "api_key_stored": false,
+        "callback_secret_stored": false,
+        "payment_api_destination": "reviewed_preview",
+        "payment_links": 0,
+        "saved_callback_events": 0,
+        "credentials_decrypted": false,
+        "provider_contacted": false,
+        "installation_scope": {
+          "has_nonpilot_connections": false,
+          "saved_connections": [],
+          "private_db_config_sha256": "c1e9edf31c4851f60bbb76dd3f975bb9b2455253c6bfe510f497d94d4f2d9565",
+          "financial_preview_constant_present": true
+        }
+      },
+      "quanta_binding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_onboarding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_document_transfer": {
+        "available": false,
+        "reason": "contract_or_configuration_check_failed"
+      },
+      "quanta_document_context": {
+        "http_status": 200,
+        "workspace_matches": true,
+        "contract_matches": true,
+        "transfer_enabled": false,
+        "approval_stays_in_core": true,
+        "size_limit_matches": true
+      },
+      "existing_operator": {
+        "found": true,
+        "active_membership": true,
+        "permissions": {
+          "people.onboarding.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.manage": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.review": {
+            "legacy": true,
+            "membership": true
+          },
+          "placements.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.docs.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "integrations.quanta.manage": {
+            "legacy": true,
+            "membership": true
+          }
+        }
+      },
+      "time_review_gate": {
+        "eligible_in_both_permission_models": 1,
+        "entries": [
+          {
+            "entry_id": 1,
+            "status": "pending_review",
+            "independent_eligible_reviewers": 0,
+            "existing_operator_is_creator": true
+          }
+        ]
+      }
+    }
+  },
+  "quanta_preview_recovery": {
+    "checked_at": "2026-10-25T06:30:37.445420+00:00",
+    "host": "agent-env-14a1f661-002e-4d95-969e-ebcfd6ce88ba",
+    "source_hashes_verified": {
+      "backend/server.py": "d7f76914cfa87cf8cec85a585aa92be0dd02a4c09d12a0e78e8d19c41b1fbd08",
+      "backend/app/indexes.py": "4d3a3217c574e4b0471d409ce9dda75dc58cc18068632d6e5791053235f56fd4",
+      "backend/app/routers/tenant.py": "2b729cf8ac3505e7a209659f5146d0c82a14b9d659b90f2da595044dfaecc00d",
+      "backend/app/coreflux_contract.py": "81982b21339363a6510ecca3f565f7bbad588aa72f9b877263c3b783cc96bd1f",
+      "backend/app/coreflux_workers.py": "625ce467379f15b77bfa906f9201525279f567a0f4d1e8252d7584804766d64b",
+      "backend/app/coreflux_documents.py": "a9a5f2287580c242d53358e66854342f99ac071d2cd192f95141148be4b88e05",
+      "backend/app/coreflux_time_reviews.py": "d6498b4f13ea33a25c51b2be0fefa4fcdcf28cad70ceef4cb8e1da3d0397d531",
+      "backend/app/routers/v1/coreflux.py": "3149eaee0c7241e0dbfb8c4d98c9339597e1a7cd18405005bc437cdf50001094",
+      "backend/app/routers/v1/time_entries.py": "df854286f08415df7bbbf109a9a63e9d2c5dfae3685bd4d6fadc31a75fa0847a",
+      "backend/app/routers/core_assignments.py": "e6db446012714b26f587dc586a98c431de185f93b340a753f18151ef3b82bdf0",
+      "backend/app/api_scopes.py": "0b8262dfc1b3fa8d4e2d6d8e9b309213cab2a36f886a4053697ceb58f07fa804",
+      "backend/app/routers/v1/_common.py": "88f6335cc2010cd26a9164d64c3ceba069af22761822c96bd82fb64616177441",
+      "frontend/src/pages/CoreAssignmentsPage.jsx": "55b38c9583afe5cb322d3e736b88e5c46ec1f8e321904ed09ab699fdd13c4be4",
+      "frontend/src/pages/CoreTimeReviewPanel.jsx": "d7d52fa2ead754db6d4cc52cdfa401c359260fffbebf7251ec238ac397e9c1f7",
+      "frontend/src/pages/WorkerPortalAccess.jsx": "8c5d0d2c2a86b1f2d69c0b0d9eeeabbb0de05dbb62577d8ae9986578d8acc415"
+    },
+    "before": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "mongodb": "RUNNING",
+      "webhook-crond": "RUNNING"
+    },
+    "after": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "mongodb": "RUNNING",
+      "webhook-crond": "STOPPED"
+    },
+    "local_health_status": 200,
+    "background_hold": true,
+    "document_transfer_disabled": true,
+    "source_changed": false,
+    "business_records_written": false
+  },
+  "pre_recovery_readiness_run": 40169134915,
+  "limitations": [
+    "These tests use a disposable MariaDB database and simulated provider responses.",
+    "No actual Thunderhawk financial round trip or hosted signed callback is proved.",
+    "This is receipt exclusivity per Core company, not a shared supplier-obligation reservation.",
+    "Verified financial organization binding is still needed to detect the same PurePay organization connected to multiple Core companies.",
+    "Canonical bill mapping, partial/multi-bill allocation and reviewed AP rebinding remain incomplete.",
+    "No PurePay application change, production publication, payroll execution, real payment or financial posting occurred."
+  ]
+}

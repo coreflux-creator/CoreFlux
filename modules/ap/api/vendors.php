@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -80,6 +81,8 @@ if ($method === 'GET' && !empty($_GET['id'])) {
         ['id' => $id]
     );
     if (!$row) api_error('Not found', 404);
+    $row = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', [$row])[0];
+    $row = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', [$row], 'company_id')[0];
     if (!empty($_GET['reveal_pii']) && !empty($row['tax_id_full_ct'])) {
         rbac_legacy_require($user, 'ap.vendor.view_pii');
         $row['tax_id_full'] = decryptField($row['tax_id_full_ct']);
@@ -95,7 +98,8 @@ if ($method === 'GET') {
     $params = [];
     if (!empty($_GET['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
-        $where[]      = '(v.vendor_name LIKE :q OR c.name LIKE :q2)';
+        $where[]      = '(v.vendor_name LIKE :q OR c.name LIKE :q2 OR ' . coreRecordNumberSearchSql('vendor', 'v', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $_GET['q']));
         $params['q']  = '%' . str_replace(['%','_'], ['\\%','\\_'], $_GET['q']) . '%';
         $params['q2'] = $params['q'];
     }
@@ -116,6 +120,8 @@ if ($method === 'GET') {
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
+    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', $rows);
+    $rows = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', $rows, 'company_id');
     $count = scopedFind(
         'SELECT COUNT(*) AS c
            FROM ap_vendors_index v
@@ -158,9 +164,8 @@ if ($method === 'POST') {
     $kms  = $taxIdFull ? 'v1' : null;
     $vendorType = (string) ($body['vendor_type'] ?? 'other');
 
-    // Vendor category — explicit user choice. hourly_labor MUST be backed
-    // by a fully-onboarded person/placement; service_provider only needs
-    // basics + payment details.
+    // ERP staffing intake handles placement-backed labor separately. Basic
+    // accounting can keep a 1099/C2C vendor without a placement.
     $allowedCats = ['hourly_labor','service_provider'];
     $vendorCat = (string) ($body['vendor_category']
         ?? (in_array($vendorType, ['1099_individual','c2c_corp'], true) ? 'hourly_labor' : 'service_provider'));
@@ -170,6 +175,9 @@ if ($method === 'POST') {
     $paymentMethod = $body['payment_method'] ?? null;
     if ($paymentMethod !== null && !in_array($paymentMethod, ['ach','wire','check','card','cash','plaid','mercury','other'], true)) {
         api_error('Invalid payment_method', 422);
+    }
+    if ($paymentMethod !== null && !coreAccountingAllowsVendorPaymentMethod($paymentMethod, (string) getenv('COREFLUX_ENV'))) {
+        api_error('This payment method is unavailable in CoreAccounting', 422);
     }
     $payAcctFull = isset($body['payment_account_full']) ? (string) $body['payment_account_full'] : null;
     $payAcctCt    = $payAcctFull ? encryptField($payAcctFull)        : null;
@@ -185,8 +193,8 @@ if ($method === 'POST') {
                     ? $body['payment_account_type']
                     : null;
 
-    // Resolve or auto-create the unified companies.id for non-individual vendors.
-    // 1099 individuals stay as people-side records — no company row is created.
+    // Resolve or auto-create companies.id for non-individual vendors. A 1099
+    // individual remains in the AP vendor index without a company row.
     $companyId = !empty($body['company_id']) ? (int) $body['company_id'] : null;
     if (!$companyId && in_array($vendorType, ['c2c_corp','w9_business','utility','other'], true)) {
         require_once __DIR__ . '/../../people/lib/companies.php';

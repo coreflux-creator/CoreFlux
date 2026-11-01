@@ -10,6 +10,7 @@ const AppLayout = ({ session, children, onModuleChange, onTenantChange }) => {
       <Header
         user={user}
         modules={modules}
+        productMode={session.product_mode}
         tenant={tenant}
         tenants={tenants}
         activeModule={active_module}

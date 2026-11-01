@@ -60,7 +60,8 @@ _a('new user button wired',                    str_contains($usersUI, 'data-test
 _a('reset-password modal exists',              str_contains($usersUI, 'PasswordResetModal'));
 _a('deactivate confirms then DELETEs',         str_contains($usersUI, 'api.delete(`/api/users.php?id='));
 _a('save dispatches POST/PATCH correctly',     str_contains($usersUI, "api.post('/api/users.php'") && str_contains($usersUI, 'api.patch(`/api/users.php?id='));
-_a('master_admin role hidden for non-masters', str_contains($usersUI, 'isMaster && <option value="master_admin">'));
+_a('master_admin role hidden for non-masters and new users',
+   str_contains($usersUI, 'isMaster && !isNew && user.role === \'master_admin\' && <option value="master_admin">'));
 
 echo "\nModuleAccessAdmin.jsx\n";
 _a('hits /api/tenant_modules.php',             str_contains($tmodsUI, '/api/tenant_modules.php'));

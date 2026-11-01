@@ -9,6 +9,7 @@ import IdBadge from '../../../dashboard/src/components/IdBadge';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import BillToClientPicker from './BillToClientPicker';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -47,7 +48,7 @@ export default function PlacementDetail({ session }) {
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="placement-detail-back">← Placements</button>
           <h1 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span>{placement.title}</span>
-            <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
+            <IdBadge id={placement.id} number={placement.placement_number} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
             {placement.person_id && (
               <span style={{ fontSize: 14, color: '#334155', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 ·{' '}
@@ -270,7 +271,7 @@ function OverviewTab({ placement, dimensionReadiness, reload }) {
           <Item k="End (planned)"    v={placement.end_date}         t="overview-end"         field="end_date" />
           <Item k="Actual end"       v={placement.actual_end_date}  t="overview-actual-end"  field="actual_end_date" />
           <Item k="Due"              v={placement.due_date}         t="overview-due"         field="due_date" />
-          <Item k="Worksite"         v={[placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || null} t="overview-site" />
+          <Item k="Worksite"         v={[placement.worksite_city, placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || null} t="overview-site" />
           <Item k="Remote policy"    v={humanizeValue(placement.remote_policy)} t="overview-remote" field="remote_policy" />
         </div>
       </section>
@@ -306,6 +307,7 @@ function OverviewTab({ placement, dimensionReadiness, reload }) {
       <section data-testid="tab-overview-section-client" style={{ marginBottom: 'var(--cf-space-4)' }}>
         <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>End client &amp; approver</h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+          <Item k="Bill-to client" v={placement.billing_client_name || (placement.client_id ? 'Client ' + placement.client_id : null)} t="overview-bill-to-client" field="client_id" />
           <Item k="End client"        v={placement.end_client_company_id
               ? <a href={`/modules/people/companies/${placement.end_client_company_id}`} data-testid="overview-end-client-link" style={{ color: '#1d4ed8', textDecoration: 'none' }}>
                   {placement.end_client_company_name || placement.end_client_name}
@@ -396,7 +398,7 @@ function OverviewEdit({ placement, onClose }) {
   const save = async () => {
     setSaving(true); setError(null);
     try {
-      const fields = ['title','status','start_date','end_date','due_date','end_client_name','worksite_state','worksite_country','remote_policy','engagement_type','notes','external_id','staffing_job_id','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id','recruiter_name','recruiter_email','account_manager_name','account_manager_email'];
+      const fields = ['title','status','start_date','end_date','due_date','end_client_name','client_id','worksite_city','worksite_state','worksite_country','remote_policy','engagement_type','notes','external_id','staffing_job_id','branch','service_line','workers_comp_class','department','cost_center','accounting_entity_id','recruiter_name','recruiter_email','account_manager_name','account_manager_email'];
       const patch = {};
       for (const f of fields) if (form[f] !== placement[f]) patch[f] = form[f];
       if (!Object.keys(patch).length) { onClose(); return; }
@@ -465,7 +467,7 @@ function OverviewEdit({ placement, onClose }) {
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
         {[['title','Title'],['end_client_name','End client'],['external_id','External ID'],
-          ['worksite_state','State'],['worksite_country','Country (2)'],['branch','Branch / business unit'],
+          ['worksite_city','City'],['worksite_state','State'],['worksite_country','Country (2)'],['branch','Branch / business unit'],
           ['service_line','Service line'],['workers_comp_class','WC class'],['department','Department'],
           ['cost_center','Cost center'],['notes','Notes']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
@@ -477,6 +479,11 @@ function OverviewEdit({ placement, onClose }) {
             <RevertControl field={k} />
           </label>
         ))}
+        <div>
+          <BillToClientPicker value={form.client_id} currentName={placement.billing_client_name}
+            onChange={(value) => setForm({ ...form, client_id: value })} testId="overview-edit-bill-to-client" />
+          <RevertControl field="client_id" />
+        </div>
         <label style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Job / requisition</span>
           <select className="input" value={form.staffing_job_id ?? ''} onChange={set('staffing_job_id')} data-testid="overview-edit-staffing-job-id">

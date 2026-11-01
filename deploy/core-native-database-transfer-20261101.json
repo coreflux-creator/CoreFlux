@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "recorded_date": "2026-11-01",
+  "scope": "Native application-owned MariaDB capture and explicit recovery through the outside-host controller",
+  "production_changed": false,
+  "verified": [
+    "Actual application-owned mariadb-dump streams through pinned SSH into a bounded authenticated encrypted archive outside the application owner.",
+    "The controller and native owner independently hash the SQL stream; decrypted archive readback verifies every captured byte before the backup is accepted.",
+    "Native capture checks the actual holds, database connections, event-writer state and complete original database fingerprint before and after the dump.",
+    "Recovery requires the existing durable native restore intent, original captured SQL identity, reviewed backup pair and fresh writer observations.",
+    "The full encrypted archive is authenticated before the application account empties its exact recovery target; SQL then streams directly to the native MariaDB client without a plaintext SQL file.",
+    "A corrupted archive, a foreign SQL hash and an attempt to empty the target without its durable intent are refused before database mutation.",
+    "An interrupted multi-frame SQL restore leaves the restore intent unresolved and web requests held; a separate explicit restore reproduces the original rows, schema, views, triggers and sequence counters.",
+    "Independent native fingerprint confirmation and original file/cache verification precede restoration of web routing and schedules.",
+    "Windows DPAPI archives remain bound to the current Windows user; the Linux fixture uses an explicit AES-256-GCM key unavailable to either native application owner."
+  ],
+  "focused_native_checks": {
+    "recover": 38,
+    "activate": 33,
+    "transfer_loss": 37,
+    "authenticated_archive_windows_dpapi": 11,
+    "authenticated_archive_linux_aesgcm": 11,
+    "existing_dpapi_format_compatibility": 2
+  },
+  "native_log_sha256": {
+    "recover_activate_transfer_loss": "fcfbc888fbf7b011e85dd7bb6ecf216580023824446bab4b933132d43c88b4ab",
+    "intent_and_original_capture_binding": "bb7c39862d4c76729cf1d46e0a2b827a48a8b3f9cc0884b354d4274240b969f8",
+    "final_native_client_options": "e2bdd8558321773c7eb5dcae25ee7f94d176ed392c31ad8a245226eaa193e916"
+  },
+  "limits": [
+    "The production CLI still exposes inspection and early preparation cleanup only; transfer is an imported API requiring explicit native configurations and actual writer observations.",
+    "The live production writer observer and forward release coordinator remain to be connected and the full candidate rehearsed together.",
+    "Synthetic native fixtures do not establish a held production backup or authorize production cutover.",
+    "No production hold, data mutation, provider write, payroll execution or payment occurred."
+  ]
+}

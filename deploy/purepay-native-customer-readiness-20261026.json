@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-26T20:35:03+00:00",
+  "provider_candidate": "6c2653659b00098f8ec9b4133bf4f41ca8dbdc4d",
+  "core_installed_revision": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+  "tenant_id": 999,
+  "organization": {
+    "id": "org_purepay_demo",
+    "name": "Meridian Holdings LLC"
+  },
+  "http_health": {
+    "message": "Pure//Pay API",
+    "startup_mode": "review",
+    "background_jobs": false,
+    "startup_migrations": false,
+    "scheduled_operations": false
+  },
+  "capabilities": [
+    "read:coreflux",
+    "read:payroll",
+    "read:people_setup",
+    "write:assignment_inputs",
+    "write:coreflux",
+    "write:payroll_authority",
+    "write:payroll_inputs",
+    "write:people_inputs"
+  ],
+  "customer_contract_version": "2026-10-26.1",
+  "assignment_contract_version": "2026-10-22.2",
+  "company_binding_verified": false,
+  "customer_create_permission": false,
+  "native_inspection_result": "held_before_customer_record_access",
+  "native_reason": "Confirm the provider company with the current record-link contract first.",
+  "acceptance_executed": false,
+  "company_reconfirmed": false,
+  "local_data_writes": false,
+  "provider_record_writes": false,
+  "credentials_changed": false,
+  "production_changed": false,
+  "restore": {
+    "status": "restored",
+    "commit": "6c2653659b00098f8ec9b4133bf4f41ca8dbdc4d",
+    "started_at": "2026-10-26T20:34:16.408259+00:00",
+    "restored_at": "2026-10-26T20:37:09.202579+00:00",
+    "production_changed": false,
+    "source_paths_restored": 982,
+    "source_config_git_verified": true,
+    "services": "backend                          STOPPED   Oct 26 08:35 PM\nfrontend                         RUNNING   pid 43424, uptime 0:00:24\nwebhook-crond                    RUNNING   pid 43504, uptime 0:00:23\n"
+  },
+  "restore_receipt_sha256": "3e0db37698de27933b4335db418f08e1985218c7594fda58d0bae8a3ce1e1e91",
+  "initial_restore_waited_for_frontend_shutdown": true,
+  "next_requirements": [
+    "Stage reviewed combined integration source retaining assignment contract 2026-10-25.1",
+    "Obtain per-action approval for write:customer_inputs on the isolated Meridian demo connection",
+    "Human creates and submits replacement credential",
+    "Recheck native company binding then run bounded fictional customer acceptance"
+  ]
+}
