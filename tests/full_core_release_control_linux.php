@@ -33,6 +33,10 @@ if (($argv[1] ?? '') === '--child') {
         elseif ($action === 'skip') $control->perform('apply-files', $hash, $native);
         elseif ($action === 'no-peer') $control->perform('prepare-files', $hash, $native);
         elseif ($action === 'wrong-peer') $peerFor('prepare-files',true);
+        elseif ($action === 'no-prepared-peer') {
+            foreach (['hold','prepare-files'] as $step) { $peerFor($step); $control->perform($step,$hash,$native); }
+            $control->perform('upgrade-database',$hash,$native);
+        }
         elseif ($action === 'crash-hold') { $control->begin('hold', $hash); $native(); exit(73); }
         elseif ($action === 'resolve-hold' || $action === 'wrong-receipt') {
             if (!is_file($trace) || file_get_contents($trace) !== "side effect\n") throw new RuntimeException('Observed native outcome differs.');
@@ -52,6 +56,7 @@ if (($argv[1] ?? '') === '--child') {
             $control->begin('activate', $hash); exit(73);
         } elseif ($action === 'wrong-upgrade') {
             foreach (['hold','prepare-files'] as $step) { $peerFor($step); $control->perform($step, $hash, $native); }
+            $peerFor('upgrade-database');
             $control->begin('upgrade-database', $hash);
             $binding = $spec + ['release_control_spec_sha256' => $hash]; $binding['migration_plan_sha256'] = str_repeat('e',64);
             $control->assertUpgrade($binding, $hash);
@@ -115,6 +120,12 @@ file_put_contents('/fixture/spec-changed.json',FullCoreReleaseControl::encode($c
 $check($run(1004,'/fixture/spec-changed.json','inspect')[0] === 2, 'same operation cannot silently switch manifest');
 $check($run(1004,$second,'recover')[0] === 0 && $run(1004,$second,'hold')[0] === 2, 'recovery is durable and forbids forward execution');
 $check($run(1004,$second,'finish-recovery')[0] === 0, 'only ordered verified recovery phases can reach recovered state');
+$noPrepared=$spec('without-prepared-peer'); $traceBefore=strlen(file_get_contents('/fixture/owner-1004/trace'));
+$check($run(1004,$noPrepared,'no-prepared-peer')[0] === 2
+    && strlen(file_get_contents('/fixture/owner-1004/trace')) === $traceBefore+2*strlen("side effect\n"),
+    'database upgrade refuses before its side effect until the other owner confirms completed file backups');
+$check($run(1004,$noPrepared,'recover')[0] === 0 && $run(1004,$noPrepared,'finish-recovery')[0] === 0,
+    'missing backup confirmation leaves recoverable control state');
 $third = $spec('third');
 $check($run(1004,$third,'crash-activate')[0] === 73, 'activation intent persists even if the process dies before its response');
 $check($run(1004,$third,'recover')[0] === 2, 'unknown activation outcome forbids restoration of the old database backup');

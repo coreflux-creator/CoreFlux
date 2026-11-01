@@ -151,6 +151,16 @@ final class FullCoreProductionUpgradeContext
     /** Reject stale/replayed reports and require each actual FPM observation to advance its request counter. */
     public static function validateWitness(array $w, array $b, string $challenge, float $requestedAt, ?int $previousAccepted): int
     {
+        if (($w['backup_pair_sha256'] ?? null) !== ($b['backup_pair_sha256'] ?? null)
+            || !preg_match('/^[a-f0-9]{64}$/D', $b['backup_pair_sha256'] ?? '')) {
+            throw new RuntimeException('Matching-backup witness required.');
+        }
+        return self::validateHoldWitness($w, $b, $challenge, $requestedAt, $previousAccepted);
+    }
+
+    /** File preparation precedes the DB backup; it requires the same fresh writer/host observations. */
+    public static function validateHoldWitness(array $w, array $b, string $challenge, float $requestedAt, ?int $previousAccepted): int
+    {
         $now = microtime(true);
         if (($w['challenge'] ?? null) !== $challenge || ($w['operation'] ?? null) !== $b['operation']
             || ($w['candidate_commit'] ?? null) !== $b['candidate_commit'] || ($w['migration_plan_sha256'] ?? null) !== $b['migration_plan_sha256']
@@ -179,8 +189,8 @@ final class FullCoreProductionUpgradeContext
         $writers = $w['writers'] ?? [];
         if (($writers['inventory_sha256'] ?? null) !== $b['writer_inventory_sha256']
             || ($writers['registry_unchanged'] ?? null) !== true || ($writers['core_cli_processes'] ?? null) !== 0
-            || ($writers['unmanaged_writers'] ?? null) !== 0 || ($w['backup_pair_sha256'] ?? null) !== $b['backup_pair_sha256']) {
-            throw new RuntimeException('Other-writer and matching-backup witness required.');
+            || ($writers['unmanaged_writers'] ?? null) !== 0) {
+            throw new RuntimeException('Other-writer witness required.');
         }
         return $pool['accepted_connections'];
     }

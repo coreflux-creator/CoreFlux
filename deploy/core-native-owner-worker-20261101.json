@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "observed_at": "2026-11-01T21:46:14Z",
+  "scope": "isolated native owner worker over authenticated SSH",
+  "production_changed": false,
+  "transport": "loopback SSH with pinned host keys inside a network-isolated disposable container",
+  "services": ["PHP 8.2", "Apache", "PHP-FPM", "MariaDB 10.11"],
+  "local_contract_checks": 47,
+  "scenario_results": {
+    "control": 30,
+    "wrong_file_plan": 29,
+    "stale_witness": 29,
+    "existing_database_connection": 29,
+    "connection_during_witness": 29,
+    "master_schedule_drift": 32,
+    "process_loss_after_ddl": 31,
+    "paired_database_file_recovery": 35,
+    "candidate_activation_and_lost_response": 33
+  },
+  "evidence": [
+    {
+      "log": "native-owner-ssh-full.log",
+      "sha256": "9b86a5033a90823b2557da8347452004d8e4781b168f92ee5d791c0d20425007",
+      "result": "Control and the first four scenarios passed. The next scenario refused a status observation while its previous FPM request was finishing; this run did not pass overall."
+    },
+    {
+      "log": "native-owner-ssh-rest.log",
+      "sha256": "e25fb467313d781a2583d2c47bb40542ea1c2e6e2cd5ef56a9a7728bbaa8e8bd",
+      "result": "After bounded read-only observation of the actual quiet FPM pool, guard-loss, crash, recovery and activation all passed. Deployment side effects are never retried."
+    },
+    {
+      "log": "native-owner-ssh-receipt.log",
+      "sha256": "b9e429924d506cb62dc5bb7d869167a8cfd6b652bacffd48ccf929dec9a3852f",
+      "result": "The final activation run additionally verified retrieval of a completed hold receipt through a new SSH connection without repeating the hold. All 33 checks passed."
+    }
+  ],
+  "verified": [
+    "Native owner orchestration now lives in deploy code and is invoked through its actual CLI endpoint, rather than a fixture-only owner function.",
+    "Each owner uses its reviewed private configuration, its own native crontab and file identity, and durable ordered intents.",
+    "Database upgrade requires the other owner's completed file-backup receipt.",
+    "The native application worker fingerprints all table rows, schema definitions, views, triggers and auto-increment counters without returning business values.",
+    "Recovery confirmation refuses changed native sequence counters even when rows match.",
+    "A real SIGKILL after committed DDL leaves the incomplete marker and requires explicit paired recovery.",
+    "Completed outcomes can be independently read and hash-verified after a lost transport response; inspection does not replay or resolve a pending action.",
+    "The exact final source files were compared against the remote rehearsal sources before check-in."
+  ],
+  "limits": [
+    "These scenario results came from successive focused runs; exact-commit CI must run the complete suite together.",
+    "The outside-host production execution coordinator, complete live writer inventory and native backup/restore transport remain outstanding.",
+    "Verified cleanup for failure before a complete backup pair exists still needs implementation and rehearsal.",
+    "The full 7131-file application candidate and 78 pending migrations still require a coordinated full-candidate rehearsal.",
+    "No live maintenance, public application file change, database migration, payroll, payment, financial posting or production cutover occurred."
+  ]
+}

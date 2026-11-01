@@ -166,7 +166,7 @@ final class FullCoreReleaseControl
             }
         }
         foreach ($s['peer_outcomes'] as $action => $hash) {
-            if (!in_array($action, ['hold','upgrade-database','verify-files','activate','resume-scheduler','restore-database','verify-recovery','restore-routing'], true)
+            if (!in_array($action, ['hold','prepare-files','upgrade-database','verify-files','activate','resume-scheduler','restore-database','verify-recovery','restore-routing'], true)
                 || !is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D', $hash)
                 || !hash_equals($hash, hash('sha256', $this->read($directory . '/peer-' . $action . '.json')))) {
                 throw new RuntimeException('Other-owner outcome is missing or changed.');
@@ -201,6 +201,14 @@ final class FullCoreReleaseControl
         if (self::encode($this->state) !== $this->read($this->operationDirectory . '/state.json')) throw new RuntimeException('Release control state changed outside its lock.');
         $this->validateState();
         return $this->state;
+    }
+
+    /** Read an already completed, hash-verified outcome after a lost transport response. Never executes or resolves an action. */
+    public function completedOutcome(string $action): array
+    {
+        $state = $this->snapshot();
+        if (!isset($state['completed'][$action])) throw new RuntimeException('Completed owner outcome required.');
+        return json_decode($this->read($this->operationDirectory . '/' . $action . '.json'), true, 64, JSON_THROW_ON_ERROR);
     }
 
     private function save(): void
@@ -279,7 +287,7 @@ final class FullCoreReleaseControl
     public function peerRequiredFor(string $action): ?string
     {
         $required = $this->uid === 1004
-            ? ['prepare-files'=>'hold', 'refresh-cache'=>'verify-files', 'complete'=>'resume-scheduler', 'restore-routing'=>'verify-recovery']
+            ? ['prepare-files'=>'hold', 'upgrade-database'=>'prepare-files', 'refresh-cache'=>'verify-files', 'complete'=>'resume-scheduler', 'restore-routing'=>'verify-recovery']
             : ['prepare-files'=>'hold', 'apply-files'=>'upgrade-database', 'resume-scheduler'=>'activate',
                 'recover-files'=>'restore-database', 'restore-scheduler'=>'restore-routing'];
         return $required[$action] ?? null;
@@ -289,7 +297,7 @@ final class FullCoreReleaseControl
     public function acceptPeerOutcome(array $receipt): void
     {
         $s = $this->snapshot(); $uid = $this->uid === 1003 ? 1004 : 1003; $action = $receipt['action'] ?? null;
-        if ($s['terminal'] !== null || !in_array($action, ['hold','upgrade-database','verify-files','activate','resume-scheduler',
+        if ($s['terminal'] !== null || !in_array($action, ['hold','prepare-files','upgrade-database','verify-files','activate','resume-scheduler',
             'restore-database','verify-recovery','restore-routing'], true)) throw new RuntimeException('Recognized other-owner outcome required.');
         foreach (['operation','candidate_commit','manifest_sha256','migration_plan_sha256','root'] as $key) {
             if (($receipt[$key] ?? null) !== $this->spec[$key]) throw new RuntimeException('Other-owner outcome belongs to a different release.');
