@@ -234,7 +234,13 @@ final class FullCoreReleaseOwner
         }
         if ($action === 'witness-held') return $this->heldObservation();
         if ($action === 'request-recovery') { $this->control->requestRecovery(); return ['state' => $this->control->snapshot()]; }
-        if ($action === 'request-preparation-abort') { $this->control->requestPreparationAbort(); return ['state' => $this->control->snapshot()]; }
+        if ($action === 'request-preparation-abort') {
+            if ($this->uid === 1003 && $this->control->snapshot()['direction'] !== 'preparation-abort') {
+                if (($peer['action'] ?? null) !== 'verify-preparation-abort') throw new RuntimeException('Application-owner abort verification required.');
+                $this->control->acceptPeerOutcome($peer);
+            }
+            $this->control->requestPreparationAbort(); return ['state' => $this->control->snapshot()];
+        }
         if ($action === 'abandon-unstarted') { $this->control->abandonUnstarted(); return ['state' => $this->control->snapshot()]; }
         if ($action === 'inspect-preparation-abort') {
             if (!preg_match('/^[a-f0-9]{64}$/D', $input['challenge'] ?? '')) throw new RuntimeException('Fresh preparation inspection challenge required.');

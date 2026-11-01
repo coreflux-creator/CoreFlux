@@ -11,11 +11,13 @@ cp deploy/full_core_{maintenance,maintenance_host,maintenance_channel,maintenanc
 cp deploy/full_core_migration_history.json "$fixture/deploy/"
 cp deploy/inspect_full_core_release_owner.php "$fixture/deploy/"
 cp deploy/run_full_core_release_owner.php deploy/full_core_database_state.php "$fixture/deploy/"
+cp deploy/core_release_coordinator.py deploy/inspect_full_core_release.py "$fixture/deploy/"
 cp core/migration_hash.php "$fixture/core/"
 cp tests/full_core_production_upgrade_linux.php tests/full_core_release_control_linux.php "$fixture/tests/"
+cp tests/core_release_coordinator_native.py "$fixture/tests/"
 cat > "$fixture/Dockerfile" <<'DOCKER'
 FROM php:8.2-fpm-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends apache2 mariadb-server mariadb-client cron util-linux openssh-server openssh-client \
+RUN apt-get update && apt-get install -y --no-install-recommends apache2 mariadb-server mariadb-client cron util-linux openssh-server openssh-client python3 \
     && rm -rf /var/lib/apt/lists/* && docker-php-ext-install pdo_mysql opcache \
     && a2enmod rewrite headers proxy proxy_fcgi >/dev/null \
     && useradd -m --uid 1003 --gid 33 coremaster && useradd -m --uid 1004 --gid 33 coreapp \
@@ -105,7 +107,7 @@ php "$test_script" "$@" || {
 }
 START
 docker build --quiet --tag "$image" "$fixture"
-scenarios=(control abort-before-hold abort-partial-hold abort-file-backup wrong-file-plan stale extra-db late-db guard-loss crash recover activate)
+scenarios=(control abort-coordinator abort-before-hold abort-partial-hold abort-file-backup wrong-file-plan stale extra-db late-db guard-loss crash recover activate)
 if [ "$#" -gt 0 ]; then scenarios=("$@"); fi
 for scenario in "${scenarios[@]}"; do
     docker run --network none --name "$container" "$image" "$scenario" || { docker logs "$container"; exit 1; }

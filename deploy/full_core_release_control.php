@@ -302,6 +302,7 @@ final class FullCoreReleaseControl
 
     public function peerRequiredFor(string $action): ?string
     {
+        if ($action === 'request-preparation-abort' && $this->uid === 1003) return 'verify-preparation-abort';
         if ($action === 'restore-preparation-hold') return 'verify-preparation-abort';
         if ($action === 'complete-preparation-abort') return 'restore-preparation-hold';
         $required = $this->uid === 1004
@@ -354,9 +355,14 @@ final class FullCoreReleaseControl
         if ($s['direction'] === 'preparation-abort') return;
         if ($s['direction'] !== 'release' || $s['activation_may_have_started']
             || array_diff(array_keys($s['completed']), ['hold','prepare-files'])
-            || array_diff(array_keys($s['peer_outcomes']), ['hold','prepare-files'])
+            || array_diff(array_keys($s['peer_outcomes']), ['hold','prepare-files','verify-preparation-abort'])
             || ($s['pending'] !== null && !in_array($s['pending']['action'], ['hold','prepare-files'], true))) {
             throw new RuntimeException('A possible database or code change requires paired recovery, not preparation abort.');
+        }
+        // Fence the only database-upgrade owner first. Otherwise it could begin SQL after a
+        // master's observation but before its own abort, leaving the owners in incompatible directions.
+        if ($this->uid === 1003 && !isset($s['peer_outcomes']['verify-preparation-abort'])) {
+            throw new RuntimeException('Application-owner preparation abort must be verified before fencing the master.');
         }
         $this->state['direction'] = 'preparation-abort';
         $this->state['interrupted_release_intent'] = $s['pending'];

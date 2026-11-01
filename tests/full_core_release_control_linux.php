@@ -144,6 +144,10 @@ $check($run(1004,$noPrepared,'no-prepared-peer')[0] === 2
 $check($run(1004,$noPrepared,'recover')[0] === 0 && $run(1004,$noPrepared,'finish-recovery')[0] === 0,
     'missing backup confirmation leaves recoverable control state');
 $earlyAbort=$spec('early-abort');
+$check($run(1003,$earlyAbort,'abort-preparation')[0] === 2,
+    'master preparation abort refuses until the database owner has permanently fenced and verified its abort');
+$check($run(1003,$earlyAbort,'abandon')[0] === 0,
+    'refused master abort leaves its never-started operation unchanged');
 $check($run(1004,$earlyAbort,'abort-no-peer')[0] === 2,
     'preparation cleanup cannot reopen service without the other owner verification');
 $check($run(1004,$earlyAbort,'hold')[0] === 2 && $run(1004,$earlyAbort,'recover')[0] === 2,

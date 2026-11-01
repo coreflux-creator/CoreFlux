@@ -93,11 +93,17 @@ function fixtureOwnerRequest(string $base, int $uid, string $action): array
     $peers=$uid === 1004 ? ['prepare-files'=>'hold','upgrade-database'=>'prepare-files','refresh-cache'=>'verify-files','complete'=>'resume-scheduler','restore-routing'=>'verify-recovery']
         : ['prepare-files'=>'hold','apply-files'=>'upgrade-database','resume-scheduler'=>'activate','recover-files'=>'restore-database','restore-scheduler'=>'restore-routing'];
     $peers += ['restore-preparation-hold'=>'verify-preparation-abort','complete-preparation-abort'=>'restore-preparation-hold'];
+    if ($uid === 1003) $peers['request-preparation-abort']='verify-preparation-abort';
     $peer=isset($peers[$phase]) ? json_decode(file_get_contents($base.'/peer-'.($uid === 1003 ? 1004 : 1003).'-'.$peers[$phase].'.json'),true,512,JSON_THROW_ON_ERROR) : null;
     return ['action'=>$resume ? 'resume-preparation-abort' : $phase,'input'=>$input,'peer'=>$peer,'challenge'=>bin2hex(random_bytes(32))];
 }
 function fixtureOwner(string $base, int $uid, string $action, array $extraInput = []): array
 {
+    if (str_starts_with(basename($base), 'abort-') && (str_contains($action, 'preparation')
+        || in_array($action, ['inspect-control','bad-bundle','bad-config','wrong-owner','lost-verify-reply'], true))) {
+        // Real outside-host controller: same pinned OpenSSH transport and ordering as deployment.
+        return fixtureCommand(['python3', __DIR__.'/core_release_coordinator_native.py', $base, (string)$uid, $action]);
+    }
     $spec = json_decode(file_get_contents($base . '/spec.json'), true,512,JSON_THROW_ON_ERROR);
     if (in_array($action, ['refresh-cache','refresh-recovery-cache','recover'], true)) {
         $bytes = fixtureCachePlan($spec, $action === 'refresh-cache' ? 'candidate' : 'recovery');
@@ -210,7 +216,7 @@ function fixtureWriters(string $base, string $inventoryHash, ?int $ownerPid = nu
 
 if (posix_geteuid() !== 0) throw new RuntimeException('Container fixture initializer required.');
 $scenario = $argv[1] ?? '';
-if (!in_array($scenario, ['abort-before-hold','abort-partial-hold','abort-file-backup','wrong-file-plan', 'stale', 'extra-db', 'late-db', 'guard-loss', 'crash', 'recover', 'activate'], true)) throw new RuntimeException('Explicit fixture scenario required.');
+if (!in_array($scenario, ['abort-coordinator','abort-before-hold','abort-partial-hold','abort-file-backup','wrong-file-plan', 'stale', 'extra-db', 'late-db', 'guard-loss', 'crash', 'recover', 'activate'], true)) throw new RuntimeException('Explicit fixture scenario required.');
 $checks = 0;
 $check = static function (bool $ok, string $label) use (&$checks): void {
     if (!$ok) throw new RuntimeException('FAIL ' . $label . '; inspect /fixture/commands.stderr');
@@ -320,48 +326,70 @@ $abortPreparation = static function () use ($base,$scenario,$spec,$operation,$or
     $check(!is_file($base.'/backup/database.aesgcm') && !is_file($base.'/native-1004/original-database-state.json'),
         'early interruption has no database backup or recorded database baseline');
     unlink($base.'/database-connection.json'); // Successful cleanup must not open a database connection.
-    foreach ([1003,1004] as $uid) {
-        $check(fixtureOwner($base,$uid,'request-preparation-abort')[0] === 0
-            && fixtureOwner($base,$uid,'pause')[0] === 2,
-            'owner permanently fences forward release before cleanup');
-        $check(fixtureOwner($base,$uid,'verify-preparation-abort')[0] === 0,
-            'owner verifies original files and native partial-hold state without backups');
+    if ($scenario === 'abort-before-hold') {
+        foreach (['bad-bundle','bad-config','wrong-owner'] as $action) {
+            $check(fixtureOwner($base,1004,$action)[0] === 2, 'controller refuses '.$action.' before any native action');
+        }
+        $check(!is_dir(dirname(FIXTURE_ROOT).'/private_html/core-release-control-1004'),
+            'changed worker, wrong config and wrong SSH account create no native control state');
     }
-    if ($scenario === 'abort-file-backup') {
-        $masterOriginal=file_get_contents(FIXTURE_ROOT.'/master.php'); $masterMetadata=fixtureMeta(FIXTURE_ROOT.'/master.php');
-        file_put_contents(FIXTURE_ROOT.'/master.php',$masterOriginal."\n// peer concurrent edit");
-        $check(fixtureOwner($base,1004,'restore-preparation-hold')[0] === 2
-            && fixtureHttp($spec,null,'/read.php')[0] === 503
-            && str_contains(file_get_contents(FIXTURE_ROOT.'/master.php'),'peer concurrent edit'),
-            'fresh other-owner SSH inspection refuses peer drift after its earlier verification receipt');
-        fixtureWrite(FIXTURE_ROOT.'/master.php',$masterOriginal,1003,$masterMetadata['mode'],$masterMetadata['mtime']);
-        $original=file_get_contents(FIXTURE_ROOT.'/application.php'); $metadata=fixtureMeta(FIXTURE_ROOT.'/application.php');
-        file_put_contents(FIXTURE_ROOT.'/application.php',$original."\n// concurrent edit");
-        $check(fixtureOwner($base,1004,'resume:restore-preparation-hold')[0] === 2
-            && fixtureHttp($spec,null,'/read.php')[0] === 503
-            && str_contains(file_get_contents(FIXTURE_ROOT.'/application.php'),'concurrent edit'),
-            'concurrent source edit is preserved and blocks reopening even after prior verification');
-        fixtureWrite(FIXTURE_ROOT.'/application.php',$original,1004,$metadata['mode'],$metadata['mtime']);
-        $check(fixtureOwner($base,1004,'resume:restore-preparation-hold')[0] === 0,
-            'explicit interrupted cleanup resumes only after original files are reverified');
-    } else $check(fixtureOwner($base,1004,'restore-preparation-hold')[0] === 0,'application routing returns to the original version');
-    if ($scenario !== 'abort-before-hold') {
-        fixtureWrite('/fixture/restore-write-count','',1003);
-        file_put_contents('/fixture/interrupt-restore','1');
-        $check(fixtureOwner($base,1003,'restore-preparation-hold')[0] === 2,
-            'native scheduler restores but its failed acknowledgment leaves a pending cleanup intent');
-        unlink('/fixture/interrupt-restore');
-        $check(file_get_contents('/fixture/restore-write-count') === "installed\n"
-            && fixtureOwner($base,1003,'resume:restore-preparation-hold')[0] === 0
-            && file_get_contents('/fixture/restore-write-count') === "installed\n",
-            'fresh native observation completes lost-response cleanup without reinstalling the schedule');
-    } else $check(fixtureOwner($base,1003,'restore-preparation-hold')[0] === 0,'never-held master schedule remains unchanged');
-    foreach ([1003,1004] as $uid) {
-        $check(fixtureOwner($base,$uid,'complete-preparation-abort')[0] === 0,'both restored-owner receipts permit terminal preparation abort');
-        [$exit,$bytes]=fixtureOwner($base,$uid,'inspect-control'); $state=json_decode($bytes,true)['state'];
-        $check($exit === 0 && $state['terminal'] === 'preparation-aborted' && $state['pending'] === null,
-            'completed preparation abort remains independently inspectable');
+    if ($scenario === 'abort-coordinator') {
+        $check(fixtureOwner($base,1004,'abort-preparation')[0] === 0,
+            'outside-host controller completes both real native held accounts in application-first order');
+    } else {
+        foreach ([1004,1003] as $uid) {
+            $check(fixtureOwner($base,$uid,'request-preparation-abort')[0] === 0
+                && fixtureOwner($base,$uid,'pause')[0] === 2,
+                'owner permanently fences forward release before cleanup');
+            if ($scenario === 'abort-before-hold' && $uid === 1004) {
+                $check(fixtureOwner($base,$uid,'lost-verify-reply')[0] === 2,
+                    'outside-host controller reports a dropped reply after the native verification completes');
+                [$exit,$bytes]=fixtureOwner($base,$uid,'inspect-control');
+                $report=json_decode($bytes,true);
+                $check($exit === 0 && isset($report['completed']['verify-preparation-abort']) && $report['state']['pending'] === null,
+                    'fresh SSH inspection recovers the completed native receipt after transport loss');
+            }
+            $check(fixtureOwner($base,$uid,'verify-preparation-abort')[0] === 0,
+                'owner verifies original files and native partial-hold state without backups');
+        }
+        if ($scenario === 'abort-file-backup') {
+            $masterOriginal=file_get_contents(FIXTURE_ROOT.'/master.php'); $masterMetadata=fixtureMeta(FIXTURE_ROOT.'/master.php');
+            file_put_contents(FIXTURE_ROOT.'/master.php',$masterOriginal."\n// peer concurrent edit");
+            $check(fixtureOwner($base,1004,'restore-preparation-hold')[0] === 2
+                && fixtureHttp($spec,null,'/read.php')[0] === 503
+                && str_contains(file_get_contents(FIXTURE_ROOT.'/master.php'),'peer concurrent edit'),
+                'fresh other-owner SSH inspection refuses peer drift after its earlier verification receipt');
+            fixtureWrite(FIXTURE_ROOT.'/master.php',$masterOriginal,1003,$masterMetadata['mode'],$masterMetadata['mtime']);
+            $original=file_get_contents(FIXTURE_ROOT.'/application.php'); $metadata=fixtureMeta(FIXTURE_ROOT.'/application.php');
+            file_put_contents(FIXTURE_ROOT.'/application.php',$original."\n// concurrent edit");
+            $check(fixtureOwner($base,1004,'resume:restore-preparation-hold')[0] === 2
+                && fixtureHttp($spec,null,'/read.php')[0] === 503
+                && str_contains(file_get_contents(FIXTURE_ROOT.'/application.php'),'concurrent edit'),
+                'concurrent source edit is preserved and blocks reopening even after prior verification');
+            fixtureWrite(FIXTURE_ROOT.'/application.php',$original,1004,$metadata['mode'],$metadata['mtime']);
+            $check(fixtureOwner($base,1004,'resume:restore-preparation-hold')[0] === 0,
+                'explicit interrupted cleanup resumes only after original files are reverified');
+        } else $check(fixtureOwner($base,1004,'restore-preparation-hold')[0] === 0,'application routing returns to the original version');
+        if ($scenario !== 'abort-before-hold') {
+            fixtureWrite('/fixture/restore-write-count','',1003);
+            file_put_contents('/fixture/interrupt-restore','1');
+            $check(fixtureOwner($base,1003,'restore-preparation-hold')[0] === 2,
+                'native scheduler restores but its failed acknowledgment leaves a pending cleanup intent');
+            unlink('/fixture/interrupt-restore');
+            $check(file_get_contents('/fixture/restore-write-count') === "installed\n"
+                && fixtureOwner($base,1003,'resume:restore-preparation-hold')[0] === 0
+                && file_get_contents('/fixture/restore-write-count') === "installed\n",
+                'fresh native observation completes lost-response cleanup without reinstalling the schedule');
+        } else $check(fixtureOwner($base,1003,'restore-preparation-hold')[0] === 0,'never-held master schedule remains unchanged');
+        foreach ([1003,1004] as $uid) {
+            $check(fixtureOwner($base,$uid,'complete-preparation-abort')[0] === 0,'both restored-owner receipts permit terminal preparation abort');
+            [$exit,$bytes]=fixtureOwner($base,$uid,'inspect-control'); $state=json_decode($bytes,true)['state'];
+            $check($exit === 0 && $state['terminal'] === 'preparation-aborted' && $state['pending'] === null,
+                'completed preparation abort remains independently inspectable');
+        }
     }
+    $check(fixtureOwner($base,1004,'abort-preparation')[0] === 0,
+        'outside-host restart retrieves both completed receipts and freshly verifies service without replay');
     [$cronExit,$cronBytes]=fixtureCommand(['crontab','-u','coremaster','-l']);
     [$appCronExit,$appCronBytes]=fixtureCommand(['crontab','-u','coreapp','-l']);
     $check($cronExit === 0 && $cronBytes === $cron."\n" && $appCronExit === 1 && $appCronBytes === '',
@@ -374,6 +402,12 @@ $abortPreparation = static function () use ($base,$scenario,$spec,$operation,$or
 if ($scenario === 'abort-before-hold') {
     fixturePrivate($base.'/maintenance-1004/maintenance-'.$operation,1004);
     fixtureWrite($base.'/maintenance-1004/maintenance-'.$operation.'/original.htaccess',$originalWeb,1004);
+    $abortPreparation();
+}
+if ($scenario === 'abort-coordinator') {
+    $check(fixtureOwner($base,1003,'pause')[0] === 0 && fixtureOwner($base,1004,'pause')[0] === 0
+        && fixtureHttp($spec,null,'/read.php')[0] === 503,
+        'both native schedules and web routing are held before outside-host abort');
     $abortPreparation();
 }
 if ($scenario === 'abort-partial-hold') {
@@ -536,6 +570,14 @@ if (in_array($scenario, ['wrong-file-plan', 'stale', 'extra-db', 'late-db'], tru
             'fixture explicitly reinstates reviewed held schedule before recovery');
     }
     $check($upgrade()[0] === 2, 'fresh process cannot automatically replay existing upgrade journal');
+    if ($scenario === 'crash') {
+        [$code,$bytes]=fixtureOwner($base,1003,'inspect-control'); $masterState=json_decode($bytes,true)['state'];
+        $check($code === 0 && fixtureCommand(['python3',__DIR__.'/core_release_coordinator_native.py',$base,'1004','abort-preparation'])[0] === 2,
+            'outside-host controller refuses preparation cleanup after interrupted committed SQL');
+        [$code,$bytes]=fixtureOwner($base,1003,'inspect-control');
+        $check($code === 0 && json_decode($bytes,true)['state'] === $masterState,
+            'application-first refusal leaves the master in release direction for paired database recovery');
+    }
 } else {
     $check($exit === 0 && $result['production_execution'] === true && $result['executed_statements'] === 3,
         'bound production entry executes exact statements using real owners and fresh observations');
