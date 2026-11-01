@@ -45,6 +45,23 @@ if (($argv[1] ?? '') === '--child') {
             if ($action === 'wrong-receipt') $receipt['candidate_commit'] = str_repeat('f', 40);
             $control->finish('hold', $pending['token'], $receipt);
         } elseif ($action === 'recover') $control->requestRecovery();
+        elseif ($action === 'abort-preparation') $control->requestPreparationAbort();
+        elseif ($action === 'abort-no-peer') {
+            $control->requestPreparationAbort();
+            $control->perform('verify-preparation-abort',$hash,$native);
+            $control->perform('restore-preparation-hold',$hash,$native);
+        } elseif ($action === 'finish-preparation-abort') {
+            foreach (['restore-preparation-hold','complete-preparation-abort'] as $step) {
+                $peerFor($step); $control->perform($step,$hash,$native);
+            }
+        } elseif ($action === 'abort-after-upgrade-intent') {
+            foreach (['hold','prepare-files'] as $step) { $peerFor($step); $control->perform($step,$hash,$native); }
+            $peerFor('upgrade-database'); $control->begin('upgrade-database',$hash);
+            $control->requestPreparationAbort();
+        } elseif ($action === 'abort-after-peer-upgrade') {
+            foreach (['hold','prepare-files'] as $step) { $peerFor($step); $control->perform($step,$hash,$native); }
+            $peerFor('apply-files'); $control->requestPreparationAbort();
+        }
         elseif ($action === 'finish-recovery') {
             $steps = posix_geteuid() === 1004 ? ['restore-database','recover-files','verify-recovery','refresh-recovery-cache','restore-routing']
                 : ['recover-files','verify-recovery','restore-scheduler'];
@@ -126,6 +143,24 @@ $check($run(1004,$noPrepared,'no-prepared-peer')[0] === 2
     'database upgrade refuses before its side effect until the other owner confirms completed file backups');
 $check($run(1004,$noPrepared,'recover')[0] === 0 && $run(1004,$noPrepared,'finish-recovery')[0] === 0,
     'missing backup confirmation leaves recoverable control state');
+$earlyAbort=$spec('early-abort');
+$check($run(1004,$earlyAbort,'abort-no-peer')[0] === 2,
+    'preparation cleanup cannot reopen service without the other owner verification');
+$check($run(1004,$earlyAbort,'hold')[0] === 2 && $run(1004,$earlyAbort,'recover')[0] === 2,
+    'preparation abort permanently forbids forward work and database recovery');
+$check($run(1004,$earlyAbort,'finish-preparation-abort')[0] === 0,
+    'both verification and restoration peer contracts are required for terminal preparation abort');
+$lateAbort=$spec('late-abort');
+$check($run(1004,$lateAbort,'abort-after-upgrade-intent')[0] === 2,
+    'even an unacknowledged database intent forbids preparation-only cleanup');
+$check($run(1004,$lateAbort,'recover')[0] === 0 && $run(1004,$lateAbort,'abort-preparation')[0] === 2
+    && $run(1004,$lateAbort,'finish-recovery')[0] === 0,
+    'database recovery cannot discard the interrupted upgrade by switching to preparation abort');
+$peerAbort=$spec('peer-upgrade-abort');
+$check($run(1003,$peerAbort,'abort-after-peer-upgrade')[0] === 2,
+    'master cannot use preparation-only cleanup after observing an application database upgrade');
+$check($run(1003,$peerAbort,'recover')[0] === 0 && $run(1003,$peerAbort,'finish-recovery')[0] === 0,
+    'master must use paired recovery after peer database changes');
 $third = $spec('third');
 $check($run(1004,$third,'crash-activate')[0] === 73, 'activation intent persists even if the process dies before its response');
 $check($run(1004,$third,'recover')[0] === 2, 'unknown activation outcome forbids restoration of the old database backup');

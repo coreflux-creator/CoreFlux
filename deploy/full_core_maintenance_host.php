@@ -234,6 +234,52 @@ final class FullCoreMaintenanceHost
         fullCoreMaintenanceDigest($this->crontab(), $receipt['original_cron_sha256']);
     }
 
+    /** Observe an interrupted preparation, including a stop before its receipt or between its two native writes. */
+    public function inspectPreparation(string $operation, string $originalCronHash, array $review, ?array $originalWeb): array
+    {
+        $private = $originalWeb === null ? $this->schedulerPath($operation) : $this->operationPath($operation);
+        if (file_exists($private) || is_link($private)) {
+            clearstatcache(true, $private);
+            if (realpath($private) !== $private || !is_dir($private) || is_link($private)
+                || fileowner($private) !== posix_geteuid() || (fileperms($private) & 07777) !== 0700) {
+                throw new RuntimeException('Private preparation material differs.');
+            }
+        }
+        foreach (['activation.json','candidate.htaccess'] as $name) {
+            if (file_exists($private . '/' . $name) || is_link($private . '/' . $name)) throw new RuntimeException('Prepared activation cannot use preparation abort.');
+        }
+        $cronHash = hash('sha256', $this->crontab()); $web = $originalWeb === null ? null : $this->webSnapshot();
+        $path = $private . '/receipt.json'; $receiptHash = null;
+        if (file_exists($path) || is_link($path)) {
+            $receipt = $originalWeb === null ? $this->schedulerReceipt($operation) : $this->receipt($operation);
+            if ($receipt['original_cron_sha256'] !== $originalCronHash || $receipt['review'] !== $review
+                || ($originalWeb !== null && $receipt['original_web'] !== $originalWeb)) throw new RuntimeException('Original preparation identity differs.');
+            $allowedWeb = [$originalWeb];
+            if ($originalWeb !== null) { $heldWeb = $originalWeb; $heldWeb['sha256'] = $receipt['held_web_sha256']; $allowedWeb[] = $heldWeb; }
+            if (!in_array($cronHash, [$originalCronHash, $receipt['held_cron_sha256']], true) || !in_array($web, $allowedWeb, true)) {
+                throw new RuntimeException('Concurrent routing or schedule change must be preserved.');
+            }
+            $receiptHash = hash('sha256', $this->privateRead($path));
+        } elseif ($cronHash !== $originalCronHash || $web !== $originalWeb) {
+            throw new RuntimeException('Changed preparation needs its complete original maintenance receipt.');
+        }
+        return ['operation' => $operation, 'root' => $this->root, 'owner_uid' => posix_geteuid(),
+            'maintenance_receipt_sha256' => $receiptHash, 'cron_sha256' => $cronHash, 'web' => $web,
+            'original' => $cronHash === $originalCronHash && $web === $originalWeb];
+    }
+
+    /** Caller must first fence both owners against any code/database mutation and verify both preimages. */
+    public function restorePreparation(string $operation, string $originalCronHash, array $review, ?array $originalWeb): array
+    {
+        $observed = $this->inspectPreparation($operation, $originalCronHash, $review, $originalWeb);
+        if (!$observed['original']) {
+            if ($originalWeb === null) $this->restoreScheduler($operation); else $this->restore($operation);
+        }
+        $observed = $this->inspectPreparation($operation, $originalCronHash, $review, $originalWeb);
+        if (!$observed['original']) throw new RuntimeException('Original preparation state was not restored.');
+        return $observed;
+    }
+
     /** Deliberately leaves recovery material/any installed hold on error. The release adapter decides recovery. */
     public function pause(string $operation, array $expectedWeb, string $expectedCronHash, array $review,
         ?string $diagnosticPath = null): array

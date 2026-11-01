@@ -186,6 +186,39 @@ final class FullCoreReleaseOwner
         $this->held($b); return $native;
     }
 
+    private function preparationObservation(): array
+    {
+        $s = $this->control->snapshot();
+        if ($s['direction'] !== 'preparation-abort') throw new RuntimeException('Permanent preparation abort fence required.');
+        foreach (['apply-requested.json','recovery-requested.json','journal.jsonl'] as $marker) {
+            $path = $this->config['files_directory'] . '/' . $marker;
+            if (file_exists($path) || is_link($path)) throw new RuntimeException('Possible native file mutation requires paired recovery.');
+        }
+        $host = $this->host()->inspectPreparation($this->spec['operation'], $this->config['original_cron_sha256'],
+            $this->config['cron_review'], $this->uid === 1004 ? $this->config['original_web'] : null);
+        $adapter = new FullCoreReleaseFiles(FullCoreReleaseControl::ROOT, $this->config['package_directory'],
+            $this->config['files_directory'], $this->plan(), $this->spec['owner_plan_sha256'][$this->uid],
+            fn(): bool => $this->control->snapshot()['direction'] === 'preparation-abort');
+        $adapter->verify(false);
+        return ['host' => $host, 'original_files_verified' => true, 'owner_release_mutations_never_started' => true];
+    }
+
+    private function preparationPeer(bool $restored): void
+    {
+        $challenge = bin2hex(random_bytes(32)); $requested = microtime(true);
+        $peer = ($this->exchange)(['kind' => 'preparation-abort-witness', 'challenge' => $challenge,
+            'operation' => $this->spec['operation'], 'control_spec_sha256' => $this->specHash]);
+        $observed = $peer['observed_at_unix'] ?? null; $now = microtime(true);
+        if (($peer['challenge'] ?? null) !== $challenge || ($peer['operation'] ?? null) !== $this->spec['operation']
+            || ($peer['control_spec_sha256'] ?? null) !== $this->specHash || ($peer['owner_uid'] ?? null) !== ($this->uid === 1003 ? 1004 : 1003)
+            || ($peer['direction'] ?? null) !== 'preparation-abort' || ($peer['verified_preparation_abort'] ?? null) !== true
+            || ($peer['original_files_verified'] ?? null) !== true || ($peer['owner_release_mutations_never_started'] ?? null) !== true
+            || (!is_float($observed) && !is_int($observed)) || $observed < $requested || $observed > $now || $now - $requested > 15
+            || ($restored && ($peer['host']['original'] ?? null) !== true)) {
+            throw new RuntimeException('Fresh authenticated other-owner preparation verification required.');
+        }
+    }
+
     public function run(string $action, array $input = [], ?array $peer = null): array
     {
         $spec = $this->spec; $operation = $spec['operation']; $evidence = hash('sha256', FullCoreReleaseControl::encode($input));
@@ -201,7 +234,23 @@ final class FullCoreReleaseOwner
         }
         if ($action === 'witness-held') return $this->heldObservation();
         if ($action === 'request-recovery') { $this->control->requestRecovery(); return ['state' => $this->control->snapshot()]; }
+        if ($action === 'request-preparation-abort') { $this->control->requestPreparationAbort(); return ['state' => $this->control->snapshot()]; }
         if ($action === 'abandon-unstarted') { $this->control->abandonUnstarted(); return ['state' => $this->control->snapshot()]; }
+        if ($action === 'inspect-preparation-abort') {
+            if (!preg_match('/^[a-f0-9]{64}$/D', $input['challenge'] ?? '')) throw new RuntimeException('Fresh preparation inspection challenge required.');
+            $native = $this->preparationObservation(); $state = $this->control->snapshot();
+            return $native + ['challenge' => $input['challenge'], 'operation' => $operation, 'control_spec_sha256' => $this->specHash,
+                'owner_uid' => $this->uid, 'direction' => $state['direction'], 'observed_at_unix' => microtime(true),
+                'verified_preparation_abort' => isset($state['completed']['verify-preparation-abort'])];
+        }
+        $resume = $action === 'resume-preparation-abort';
+        if ($resume) {
+            $pending = $this->control->snapshot()['pending'];
+            $action = $input['phase'] ?? '';
+            if (!in_array($action, ['verify-preparation-abort','restore-preparation-hold','complete-preparation-abort'], true)
+                || ($pending['action'] ?? null) !== $action) throw new RuntimeException('Exact interrupted preparation-abort phase required.');
+            $evidence = $pending['evidence_sha256'];
+        }
         if ($action === 'inspect-database-state') {
             $state = $this->control->snapshot();
             if ($this->uid !== 1004 || $state['direction'] !== 'release' || $state['pending'] !== null
@@ -217,6 +266,18 @@ final class FullCoreReleaseOwner
         if (($required = $this->control->peerRequiredFor($action)) !== null) {
             if (($peer['action'] ?? null) !== $required) throw new RuntimeException('Direct required peer outcome missing.');
             $this->control->acceptPeerOutcome($peer);
+        }
+        if (in_array($action, ['verify-preparation-abort','restore-preparation-hold','complete-preparation-abort'], true)) {
+            $token = $resume ? $pending['token'] : $this->control->begin($action, $evidence);
+            $native = $this->preparationObservation();
+            if ($action !== 'verify-preparation-abort') $this->preparationPeer($action === 'complete-preparation-abort');
+            if ($action === 'restore-preparation-hold') {
+                $this->host()->restorePreparation($operation, $this->config['original_cron_sha256'],
+                    $this->config['cron_review'], $this->uid === 1004 ? $this->config['original_web'] : null);
+                $native = $this->preparationObservation();
+            }
+            if ($action !== 'verify-preparation-abort' && !$native['host']['original']) throw new RuntimeException('Original service state required before completing preparation abort.');
+            return $this->finish($action, $token, $evidence, $native);
         }
         if ($action === 'upgrade-database') {
             if ($this->uid !== 1004) throw new RuntimeException('Application owner required for database upgrade.');

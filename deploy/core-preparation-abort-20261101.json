@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "recorded_date": "2026-11-01",
+  "scope": "native two-owner cleanup before code or database upgrade",
+  "production_changed": false,
+  "control_checks": 37,
+  "native_scenarios": {
+    "interruption_before_hold_receipt": 16,
+    "native_scheduler_failure_after_web_hold": 19,
+    "partial_file_backup_and_concurrent_edits": 24
+  },
+  "control_log_sha256": "afa9bd1c203ac3ee544b09dcd58e4d784af35eab7a4331d18e4728d82f862919",
+  "final_native_scenarios_log_sha256": "f4feeb5fffc1e6d16cab549c2429b2ed66330298ac4ddef34b1187cc83c77ac8",
+  "verified": [
+    "The actual native CLI worker runs under each account over key-authenticated SSH in a disposable network-isolated Linux container.",
+    "Both accounts permanently select preparation-abort before original service state can be restored.",
+    "A pending or completed code/database mutation, observed peer database upgrade or existing recovery direction refuses this path.",
+    "Each owner verifies every planned original file and directory, routing and native schedule without requiring a complete backup pair.",
+    "Restoration requires the other owner's verified receipt plus a fresh challenged SSH inspection of its current files and permanent abort direction.",
+    "Concurrent changes to either owner's files are preserved and prevent reopening; explicit resumption rechecks the actual native state.",
+    "The fixture's native crontab failure occurs after routing replacement, leaving a real partial hold and unresolved release intent.",
+    "A native scheduler install followed by failed acknowledgment leaves a pending cleanup intent; explicit resumption completes it without installing the schedule again.",
+    "The native installed master crontab and absent application crontab are preserved exactly.",
+    "Cleanup succeeds with the private database connection file removed and no database backup or baseline, while an independent full native fingerprint verifies rows, schema, views, triggers and counters remain unchanged.",
+    "Terminal preparation abort requires both restored-owner receipts; recorded outcomes remain independently inspectable."
+  ],
+  "protocol": {
+    "select_direction_on_both_owners": "request-preparation-abort",
+    "ordered_phases_per_owner": ["verify-preparation-abort", "restore-preparation-hold", "complete-preparation-abort"],
+    "fresh_peer_inspection": "inspect-preparation-abort with the requesting owner's challenge",
+    "explicit_interrupted_phase_resumption": "resume-preparation-abort with phase matching the durable pending intent",
+    "database_restore": false
+  },
+  "limits": [
+    "Missing or damaged maintenance receipts cannot authorize replacement of changed routing or schedules.",
+    "A possible database or code upgrade still requires the existing verified backup-pair recovery path.",
+    "Live outside-host execution coordination, writer inventory, native backup/restore transport and full-candidate rehearsal remain outstanding.",
+    "Exact-commit CI must run this path together with all upgrade, activation and paired-recovery scenarios.",
+    "No live maintenance, public file change, migration, provider write or financial execution occurred."
+  ]
+}

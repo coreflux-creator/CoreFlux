@@ -5,6 +5,7 @@ declare(strict_types=1);
 final class FullCoreReleaseControl
 {
     public const ROOT = '/home/1516771.cloudwaysapps.com/grcudkpvcd/public_html';
+    private const PREPARATION_ABORT = ['verify-preparation-abort', 'restore-preparation-hold', 'complete-preparation-abort'];
     private int $uid;
     private string $directory;
     private string $operationDirectory;
@@ -46,7 +47,7 @@ final class FullCoreReleaseControl
                 $this->validateState($previous, $previousSpec, $previousDirectory);
                 if (($previous['spec_sha256'] ?? null) !== ($active['spec_sha256'] ?? null)
                     || $previousSpec['operation'] !== $active['operation']
-                    || !in_array($previous['terminal'] ?? null, ['complete', 'recovered', 'unstarted'], true)
+                    || !in_array($previous['terminal'] ?? null, ['complete', 'recovered', 'unstarted', 'preparation-aborted'], true)
                     || ($previous['pending'] ?? null) !== null) throw new RuntimeException('Unresolved earlier Core release must be inspected or recovered first.');
             } elseif (($active['spec_sha256'] ?? null) !== $this->specHash) throw new RuntimeException('Operation already belongs to another release specification.');
         }
@@ -144,7 +145,7 @@ final class FullCoreReleaseControl
         if (($s['version'] ?? null) !== 1 || ($s['operation'] ?? null) !== $spec['operation']
             || ($s['owner_uid'] ?? null) !== $this->uid || ($s['spec_sha256'] ?? null) !== hash('sha256', self::encode($spec))
             || !is_int($s['sequence'] ?? null) || $s['sequence'] < 0 || !is_array($s['completed'] ?? null) || !is_array($s['peer_outcomes'] ?? null)
-            || !in_array($s['direction'] ?? null, ['release', 'recovery'], true)
+            || !in_array($s['direction'] ?? null, ['release', 'recovery', 'preparation-abort'], true)
             || !is_bool($s['activation_may_have_started'] ?? null)
             || !array_key_exists('pending', $s) || !array_key_exists('terminal', $s)) throw new RuntimeException('Release control state is invalid.');
         if ($s['pending'] !== null) {
@@ -159,20 +160,20 @@ final class FullCoreReleaseControl
             ? ['restore-database', 'recover-files', 'verify-recovery', 'refresh-recovery-cache', 'restore-routing']
             : ['recover-files', 'verify-recovery', 'restore-scheduler'];
         foreach ($s['completed'] as $action => $hash) {
-            if (!in_array($action, array_merge($release, $recovery), true) || !is_string($hash)
+            if (!in_array($action, array_merge($release, $recovery, self::PREPARATION_ABORT), true) || !is_string($hash)
                 || !preg_match('/^[a-f0-9]{64}$/D', $hash)
                 || !hash_equals($hash, hash('sha256', $this->read($directory . '/' . $action . '.json')))) {
                 throw new RuntimeException('Completed release outcome is missing or changed.');
             }
         }
         foreach ($s['peer_outcomes'] as $action => $hash) {
-            if (!in_array($action, ['hold','prepare-files','upgrade-database','verify-files','activate','resume-scheduler','restore-database','verify-recovery','restore-routing'], true)
+            if (!in_array($action, ['hold','prepare-files','upgrade-database','verify-files','activate','resume-scheduler','restore-database','verify-recovery','restore-routing','verify-preparation-abort','restore-preparation-hold'], true)
                 || !is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D', $hash)
                 || !hash_equals($hash, hash('sha256', $this->read($directory . '/peer-' . $action . '.json')))) {
                 throw new RuntimeException('Other-owner outcome is missing or changed.');
             }
         }
-        foreach ([$release, $recovery] as $order) {
+        foreach ([$release, $recovery, self::PREPARATION_ABORT] as $order) {
             $gap = false;
             foreach ($order as $action) {
                 if (!isset($s['completed'][$action])) $gap = true;
@@ -180,7 +181,8 @@ final class FullCoreReleaseControl
             }
         }
         $next = null;
-        foreach ($s['direction'] === 'release' ? $release : $recovery as $action) {
+        $order = match ($s['direction']) { 'release' => $release, 'recovery' => $recovery, 'preparation-abort' => self::PREPARATION_ABORT };
+        foreach ($order as $action) {
             if (!isset($s['completed'][$action])) { $next = $action; break; }
         }
         if (($s['pending'] !== null && $s['pending']['action'] !== $next)
@@ -189,9 +191,21 @@ final class FullCoreReleaseControl
             || ((isset($s['completed']['activate']) || ($s['pending']['action'] ?? null) === 'activate') && !$s['activation_may_have_started'])) {
             throw new RuntimeException('Release direction or pending phase is inconsistent.');
         }
-        if (!in_array($s['terminal'], [null, 'complete', 'recovered', 'unstarted'], true)
+        if ($s['direction'] === 'preparation-abort') {
+            if ($s['activation_may_have_started'] || !array_key_exists('interrupted_release_intent', $s)
+                || array_diff(array_keys($s['completed']), array_merge(['hold','prepare-files'], self::PREPARATION_ABORT))
+                || array_diff(array_keys($s['peer_outcomes']), ['hold','prepare-files','verify-preparation-abort','restore-preparation-hold'])
+                || ($s['interrupted_release_intent'] !== null && !in_array($s['interrupted_release_intent']['action'] ?? null, ['hold','prepare-files'], true))) {
+                throw new RuntimeException('Preparation abort cannot include a possible code or database mutation.');
+            }
+        } elseif (array_intersect(array_keys($s['completed']), self::PREPARATION_ABORT)) {
+            throw new RuntimeException('Preparation abort cannot return to release or database recovery.');
+        }
+        if (!in_array($s['terminal'], [null, 'complete', 'recovered', 'unstarted', 'preparation-aborted'], true)
             || ($s['terminal'] === 'complete' && !isset($s['completed'][end($release)]))
             || ($s['terminal'] === 'recovered' && !isset($s['completed'][end($recovery)]))
+            || ($s['terminal'] === 'preparation-aborted' && ($s['direction'] !== 'preparation-abort'
+                || !isset($s['completed']['complete-preparation-abort'])))
             || ($s['terminal'] === 'unstarted' && ($s['completed'] || $s['pending'] !== null || $s['sequence'] !== 0
                 || $s['direction'] !== 'release'))) throw new RuntimeException('Terminal release state is incomplete.');
     }
@@ -229,6 +243,7 @@ final class FullCoreReleaseControl
         if ($s['direction'] === 'recovery') $order = $this->uid === 1004
             ? ['restore-database', 'recover-files', 'verify-recovery', 'refresh-recovery-cache', 'restore-routing']
             : ['recover-files', 'verify-recovery', 'restore-scheduler'];
+        if ($s['direction'] === 'preparation-abort') $order = self::PREPARATION_ABORT;
         $next = null;
         foreach ($order as $step) if (!isset($s['completed'][$step])) { $next = $step; break; }
         if ($action !== $next) throw new RuntimeException('Release phase is out of order for this owner or recovery direction.');
@@ -264,6 +279,7 @@ final class FullCoreReleaseControl
         $this->state['pending'] = null;
         if (in_array($action, ['complete', 'resume-scheduler'], true)) $this->state['terminal'] = 'complete';
         if (in_array($action, ['restore-routing', 'restore-scheduler'], true)) $this->state['terminal'] = 'recovered';
+        if ($action === 'complete-preparation-abort') $this->state['terminal'] = 'preparation-aborted';
         $this->save();
         return $receipt;
     }
@@ -286,6 +302,8 @@ final class FullCoreReleaseControl
 
     public function peerRequiredFor(string $action): ?string
     {
+        if ($action === 'restore-preparation-hold') return 'verify-preparation-abort';
+        if ($action === 'complete-preparation-abort') return 'restore-preparation-hold';
         $required = $this->uid === 1004
             ? ['prepare-files'=>'hold', 'upgrade-database'=>'prepare-files', 'refresh-cache'=>'verify-files', 'complete'=>'resume-scheduler', 'restore-routing'=>'verify-recovery']
             : ['prepare-files'=>'hold', 'apply-files'=>'upgrade-database', 'resume-scheduler'=>'activate',
@@ -298,7 +316,7 @@ final class FullCoreReleaseControl
     {
         $s = $this->snapshot(); $uid = $this->uid === 1003 ? 1004 : 1003; $action = $receipt['action'] ?? null;
         if ($s['terminal'] !== null || !in_array($action, ['hold','prepare-files','upgrade-database','verify-files','activate','resume-scheduler',
-            'restore-database','verify-recovery','restore-routing'], true)) throw new RuntimeException('Recognized other-owner outcome required.');
+            'restore-database','verify-recovery','restore-routing','verify-preparation-abort','restore-preparation-hold'], true)) throw new RuntimeException('Recognized other-owner outcome required.');
         foreach (['operation','candidate_commit','manifest_sha256','migration_plan_sha256','root'] as $key) {
             if (($receipt[$key] ?? null) !== $this->spec[$key]) throw new RuntimeException('Other-owner outcome belongs to a different release.');
         }
@@ -319,9 +337,28 @@ final class FullCoreReleaseControl
     public function requestRecovery(): void
     {
         $s = $this->snapshot();
-        if ($s['terminal'] !== null || $s['activation_may_have_started']) throw new RuntimeException('Activation may have admitted new writes; original-backup recovery is forbidden.');
+        if ($s['terminal'] !== null || $s['activation_may_have_started'] || $s['direction'] === 'preparation-abort') throw new RuntimeException('Original-backup recovery is forbidden in this release state.');
         if ($s['direction'] === 'recovery') return;
         $this->state['direction'] = 'recovery';
+        $this->state['interrupted_release_intent'] = $s['pending'];
+        $this->state['pending'] = null;
+        $this->state['sequence']++;
+        $this->save();
+    }
+
+    /** Permanently fence a failed preparation before either account reopens original routing or jobs. */
+    public function requestPreparationAbort(): void
+    {
+        $s = $this->snapshot();
+        if ($s['terminal'] !== null) throw new RuntimeException('Preparation abort is already terminal or unavailable.');
+        if ($s['direction'] === 'preparation-abort') return;
+        if ($s['direction'] !== 'release' || $s['activation_may_have_started']
+            || array_diff(array_keys($s['completed']), ['hold','prepare-files'])
+            || array_diff(array_keys($s['peer_outcomes']), ['hold','prepare-files'])
+            || ($s['pending'] !== null && !in_array($s['pending']['action'], ['hold','prepare-files'], true))) {
+            throw new RuntimeException('A possible database or code change requires paired recovery, not preparation abort.');
+        }
+        $this->state['direction'] = 'preparation-abort';
         $this->state['interrupted_release_intent'] = $s['pending'];
         $this->state['pending'] = null;
         $this->state['sequence']++;

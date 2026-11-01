@@ -83,6 +83,18 @@ set -u
 mkdir -p "$APACHE_RUN_DIR" "$APACHE_LOCK_DIR"
 apache2 -DFOREGROUND > /fixture/apache.log 2>&1 &
 test_script=tests/full_core_production_upgrade_linux.php
+mv /usr/bin/crontab /usr/bin/crontab.native
+cat > /usr/bin/crontab <<'CRON'
+#!/bin/bash
+if [ -e /fixture/interrupt-hold ] && [ "$(id -u)" = 1004 ] && grep -q '# CoreFlux maintenance ' /home/1516771.cloudwaysapps.com/grcudkpvcd/public_html/.htaccess; then exit 87; fi
+if [ "${1:-}" = - ] && [ -e /fixture/interrupt-restore ]; then
+    /usr/bin/crontab.native "$@" || exit $?
+    printf 'installed\n' >> /fixture/restore-write-count
+    exit 87
+fi
+exec /usr/bin/crontab.native "$@"
+CRON
+chmod 755 /usr/bin/crontab
 if [ "${1:-}" = control ]; then test_script=tests/full_core_release_control_linux.php; fi
 php "$test_script" "$@" || {
     code=$?
@@ -93,7 +105,7 @@ php "$test_script" "$@" || {
 }
 START
 docker build --quiet --tag "$image" "$fixture"
-scenarios=(control wrong-file-plan stale extra-db late-db guard-loss crash recover activate)
+scenarios=(control abort-before-hold abort-partial-hold abort-file-backup wrong-file-plan stale extra-db late-db guard-loss crash recover activate)
 if [ "$#" -gt 0 ]; then scenarios=("$@"); fi
 for scenario in "${scenarios[@]}"; do
     docker run --network none --name "$container" "$image" "$scenario" || { docker logs "$container"; exit 1; }
