@@ -21,7 +21,7 @@ COPY deploy /app/deploy
 COPY tests /app/tests
 COPY apache.conf /etc/apache2/sites-available/000-default.conf
 WORKDIR /app
-CMD ["bash", "-c", "php tests/full_core_maintenance_channel_fixture.php && php-fpm -D && . /etc/apache2/envvars && exec apache2 -DFOREGROUND"]
+CMD ["bash", "-c", "php tests/full_core_maintenance_channel_fixture.php && php-fpm -D && . /etc/apache2/envvars && mkdir -p \"$APACHE_RUN_DIR\" \"$APACHE_LOCK_DIR\" && exec apache2 -DFOREGROUND"]
 DOCKER
 cat > "$fixture/apache.conf" <<'APACHE'
 ServerName fixture.local
@@ -37,7 +37,7 @@ ServerName fixture.local
 </VirtualHost>
 APACHE
 docker build --quiet --tag "$image" "$fixture"
-docker run --detach --rm --network none --name "$container" "$image" >/dev/null
+docker run --detach --network none --name "$container" "$image" >/dev/null
 if ! docker exec "$container" python3 /app/tests/full_core_maintenance_channel_http.py; then
     docker logs "$container"
     exit 1
