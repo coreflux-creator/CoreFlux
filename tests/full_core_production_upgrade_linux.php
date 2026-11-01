@@ -112,7 +112,9 @@ function fixtureOwner(string $base, int $uid, string $action, array $extraInput 
     }
     $initial=fixtureOwnerRequest($base,$uid,$action);
     $initial['input'] += $extraInput;
-    $p = proc_open(fixtureOwnerCommand($base,$uid), [0 => ['pipe','r'],1 => ['pipe','w'],2 => ['file','/fixture/commands.stderr','a']], $pipes);
+    $command = in_array($action,['external-capture','external-restore','external-restore-short'],true)
+        ? ['python3',__DIR__.'/core_database_transfer_native.py',$base,$action] : fixtureOwnerCommand($base,$uid);
+    $p = proc_open($command, [0 => ['pipe','r'],1 => ['pipe','w'],2 => ['file','/fixture/commands.stderr','a']], $pipes);
     if (!is_resource($p)) throw new RuntimeException('Owner process unavailable.');
     fwrite($pipes[0],json_encode($initial,JSON_THROW_ON_ERROR)."\n"); fflush($pipes[0]);
     $result = null;
@@ -198,8 +200,23 @@ function fixtureWriters(string $base, string $inventoryHash, ?int $ownerPid = nu
         $parts = explode("\0", rtrim($command, "\0"));
         if (in_array(basename($parts[0]), ['cron', 'crond'], true)) $unmanaged++;
         if (!preg_match('/^Uid:\s+(\d+)\s+(\d+)/m', $status, $match) || !in_array((int)$match[2], [1003, 1004], true)) continue;
-        if ($parts === fixtureOwnerNativeCommand($base,(int)$match[2])
+        $expectedCommand=fixtureOwnerNativeCommand($base,(int)$match[2]);
+        $sameWorker=count($parts) === count($expectedCommand) && $parts[0] === $expectedCommand[0]
+            && in_array($parts[1],[$expectedCommand[1],'deploy/run_full_core_release_owner.php'],true)
+            && array_slice($parts,2) === array_slice($expectedCommand,2);
+        if ($sameWorker
             && ($ownerPid === null || (int)basename(dirname($path)) === $ownerPid)) { $upgradeProcesses++; continue; }
+        // This unprivileged container cannot read another UID's executable symlink.
+        // Match the fixed native command and its actual ancestry to the authenticated owner.
+        if (in_array($action,['external-capture','external-restore','external-restore-short'],true) && (int)$match[2] === 1004
+            && in_array($parts[0],['/usr/bin/timeout','/usr/bin/mariadb-dump','/usr/bin/mariadb'],true)) {
+            $ancestor=$status;
+            for ($depth=0;$depth<3;$depth++) {
+                if (!preg_match('/^PPid:\s+(\d+)/m',$ancestor,$parent)) break;
+                if ((int)$parent[1] === $ownerPid) continue 2;
+                $ancestor=(string)@file_get_contents('/proc/'.$parent[1].'/status');
+            }
+        }
         // Only the disposable fixture's key-authenticated command-session supervisor; it is not a Core writer.
         if (fixtureSshSupervisor($status,$command,(int)$match[2])) continue;
         if (str_starts_with($command, 'php-fpm: pool www')) continue;
@@ -216,7 +233,7 @@ function fixtureWriters(string $base, string $inventoryHash, ?int $ownerPid = nu
 
 if (posix_geteuid() !== 0) throw new RuntimeException('Container fixture initializer required.');
 $scenario = $argv[1] ?? '';
-if (!in_array($scenario, ['abort-coordinator','abort-before-hold','abort-partial-hold','abort-file-backup','wrong-file-plan', 'stale', 'extra-db', 'late-db', 'guard-loss', 'crash', 'recover', 'activate'], true)) throw new RuntimeException('Explicit fixture scenario required.');
+if (!in_array($scenario, ['transfer-loss','abort-coordinator','abort-before-hold','abort-partial-hold','abort-file-backup','wrong-file-plan', 'stale', 'extra-db', 'late-db', 'guard-loss', 'crash', 'recover', 'activate'], true)) throw new RuntimeException('Explicit fixture scenario required.');
 $checks = 0;
 $check = static function (bool $ok, string $label) use (&$checks): void {
     if (!$ok) throw new RuntimeException('FAIL ' . $label . '; inspect /fixture/commands.stderr');
@@ -290,6 +307,10 @@ $rootDb->exec('USE ' . FIXTURE_DB);
 $rootDb->exec('CREATE TABLE _migrations(filename VARCHAR(190) PRIMARY KEY,sha256 CHAR(64) NOT NULL,applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,last_error TEXT NULL,duration_ms INT NULL) ENGINE=InnoDB');
 $rootDb->exec('CREATE TABLE coreflux_migrations(file_path VARCHAR(255) PRIMARY KEY,checksum_sha CHAR(64),applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB');
 $rootDb->exec($baseline); $rootDb->exec("INSERT INTO balances VALUES(1,999,25.19,0x00ff),(2,998,99.00,0xfe7f)");
+if ($scenario === 'transfer-loss') {
+    $insert=$rootDb->prepare('INSERT INTO balances VALUES(?,998,25.19,?)');
+    for ($id=3;$id<23;$id++) $insert->execute([$id,str_repeat("\0\xffsynthetic",5000)]);
+}
 $rootDb->prepare('INSERT INTO _migrations(filename,sha256) VALUES(?,?)')->execute(['001_baseline.sql', corefluxMigrationHash($baseline)]);
 $rootDb->prepare('INSERT INTO coreflux_migrations(file_path,checksum_sha) VALUES(?,?)')->execute(['core/migrations/001_baseline.sql', corefluxMigrationHash($baseline)]);
 $snapshot = static fn(): array => fixtureSnapshot($rootDb);
@@ -493,22 +514,11 @@ foreach ([1003, 1004] as $uid) {
 [$fingerprintExit,$fingerprintBytes]=fixtureOwner($base,1004,'inspect-database-state');
 $check($fingerprintExit === 0 && json_decode($fingerprintBytes,true)['snapshot_sha256'] === $beforeFingerprint['snapshot_sha256'],
     'native worker fingerprints all original rows schema trigger view and sequence counters without returning business values');
-[$exit, $sql] = fixtureCommand(['mariadb-dump', '--socket=/run/mysqld/mysqld.sock', '--user=grcudkpvcd', '--single-transaction',
-    '--skip-lock-tables', '--hex-blob', '--routines', '--events', '--triggers', FIXTURE_DB]);
-$check($exit === 0 && strlen($sql) > 1000, 'native full backup succeeds with application database identity');
-$key = random_bytes(32); $iv = random_bytes(12); $tag = '';
-$aad = json_encode($pair, JSON_THROW_ON_ERROR);
-$encrypted = openssl_encrypt($sql, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, $aad);
-if ($encrypted === false) throw new RuntimeException('Fixture backup encryption failed.');
-$archive = $iv . $tag . $encrypted;
-fixtureWrite($base . '/backup/database.aesgcm', $archive, 0);
-$read = file_get_contents($base . '/backup/database.aesgcm');
-$restoredSql = openssl_decrypt(substr($read, 28), 'aes-256-gcm', $key, OPENSSL_RAW_DATA, substr($read, 0, 12), substr($read, 12, 16), $aad);
-$check($restoredSql === $sql, 'encrypted backup readback verifies all native SQL bytes');
-$pair['database_backup'] = ['native_full_schema_and_data' => true, 'encryption' => 'aes-256-gcm-envelope-v1',
-    'snapshot_sha256' => $beforeFingerprint['snapshot_sha256'],
-    'sql_bytes' => strlen($sql), 'archive_bytes' => strlen($archive), 'restoring_database_user' => FIXTURE_DB,
-    'sql_sha256' => hash('sha256', $sql), 'readback_sql_sha256' => hash('sha256', $restoredSql), 'archive_sha256' => hash('sha256', $archive)];
+[$exit,$captureBytes]=fixtureOwner($base,1004,'external-capture'); $capture=json_decode($captureBytes,true);
+$check($exit === 0 && ($capture['sql_bytes'] ?? 0) > 1000,'native application dump streams through pinned SSH into an outside-host authenticated archive');
+$check($capture['sql_sha256'] === $capture['readback_sql_sha256'] && $capture['snapshot_sha256'] === $beforeFingerprint['snapshot_sha256'],
+    'outside-host decrypted readback matches the native SQL and unchanged database fingerprint');
+$pair['database_backup'] = $capture;
 if ($scenario === 'wrong-file-plan') $pair['file_owners'][1003]['plan_sha256'] = hash('sha256', 'different owner plan');
 $pairBytes = json_encode($pair, JSON_THROW_ON_ERROR); $binding['backup_pair_sha256'] = hash('sha256', $pairBytes);
 fixtureWrite($base . '/execution/backup-pair.json', $pairBytes, 1004);
@@ -610,19 +620,49 @@ if ($scenario === 'activate') {
     // Only this fresh container database may be emptied; exact identity and authenticated backup are checked first.
     $check($rootDb->query('SELECT DATABASE()')->fetchColumn() === FIXTURE_DB
         && hash_equals($pair['database_backup']['archive_sha256'], hash_file('sha256', $base . '/backup/database.aesgcm'))
-        && hash_equals($pair['database_backup']['sql_sha256'], hash('sha256', $restoredSql)), 'exact paired native backup verified before disposable recovery');
+        && hash_equals($pair['database_backup']['sql_sha256'], $pair['database_backup']['readback_sql_sha256']), 'exact paired native backup verified before disposable recovery');
     $recoveryPair=$pair;
     if ($scenario === 'wrong-file-plan') $recoveryPair['file_owners'][1003]['plan_sha256']=$spec['control']['owner_plan_sha256'][1003];
     $recoveryPairBytes=FullCoreReleaseControl::encode($recoveryPair);
     fixtureWrite($base.'/recovery-backup-pair.json',$recoveryPairBytes,1004);
     fixtureWrite($base . '/restore-expectation.json', json_encode(['operation' => $operation, 'candidate_commit' => $commit,
         'backup_pair_sha256' => hash('sha256',$recoveryPairBytes), 'snapshot_sha256' => $beforeFingerprint['snapshot_sha256']], JSON_THROW_ON_ERROR), 1004);
+    if ($scenario === 'recover') {
+        $beforeRefusal=$snapshot();
+        $check(fixtureOwner($base,1004,'empty-recovery-database')[0] === 2 && $snapshot() === $beforeRefusal,
+            'native target cannot be emptied before its explicit durable recovery intent');
+        $originalExpectation=file_get_contents($base.'/restore-expectation.json');
+        $foreignPair=$recoveryPair; $foreignPair['database_backup']['sql_sha256']=str_repeat('0',64);
+        $foreignPair['database_backup']['readback_sql_sha256']=str_repeat('0',64);
+        $foreignBytes=FullCoreReleaseControl::encode($foreignPair);
+        fixtureWrite($base.'/recovery-backup-pair.json',$foreignBytes,1004);
+        $foreignExpectation=json_decode($originalExpectation,true); $foreignExpectation['backup_pair_sha256']=hash('sha256',$foreignBytes);
+        fixtureWrite($base.'/restore-expectation.json',FullCoreReleaseControl::encode($foreignExpectation),1004);
+        $check(fixtureOwner($base,1004,'begin-database-recovery')[0] === 2 && $snapshot() === $beforeRefusal,
+            'newly pinned backup claims cannot substitute SQL that differs from the original native capture');
+        fixtureWrite($base.'/recovery-backup-pair.json',$recoveryPairBytes,1004);
+        fixtureWrite($base.'/restore-expectation.json',$originalExpectation,1004);
+    }
     $check(fixtureOwner($base, 1004, 'begin-database-recovery')[0] === 0, 'database recovery intent persists before native restore begins');
-    $rootDb->exec('DROP DATABASE ' . FIXTURE_DB); $rootDb->exec('CREATE DATABASE ' . FIXTURE_DB); $rootDb->exec('USE ' . FIXTURE_DB);
-    fixtureWrite($base . '/backup/restore.sql', $restoredSql, 0);
-    $check(fixtureCommand(['mariadb', '--socket=/run/mysqld/mysqld.sock', '--user=grcudkpvcd', FIXTURE_DB],
-        $base . '/backup/restore.sql')[0] === 0, 'native empty-target database restore runs as application database user');
-    unlink($base . '/backup/restore.sql');
+    if ($scenario === 'recover') {
+        $archive=file_get_contents($base.'/backup/database.aesgcm'); $beforeRejectedRestore=$snapshot();
+        $tampered=$archive; $tampered[strlen($tampered)-20]=chr(ord($tampered[strlen($tampered)-20]) ^ 1);
+        file_put_contents($base.'/backup/database.aesgcm',$tampered);
+        $check(fixtureOwner($base,1004,'external-restore')[0] === 2 && $snapshot() === $beforeRejectedRestore,
+            'corrupt encrypted archive is rejected before the recovery target is emptied');
+        file_put_contents($base.'/backup/database.aesgcm',$archive);
+    }
+    if ($scenario === 'transfer-loss') {
+        $check($pair['database_backup']['sql_bytes'] > 2*1048576,
+            'binary synthetic data exercises multiple native wire and encrypted archive frames');
+        $check(fixtureOwner($base,1004,'external-restore-short')[0] === 2 && fixtureHttp($spec,null,'/read.php')[0] === 503,
+            'truncated native SQL transfer retains maintenance and the unresolved database recovery intent');
+        [$code,$bytes]=fixtureOwner($base,1004,'inspect-control'); $state=json_decode($bytes,true)['state'];
+        $check($code === 0 && $state['pending']['action'] === 'restore-database' && !isset($state['completed']['restore-database']),
+            'partial SQL stream cannot report a completed restore');
+    }
+    $check(fixtureOwner($base,1004,'external-restore')[0] === 0,
+        'verified outside-host archive restores through native application-owned target reset and SQL stream');
     if ($scenario === 'recover') {
         $rootDb->exec('ALTER TABLE balances AUTO_INCREMENT=8001');
         $check(fixtureOwner($base,1004,'confirm-database-recovery')[0] === 2, 'native restore confirmation refuses changed sequence counters');

@@ -54,7 +54,14 @@ try {
         return $db;
     };
     $owner = new FullCoreReleaseOwner($config, $argv[3], $exchange, $connect,
-        static fn(): string => fullCoreNativeDatabaseState($connect(), FullCoreProductionUpgradeContext::DATABASE)['snapshot_sha256']);
+        static fn(): string => fullCoreNativeDatabaseState($connect(), FullCoreProductionUpgradeContext::DATABASE)['snapshot_sha256'],
+        static fn(): FullCoreDatabaseTransfer => new FullCoreDatabaseTransfer(json_decode(ownerWorkerPrivate(
+            $config['database_connection_path'] ?? '', $config['database_connection_sha256'] ?? ''),true,16,JSON_THROW_ON_ERROR)),
+        static function (int $offset,string $bytes) use ($request): void {
+            $line = json_encode(['stream'=>['offset'=>$offset,'data'=>base64_encode($bytes)],
+                'owner_uid'=>posix_geteuid(),'challenge'=>$request['challenge']],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
+            if (fwrite(STDOUT,$line) !== strlen($line) || !fflush(STDOUT)) throw new RuntimeException('Native backup stream interrupted.');
+        });
     $result = $owner->run($request['action'], $request['input'], $request['peer'] ?? null);
     echo json_encode(['response' => $result, 'challenge' => $request['challenge'], 'owner_uid' => posix_geteuid()], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 } catch (Throwable $error) {

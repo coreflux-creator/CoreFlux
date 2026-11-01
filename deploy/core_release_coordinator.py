@@ -1,13 +1,16 @@
-"""Outside-host Core owner transport and explicit preparation-abort coordination.
+"""Outside-host Core owner transport, guarded database transfer and early cleanup.
 
 This command does not publish code, run migrations, restore a database or start a
 release. It can inspect an already reviewed operation and finish its early abort.
+The imported transfer API additionally requires actual writer observations and,
+for restore, a previously established native recovery intent.
 Native owners retain the authoritative intents and receipts; transport failures
 never trigger an automatic replay or a change of recovery direction.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
@@ -29,6 +32,7 @@ WORKER_FILES = frozenset({
     'deploy/full_core_maintenance_host.php', 'deploy/full_core_maintenance.php',
     'deploy/full_core_migration_plan.php', 'deploy/full_core_migration_history.json',
     'deploy/full_core_database_state.php', 'core/migration_hash.php',
+    'deploy/full_core_database_transfer.php',
 })
 ABORT_PHASES = ('verify-preparation-abort', 'restore-preparation-hold', 'complete-preparation-abort')
 READ_ACTIONS = ('inspect-control', 'inspect-preparation-abort')
@@ -89,7 +93,7 @@ def _read_lines(stream, events: queue.Queue) -> None:
 class Coordinator:
     def __init__(self, config: dict, identity: str, *, ssh: str = 'ssh',
                  known_hosts: str | None = None, endpoints: dict[int, Endpoint] | None = None,
-                 timeout: float = 120, php_binary: str = '/usr/bin/php8.2'):
+                 timeout: float = 120, php_binary: str = '/usr/bin/php8.2', observe=None):
         validate_config(config)
         # Freeze caller-owned dictionaries so a callback cannot change the pinned target.
         self.config = json.loads(encode(config))
@@ -99,6 +103,7 @@ class Coordinator:
         self.endpoints = dict(endpoints or {uid: Endpoint(HOST, user) for uid, user in OWNERS.items()})
         self.timeout = timeout
         self.php_binary = private_path(php_binary)
+        self.observe = observe
         self.spec_hash = hashlib.sha256(encode(config['control_spec'])).hexdigest()
 
     def _command(self, uid: int) -> list[str]:
@@ -140,6 +145,11 @@ class Coordinator:
     def _exchange(self, uid: int, action: str, query: dict, challenge: str) -> dict:
         if not isinstance(query, dict) or query.get('owner_uid') != uid or query.get('controller_challenge') != challenge:
             raise ValueError('Native exchange identity differs')
+        if query.get('kind') == 'hold-witness' and action in ('capture-database-stream','empty-recovery-database','restore-database-stream'):
+            spec = self.config['control_spec']
+            if self.observe is None or any(query.get(key) != spec[key] for key in ('operation','candidate_commit','migration_plan_sha256')):
+                raise ValueError('Actual current writer observations are required for database transfer')
+            return self.observe(query)
         if query.get('operation') != self.config['control_spec']['operation'] or query.get('control_spec_sha256') != self.spec_hash:
             raise ValueError('Native exchange belongs to another release')
         if query.get('kind') != 'preparation-abort-witness' or action not in (
@@ -151,10 +161,15 @@ class Coordinator:
         return self.call(1004 if uid == 1003 else 1003, 'inspect-preparation-abort',
                          {'challenge': query['challenge']})
 
-    def call(self, uid: int, action: str, data: dict | None = None, peer: dict | None = None) -> dict:
+    def call(self, uid: int, action: str, data: dict | None = None, peer: dict | None = None,
+             *, capture_sink=None, restore_source=None, timeout: float | None = None) -> dict:
         if uid not in OWNERS or action not in (*READ_ACTIONS, *ABORT_PHASES,
-                                              'request-preparation-abort', 'resume-preparation-abort'):
-            raise ValueError('Explicit inspection or preparation-abort action required')
+                                              'request-preparation-abort', 'resume-preparation-abort',
+                                              'capture-database-stream','empty-recovery-database','restore-database-stream'):
+            raise ValueError('Explicit reviewed native action required')
+        if ((action == 'capture-database-stream') != (capture_sink is not None)
+                or (action == 'restore-database-stream') != (restore_source is not None)):
+            raise ValueError('Explicit bounded database stream endpoint required')
         challenge = secrets.token_hex(32)
         request = {'action': action, 'input': data or {}, 'peer': peer, 'challenge': challenge}
         wire = encode(request) + b'\n'
@@ -165,9 +180,11 @@ class Coordinator:
         events: queue.Queue = queue.Queue(maxsize=32)
         reader = threading.Thread(target=_read_lines, args=(process.stdout, events), daemon=True)
         reader.start()
-        deadline = time.monotonic() + self.timeout
+        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         result = None
         exchanges = 0
+        stream_bytes = 0
+        stream_hash = hashlib.sha256()
         try:
             process.stdin.write(wire)
             process.stdin.flush()
@@ -183,16 +200,35 @@ class Coordinator:
                 event = json.loads(line)
                 if not isinstance(event, dict) or result is not None:
                     raise ValueError('Unexpected native response sequence')
-                if 'response' in event:
+                if 'stream' in event:
+                    if (action != 'capture-database-stream' or event.get('challenge') != challenge or event.get('owner_uid') != uid
+                            or set(event) != {'stream','challenge','owner_uid'} or event['stream'].get('offset') != stream_bytes):
+                        raise ValueError('Native database stream identity or order differs')
+                    raw = base64.b64decode(event['stream']['data'], validate=True)
+                    if not raw or len(raw) > 524288:
+                        raise ValueError('Bounded native SQL frame required')
+                    capture_sink(raw)
+                    stream_bytes += len(raw); stream_hash.update(raw)
+                elif 'response' in event:
                     if set(event) != {'response', 'challenge', 'owner_uid'} or (
                             event['challenge'] != challenge or event['owner_uid'] != uid):
                         raise ValueError('Native SSH response identity differs')
                     result = event['response']
                     if not isinstance(result, dict):
                         raise ValueError('Native response object required')
-                elif set(event) == {'request'} and exchanges < 2:
+                elif set(event) == {'request'} and exchanges < (40000 if action in ('capture-database-stream','empty-recovery-database','restore-database-stream') else 2):
                     exchanges += 1
-                    response = self._exchange(uid, action, event['request'], challenge)
+                    query = event['request']
+                    if query.get('kind') == 'database-restore-chunk':
+                        if (action != 'restore-database-stream' or query.get('controller_challenge') != challenge or query.get('owner_uid') != uid
+                                or query.get('operation') != self.config['control_spec']['operation'] or query.get('control_spec_sha256') != self.spec_hash
+                                or query.get('offset') != stream_bytes or query.get('max_bytes') != 524288):
+                            raise ValueError('Exact native restore stream request required')
+                        raw = restore_source.read(524288)
+                        response = {'offset':stream_bytes,'data':base64.b64encode(raw).decode('ascii')}
+                        stream_bytes += len(raw); stream_hash.update(raw)
+                    else:
+                        response = self._exchange(uid, action, query, challenge)
                     process.stdin.write(encode(response) + b'\n')
                     process.stdin.flush()
                 else:
@@ -203,6 +239,9 @@ class Coordinator:
                 raise OwnerInterrupted(f'Owner {uid} action {action} refused or interrupted (exit {code})')
             if 'state' in result:
                 self._verify_state(uid, result)
+            if action in ('capture-database-stream','restore-database-stream') and (
+                    result.get('sql_bytes') != stream_bytes or result.get('sql_sha256') != stream_hash.hexdigest()):
+                raise ValueError('Native database stream completion differs')
             if action == 'inspect-preparation-abort':
                 if (result.get('owner_uid') != uid or result.get('challenge') != (data or {}).get('challenge')
                         or result.get('operation') != self.config['control_spec']['operation']

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/full_core_upgrade_executor.php';
 require_once __DIR__ . '/full_core_release_files.php';
+require_once __DIR__ . '/full_core_database_transfer.php';
 
 final class FullCoreReleaseOwner
 {
@@ -15,10 +16,12 @@ final class FullCoreReleaseOwner
     private Closure $exchange;
     private Closure $connect;
     private Closure $restoredState;
+    private ?Closure $transfer;
+    private ?Closure $sendStream;
 
     /** Callbacks connect native IO to the separately authenticated controller; no callback grants phase order. */
     public function __construct(private array $config, string $configHash, callable $exchange,
-        callable $connect, callable $restoredState)
+        callable $connect, callable $restoredState, ?callable $transfer = null, ?callable $sendStream = null)
     {
         self::digest(FullCoreReleaseControl::encode($config), $configHash);
         if (PHP_SAPI !== 'cli' || PHP_OS_FAMILY !== 'Linux' || !function_exists('posix_geteuid')) throw new RuntimeException('Native owner CLI required.');
@@ -37,6 +40,8 @@ final class FullCoreReleaseOwner
         $this->plan();
         $this->exchange = Closure::fromCallable($exchange); $this->connect = Closure::fromCallable($connect);
         $this->restoredState = Closure::fromCallable($restoredState);
+        $this->transfer = $transfer === null ? null : Closure::fromCallable($transfer);
+        $this->sendStream = $sendStream === null ? null : Closure::fromCallable($sendStream);
         $this->control = new FullCoreReleaseControl($this->spec, $this->specHash);
     }
 
@@ -170,6 +175,41 @@ final class FullCoreReleaseOwner
         return $state;
     }
 
+    private function capturedDatabase(): array
+    {
+        $capture = json_decode($this->read($this->config['receipts_directory'].'/database-capture.json'),true,32,JSON_THROW_ON_ERROR);
+        if (($capture['operation'] ?? null) !== $this->spec['operation'] || ($capture['candidate_commit'] ?? null) !== $this->spec['candidate_commit']
+            || ($capture['snapshot_sha256'] ?? null) !== $this->originalDatabaseState()['snapshot_sha256']) throw new RuntimeException('Original native capture required.');
+        return $capture;
+    }
+
+    private function verifyCapturedPair(array $pair): void
+    {
+        $capture = $this->capturedDatabase(); $backup = $pair['database_backup'] ?? [];
+        foreach (['sql_bytes','sql_sha256','snapshot_sha256','database_defaults','native_full_schema_and_data'] as $key) {
+            if (($backup[$key] ?? null) !== ($capture[$key] ?? null)) throw new RuntimeException('Encrypted backup differs from the native held capture.');
+        }
+    }
+
+    private function recoveryTransfer(array $input): array
+    {
+        $state = $this->control->snapshot();
+        if ($this->uid !== 1004 || $state['direction'] !== 'recovery' || $state['activation_may_have_started']
+            || ($state['pending']['action'] ?? null) !== 'restore-database') throw new RuntimeException('Existing explicit native recovery intent required.');
+        $bytes = $this->read($this->config['restore_expectation_path'] ?? '');
+        self::digest($bytes,$input['expectation_sha256'] ?? ''); $expected = json_decode($bytes,true,32,JSON_THROW_ON_ERROR);
+        if ($state['pending']['evidence_sha256'] !== ($input['expectation_sha256'] ?? '')
+            || ($expected['operation'] ?? null) !== $this->spec['operation'] || ($expected['candidate_commit'] ?? null) !== $this->spec['candidate_commit']) {
+            throw new RuntimeException('Recovery stream does not match the pending native intent.');
+        }
+        $b = $this->binding($input['guard_sha256'] ?? '');
+        $bytes = $this->read($this->config['recovery_backup_pair_path'] ?? ''); self::digest($bytes,$expected['backup_pair_sha256'] ?? '');
+        $pair = json_decode($bytes,true,512,JSON_THROW_ON_ERROR);
+        FullCoreProductionUpgradeContext::validateBackupPair($pair,$b); $this->control->assertBackupPair($pair); $this->verifyCapturedPair($pair);
+        if (($expected['snapshot_sha256'] ?? null) !== $this->originalDatabaseState()['snapshot_sha256']) throw new RuntimeException('Original recovery fingerprint differs.');
+        return [$b,$pair['database_backup']];
+    }
+
     private function invalidate(array $input, array $b, string $phase): array
     {
         $hash = $input['cache_plan_sha256'] ?? '';
@@ -269,6 +309,45 @@ final class FullCoreReleaseOwner
             $this->persist($this->config['receipts_directory'] . '/original-database-state.json', $result);
             return $result;
         }
+        if ($action === 'capture-database-stream') {
+            $state = $this->control->snapshot();
+            if ($this->uid !== 1004 || !$this->transfer || !$this->sendStream || $state['direction'] !== 'release'
+                || $state['pending'] !== null || !isset($state['completed']['prepare-files']) || isset($state['completed']['upgrade-database'])) {
+                throw new RuntimeException('Prepared, held application-owner backup phase required.');
+            }
+            $b = $this->binding($input['guard_sha256'] ?? ''); $baseline = $this->originalDatabaseState()['snapshot_sha256'];
+            $this->held($b);
+            if (($this->restoredState)() !== $baseline) throw new RuntimeException('Database changed before native backup.');
+            $db = ($this->connect)();
+            try { $capture = ($this->transfer)()->capture($db,fn(): bool=>$this->held($b),$this->sendStream); }
+            finally { $db = null; }
+            $this->held($b);
+            if (($this->restoredState)() !== $baseline) throw new RuntimeException('Database changed around native backup.');
+            $this->held($b);
+            $capture += ['snapshot_sha256'=>$baseline,'operation'=>$operation,'candidate_commit'=>$spec['candidate_commit'],
+                'database'=>FullCoreProductionUpgradeContext::DATABASE];
+            $this->persist($this->config['receipts_directory'].'/database-capture.json',$capture);
+            return $capture;
+        }
+        if (in_array($action,['empty-recovery-database','restore-database-stream'],true)) {
+            [$b,$backup] = $this->recoveryTransfer($input); $this->held($b); $db = ($this->connect)();
+            if ($action === 'empty-recovery-database') {
+                return FullCoreDatabaseTransfer::emptyRecoveryTarget($db,$backup['database_defaults'],fn(): bool=>$this->held($b));
+            }
+            if (!$this->transfer) throw new RuntimeException('Native restore transport unavailable.');
+            $read = function (int $offset,int $limit): string {
+                $reply = ($this->exchange)(['kind'=>'database-restore-chunk','offset'=>$offset,'max_bytes'=>$limit,
+                    'operation'=>$this->spec['operation'],'control_spec_sha256'=>$this->specHash]);
+                if (($reply['offset'] ?? null) !== $offset || !is_string($reply['data'] ?? null)
+                    || strlen($reply['data']) > 4 * (int)ceil($limit / 3)) throw new RuntimeException('Exact bounded recovery chunk required.');
+                $bytes = base64_decode($reply['data'],true);
+                if ($bytes === false || strlen($bytes) > $limit) throw new RuntimeException('Recovery chunk encoding differs.');
+                return $bytes;
+            };
+            $result = ($this->transfer)()->restore($db,$backup,fn(): bool=>$this->held($b),$read);
+            $this->persist($this->config['receipts_directory'].'/database-restored-stream.json',$result);
+            return $result;
+        }
         if (($required = $this->control->peerRequiredFor($action)) !== null) {
             if (($peer['action'] ?? null) !== $required) throw new RuntimeException('Direct required peer outcome missing.');
             $this->control->acceptPeerOutcome($peer);
@@ -290,6 +369,7 @@ final class FullCoreReleaseOwner
             $evidence = $input['binding_sha256'] ?? ''; $directory = $this->config['execution_directory'] ?? '';
             $this->directory($directory); self::digest($this->read($directory . '/release-binding.json'), $evidence);
             $pair = json_decode($this->read($directory . '/backup-pair.json'), true, 512, JSON_THROW_ON_ERROR);
+            $this->verifyCapturedPair($pair);
             if (($pair['database_backup']['snapshot_sha256'] ?? null) !== $this->originalDatabaseState()['snapshot_sha256']) {
                 throw new RuntimeException('Database backup is not paired with the recorded native baseline.');
             }
@@ -308,6 +388,7 @@ final class FullCoreReleaseOwner
             self::digest($pairBytes, $expected['backup_pair_sha256'] ?? '');
             $pair = json_decode($pairBytes, true, 512, JSON_THROW_ON_ERROR);
             FullCoreProductionUpgradeContext::validateBackupPair($pair, $b); $this->control->assertBackupPair($pair);
+            $this->verifyCapturedPair($pair);
             $baseline = $this->originalDatabaseState()['snapshot_sha256'];
             if (($expected['snapshot_sha256'] ?? null) !== $baseline || ($pair['database_backup']['snapshot_sha256'] ?? null) !== $baseline) {
                 throw new RuntimeException('Recovery must use the recorded original database fingerprint.');
