@@ -287,6 +287,38 @@ $spec['control'] = ['version' => 1, 'root' => FIXTURE_ROOT, 'operation' => $oper
     'manifest_sha256' => $spec['manifest_sha256'], 'migration_plan_sha256' => $plan['plan_sha256'],
     'owner_plan_sha256' => [1003 => hash_file('sha256', $base . '/plan-1003.json'), 1004 => hash_file('sha256', $base . '/plan-1004.json')]];
 fixtureWrite($base . '/spec.json', json_encode($spec, JSON_THROW_ON_ERROR), 0, 0644);
+if ($scenario === 'activate') {
+    $inspect = static function (array $request, int $uid) use ($base): array {
+        $input = $base . '/inspect-input-' . $uid . '.json';
+        fixtureWrite($input, json_encode($request, JSON_THROW_ON_ERROR), $uid);
+        return fixtureCommand(['/usr/sbin/runuser', '-u', $uid === 1003 ? 'coremaster' : 'coreapp', '--',
+            PHP_BINARY, __DIR__ . '/../deploy/inspect_full_core_release_owner.php'], $input);
+    };
+    foreach ([1003, 1004] as $uid) {
+        $request = ['version' => 1, 'action' => 'inspect', 'owner_uid' => $uid, 'challenge' => bin2hex(random_bytes(32)),
+            'control_spec' => $spec['control'], 'control_spec_sha256' => hash('sha256', FullCoreReleaseControl::encode($spec['control'])),
+            'package_directory' => $base . '/package-' . $uid, 'owner_plan_path' => $base . '/plan-' . $uid . '.json'];
+        [$exit, $bytes] = $inspect($request, $uid); $report = json_decode($bytes, true);
+        $check($exit === 0 && $report['challenge'] === $request['challenge'] && $report['owner_uid'] === $uid
+            && $report['preimage_drift'] === [] && $report['inaccessible_parents_or_files'] === []
+            && $report['candidate_files_verified'] === count($sources) && $report['control_directory_exists'] === false,
+            'read-only owner worker verifies actual candidate and preimages without creating release state');
+        $request['owner_uid'] = $uid === 1003 ? 1004 : 1003;
+        $check($inspect($request, $uid)[0] === 2, 'inspection refuses a different SSH owner identity');
+    }
+    $request['owner_uid'] = 1004;
+    $originalApp = file_get_contents(FIXTURE_ROOT . '/application.php');
+    $originalAppMeta = fixtureMeta(FIXTURE_ROOT . '/application.php');
+    file_put_contents(FIXTURE_ROOT . '/application.php', $originalApp . "\n// concurrent fixture edit");
+    [$exit, $bytes] = $inspect($request, 1004); $report = json_decode($bytes, true);
+    $check($exit === 0 && in_array('application.php', $report['preimage_drift'], true)
+        && str_contains(file_get_contents(FIXTURE_ROOT . '/application.php'), 'concurrent fixture edit'),
+        'inspection reports concurrent preimage drift without overwriting it');
+    fixtureWrite(FIXTURE_ROOT . '/application.php', $originalApp, 1004, $originalAppMeta['mode'], $originalAppMeta['mtime']);
+    $check($snapshot() === $before && fixtureHttp($spec, null, '/read.php')[1] === 'old-app|old-master'
+        && !file_exists($privateRoot . '/core-release-control-1003') && !file_exists($privateRoot . '/core-release-control-1004'),
+        'SSH preparation preserves business routing database and absent release state');
+}
 foreach ([1003, 1004] as $uid) $check(fixtureOwner($base, $uid, 'pause')[0] === 0, 'native schedule/web hold established by its real owner');
 $check(fixtureHttp($spec, null, '/read.php')[0] === 503, 'business HTTP blocked before backup or SQL');
 $appReceipt = $base . '/maintenance-1004/maintenance-' . $operation . '/receipt.json';

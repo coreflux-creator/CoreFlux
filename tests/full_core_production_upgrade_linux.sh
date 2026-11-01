@@ -9,6 +9,7 @@ trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker image rm "$image
 mkdir -p "$fixture/deploy" "$fixture/tests" "$fixture/core"
 cp deploy/full_core_{maintenance,maintenance_host,maintenance_channel,maintenance_channel_web,migration_plan,production_upgrade_context,upgrade_executor,release_files,release_control}.php "$fixture/deploy/"
 cp deploy/full_core_migration_history.json "$fixture/deploy/"
+cp deploy/inspect_full_core_release_owner.php "$fixture/deploy/"
 cp core/migration_hash.php "$fixture/core/"
 cp tests/full_core_production_upgrade_linux.php tests/full_core_release_control_linux.php "$fixture/tests/"
 cat > "$fixture/Dockerfile" <<'DOCKER'
