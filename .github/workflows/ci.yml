@@ -27,6 +27,8 @@ jobs:
         run: bash tests/full_core_maintenance_host_linux.sh
       - name: Verify guarded status, finishing-request drain and Core-only cache refresh
         run: bash tests/full_core_maintenance_channel_http.sh
+      - name: Rehearse actual-content replacement and interruption recovery under both file owners
+        run: bash tests/full_core_release_files_linux.sh
 
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).
