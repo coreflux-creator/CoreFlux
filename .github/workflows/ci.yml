@@ -31,6 +31,16 @@ jobs:
         run: bash tests/full_core_release_files_linux.sh
 
   # ─────────────────────────────────────────────────────────────────
+  production-upgrade:
+    name: Full-Core guarded upgrade and paired recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rehearse native owner holds, database guards, file/cache apply and paired recovery
+        run: bash tests/full_core_production_upgrade_linux.sh
+
+  # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).
   # Same test code path; --lane=NAME filters by scripts/ci_lane_classifier.sh.
   # A failure in any lane fails the whole check; lane names tell you

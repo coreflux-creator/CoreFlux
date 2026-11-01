@@ -1,7 +1,8 @@
 <?php
-/** Exact-plan upgrade engine. Only disposable rehearsals are enabled until host recovery/maintenance is verified. */
+/** Exact-plan upgrade engine with separate rehearsal and explicitly bound production entry points. */
 declare(strict_types=1);
 require_once __DIR__ . '/full_core_migration_plan.php';
+require_once __DIR__ . '/full_core_production_upgrade_context.php';
 
 /** Preserve quoted comments/semicolons and reject incomplete or unsupported input before any SQL runs. */
 function fullCoreUpgradeStatements(string $sql): array
@@ -72,21 +73,55 @@ function fullCoreUpgradeJournalWrite($stream, array $event): void
 }
 
 /**
- * Run the actual executor on an explicitly named disposable database. No production CLI/API entry exists.
- * The callback models loss of a future host maintenance guard; it is not production approval evidence.
+ * Run the actual executor on an explicitly named disposable database.
+ * This rehearsal API cannot select production; its callback is not production approval evidence.
  * Every newly started migration acquires a durable FAIL marker before its first statement. DDL can commit;
  * no automatic retry or rollback is claimed. Recovery requires inspecting/restoring the matching snapshot.
  */
 function fullCoreUpgradeRehearse(PDO $db, string $expectedDatabase, string $reviewedPlanHash,
     array $manifest, string $package, string $live, string $journalPath, callable $maintenanceGuard): array
 {
+    return FullCoreUpgradeExecutor::rehearse($db, $expectedDatabase, $reviewedPlanHash, $manifest,
+        $package, $live, $journalPath, $maintenanceGuard);
+}
+
+/** No ambient configuration or default target: a verified private release context is mandatory. */
+function fullCoreUpgradeProduction(PDO $db, FullCoreProductionUpgradeContext $context): array
+{
+    return FullCoreUpgradeExecutor::production($db, $context);
+}
+
+final class FullCoreUpgradeExecutor
+{
+public static function rehearse(PDO $db, string $expectedDatabase, string $reviewedPlanHash,
+    array $manifest, string $package, string $live, string $journalPath, callable $maintenanceGuard): array
+{
     if (PHP_SAPI !== 'cli' || !preg_match('/^coreflux_upgrade_fixture_[a-z0-9_]+$/D', $expectedDatabase)
         || $db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql'
         || $db->query('SELECT DATABASE()')->fetchColumn() !== $expectedDatabase || $db->inTransaction()) {
-        throw new RuntimeException('Explicit disposable upgrade database required; production execution is unavailable.');
+        throw new RuntimeException('Explicit disposable upgrade database required; this entry cannot execute production.');
     }
+    return self::execute($db, $expectedDatabase, $reviewedPlanHash, $manifest, $package, $live,
+        $journalPath, $maintenanceGuard, false, []);
+}
+
+public static function production(PDO $db, FullCoreProductionUpgradeContext $context): array
+{
+    // Two separately challenged observations must advance the actual FPM request counter.
+    $context->assertHeld($db);
+    $context->assertHeld($db);
+    $e = $context->execution();
+    return self::execute($db, $e['database'], $e['plan_sha256'], $e['manifest'], $e['package'], $e['root'],
+        $e['journal'], static fn(): bool => $context->assertHeld($db), true, $e['binding']);
+}
+
+/** The shared executor is private so neither arbitrary targets nor a caller-provided production flag are public APIs. */
+private static function execute(PDO $db, string $expectedDatabase, string $reviewedPlanHash,
+    array $manifest, string $package, string $live, string $journalPath, callable $maintenanceGuard,
+    bool $production, array $releaseBinding): array
+{
     if (!str_contains((string) $db->query('SELECT VERSION()')->fetchColumn(), 'MariaDB')) {
-        throw new RuntimeException('The upgrade rehearsal requires MariaDB.');
+        throw new RuntimeException('The reviewed upgrade engine requires MariaDB.');
     }
     $mode = strtoupper((string) $db->query('SELECT @@SESSION.sql_mode')->fetchColumn());
     if (preg_match('/(?:^|,)(?:NO_BACKSLASH_ESCAPES|ANSI_QUOTES)(?:,|$)/', $mode)) {
@@ -133,7 +168,7 @@ function fullCoreUpgradeRehearse(PDO $db, string $expectedDatabase, string $revi
         }
         fullCoreUpgradeJournalWrite($journal, ['event' => 'start', 'database' => $expectedDatabase,
             'candidate_commit' => $manifest['commit'], 'plan_sha256' => $reviewedPlanHash,
-            'pending_files' => count($work), 'production_execution' => false]);
+            'pending_files' => count($work), 'production_execution' => $production, 'release_binding' => $releaseBinding]);
         $db->exec('SET SESSION lock_wait_timeout=5');
         $db->exec('SET SESSION innodb_lock_wait_timeout=5');
         $expectedLedger = $ledger;
@@ -180,7 +215,8 @@ function fullCoreUpgradeRehearse(PDO $db, string $expectedDatabase, string $revi
         }
         $stage = 'completion'; $assertGuard(); $checkLedger();
         $receipt = ['event' => 'complete', 'database' => $expectedDatabase, 'plan_sha256' => $reviewedPlanHash,
-            'applied_files' => $applied, 'executed_statements' => $executed, 'production_execution' => false];
+            'applied_files' => $applied, 'executed_statements' => $executed, 'production_execution' => $production,
+            'release_binding' => $releaseBinding];
         fullCoreUpgradeJournalWrite($journal, $receipt);
         return $receipt;
     } catch (Throwable $error) {
@@ -200,4 +236,5 @@ function fullCoreUpgradeRehearse(PDO $db, string $expectedDatabase, string $revi
         } catch (Throwable $ignored) { /* A lost connection already released its advisory lock. */ }
         if (is_resource($journal)) { flock($journal, LOCK_UN); fclose($journal); }
     }
+}
 }
