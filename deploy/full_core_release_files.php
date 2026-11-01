@@ -71,7 +71,7 @@ final class FullCoreReleaseFiles
     private static function relative(string $path): bool
     {
         if ($path === '' || strlen($path) > 1024 || str_starts_with($path, '/')
-            || preg_match('/[\x00-\x20\x7f\\\\]/', $path)) return false;
+            || preg_match('/[\x00-\x1f\x7f\\\\]/', $path)) return false;
         foreach (explode('/', $path) as $part) {
             if ($part === '' || $part === '.' || $part === '..') return false;
         }

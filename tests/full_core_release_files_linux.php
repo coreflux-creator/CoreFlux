@@ -65,7 +65,8 @@ $setup = static function (string $id) use ($meta, $write): array {
         'new-master/asset.bin' => str_repeat("\0\xff\x7factual-binary", 4096),
         'application.php' => file_get_contents(__DIR__ . '/../deploy/full_core_release_files.php'),
         'shared/app-old.php' => file_get_contents(__DIR__ . '/../deploy/full_core_maintenance_channel.php'),
-        'new-app/code.php' => file_get_contents(__DIR__ . '/../core/migration_hash.php')];
+        'new-app/code.php' => file_get_contents(__DIR__ . '/../core/migration_hash.php'),
+        'new-app/folder with spaces/logo with spaces.bin' => "\x89PNG\0synthetic source asset\xff"];
     $manifest = ['product' => 'full-core-staging', 'commit' => str_repeat('c', 40), 'files' => []];
     foreach ($sources as $r => $bytes) $manifest['files'][$r] = hash('sha256', $bytes);
     $manifestBytes = json_encode($manifest, JSON_THROW_ON_ERROR);
@@ -152,7 +153,7 @@ $assert($run($base, 1004, 'recover')[0] === 2 && file_get_contents($target) === 
 $write($backup, $original, 1004, 0600);
 $assert($run($base, 1004, 'recover')[0] === 0 && $run($base, 1004, 'verify-original')[0] === 0, 'verified recovery material permits explicit continuation');
 
-foreach (['.htaccess', 'core/config.local.php', 'core/migrations/007_subtenant_provisioning.sql', '../outside.php'] as $badPath) {
+foreach (['.htaccess', 'core/config.local.php', 'core/migrations/007_subtenant_provisioning.sql', '../outside.php', "new-app/unsafe\nname.php"] as $badPath) {
     [$base, $plans] = $setup('forbidden-' . substr(hash('sha256', $badPath), 0, 8));
     $plan = $plans[1004]; $plan['files'][$badPath] = $plan['files']['application.php'];
     $write($base . '/plan-1004.json', json_encode($plan), 1004, 0600);

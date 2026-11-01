@@ -229,7 +229,8 @@ fixtureWrite(FIXTURE_ROOT . '/core/migrations/001_baseline.sql', $baseline, 1004
 foreach (['core', 'core/migrations'] as $dir) { chown(FIXTURE_ROOT . '/' . $dir, 1004); chgrp(FIXTURE_ROOT . '/' . $dir, 33); }
 $sources = ['.htaccess' => "Options -Indexes\nRewriteEngine On\n# candidate fixture routing\n",
     'application.php' => '<?php return "new-app";', 'master.php' => '<?php return "new-master";',
-    'core/migrations/001_baseline.sql' => $baseline, 'core/migrations/002_upgrade.sql' => $pending];
+    'core/migrations/001_baseline.sql' => $baseline, 'core/migrations/002_upgrade.sql' => $pending,
+    'assets/logo with spaces.bin' => "\x89PNG\0synthetic packaged asset\xff"];
 $manifest = ['product' => 'full-core-staging', 'commit' => $commit, 'files' => []];
 foreach ($sources as $relative => $bytes) $manifest['files'][$relative] = hash('sha256', $bytes);
 $manifestBytes = json_encode($manifest, JSON_THROW_ON_ERROR);

@@ -31,12 +31,7 @@ final class FullCoreProductionUpgradeContext
         if (str_starts_with($b['package_directory'] . '/', self::ROOT . '/') || $directory === $b['package_directory']) {
             throw new RuntimeException('Private candidate must be outside the production root.');
         }
-        $manifestBytes = self::ordinaryFile($b['package_directory'] . '/integration-manifest.json');
-        self::digest($manifestBytes, $b['manifest_sha256']);
-        $this->manifest = json_decode($manifestBytes, true, 512, JSON_THROW_ON_ERROR);
-        if (($this->manifest['product'] ?? null) !== 'full-core-staging' || ($this->manifest['commit'] ?? null) !== $b['candidate_commit']
-            || !is_array($this->manifest['files'] ?? null) || !$this->manifest['files']) throw new RuntimeException('Exact full-Core release manifest required.');
-        $this->verifyCandidate();
+        $this->manifest = self::inspectCandidate($b['package_directory'], $b['manifest_sha256'], $b['candidate_commit']);
         $this->verifyBackupPair();
         $this->maintenance = new FullCoreMaintenanceHost(self::ROOT, $b['application_maintenance_parent']);
         $this->witness = Closure::fromCallable($freshWitness);
@@ -130,16 +125,27 @@ final class FullCoreProductionUpgradeContext
         $this->control->assertBackupPair($pair);
     }
 
-    private function verifyCandidate(): void
+    /** Read-only pre-staging check shared with the production guard; no lock, maintenance or database is opened. */
+    public static function inspectCandidate(string $package, string $manifestHash, string $commit): array
     {
-        foreach ($this->manifest['files'] as $relative => $hash) {
+        if (PHP_SAPI !== 'cli' || PHP_OS_FAMILY !== 'Linux') throw new RuntimeException('Native CLI artifact inspection required.');
+        self::privateDirectory($package);
+        if (str_starts_with($package . '/', self::ROOT . '/')) throw new RuntimeException('Candidate must remain outside the webroot.');
+        $bytes = self::ordinaryFile($package . '/integration-manifest.json'); self::digest($bytes, $manifestHash);
+        $manifest = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
+        if (($manifest['product'] ?? null) !== 'full-core-staging' || ($manifest['commit'] ?? null) !== $commit
+            || !preg_match('/^[a-f0-9]{40}$/D', $commit) || !is_array($manifest['files'] ?? null) || !$manifest['files']) {
+            throw new RuntimeException('Exact full-Core release manifest required.');
+        }
+        foreach ($manifest['files'] as $relative => $hash) {
             if (!is_string($relative) || $relative === '' || str_starts_with($relative, '/')
-                || preg_match('/[\x00-\x20\x7f\\\\:]/', $relative) || str_contains($relative, '.local.')
+                || preg_match('/[\x00-\x1f\x7f\\\\:]/', $relative) || str_contains($relative, '.local.')
                 || array_intersect(explode('/', $relative), ['', '.', '..', '.env'])) throw new RuntimeException('Unsafe full-Core manifest path.');
-            $path = $this->binding['package_directory'];
+            $path = $package;
             foreach (explode('/', $relative) as $part) { $path .= '/' . $part; if (is_link($path)) throw new RuntimeException('Linked candidate path.'); }
             self::digest(self::ordinaryFile($path), $hash);
         }
+        return $manifest;
     }
 
     /** Reject stale/replayed reports and require each actual FPM observation to advance its request counter. */
