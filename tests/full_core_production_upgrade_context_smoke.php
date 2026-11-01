@@ -16,7 +16,7 @@ $binding = ['version' => 1, 'action' => 'apply-reviewed-core-database-upgrade',
     'operation' => str_repeat('a', 32), 'candidate_commit' => str_repeat('b', 40),
     'package_directory' => '/private/package', 'application_maintenance_parent' => '/private/maintenance'];
 foreach (['manifest_sha256', 'migration_plan_sha256', 'application_maintenance_receipt_sha256', 'master_maintenance_receipt_sha256',
-    'held_web_sha256', 'application_held_cron_sha256', 'master_held_cron_sha256', 'backup_pair_sha256', 'writer_inventory_sha256'] as $key) $binding[$key] = hash('sha256', $key);
+    'held_web_sha256', 'application_held_cron_sha256', 'master_held_cron_sha256', 'backup_pair_sha256', 'writer_inventory_sha256', 'release_control_spec_sha256'] as $key) $binding[$key] = hash('sha256', $key);
 FullCoreProductionUpgradeContext::validateBinding($binding); $assert(true, 'complete production binding accepted');
 foreach (['root' => '/another/public_html', 'database' => 'muzqvdvqbx', 'application_uid' => 1003,
     'master_uid' => 1004, 'action' => 'rehearse', 'operation' => 'bad', 'migration_plan_sha256' => 'bad',
@@ -84,6 +84,6 @@ $reject(fn() => $verify($bad), 'fresh wrapper cannot conceal cached web observat
 foreach (['registry_unchanged' => false, 'core_cli_processes' => 1, 'unmanaged_writers' => 1] as $key => $value) {
     $bad = $w; $bad['writers'][$key] = $value; $reject(fn() => $verify($bad), 'unknown or running writers refuse upgrade');
 }
-$reject(fn() => new FullCoreProductionUpgradeContext('/nonexistent', str_repeat('a', 64), static fn() => []),
-    'ordinary local test process cannot create a production context');
+$reject(fn() => new FullCoreReleaseControl([], str_repeat('a', 64)),
+    'ordinary local test process cannot acquire coordinated production control');
 echo "PASS $checks production upgrade binding and witness checks; no database or host changes\n";

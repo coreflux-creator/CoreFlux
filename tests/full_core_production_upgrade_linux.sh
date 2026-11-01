@@ -7,10 +7,10 @@ image="core-production-upgrade:${GITHUB_RUN_ID:-local}-${RANDOM}"
 container="core-production-upgrade-${GITHUB_RUN_ID:-local}-${RANDOM}"
 trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker image rm "$image" >/dev/null 2>&1 || true' EXIT
 mkdir -p "$fixture/deploy" "$fixture/tests" "$fixture/core"
-cp deploy/full_core_{maintenance,maintenance_host,maintenance_channel,maintenance_channel_web,migration_plan,production_upgrade_context,upgrade_executor,release_files}.php "$fixture/deploy/"
+cp deploy/full_core_{maintenance,maintenance_host,maintenance_channel,maintenance_channel_web,migration_plan,production_upgrade_context,upgrade_executor,release_files,release_control}.php "$fixture/deploy/"
 cp deploy/full_core_migration_history.json "$fixture/deploy/"
 cp core/migration_hash.php "$fixture/core/"
-cp tests/full_core_production_upgrade_linux.php "$fixture/tests/"
+cp tests/full_core_production_upgrade_linux.php tests/full_core_release_control_linux.php "$fixture/tests/"
 cat > "$fixture/Dockerfile" <<'DOCKER'
 FROM php:8.2-fpm-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends apache2 mariadb-server mariadb-client cron util-linux \
@@ -56,7 +56,9 @@ set +u
 set -u
 mkdir -p "$APACHE_RUN_DIR" "$APACHE_LOCK_DIR"
 apache2 -DFOREGROUND > /fixture/apache.log 2>&1 &
-php tests/full_core_production_upgrade_linux.php "$@" || {
+test_script=tests/full_core_production_upgrade_linux.php
+if [ "${1:-}" = control ]; then test_script=tests/full_core_release_control_linux.php; fi
+php "$test_script" "$@" || {
     code=$?
     for log in /fixture/commands.stderr /fixture/apache.log /fixture/database.log; do
         if [ -f "$log" ]; then tail -n 25 "$log"; fi
@@ -65,7 +67,7 @@ php tests/full_core_production_upgrade_linux.php "$@" || {
 }
 START
 docker build --quiet --tag "$image" "$fixture"
-for scenario in stale extra-db late-db guard-loss crash recover activate; do
+for scenario in control wrong-file-plan stale extra-db late-db guard-loss crash recover activate; do
     docker run --network none --name "$container" "$image" "$scenario" || { docker logs "$container"; exit 1; }
     docker rm "$container" >/dev/null
 done

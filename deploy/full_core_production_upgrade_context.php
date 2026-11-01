@@ -2,6 +2,7 @@
 /** Exact Core production bindings. This library neither holds writers nor starts an upgrade by itself. */
 declare(strict_types=1);
 require_once __DIR__ . '/full_core_maintenance_host.php';
+require_once __DIR__ . '/full_core_release_control.php';
 
 final class FullCoreProductionUpgradeContext
 {
@@ -13,7 +14,8 @@ final class FullCoreProductionUpgradeContext
     private Closure $witness;
     private ?int $lastAccepted = null;
 
-    public function __construct(private string $directory, private string $bindingHash, callable $freshWitness)
+    public function __construct(private string $directory, private string $bindingHash, callable $freshWitness,
+        private FullCoreReleaseControl $control)
     {
         if (PHP_SAPI !== 'cli' || PHP_OS_FAMILY !== 'Linux' || !function_exists('posix_geteuid') || posix_geteuid() !== 1004
             || !in_array(getenv('COREFLUX_ENV'), [false, '', 'production'], true)) throw new RuntimeException('Exact Core application-owner production CLI required.');
@@ -22,6 +24,7 @@ final class FullCoreProductionUpgradeContext
         $this->binding = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
         self::validateBinding($this->binding);
         $b = $this->binding;
+        $this->control->assertUpgrade($b, $this->bindingHash);
         if (realpath(self::ROOT) !== self::ROOT || is_link(self::ROOT) || fileowner(self::ROOT) !== 1004
             || str_starts_with($directory . '/', self::ROOT . '/')) throw new RuntimeException('Canonical production root required.');
         self::privateDirectory($b['package_directory']); self::privateDirectory($b['application_maintenance_parent']);
@@ -78,7 +81,7 @@ final class FullCoreProductionUpgradeContext
         foreach (['operation' => 32, 'candidate_commit' => 40, 'manifest_sha256' => 64, 'migration_plan_sha256' => 64,
             'application_maintenance_receipt_sha256' => 64, 'master_maintenance_receipt_sha256' => 64,
             'held_web_sha256' => 64, 'application_held_cron_sha256' => 64, 'master_held_cron_sha256' => 64,
-            'backup_pair_sha256' => 64, 'writer_inventory_sha256' => 64] as $key => $length) {
+            'backup_pair_sha256' => 64, 'writer_inventory_sha256' => 64, 'release_control_spec_sha256' => 64] as $key => $length) {
             if (!is_string($b[$key] ?? null) || !preg_match('/^[a-f0-9]{' . $length . '}$/D', $b[$key])) throw new RuntimeException('Missing exact production binding.');
         }
         foreach (['package_directory', 'application_maintenance_parent'] as $key) {
@@ -122,7 +125,9 @@ final class FullCoreProductionUpgradeContext
     private function verifyBackupPair(): void
     {
         $bytes = self::privateFile($this->directory . '/backup-pair.json'); self::digest($bytes, $this->binding['backup_pair_sha256']);
-        self::validateBackupPair(json_decode($bytes, true, 512, JSON_THROW_ON_ERROR), $this->binding);
+        $pair = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
+        self::validateBackupPair($pair, $this->binding);
+        $this->control->assertBackupPair($pair);
     }
 
     private function verifyCandidate(): void
@@ -178,6 +183,7 @@ final class FullCoreProductionUpgradeContext
     public function assertHeld(PDO $db): bool
     {
         $b = $this->binding;
+        $this->control->assertUpgrade($b, $this->bindingHash);
         self::digest(self::privateFile($this->directory . '/release-binding.json'), $this->bindingHash);
         $this->verifyBackupPair();
         if (file_exists($this->directory . '/recovery-requested.json') || is_link($this->directory . '/recovery-requested.json')) throw new RuntimeException('Release is recovery-only.');
@@ -221,6 +227,7 @@ final class FullCoreProductionUpgradeContext
             'manifest' => $this->manifest, 'plan_sha256' => $this->binding['migration_plan_sha256'],
             'journal' => $this->directory . '/database-upgrade.jsonl', 'binding' => [
                 'operation' => $this->binding['operation'], 'release_binding_sha256' => $this->bindingHash,
-                'backup_pair_sha256' => $this->binding['backup_pair_sha256'], 'root' => self::ROOT]];
+                'backup_pair_sha256' => $this->binding['backup_pair_sha256'],
+                'release_control_spec_sha256' => $this->binding['release_control_spec_sha256'], 'root' => self::ROOT]];
     }
 }

@@ -51,8 +51,34 @@ function fixtureCommand(array $command, string $input = '/dev/null', ?string $ou
 }
 function fixtureOwner(string $base, int $uid, string $action): array
 {
-    return fixtureCommand(['/usr/sbin/runuser', '-u', $uid === 1003 ? 'coremaster' : 'coreapp', '--',
+    $result = fixtureCommand(['/usr/sbin/runuser', '-u', $uid === 1003 ? 'coremaster' : 'coreapp', '--',
         PHP_BINARY, __FILE__, '--owner', $base, $action]);
+    if ($result[0] === 0) {
+        $receipt = json_decode($result[1],true);
+        if (is_array($receipt) && isset($receipt['action'], $receipt['native_receipt_sha256']) && ($receipt['owner_uid'] ?? null) === $uid) {
+            fixtureWrite($base . '/peer-' . $uid . '-' . $receipt['action'] . '.json', json_encode($receipt,JSON_THROW_ON_ERROR), $uid === 1003 ? 1004 : 1003);
+        }
+    }
+    return $result;
+}
+function fixtureSnapshot(PDO $db): array
+{
+    return ['rows' => $db->query('SELECT id,tenant_id,amount,HEX(evidence) FROM balances ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+        'columns' => $db->query('SHOW COLUMNS FROM balances')->fetchAll(PDO::FETCH_ASSOC),
+        'ledger' => $db->query('SELECT * FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC),
+        'legacy' => $db->query('SELECT * FROM coreflux_migrations ORDER BY file_path')->fetchAll(PDO::FETCH_ASSOC),
+        'tables' => $db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN)];
+}
+function fixtureInvalidate(string $base, array $spec, string $phase): array
+{
+    $files = [];
+    foreach (['application.php', 'master.php'] as $relative) $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', FIXTURE_ROOT . '/' . $relative)];
+    $bytes = json_encode(['version' => 1, 'operation' => $spec['operation'], 'candidate_commit' => $spec['candidate_commit'], 'root' => FIXTURE_ROOT,
+        'held_web_sha256' => $spec['held_web_sha256'], 'phase' => $phase, 'files' => $files], JSON_THROW_ON_ERROR);
+    fixtureWrite($base . '/channel/cache-plan.json', $bytes, 1004);
+    [$status, $body] = fixtureHttp($spec, ['action' => 'invalidate', 'plan_sha256' => hash('sha256', $bytes)]);
+    if ($status !== 200) throw new RuntimeException('Native cache refresh failed.');
+    return json_decode($body, true, 512, JSON_THROW_ON_ERROR);
 }
 /** This container's entire writer inventory is known; report observed extra owner processes, not a supplied quiet flag. */
 function fixtureWriters(string $base, string $inventoryHash): array
@@ -78,36 +104,77 @@ if (($argv[1] ?? '') === '--owner') {
     if (!preg_match('~^/fixture/[a-z-]+$~D', $base) || !in_array($uid, [1003, 1004], true)) exit(80);
     $spec = json_decode(file_get_contents($base . '/spec.json'), true, 512, JSON_THROW_ON_ERROR);
     try {
+        $control = new FullCoreReleaseControl($spec['control'], hash('sha256', FullCoreReleaseControl::encode($spec['control'])));
+        $evidence = hash('sha256', FullCoreReleaseControl::encode($spec['control']));
+        $phase = ['prepare'=>'prepare-files','apply'=>'apply-files','recover'=>'recover-files','restore-hold'=>
+            ($control->snapshot()['direction'] === 'recovery' ? ($uid === 1003 ? 'restore-scheduler' : 'restore-routing') : 'resume-scheduler')][$action] ?? $action;
+        if (($peer = $control->peerRequiredFor($phase)) !== null) {
+            $control->acceptPeerOutcome(json_decode(file_get_contents($base . '/peer-' . ($uid === 1003 ? 1004 : 1003) . '-' . $peer . '.json'), true,512,JSON_THROW_ON_ERROR));
+        }
+        if ($action === 'inspect-control') { echo json_encode($control->snapshot(), JSON_THROW_ON_ERROR); exit(0); }
+        if ($action === 'request-recovery') { $control->requestRecovery(); echo "{}\n"; exit(0); }
         if ($action === 'upgrade') {
             $binding = $base . '/execution/release-binding.json';
+            $evidence = hash_file('sha256', $binding);
+            $intent = $control->begin('upgrade-database', $evidence);
             $witness = static function (array $request): array {
                 echo json_encode(['request' => $request], JSON_THROW_ON_ERROR) . "\n"; fflush(STDOUT);
                 $response = json_decode((string)fgets(STDIN), true, 512, JSON_THROW_ON_ERROR);
                 if (($response['terminate'] ?? null) === 73) exit(73); // Deliberate abrupt fixture process loss.
                 return $response;
             };
-            $context = new FullCoreProductionUpgradeContext($base . '/execution', hash_file('sha256', $binding), $witness);
+            $context = new FullCoreProductionUpgradeContext($base . '/execution', hash_file('sha256', $binding), $witness, $control);
             $result = fullCoreUpgradeProduction(fixtureDb(), $context);
-            echo json_encode(['result' => $result], JSON_THROW_ON_ERROR) . "\n";
+            $outcome = $control->finish('upgrade-database', $intent, $control->outcome('upgrade-database', $evidence,
+                hash('sha256', FullCoreReleaseControl::encode($result))));
+            echo json_encode(['result' => $result, 'control' => $outcome], JSON_THROW_ON_ERROR) . "\n";
         } else {
             $host = new FullCoreMaintenanceHost(FIXTURE_ROOT, $base . '/maintenance-' . $uid);
             $operation = $spec['operation'];
             if ($action === 'pause') {
-                if ($uid === 1003) $result = $host->pauseScheduler($operation, hash('sha256', $host->crontab()), $spec['cron_review']);
-                else $result = $host->pause($operation, $host->webSnapshot(), hash('sha256', $host->crontab()), [], $spec['path']);
+                $result = $control->perform('hold', $evidence, static fn(): array => $uid === 1003
+                    ? $host->pauseScheduler($operation, hash('sha256', $host->crontab()), $spec['cron_review'])
+                    : $host->pause($operation, $host->webSnapshot(), hash('sha256', $host->crontab()), [], $spec['path']));
             } elseif ($action === 'master-witness') {
                 $result = $host->assertSchedulerHeld($operation);
                 $result['receipt_sha256'] = hash_file('sha256', $base . '/maintenance-1003/scheduler-' . $operation . '/receipt.json');
             } elseif ($action === 'restore-hold') {
-                if ($uid === 1003) $host->restoreScheduler($operation); else $host->restore($operation);
-                $result = ['restored' => true];
+                $step = $control->snapshot()['direction'] === 'recovery' ? ($uid === 1003 ? 'restore-scheduler' : 'restore-routing') : 'resume-scheduler';
+                $result = $control->perform($step, $evidence, static function () use ($host, $uid, $operation): array {
+                    if ($uid === 1003) $host->restoreScheduler($operation); else $host->restore($operation);
+                    return ['restored' => true, 'operation' => $operation];
+                });
             } elseif ($action === 'activate') {
-                $web = file_get_contents($base . '/package-1004/.htaccess');
-                $host->prepareActivation($operation, $web, hash('sha256', $web), $spec['candidate_commit'], $spec['manifest_sha256']);
-                $host->activate($operation, $spec['candidate_commit'], $spec['manifest_sha256']);
-                $result = ['activated' => true];
+                $result = $control->perform('activate', $evidence, static function () use ($host, $operation, $base, $spec): array {
+                    $web = file_get_contents($base . '/package-1004/.htaccess');
+                    $receipt = $host->prepareActivation($operation, $web, hash('sha256', $web), $spec['candidate_commit'], $spec['manifest_sha256']);
+                    $host->activate($operation, $spec['candidate_commit'], $spec['manifest_sha256']);
+                    return $receipt;
+                });
+            } elseif ($action === 'refresh-cache' || $action === 'refresh-recovery-cache') {
+                $host->assertHeld($operation);
+                $result = $control->perform($action, $evidence, static fn(): array => fixtureInvalidate($base, $spec,
+                    $action === 'refresh-cache' ? 'candidate' : 'recovery'));
+            } elseif ($action === 'begin-database-recovery' || $action === 'confirm-database-recovery') {
+                $host->assertHeld($operation);
+                $expectationBytes = file_get_contents($base . '/restore-expectation.json');
+                $expected = json_decode($expectationBytes, true, 512, JSON_THROW_ON_ERROR); $evidence = hash('sha256', $expectationBytes);
+                if ($expected['operation'] !== $operation || $expected['candidate_commit'] !== $spec['candidate_commit']) throw new RuntimeException('Recovery identity differs.');
+                if ($action === 'begin-database-recovery') $result = ['intent' => $control->begin('restore-database', $evidence)];
+                else {
+                    $hash = hash('sha256', json_encode(fixtureSnapshot(fixtureDb()), JSON_THROW_ON_ERROR));
+                    if (!hash_equals($expected['snapshot_sha256'], $hash)) throw new RuntimeException('Actual restored database differs.');
+                    $result = $control->finish('restore-database', $control->snapshot()['pending']['token'],
+                        $control->outcome('restore-database', $evidence, $hash));
+                }
+            } elseif ($action === 'complete') {
+                $result = $control->perform('complete', $evidence, static function () use ($host, $base): array {
+                    if ($host->webSnapshot()['sha256'] !== hash_file('sha256', $base . '/package-1004/.htaccess')) throw new RuntimeException('Activated routing differs.');
+                    return ['routing_verified' => true];
+                });
             } else {
-                $guard = static function () use ($host, $uid, $operation, $spec): bool {
+                $guard = static function () use ($host, $uid, $operation, $spec, $control): bool {
+                    $control->snapshot();
                     if ($uid === 1003) $host->assertSchedulerHeld($operation); else $host->assertHeld($operation);
                     if (!hash_equals($spec['held_web_sha256'], hash_file('sha256', FIXTURE_ROOT . '/.htaccess'))) return false;
                     [$status, $bytes] = fixtureHttp($spec, ['action' => 'status']);
@@ -116,10 +183,13 @@ if (($argv[1] ?? '') === '--owner') {
                 $plan = file_get_contents($base . '/plan-' . $uid . '.json');
                 $adapter = new FullCoreReleaseFiles(FIXTURE_ROOT, $base . '/package-' . $uid, $base . '/files-' . $uid,
                     $plan, hash('sha256', $plan), $guard);
-                if ($action === 'prepare') $result = $adapter->prepare();
-                elseif ($action === 'apply') $result = $adapter->apply();
-                elseif ($action === 'recover') $result = $adapter->recover();
-                elseif ($action === 'verify-original') { $adapter->verify(false); $result = ['verified' => true]; }
+                if ($action === 'prepare') $result = $control->perform('prepare-files', $evidence, fn(): array => $adapter->prepare());
+                elseif ($action === 'apply') $result = $control->perform('apply-files', $evidence, fn(): array => $adapter->apply());
+                elseif ($action === 'recover') $result = $control->perform('recover-files', $evidence, fn(): array => $adapter->recover());
+                elseif ($action === 'verify-original' || $action === 'verify-applied') {
+                    $result = $control->perform($action === 'verify-original' ? 'verify-recovery' : 'verify-files', $evidence,
+                        static function () use ($adapter, $action): array { $adapter->verify($action === 'verify-applied'); return ['verified' => true]; });
+                }
                 else throw new RuntimeException('Unknown owner action.');
             }
             echo json_encode($result, JSON_THROW_ON_ERROR) . "\n";
@@ -133,7 +203,7 @@ if (($argv[1] ?? '') === '--owner') {
 
 if (posix_geteuid() !== 0) throw new RuntimeException('Container fixture initializer required.');
 $scenario = $argv[1] ?? '';
-if (!in_array($scenario, ['stale', 'extra-db', 'late-db', 'guard-loss', 'crash', 'recover', 'activate'], true)) throw new RuntimeException('Explicit fixture scenario required.');
+if (!in_array($scenario, ['wrong-file-plan', 'stale', 'extra-db', 'late-db', 'guard-loss', 'crash', 'recover', 'activate'], true)) throw new RuntimeException('Explicit fixture scenario required.');
 $checks = 0;
 $check = static function (bool $ok, string $label) use (&$checks): void {
     if (!$ok) throw new RuntimeException('FAIL ' . $label . '; inspect /fixture/commands.stderr');
@@ -141,6 +211,8 @@ $check = static function (bool $ok, string $label) use (&$checks): void {
 };
 $base = '/fixture/' . $scenario; mkdir($base, 0755);
 mkdir(FIXTURE_ROOT, 0775, true); chown(FIXTURE_ROOT, 1004); chgrp(FIXTURE_ROOT, 33); chmod(FIXTURE_ROOT, 0775);
+$privateRoot = dirname(FIXTURE_ROOT) . '/private_html';
+mkdir($privateRoot, 0775); chown($privateRoot, 1004); chgrp($privateRoot, 33); chmod($privateRoot, 0775);
 foreach ([1003, 1004] as $uid) foreach (['maintenance-', 'package-', 'files-'] as $prefix) fixturePrivate($base . '/' . $prefix . $uid, $uid);
 fixturePrivate($base . '/execution', 1004); fixturePrivate($base . '/channel', 1004); fixturePrivate($base . '/backup', 0);
 $operation = bin2hex(random_bytes(16)); $commit = str_repeat('b', 40);
@@ -205,15 +277,15 @@ $rootDb->exec('CREATE TABLE coreflux_migrations(file_path VARCHAR(255) PRIMARY K
 $rootDb->exec($baseline); $rootDb->exec("INSERT INTO balances VALUES(1,999,25.19,0x00ff),(2,998,99.00,0xfe7f)");
 $rootDb->prepare('INSERT INTO _migrations(filename,sha256) VALUES(?,?)')->execute(['001_baseline.sql', corefluxMigrationHash($baseline)]);
 $rootDb->prepare('INSERT INTO coreflux_migrations(file_path,checksum_sha) VALUES(?,?)')->execute(['core/migrations/001_baseline.sql', corefluxMigrationHash($baseline)]);
-$snapshot = static fn(): array => ['rows' => $rootDb->query('SELECT id,tenant_id,amount,HEX(evidence) FROM balances ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
-    'columns' => $rootDb->query('SHOW COLUMNS FROM balances')->fetchAll(PDO::FETCH_ASSOC),
-    'ledger' => $rootDb->query('SELECT * FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC),
-    'legacy' => $rootDb->query('SELECT * FROM coreflux_migrations ORDER BY file_path')->fetchAll(PDO::FETCH_ASSOC),
-    'tables' => $rootDb->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN)];
+$snapshot = static fn(): array => fixtureSnapshot($rootDb);
 $before = $snapshot();
 $plan = fullCoreMigrationPlan($manifest, $base . '/package-1004', FIXTURE_ROOT, fullCoreUpgradeLedger($rootDb),
     $rootDb->query('SELECT file_path,checksum_sha FROM coreflux_migrations')->fetchAll(PDO::FETCH_KEY_PAIR));
 $check($plan['source_review_ready'], 'actual populated fixture has an exact reviewed migration plan');
+$spec['control'] = ['version' => 1, 'root' => FIXTURE_ROOT, 'operation' => $operation, 'candidate_commit' => $commit,
+    'manifest_sha256' => $spec['manifest_sha256'], 'migration_plan_sha256' => $plan['plan_sha256'],
+    'owner_plan_sha256' => [1003 => hash_file('sha256', $base . '/plan-1003.json'), 1004 => hash_file('sha256', $base . '/plan-1004.json')]];
+fixtureWrite($base . '/spec.json', json_encode($spec, JSON_THROW_ON_ERROR), 0, 0644);
 foreach ([1003, 1004] as $uid) $check(fixtureOwner($base, $uid, 'pause')[0] === 0, 'native schedule/web hold established by its real owner');
 $check(fixtureHttp($spec, null, '/read.php')[0] === 503, 'business HTTP blocked before backup or SQL');
 $appReceipt = $base . '/maintenance-1004/maintenance-' . $operation . '/receipt.json';
@@ -226,13 +298,14 @@ $binding = ['version' => 1, 'action' => 'apply-reviewed-core-database-upgrade', 
     'migration_plan_sha256' => $plan['plan_sha256'], 'application_maintenance_receipt_sha256' => hash_file('sha256', $appReceipt),
     'master_maintenance_receipt_sha256' => hash_file('sha256', $masterReceipt), 'held_web_sha256' => $spec['held_web_sha256'],
     'application_held_cron_sha256' => $a['held_cron_sha256'], 'master_held_cron_sha256' => $m['held_cron_sha256'],
-    'writer_inventory_sha256' => hash('sha256', 'network-isolated fixture; cron daemon absent; no application bootstrap or external DB network')];
+    'writer_inventory_sha256' => hash('sha256', 'network-isolated fixture; cron daemon absent; no application bootstrap or external DB network'),
+    'release_control_spec_sha256' => hash('sha256', FullCoreReleaseControl::encode($spec['control']))];
 $pair = ['version' => 1, 'source_writers_held' => true];
 foreach (['operation', 'candidate_commit', 'root', 'database', 'migration_plan_sha256', 'held_web_sha256',
     'application_held_cron_sha256', 'master_held_cron_sha256', 'writer_inventory_sha256'] as $key) $pair[$key] = $binding[$key];
 foreach ([1003, 1004] as $uid) {
     [$exit, $out] = fixtureOwner($base, $uid, 'prepare'); $check($exit === 0, 'actual per-owner file backup verified under native holds');
-    $pair['file_owners'][$uid] = json_decode($out, true, 512, JSON_THROW_ON_ERROR);
+    $pair['file_owners'][$uid] = json_decode(file_get_contents($base . '/files-' . $uid . '/prepared.json'), true, 512, JSON_THROW_ON_ERROR);
     $pair['file_owners'][$uid]['prepared_receipt_sha256'] = hash_file('sha256', $base . '/files-' . $uid . '/prepared.json');
 }
 [$exit, $sql] = fixtureCommand(['mariadb-dump', '--socket=/run/mysqld/mysqld.sock', '--user=grcudkpvcd', '--single-transaction',
@@ -250,6 +323,7 @@ $check($restoredSql === $sql, 'encrypted backup readback verifies all native SQL
 $pair['database_backup'] = ['native_full_schema_and_data' => true, 'encryption' => 'aes-256-gcm-envelope-v1',
     'sql_bytes' => strlen($sql), 'archive_bytes' => strlen($archive), 'restoring_database_user' => FIXTURE_DB,
     'sql_sha256' => hash('sha256', $sql), 'readback_sql_sha256' => hash('sha256', $restoredSql), 'archive_sha256' => hash('sha256', $archive)];
+if ($scenario === 'wrong-file-plan') $pair['file_owners'][1003]['plan_sha256'] = hash('sha256', 'different owner plan');
 $pairBytes = json_encode($pair, JSON_THROW_ON_ERROR); $binding['backup_pair_sha256'] = hash('sha256', $pairBytes);
 fixtureWrite($base . '/execution/backup-pair.json', $pairBytes, 1004);
 fixtureWrite($base . '/execution/release-binding.json', json_encode($binding, JSON_THROW_ON_ERROR), 1004);
@@ -263,7 +337,11 @@ $upgrade = static function (string $fault = '') use ($base, $binding, $spec, $ro
     $requests = 0; $result = null; $lateConnection = null;
     while (($line = fgets($pipes[1])) !== false) {
         $event = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
-        if (isset($event['result'])) { $result = $event['result']; continue; }
+        if (isset($event['result'])) {
+            $result = $event['result'];
+            fixtureWrite($base . '/peer-1004-upgrade-database.json', json_encode($event['control'],JSON_THROW_ON_ERROR),1003);
+            continue;
+        }
         $request = $event['request']; $requests++;
         $ddl = $rootDb->query("SHOW COLUMNS FROM balances LIKE 'note'")->fetch() !== false;
         if ($fault === 'crash' && $ddl) $w = ['terminate' => 73];
@@ -289,9 +367,9 @@ $upgrade = static function (string $fault = '') use ($base, $binding, $spec, $ro
 [$exit, $requests, $result] = $upgrade($scenario);
 $extra = null;
 $journal = $base . '/execution/database-upgrade.jsonl';
-if (in_array($scenario, ['stale', 'extra-db', 'late-db'], true)) {
+if (in_array($scenario, ['wrong-file-plan', 'stale', 'extra-db', 'late-db'], true)) {
     $check($exit === 2 && !file_exists($journal) && $snapshot() === $before, 'unsafe first guard refuses before journal or database writes');
-    $check($requests === ($scenario === 'extra-db' ? 0 : 1), 'database drain is checked before and after the external witness');
+    $check($requests === (in_array($scenario, ['extra-db', 'wrong-file-plan'], true) ? 0 : 1), 'owner plan and database drain are checked before fresh external witness acceptance');
 } elseif (in_array($scenario, ['guard-loss', 'crash'], true)) {
     $check($exit === ($scenario === 'crash' ? 73 : 2), 'real process interruption or schedule drift stops upgrade');
     $check($rootDb->query("SHOW COLUMNS FROM balances LIKE 'note'")->fetch() !== false
@@ -308,37 +386,42 @@ if (in_array($scenario, ['stale', 'extra-db', 'late-db'], true)) {
     $check($result['release_binding']['backup_pair_sha256'] === $binding['backup_pair_sha256']
         && $rootDb->query('SELECT amount FROM balances WHERE id=1')->fetchColumn() === '37.53', 'completion binds matching backup and preserves exact decimals');
     $check($upgrade()[0] === 2, 'completed production journal cannot be replayed');
-    foreach ([1003, 1004] as $uid) $check(fixtureOwner($base, $uid, 'apply')[0] === 0, 'candidate bytes applied separately by their original owners');
+    foreach ([1003, 1004] as $uid) {
+        $check(fixtureOwner($base, $uid, 'apply')[0] === 0, 'candidate bytes applied separately by their original owners');
+        $check(fixtureOwner($base, $uid, 'verify-applied')[0] === 0, 'each owner verifies installed bytes before activation');
+    }
 }
 $check(fixtureHttp($spec, null, '/read.php')[0] === 503, 'all success and failure outcomes retain business hold until explicit action');
 
-$invalidate = static function (string $phase) use ($base, $spec, $commit, $operation, $check): void {
-    $files = [];
-    foreach (['application.php', 'master.php'] as $relative) $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', FIXTURE_ROOT . '/' . $relative)];
-    $bytes = json_encode(['version' => 1, 'operation' => $operation, 'candidate_commit' => $commit, 'root' => FIXTURE_ROOT,
-        'held_web_sha256' => $spec['held_web_sha256'], 'phase' => $phase, 'files' => $files], JSON_THROW_ON_ERROR);
-    fixtureWrite($base . '/channel/cache-plan.json', $bytes, 1004);
-    [$status] = fixtureHttp($spec, ['action' => 'invalidate', 'plan_sha256' => hash('sha256', $bytes)]);
-    $check($status === 200, 'exact installed PHP hashes refreshed in held Core pool');
+$invalidate = static function (string $phase) use ($base, $check): void {
+    $check(fixtureOwner($base, 1004, $phase === 'candidate' ? 'refresh-cache' : 'refresh-recovery-cache')[0] === 0,
+        'exact installed PHP hashes refreshed under coordinated intent in held Core pool');
 };
 if ($scenario === 'activate') {
     $invalidate('candidate');
     $check(fixtureOwner($base, 1004, 'activate')[0] === 0, 'explicit candidate routing activation follows completed SQL files and cache checks');
     $check(fixtureOwner($base, 1003, 'restore-hold')[0] === 0, 'master scheduler resumes only after candidate activation');
+    $check(fixtureOwner($base, 1004, 'complete')[0] === 0, 'application owner records completed release');
     $check(fixtureHttp($spec, null, '/read.php')[1] === 'new-app|new-master', 'actual FPM serves new code from both owners after activation');
     $check($rootDb->query('SELECT amount FROM balances WHERE id=1')->fetchColumn() === '37.53', 'activated code remains paired with upgraded database');
+    $check(fixtureOwner($base, 1004, 'request-recovery')[0] === 2, 'old-backup recovery is refused after activation may admit new business writes');
 } else {
+    foreach ([1003, 1004] as $uid) $check(fixtureOwner($base, $uid, 'request-recovery')[0] === 0, 'both owner controls permanently select coordinated recovery');
     fixtureWrite($base . '/execution/recovery-requested.json', json_encode(['operation' => $operation]), 1004);
     $check($upgrade()[0] === 2, 'durable recovery direction forbids production re-entry');
     // Only this fresh container database may be emptied; exact identity and authenticated backup are checked first.
     $check($rootDb->query('SELECT DATABASE()')->fetchColumn() === FIXTURE_DB
         && hash_equals($pair['database_backup']['archive_sha256'], hash_file('sha256', $base . '/backup/database.aesgcm'))
         && hash_equals($pair['database_backup']['sql_sha256'], hash('sha256', $restoredSql)), 'exact paired native backup verified before disposable recovery');
+    fixtureWrite($base . '/restore-expectation.json', json_encode(['operation' => $operation, 'candidate_commit' => $commit,
+        'backup_pair_sha256' => $binding['backup_pair_sha256'], 'snapshot_sha256' => hash('sha256', json_encode($before, JSON_THROW_ON_ERROR))], JSON_THROW_ON_ERROR), 1004);
+    $check(fixtureOwner($base, 1004, 'begin-database-recovery')[0] === 0, 'database recovery intent persists before native restore begins');
     $rootDb->exec('DROP DATABASE ' . FIXTURE_DB); $rootDb->exec('CREATE DATABASE ' . FIXTURE_DB); $rootDb->exec('USE ' . FIXTURE_DB);
     fixtureWrite($base . '/backup/restore.sql', $restoredSql, 0);
     $check(fixtureCommand(['mariadb', '--socket=/run/mysqld/mysqld.sock', '--user=grcudkpvcd', FIXTURE_DB],
         $base . '/backup/restore.sql')[0] === 0, 'native empty-target database restore runs as application database user');
     unlink($base . '/backup/restore.sql');
+    $check(fixtureOwner($base, 1004, 'confirm-database-recovery')[0] === 0, 'new owner process verifies actual restored database before completing its intent');
     foreach ([1004, 1003] as $uid) {
         $check(fixtureOwner($base, $uid, 'recover')[0] === 0 && fixtureOwner($base, $uid, 'verify-original')[0] === 0,
             'original file bytes and metadata restored by each owner while web stays held');
