@@ -28,6 +28,7 @@ cp tests/core_release_coordinator_native.py "$fixture/tests/"
 cp tests/core_database_transfer_native.py "$fixture/tests/"
 cp tests/core_database_archive_smoke.py "$fixture/tests/"
 cp tests/core_native_hold_fixture.py "$fixture/tests/"
+cp tests/core_release_forward_native.py "$fixture/tests/"
 cat > "$fixture/Dockerfile" <<'DOCKER'
 FROM php:8.2-fpm-bookworm
 ARG NATIVE_WRITERS=0

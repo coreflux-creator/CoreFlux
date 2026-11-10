@@ -40,7 +40,9 @@ jobs:
       - name: Rehearse native owner holds, database guards, file/cache apply and paired recovery
         run: bash tests/full_core_production_upgrade_linux.sh
       - name: Check native hold observer composition and refusal cases
-        run: python3 tests/core_native_hold_observer_smoke.py
+        run: |
+          python3 tests/core_native_hold_observer_smoke.py
+          python3 tests/core_release_forward_smoke.py
 
   native-writer-upgrade:
     name: Full-Core actual native writer observation

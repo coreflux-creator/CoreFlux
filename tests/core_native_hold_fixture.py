@@ -29,9 +29,15 @@ class FixtureStatus:
         self.spec = json.loads((base / 'spec.json').read_bytes())
 
     def __call__(self):
+        return self._request({'action': 'status'})
+
+    def invalidate(self, plan_sha256):
+        return self._request({'action': 'invalidate', 'plan_sha256': plan_sha256})
+
+    def _request(self, payload):
         connection = http.client.HTTPConnection('127.0.0.1', timeout=8)
         try:
-            connection.request('POST', '/' + self.spec['path'], body=b'{"action":"status"}', headers={
+            connection.request('POST', '/' + self.spec['path'], body=encode(payload), headers={
                 'Host': 'fixture.local', 'Content-Type': 'application/json', 'X-CoreFlux-Maintenance': self.spec['token']})
             response = connection.getresponse(); body = response.read(1048577)
             if response.status != 200 or len(body) > 1048576:

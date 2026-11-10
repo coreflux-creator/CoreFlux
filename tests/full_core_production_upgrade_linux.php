@@ -81,7 +81,7 @@ function fixtureNativeWitness(string $base, array $request, string $challenge, b
     if($code!==0) return []; // The real native owner must refuse an unavailable observation.
     return json_decode($bytes,true,512,JSON_THROW_ON_ERROR);
 }
-function fixtureOwnerRequest(string $base, int $uid, string $action): array
+function fixtureOwnerRequest(string $base, int $uid, string $action, bool $readPeer = true): array
 {
     $resume = str_starts_with($action, 'resume:');
     if ($resume) $action = substr($action, 7);
@@ -102,8 +102,20 @@ function fixtureOwnerRequest(string $base, int $uid, string $action): array
         : ['prepare-files'=>'hold','apply-files'=>'upgrade-database','resume-scheduler'=>'activate','recover-files'=>'restore-database','restore-scheduler'=>'restore-routing'];
     $peers += ['restore-preparation-hold'=>'verify-preparation-abort','complete-preparation-abort'=>'restore-preparation-hold'];
     if ($uid === 1003) $peers['request-preparation-abort']='verify-preparation-abort';
-    $peer=isset($peers[$phase]) ? json_decode(file_get_contents($base.'/peer-'.($uid === 1003 ? 1004 : 1003).'-'.$peers[$phase].'.json'),true,512,JSON_THROW_ON_ERROR) : null;
+    $peer=$readPeer && isset($peers[$phase]) ? json_decode(file_get_contents($base.'/peer-'.($uid === 1003 ? 1004 : 1003).'-'.$peers[$phase].'.json'),true,512,JSON_THROW_ON_ERROR) : null;
     return ['action'=>$resume ? 'resume-preparation-abort' : $phase,'input'=>$input,'peer'=>$peer,'challenge'=>bin2hex(random_bytes(32))];
+}
+function fixtureForwardRequest(string $base, int $uid, string $action): array
+{
+    $request=fixtureOwnerRequest($base,$uid,$action,false);
+    $fields=match($request['action']) {
+        'hold','resume-scheduler','complete','inspect-control'=>[],
+        'upgrade-database'=>['binding_sha256'],
+        'refresh-cache'=>['guard_sha256','cache_plan_sha256'],
+        default=>['guard_sha256'],
+    };
+    $request['input']=array_intersect_key($request['input'],array_flip($fields));
+    return $request;
 }
 function fixtureOwner(string $base, int $uid, string $action, array $extraInput = []): array
 {
@@ -118,10 +130,16 @@ function fixtureOwner(string $base, int $uid, string $action, array $extraInput 
         fixtureWrite($base . '/channel/cache-plan.json', $bytes, 1004);
         fixtureWrite($base . '/cache-plan-for-' . $uid . '.json', $bytes, $uid);
     }
-    $initial=fixtureOwnerRequest($base,$uid,$action);
+    $externalForward=getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1' && in_array($action,
+        ['pause','prepare','apply','verify-applied','refresh-cache','activate','complete','inspect-database-state','inspect-control'],true);
+    if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1' && $action === 'restore-hold') {
+        $state=json_decode(file_get_contents(dirname(FIXTURE_ROOT).'/private_html/core-release-control-'.$uid.'/operation-'.$spec['operation'].'/state.json'),true);
+        $externalForward=$state['direction'] === 'release';
+    }
+    $initial=$externalForward ? fixtureForwardRequest($base,$uid,$action) : fixtureOwnerRequest($base,$uid,$action);
     $initial['input'] += $extraInput;
-    $command = in_array($action,['external-capture','external-restore','external-restore-short'],true)
-        ? ['python3',__DIR__.'/core_database_transfer_native.py',$base,$action] : fixtureOwnerCommand($base,$uid);
+    $command = $externalForward ? ['python3',__DIR__.'/core_release_forward_native.py',$base,(string)$uid] : (in_array($action,['external-capture','external-restore','external-restore-short'],true)
+        ? ['python3',__DIR__.'/core_database_transfer_native.py',$base,$action] : fixtureOwnerCommand($base,$uid));
     $p = proc_open($command, [0 => ['pipe','r'],1 => ['pipe','w'],2 => ['file','/fixture/commands.stderr','a']], $pipes);
     if (!is_resource($p)) throw new RuntimeException('Owner process unavailable.');
     fwrite($pipes[0],json_encode($initial,JSON_THROW_ON_ERROR)."\n"); fflush($pipes[0]);
@@ -554,6 +572,18 @@ FullCoreProductionUpgradeContext::validateBinding($binding); FullCoreProductionU
 $extra = $scenario === 'extra-db' ? fixtureDb() : null;
 $masterChanged = false;
 $upgrade = static function (string $fault = '') use ($base, $binding, $spec, $rootDb, &$masterChanged): array {
+    if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') {
+        $initial=fixtureForwardRequest($base,1004,'upgrade');
+        fixtureWrite($base.'/forward-request.json',json_encode($initial,JSON_THROW_ON_ERROR)."\n",0);
+        [$code,$bytes]=fixtureCommand(['python3',__DIR__.'/core_release_forward_native.py',$base,'1004'],
+            $base.'/forward-request.json');
+        if($code!==0) return [$code,0,null];
+        $response=json_decode($bytes,true,512,JSON_THROW_ON_ERROR);
+        if($response['challenge']!==$initial['challenge'] || $response['owner_uid']!==1004) throw new RuntimeException('External upgrade response differs.');
+        $result=$response['response'];
+        fixtureWrite($base.'/peer-1004-upgrade-database.json',json_encode($result['control'],JSON_THROW_ON_ERROR),1003);
+        return [0,0,$result['result']];
+    }
     $initial=fixtureOwnerRequest($base,1004,'upgrade');
     $process = proc_open(fixtureOwnerCommand($base,1004),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/fixture/commands.stderr', 'a']], $pipes);
@@ -625,7 +655,21 @@ if (in_array($scenario, ['wrong-file-plan', 'stale', 'extra-db', 'late-db'], tru
     $check($upgrade()[0] === 2, 'completed production journal cannot be replayed');
     foreach ([1003, 1004] as $uid) {
         $check(fixtureOwner($base, $uid, 'apply')[0] === 0, 'candidate bytes applied separately by their original owners');
-        $check(fixtureOwner($base, $uid, 'verify-applied')[0] === 0, 'each owner verifies installed bytes before activation');
+        if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1' && $uid === 1004) {
+            $initial=fixtureForwardRequest($base,$uid,'verify-applied');
+            fixtureWrite($base.'/forward-request.json',json_encode($initial,JSON_THROW_ON_ERROR)."\n",0);
+            $check(fixtureCommand(['python3',__DIR__.'/core_release_forward_native.py',$base,(string)$uid,'--lose-result'],
+                $base.'/forward-request.json')[0]===2,
+                'external controller stops on a lost final native verification response');
+            [$code,$bytes]=fixtureOwner($base,$uid,'inspect-control');
+            $state=json_decode($bytes,true,512,JSON_THROW_ON_ERROR);
+            $receipt=$state['completed']['verify-files']['control'] ?? null;
+            $check($code===0 && $state['state']['pending']===null && is_array($receipt),
+                'fresh external inspection recovers the durable completed phase without repeating it');
+            fixtureWrite($base.'/peer-1004-verify-files.json',json_encode($receipt,JSON_THROW_ON_ERROR),1003);
+            $check(fixtureOwner($base,$uid,'verify-applied')[0]===2,
+                'external forward controller refuses to replay the completed phase after response loss');
+        } else $check(fixtureOwner($base, $uid, 'verify-applied')[0] === 0, 'each owner verifies installed bytes before activation');
     }
 }
 $check(fixtureHttp($spec, null, '/read.php')[0] === 503, 'all success and failure outcomes retain business hold until explicit action');

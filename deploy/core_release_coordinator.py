@@ -1,9 +1,9 @@
-"""Outside-host Core owner transport, guarded database transfer and early cleanup.
+"""Outside-host Core owner transport, explicit forward phases and recovery transfer.
 
-This command does not publish code, run migrations, restore a database or start a
-release. It can inspect an already reviewed operation and finish its early abort.
-The imported transfer API additionally requires actual writer observations and,
-for restore, a previously established native recovery intent.
+Forward phases require separately pinned inputs and current native observations.
+They never advance automatically, replay an uncertain action or select recovery.
+The imported transfer API requires actual writer observations and, for restore,
+a previously established native recovery intent.
 Native owners retain the authoritative intents and receipts; transport failures
 never trigger an automatic replay or a change of recovery direction.
 """
@@ -38,7 +38,31 @@ WORKER_FILES = frozenset({
 })
 ABORT_PHASES = ('verify-preparation-abort', 'restore-preparation-hold', 'complete-preparation-abort')
 READ_ACTIONS = ('inspect-control', 'inspect-preparation-abort', 'inspect-writers', 'witness-writers', 'witness-held')
+FORWARD_PHASES = {
+    1003: ('hold', 'prepare-files', 'apply-files', 'verify-files', 'resume-scheduler'),
+    1004: ('hold', 'prepare-files', 'upgrade-database', 'apply-files', 'verify-files', 'refresh-cache', 'activate', 'complete'),
+}
+FORWARD_INPUTS = {
+    'hold': (), 'prepare-files': ('guard_sha256',), 'upgrade-database': ('binding_sha256',),
+    'apply-files': ('guard_sha256',), 'verify-files': ('guard_sha256',),
+    'refresh-cache': ('guard_sha256', 'cache_plan_sha256'), 'activate': ('guard_sha256',),
+    'resume-scheduler': (), 'complete': (), 'inspect-database-state': ('guard_sha256',),
+}
+HELD_FORWARD = frozenset(phase for phase, fields in FORWARD_INPUTS.items() if fields)
+FORWARD_PEERS = {
+    1003: {'prepare-files': 'hold', 'apply-files': 'upgrade-database', 'resume-scheduler': 'activate'},
+    1004: {'prepare-files': 'hold', 'upgrade-database': 'prepare-files',
+           'refresh-cache': 'verify-files', 'complete': 'resume-scheduler'},
+}
 MAX_MESSAGE = 1024 * 1024
+
+
+def validate_forward_input(uid: int, phase: str, data: dict) -> None:
+    if (type(uid) is not int or uid not in FORWARD_PHASES
+            or phase not in (*FORWARD_PHASES[uid], *(['inspect-database-state'] if uid == 1004 else []))
+            or not isinstance(data, dict) or set(data) != set(FORWARD_INPUTS[phase])
+            or any(not exact_hex(value, 64) for value in data.values())):
+        raise ValueError('Exact owner, forward phase and reviewed input fingerprints required')
 
 
 class OwnerInterrupted(RuntimeError):
@@ -95,7 +119,7 @@ def _read_lines(stream, events: queue.Queue) -> None:
 class Coordinator:
     def __init__(self, config: dict, identity: str, *, ssh: str = 'ssh',
                  known_hosts: str | None = None, endpoints: dict[int, Endpoint] | None = None,
-                 timeout: float = 120, php_binary: str = '/usr/bin/php8.2', observe=None):
+                 timeout: float = 120, php_binary: str = '/usr/bin/php8.2', observe=None, invalidate=None):
         validate_config(config)
         # Freeze caller-owned dictionaries so a callback cannot change the pinned target.
         self.config = json.loads(encode(config))
@@ -106,6 +130,7 @@ class Coordinator:
         self.timeout = timeout
         self.php_binary = private_path(php_binary)
         self.observe = observe
+        self.invalidate = invalidate
         self.spec_hash = hashlib.sha256(encode(config['control_spec'])).hexdigest()
 
     def _command(self, uid: int) -> list[str]:
@@ -165,14 +190,23 @@ class Coordinator:
         if any(not exact_hex(outcome.get(key), 64) for key in ('evidence_sha256', 'native_receipt_sha256')):
             raise ValueError('Incomplete native outcome')
 
-    def _exchange(self, uid: int, action: str, query: dict, challenge: str) -> dict:
+    def _exchange(self, uid: int, action: str, query: dict, challenge: str, data: dict | None = None) -> dict:
         if not isinstance(query, dict) or query.get('owner_uid') != uid or query.get('controller_challenge') != challenge:
             raise ValueError('Native exchange identity differs')
-        if query.get('kind') == 'hold-witness' and action in ('capture-database-stream','empty-recovery-database','restore-database-stream'):
+        if query.get('kind') == 'hold-witness' and action in (*HELD_FORWARD, 'capture-database-stream','empty-recovery-database','restore-database-stream'):
             spec = self.config['control_spec']
             if self.observe is None or any(query.get(key) != spec[key] for key in ('operation','candidate_commit','migration_plan_sha256')):
                 raise ValueError('Actual current writer observations are required for database transfer')
             return self.observe(query)
+        if query.get('kind') == 'invalidate':
+            spec = self.config['control_spec']
+            if (action != 'refresh-cache' or uid != 1004 or self.invalidate is None
+                    or query.get('phase') != 'candidate'
+                    or any(query.get(key) != spec[key] for key in ('operation', 'candidate_commit'))
+                    or not exact_hex(query.get('cache_plan_sha256'), 64)
+                    or query['cache_plan_sha256'] != (data or {}).get('cache_plan_sha256')):
+                raise ValueError('Only the exact requested candidate cache plan may be invalidated')
+            return self.invalidate(query['cache_plan_sha256'])
         if query.get('operation') != self.config['control_spec']['operation'] or query.get('control_spec_sha256') != self.spec_hash:
             raise ValueError('Native exchange belongs to another release')
         if query.get('kind') != 'preparation-abort-witness' or action not in (
@@ -188,8 +222,15 @@ class Coordinator:
              *, capture_sink=None, restore_source=None, timeout: float | None = None) -> dict:
         if uid not in OWNERS or action not in (*READ_ACTIONS, *ABORT_PHASES,
                                               'request-preparation-abort', 'resume-preparation-abort',
+                                              *FORWARD_INPUTS,
                                               'capture-database-stream','empty-recovery-database','restore-database-stream'):
             raise ValueError('Explicit reviewed native action required')
+        if action in FORWARD_INPUTS:
+            validate_forward_input(uid, action, data or {})
+            if action in HELD_FORWARD and self.observe is None:
+                raise ValueError('Current native hold observations required before a forward action')
+            if action == 'refresh-cache' and self.invalidate is None:
+                raise ValueError('Exact authenticated maintenance channel required for cache refresh')
         if ((action == 'capture-database-stream') != (capture_sink is not None)
                 or (action == 'restore-database-stream') != (restore_source is not None)):
             raise ValueError('Explicit bounded database stream endpoint required')
@@ -240,7 +281,7 @@ class Coordinator:
                     result = event['response']
                     if not isinstance(result, dict):
                         raise ValueError('Native response object required')
-                elif set(event) == {'request'} and exchanges < (40000 if action in ('capture-database-stream','empty-recovery-database','restore-database-stream') else 2):
+                elif set(event) == {'request'} and exchanges < (40000 if action in (*HELD_FORWARD, 'capture-database-stream','empty-recovery-database','restore-database-stream') else 2):
                     exchanges += 1
                     query = event['request']
                     if query.get('kind') == 'database-restore-chunk':
@@ -252,7 +293,7 @@ class Coordinator:
                         response = {'offset':stream_bytes,'data':base64.b64encode(raw).decode('ascii')}
                         stream_bytes += len(raw); stream_hash.update(raw)
                     else:
-                        response = self._exchange(uid, action, query, challenge)
+                        response = self._exchange(uid, action, query, challenge, data)
                     process.stdin.write(encode(response) + b'\n')
                     process.stdin.flush()
                 else:
@@ -280,6 +321,16 @@ class Coordinator:
             phase = (data or {}).get('phase') if action == 'resume-preparation-abort' else action
             if phase in ABORT_PHASES:
                 self._verify_outcome(uid, phase, result.get('control', {}))
+            if action in FORWARD_PHASES.get(uid, ()):
+                self._verify_completed(uid, action, result)
+                expected = data['binding_sha256'] if action == 'upgrade-database' else hashlib.sha256(encode(data or {})).hexdigest()
+                if result['control']['evidence_sha256'] != expected:
+                    raise ValueError('Native forward outcome differs from the requested inputs')
+            if action == 'inspect-database-state' and (
+                    result.get('operation') != self.config['control_spec']['operation']
+                    or result.get('candidate_commit') != self.config['control_spec']['candidate_commit']
+                    or not exact_hex(result.get('snapshot_sha256'), 64)):
+                raise ValueError('Native baseline belongs to another release or is incomplete')
             return result
         except (ValueError, OSError, queue.Empty, TimeoutError, subprocess.TimeoutExpired) as error:
             raise OwnerInterrupted(f'Owner {uid} action {action} lost its verified response; inspect native state, do not replay') from error
@@ -292,14 +343,46 @@ class Coordinator:
             reader.join(timeout=1)
             process.stdout.close()
 
+    def _verify_completed(self, uid: int, phase: str, completed: dict) -> dict:
+        if not isinstance(completed, dict) or not isinstance(completed.get('result'), dict):
+            raise ValueError('Verified native phase result required')
+        outcome = completed.get('control', {})
+        self._verify_outcome(uid, phase, outcome)
+        if hashlib.sha256(encode(completed['result'])).hexdigest() != outcome['native_receipt_sha256']:
+            raise ValueError('Native phase result does not match its durable receipt')
+        return outcome
+
     def outcome(self, uid: int, phase: str) -> dict:
         report = self.call(uid, 'inspect-control')
         completed = (report.get('completed') or {}).get(phase)
         if not isinstance(completed, dict):
             raise ValueError(f'Owner {uid} has no verified completed {phase} receipt')
-        outcome = completed['control']
-        self._verify_outcome(uid, phase, outcome)
-        return outcome
+        return self._verify_completed(uid, phase, completed)
+
+    def forward_step(self, uid: int, phase: str, data: dict) -> dict:
+        """Execute one next phase; completed or uncertain phases require inspection, never replay."""
+        validate_forward_input(uid, phase, data)
+        other = 1004 if uid == 1003 else 1003
+        reports = {owner: self.call(owner, 'inspect-control') for owner in (uid, other)}
+        for report in reports.values():
+            state = report['state']
+            if state['direction'] != 'release' or state['pending'] is not None:
+                raise ValueError('Both native owners must have a settled forward direction')
+        own = reports[uid]
+        if own['state']['terminal'] is not None or phase in (own.get('completed') or {}):
+            raise ValueError('Completed forward action must be inspected, not replayed')
+        next_phase = next((p for p in FORWARD_PHASES[uid] if p not in (own.get('completed') or {})), None)
+        if phase == 'inspect-database-state':
+            if next_phase != 'upgrade-database':
+                raise ValueError('Database baseline requires prepared files before the upgrade')
+        elif phase != next_phase:
+            raise ValueError('Forward action is out of order for this owner')
+        required = FORWARD_PEERS[uid].get(phase)
+        peer = None
+        if required:
+            completed = (reports[other].get('completed') or {}).get(required)
+            peer = self._verify_completed(other, required, completed)
+        return self.call(uid, phase, data, peer, timeout=3600 if phase == 'upgrade-database' else None)
 
     def step(self, uid: int, phase: str, *, resume: bool = False) -> dict:
         if phase not in (*ABORT_PHASES, 'request-preparation-abort'):
@@ -349,33 +432,61 @@ class Coordinator:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['inspect', 'abort-preparation', 'resume-preparation-abort'])
+    parser.add_argument('action', choices=['inspect', 'abort-preparation', 'resume-preparation-abort', 'forward-step'])
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--config-sha256', required=True)
     parser.add_argument('--identity', required=True)
     parser.add_argument('--ssh', default='ssh')
     parser.add_argument('--known-hosts')
     parser.add_argument('--owner', type=int, choices=[1003, 1004])
-    parser.add_argument('--phase', choices=ABORT_PHASES)
+    parser.add_argument('--phase', choices=(*ABORT_PHASES, *FORWARD_INPUTS))
+    parser.add_argument('--step-config', type=Path)
+    parser.add_argument('--step-config-sha256')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     raw = args.config.read_bytes()
     if not exact_hex(args.config_sha256, 64) or hashlib.sha256(raw).hexdigest() != args.config_sha256:
         raise ValueError('Reviewed local coordinator configuration changed')
-    if ((args.action == 'resume-preparation-abort' and (args.owner is None or args.phase is None))
-            or (args.action != 'resume-preparation-abort' and (args.owner is not None or args.phase is not None))):
-        raise ValueError('Resume requires both the exact owner and pending phase')
+    if ((args.action in ('resume-preparation-abort', 'forward-step') and (args.owner is None or args.phase is None))
+            or (args.action not in ('resume-preparation-abort', 'forward-step') and (args.owner is not None or args.phase is not None))
+            or (args.action == 'resume-preparation-abort' and args.phase not in ABORT_PHASES)):
+        raise ValueError('Explicit owner and phase required only for the selected step')
+    if args.action != 'forward-step' and (args.step_config or args.step_config_sha256):
+        raise ValueError('Forward inputs cannot be attached to another action')
     controller = Coordinator(json.loads(raw), args.identity, ssh=args.ssh, known_hosts=args.known_hosts)
+    step = None
+    if args.action == 'forward-step':
+        if not args.step_config or not exact_hex(args.step_config_sha256, 64):
+            raise ValueError('Separately reviewed forward-step configuration required')
+        step_raw = args.step_config.read_bytes()
+        if hashlib.sha256(step_raw).hexdigest() != args.step_config_sha256:
+            raise ValueError('Reviewed forward-step configuration changed')
+        step = json.loads(step_raw)
+        validate_forward_input(args.owner, args.phase, step['input'])
+        if any(step.get(key) != controller.config['control_spec'][key] for key in ('operation', 'candidate_commit')):
+            raise ValueError('Forward step belongs to another reviewed release')
+        if args.phase in HELD_FORWARD:
+            from core_native_hold_observer import NativeHoldObserver, MaintenanceStatus
+            binding_raw = Path(step['hold_binding_path']).read_bytes()
+            expected = step['input'].get('binding_sha256', step['input'].get('guard_sha256'))
+            if hashlib.sha256(binding_raw).hexdigest() != expected:
+                raise ValueError('Current hold binding differs from the exact requested native input')
+            status = MaintenanceStatus(step['maintenance_url'], step['maintenance_token'], step['operation'])
+            controller.observe = NativeHoldObserver(controller, json.loads(binding_raw), status)
+            controller.invalidate = status.invalidate
     # Reserve a fresh record before an action; a lost response leaves this intent for inspection.
     with os.fdopen(os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as receipt:
         receipt.write(encode({'action': args.action, 'config_sha256': args.config_sha256,
-                              'status': 'requested', 'owner': args.owner, 'phase': args.phase}) + b'\n')
+                              'status': 'requested', 'owner': args.owner, 'phase': args.phase,
+                              'step_config_sha256': args.step_config_sha256}) + b'\n')
         receipt.flush()
         os.fsync(receipt.fileno())
         if args.action == 'inspect':
             result = {str(uid): controller.call(uid, 'inspect-control') for uid in OWNERS}
         elif args.action == 'abort-preparation':
             result = controller.abort_preparation()
+        elif args.action == 'forward-step':
+            result = controller.forward_step(args.owner, args.phase, step['input'])
         else:
             result = controller.step(args.owner, args.phase, resume=True)
         receipt.write(encode({'status': 'verified', 'result': result}) + b'\n')

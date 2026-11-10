@@ -1,9 +1,9 @@
 # Native writer observations
 
 `core_native_hold_observer.NativeHoldObserver` composes fresh observations for an
-already held operation. It does not establish maintenance, authorize a release,
-or make the forward-release CLI available. The existing database transfer API
-accepts this observer through `Coordinator(..., observe=...)`.
+already held operation. It does not establish maintenance or authorize a release.
+The database transfer and explicit forward-step APIs accept this observer through
+`Coordinator(..., observe=...)`.
 
 Each observation combines the active owner's receipt, a separate authenticated
 peer-owner receipt, an authenticated HTTPS FPM status response, and independent
@@ -66,5 +66,43 @@ GitHub Actions run 42879881955 at commit 39a4116c64254df665d46f21e90ab3cc7b27296
 all eleven jobs passed. The run also exercised the unknown live-process refusal.
 The policy smoke suite has 33 checks, including exited-child, live-empty-command
 and foreign-parent cases. This validates the disposable native fixture. The
-external forward coordinator and full application-candidate rehearsal remain
-separate gates before production release acceptance.
+full application-candidate rehearsal remains a separate gate before production
+release acceptance.
+
+## Explicit external forward steps
+
+`core_release_coordinator.py forward-step` executes one named phase through the
+same pinned SSH owner worker used for backup and early-abort recovery. The native
+owner remains authoritative for durable ordering, intent, file ownership and
+database identity. Before a forward step the controller independently reads both
+owners; pending actions or a recovery/abort direction stop progress. Peer receipts
+come from those fresh authenticated inspections, not caller-supplied receipt files.
+Completed phases cannot be replayed. After a lost reply, inspect the native state
+and use the verified receipt to choose the next action; never repeat a mutation
+because a timeout elapsed.
+
+The CLI requires `--owner`, `--phase`, the existing pinned coordinator configuration,
+and a separate `--step-config` with `--step-config-sha256`. That private JSON pins
+the `operation`, `candidate_commit` and exact phase `input`. Held phases additionally
+specify `hold_binding_path`, `maintenance_url` and `maintenance_token`. The binding's
+actual bytes must match the requested `guard_sha256` or `binding_sha256`. Keep this
+file outside source control: its token is private. Receipts record its fingerprint,
+not its contents. Every invocation requires a new `--output` path and writes a
+durable request before a native action.
+
+The phase order is: hold both owners; prepare both file backups; inspect and capture
+the application database; bind the verified encrypted backup with both file-backup
+receipts; upgrade the application database; apply and verify each owner's files;
+refresh the reviewed candidate PHP cache; explicitly activate application routing;
+resume the master scheduler; complete the application release. The controller does
+not automatically choose or advance these steps, stage packages, assemble the
+reviewed hold policy or create a backup binding. Those preparation artifacts must
+be present and pinned before their dependent phases. Database transfer remains the
+separate encrypted capture/restore API.
+
+The disposable native-writer fixture now exercises the external forward controller
+through this sequence, including database upgrade and exact cache invalidation.
+It deliberately loses the final response after native file verification, recovers
+the completed receipt via fresh inspection and verifies replay refusal. The paired
+recovery fixture also runs its forward preparation through this controller. These
+tests use synthetic data and private loopback transport, not the live Core release.

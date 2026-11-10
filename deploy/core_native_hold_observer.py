@@ -31,9 +31,17 @@ class MaintenanceStatus:
         self.host, self.path, self.token = parsed.hostname, parsed.path, token
 
     def __call__(self) -> dict:
+        return self._request({'action': 'status'})
+
+    def invalidate(self, plan_sha256: str) -> dict:
+        if not exact_hex(plan_sha256, 64):
+            raise ValueError('Exact reviewed cache-plan fingerprint required')
+        return self._request({'action': 'invalidate', 'plan_sha256': plan_sha256})
+
+    def _request(self, payload: dict) -> dict:
         connection = http.client.HTTPSConnection(self.host, timeout=8, context=ssl.create_default_context())
         try:
-            connection.request('POST', self.path, body=b'{"action":"status"}', headers={
+            connection.request('POST', self.path, body=encode(payload), headers={
                 'Content-Type': 'application/json', 'X-CoreFlux-Maintenance': self.token})
             response = connection.getresponse()
             body = response.read(1048577)
