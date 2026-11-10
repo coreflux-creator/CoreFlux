@@ -12,6 +12,8 @@ function thunderhawkTimeReviewerIdentity(string $case): array
         'initial'=>['email'=>THUNDERHAWK_REVIEWER_EMAIL,'name'=>THUNDERHAWK_REVIEWER_NAME,'marker'=>THUNDERHAWK_REVIEWER_MARKER],
         'browser-hour'=>['email'=>'thunderhawk-browser-hour-reviewer-20261030@example.invalid',
             'name'=>'Thunderhawk Browser Hour Test Approver','marker'=>'synthetic_browser_hour_reviewer_20261030'],
+        'historical-october'=>['email'=>'thunderhawk-historical-time-reviewer-20261110@example.invalid',
+            'name'=>'Thunderhawk Historical Replay Test Approver','marker'=>'historical_pilot_reviewer_20261110'],
         default=>throw new RuntimeException('Unknown isolated reviewer case'),
     };
 }

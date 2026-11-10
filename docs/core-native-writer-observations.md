@@ -30,7 +30,12 @@ which would create a circular policy/configuration fingerprint dependency.
 FPM worker PIDs come from actual FPM status, not process-name matching. Native
 database transfer allowances come from the exact command builder and require
 the timeout process to descend directly from the active owner, with the native
-client directly beneath it. Unknown processes keep the operation held.
+client directly beneath it. An exited direct transfer child may remain as a
+Linux zombie while the owner awaits the observation. The classifier requires
+state Z, empty command evidence, exact application UIDs and the active transfer's
+direct parent before treating that child as unable to write. A living process,
+an exited sibling or a child outside an active transfer remains forbidden.
+Unknown process diagnostics retain identities and fingerprints, never arguments.
 
 Registry observations follow ordinary unit-file links and pin their content.
 Masked `/dev/null` units and verifiably absent direct link targets have explicit
@@ -52,6 +57,14 @@ export retained the temporary root directory's runner ownership and mode 0700,
 so native tmpfiles rejected root-to-child ownership transitions and user runtime
 directories could not connect to the system bus. The fixture now sets only that
 exact exported root to root:root mode 0755 and explicitly starts the native basic,
-bus and login services. Boot diagnostics remain enabled. Passing this variant
-and rehearsing the full application candidate remain required before treating
-this as production release acceptance.
+bus and login services. FPM logs use a local file because its Docker configuration
+reopens stderr, which cannot reopen the systemd journal socket. Boot diagnostics
+remain enabled.
+
+The actual native-observer activation and paired-recovery scenarios passed in
+GitHub Actions run 42879881955 at commit 39a4116c64254df665d46f21e90ab3cc7b272967;
+all eleven jobs passed. The run also exercised the unknown live-process refusal.
+The policy smoke suite has 33 checks, including exited-child, live-empty-command
+and foreign-parent cases. This validates the disposable native fixture. The
+external forward coordinator and full application-candidate rehearsal remain
+separate gates before production release acceptance.
