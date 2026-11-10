@@ -65,6 +65,16 @@ def validate_forward_input(uid: int, phase: str, data: dict) -> None:
         raise ValueError('Exact owner, forward phase and reviewed input fingerprints required')
 
 
+def native_json(value) -> bytes:
+    # Native receipts use PHP JSON_UNESCAPED_SLASHES, with Unicode escaping retained.
+    return json.dumps(value, separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('utf-8')
+
+
+def forward_evidence(phase: str, data: dict) -> str:
+    # PHP decodes an empty input object as an empty associative array, then encodes [].
+    return data['binding_sha256'] if phase == 'upgrade-database' else hashlib.sha256(native_json(data or [])).hexdigest()
+
+
 class OwnerInterrupted(RuntimeError):
     """The native outcome must be inspected before another action is selected."""
 
@@ -323,7 +333,7 @@ class Coordinator:
                 self._verify_outcome(uid, phase, result.get('control', {}))
             if action in FORWARD_PHASES.get(uid, ()):
                 self._verify_completed(uid, action, result)
-                expected = data['binding_sha256'] if action == 'upgrade-database' else hashlib.sha256(encode(data or {})).hexdigest()
+                expected = forward_evidence(action, data or {})
                 if result['control']['evidence_sha256'] != expected:
                     raise ValueError('Native forward outcome differs from the requested inputs')
             if action == 'inspect-database-state' and (
@@ -348,7 +358,7 @@ class Coordinator:
             raise ValueError('Verified native phase result required')
         outcome = completed.get('control', {})
         self._verify_outcome(uid, phase, outcome)
-        if hashlib.sha256(encode(completed['result'])).hexdigest() != outcome['native_receipt_sha256']:
+        if hashlib.sha256(native_json(completed['result'])).hexdigest() != outcome['native_receipt_sha256']:
             raise ValueError('Native phase result does not match its durable receipt')
         return outcome
 

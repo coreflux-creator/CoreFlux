@@ -3,9 +3,11 @@ import copy
 import hashlib
 from pathlib import Path
 import sys
+import subprocess
+import shutil
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
-from core_release_coordinator import Coordinator, FORWARD_PHASES, WORKER_FILES, validate_forward_input
+from core_release_coordinator import Coordinator, FORWARD_PHASES, WORKER_FILES, validate_forward_input, forward_evidence, native_json
 from inspect_full_core_release import ROOT, encode
 
 spec = {'version': 1, 'root': ROOT, 'operation': 'a' * 32, 'candidate_commit': 'b' * 40,
@@ -102,4 +104,11 @@ for field, value in [('phase', 'recovery'), ('cache_plan_sha256', '6' * 64),
     refuse(lambda: controller._exchange(1004, 'refresh-cache', bad, challenge, {'cache_plan_sha256': '5' * 64}),
            'Native request cannot substitute cache phase, plan, operation or exchange identity')
 check(calls == ['5' * 64], 'Invalid cache requests cause no HTTP mutation')
+if shutil.which('php'):
+    for value in ({}, {'guard_sha256': '1' * 64}, {'label': 'Worker \u00e9 / \U0001f9ea', 'files': []}):
+        php = subprocess.check_output(['php', '-r',
+            '$v=json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);echo hash("sha256",json_encode($v,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR));'],
+            input=encode(value)).decode()
+        check(hashlib.sha256(native_json(value or [])).hexdigest() == php, 'Receipt fingerprint matches actual PHP encoding')
+    check(forward_evidence('hold', {}) == hashlib.sha256(b'[]').hexdigest(), 'Empty phase evidence matches native associative array')
 print(f'core_release_forward_smoke: {checks} checks passed')
