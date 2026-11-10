@@ -14,6 +14,7 @@ import base64
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -33,9 +34,10 @@ WORKER_FILES = frozenset({
     'deploy/full_core_migration_plan.php', 'deploy/full_core_migration_history.json',
     'deploy/full_core_database_state.php', 'core/migration_hash.php',
     'deploy/full_core_database_transfer.php',
+    'deploy/inspect_full_core_writers.php', 'deploy/full_core_writer_policy.php',
 })
 ABORT_PHASES = ('verify-preparation-abort', 'restore-preparation-hold', 'complete-preparation-abort')
-READ_ACTIONS = ('inspect-control', 'inspect-preparation-abort')
+READ_ACTIONS = ('inspect-control', 'inspect-preparation-abort', 'inspect-writers', 'witness-writers', 'witness-held')
 MAX_MESSAGE = 1024 * 1024
 
 
@@ -124,6 +126,27 @@ class Coordinator:
             args += ['-o', 'UserKnownHostsFile=' + self.known_hosts]
         return args + ['-p', str(endpoint.port), endpoint.user + '@' + endpoint.host, command]
 
+    def worker_command_hash(self, uid: int) -> str:
+        owner = self.config['owners'][str(uid)]
+        arguments = [self.php_binary, 'deploy/run_full_core_release_owner.php', '--execute-owner-config',
+                     owner['config_path'], owner['config_sha256']]
+        return hashlib.sha256('\0'.join(arguments).encode('utf-8')).hexdigest()
+
+    def _verify_writer_response(self, uid: int, action: str, data: dict, result: dict, requested: float) -> None:
+        scope = 'native-writer-preparation-evidence' if action == 'inspect-writers' else 'native-writer-classification'
+        if (result.get('version') != 1 or result.get('owner_uid') != uid or result.get('root') != ROOT
+                or result.get('scope') != scope or not exact_hex(data.get('challenge'), 64)
+                or result.get('challenge') != data['challenge']):
+            raise ValueError('Fresh native writer observation identity differs')
+        now = time.time()
+        start, end = result.get('started_at_unix'), result.get('observed_at_unix')
+        if (type(start) not in (int, float) or type(end) not in (int, float)
+                or not math.isfinite(start) or not math.isfinite(end)
+                or start < requested - 2 or end < start or end > now + 2 or now - start > 15):
+            raise ValueError('Native writer observation is stale or incomplete')
+        if action == 'witness-writers' and result.get('runtime_sha256') != hashlib.sha256(encode(data.get('runtime'))).hexdigest():
+            raise ValueError('Native writer observation belongs to another runtime')
+
     def _verify_state(self, uid: int, result: dict) -> None:
         state = result.get('state', {})
         if state.get('owner_uid') != uid or state.get('spec_sha256') != self.spec_hash:
@@ -175,6 +198,7 @@ class Coordinator:
         wire = encode(request) + b'\n'
         if len(wire) > MAX_MESSAGE:
             raise ValueError('Unbounded native input refused')
+        requested = time.time()
         process = subprocess.Popen(self._command(uid), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL)
         events: queue.Queue = queue.Queue(maxsize=32)
@@ -239,6 +263,8 @@ class Coordinator:
                 raise OwnerInterrupted(f'Owner {uid} action {action} refused or interrupted (exit {code})')
             if 'state' in result:
                 self._verify_state(uid, result)
+            if action in ('inspect-writers', 'witness-writers'):
+                self._verify_writer_response(uid, action, data or {}, result, requested)
             if action in ('capture-database-stream','restore-database-stream') and (
                     result.get('sql_bytes') != stream_bytes or result.get('sql_sha256') != stream_hash.hexdigest()):
                 raise ValueError('Native database stream completion differs')

@@ -4,6 +4,9 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/full_core_release_owner.php';
 require_once __DIR__ . '/full_core_database_state.php';
+define('CORE_WRITER_LIBRARY_ONLY', true);
+require_once __DIR__ . '/inspect_full_core_writers.php';
+require_once __DIR__ . '/full_core_writer_policy.php';
 
 function ownerWorkerPrivate(string $path, string $sha): string
 {
@@ -34,8 +37,32 @@ try {
     $request = ownerWorkerRead();
     if (!is_string($request['action'] ?? null) || !is_array($request['input'] ?? null)
         || !is_string($request['challenge'] ?? null) || !preg_match('/^[a-f0-9]{64}$/D', $request['challenge'])) throw new RuntimeException('Exact action and controller challenge required.');
-    $exchange = static function (array $query) use ($request): array {
+    // Observation must not acquire the native release lock already held by the active owner.
+    if (in_array($request['action'], ['inspect-writers','witness-writers'], true)) {
+        $input = $request['input'];
+        $report = coreWriterObserve(['version'=>1,'action'=>'inspect-writers','owner_uid'=>posix_geteuid(),
+            'challenge'=>$input['challenge'] ?? '']);
+        $result = $report;
+        if ($request['action'] === 'witness-writers') {
+            $runtime = $input['runtime'] ?? [];
+            foreach (['operation','candidate_commit'] as $key) if (($runtime[$key] ?? null) !== ($config['control_spec'][$key] ?? null)) throw new RuntimeException('Writer observation operation differs.');
+            $policyBytes = ownerWorkerPrivate($config['writer_policy_path'] ?? '', $config['writer_policy_sha256'] ?? '');
+            $classified = coreWriterPolicyClassify($report,$policyBytes,$config['writer_policy_sha256'],$runtime);
+            $result = array_intersect_key($report,array_flip(['version','root','owner_uid','challenge','started_at_unix','observed_at_unix','boot_id']))
+                + ['scope'=>'native-writer-classification','writers'=>$classified,
+                    'runtime_sha256'=>hash('sha256',FullCoreReleaseControl::encode($runtime))];
+        }
+        echo json_encode(['response'=>$result,'challenge'=>$request['challenge'],'owner_uid'=>posix_geteuid()],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
+        exit;
+    }
+    $owner = null;
+    $exchange = static function (array $query) use ($request, &$owner): array {
+        $identity = coreWriterProcess(getmypid(), 'coreWriterRead');
         $query += ['owner_uid' => posix_geteuid(), 'owner_pid' => getmypid(), 'controller_challenge' => $request['challenge']];
+        $query += ['owner_start_ticks'=>$identity['start_ticks']];
+        // Upgrade guards and owner guards share the same real observation path.
+        if (!isset($query['kind'])) $query['kind'] = 'hold-witness';
+        if ($query['kind'] === 'hold-witness' && !isset($query['own_hold'])) $query['own_hold'] = $owner->heldObservation();
         echo json_encode(['request' => $query], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"; fflush(STDOUT);
         return ownerWorkerRead();
     };

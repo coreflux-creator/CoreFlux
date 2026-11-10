@@ -36,6 +36,27 @@ final class FullCoreDatabaseTransfer
         $this->environment = getenv(); $this->environment['MYSQL_PWD'] = $connection['password'];
     }
 
+    private function command(string $mode): array
+    {
+        $suffix = match ($mode) {
+            'capture' => ['--single-transaction','--quick','--skip-lock-tables','--routines','--events','--triggers',
+                '--skip-add-locks','--skip-disable-keys','--hex-blob','--skip-comments','--max-allowed-packet=256M',
+                '--max-statement-time=180',self::DB],
+            'restore' => ['--binary-mode','--skip-reconnect','--local-infile=0','--max-allowed-packet=256M',self::DB],
+            default => throw new RuntimeException('Exact native transfer mode required.'),
+        };
+        return array_merge(['/usr/bin/timeout','--signal=TERM','--kill-after=5s','1800s',
+            $mode === 'capture' ? '/usr/bin/mariadb-dump' : '/usr/bin/mariadb'], $this->arguments, $suffix);
+    }
+
+    /** Only this reviewed native command and its direct timeout child may coexist with the hold. */
+    public function writerAllowances(string $mode): array
+    {
+        $command = $this->command($mode);
+        return ['timeout'=>['parent'=>'owner','command_title_sha256'=>hash('sha256',implode("\0",$command))],
+            'client'=>['parent'=>'timeout','command_title_sha256'=>hash('sha256',implode("\0",array_slice($command,4)))]];
+    }
+
     private static function identifier(string $name): string { return '`' . str_replace('`', '``', $name) . '`'; }
 
     public static function defaults(PDO $db): array
@@ -94,10 +115,7 @@ final class FullCoreDatabaseTransfer
         $process = null; $pipes = []; $hash = hash_init('sha256'); $bytes = 0; $childId = null;
         try {
             $guard(); self::idle($db);
-            $command = array_merge(['/usr/bin/timeout','--signal=TERM','--kill-after=5s','1800s','/usr/bin/mariadb-dump'],
-                $this->arguments, ['--single-transaction','--quick','--skip-lock-tables','--routines','--events','--triggers',
-                    '--skip-add-locks','--skip-disable-keys','--hex-blob','--skip-comments','--max-allowed-packet=256M',
-                    '--max-statement-time=180',self::DB]);
+            $command = $this->command('capture');
             $process = proc_open($command, [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, null, $this->environment);
             if (!is_resource($process)) throw new RuntimeException('Native dump unavailable.');
             fclose($pipes[0]); unset($pipes[0]);
@@ -162,8 +180,7 @@ final class FullCoreDatabaseTransfer
         self::idle($db); self::assertEmpty($db); $guard(); self::idle($db);
         if (!is_int($expected['sql_bytes'] ?? null) || $expected['sql_bytes'] < 1
             || !preg_match('/^[a-f0-9]{64}$/D',$expected['sql_sha256'] ?? '')) throw new RuntimeException('Verified original native SQL required.');
-        $command = array_merge(['/usr/bin/timeout','--signal=TERM','--kill-after=5s','1800s','/usr/bin/mariadb'],
-            $this->arguments,['--binary-mode','--skip-reconnect','--local-infile=0','--max-allowed-packet=256M',self::DB]);
+        $command = $this->command('restore');
         $process = proc_open($command,[0=>['pipe','r'],1=>['file','/dev/null','w'],2=>['pipe','w']],$pipes,null,$this->environment);
         if (!is_resource($process)) throw new RuntimeException('Native restore unavailable.');
         stream_set_blocking($pipes[0],false); stream_set_blocking($pipes[2],false);

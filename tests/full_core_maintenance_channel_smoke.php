@@ -19,6 +19,7 @@ $raw = ['pool' => 'fixture', 'listen-queue' => 0, 'idle-processes' => 1, 'active
     ]];
 $filter = static fn(array $value) => fullCoreMaintenanceChannelPool($value, 'fixture', 10, '/app/' . $path);
 $quiet = $filter($raw);
+$assert($quiet['process_ids'] === [10,11], 'authenticated pool exports exact sorted worker identities');
 $assert($quiet['request_pool_quiet'] && !$quiet['other_busy_processes'], 'complete quiet pool accepted');
 $assert(!str_contains(json_encode($quiet), 'private-user'), 'request details never returned');
 foreach (['Running', 'Finishing', 'Reading headers', 'unknown future state'] as $state) {

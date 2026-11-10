@@ -15,6 +15,7 @@ $read = static fn(string $path): string => str_ends_with($path,'/stat') ? $recor
 $p = coreWriterProcess(42, $read);
 $check($p['core_account'] && $p['command_sha256'] === hash('sha256',$command), 'Native command fingerprint is bound without plaintext.');
 $check(!str_contains(json_encode($p), 'must-not-leak'), 'Process arguments never appear in evidence.');
+$check($p['command_title_sha256'] === hash('sha256',rtrim($command,"\0")), 'Normalized title preserves argument boundaries.');
 $check(!$p['core_pool_title'], 'Ordinary CLI cannot claim pool title.');
 $calls=0;
 $refuse(static function() use(&$calls,$stat,$status): void {
@@ -57,6 +58,18 @@ try {
     $check($two[$directory]['members_sha256']!==$three[$directory]['members_sha256'],'Added scheduler file changes membership fingerprint.');
     $missing=coreWriterRegistry([$directory.'/absent'],$errors);
     $check($missing[$directory.'/absent']['state']==='absent','Readable missing file is explicitly absent.');
+    if (PHP_OS_FAMILY === 'Linux') {
+        symlink($directory.'/job',$directory.'/link'); $linked=coreWriterRegistry([$directory.'/link'],$errors);
+        file_put_contents($directory.'/job','third'); $changed=coreWriterRegistry([$directory.'/link'],$errors);
+        $check($linked[$directory.'/link']['resolved']['sha256']!==$changed[$directory.'/link']['resolved']['sha256'],'Changed linked unit content changes registry fingerprint.');
+        symlink('/dev/null',$directory.'/mask'); $masked=coreWriterRegistry([$directory.'/mask'],$errors);
+        $check($masked[$directory.'/mask']['resolved']['masked']===true,'Native masked unit is explicit.');
+        symlink($directory.'/missing',$directory.'/dangling'); $dangling=coreWriterRegistry([$directory.'/dangling'],$errors);
+        $check($dangling[$directory.'/dangling']['absent_target']===$directory.'/missing','Readable dangling unit target is pinned as absent.');
+        file_put_contents($directory.'/missing','new job'); $appeared=coreWriterRegistry([$directory.'/dangling'],$errors);
+        $check(isset($appeared[$directory.'/dangling']['resolved']['sha256'])&&!isset($appeared[$directory.'/dangling']['absent_target']),'Newly installed dangling target changes observed registry.');
+        unlink($directory.'/link');unlink($directory.'/mask');unlink($directory.'/dangling');unlink($directory.'/missing');
+    }
 } finally { foreach(['job','added'] as $name) if(is_file($directory.'/'.$name)) unlink($directory.'/'.$name); rmdir($directory); }
 $refuse(static fn()=>coreWriterObserve(['version'=>1,'action'=>'inspect-writers','owner_uid'=>0,'challenge'=>str_repeat('a',64)]),'Wrong native owner cannot observe.');
 echo "full_core_writer_observer_smoke: $checks checks passed\n";

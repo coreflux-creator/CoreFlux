@@ -55,7 +55,8 @@ function fullCoreMaintenanceChannelPool(array $raw, string $pool, int $selfPid, 
     $consistent = $self === 1 && $running && $scriptMatches
         && count($raw['procs']) === $raw['total-processes']
         && $raw['idle-processes'] === $idle && $raw['active-processes'] === $busy + 1;
-    return ['pool_matches' => $raw['pool'] === $pool, 'listen_queue' => $raw['listen-queue'],
+    $processIds = array_keys($seen); sort($processIds, SORT_NUMERIC);
+    return ['pool_matches' => $raw['pool'] === $pool, 'process_ids' => $processIds, 'listen_queue' => $raw['listen-queue'],
         'self_process_count' => $self, 'self_running' => $running, 'self_script_matches' => $scriptMatches,
         'other_busy_processes' => $busy, 'other_idle_processes' => $idle,
         'active_processes' => $raw['active-processes'], 'total_processes' => $raw['total-processes'],

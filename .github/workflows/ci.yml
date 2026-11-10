@@ -39,6 +39,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Rehearse native owner holds, database guards, file/cache apply and paired recovery
         run: bash tests/full_core_production_upgrade_linux.sh
+      - name: Check native hold observer composition and refusal cases
+        run: python3 tests/core_native_hold_observer_smoke.py
 
   # ─────────────────────────────────────────────────────────────────
   # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).

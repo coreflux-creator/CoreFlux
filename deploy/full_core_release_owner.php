@@ -132,7 +132,7 @@ final class FullCoreReleaseOwner
         return $b;
     }
 
-    private function held(array $b): bool
+    private function held(array $b, array $databaseChildren = []): bool
     {
         $this->control->snapshot(); $own = $this->heldObservation();
         $prefix = $this->uid === 1003 ? 'master' : 'application';
@@ -141,7 +141,7 @@ final class FullCoreReleaseOwner
         $challenge = bin2hex(random_bytes(32)); $requested = microtime(true);
         $request = ['kind' => 'hold-witness', 'challenge' => $challenge, 'operation' => $this->spec['operation'],
             'candidate_commit' => $this->spec['candidate_commit'], 'migration_plan_sha256' => $this->spec['migration_plan_sha256'],
-            'owner_uid' => $this->uid, 'owner_pid' => getmypid(), 'own_hold' => $own];
+            'owner_uid' => $this->uid, 'owner_pid' => getmypid(), 'own_hold' => $own, 'database_children' => $databaseChildren];
         $w = ($this->exchange)($request);
         $this->lastAccepted = FullCoreProductionUpgradeContext::validateHoldWitness($w, $b, $challenge, $requested, $this->lastAccepted);
         // The master cannot inspect the application's crontab itself; require its freshly authenticated peer observation too.
@@ -319,7 +319,8 @@ final class FullCoreReleaseOwner
             $this->held($b);
             if (($this->restoredState)() !== $baseline) throw new RuntimeException('Database changed before native backup.');
             $db = ($this->connect)();
-            try { $capture = ($this->transfer)()->capture($db,fn(): bool=>$this->held($b),$this->sendStream); }
+            $transfer = ($this->transfer)();
+            try { $capture = $transfer->capture($db,fn(): bool=>$this->held($b,$transfer->writerAllowances('capture')),$this->sendStream); }
             finally { $db = null; }
             $this->held($b);
             if (($this->restoredState)() !== $baseline) throw new RuntimeException('Database changed around native backup.');
@@ -344,7 +345,8 @@ final class FullCoreReleaseOwner
                 if ($bytes === false || strlen($bytes) > $limit) throw new RuntimeException('Recovery chunk encoding differs.');
                 return $bytes;
             };
-            $result = ($this->transfer)()->restore($db,$backup,fn(): bool=>$this->held($b),$read);
+            $transfer = ($this->transfer)();
+            $result = $transfer->restore($db,$backup,fn(): bool=>$this->held($b,$transfer->writerAllowances('restore')),$read);
             $this->persist($this->config['receipts_directory'].'/database-restored-stream.json',$result);
             return $result;
         }

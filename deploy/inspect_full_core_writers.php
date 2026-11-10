@@ -41,6 +41,7 @@ function coreWriterProcess(int $pid, callable $read): array
     // Do not disclose arguments: they can contain credentials even on unrelated processes.
     return $after + ['uids' => $uidList, 'core_account' => $owned, 'core_reference' => $coreReference,
         'command_sha256' => hash('sha256', $command), 'command_bytes' => strlen($command),
+        'command_title_sha256' => hash('sha256', rtrim($command, "\0")),
         'empty_command' => $command === '',
         'core_pool_title' => rtrim($command, "\0") === 'php-fpm: pool grcudkpvcd-82'];
 }
@@ -112,9 +113,29 @@ function coreWriterRegistry(array $paths, array &$errors): array
         $meta = ['uid' => $stat['uid'], 'gid' => $stat['gid'], 'mode' => $stat['mode'] & 07777];
         if (is_link($path)) {
             $target = @readlink($path);
-            $out[$path] = $meta + ['state' => 'symlink', 'target_sha256' => is_string($target) ? hash('sha256', $target) : null];
-            // A symlink pin alone does not pin its target's contents. Surface this limitation.
-            $errors[] = 'registry-linked-target-needs-review';
+            $resolved = realpath($path); $targetStat = $resolved === false ? false : @stat($resolved);
+            $entry = $meta + ['state' => 'symlink', 'target_sha256' => is_string($target) ? hash('sha256', $target) : null];
+            if ($resolved !== false && $targetStat !== false) {
+                $entry['resolved'] = ['path' => $resolved, 'uid' => $targetStat['uid'], 'gid' => $targetStat['gid'],
+                    'mode' => $targetStat['mode'] & 07777, 'type' => $targetStat['mode'] & 0170000];
+                if (is_file($resolved)) {
+                    try { $entry['resolved']['sha256'] = hash('sha256', coreWriterRead($resolved)); }
+                    catch (Throwable) { $errors[] = 'registry-linked-target-unreadable'; }
+                } elseif ($resolved === '/dev/null' && ($targetStat['mode'] & 0170000) === 0020000) {
+                    $entry['resolved']['masked'] = true;
+                    $entry['resolved']['rdev'] = $targetStat['rdev'];
+                } else $errors[] = 'registry-linked-target-needs-review';
+            } else {
+                // A dangling unit alias cannot launch a job. Pin the exact absent target,
+                // distinguishing an absent basename from an unreadable parent or link chain.
+                $direct = is_string($target) ? (str_starts_with($target,'/') ? $target : dirname($path).'/'.$target) : '';
+                $parent = $direct !== '' ? realpath(dirname($direct)) : false;
+                $absent = $parent !== false ? $parent.'/'.basename($direct) : '';
+                if ($absent !== '' && is_readable($parent) && @lstat($absent) === false) {
+                    $entry['absent_target'] = $absent;
+                } else $errors[] = 'registry-linked-target-unavailable';
+            }
+            $out[$path] = $entry;
         } elseif (is_dir($path)) {
             $items = @scandir($path);
             if ($items === false) { $out[$path] = $meta + ['state' => 'unreadable']; $errors[] = 'registry-unreadable'; continue; }
@@ -137,7 +158,7 @@ function coreWriterObserve(array $request): array
         || ($request['version'] ?? null) !== 1 || ($request['action'] ?? null) !== 'inspect-writers'
         || ($request['owner_uid'] ?? null) !== posix_geteuid()
         || !preg_match('/^[a-f0-9]{64}$/D', $request['challenge'] ?? '')) throw new RuntimeException('Exact native owner observation required.');
-    $start = microtime(true); $errors = []; $processes = []; $vanished = 0;
+    $start = microtime(true); $errors = []; $processes = []; $allProcesses = []; $vanished = 0;
     $boot = trim(coreWriterRead('/proc/sys/kernel/random/boot_id'));
     if (!preg_match('/^[a-f0-9-]{36}$/D', $boot)) throw new RuntimeException('Host boot identity unavailable.');
     $registryPaths = ['/etc/crontab', '/etc/anacrontab', '/etc/cron.d', '/etc/cron.hourly', '/etc/cron.daily',
@@ -157,8 +178,19 @@ function coreWriterObserve(array $request): array
             if (!is_dir($path)) { $vanished++; continue; }
             $errors[] = 'process-unreadable-or-changed:' . $pid; continue;
         }
+        $allProcesses[$pid] = $record;
         if ($record['core_account'] || $record['core_reference']) $processes[] = $record;
     }
+    $ancestors = [];
+    foreach ($processes as $process) {
+        $parent = $process['ppid']; $seen = [$process['pid'] => true];
+        while ($parent !== 0) {
+            if (isset($seen[$parent]) || !isset($allProcesses[$parent])) { $errors[] = 'process-ancestry-incomplete'; break; }
+            $seen[$parent] = true; $ancestors[$parent] = $allProcesses[$parent];
+            $parent = $allProcesses[$parent]['ppid'];
+        }
+    }
+    ksort($ancestors, SORT_NUMERIC);
     usort($processes, static fn(array $a, array $b): int => $a['pid'] <=> $b['pid']);
     $after = coreWriterRegistry($registryPaths, $errors);
     if ($before !== $after) $errors[] = 'registry-changed-during-observation';
@@ -169,7 +201,7 @@ function coreWriterObserve(array $request): array
     return ['version' => 1, 'scope' => 'native-writer-preparation-evidence', 'root' => CORE_WRITER_ROOT,
         'owner_uid' => posix_geteuid(), 'observer_pid' => getmypid(), 'challenge' => $request['challenge'],
         'started_at_unix' => $start, 'observed_at_unix' => microtime(true), 'boot_id' => $boot,
-        'processes' => $processes, 'vanished_processes' => $vanished,
+        'processes' => $processes, 'ancestors' => array_values($ancestors), 'vanished_processes' => $vanished,
         'registry' => $after, 'registry_sha256' => hash('sha256', json_encode($after, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
         'current_user_cron' => $schedule, 'user_timers' => $timers, 'running_user_services' => $services, 'queued_at_jobs' => $at,
         'unresolved' => array_values(array_unique($errors)), 'business_writers_drained' => false,
