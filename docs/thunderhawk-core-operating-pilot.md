@@ -1,3 +1,32 @@
+## 2026-11-10 - Manager and administrator portal browser acceptance
+
+The isolated Thunderhawk Quanta pilot passed actual browser checks with its
+existing manager and tenant-administrator fixture identities. Both rendered
+matching Core references, assignment details, and twelve returned Core time
+acknowledgements. Ten cover the historical October 5-18 period, totaling 80
+hours. The other two cover separate synthetic tests totaling nine hours; they
+are not one operational period.
+
+The manager's Download report control returned one team-scoped row. The
+administrator's control returned one workspace-scoped row. Under the manager
+session, workspace assignments, workspace export, and workspace onboarding
+each returned HTTP 403. The administrator could expand the three synthetic
+employer-approved onboarding requirements. These checks validate rendered
+controls and downloaded CSV contents. The fixture sessions were signed out
+and their temporary browser page closed after verification.
+
+Existing fixture principals received short-lived native test tokens. This does
+not establish human sign-off, password-login or MFA acceptance. The isolated
+pilot HTML now restricts browser requests to the same origin. An older cached
+document was detected; both final role checks used fresh document URLs with
+the restrictive policy verified after navigation. The application bundle and
+public sites were unchanged. Evidence: deploy/thunderhawk-manager-browser-20261110.json.
+Private rendered receipts and CSVs: output/thunderhawk-manager-browser-20261110.
+
+Full offboarding, reverse-change conflict acceptance, financial reconciliation,
+the combined populated upgrade/recovery rehearsal, and authorized publication
+remain separate gates. No payroll run, payment or financial posting was created.
+
 ## 2026-11-10 - Native writer evidence and accepted security review
 
 `deploy/inspect_full_core_writers.php` collects challenge-bound evidence through both native SSH accounts without loading Core, opening the database, installing server files, or changing schedules. It records boot/PID/start-time/owner identity, command fingerprints without argument disclosure, scheduled-file membership and contents, current-user cron, user timers/services, and availability of queued-job inspection. PID reuse, owner/command changes and unreadable evidence remain unresolved. Empty application-owned process commands are retained. The collector never asserts a maintenance hold or treats unavailable inspection tools as an empty queue.

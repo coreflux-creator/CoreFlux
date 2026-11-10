@@ -1,0 +1,70 @@
+{
+  "checked_at": "2026-11-10T21:18:00.395147+00:00",
+  "scope": "Thunderhawk isolated pilot only",
+  "quanta_bundle": "/static/js/main.9f26e765.js",
+  "method": "BrowserOS rendered role views, actual details/Core-status controls and native Download report buttons",
+  "authentication": "Existing isolated test principals; native server-issued 15-minute access tokens. No new identity, role grant or password change.",
+  "password_login_or_mfa_acceptance": false,
+  "signed_out_verified": true,
+  "pilot_page_closed": true,
+  "new_payroll_run": false,
+  "payments_or_financial_postings": false,
+  "production_changed": false,
+  "private_browser_policy": {
+    "index_sha256": "c807f9c8b80643e03ef9b499e40b41bd3f01b47c5cd0da5f7f1d180d7ed597cd",
+    "original_preserved": true,
+    "scope": "Isolated Quanta index only; application bundle and live sites unchanged",
+    "cache_note": "A guarded role switch found an older cached HTML document. Final manager/admin acceptance used fresh document URLs and verified the restrictive policy after navigation."
+  },
+  "limits": [
+    "Tests use existing fixture identities, not human sign-off or a login/MFA test.",
+    "Onboarding tasks are synthetic; historical source approval limitations remain as documented.",
+    "Full offboarding, reverse-change and financial-reconciliation requirements remain separate acceptance gates.",
+    "Full populated Core upgrade/recovery rehearsal and authorized publication remain pending."
+  ],
+  "goal_complete": false,
+  "passed": true,
+  "reports": {
+    "manager": {
+      "view": "team",
+      "rows": 1,
+      "report_generated_at": "2026-11-10T21:16:55.641572+00:00",
+      "csv_sha256": "7293406a38e21aa366e565379cd3c76762d799fd0401a01c5d3e7b0c7b5388d3",
+      "csv_bytes": 650,
+      "rendered_evidence_sha256": "a6c58bf11f89c3dc7afbab164bac1abd1cf2e53fd88ef22310176997686f7029",
+      "accepted_time_entries": 12,
+      "historical_hours": "80.00",
+      "separate_synthetic_hours": "9.00",
+      "required_tasks": 3,
+      "satisfied_tasks": 3,
+      "denied_workspace_export_and_private_onboarding": [
+        {
+          "path": "/api/core/assignments?view=workspace",
+          "status": 403
+        },
+        {
+          "path": "/api/core/assignments/export?view=workspace",
+          "status": 403
+        },
+        {
+          "path": "/api/core/onboarding?view=workspace",
+          "status": 403
+        }
+      ]
+    },
+    "admin": {
+      "view": "workspace",
+      "rows": 1,
+      "report_generated_at": "2026-11-10T21:15:05.323330+00:00",
+      "csv_sha256": "67effb0a347167468705779d3625e875fe047e5c736ba5e9a86c7f92aa744351",
+      "csv_bytes": 655,
+      "rendered_evidence_sha256": "8229e8701904d704438f961647aa3965847844c858c775dd142d529dc1847b9b",
+      "accepted_time_entries": 12,
+      "historical_hours": "80.00",
+      "separate_synthetic_hours": "9.00",
+      "required_tasks": 3,
+      "satisfied_tasks": 3,
+      "employer_decisions_rendered": 3
+    }
+  }
+}
