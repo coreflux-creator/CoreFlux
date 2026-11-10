@@ -9,6 +9,7 @@ final class FullCoreReleaseFiles
     private $lock;
     private Closure $guard;
     private int $uid;
+    private array $manifestFiles;
 
     public function __construct(private string $root, private string $package, private string $private,
         string $planBytes, string $reviewedPlanHash, callable $maintenanceGuard)
@@ -46,6 +47,7 @@ final class FullCoreReleaseFiles
         foreach ($this->plan['files'] as $relative => $entry) {
             if (($manifest['files'][$relative] ?? null) !== $entry['after']['sha256']) throw new RuntimeException('Owner plan differs from full release manifest.');
         }
+        $this->manifestFiles = $manifest['files'];
         $lock = $private . '/files.lock';
         if (file_exists($lock) || is_link($lock)) $this->privateRead($lock);
         $old = umask(0077);
@@ -250,6 +252,122 @@ final class FullCoreReleaseFiles
         return $path;
     }
 
+    /** Only complete, wholly absent, single-owner trees may become visible together. */
+    private function newTrees(): array
+    {
+        $trees = [];
+        foreach ($this->plan['directories'] as $relative => $entry) {
+            $parent = dirname($relative);
+            if ($entry['before'] !== null || (isset($this->plan['directories'][$parent])
+                && $this->plan['directories'][$parent]['before'] === null)) continue;
+            $prefix = $relative . '/'; $tree = ['root' => $relative, 'directories' => [], 'files' => []];
+            foreach ($this->plan['directories'] as $path => $value) {
+                if ($path === $relative || str_starts_with($path, $prefix)) $tree['directories'][$path] = $value;
+            }
+            foreach ($this->plan['files'] as $path => $value) {
+                if (str_starts_with($path, $prefix)) $tree['files'][$path] = $value;
+            }
+            if (!$tree['files']) continue;
+            foreach (array_merge($tree['directories'], $tree['files']) as $value) {
+                if ($value['before'] !== null || $value['after']['uid'] !== $this->uid) continue 2;
+            }
+            foreach ($this->manifestFiles as $path => $hash) {
+                if (str_starts_with($path, $prefix) && !isset($tree['files'][$path])) continue 2;
+            }
+            $trees[$relative] = $tree;
+        }
+        return $trees;
+    }
+
+    private function treePath(string $directory, array $tree, string $relative): string
+    {
+        return $relative === $tree['root'] ? $directory : $this->path($directory, substr($relative, strlen($tree['root']) + 1));
+    }
+
+    /** Verify exact metadata and directory membership, including unexpected files. */
+    private function inspectTree(string $directory, array $tree, bool $allowMissing = false): bool
+    {
+        $complete = true;
+        foreach (['directories' => false, 'files' => true] as $kind => $file) {
+            foreach ($tree[$kind] as $relative => $entry) {
+                $actual = self::metadata($this->treePath($directory, $tree, $relative), $file);
+                if ($actual === null && $allowMissing) { $complete = false; continue; }
+                if (!self::same($actual, $entry['after'])) throw new RuntimeException('New release tree bytes or metadata differ.');
+            }
+        }
+        if (self::metadata($directory, false) === null) return false;
+        $pending = [$tree['root']];
+        while ($pending) {
+            $relative = array_pop($pending); $path = $this->treePath($directory, $tree, $relative);
+            $names = scandir($path);
+            if ($names === false) throw new RuntimeException('Cannot inspect complete release tree.');
+            foreach ($names as $name) {
+                if ($name === '.' || $name === '..') continue;
+                $child = $relative . '/' . $name;
+                if (isset($tree['directories'][$child])) $pending[] = $child;
+                elseif (!isset($tree['files'][$child])) throw new RuntimeException('Unexpected entry in new release tree; preserve it.');
+            }
+        }
+        return $complete;
+    }
+
+    private function syncDirectory(string $directory): void
+    {
+        $stream = fopen($directory, 'r');
+        try { if (!$stream || !fsync($stream)) throw new RuntimeException('Cannot persist release directory.'); }
+        finally { if (is_resource($stream)) fclose($stream); }
+    }
+
+    /** Stage only reviewed bytes; the sole visible mutation is the guarded rename. */
+    private function installTree(array $tree): void
+    {
+        $relative = $tree['root']; $target = $this->path($this->root, $relative);
+        if (self::metadata($target, false) !== null) throw new RuntimeException('New release tree appeared before staging.');
+        $temporary = $this->private . '/pending-tree-' . bin2hex(random_bytes(16));
+        $directories = $tree['directories'];
+        uksort($directories, static fn($a, $b) => substr_count($a, '/') <=> substr_count($b, '/'));
+        foreach ($directories as $path => $entry) {
+            $next = $this->treePath($temporary, $tree, $path);
+            if (!mkdir($next, 0700) || !chgrp($next, $entry['after']['gid']) || !chmod($next, $entry['after']['mode'])) {
+                throw new RuntimeException('Cannot stage reviewed new directory metadata.');
+            }
+        }
+        foreach ($tree['files'] as $path => $entry) {
+            $source = $this->candidate($path, $entry['after']); $next = $this->treePath($temporary, $tree, $path);
+            $this->writePrivate($next, (string)file_get_contents($source));
+            if (!chgrp($next, $entry['after']['gid']) || !chmod($next, $entry['after']['mode']) || !touch($next, $entry['after']['mtime'])) {
+                throw new RuntimeException('Cannot stage reviewed tree file metadata.');
+            }
+        }
+        $this->inspectTree($temporary, $tree);
+        foreach (array_reverse(array_keys($directories)) as $path) $this->syncDirectory($this->treePath($temporary, $tree, $path));
+        $this->syncDirectory($this->private);
+        $this->journal('directory_tree_create_start', $relative);
+        $this->held('directory-rename');
+        // No source or metadata assumptions survive the external guard wait.
+        $this->inspectTree($temporary, $tree);
+        if (self::metadata($target, false) !== null || !rename($temporary, $target)) throw new RuntimeException('New release tree changed before atomic installation.');
+        $this->syncDirectory(dirname($target)); $this->syncDirectory($this->private);
+        $this->inspectTree($target, $tree);
+        $this->journal('directory_tree_create_complete', $relative);
+        // Interrupted private staging is retained for inspection, never recursively removed.
+    }
+
+    /** Retain exact added bytes privately; do not recursively delete a public tree. */
+    private function removeTree(array $tree): void
+    {
+        $relative = $tree['root']; $target = $this->path($this->root, $relative);
+        $saved = $this->private . '/recovered-tree-' . hash('sha256', $relative);
+        if (file_exists($saved) || is_link($saved)) throw new RuntimeException('Recovery tree destination already exists.');
+        $this->journal('directory_tree_remove_start', $relative);
+        $this->held('directory-tree-recovery');
+        $this->inspectTree($target, $tree);
+        if (!rename($target, $saved)) throw new RuntimeException('Cannot atomically remove reviewed new tree.');
+        $this->syncDirectory(dirname($target)); $this->syncDirectory($this->private);
+        $this->inspectTree($saved, $tree);
+        $this->journal('directory_tree_remove_complete', $relative);
+    }
+
     /** Capture every old byte before any live-file mutation. Preparation never changes the root. */
     public function prepare(): array
     {
@@ -308,11 +426,17 @@ final class FullCoreReleaseFiles
             if ($entry['before'] !== null) self::digest($this->privateRead($this->private . '/backup-' . hash('sha256', $relative)), $entry['before']['sha256']);
         }
         $this->mark('apply-requested'); // No automatic re-execution, including after process loss.
+        $trees = $this->newTrees(); $treeDirectories = []; $treeFiles = [];
+        foreach ($trees as $tree) {
+            $treeDirectories += $tree['directories']; $treeFiles += $tree['files'];
+        }
         $directories = $this->plan['directories']; uksort($directories, static fn($a, $b) => substr_count($a, '/') <=> substr_count($b, '/'));
         foreach ($directories as $relative => $entry) {
+            if (isset($treeDirectories[$relative]) && !isset($trees[$relative])) continue;
             $this->held('directory-apply'); $path = $this->path($this->root, $relative);
             if (!self::same(self::metadata($path, false), $entry['before'])) throw new RuntimeException('Directory changed before apply.');
             if ($entry['before'] !== null) continue;
+            if (isset($trees[$relative])) { $this->installTree($trees[$relative]); continue; }
             $this->journal('directory_create_start', $relative);
             $temporary = $this->private . '/directory-' . bin2hex(random_bytes(16));
             if (!mkdir($temporary, 0700)) throw new RuntimeException('Cannot prepare private directory.');
@@ -327,6 +451,7 @@ final class FullCoreReleaseFiles
             $this->journal('directory_create_complete', $relative);
         }
         foreach ($this->plan['files'] as $relative => $entry) {
+            if (isset($treeFiles[$relative])) continue;
             $this->held('file-apply'); $source = $this->candidate($relative, $entry['after']);
             $this->journal('file_replace_start', $relative);
             $this->replace($relative, $entry['before'], $entry['after'], (string) file_get_contents($source));
@@ -350,7 +475,17 @@ final class FullCoreReleaseFiles
             if (!self::same($current, $entry['before']) && !self::same($current, $entry['after'])) throw new RuntimeException('Concurrent file change blocks recovery.');
             if ($entry['before'] !== null) self::digest($this->privateRead($this->private . '/backup-' . hash('sha256', $relative)), $entry['before']['sha256']);
         }
+        $trees = $this->newTrees(); $completeTrees = []; $treeFiles = []; $treeDirectories = [];
+        // Check every tree, including extra entries, before changing any original file.
+        foreach ($trees as $relative => $tree) {
+            $path = $this->path($this->root, $relative);
+            if ($this->inspectTree($path, $tree, true)) $completeTrees[] = $relative;
+            elseif (self::metadata($path, false) !== null) continue; // Earlier per-file partial installation.
+            $treeFiles += $tree['files']; $treeDirectories += $tree['directories'];
+        }
+        foreach ($completeTrees as $relative) $this->removeTree($trees[$relative]);
         foreach ($this->plan['files'] as $relative => $entry) {
+            if (isset($treeFiles[$relative])) continue;
             $this->held('file-recovery'); $target = $this->path($this->root, $relative);
             if (self::same(self::metadata($target, true), $entry['before'])) continue;
             $this->journal('file_restore_start', $relative);
@@ -361,6 +496,7 @@ final class FullCoreReleaseFiles
         }
         $directories = $this->plan['directories']; uksort($directories, static fn($a, $b) => substr_count($b, '/') <=> substr_count($a, '/'));
         foreach ($directories as $relative => $entry) {
+            if (isset($treeDirectories[$relative])) continue;
             if ($entry['before'] !== null) continue;
             $this->held('directory-recovery'); $path = $this->path($this->root, $relative);
             $current = self::metadata($path, false); if ($current === null) continue;

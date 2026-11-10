@@ -133,3 +133,30 @@ without caching observations, skipping an account, relaxing process classificati
 or changing the per-file guards. The peer observation cannot execute a database or
 release action through its read-only callbacks. Full-package timing and the native
 activation/recovery scenarios must validate this change before release acceptance.
+
+## Whole new directory installation
+
+The full application plan contains 4,198 files under a completely absent `vendor`
+directory. Installing each file separately would repeat thousands of external
+witnesses and risk exhausting the bounded phase and maintenance-channel lifetimes.
+The file adapter can stage a complete new tree in its existing owner-private,
+same-filesystem backup directory, verify every planned file hash, size, timestamp,
+owner and mode, and install the tree with one guarded directory rename. Existing
+files and mixed-owner directories keep their individual replacement behavior.
+
+This path applies only when every directory and file below the new root is absent
+in the reviewed preimage, belongs to the current owner, and includes all manifest
+files below that root. It does not omit files from the plan or relax their checks.
+The staged tree is verified again after the external guard, including exact
+directory membership, before becoming visible. Files and directories are persisted
+before the rename; both rename parents are persisted afterward. Partial private
+staging remains private for inspection after an interruption.
+
+Recovery validates all planned outcomes and backup bytes before changing files.
+A complete unchanged new tree can be moved atomically back into the owner-private
+directory, retaining its bytes rather than recursively deleting public paths.
+Unexpected entries stop recovery before original files are changed. Recognized
+partial additions from an earlier per-file installer retain the per-file recovery
+path. Native tests cover 1,026-file installation, metadata preservation, guard loss,
+staged drift, concurrent target creation, interruptions before and after the tree
+rename, recovery interruption and resumption, and unexpected public entries.
