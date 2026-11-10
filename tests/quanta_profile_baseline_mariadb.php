@@ -10,7 +10,8 @@ require_once __DIR__ . '/../core/quanta/profile_baseline_delivery.php';
 require_once __DIR__ . '/../core/migrate.php';
 $pdo = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', $inCi ? 'root' : getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]);
-$database = 'coreflux_profile_baselines_' . ($inCi ? 'ci' : gmdate('YmdHis') . '_' . getmypid());
+$database = (defined('QUANTA_PROFILE_REVIEW_FIXTURE') ? 'coreflux_profile_reviews_' : 'coreflux_profile_baselines_')
+    . ($inCi ? 'ci' : gmdate('YmdHis') . '_' . getmypid());
 $pdo->exec('CREATE DATABASE ' . $database); $pdo->exec('USE ' . $database);
 $pdo->exec('CREATE TABLE quanta_connections(id BIGINT PRIMARY KEY,tenant_id BIGINT NOT NULL UNIQUE,status VARCHAR(20),api_key_ct VARBINARY(2048)) ENGINE=InnoDB');
 foreach (['158_integration_deliveries.sql', '162_integration_delivery_receipt.sql', '159_quanta_workspace_binding.sql', '148_quanta_worker_identity.sql', '185_quanta_profile_baselines.sql'] as $file)

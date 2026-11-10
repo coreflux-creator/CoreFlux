@@ -10,6 +10,7 @@ require_once __DIR__ . '/../core/quanta/workspace.php';
 require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
+require_once __DIR__ . '/../core/quanta/profile_review.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -132,6 +133,33 @@ try {
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
+
+    if (in_array($action, ['profile_baseline_preview', 'profile_baseline_send', 'profile_baseline_status',
+        'profile_review_preview', 'profile_review_apply', 'profile_review_status'], true)) {
+        rbac_legacy_require($user, 'people.view');
+        // Contact decisions change the shared people directory, not just integration settings.
+        if (str_starts_with($action, 'profile_review_')) rbac_legacy_require($user, 'people.manage');
+        if (in_array($action, ['profile_baseline_preview', 'profile_review_preview'], true)) {
+            if (!is_int($body['person_id'] ?? null) || $body['person_id'] <= 0) throw new InvalidArgumentException('Choose a Core person.');
+            if ($action === 'profile_baseline_preview') api_ok(quantaProfileBaselinePreview($tenantId, $actorId, $body['person_id']));
+            if (!is_string($body['change_id'] ?? null)) throw new InvalidArgumentException('Choose a contact request.');
+            api_ok(quantaProfileReviewPreview($tenantId, $actorId, $body['person_id'], $body['change_id']));
+        }
+        if (str_starts_with($action, 'profile_baseline_')) {
+            if (!is_int($body['delivery_id'] ?? null) || $body['delivery_id'] <= 0 || !is_string($body['review_hash'] ?? null)) {
+                throw new InvalidArgumentException('Choose the reviewed contact publication.');
+            }
+            if ($action === 'profile_baseline_status') api_ok(quantaProfileBaselineStatus($tenantId, $actorId, $body['delivery_id'], $body['review_hash']));
+            if (($body['confirm_profile'] ?? null) !== true) throw new InvalidArgumentException('Confirm the contact details to share with Quanta.');
+            api_ok(quantaProfileBaselineSend($tenantId, $actorId, $body['delivery_id'], $body['review_hash']));
+        }
+        if (!is_string($body['review_token'] ?? null)) throw new InvalidArgumentException('Preview the contact request first.');
+        if ($action === 'profile_review_status') api_ok(quantaProfileReviewStatus($tenantId, $actorId, $body['review_token']));
+        if (($body['confirm_decision'] ?? null) !== true || !is_string($body['decision'] ?? null) || !is_string($body['reason'] ?? null)) {
+            throw new InvalidArgumentException('Confirm your contact decision and its reason.');
+        }
+        api_ok(quantaProfileReviewApply($tenantId, $actorId, $body['review_token'], $body['decision'], $body['reason']));
+    }
 
     if (in_array($action,['time_review_pending','time_review_preview','time_review_send','time_review_receipt'],true)) {
         foreach(['time.view','placements.view','people.view'] as $permission) rbac_legacy_require($user,$permission);
