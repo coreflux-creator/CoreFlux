@@ -11,6 +11,7 @@ require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
 require_once __DIR__ . '/../core/quanta/profile_review.php';
+require_once __DIR__ . '/../core/quanta/profile_return_delivery.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
 
 $ctx = api_require_auth();
@@ -133,6 +134,19 @@ try {
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
+
+    if (in_array($action, ['profile_return_list', 'profile_return_status', 'profile_return_send', 'profile_return_resume'], true)) {
+        rbac_legacy_require($user, 'people.view');
+        rbac_legacy_require($user, 'people.manage');
+        if ($action === 'profile_return_list') {
+            if (isset($body['cursor']) && !is_string($body['cursor'])) throw new InvalidArgumentException('Invalid return page.');
+            api_ok(quantaProfileReturnPage($tenantId, $body['cursor'] ?? null));
+        }
+        if (!is_string($body['change_id'] ?? null)) throw new InvalidArgumentException('Choose a saved contact decision.');
+        if ($action === 'profile_return_status') api_ok(quantaProfileReturnStatus($tenantId, $actorId, $body['change_id']));
+        if (($body['confirm_return'] ?? null) !== true) throw new InvalidArgumentException('Confirm returning the saved decision to Quanta.');
+        api_ok(quantaProfileReturnSend($tenantId, $actorId, $body['change_id'], $action === 'profile_return_resume'));
+    }
 
     if (in_array($action, ['profile_baseline_preview', 'profile_baseline_send', 'profile_baseline_status',
         'profile_review_list', 'profile_review_preview', 'profile_review_apply', 'profile_review_status'], true)) {

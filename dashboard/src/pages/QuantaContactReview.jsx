@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, getPinnedTenantId } from '../lib/api';
+import QuantaContactReturns from './QuantaContactReturns';
 
 const labels = { first_name: 'First name', last_name: 'Last name', email_primary: 'Contact email', phone_primary: 'Phone' };
 const endpoint = '/api/quanta.php?action=';
@@ -20,7 +21,7 @@ export default function QuantaContactReview({ workspaceId, people = [] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const alive = useRef(false), inFlight = useRef(false), sequence = useRef(0);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; sequence.current++; }; }, []);
+  useEffect(() => { alive.current = true; sequence.current++; return () => { alive.current = false; }; }, []);
   const sameWorkspace = () => /^[1-9][0-9]*$/.test(String(workspaceId || ''))
     && (!getPinnedTenantId() || String(getPinnedTenantId()) === String(workspaceId));
   const run = async (action, body, accept, failed) => {
@@ -88,7 +89,7 @@ export default function QuantaContactReview({ workspaceId, people = [] }) {
     {!!page?.unavailable_count && <p>{page.unavailable_count} request(s) need identity or source verification before they can be displayed.</p>}
     {page?.rows.map(row => <article key={row.change_id} style={{ padding: '12px 0', borderBottom: '1px solid var(--cf-border)' }}>
       <strong>{row.person_number} · {row.person_name}</strong><p>{row.changed_fields.map(key => labels[key]).join(', ')} · {stateLabel(row.state)} · {row.created_at}</p>
-      <button type="button" className="btn btn-secondary" disabled={busy || !!pending || row.state === 'source_decided'} onClick={() => open(row)}>Review request</button>
+      <button type="button" className="btn btn-secondary" disabled={busy || !!pending || row.state !== 'pending_review'} onClick={() => open(row)}>Review request</button>
     </article>)}
     {page?.next_cursor && <button type="button" className="btn btn-secondary" disabled={busy || !!pending} onClick={() => load(page.next_cursor)}>More requests</button>}
     {review && <div style={{ marginTop: 20 }}>
@@ -109,5 +110,6 @@ export default function QuantaContactReview({ workspaceId, people = [] }) {
           <button type="button" className="btn btn-secondary" disabled={busy || !confirmed || !review.apply_enabled || !reason.trim()} onClick={() => decide('rejected')}>Reject with note</button>
         </>}
     </div>}
+    <QuantaContactReturns key={workspaceId} workspaceId={workspaceId} />
   </section>;
 }

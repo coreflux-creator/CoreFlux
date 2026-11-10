@@ -22,13 +22,14 @@ function quantaProfileBaselineBodyValidate(array $body): array
     return $body;
 }
 
-function quantaProfileChangeRequire(string $key, string $workspace): void
+function quantaProfileChangeRequire(string $key, string $workspace, bool $decisionDelivery = false): void
 {
     $context = quantaGet($key, QUANTA_CORE_CONTRACT_PATH . '/profile-change-context');
     if (($context['workspace_id'] ?? null) !== $workspace
         || ($context['contract_version'] ?? null) !== QUANTA_PROFILE_CHANGE_VERSION
         || ($context['baseline_publication'] ?? null) !== true || ($context['worker_proposals'] ?? null) !== true
-        || ($context['login_identity_changes'] ?? null) !== false) {
+        || ($context['login_identity_changes'] ?? null) !== false
+        || ($decisionDelivery && ($context['decision_delivery'] ?? null) !== true)) {
         throw new RuntimeException('Quanta has not enabled the reviewed contact request contract for this workspace.');
     }
 }

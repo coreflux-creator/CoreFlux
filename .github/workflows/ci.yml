@@ -190,8 +190,10 @@ jobs:
         run: |
           php tests/quanta_profile_change_contract.php
           php tests/quanta_profile_baseline_contract.php
+          php tests/quanta_profile_decision_contract.php
           php tests/quanta_profile_baseline_mariadb.php
           php tests/quanta_profile_review_mariadb.php
+          php tests/quanta_profile_return_mariadb.php
 
       - name: Verify reviewed Quanta worker intake
         run: php tests/quanta_worker_intake_mariadb.php

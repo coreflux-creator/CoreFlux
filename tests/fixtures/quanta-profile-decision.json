@@ -1,0 +1,149 @@
+{
+  "body": {
+    "actor_id": 7,
+    "after": {
+      "email_primary": "demo@xn--bcher-kva.de",
+      "first_name": "Ren\u00e9e",
+      "last_name": "Worker",
+      "phone_primary": null
+    },
+    "before": {
+      "email_primary": "demo@example.com",
+      "first_name": "D\u00e9m\u00f8",
+      "last_name": "Worker",
+      "phone_primary": "202-555-0100"
+    },
+    "change_id": "cpc_8797c7d44fa1163f9405b64d3f8784c9dcbf9369227181c49d1e7b8e0a0d1db7",
+    "changed_fields": [
+      "first_name",
+      "email_primary",
+      "phone_primary"
+    ],
+    "contract_version": "2026-11-10.1",
+    "core_tenant_id": 11,
+    "decided_at": "2026-11-10T23:20:00Z",
+    "decision": "accepted",
+    "person": {
+      "directory_tenant_id": 7,
+      "entity_type": "person",
+      "instance_id": "381e452a-5d11-4e2e-9daa-e9427501898a",
+      "number": "P-15"
+    },
+    "proposal_hash": "aecbbebee70022d913cb69b380ed9c3903b504986d04d920083aab20ecd63757",
+    "reason": "",
+    "review_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "worker_id": "worker-a"
+  },
+  "body_hash": "6544ce569588e47aadb794ed4e478139b536b6e53a112b9efb99d6d76fc5b766",
+  "proposal": {
+    "actor": {
+      "identity_id": "identity-a",
+      "kind": "worker",
+      "user_id": "worker-a"
+    },
+    "baseline": {
+      "contract_version": "2026-11-10.1",
+      "core_snapshot_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "cfp_152a3e5c172de47ac512074b6b2327ddc9f09c269f2b3f4c2240dc7e29358a92",
+      "person": {
+        "directory_tenant_id": 7,
+        "entity_type": "person",
+        "instance_id": "381e452a-5d11-4e2e-9daa-e9427501898a",
+        "number": "P-15"
+      },
+      "profile": {
+        "email_primary": "demo@example.com",
+        "first_name": "D\u00e9m\u00f8",
+        "last_name": "Worker",
+        "phone_primary": "202-555-0100"
+      },
+      "tenant_id": "tenant-a",
+      "version": 2,
+      "worker_id": "worker-a"
+    },
+    "changed_fields": [
+      "first_name",
+      "email_primary",
+      "phone_primary"
+    ],
+    "contract_version": "2026-11-10.1",
+    "created_at": "2026-11-10T00:00:00.000000+00:00",
+    "id": "cpc_8797c7d44fa1163f9405b64d3f8784c9dcbf9369227181c49d1e7b8e0a0d1db7",
+    "origin": "quanta_portal",
+    "person": {
+      "directory_tenant_id": 7,
+      "entity_type": "person",
+      "instance_id": "381e452a-5d11-4e2e-9daa-e9427501898a",
+      "number": "P-15"
+    },
+    "person_link_id": "cfl_152a3e5c172de47ac512074b6b2327ddc9f09c269f2b3f4c2240dc7e29358a92",
+    "proposed": {
+      "email_primary": "demo@xn--bcher-kva.de",
+      "first_name": "Ren\u00e9e",
+      "last_name": "Worker",
+      "phone_primary": null
+    },
+    "request_hash": "128b89ced64085c28a4bf630b10906104bd7631918ed44cec029ed16d243fc9e",
+    "revision": 1,
+    "tenant_id": "tenant-a",
+    "worker_id": "worker-a"
+  },
+  "receipt": {
+    "change_id": "cpc_8797c7d44fa1163f9405b64d3f8784c9dcbf9369227181c49d1e7b8e0a0d1db7",
+    "decision": {
+      "actor_id": 7,
+      "after": {
+        "email_primary": "demo@xn--bcher-kva.de",
+        "first_name": "Ren\u00e9e",
+        "last_name": "Worker",
+        "phone_primary": null
+      },
+      "before": {
+        "email_primary": "demo@example.com",
+        "first_name": "D\u00e9m\u00f8",
+        "last_name": "Worker",
+        "phone_primary": "202-555-0100"
+      },
+      "change_id": "cpc_8797c7d44fa1163f9405b64d3f8784c9dcbf9369227181c49d1e7b8e0a0d1db7",
+      "changed_fields": [
+        "first_name",
+        "email_primary",
+        "phone_primary"
+      ],
+      "contract_version": "2026-11-10.1",
+      "core_tenant_id": 11,
+      "decided_at": "2026-11-10T23:20:00Z",
+      "decision": "accepted",
+      "person": {
+        "directory_tenant_id": 7,
+        "entity_type": "person",
+        "instance_id": "381e452a-5d11-4e2e-9daa-e9427501898a",
+        "number": "P-15"
+      },
+      "proposal_hash": "aecbbebee70022d913cb69b380ed9c3903b504986d04d920083aab20ecd63757",
+      "reason": "",
+      "review_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "worker_id": "worker-a"
+    },
+    "id": "cpd_2f325312b46d446c45e3ea8cbfdc2cd784261270d66c66a31d4183ec0155abd7",
+    "outcome": {
+      "completed_at": "2026-11-10T23:22:00Z",
+      "conflict_fields": [],
+      "contact_state": "applied",
+      "decided_at": "2026-11-10T23:20:00Z",
+      "decision": "accepted",
+      "decision_hash": "6544ce569588e47aadb794ed4e478139b536b6e53a112b9efb99d6d76fc5b766",
+      "id": "cpd_2f325312b46d446c45e3ea8cbfdc2cd784261270d66c66a31d4183ec0155abd7",
+      "native_changed_fields": [
+        "full_name",
+        "phone",
+        "contact_email"
+      ],
+      "reason": "",
+      "received_at": "2026-11-10T23:21:00Z"
+    },
+    "request_hash": "6544ce569588e47aadb794ed4e478139b536b6e53a112b9efb99d6d76fc5b766",
+    "state": "complete",
+    "tenant_id": "tenant-a"
+  }
+}
