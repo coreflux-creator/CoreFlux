@@ -102,7 +102,9 @@ for n in {1..100}; do
     if mariadb-admin --socket=/run/mysqld/mysqld.sock ping >/dev/null 2>&1; then break; fi
     sleep .1
 done
-php-fpm -D
+# Docker's FPM config reopens /proc/self/fd/2; journald gives the unit a socket,
+# which cannot be reopened as a log file. Keep this fixture's native log local.
+php-fpm -D > /fixture/fpm.log 2>&1
 set +u
 . /etc/apache2/envvars
 set -u
@@ -124,7 +126,7 @@ chmod 755 /usr/bin/crontab
 if [ "${1:-}" = control ]; then test_script=tests/full_core_release_control_linux.php; fi
 php "$test_script" "$@" || {
     code=$?
-    for log in /fixture/commands.stderr /fixture/apache.log /fixture/database.log /fixture/ssh.log /fixture/writer-inventory.json /fixture/*/native-*/error-*.json; do
+    for log in /fixture/commands.stderr /fixture/fpm.log /fixture/apache.log /fixture/database.log /fixture/ssh.log /fixture/writer-inventory.json /fixture/*/native-*/error-*.json; do
         if [ -f "$log" ]; then tail -n 25 "$log"; fi
     done
     exit "$code"
@@ -189,6 +191,7 @@ for scenario in "${scenarios[@]}"; do
         if [ "$result" != 0 ] || [ "$(sudo cat "$rootfs/fixture/result.exit" 2>/dev/null || true)" != 0 ]; then
             printf 'Native fixture %s exited with host status %s\n' "$scenario" "$result"
             sudo journalctl --directory="$rootfs/var/log/journal" --no-pager -n 200 || true
+            sudo tail -n 30 "$rootfs/fixture/fpm.log" 2>/dev/null || true
             sudo find "$rootfs/fixture" -name 'error-*.json' -type f -exec cat {} \;
             sudo cat "$rootfs/fixture/commands.stderr" 2>/dev/null || true
             exit 1
