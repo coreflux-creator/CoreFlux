@@ -6,7 +6,7 @@ function staffingWorkflowFieldTables(): array
 {
     return ['integration_deliveries', 'staffing_onboarding_cases', 'staffing_onboarding_events',
         'quanta_onboarding_document_transfers', 'payroll_provider_results', 'payroll_native_observations', 'purepay_financial_observations',
-        'purepay_financial_line_links'];
+        'purepay_financial_line_links', 'quanta_profile_baselines', 'quanta_profile_decisions', 'quanta_profile_returns'];
 }
 
 /** Logical fields inside stored workflow envelopes, separately from physical SQL columns. */
@@ -49,6 +49,94 @@ function staffingWorkflowPayloadFields(array $columns): array
         'directory_tenant_id'=>['integer','Owning directory, separate from the operating workspace.'],
         'entity_type'=>['enum','Typed canonical person or placement reference.'],
         'number'=>['string','Immutable canonical business number; never a provider ID or credential.']];
+    // Contact correction is a reviewed round trip, separate from login provisioning.
+    $contact = [
+        'first_name'=>['string','Trimmed printable UTF-8, maximum 100 bytes; combined full name fits 120 Unicode characters.'],
+        'last_name'=>['string','Trimmed printable UTF-8, maximum 100 bytes; at least one name is required.'],
+        'email_primary'=>['string|null','Normalized lowercase ASCII contact email, maximum 254 bytes; explicit null clears contact only, never sign-in identity.'],
+        'phone_primary'=>['string|null','Trimmed printable UTF-8 phone, maximum 40 bytes; explicit null requests clearing the contact phone.'],
+    ];
+    $baseline = [
+        'contract_version'=>['string','Exact reviewed contact contract version.'],
+        'id'=>['string','Stable baseline ID derived from workspace and canonical person, separate from provider worker ID.'],
+        'tenant_id'=>['string','Original Quanta workspace; never inferred from a later connection.'],
+        'worker_id'=>['string','Existing explicitly linked Quanta worker, preserved throughout the request.'],
+        'version'=>['integer','Published baseline revision, verified against Core publication evidence.'],
+        'core_snapshot_hash'=>['sha256','Fingerprint of the Core source record at publication.'],
+    ];
+    foreach ($reference as $field=>$description) $baseline['person.'.$field]=$description;
+    foreach ($contact as $field=>$description) $baseline['profile.'.$field]=$description;
+    $add('quanta_contact_baseline','quanta_profile_baselines.baseline_ct','','quanta',
+        '/api/v1/integrations/coreflux/profile-baselines/{baseline_id}','core_to_quanta','2026-11-10.1',
+        'core/quanta/profile_baseline_delivery.php',$baseline,'core_people_directory',
+        'reviewed_snapshot_publication; immutable_version_receipt; no_native_contact_or_login_change','','private_worker_contact');
+
+    $proposal = [
+        'contract_version'=>['string','Exact reviewed contact contract version.'],
+        'id'=>['string','Immutable source request ID; replay retains the same request and source proof.'],
+        'tenant_id'=>['string','Original requesting Quanta workspace.'],
+        'worker_id'=>['string','Authenticated native worker membership; explicitly linked to this Core person.'],
+        'person_link_id'=>['string','Existing canonical person link, never matched by email.'],
+        'revision'=>['integer','Immutable source proposal revision, currently one.'],
+        'origin'=>['quanta_portal','Worker-originated correction, not permission for arbitrary Core changes.'],
+        'actor.kind'=>['worker','Authenticated worker request; separate from the Core reviewer.'],
+        'actor.user_id'=>['string','Original Quanta worker membership ID.'],
+        'actor.identity_id'=>['string','Original sign-in identity reference retained as evidence; no credentials.'],
+        'changed_fields[]'=>['contact-field','Canonical ordered subset of the four requested contact fields.'],
+        'request_hash'=>['sha256','Original worker request fingerprint for exact retry.'],
+        'created_at'=>['timestamp','Original source request UTC timestamp.'],
+    ];
+    foreach ($reference as $field=>$description) $proposal['person.'.$field]=$description;
+    foreach ($baseline as $field=>$description) $proposal['baseline.'.$field]=$description;
+    foreach ($contact as $field=>$description) $proposal['proposed.'.$field]=$description;
+    $add('quanta_contact_request','quanta_profile_decisions.proposal_ct','','quanta',
+        '/api/v1/integrations/coreflux/profile-changes/{change_id}','quanta_to_core','2026-11-10.1',
+        'core/quanta/profile_review.php',$proposal,'quanta_worker_request',
+        'three_way_review_against_saved_Core_baseline; no_automatic_overwrite; reviewer_required','','private_worker_contact');
+
+    $decision = [
+        'contract_version'=>['string','Exact Core decision contract version.'],
+        'change_id'=>['string','Original immutable Quanta contact request ID.'],
+        'proposal_hash'=>['sha256','Hash of the full source proposal, including baseline and actor.'],
+        'worker_id'=>['string','Original explicitly linked Quanta worker ID.'],
+        'core_tenant_id'=>['integer','Operating Core company; derived from the immutable outbox tenant, not browser input.'],
+        'actor_id'=>['integer','Original authenticated Core reviewer; later delivery operators do not replace it.'],
+        'review_id'=>['sha256','Original review identity, preserved through every retry.'],
+        'decision'=>['accepted|rejected','Immutable Core result, distinct from Quanta native contact application.'],
+        'reason'=>['string','Trimmed printable review note, maximum 1000 UTF-8 bytes; required for rejection.'],
+        'changed_fields[]'=>['contact-field','Exact fields changed by the Core decision; unrelated edits are preserved.'],
+        'decided_at'=>['timestamp','Original Core decision UTC time; retry never replaces it.'],
+    ];
+    foreach ($reference as $field=>$description) $decision['person.'.$field]=$description;
+    foreach (['before','after'] as $version) foreach ($contact as $field=>$description) $decision[$version.'.'.$field]=$description;
+    $add('quanta_contact_decision','quanta_profile_returns.receipt_ct','decision.','quanta',
+        '/api/v1/integrations/coreflux/profile-changes/{change_id}/decision','core_to_quanta','2026-11-10.1',
+        'core/quanta/profile_return_delivery.php',$decision,'core_contact_review',
+        'original_encrypted_outbox_only; explicit_return_or_resume; compare_native_observation; preserve_provider_ids_and_login','','private_worker_contact');
+
+    $receipt = [
+        'id'=>['string','Stable provider decision receipt ID for this workspace and request.'],
+        'tenant_id'=>['string','Original Quanta workspace, matched to the reviewed connection.'],
+        'change_id'=>['string','Original source proposal ID.'],
+        'request_hash'=>['sha256','Exact original Core decision fingerprint; mismatches cannot complete delivery.'],
+        'state'=>['received|complete','Received alone does not prove any native contact result.'],
+        'outcome'=>['object|null','Null until native outcome is complete.'],
+        'outcome.id'=>['string','Provider receipt ID, identical to the envelope receipt.'],
+        'outcome.decision_hash'=>['sha256','Fingerprint of the immutable accepted or rejected Core decision.'],
+        'outcome.decision'=>['accepted|rejected','Original Core decision, not a new provider approval.'],
+        'outcome.reason'=>['string','Original review note, unchanged by delivery.'],
+        'outcome.decided_at'=>['timestamp','Original Core review timestamp.'],
+        'outcome.received_at'=>['timestamp','First provider receipt UTC timestamp.'],
+        'outcome.completed_at'=>['timestamp','Native result completion UTC timestamp.'],
+        'outcome.contact_state'=>['applied|conflict|rejected','Conflict retains newer native contacts; never represent it as aligned.'],
+        'outcome.native_changed_fields[]'=>['native-contact-field','Only full_name, phone or contact_email requested by the source; never email, credentials, roles or IDs.'],
+        'outcome.conflict_fields[]'=>['native-contact-field','Requested native fields requiring reconciliation; an unresolved conflict changes no contact fields.'],
+    ];
+    foreach ($decision as $field=>$description) $receipt['decision.'.$field]=$description;
+    $add('quanta_contact_return_receipt','quanta_profile_returns.receipt_ct','','quanta',
+        '/api/v1/integrations/coreflux/profile-changes/{change_id}/decision','quanta_to_core','2026-11-10.1',
+        'core/quanta/profile_decision_contract.php',$receipt,'quanta_contact_application',
+        'verified_exact_original_decision; encrypted_receipt; GET_inspection_never_retries','','private_worker_contact');
     $customer = [
         'contract_version'=>['string','Exact customer creation contract version; requires separate customer-input permission.'],
         'name'=>['string','Trimmed client legal name, falling back to display name only when legal name is empty; maximum 500 Unicode characters.'],

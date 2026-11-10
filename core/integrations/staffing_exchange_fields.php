@@ -89,6 +89,19 @@ function staffingExchangeFieldMappings(): array
             'reviewed_provisional_person_create_only; existing_core_fields_and_provider_ids_preserved',
             '2026-10-22.1',['core'=>'core/quanta/worker_intake.php','provider'=>'Quanta:backend/app/routers/v1/workers.py'],'quanta_to_core');
     }
+    foreach (['first_name','last_name','email_primary','phone_primary'] as $field) {
+        $evidence = ['core'=>'core/quanta/profile_return_delivery.php','provider'=>'Quanta:backend/app/coreflux_profile_decisions.py'];
+        $native = in_array($field, ['first_name','last_name'], true) ? 'full_name' : ($field === 'email_primary' ? 'contact_email' : 'phone');
+        $add('people.'.$field,'quanta','/api/v1/integrations/coreflux/profile-baselines','profile.'.$field,
+            'validated_contact_snapshot; explicit_null_preserved; no_native_update',
+            'reviewed_versioned_snapshot; retained_Core_publication_receipt','2026-11-10.1',$evidence);
+        $add('people.'.$field,'quanta','/api/v1/integrations/coreflux/profile-changes/{change_id}','proposed.'.$field,
+            'three_way_original_baseline_proposed_and_current_Core; explicit_null_clear',
+            'worker_request_only; Core_reviewer_accepts_or_rejects; no_last_writer_wins','2026-11-10.1',$evidence,'quanta_to_core');
+        $add('people.'.$field,'quanta','/api/v1/integrations/coreflux/profile-changes/{change_id}/decision','after.'.$field,
+            'accepted_return_to_native_'.$native.'; names_joined; explicit_null_clear; login_email_never_changed',
+            'immutable_decision; native_observation_CAS; exact_receipt; newer_edit_conflicts; explicit_recovery','2026-11-10.1',$evidence);
+    }
     foreach ([
         'staffing_clients.client_number'=>['reference','authorized_typed_client_reference; instance_directory_type_number; never_match_by_contact'],
         'staffing_clients.legal_name'=>['name','trimmed_legal_name_preferred; printable_unicode_max_500'],

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 putenv('COREFLUX_DISABLE_DATABASE=1');
 require_once __DIR__ . '/../core/quanta/profile_decision_contract.php';
+require_once __DIR__ . '/fixtures/staffing_dictionary_checks.php';
 $f = json_decode(file_get_contents(__DIR__ . '/fixtures/quanta-profile-decision.json'), true, 64, JSON_THROW_ON_ERROR);
 $body = $f['body']; $proposal = $f['proposal']; $record = $f['receipt']; $workspace = $record['tenant_id'];
 $n = 0; $calls = 0; $mode = 'ok';
@@ -10,6 +11,11 @@ $fails = static function (callable $fn): bool { try { $fn(); return false; } cat
 $check(quantaProfileDigest($body) === $f['body_hash'], 'Unicode Core decision matches native Python hash');
 $check(quantaProfileDecisionValidate($body, $proposal) === $body, 'Exact original Core decision validates');
 $check(quantaProfileDecisionConfirm($record, $workspace, $body, $proposal) === $record, 'Native completion receipt matches the reviewed values');
+staffingDictionaryAssertPayload('quanta_contact_baseline', 'quanta', $proposal['baseline']);
+staffingDictionaryAssertPayload('quanta_contact_request', 'quanta', $proposal);
+staffingDictionaryAssertPayload('quanta_contact_decision', 'quanta', $body);
+staffingDictionaryAssertPayload('quanta_contact_return_receipt', 'quanta', $record);
+$check(true, 'Field dictionary describes the actual validated round-trip payloads without granting sync rights');
 $check($fails(fn() => quantaProfileDecisionConfirm($record, 'other-workspace', $body, $proposal)), 'Foreign workspace cannot confirm return');
 $check($fails(fn() => quantaProfileDecisionValidate($body + ['email' => 'login@example.com'], $proposal)), 'No login field may enter decision');
 foreach (['actor_id' => true, 'core_tenant_id' => 0, 'change_id' => 'cpc_' . str_repeat('f', 64),
