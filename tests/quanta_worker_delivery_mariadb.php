@@ -89,6 +89,17 @@ $profiles[$profileId]['worker']['phone']='+15555559999';$before=$writes;
 $check($fails(fn()=>$send($edit))&&$writes===$before,'remote contact drift prevents IO');
 $edit=$preview(101);$updated=$send($edit);
 $check($profiles[$profileId]['worker']['status']==='active'&&$profiles[$profileId]['worker']['phone']==='+15555559999','contact update preserves existing status and phone');
+$loginEmail=$profiles[$profileId]['worker']['email'];
+$pdo->exec('UPDATE people SET email_primary="new-contact@example.com",first_name="After contact change" WHERE id=101');
+$contactEdit=$preview(101);
+$check($contactEdit['proposed']['email']===$loginEmail,'Reviewed worker update keeps login email separate from changed Core contact email');
+$send($contactEdit);
+$check($profiles[$profileId]['worker']['email']===$loginEmail && $profiles[$profileId]['worker']['full_name']==='After contact change Worker',
+    'Name delivery after a contact-email correction preserves native sign-in identity');
+$pdo->exec('UPDATE people SET email_primary=NULL,first_name="After contact clear" WHERE id=101');
+$clearedContact=$preview(101);
+$check($clearedContact['proposed']['email']===$loginEmail,'Explicit empty Core contact email does not remove a linked worker sign-in address');
+$send($clearedContact);
 
 $mode='lost_ack';$p=$preview(102);$before=$writes;
 $check($fails(fn()=>$send($p))&&$writes===$before+1,'lost acknowledgement is surfaced');

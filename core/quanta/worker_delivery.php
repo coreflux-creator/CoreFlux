@@ -41,7 +41,10 @@ function quantaWorkerProfilePlan(array $source,?string $localWorker,?array $prof
     if($localWorker!==null && (!$profile || $profile['worker_id']!==$localWorker))throw new RuntimeException('Publish or reconcile the shared person identity for this existing Quanta worker first');
     if($profile && $localWorker===null)throw new RuntimeException('This person already exists in Quanta. Check its earlier delivery or review the existing worker link');
     if(!$profile)foreach($workers as $worker)if(strtolower(trim((string)($worker['email']??'')))===$email)throw new RuntimeException('This email already exists in Quanta. Review and link that worker first');
-    $body=quantaWorkerProfileBodyValidate(['person'=>$source['reference'],'email'=>$email,'full_name'=>$name,
+    // Creation seeds a sign-in address. An explicitly linked worker keeps its
+    // existing sign-in identity even when Core's separate contact email changes.
+    $loginEmail=$profile?$profile['worker']['email']:$email;
+    $body=quantaWorkerProfileBodyValidate(['person'=>$source['reference'],'email'=>$loginEmail,'full_name'=>$name,
         'phone'=>$phone===''?null:$phone,'worker_id'=>$profile['worker_id']??null,'expected_worker'=>$profile['worker']??null]);
     $changes=$profile?array_filter(['full_name'=>$name,'phone'=>$body['phone']],static fn($v,$k)=>$v!==null && $v!==$profile['worker'][$k],ARRAY_FILTER_USE_BOTH)
         :['full_name'=>$name,'email'=>$email,'phone'=>$body['phone']];

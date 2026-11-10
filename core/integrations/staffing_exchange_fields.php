@@ -58,7 +58,7 @@ function staffingExchangeFieldMappings(): array
         'people.person_number'=>['person','resolve_authorized_directory; typed_reference:person'],
         'people.first_name'=>['full_name','join_trimmed_first_and_last_name; printable_text_max_120'],
         'people.last_name'=>['full_name','join_trimmed_first_and_last_name; printable_text_max_120'],
-        'people.email_primary'=>['email','lowercase_trimmed_valid_email_max_254; conflict_check_only_never_identity_match'],
+        'people.email_primary'=>['email','create_only_lowercase_trimmed_valid_email_max_254; existing_worker_retains_sign_in_email; never_identity_match'],
         'people.phone_primary'=>['phone','trimmed_printable_text_max_100; empty_preserves_existing_phone'],
     ] as $key=>[$path,$transform]) {
         $add($key,'quanta','/api/v1/integrations/coreflux/worker-profiles',$path,$transform,

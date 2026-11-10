@@ -41,4 +41,19 @@ $GLOBALS['__quanta_core_write_transport']=static fn()=>['status'=>409,'body'=>'c
 try{quantaWriteWorkerProfile('fixture-key','a',$body,str_repeat('1',64));$uncertain=false;}
 catch(QuantaContractWriteException $e){$uncertain=$e->uncertain;}
 $check($uncertain,'Conflicts reconcile instead of blindly resending');
+require_once __DIR__.'/../core/quanta/worker_delivery.php';
+$source=['reference'=>$person,'record'=>['status'=>'active','first_name'=>'Updated','last_name'=>'Worker',
+    'email_primary'=>'separate-contact@example.com','phone_primary'=>'2025550123']];
+$plan=quantaWorkerProfilePlan($source,$saved['worker_id'],$saved,[]);
+$check($plan['body']['email']===$saved['worker']['email'] && $plan['changes']['full_name']==='Updated Worker',
+    'An existing worker keeps its sign-in address after a separate Core contact email change');
+$source['record']['email_primary']=null;
+$check(quantaWorkerProfilePlan($source,$saved['worker_id'],$saved,[])['body']['email']===$saved['worker']['email'],
+    'Clearing contact email does not block unrelated linked-worker contact updates');
+$source['record']['email_primary']='new-hire@example.com';
+$check(quantaWorkerProfilePlan($source,null,null,[])['body']['email']==='new-hire@example.com',
+    'A new inactive worker still needs the reviewed initial sign-in address');
+$source['record']['email_primary']=null;
+$check($fails(fn()=>quantaWorkerProfilePlan($source,null,null,[])),
+    'A missing new-worker sign-in address cannot be guessed from another identity');
 echo json_encode(['passed'=>$passed,'scope'=>'Quanta worker-profile IO boundary']),"\n";

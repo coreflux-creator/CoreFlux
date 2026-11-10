@@ -36,6 +36,8 @@ Mongo transactions are not assumed. The contact patch and a recovery marker comm
 
 The UI labels an accepted decision as accepted in Core and awaiting return until a completed receipt is verified. A native conflict remains visible as reconciliation work. Snapshot publication does not update Quanta's native name, phone or sign-in email.
 
+The older worker-profile publisher also preserves an explicitly linked worker's existing sign-in email. A changed or cleared Core contact email cannot block a later reviewed name or phone update, nor replace that sign-in identity. New disabled-worker creation still requires a reviewed initial sign-in address; subsequent contact-email changes use the separate contact request workflow.
+
 ## Validation and remaining release gates
 
 The MariaDB fixture publishes synthetic snapshots through the existing delivery ledger, then exercises actual Core updates, rejection, same-field conflicts, unrelated edits, duplicate previews/retries, changed source, connection/directory/worker changes, offboarding, explicit phone removal, duplicate email, missing publication evidence and rollback after receipt failure. UI tests cover explicit confirmation, conflict handling, publication versus decision confirmation, workspace changes and lost-response recovery. Browser/PHP/Python hashing shares the same ASCII canonical JSON fixture.
