@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-26T20:48:46.762439+00:00",
+  "scope": "Full integration source review; no hosted acceptance or production publication of this combined revision",
+  "purepay_commit": "0a0534818f574c6e4b85cc309ede156cbb4da138",
+  "source_tree": "50bde200ffab0f04f9fdfdb2358e75dec8a7de5c",
+  "parents": [
+    "3ed5ea9d73b18a849503641e28547605da0d683e",
+    "6593bfd43966f3ae456d6a13d20b25d0ec4db501"
+  ],
+  "merge_resolution": "Retain all awaited prerequisites; register the existing payment-result outbox loop only inside activated full runtime startup. Verify the loop registration with the actual startup test.",
+  "source_verification": {
+    "frontend_source_files_unchanged_from_verified_build": 476,
+    "frontend_tests_passed": 387,
+    "frontend_suites_passed": 58,
+    "frontend_build_passed": true,
+    "full_integration_git_blobs_preserved": {
+      "backend/integration_payment_outbox.py": "e920b3753d986b77c43ac4d91b96d6830fc053725aa12cd6723f0e7502c7efa5",
+      "backend/integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+      "backend/integration_payment_history.py": "aca849278e2b01f3cd8beac527708ac2d19afd28e15f0f9afb78bae5e5fda743",
+      "backend/integration_bill_reservations.py": "8bde190b9a886399b44c06cc01cfc30f952930b1ee3ca3d2e4486d94de37d099",
+      "backend/integration_financial_context.py": "9b044e6c7f2a0ee593c1d2426a5f168d0523b010a53cd9e68f9adaccd9776648",
+      "backend/coreflux_payroll_observations.py": "eb936eb9ea6fd6072c9207e4425c6dc10136c3c2d6ccf3b852b38eb1cf2f8781",
+      "backend/coreflux_payroll_drafts.py": "f776074171931ab4cefa61478a702d846f05189827a40201cbfe4b8518254352",
+      "backend/coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+      "backend/coreflux_assignments.py": "dde3f33a74a2804326a74f29a47ef6edac35946995a4306dc9dfbab555787710",
+      "backend/coreflux_pilot_scope.py": "00ae53bdb45b31ecef2bc7d2460340a9250f60a107697d9d610c3dd6f6f0f555"
+    },
+    "working_files_match_git_after_line_ending_normalization": true,
+    "production_changed": false
+  },
+  "backend": {
+    "baseline": "0725668",
+    "combined_base": "3ed5ea9d73b18a849503641e28547605da0d683e",
+    "handover_candidate": "6593bfd43966f3ae456d6a13d20b25d0ec4db501",
+    "database": "memory",
+    "production_changed": false,
+    "external_network_attempts": 0,
+    "exit_code": 0,
+    "counts": {
+      "passed": 214,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "reproduced_release_issue": {
+    "gap_reproduced": true,
+    "actual_due_terms_failure_injected": true,
+    "gate_state": "active",
+    "startup_status": "ready",
+    "worker_start_count": 1,
+    "external_network_attempts": 0,
+    "production_changed": false
+  },
+  "corrected_release_issue": {
+    "corrected": true,
+    "actual_due_terms_failure_injected": true,
+    "gate_state": "failed",
+    "startup_status": "preparing",
+    "worker_start_count": 0,
+    "external_network_attempts": 0,
+    "production_changed": false
+  },
+  "reviewed_controls": [
+    "Business HTTP routes held before internal handlers and authentication side effects, except explicitly required sign-in and release control",
+    "Activation restricted to platform administrator without temporary password; bound to exact source digest and fresh deployment ID",
+    "One deployment owner performs required migrations; per-company migration errors propagate before completion flags",
+    "Normal restart of an already prepared deployment initializes per-process resources and workers without rerunning global migrations",
+    "Failed preparation stays held without automatic writer takeover",
+    "Actual remaining tracked background tasks appear in health during incomplete drain",
+    "Rollback requires a fresh stamped compatible artifact and evidence old processes have terminated"
+  ],
+  "evidence_sha256": {
+    "corrected/backend-acceptance.json": "402bfd4d9676a8415ca02f7c83e58eb0e084b3b504789e4148027daa54378334",
+    "corrected/prerequisite-correction-check.json": "89bd919d1c8f670de0744ff639d9547b22c784d1ac627b6c298b98372c7a1e67",
+    "corrected/source-verification.json": "04ed43056ddc59ce843b9d51499cfbc47c38525c33d311a32f66fffe471a785e",
+    "frontend-acceptance.json": "8d715709962644e3118eb0b2ad648c62c4aa85dcac189e916649183b660a9c14"
+  },
+  "remaining": [
+    "Native customer creation requires the combined provider contract and explicit customer-input capability on the isolated Meridian demo key",
+    "Demo customer acceptance has not run",
+    "Shared preview is reserved by the publishing chat for its bounded handover checks",
+    "Production cutover needs required authorization and current provider termination evidence",
+    "Actual Thunderhawk round trip is not complete"
+  ],
+  "production_changed": false,
+  "credentials_changed": false,
+  "financial_execution": false
+}

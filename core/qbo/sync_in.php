@@ -240,16 +240,12 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
               WHERE p.tenant_id = :t
                 AND p.status = 'active'
                 AND p.deleted_at IS NULL
-                AND (
-                     p.end_client_company_id = sc.company_id
-                  OR (sc.id IS NULL AND p.end_client_name = :name)
-                )
+                AND p.client_id = sc.id
               LIMIT 1"
         );
         $activePlacement->execute([
             't' => $clientTenantId,
             'client_id' => $internalId ?: 0,
-            'name' => $displayName,
         ]);
         $status = $activePlacement->fetchColumn() ? 'active' : 'inactive';
     }

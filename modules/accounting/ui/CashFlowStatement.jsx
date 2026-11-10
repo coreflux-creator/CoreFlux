@@ -14,9 +14,18 @@ import ComparisonTable from '../../../dashboard/src/components/ComparisonTable';
 import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldown';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 export default function CashFlowStatement() {
   const period = useReportPeriod();
+  const scope = useAccountingEntityScope();
+  if (scope.error) return <div><p className="error">{scope.error}</p><AccountingEntitySelector scope={scope} testId="rpt-cf-entity" /></div>;
+  if (!scope.ready) return <p>Loading legal entities…</p>;
+  return <CashFlowStatementForScope key={scope.scopeKey} period={period} scope={scope} />;
+}
+
+function CashFlowStatementForScope({ period, scope }) {
 
   const [current,     setCurrent]     = useState(null);
   const [priorPeriod, setPriorPeriod] = useState(null);
@@ -29,13 +38,13 @@ export default function CashFlowStatement() {
     let cancelled = false;
     setLoading(true); setError(null);
 
-    const reqs = [api.get(url(period.from, period.to)).then(r => ({ slot: 'current', r }))];
+    const reqs = [api.get(url(period.from, period.to, scope.entityId)).then(r => ({ slot: 'current', r }))];
     if (period.showPriorPeriod) {
-      reqs.push(api.get(url(period.priorFrom, period.priorTo))
+      reqs.push(api.get(url(period.priorFrom, period.priorTo, scope.entityId))
         .then(r => ({ slot: 'prior_period', r })).catch(() => ({ slot: 'prior_period', r: null })));
     }
     if (period.showPriorYear) {
-      reqs.push(api.get(url(period.priorYearFrom, period.priorYearTo))
+      reqs.push(api.get(url(period.priorYearFrom, period.priorYearTo, scope.entityId))
         .then(r => ({ slot: 'prior_year', r })).catch(() => ({ slot: 'prior_year', r: null })));
     }
     Promise.all(reqs).then(results => {
@@ -51,7 +60,7 @@ export default function CashFlowStatement() {
     .catch(e => { if (!cancelled) setError(e.message || 'Failed to load'); })
     .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period.from, period.to, period.compareMode]);
+  }, [period.from, period.to, period.compareMode, scope.entityId]);
 
   const safe = current && current.sections && !Array.isArray(current.sections);
 
@@ -130,11 +139,12 @@ export default function CashFlowStatement() {
   return (
     <ReportShell
       title="Cash Flow Statement"
-      subtitle={`Indirect method · ${period.from} → ${period.to}`}
+      subtitle={`${scope.label} · Indirect method · ${period.from} → ${period.to}`}
       testIdPrefix="rpt-cf"
       period={period}
+      customControls={<AccountingEntitySelector scope={scope} testId="rpt-cf-entity" />}
       snapshotEnvelope={current ? {
-        params:   { from: period.from, to: period.to, compareMode: period.compareMode },
+        params:   { from: period.from, to: period.to, compareMode: period.compareMode, entity_id: scope.entityId },
         envelope: { current, priorPeriod, priorYear },
       } : null}
       onReplayDrill={(d) => setDrill({
@@ -224,7 +234,7 @@ export default function CashFlowStatement() {
       )}
 
       {drill && (
-        <GlDetailDrilldown {...drill} reportKey="rpt-cf" onClose={() => setDrill(null)} />
+        <GlDetailDrilldown {...drill} entityId={scope.entityId} reportKey="rpt-cf" onClose={() => setDrill(null)} />
       )}
     </ReportShell>
   );
@@ -243,8 +253,8 @@ function Section({ title, testIdPrefix, data, columns }) {
   );
 }
 
-function url(from, to) {
-  return `/modules/accounting/api/reports.php?type=cash_flow_indirect&from=${from}&to=${to}`;
+function url(from, to, entityId) {
+  return `/modules/accounting/api/reports.php?type=cash_flow_indirect&from=${from}&to=${to}${entityId ? `&entity_id=${entityId}` : ''}`;
 }
 
 const sectionHeadingStyle = {

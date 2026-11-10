@@ -45,8 +45,8 @@ $assert('payment terms normalize to canonical values',
 
 echo "\nCSV inspection and exact Start identity\n";
 $csv = implode("\n", [
-    'Start ID,Candidate Email,Position Type,Start Date,Final Bill Rate,Agreed Pay Rate',
-    '00057219188,worker@example.com,Corp-to-Corp,1783350000000,$119.00,$82.00',
+    'Start ID,Candidate Email,Position Type,Start Date,Final Bill Rate,Agreed Pay Rate,Bill Rate Unit,Pay Rate Unit,Currency',
+    '00057219188,worker@example.com,Corp-to-Corp,1783350000000,$119.00,$82.00,hour,hour,USD',
 ]);
 $inspection = jobdivaReconciliationInspect($csv);
 $assert('Start ID header is auto-mapped',

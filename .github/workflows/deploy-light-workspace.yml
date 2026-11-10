@@ -55,6 +55,7 @@ jobs:
 
           tar -czf coreflux-light-workspace-release.tar.gz \
             .deploy-version \
+            scripts/light_workspace_php_lint.txt \
             .htaccess \
             about.html \
             accounting.html \
@@ -113,7 +114,12 @@ jobs:
             core/domain_people_graph.php \
             core/integrations/field_map.php \
             core/integrations/field_map_apply.php \
+            core/integrations/source_values.php \
+            core/integrations/data/source_codes.json \
+            core/integrations/data/UNICODE-LICENSE.txt \
             core/jobdiva/assignment_contract.php \
+            core/jobdiva/classification.php \
+            core/jobdiva/classification_mapping.php \
             core/jobdiva/contract_projection.php \
             core/jobdiva/mapping_alignment.php \
             core/jobdiva/projector.php \
@@ -367,6 +373,7 @@ jobs:
             modules/staffing/api/seed_posting_rules.php \
             modules/staffing/api/timesheets.php \
             modules/staffing/lib/dimensions.php \
+            modules/staffing/lib/dimension_snapshot.php \
             modules/staffing/lib/posting_rules_seed.php \
             modules/staffing/lib/timesheets.php \
             modules/staffing/migrations/001_timesheets.sql \
@@ -434,6 +441,8 @@ jobs:
             core/migrations/143_export_template_system_dedup.sql \
             core/migrations/144_staffing_timesheet_artifacts.sql \
             core/migrations/145_business_logic_hardening.sql \
+            core/migrations/146_staffing_time_dimension_snapshots.sql \
+            core/migrations/147_staffing_timesheet_approval_columns.sql \
             scripts/ap_weekly_queue_sunday.php \
             scripts/audit_business_integrity.php \
             scripts/billing_recurring_generate.php \
@@ -494,6 +503,7 @@ jobs:
             tests/csv_external_id_wave1_smoke.php \
             tests/csv_external_id_wave2_smoke.php \
             tests/csv_import_service_smoke.php \
+            tests/csv_import_atomic_smoke.php \
             tests/csv_importers_subtenant_scope_smoke.php \
             tests/csv_interactive_mapping_smoke.php \
             tests/csv_phase_b_smoke.php \
@@ -541,6 +551,7 @@ jobs:
             tests/p2_liquidity_and_auto_reverse_smoke.php \
             tests/staffing_economic_graph_smoke.php \
             tests/staffing_dimensions_smoke.php \
+            tests/staffing_dimension_snapshot_smoke.php \
             tests/staffing_email_approval_smoke.php \
             tests/staffing_bulk_timesheet_approval_smoke.php \
             tests/staffing_shell_and_weekly_timesheet_smoke.php \
@@ -623,18 +634,21 @@ jobs:
             test -f "$STAGE_ROOT/modules/placements/migrations/006_assignment_dimensions.sql"
             test -f "$STAGE_ROOT/modules/staffing/api/assignment_dimensions.php"
             test -f "$STAGE_ROOT/modules/staffing/lib/dimensions.php"
+            test -f "$STAGE_ROOT/modules/staffing/lib/dimension_snapshot.php"
             test -f "$STAGE_ROOT/graphql/subgraph-coreflux/schema.graphql"
             test -f "$STAGE_ROOT/graphql/subgraph-coreflux/src/index.ts"
             test -f "$STAGE_ROOT/modules/time/migrations/010_referral_costs_view.sql"
             test -f "$STAGE_ROOT/modules/treasury/migrations/007_liability_account_entity.sql"
             test -f "$STAGE_ROOT/tests/staffing_dimensions_smoke.php"
+            test -f "$STAGE_ROOT/tests/staffing_dimension_snapshot_smoke.php"
             test -f "$STAGE_ROOT/tests/treasury_dimension_integrity_smoke.php"
             test -f "$STAGE_ROOT/tests/csv_import_service_smoke.php"
             test -f "$STAGE_ROOT/tests/csv_interactive_mapping_smoke.php"
             test -f "$STAGE_ROOT/core/migrations/003_mail_service.sql"
             test -f "$STAGE_ROOT/core/migrations/103_ap_payments_method_mercury.sql"
-            test -f "$STAGE_ROOT/core/migrations/144_staffing_timesheet_artifacts.sql"
-            test -f "$STAGE_ROOT/core/migrations/145_business_logic_hardening.sql"
+            for migration in 144_staffing_timesheet_artifacts 145_business_logic_hardening 146_staffing_time_dimension_snapshots 147_staffing_timesheet_approval_columns; do
+              test -f "$STAGE_ROOT/core/migrations/$migration.sql"
+            done
             test -f "$STAGE_ROOT/core/business_integrity.php"
             test -f "$STAGE_ROOT/modules/accounting/lib/reconciliation_artifact.php"
             test -f "$STAGE_ROOT/modules/payroll/lib/artifacts.php"
@@ -656,157 +670,9 @@ jobs:
             cp -R --no-preserve=mode,ownership,timestamps "$STAGE_ROOT"/. "$APP_ROOT"/
             cd "$APP_ROOT"
 
-            for PHP_FILE in \
-              update.php \
-              api/ap_bill_replay.php \
-              api/billing_invoice_replay.php \
-              api/exec_filters.php \
-              api/index.php \
-              api/export_templates.php \
-              api/admin/business_integrity.php \
-              api/admin/migrate.php \
-              api/admin/csv_mapping_presets.php \
-              api/admin_healthcheck.php \
-              api/admin/integrations_health.php \
-              api/ai/exceptions.php \
-              api/ai_accuracy.php \
-              api/books_health.php \
-              api/dimensional_pnl.php \
-              api/exec_dashboard.php \
-              api/gl_detail.php \
-              api/missing_dimensions.php \
-              api/tax_form_export.php \
-              api/treasury_cash_position.php \
-              api/treasury_recommendations.php \
-              api/treasury_payments.php \
-              api/treasury_transfers.php \
-              core/ModuleRegistry.php \
-              core/accounting/system_accounts.php \
-              core/audit.php \
-              core/business_integrity.php \
-              core/ai/ap_extraction.php \
-              core/ai/artifacts.php \
-              core/ai/cash_forecast.php \
-              core/api_bootstrap.php \
-              core/api_router.php \
-              core/csv_samples.php \
-              core/export_datasets.php \
-              core/export_service.php \
-              core/export_templates.php \
-              core/ai_agents.php \
-              core/financial_state_cache.php \
-              core/domain_people_graph.php \
-              core/integrations/field_map.php \
-              core/integrations/field_map_apply.php \
-              core/jobdiva/assignment_contract.php \
-              core/jobdiva/contract_projection.php \
-              core/jobdiva/mapping_alignment.php \
-              core/jobdiva/projector.php \
-              core/jobdiva/sync.php \
-              core/jobdiva/sync_placements.php \
-              core/jobdiva/sync_time.php \
-              core/people_graph.php \
-              core/posting_engine/formula.php \
-              core/posting_engine/process.php \
-              core/posting_engine/seed_defaults.php \
-              core/rbac/legacy_map.php \
-              core/staffing_email_approval.php \
-              core/tx_helpers.php \
-              core/seeds/event_registry_seed.php \
-              core/seeds/posting_rules_seed_all.php \
-              core/storage_register.php \
-              core/treasury/liquidity_projection.php \
-              core/workflow_engine.php \
-              modules/accounting/api/accounts.php \
-              modules/accounting/api/bank_ai.php \
-              modules/accounting/api/bank_statements.php \
-              modules/accounting/api/export.php \
-              modules/accounting/api/import.php \
-              modules/accounting/api/intercompany.php \
-              modules/accounting/api/journal_entries.php \
-              modules/accounting/api/reconciliations.php \
-              modules/accounting/api/recurring_journal_entries.php \
-              modules/accounting/api/standard_reports.php \
-              modules/accounting/lib/account_interest.php \
-              modules/accounting/lib/accounting.php \
-              modules/accounting/lib/bank_rec.php \
-              modules/accounting/lib/consolidation.php \
-              modules/accounting/lib/cross_tenant_intercompany.php \
-              modules/accounting/lib/dimensions.php \
-              modules/accounting/lib/intercompany.php \
-              modules/accounting/lib/multi_period.php \
-              modules/accounting/lib/reconciliation_artifact.php \
-              modules/accounting/lib/recurring_je.php \
-              modules/accounting/lib/standard_reports.php \
-              modules/accounting/manifest.php \
-              modules/ap/api/1099.php \
-              modules/ap/api/approval_policies.php \
-              modules/ap/api/bills.php \
-              modules/ap/api/csv_import.php \
-              modules/ap/api/expenses.php \
-              modules/ap/api/vendor_risk.php \
-              modules/ap/lib/vendor_risk.php \
-              modules/ap/lib/ap.php \
-              modules/ap/lib/workflow_sync.php \
-              modules/billing/api/invoices.php \
-              modules/billing/api/items.php \
-              modules/billing/api/items_csv_export.php \
-              modules/billing/api/items_csv_import.php \
-              modules/billing/lib/billing.php \
-              modules/billing/lib/invoice_pdf.php \
-              modules/billing/lib/workflow.php \
-              modules/billing/lib/workflow_sync.php \
-              modules/payroll/api/import_csv.php \
-              modules/payroll/api/pay_periods.php \
-              modules/payroll/api/preflight.php \
-              modules/payroll/api/profiles.php \
-              modules/payroll/api/profiles_csv_export.php \
-              modules/payroll/api/profiles_csv_import.php \
-              modules/payroll/lib/payroll.php \
-              modules/payroll/lib/csv_import.php \
-              modules/payroll/lib/cycles.php \
-              modules/payroll/lib/artifacts.php \
-              modules/payroll/lib/accounting_posting.php \
-              modules/payroll/lib/profiles.php \
-              modules/payroll/lib/workflow.php \
-              modules/payroll/lib/workflow_sync.php \
-              modules/payroll/api/runs.php \
-              modules/people/api/companies.php \
-              modules/people/api/documents.php \
-              modules/people/api/people.php \
-              modules/people/api/csv_export.php \
-              modules/people/lib/companies.php \
-              modules/people/lib/people.php \
-              modules/placements/api/csv_export.php \
-              modules/placements/api/csv_import.php \
-              modules/placements/api/documents.php \
-              modules/placements/api/placements.php \
-              modules/placements/api/rates.php \
-              modules/placements/api/referrals.php \
-              modules/placements/lib/economics.php \
-              modules/placements/lib/jobdiva_reconciliation.php \
-              modules/placements/lib/placements.php \
-              modules/placements/lib/rate_approve.php \
-              modules/reports/api/overtime_watch.php \
-              modules/reports/lib/staffing_metrics.php \
-              modules/staffing/api/timesheets.php \
-              modules/staffing/api/assignment_dimensions.php \
-              modules/staffing/api/classification_mix.php \
-              modules/staffing/api/seed_posting_rules.php \
-              modules/staffing/api/timesheet_email_approver.php \
-              modules/staffing/lib/dimensions.php \
-              modules/staffing/lib/posting_rules_seed.php \
-              modules/staffing/lib/timesheets.php \
-              modules/time/api/csv_import.php \
-              modules/time/api/entries.php \
-              modules/time/lib/settlement_create.php \
-              modules/time/lib/time.php \
-              modules/treasury/api/liability_accounts.php \
-              modules/treasury/api/account_transactions.php \
-              modules/treasury/lib/workflow_sync.php \
-              scripts/audit_business_integrity.php; do
+            while IFS= read -r PHP_FILE; do
               php -l "$PHP_FILE"
-            done
+            done < scripts/light_workspace_php_lint.txt
 
             php deploy/run_migrations.php
             php core/seeds/event_registry_seed.php
@@ -817,8 +683,9 @@ jobs:
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/140_staffing_client_catalog_integrity.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/141_payroll_module_access_backfill.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/143_export_template_system_dedup.sql'
-            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/144_staffing_timesheet_artifacts.sql'
-            php deploy/run_migrations.php --status | grep -F '[ok] core/migrations/145_business_logic_hardening.sql'
+            for migration in 144_staffing_timesheet_artifacts 145_business_logic_hardening 146_staffing_time_dimension_snapshots 147_staffing_timesheet_approval_columns; do
+              php deploy/run_migrations.php --status | grep -F "[ok] core/migrations/$migration.sql"
+            done
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/006_run_enterprise_controls.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/007_accounting_posting.sql'
             php deploy/run_migrations.php --status | grep -F '[ok] modules/payroll/migrations/008_run_artifacts.sql'
@@ -880,6 +747,8 @@ jobs:
             php tests/csv_external_id_wave1_smoke.php
             php tests/csv_external_id_wave2_smoke.php
             php tests/csv_import_service_smoke.php
+            php tests/csv_import_atomic_smoke.php
+            php tests/staffing_dimension_snapshot_smoke.php
             php tests/csv_importers_subtenant_scope_smoke.php
             php tests/csv_interactive_mapping_smoke.php
             php tests/csv_phase_b_smoke.php

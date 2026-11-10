@@ -8,6 +8,7 @@
  *        &end=YYYY-MM-DD                default = today
  *        &entity_id=N                   optional
  *        &include_unposted=1            include drafts (reversed entries are always ledger history)
+ *        &page=N&per_page=25|50|100|200
  *
  * Returns:
  *   {
@@ -44,11 +45,17 @@ $start       = (string) (api_query('start') ?? date('Y-m-01'));
 $end         = (string) (api_query('end')   ?? date('Y-m-d'));
 $entityId    = (int) (api_query('entity_id') ?? 0);
 $includeUnposted = !empty(api_query('include_unposted'));
+$pageRaw = (string) (api_query('page') ?? '1');
+$perPageRaw = (string) (api_query('per_page') ?? '50');
 
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) api_error('start must be YYYY-MM-DD', 400);
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $end))   api_error('end must be YYYY-MM-DD', 400);
 if ($start > $end) api_error('start must be <= end', 400);
 if (!$accountId && $accountCode === '') api_error('account_id or account_code required', 400);
+if (!preg_match('/^[1-9]\d*$/', $pageRaw) || strlen($pageRaw) > 7) api_error('page must be a positive integer', 400);
+if (!in_array($perPageRaw, ['25', '50', '100', '200'], true)) api_error('per_page must be 25, 50, 100 or 200', 400);
+$page = (int) $pageRaw;
+$perPage = (int) $perPageRaw;
 
 $pdo = getDB();
 
@@ -73,6 +80,11 @@ if (!$account) api_error('Account not found', 404);
 
 $account['id'] = (int) $account['id'];
 $accountId = (int) $account['id'];
+
+// Opening, full-period totals and the selected page must observe the same
+// ledger state if another request posts while this report is loading.
+$pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+$pdo->beginTransaction();
 
 // Reversed entries were posted and remain part of ledger history. Their
 // separately posted reversal supplies the offset. Excluding the original
@@ -106,28 +118,72 @@ $opening = $normalSide === 'credit'
     ? round((float) $openRow['c'] - (float) $openRow['d'], 2)
     : round((float) $openRow['d'] - (float) $openRow['c'], 2);
 
-// Detail rows.
-$linesSql = "SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo, je.status,
+// Keep full-window totals independent of the requested detail page.
+$rangeWhere = "je.tenant_id = :t AND jl.account_id = :aid
+               AND je.posting_date BETWEEN :start AND :end
+               AND {$statusSql} {$entityWhere}";
+$rangeParams = ['t' => $tid, 'aid' => $accountId, 'start' => $start, 'end' => $end];
+if ($entityId) $rangeParams['eid'] = $entityId;
+$totalStmt = $pdo->prepare(
+    "SELECT COUNT(*) AS line_count, COALESCE(SUM(jl.debit), 0) AS d,
+            COALESCE(SUM(jl.credit), 0) AS c
+       FROM accounting_journal_entry_lines jl
+       JOIN accounting_journal_entries je ON je.id = jl.je_id
+      WHERE {$rangeWhere}"
+);
+$totalStmt->execute($rangeParams);
+$period = $totalStmt->fetch(\PDO::FETCH_ASSOC) ?: ['line_count' => 0, 'd' => 0, 'c' => 0];
+$totalRows = (int) $period['line_count'];
+$totalPages = max(1, (int) ceil($totalRows / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+$linesSql = "SELECT jl.id AS line_id, jl.line_no, je.id AS je_id, je.je_number,
+                    je.posting_date, je.memo, je.status,
                     je.source_module, je.source_ref_type, je.source_ref_id,
                     jl.debit, jl.credit, jl.description, jl.counterparty_company_id,
                     jl.dim_json AS dimension_values
                FROM accounting_journal_entry_lines jl
                JOIN accounting_journal_entries je ON je.id = jl.je_id
-              WHERE je.tenant_id = :t
-                AND jl.account_id = :aid
-                AND je.posting_date BETWEEN :start AND :end
-                AND {$statusSql}
-                {$entityWhere}
-              ORDER BY je.posting_date ASC, je.id ASC, jl.line_no ASC";
+              WHERE {$rangeWhere}
+              ORDER BY je.posting_date ASC, je.id ASC, jl.line_no ASC, jl.id ASC
+              LIMIT :per_page OFFSET :offset";
 $linesStmt = $pdo->prepare($linesSql);
-$linesParams = ['t' => $tid, 'aid' => $accountId, 'start' => $start, 'end' => $end];
-if ($entityId) $linesParams['eid'] = $entityId;
-$linesStmt->execute($linesParams);
+foreach ($rangeParams as $key => $value) $linesStmt->bindValue(':' . $key, $value);
+$linesStmt->bindValue(':per_page', $perPage, \PDO::PARAM_INT);
+$linesStmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
+$linesStmt->execute();
 $rows = $linesStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
-$running = $opening;
-$totalD  = 0.0;
-$totalC  = 0.0;
+$pageOpening = $opening;
+if ($offset > 0 && $rows) {
+    $first = $rows[0];
+    $beforeStmt = $pdo->prepare(
+        "SELECT COALESCE(SUM(jl.debit), 0) AS d, COALESCE(SUM(jl.credit), 0) AS c
+           FROM accounting_journal_entry_lines jl
+           JOIN accounting_journal_entries je ON je.id = jl.je_id
+          WHERE {$rangeWhere}
+            AND (je.posting_date < :first_date_before
+              OR (je.posting_date = :first_date_equal AND
+                  (je.id < :first_je_before
+                   OR (je.id = :first_je_equal AND
+                       (jl.line_no < :first_line_before
+                        OR (jl.line_no = :first_line_equal AND jl.id < :first_line_id))))))"
+    );
+    $beforeStmt->execute($rangeParams + [
+        'first_date_before' => $first['posting_date'], 'first_date_equal' => $first['posting_date'],
+        'first_je_before' => $first['je_id'], 'first_je_equal' => $first['je_id'],
+        'first_line_before' => $first['line_no'], 'first_line_equal' => $first['line_no'],
+        'first_line_id' => $first['line_id'],
+    ]);
+    $before = $beforeStmt->fetch(\PDO::FETCH_ASSOC) ?: ['d' => 0, 'c' => 0];
+    $pageOpening += $normalSide === 'credit'
+        ? (float) $before['c'] - (float) $before['d']
+        : (float) $before['d'] - (float) $before['c'];
+    $pageOpening = round($pageOpening, 2);
+}
+
+$running = $pageOpening;
 $out     = [];
 foreach ($rows as $r) {
     $d = round((float) $r['debit'],  2);
@@ -135,8 +191,6 @@ foreach ($rows as $r) {
     $running = $normalSide === 'credit'
         ? round($running + $c - $d, 2)
         : round($running + $d - $c, 2);
-    $totalD += $d; $totalC += $c;
-
     $dims = null;
     if (!empty($r['dimension_values'])) {
         $j = json_decode((string) $r['dimension_values'], true);
@@ -144,6 +198,7 @@ foreach ($rows as $r) {
     }
 
     $out[] = [
+        'line_id'       => (int) $r['line_id'],
         'je_id'         => (int) $r['je_id'],
         'je_number'     => (string) $r['je_number'],
         'posting_date'  => (string) $r['posting_date'],
@@ -161,6 +216,11 @@ foreach ($rows as $r) {
     ];
 }
 
+$totalD = round((float) $period['d'], 2);
+$totalC = round((float) $period['c'], 2);
+$net = $normalSide === 'credit' ? $totalC - $totalD : $totalD - $totalC;
+$pdo->commit();
+
 api_ok([
     'account'         => [
         'id'           => (int) $account['id'],
@@ -174,14 +234,17 @@ api_ok([
     'entity_id'       => $entityId ?: null,
     'include_unposted'=> $includeUnposted,
     'opening_balance' => $opening,
+    'page_opening_balance' => $pageOpening,
     'lines'           => $out,
     'totals'          => [
-        'debit'           => round($totalD, 2),
-        'credit'          => round($totalC, 2),
-        'net'             => $normalSide === 'credit'
-            ? round($totalC - $totalD, 2)
-            : round($totalD - $totalC, 2),
-        'ending_balance'  => $running,
+        'debit'           => $totalD,
+        'credit'          => $totalC,
+        'net'             => round($net, 2),
+        'ending_balance'  => round($opening + $net, 2),
+    ],
+    'pagination'     => [
+        'page' => $page, 'per_page' => $perPage,
+        'total_rows' => $totalRows, 'total_pages' => $totalPages,
     ],
     'count'           => count($out),
 ]);

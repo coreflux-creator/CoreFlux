@@ -1,36 +1,45 @@
 import React, { useState } from 'react';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LineItemEditor, { blankLine, ITEM_TYPES } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import VendorTypeahead from './VendorTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
+import { calculateDocumentTotals } from '../../../dashboard/src/lib/documentTotals';
+import { directBillAccountChoices } from './directBillAccounts';
+import { billDetailUrl } from './billNavigation.mjs';
 
 const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
+const AP_ITEM_TYPES = ITEM_TYPES.filter((t) => t.value !== 'discount');
 
 /**
- * Manual AP bill creator — supports any item_type (labor, expense, materials,
- * fixed-fee, milestone, discount, subscription, mileage, per-diem,
- * reimbursement, other). Time-bundle-driven bills go through
- * BillFromTimeBundleModal instead.
+ * Manual AP bill creator. Vendor credits and discounts need their own
+ * posting treatment and are not accepted as bill lines.
  */
-export default function BillCreate() {
+export default function BillCreate({ session }) {
   const nav = useNavigate();
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?type=expense&active=1');
-  const expenseAccounts = accountsApi.data?.rows ?? [];
+  const [params] = useSearchParams();
+  const requestedEntityId = params.get('entity_id');
+  const contextParams = new URLSearchParams();
+  if (requestedEntityId) contextParams.set('entity_id', requestedEntityId);
+  if (params.get('status')) contextParams.set('status', params.get('status'));
+  const contextQuery = contextParams.size ? `?${contextParams}` : '';
+  const returnPath = `../bills${contextQuery}`;
+  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&include_required_dimensions=1');
+  const expenseAccounts = directBillAccountChoices(accountsApi.data?.rows ?? []);
 
   const [vendor, setVendor]       = useState(null);
   const [showCreateVendor, setShowCreateVendor] = useState(false);
   const [pendingVendorName, setPendingVendorName] = useState('');
-  const [vendorType, setVendorType] = useState('w9_business');
+  const [vendorType, setVendorType] = useState('other');
   const [billNumber, setBillNumber] = useState('');
   const [billDate, setBillDate]   = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate]     = useState('');
   const [poNumber, setPoNumber]   = useState('');
   const [taxPct, setTaxPct]       = useState(0);
-  const [entityId, setEntityId]   = useState(null);
+  const [entityId, setEntityId]   = useState(() => requestedEntityId && /^[1-9][0-9]*$/.test(requestedEntityId) ? Number(requestedEntityId) : null);
   const [notes, setNotes]         = useState('');
   const [lines, setLines]         = useState([blankLine('expense')]);
 
@@ -90,20 +99,39 @@ export default function BillCreate() {
     finally     { setExtracting(false); }
   };
 
-  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-  const taxTotal = subtotal * ((Number(taxPct) || 0) / 100);
-  const total    = subtotal + taxTotal;
+  const { subtotal, taxTotal, total } = calculateDocumentTotals(lines, taxPct);
 
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
       if (!vendor) throw new Error('Pick a vendor');
+      const activeLines = lines.filter((line) =>
+        String(line.description || '').trim() !== ''
+        || String(line.unit_price ?? '').trim() !== ''
+        || String(line.gl_account_code || '').trim() !== ''
+        || line.item_type !== 'other'
+        || String(line.unit || '').trim() !== 'each'
+        || Number(line.quantity) !== 1
+      );
+      if (activeLines.length === 0) throw new Error('Add at least one line item');
+      activeLines.forEach((line, index) => {
+        if (line.item_type === 'discount' || Number(line.unit_price) < 0) {
+          throw new Error(`Line ${index + 1}: vendor discounts and credits require a separate vendor-credit workflow.`);
+        }
+        if (!String(line.description || '').trim()) throw new Error(`Line ${index + 1}: add a description.`);
+        if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0) {
+          throw new Error(`Line ${index + 1}: quantity must be positive.`);
+        }
+        if (line.unit_price === '' || line.unit_price == null) throw new Error(`Line ${index + 1}: enter a unit price.`);
+        if (!Number.isFinite(Number(line.unit_price)) || Number(line.unit_price) <= 0) {
+          throw new Error(`Line ${index + 1}: unit price must be positive.`);
+        }
+      });
       const payload = {
         entity_id: entityId,
         vendor_name: vendor.name,
-        // vendor.id is ap_vendors_index.id; vendor.company_id is companies.id
-        // (null for 1099 individuals). Send only company_id — server will
-        // upsert if missing for non-individual types.
+        // The AP vendor ID lets the shared service use the saved classification.
+        vendor_id: vendor.id || null,
         vendor_company_id: vendor.company_id || null,
         vendor_type: vendorType,
         bill_number: billNumber || null,
@@ -112,19 +140,16 @@ export default function BillCreate() {
         po_number: poNumber || null,
         notes_internal: notes || null,
         tax_rate_pct: Number(taxPct) || 0,
-        lines: lines
-          .filter((l) => l.description && (Number(l.quantity) || 0) !== 0 && l.unit_price !== '')
-          .map((l) => ({
+        lines: activeLines.map((l) => ({
             item_type: l.item_type,
             description: l.description,
             quantity: Number(l.quantity) || 0,
             unit: l.unit || 'each',
             unit_price: Number(l.unit_price) || 0,
             gl_expense_account_code: l.gl_account_code || null,
-            is_1099_eligible: vendorType === '1099_individual',
+            is_1099_eligible: Number(vendor.requires_1099) === 1,
           })),
       };
-      if (payload.lines.length === 0) throw new Error('Add at least one line item');
       const res = await api.post('/modules/ap/api/bills.php', payload);
 
       // If the user staged a vendor-invoice PDF, upload it and attach it
@@ -137,14 +162,13 @@ export default function BillCreate() {
             pendingFile
           );
           await api.post(`/modules/ap/api/bills.php?action=attach&id=${res.id}`, uploaded);
-        } catch (uploadErr) {
-          // Bill is still saved — surface a soft warning by routing with
-          // an error param. The detail page can read it and show a banner.
-          nav(`../bills/${res.id}?attach_error=${encodeURIComponent(uploadErr.message)}`);
+        } catch {
+          // The bill is saved even when its supporting document needs a retry.
+          nav(billDetailUrl(res.id, contextParams, res.entity_id ?? entityId, true));
           return;
         }
       }
-      nav(`../bills/${res.id}`);
+      nav(billDetailUrl(res.id, contextParams, res.entity_id ?? entityId));
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
   };
@@ -154,11 +178,9 @@ export default function BillCreate() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>New AP bill</h2>
-          <p style={{ margin: '4px 0 0', color: '#666', fontSize: 13 }}>
-            Manual bill — supports any item type. For time-tracked labor across multiple placements, use <strong>+ New from time bundle</strong> on the bills list.
-          </p>
+          <p style={{ margin: '4px 0 0', color: '#666', fontSize: 13 }}>Enter vendor charges directly. Discounts and credits require a separate vendor-credit workflow.</p>
         </div>
-        <Link to="../bills" className="btn btn--ghost" data-testid="ap-bill-create-back">← Back</Link>
+        <Link to={returnPath} className="btn btn--ghost" data-testid="ap-bill-create-back">← Back</Link>
       </header>
 
       <form onSubmit={submit}>
@@ -176,7 +198,7 @@ export default function BillCreate() {
             />
           </Field>
           <Field label="Vendor type">
-            <select className="input" value={vendorType} onChange={(e) => setVendorType(e.target.value)} data-testid="ap-bill-create-vendor-type">
+            <select className="input" value={vendorType} onChange={(e) => setVendorType(e.target.value)} disabled={Boolean(vendor?.id)} data-testid="ap-bill-create-vendor-type">
               <option value="w9_business">W-9 business</option>
               <option value="c2c_corp">C2C / corp-to-corp</option>
               <option value="1099_individual">1099 individual</option>
@@ -249,6 +271,7 @@ export default function BillCreate() {
           accounts={expenseAccounts}
           aiSuggestKind="ap_bill"
           counterpartyName={vendor?.name || ''}
+          itemTypes={AP_ITEM_TYPES}
         />
 
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
@@ -267,7 +290,7 @@ export default function BillCreate() {
         {err && <p className="error" data-testid="ap-bill-create-error">Error: {err.message}</p>}
 
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Link to="../bills" className="btn btn--ghost" data-testid="ap-bill-create-cancel">Cancel</Link>
+          <Link to={returnPath} className="btn btn--ghost" data-testid="ap-bill-create-cancel">Cancel</Link>
           <button type="submit" className="btn btn--primary" data-testid="ap-bill-create-submit" disabled={busy}>
             {busy ? 'Creating…' : 'Create bill'}
           </button>
@@ -277,6 +300,7 @@ export default function BillCreate() {
       {showCreateVendor && (
         <VendorQuickCreate
           initialName={pendingVendorName}
+          standaloneAccounting={session?.product_mode === 'coreaccounting'}
           onCancel={() => setShowCreateVendor(false)}
           onCreated={(v) => {
             // VendorQuickCreate returns ap_vendors_index payload with
@@ -286,6 +310,7 @@ export default function BillCreate() {
               id: v.id || null,
               name: v.vendor_name || v.name,
               vendor_type: v.vendor_type,
+              requires_1099: v.requires_1099,
               company_id: v.company_id || null,
               tax_id_last4: v.tax_id_last4 || null,
             });

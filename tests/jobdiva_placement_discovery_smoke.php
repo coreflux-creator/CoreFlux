@@ -128,10 +128,10 @@ $assert('reuses existing person mapping when present',
     && strpos($src, 'return $mappedPersonId;') !== false);
 $assert('rejects a candidate mapping bound to another JobDiva person identity',
     strpos($src, 'jobdivaPersonExternalIdConflicts') !== false
-    && strpos($src, "mappingDelete(\$tid, 'jobdiva', 'person', \$candidateExtId)") !== false);
-$assert('rejects a durable mapping when both candidate name and email contradict the person',
-    strpos($src, 'jobdivaPersonIdentityConflicts') !== false
-    && strpos($src, 'SET external_id = NULL') !== false);
+    && strpos($src, 'candidate link conflicts with its Core person') !== false);
+$assert('contact changes cannot erase durable provider identity',
+    strpos($src, "mappingDelete(\$tid, 'jobdiva', 'person', \$candidateExtId)") === false
+    && strpos($src, 'SET external_id = NULL') === false);
 $assert('candidate identity conflict requires both name and email disagreement',
     jobdivaPersonIdentityConflicts(
         [
@@ -148,14 +148,11 @@ $assert('candidate identity conflict requires both name and email disagreement',
 $assert('prefers the exact durable JobDiva person identity before email matching',
     strpos($src, 'external_id = :ext') !== false
     && strpos($src, '$canonicalPersonExternalId') !== false);
-$assert('reuses existing person by email_primary (case-insensitive)',
+$assert('detects email collisions case-insensitively',
     strpos($src, 'LOWER(email_primary) = LOWER(:e)') !== false);
-$assert('email reuse binds distinct placeholders for native PDO prepares',
-    strpos($src, 'external_id = :ext_filter') !== false
-    && strpos($src, 'external_id = :ext_order') !== false
-    && strpos($src, "'ext_filter' => \$canonicalPersonExternalId") !== false
-    && strpos($src, "'ext_order' => \$canonicalPersonExternalId") !== false);
-$assert('binds mapping after email match (so future syncs are direct)',
+$assert('email collisions require explicit identity review',
+    str_contains($src, 'review the candidate/person link before syncing again'));
+$assert('binds mapping after exact durable ID match',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId") !== false);
 $assert('refuses to create ghost record when name fully blank',
     strpos($src, "if (\$firstName === '' && \$lastName === '') {") !== false
@@ -208,18 +205,17 @@ $assert('Upsert recovers raw Start IDs that were written into placements.externa
 // allow-listed columns. Catches the "user can pick the column from the
 // dropdown but the upsert silently drops it" failure mode.
 echo "\nSlice 4 — registry-aware writes for expanded allow-list\n";
-foreach (['engagement_type', 'worksite_state', 'worksite_country',
+foreach (['worksite_state', 'worksite_country',
           'remote_policy', 'notes', 'client_approver_name',
           'client_approver_email', 'actual_end_date', 'due_date'] as $col) {
     $assert("upsert resolves placement.{$col} via tenantIntegrationFieldMapPluckInternal",
         strpos($syncSrc, "'jobdiva', 'placement', '{$col}', \$jd,") !== false);
 }
-$assert('engagement_type enum coercion handles common upstream variants',
-    strpos($syncSrc, 'jobdivaNormalisePlacementEngagementType($engagementRaw, \'\')') !== false
-    && strpos($syncSrc, "str_contains(\$s, 'corp to corp')") !== false
-    && strpos($syncSrc, "str_contains(\$s, 'temp to perm')") !== false);
-$assert('worksite_country is forced to CHAR(2) (matches column type)',
-    strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') !== false);
+$assert('engagement type uses the shared evidence boundary before mutation',
+    strpos($syncSrc, '$engagement = jobdivaClassificationRequire($jd);') !== false);
+$assert('worksite_country is validated rather than truncated',
+    strpos($syncSrc, 'integrationSourceCountry($worksiteCountryRaw)') !== false
+    && strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') === false);
 $assert('remote_policy enum coercion accepts onsite/hybrid/remote synonyms',
     strpos($syncSrc, "'on-site' => 'onsite'") !== false
     && strpos($syncSrc, "'wfh' => 'remote'") !== false);

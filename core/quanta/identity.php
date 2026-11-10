@@ -10,9 +10,10 @@ function quantaWorkerLinks(int $tenantId, bool $lock = false): array
     $stmt = getDB()->prepare(
         'SELECT l.id, l.worker_id, l.person_id, l.created_at,
                 CONCAT_WS(" ", p.first_name, p.last_name) AS person_name,
-                p.email_primary AS person_email
+                p.email_primary AS person_email, nr.record_number AS person_number
            FROM quanta_worker_links l
       LEFT JOIN people p ON p.id = l.person_id AND p.tenant_id = :pt AND p.deleted_at IS NULL
+      LEFT JOIN core_record_numbers nr ON nr.tenant_id=p.tenant_id AND nr.entity_type="person" AND nr.record_id=p.id
           WHERE l.tenant_id = :t ORDER BY l.worker_id' . ($lock ? ' FOR UPDATE' : '')
     );
     $stmt->execute(['pt' => $peopleTenant, 't' => $tenantId]);

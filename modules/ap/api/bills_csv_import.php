@@ -20,6 +20,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/accounting/csv_document_entity.php';
 require_once __DIR__ . '/../lib/ap.php';
 
 use Core\CsvImportService;
@@ -40,6 +41,7 @@ CsvImportService::registerSchema('ap_bills', [
         'record_status'    => ['label' => 'Record status (read only)'],
         'amount_paid'      => ['label' => 'Amount paid (read only)', 'type' => 'number'],
         'vendor_name'      => ['label' => 'Vendor name'],
+        'entity_code'      => ['label' => 'Entity code'],
         'vendor_type'      => ['label' => 'Vendor type',
                                'enum'  => ['1099_individual','c2c_corp','w9_business','utility','other']],
         'bill_date'        => ['label' => 'Bill date',      'type' => 'date'],
@@ -141,79 +143,58 @@ if ($method === 'POST' && $action === 'dry_run') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
-    $result = CsvImportService::dryRun('ap_bills', $csv, $columnMap);
-
-    // Group rows by bill_number, enforce that the FIRST row of each
-    // group has the required header fields.
-    $groups = [];
-    foreach ($result['rows'] as $rn => $row) {
-        $bn = (string) ($row['bill_number'] ?? '');
-        if ($bn === '') continue;
-        $groups[$bn][] = ['rn' => $rn, 'row' => $row];
-    }
-    foreach ($groups as $bn => $g) {
-        $first = $g[0]['row'];
-        foreach (['vendor_name','bill_date','due_date'] as $req) {
-            if (empty($first[$req])) {
-                $rn = $g[0]['rn'];
-                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                $result['errors'][$rn][] = "{$req}: required on first row of bill #{$bn}";
-            }
-        }
-    }
-    $result['error_count'] = count($result['errors']);
-    $result['groups']      = count($groups);
-    api_ok($result);
+    $review = accountingCsvReviewDocumentGroups(
+        CsvImportService::dryRun('ap_bills', $csv, $columnMap),
+        accountingCsvDocumentEntities(getDB(), $tid),
+        'bill_number', 'bill', ['vendor_name', 'bill_date', 'due_date'],
+        'apValidateImportedBillLineAmounts'
+    );
+    api_ok($review['result']);
 }
 
 if ($method === 'POST' && $action === 'commit') {
     rbac_legacy_require($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    require_once __DIR__ . '/../../../core/accounting/csv_import_gate.php';
+    coreAccountingClaimCsvImport('ap_bills', $csv, (int) $ctx['tenant_id'], (int) $user['id']);
     $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
-    $dry = CsvImportService::dryRun('ap_bills', $csv, $columnMap);
-    if (!$skipInvalid && $dry['error_count'] > 0) {
-        api_ok([
-            'imported_count' => 0, 'skipped_count' => count($dry['rows']),
+    $review = accountingCsvReviewDocumentGroups(
+        CsvImportService::dryRun('ap_bills', $csv, $columnMap),
+        accountingCsvDocumentEntities(getDB(), $tid),
+        'bill_number', 'bill', ['vendor_name', 'bill_date', 'due_date'],
+        'apValidateImportedBillLineAmounts'
+    );
+    $dry = $review['result'];
+    if (!empty($dry['blocking_error']) || (!$skipInvalid && $dry['error_count'] > 0)) {
+        api_ok(coreAccountingRecordCsvImportOutcome([
+            'imported_count' => 0, 'skipped_count' => $dry['groups'],
+            'group_count' => $dry['groups'],
+            'row_count' => count($dry['rows']), 'imported_row_count' => 0,
+            'skipped_row_count' => count($dry['rows']),
             'errors' => $dry['errors'],
-            'message' => 'Validation errors present; pass skip_invalid=1 to import valid rows only.',
-        ]);
+            'message' => $dry['blocking_error'] ?? 'Validation errors present; pass skip_invalid=1 to import valid documents only.',
+        ], (int) $ctx['tenant_id'], (int) $user['id']));
     }
 
-    // Group rows by bill_number
-    $groups = [];
-    foreach ($dry['rows'] as $rn => $row) {
-        if ($skipInvalid && isset($dry['errors'][$rn])) continue;
-        $bn = (string) ($row['bill_number'] ?? '');
-        if ($bn === '') continue;
-        $groups[$bn][] = $row;
-    }
+    $groups = $review['groups'];
 
     $pdo = getDB();
     $imported = 0;
     $created  = 0;
     $updated  = 0;
+    $importedRows = 0;
     $errors   = $dry['errors'];
     $ids      = [];
 
-    $amountsForLine = static function (array $row): array {
-        $quantity = ($row['line_quantity'] ?? '') === '' ? 1.0 : (float) $row['line_quantity'];
-        $unitPrice = ($row['line_unit_price'] ?? '') === '' ? 0.0 : (float) $row['line_unit_price'];
-        $subtotal = ($row['line_subtotal'] ?? '') === ''
-            ? round($quantity * $unitPrice, 2)
-            : round((float) $row['line_subtotal'], 2);
-        $tax = ($row['line_tax_amount'] ?? '') === '' ? 0.0 : round((float) $row['line_tax_amount'], 2);
-        $total = ($row['line_total'] ?? '') === ''
-            ? round($subtotal + $tax, 2)
-            : round((float) $row['line_total'], 2);
-        return compact('quantity', 'unitPrice', 'subtotal', 'tax', 'total');
-    };
-
-    foreach ($groups as $bn => $rows) {
+    foreach ($groups as $bn => $numberedRows) {
+        if (count(array_intersect(array_keys($numberedRows), array_keys($dry['errors']))) > 0) continue;
+        $rows = array_values($numberedRows);
         $header = $rows[0];
+        $entity = $review['entities'][$bn];
         $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
         $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
 
@@ -224,7 +205,7 @@ if ($method === 'POST' && $action === 'commit') {
         $billId = isset($header['bill_id']) && $header['bill_id'] !== '' ? (int) $header['bill_id'] : 0;
         if ($billId > 0) {
             $existing = scopedFind(
-                'SELECT id, status, source, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, source, journal_entry_id, amount_paid
                    FROM ap_bills
                   WHERE tenant_id = :tenant_id AND id = :id',
                 ['id' => $billId]
@@ -235,7 +216,7 @@ if ($method === 'POST' && $action === 'commit') {
             }
         } elseif ($externalId !== null) {
             $existing = scopedFind(
-                'SELECT id, status, source, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, source, journal_entry_id, amount_paid
                    FROM ap_bills
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
@@ -243,13 +224,17 @@ if ($method === 'POST' && $action === 'commit') {
         }
         if (!$existing) {
             $existing = scopedFind(
-                'SELECT id, status, source, journal_entry_id, amount_paid
+                'SELECT id, entity_id, status, source, journal_entry_id, amount_paid
                    FROM ap_bills
                   WHERE tenant_id = :tenant_id AND bill_number = :n',
                 ['n' => $bn]
             );
         }
         if ($existing) {
+            if (!empty($existing['entity_id']) && (int) $existing['entity_id'] !== $entity['id']) {
+                $errors['__bill_' . $bn] = ['CSV cannot move a bill to another legal entity'];
+                continue;
+            }
             if (!$updateExisting) {
                 $errors['__bill_' . $bn] = ['Bill # ' . $bn . ' already exists; enable Update matching editable records to change it'];
                 continue;
@@ -274,7 +259,7 @@ if ($method === 'POST' && $action === 'commit') {
 
         $subtotal = 0; $tax = 0; $total = 0;
         foreach ($rows as $r) {
-            $amounts = $amountsForLine($r);
+            $amounts = accountingCsvDocumentLineAmounts($r);
             $subtotal += $amounts['subtotal'];
             $tax      += $amounts['tax'];
             $total    += $amounts['total'];
@@ -284,20 +269,21 @@ if ($method === 'POST' && $action === 'commit') {
         $total = round($total, 2);
         $wasUpdate = (bool) $existing;
 
-        $pdo->beginTransaction();
+        $ownsUnit = coreAccountingCsvBeginUnit($pdo, 'csv_bill_document');
         try {
             $headerPayload = [
                 'bill_number'    => $bn,
                 'external_id'    => $externalId,
                 'source_system'  => $sourceSystem,
                 'vendor_name'    => (string) $header['vendor_name'],
+                'entity_id'      => $entity['id'],
                 'vendor_type'    => (string) ($header['vendor_type'] ?? 'other'),
                 'received_at'    => $header['received_at'] ?? $header['bill_date'],
                 'bill_date'      => $header['bill_date'],
                 'due_date'       => $header['due_date'],
                 'period_start'   => $header['period_start'] ?? null,
                 'period_end'     => $header['period_end']   ?? null,
-                'currency'       => $header['currency']     ?? 'USD',
+                'currency'       => $entity['base_currency'],
                 'subtotal'       => $subtotal,
                 'tax_total'      => $tax,
                 'total'          => $total,
@@ -321,7 +307,7 @@ if ($method === 'POST' && $action === 'commit') {
             $lineNo = 0;
             foreach ($rows as $r) {
                 $lineNo++;
-                $amounts = $amountsForLine($r);
+                $amounts = accountingCsvDocumentLineAmounts($r);
                 $pdo->prepare(
                     'INSERT INTO ap_bill_lines
                        (bill_id, line_no, source_type, description, quantity, unit, unit_price,
@@ -342,13 +328,14 @@ if ($method === 'POST' && $action === 'commit') {
                     'total'      => $amounts['total'],
                 ]);
             }
-            $pdo->commit();
+            coreAccountingCsvCommitUnit($pdo, 'csv_bill_document', $ownsUnit);
             $ids[$bn] = $billId;
             $imported++;
+            $importedRows += count($rows);
             if ($wasUpdate) $updated++;
             else $created++;
         } catch (\Throwable $e) {
-            $pdo->rollBack();
+            coreAccountingCsvRollbackUnit($pdo, 'csv_bill_document', $ownsUnit);
             $errors['__bill_' . $bn] = ['persist failed: ' . $e->getMessage()];
         }
     }
@@ -361,16 +348,19 @@ if ($method === 'POST' && $action === 'commit') {
         'errors' => count($errors),
         'update_existing' => $updateExisting,
     ]);
-    api_ok([
+    api_ok(coreAccountingRecordCsvImportOutcome([
         'imported_count' => $imported,
         'created_count'  => $created,
         'updated_count'  => $updated,
         'skipped_count'  => count($groups) - $imported,
         'group_count'    => count($groups),
+        'row_count'      => count($dry['rows']),
+        'imported_row_count' => $importedRows,
+        'skipped_row_count' => count($dry['rows']) - $importedRows,
         'errors'         => $errors,
         'ids'            => $ids,
         'update_existing'=> $updateExisting,
-    ]);
+    ], (int) $ctx['tenant_id'], (int) $user['id']));
 }
 
 api_error('Unknown action. Use ?action=template|dry_run|commit', 400);

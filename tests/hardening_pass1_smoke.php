@@ -26,7 +26,7 @@ _h('migrate.php exists',                                $mig !== '');
 _h('declares coreflux_run_migrations',                  str_contains($mig, 'function coreflux_run_migrations'));
 _h('creates _migrations ledger table',                  str_contains($mig, 'CREATE TABLE IF NOT EXISTS _migrations'));
 _h('hashes file content (sha256)',                      str_contains($mig, "hash('sha256'"));
-_h('skips files with unchanged hash',                   str_contains($mig, '$prev === $hash'));
+_h('skips files with unchanged SQL',                     str_contains($mig, 'corefluxMigrationHashMatches($prev === false ? null : (string) $prev, $sql)'));
 _h('handles "Duplicate column name" idempotently',      str_contains($mig, 'Duplicate column name'));
 _h('handles "already exists" idempotently',             str_contains($mig, 'already exists'));
 _h('per-process cache via static $ranOnce',             str_contains($mig, 'static $ranOnce'));

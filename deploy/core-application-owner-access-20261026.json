@@ -1,0 +1,54 @@
+{
+  "observed_at": "2026-10-27T03:16:35+00:00",
+  "scope": "Read-only Core application access and scheduler inspection",
+  "application_id": 5829812,
+  "application_root": "/home/1516771.cloudwaysapps.com/grcudkpvcd/public_html",
+  "unix_identities": {
+    "master": {"login": "master_fpepuvndbb", "uid": 1003, "gid": 33},
+    "file_owner": {"login": "grcudkpvcd", "uid": 1004, "gid": 33, "shell": "/usr/sbin/nologin"},
+    "existing_application_login": {"login": "kunalverma2", "uid": 1004, "gid": 33, "shell": "/usr/bin/mysecureshell"},
+    "application_login_matches_file_owner_uid": true,
+    "source": "Live id and getent passwd through the existing master SSH session"
+  },
+  "correction": {
+    "previous_record": "deploy/core-production-preflight-20261024.json",
+    "field": "deployment_identity.listed_login_is_file_owner",
+    "previous_value": false,
+    "current_verified_value": true,
+    "reason": "The distinct login names map to the same Unix UID/GID; name inequality did not establish different ownership."
+  },
+  "cloudways_ui": {
+    "application_credentials_listed": ["kunalverma2"],
+    "ssh_shell_access": "disabled",
+    "application_access": "enabled",
+    "basic_application_cron": "No Cron Jobs added",
+    "advanced_application_cron": "Empty editor; Save Changes disabled",
+    "supervisord": "Not installed on the server",
+    "settings_url": "https://unified.cloudways.com/apps/5829812/setting"
+  },
+  "master_scheduler": {
+    "uid": 1003,
+    "active_entries": 9,
+    "all_entries_reference_core_production": true,
+    "environment_lines": 0,
+    "sha256": "f7fbd8130fde0b15b31e54ebfba41bf2152288908275ecaef43f174b952c2183",
+    "commands_disclosed": false,
+    "changed": false
+  },
+  "next_action": "Await explicit approval to enable application SSH, then verify the existing login executes as UID 1004 and test scoped owner-preserving file operations outside the live webroot.",
+  "approval": {
+    "application_ssh_access": "requested; pending",
+    "production_deployment": false,
+    "maintenance_window": false
+  },
+  "limitations": [
+    "Matching account UID is not proof of successful shell authentication or deployment access.",
+    "Enabling application SSH does not pause the nine Core jobs owned by the separate master user.",
+    "The current maintenance host adapter handles only its own user's crontab; using it as the application owner alone would not hold the master-user schedule.",
+    "No installed Supervisord and an empty application schedule do not prove that all running, external or system-level writers are absent."
+  ],
+  "credentials_created_or_read": false,
+  "permissions_changed": false,
+  "production_files_or_database_changed": false,
+  "preview_reopened": false
+}

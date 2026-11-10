@@ -273,7 +273,7 @@ Updated manifest actions:
 | `documents` | Document Vault | `people.docs.view` |
 | `custom_fields` | Custom Fields | `people.custom_fields.manage` |
 
-`org_chart`, `time_off`, `onboarding` from current manifest are **deferred** (not in MVP) — leave commented out in manifest until explicitly approved.
+`org_chart` and `time_off` remain deferred. The explicitly requested Thunderhawk integration adds placement-linked employer-reviewed onboarding under the person detail page. Its authoritative contract is `docs/staffing-onboarding.md`: configurable requirements, staff-recorded evidence, conditional review, expiry and append-only history. It does not activate employment or authorize payroll. Portal exchange is a separate rollout gate.
 
 ### Detail page tabs
 1. Overview — name, contact, classification, status
@@ -358,7 +358,7 @@ All AI outputs go to a queue; humans approve before any record write. **No AI-di
 - Resume parsing AI
 
 **Phase C (later):**
-- Org chart, time off, onboarding workflows
+- Org chart, time off; portal onboarding exchange follows the implemented staff review workflow
 - Person merge / dedupe
 
 ---
@@ -374,7 +374,7 @@ Audit logging
 - Resume parsing AI
 
 **Phase C (later):**
-- Org chart, time off, onboarding workflows
+- Org chart, time off; portal onboarding exchange follows the implemented staff review workflow
 - Person merge / dedupe
 
 ---

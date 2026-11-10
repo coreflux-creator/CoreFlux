@@ -368,17 +368,33 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
         );
     }
 
-    scopedUpdate('time_entries', $id, [
-        'status'              => 'approved',
-        'rate_snapshot_id'    => (int) $snap['id'],
-        'approved_by_user_id' => $user['id'] ?? null,
-        'approved_at'         => date('Y-m-d H:i:s'),
-        'approved_via'        => $approvedVia,
-    ]);
-    $approvedEntry = timeEntryGet($id) ?? $entry;
-    timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0));
+    require_once __DIR__.'/../../../core/tx_helpers.php';
+    require_once __DIR__.'/../../../core/quanta/time_current.php';
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)currentTenantId(), [$id]);
+        $current = timeEntryGet($id);
+        if (!$current || $current !== $entry) {
+            throw new \RuntimeException('The time entry changed during approval. Refresh and review it again.', 409);
+        }
+        scopedUpdate('time_entries', $id, [
+            'status'              => 'approved',
+            'rate_snapshot_id'    => (int) $snap['id'],
+            'approved_by_user_id' => $user['id'] ?? null,
+            'approved_at'         => date('Y-m-d H:i:s'),
+            'approved_via'        => $approvedVia,
+        ]);
+        $approvedEntry = timeEntryGet($id) ?? $entry;
+        timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0));
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
     timeEntryApprovedEmit($id, $approvedEntry, $approvedVia, [
         'approver_user_id' => $user['id'] ?? null,
+        'quanta_source_check' => $sourceCheck ?: null,
     ]);
     return $approvedEntry;
 }
@@ -1004,25 +1020,8 @@ function timePreviewBundlesForPeriod(int $periodId): array
 
 function timeAudit(string $event, array $meta = [], ?int $targetId = null): void
 {
-    $pdo = getDB();
-    if (!$pdo) { error_log("[time.audit] {$event} " . json_encode($meta)); return; }
-    try {
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id'     => currentTenantId(),
-            'actor_user_id' => $_SESSION['user']['id'] ?? null,
-            'event'         => $event,
-            'target_id'     => $targetId,
-            'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
-    } catch (\Throwable $e) {
-        error_log("[time.audit] db-write-failed: " . $e->getMessage());
-    }
+    require_once __DIR__ . '/../../../core/audit.php';
+    platformAuditLogWrite(currentTenantId(), $_SESSION['user']['id'] ?? null, $event, $targetId, $meta);
 }
 
 /**

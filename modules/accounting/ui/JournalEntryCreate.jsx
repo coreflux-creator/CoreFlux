@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { addEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlacementPicker from '../../placements/ui/PlacementPicker';
+import { requireSupportedJournalDimensions, visibleJournalDimensions } from './journalDimensions';
 import { ArrowLeft, Copy, Pencil, Plus, Save, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
 
 /**
@@ -29,13 +31,15 @@ const newLine = () => ({
   assignment_entity_id: null,
 });
 
-export default function JournalEntryCreate() {
+export default function JournalEntryCreate({ session }) {
   const navigate = useNavigate();
   const { activeEntityId, entities, loaded: entitiesLoaded } = useActiveEntity();
   const { id } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntityId = searchParams.get('entity_id');
   const copyFrom = searchParams.get('copy_from');
   const replaceId = searchParams.get('replace_id');
+  const sourceId = id || replaceId || copyFrom;
   const isEdit = Boolean(id);
   const isCorrection = Boolean(replaceId);
   const [accounts, setAccounts] = useState([]);
@@ -53,24 +57,52 @@ export default function JournalEntryCreate() {
   const [icSeed, setIcSeed] = useState(null);
   const [expandedLine, setExpandedLine] = useState(null);
   const [assignmentStatus, setAssignmentStatus] = useState({});
+  const scopedSourceId = useRef(null);
+  const scopedPath = path => addEntityScope(path,
+    entityId || (requestedEntityId && /^[1-9][0-9]*$/.test(requestedEntityId) ? requestedEntityId : null),
+    !entityId && requestedEntityId === 'all');
+  const sourcePath = path => addEntityScope(path, sourceEntry?.entity_id);
 
   useEffect(() => {
     api.get('/modules/accounting/api/accounts.php').then((d) => {
       setAccounts(d?.rows || d?.accounts || []);
     }).catch(() => setAccounts([]));
     api.get('/modules/accounting/api/dimensions.php').then((d) => {
-      setDimensions((d?.dimensions || []).filter((dimension) => Number(dimension.active) === 1 && dimension.dim_key !== 'legal_entity'));
+      setDimensions(visibleJournalDimensions(d?.dimensions || [], session?.product_mode));
     }).catch(() => setDimensions([]));
-  }, []);
+  }, [session?.product_mode]);
 
   useEffect(() => {
     if (!entitiesLoaded || entityId) return;
+    if (requestedEntityId) {
+      const requested = entities.find(entity => String(entity.id) === requestedEntityId
+        && Number(entity.active ?? 1) === 1);
+      if (requested) setEntityId(String(requested.id));
+      return;
+    }
     const fallback = activeEntityId || (entities.length === 1 ? entities[0]?.id : null);
     if (fallback) setEntityId(String(fallback));
-  }, [activeEntityId, entities, entitiesLoaded, entityId]);
+  }, [activeEntityId, entities, entitiesLoaded, entityId, requestedEntityId]);
+
+  const changeEntity = value => {
+    setEntityId(value);
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('entity_id', value);
+    else next.delete('entity_id');
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
-    const sourceId = id || replaceId || copyFrom;
+    if (!sourceEntry?.entity_id || String(sourceEntry.id) !== String(sourceId)
+      || scopedSourceId.current === String(sourceId)) return;
+    scopedSourceId.current = String(sourceId);
+    if (searchParams.get('entity_id') === String(sourceEntry.entity_id)) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('entity_id', String(sourceEntry.entity_id));
+    setSearchParams(next, { replace: true });
+  }, [sourceId, sourceEntry, searchParams, setSearchParams]);
+
+  useEffect(() => {
     if (!sourceId) return;
     let cancelled = false;
     setLoadingExisting(true);
@@ -118,7 +150,7 @@ export default function JournalEntryCreate() {
       .catch((e) => { if (!cancelled) setError(e.message || String(e)); })
       .finally(() => { if (!cancelled) setLoadingExisting(false); });
     return () => { cancelled = true; };
-  }, [id, copyFrom, replaceId, isEdit, isCorrection]);
+  }, [sourceId, isEdit, isCorrection]);
 
   const updateLine = (i, field, val) => {
     const next = [...lines];
@@ -210,39 +242,42 @@ export default function JournalEntryCreate() {
     ));
   };
 
-  const refreshAssignmentDimensions = async () => Promise.all(lines.map(async (line, index) => {
-    const placementId = line.dims?.placement;
-    if (!placementId) return line;
-    const params = new URLSearchParams({
-      placement_id: String(placementId),
-      as_of: postingDate,
-      entity_id: String(entityId),
-    });
-    const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
-    if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(entityId)) {
-      throw new Error(`Assignment PL-${placementId} belongs to a different legal entity.`);
-    }
-    const needsVendor = accountNeedsVendor(line.account_code);
-    const missing = relevantAssignmentMissing(data?.missing || [], needsVendor);
-    if (missing.length > 0) {
-      throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(formatDimensionKey).join(', ')}.`);
-    }
-    const inherited = { ...(data?.dimensions || {}) };
-    delete inherited.legal_entity;
-    const preserved = { ...(line.dims || {}) };
-    ASSIGNMENT_DIMENSION_KEYS.forEach((key) => delete preserved[key]);
-    if (needsVendor) {
-      if (!data?.vendor_dimension) {
-        throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
+  const refreshAssignmentDimensions = async () => {
+    requireSupportedJournalDimensions(lines, session?.product_mode);
+    return Promise.all(lines.map(async (line, index) => {
+      const placementId = line.dims?.placement;
+      if (!placementId) return line;
+      const params = new URLSearchParams({
+        placement_id: String(placementId),
+        as_of: postingDate,
+        entity_id: String(entityId),
+      });
+      const data = await api.get(`/modules/staffing/api/assignment_dimensions.php?${params.toString()}`);
+      if (data?.resolved_entity_id && Number(data.resolved_entity_id) !== Number(entityId)) {
+        throw new Error(`Assignment PL-${placementId} belongs to a different legal entity.`);
       }
-      inherited.vendor = data.vendor_dimension;
-    }
-    return {
-      ...line,
-      dims: { ...preserved, ...inherited, placement: placementId },
-      assignment_entity_id: data?.resolved_entity_id || null,
-    };
-  }));
+      const needsVendor = accountNeedsVendor(line.account_code);
+      const missing = relevantAssignmentMissing(data?.missing || [], needsVendor);
+      if (missing.length > 0) {
+        throw new Error(`Line ${index + 1}: assignment PL-${placementId} is missing ${missing.map(formatDimensionKey).join(', ')}.`);
+      }
+      const inherited = { ...(data?.dimensions || {}) };
+      delete inherited.legal_entity;
+      const preserved = { ...(line.dims || {}) };
+      ASSIGNMENT_DIMENSION_KEYS.forEach((key) => delete preserved[key]);
+      if (needsVendor) {
+        if (!data?.vendor_dimension) {
+          throw new Error(`Line ${index + 1}: assignment PL-${placementId} has no payable vendor.`);
+        }
+        inherited.vendor = data.vendor_dimension;
+      }
+      return {
+        ...line,
+        dims: { ...preserved, ...inherited, placement: placementId },
+        assignment_entity_id: data?.resolved_entity_id || null,
+      };
+    }));
+  };
 
   const totals = lines.reduce((acc, l) => {
     const d = parseFloat(l.debit)  || 0;
@@ -298,7 +333,7 @@ export default function JournalEntryCreate() {
         const url = '/modules/accounting/api/journal_entries.php' + (action === 'draft' ? '?action=draft' : '');
         res = await api.post(url, payload);
       }
-      navigate(`/modules/accounting/journal-entries/${res.je_id}`);
+      navigate(scopedPath(`/modules/accounting/journal-entries/${res.je_id}`));
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -312,7 +347,7 @@ export default function JournalEntryCreate() {
   if ((isEdit || copyFrom || isCorrection) && !sourceEntry && error) {
     return (
       <section className="ledger-page" data-testid="accounting-je-create-source-error">
-        <Link to="/modules/accounting/journal-entries" className="entry-detail__back-link"><ArrowLeft size={14} aria-hidden="true" />Journal entries</Link>
+        <Link to={scopedPath('/modules/accounting/journal-entries')} className="entry-detail__back-link"><ArrowLeft size={14} aria-hidden="true" />Journal entries</Link>
         <p className="error">Could not prepare this entry: {error}</p>
       </section>
     );
@@ -321,7 +356,9 @@ export default function JournalEntryCreate() {
   return (
     <section className="ledger-page" data-testid="accounting-je-create">
       <Link
-        to={(isEdit || isCorrection) ? `/modules/accounting/journal-entries/${id || replaceId}` : '/modules/accounting/journal-entries'}
+        to={(isEdit || isCorrection) && sourceEntry
+          ? sourcePath(`/modules/accounting/journal-entries/${id || replaceId}`)
+          : scopedPath('/modules/accounting/journal-entries')}
         className="entry-detail__back-link"
       ><ArrowLeft size={14} aria-hidden="true" />{(isEdit || isCorrection) ? 'Journal entry' : 'Journal entries'}</Link>
       <header className="entry-editor__header">
@@ -334,14 +371,14 @@ export default function JournalEntryCreate() {
       {isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--warning" data-testid="accounting-je-correction-notice">
           <Pencil size={16} aria-hidden="true" />
-          <span>The original <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
+          <span>The original <Link to={sourcePath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link> stays unchanged until this correction posts. CoreFlux then removes the original from active books and preserves both entries in the audit trail.</span>
         </div>
       )}
 
       {!isEdit && !isCorrection && sourceEntry && (
         <div className="entry-status-note entry-status-note--info" data-testid="accounting-je-copy-notice">
           <Copy size={16} aria-hidden="true" />
-          <span>Copied from <Link to={`/modules/accounting/journal-entries/${sourceEntry.id}`}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
+          <span>Copied from <Link to={sourcePath(`/modules/accounting/journal-entries/${sourceEntry.id}`)}>{sourceEntry.je_number}</Link>. Review every line before posting; the original entry is unchanged.</span>
         </div>
       )}
 
@@ -351,7 +388,7 @@ export default function JournalEntryCreate() {
           <select
             className="input"
             value={entityId}
-            onChange={(event) => setEntityId(event.target.value)}
+            onChange={(event) => changeEntity(event.target.value)}
             data-testid="accounting-je-entity"
             style={{ display: 'block', width: '100%', marginTop: 4 }}
             required
@@ -375,6 +412,7 @@ export default function JournalEntryCreate() {
             <span style={{ color: 'var(--cf-text-secondary)' }}>Reason for correction</span>
             <input
               className="input"
+              maxLength={1000}
               value={correctionReason}
               onChange={(event) => setCorrectionReason(event.target.value)}
               data-testid="accounting-je-correction-reason"
@@ -404,7 +442,9 @@ export default function JournalEntryCreate() {
                 >
                   <option value="">— select —</option>
                   {accounts.map((a) => (
-                    <option key={a.id} value={a.code}>{a.code} — {a.name}</option>
+                    <option key={a.id} value={a.code} disabled={!a.general_journal_eligible}>
+                      {a.code} — {a.name}{!a.general_journal_eligible ? ' (managed by source or unavailable)' : ''}
+                    </option>
                   ))}
                 </select>
               </td>
@@ -590,7 +630,7 @@ export default function JournalEntryCreate() {
           onClose={() => setIcOpen(false)}
           onPosted={(res) => {
             setIcOpen(false);
-            if (res?.jes?.[0]?.je_id) navigate(`/modules/accounting/journal-entries/${res.jes[0].je_id}`);
+            if (res?.jes?.[0]?.je_id) navigate(scopedPath(`/modules/accounting/journal-entries/${res.jes[0].je_id}`));
           }}
           amount={icSeed.amount}
           sourceEntityId={Number(entityId)}

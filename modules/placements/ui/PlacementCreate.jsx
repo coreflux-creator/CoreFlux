@@ -4,6 +4,7 @@ import { Search, UserRoundPlus } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import BillToClientPicker from './BillToClientPicker';
 
 const ETYPES = ['w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire', 'referral', 'internal'];
 const ETYPE_LABELS = {
@@ -60,8 +61,8 @@ export default function PlacementCreate() {
     person_id: prefilledPersonId || '',
     title: '', engagement_type: fromQuanta ? '' : 'w2',
     start_date: fromQuanta ? '' : new Date().toISOString().slice(0, 10),
-    end_date: '', due_date: '',
-    worksite_state: '', worksite_country: 'US',
+    end_date: '', due_date: '', client_id: '',
+    worksite_city: '', worksite_state: '', worksite_country: 'US',
     remote_policy: '', external_id: '', notes: '',
     staffing_job_id: '', branch: '', service_line: '', workers_comp_class: '',
     department: '', cost_center: '', accounting_entity_id: '',
@@ -462,10 +463,11 @@ export default function PlacementCreate() {
 
           {!internalHire && (
             <>
-              <SectionTitle>3. End client</SectionTitle>
+              <SectionTitle>3. Client companies</SectionTitle>
+              <BillToClientPicker value={form.client_id} onChange={(value) => setForm({ ...form, client_id: value })} testId="placement-create-bill-to-client" />
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>The bill-to client receives invoices. The end client receives the work.</p>
               <Field label="End client (typeahead — picks from Companies, or creates one)">
                 <CompanyTypeahead
-                  role="client"
                   value={endClient}
                   onChange={setEndClient}
                   testId="placement-create-end-client"
@@ -477,6 +479,7 @@ export default function PlacementCreate() {
                 <Field label="Client approver email"><input className="input" type="email" value={form.client_approver_email} onChange={set('client_approver_email')} data-testid="placement-create-approver-email" placeholder="approver@client.com" /></Field>
               </Row>
               <Row>
+                <Field label="Worksite city"><input className="input" maxLength={255} value={form.worksite_city} onChange={set('worksite_city')} data-testid="placement-create-city" /></Field>
                 <Field label="Worksite state"><input className="input" value={form.worksite_state} onChange={set('worksite_state')} data-testid="placement-create-state" placeholder="CA" /></Field>
                 <Field label="Worksite country"><input className="input" maxLength={2} value={form.worksite_country} onChange={set('worksite_country')} data-testid="placement-create-country" /></Field>
                 <Field label="Remote policy">

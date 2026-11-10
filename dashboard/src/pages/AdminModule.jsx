@@ -1,7 +1,7 @@
 import React from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield, Zap, Inbox, Bot, AlertTriangle, UserCheck, Cpu, BookMarked, Network } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield, Zap, Inbox, Bot, AlertTriangle, UserCheck, Cpu, BookMarked, Network, ChevronRight } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -136,9 +136,35 @@ const AdminOverview = () => (
   </>
 );
 
-const AdminSidebar = () => {
+const STANDALONE_ADMIN_LINKS = [
+  { to: '/admin', label: 'Overview', icon: Package },
+  { to: '/admin/users', label: 'Users', icon: Users },
+  { to: '/admin/memberships', label: 'Memberships & access', icon: Shield },
+  { to: '/admin/roles', label: 'Roles reference', icon: ScrollText },
+  { to: '/admin/audit-log', label: 'Audit log', icon: ScrollText },
+  { to: '/admin/mail-branding', label: 'Email branding', icon: Palette },
+  { to: '/admin/sso', label: 'SSO', icon: KeyRound },
+  { to: '/admin/auditor-tokens', label: 'Auditor links', icon: ScrollText },
+];
+
+const StandaloneAdminOverview = () => (
+  <section style={{ maxWidth: 760 }} data-testid="coreaccounting-admin-overview">
+    <h1 style={{ fontSize: 'var(--cf-text-2xl)', marginBottom: 'var(--cf-space-5)' }}>Administration</h1>
+    <nav aria-label="CoreAccounting administration">
+      {STANDALONE_ADMIN_LINKS.slice(1).map(({ to, label, icon: Icon }) => (
+        <Link key={to} to={to} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderBottom: '1px solid var(--cf-border)', color: 'var(--cf-text)', textDecoration: 'none' }}>
+          <Icon size={18} aria-hidden="true" />
+          <span style={{ flex: 1 }}>{label}</span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </Link>
+      ))}
+    </nav>
+  </section>
+);
+
+const AdminSidebar = ({ standalone = false }) => {
   const location = useLocation();
-  const links = [
+  const links = standalone ? STANDALONE_ADMIN_LINKS : [
     { to: '/admin',                  label: 'Overview',         icon: Package },
     { to: '/admin/tenants',          label: 'Master tenants',   icon: Building2 },
     { to: '/admin/sub-tenants',      label: 'Sub-Tenants',      icon: Layers },
@@ -221,11 +247,26 @@ const AdminSidebar = () => {
 };
 
 const AdminModule = ({ session }) => {
+  const standalone = session?.product_mode === 'coreaccounting';
   return (
     <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - var(--cf-header-height, 56px))' }}>
-      <AdminSidebar />
+      <AdminSidebar standalone={standalone} />
       <div style={{ flex: 1, minWidth: 0, padding: 'var(--cf-space-6)' }} data-testid="admin-main-content">
         <Routes>
+          {standalone ? (
+            <>
+              <Route path="/" element={<StandaloneAdminOverview />} />
+              <Route path="/users" element={<UsersAdmin session={session} />} />
+              <Route path="/memberships" element={<RbacMembershipsAdmin session={session} />} />
+              <Route path="/roles" element={<RolesReference session={session} />} />
+              <Route path="/audit-log" element={<AuditLogViewer session={session} />} />
+              <Route path="/mail-branding" element={<MailBrandingAdmin session={session} />} />
+              <Route path="/sso" element={<SsoConfigAdmin session={session} />} />
+              <Route path="/auditor-tokens" element={<AuditorTokensAdmin session={session} />} />
+              <Route path="*" element={<Navigate to="/admin" replace />} />
+            </>
+          ) : (
+            <>
           <Route path="/"                  element={<AdminOverview />} />
           <Route path="/tenants"           element={<MasterTenantsAdmin session={session} />} />
           <Route path="/sub-tenants"       element={<SubTenantsAdmin   session={session} />} />
@@ -281,6 +322,8 @@ const AdminModule = ({ session }) => {
           <Route path="/auditor-tokens"    element={<AuditorTokensAdmin session={session} />} />
           <Route path="/cross-tenant-audit" element={<CrossTenantAuditAdmin session={session} />} />
           <Route path="/graphql-sandbox"   element={<GraphqlSandbox session={session} />} />
+            </>
+          )}
         </Routes>
       </div>
     </div>

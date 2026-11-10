@@ -1,0 +1,350 @@
+{
+  "date": "2026-10-25",
+  "status": "installed_in_isolated_core_staging_and_existing_provider_previews",
+  "core": {
+    "installed_commit": "adc8b1e9f48d2dc762e0c42f34d724dfaead252b",
+    "ci_run": 40205165295,
+    "ci_jobs_passed": 9,
+    "deploy_run": 40205505707,
+    "deploy_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40205505707",
+    "application": "muzqvdvqbx",
+    "migrations_applied": [
+      "181_placement_worksite_city.sql"
+    ],
+    "runtime_and_schema_verified": true,
+    "served_assets_verified": [
+      "index-DfL0A_0K.js",
+      "index-CYcM0MSD.css",
+      "index-SRkxIh9x.css",
+      "index-5f5ZrkD3.js"
+    ],
+    "acceptance": {
+      "accounting_lifecycle": "passed",
+      "split_receipt": "passed",
+      "credit_applications": {
+        "passed": 61,
+        "rollback": true
+      },
+      "billing_delivery": "passed_log_only",
+      "onboarding_http": {
+        "passed": 18,
+        "explicit_assignment_location_persisted": true,
+        "portal_delivery": "not_checked",
+        "payroll_authorization": "not_evaluated"
+      }
+    }
+  },
+  "providers": {
+    "purepay": {
+      "acceptance": {
+        "provider": "purepay",
+        "candidate": "f921ed5eaa182f0735e574a878b97bbd4b42170d",
+        "work_directory": "/tmp/core-location-candidate-g98ttg1y",
+        "frontend_exit": 0,
+        "backend": {
+          "runtime_hashes": {
+            "coreflux_commercial.py": "d3e6ebfdfbfce9f39c6e3a8d6eb67a5870ef6b4e506ba2e8fa192dd6263c735e",
+            "coreflux_assignments.py": "6b6d198ab5f325ec3f7de21520dd77998162a06c2181a8cf2b7d862d6b8e9482",
+            "coreflux_exchange.py": "7578a2e4dfbbbb13544023c408a1d85219045e44b4f4cc045b7db317f32bef45",
+            "server.py": "f701d5c86189100bdef8e9e58102db17de7ddca87546e07531969eb101e28985"
+          },
+          "dependency_hashes": {},
+          "pytest_exit": 0,
+          "tests": [
+            {
+              "test": "test_full_app_workflow.py::test_real_session_review_creates_only_an_inactive_profile",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_actual_assignment_review_retains_commercial_graph_and_provider_ids[False]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_actual_assignment_review_retains_commercial_graph_and_provider_ids[True]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_stale_assignment_review_requires_refresh",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_real_native_draft_and_result_reconcile_and_remain_held[MANUAL]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_real_native_draft_and_result_reconcile_and_remain_held[PURE_NATIVE]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_stale_draft_review_and_permanent_cancellation",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_full_app_workflow.py::test_live_permissions_and_feature_changes_are_rechecked",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_repeated_real_lifespan_preserves_access_and_financial_records",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/pwp-auto-batch]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_review_startup_holds_authenticated_platform_cron_before_writes[/api/cron/ap-due-digest]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_full_mode_cron_keeps_authentication_and_duplicate_handling",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[agent-env-other-preview]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_review_mode_rejects_missing_or_wrong_host_before_database_access[production-host]",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_invalid_mode_fails_before_database_or_storage",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_required_index_failure_aborts_review_startup",
+              "phase": "call",
+              "outcome": "passed"
+            },
+            {
+              "test": "test_startup_mode.py::test_default_full_startup_keeps_existing_operations",
+              "phase": "call",
+              "outcome": "passed"
+            }
+          ],
+          "network_attempts": 0,
+          "full_application": true,
+          "lifespan_started": true,
+          "real_database_used": false,
+          "candidate_hashes": {
+            "coreflux_commercial.py": "196672a9b90acee6c74b1beb637222cb65813f3415376397556f8037c5c9ccad",
+            "coreflux_assignments.py": "cfd0e0e2de86ccb013ec732617a7805fc0ead620341026f1ffaf384e6f400bd3",
+            "coreflux_exchange.py": "80ba9b9939364b31a8679a6c0a19fe07bcd047a217a235e1187cd82199cc6fe1"
+          },
+          "feature_gate_fixture": false,
+          "real_session_authentication": true,
+          "bill_payment_history": false,
+          "wallet_payment_evidence": false,
+          "payment_outbox": false,
+          "moov_inbox": false,
+          "financial_context": false,
+          "bill_reservations": false,
+          "workflow": true,
+          "live_workspace_acceptance": false,
+          "report_directory": "/tmp/purepay-core-full-app-lamxcydx"
+        },
+        "hashes": {
+          "backend/coreflux_commercial.py": "196672a9b90acee6c74b1beb637222cb65813f3415376397556f8037c5c9ccad",
+          "backend/coreflux_assignments.py": "cfd0e0e2de86ccb013ec732617a7805fc0ead620341026f1ffaf384e6f400bd3",
+          "backend/coreflux_exchange.py": "80ba9b9939364b31a8679a6c0a19fe07bcd047a217a235e1187cd82199cc6fe1",
+          "frontend/src/components/CoreCommercialTerms.jsx": "5534ddf7f58f58742f4dbaa172b93d61eaccebd63a9644fd8b5f279e5d603abb"
+        },
+        "installed": false,
+        "production_published": false,
+        "business_records_written": false
+      },
+      "installation": {
+        "provider": "purepay",
+        "candidate": "f921ed5eaa182f0735e574a878b97bbd4b42170d",
+        "at": "2026-10-25T15:13:48.393587+00:00",
+        "installed": true,
+        "hashes": {
+          "backend/coreflux_commercial.py": "196672a9b90acee6c74b1beb637222cb65813f3415376397556f8037c5c9ccad",
+          "backend/coreflux_assignments.py": "cfd0e0e2de86ccb013ec732617a7805fc0ead620341026f1ffaf384e6f400bd3",
+          "backend/coreflux_exchange.py": "80ba9b9939364b31a8679a6c0a19fe07bcd047a217a235e1187cd82199cc6fe1",
+          "frontend/src/components/CoreCommercialTerms.jsx": "5534ddf7f58f58742f4dbaa172b93d61eaccebd63a9644fd8b5f279e5d603abb"
+        },
+        "backup_directory": "/tmp/core-location-install-kn3xxmet",
+        "protected_unchanged": true,
+        "records_unchanged": true,
+        "collections_verified": 144,
+        "health_status": 200,
+        "services": {
+          "backend": "RUNNING",
+          "frontend": "RUNNING",
+          "webhook-crond": "STOPPED"
+        },
+        "production_published": false,
+        "business_records_written": false,
+        "acceptance_directory": "/tmp/core-location-candidate-g98ttg1y"
+      }
+    },
+    "quanta": {
+      "acceptance": {
+        "provider": "quanta",
+        "candidate": "3e253563ac5205537fdd31b08929605dc09ae885",
+        "work_directory": "/tmp/core-location-candidate-rs_nsvbk",
+        "frontend_exit": 0,
+        "backend": {
+          "runtime_hashes": {
+            "app/coreflux_contract.py": "81982b21339363a6510ecca3f565f7bbad588aa72f9b877263c3b783cc96bd1f",
+            "app/routers/v1/coreflux.py": "3149eaee0c7241e0dbfb8c4d98c9339597e1a7cd18405005bc437cdf50001094",
+            "app/routers/core_assignments.py": "e6db446012714b26f587dc586a98c431de185f93b340a753f18151ef3b82bdf0",
+            "server.py": "d7f76914cfa87cf8cec85a585aa92be0dd02a4c09d12a0e78e8d19c41b1fbd08"
+          },
+          "test_files": [
+            "test_core_portal.py",
+            "test_coreflux.py",
+            "test_coreflux_location.py",
+            "test_startup_access.py"
+          ],
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "full_application": true,
+          "lifespan_started": true,
+          "candidate_hashes": {
+            "app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+            "app/routers/v1/coreflux.py": "030413d94f92dc378fe25e421932fcbf52a80eb2e511d1e087556adc11246670",
+            "app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca"
+          },
+          "real_database_used": false,
+          "live_workspace_acceptance": false,
+          "report_directory": "/tmp/quanta-core-full-app-po7f69aj"
+        },
+        "hashes": {
+          "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+          "backend/app/routers/v1/coreflux.py": "030413d94f92dc378fe25e421932fcbf52a80eb2e511d1e087556adc11246670",
+          "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+          "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193"
+        },
+        "installed": false,
+        "production_published": false,
+        "business_records_written": false
+      },
+      "installation": {
+        "provider": "quanta",
+        "candidate": "3e253563ac5205537fdd31b08929605dc09ae885",
+        "at": "2026-10-25T15:14:05.303622+00:00",
+        "installed": true,
+        "hashes": {
+          "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+          "backend/app/routers/v1/coreflux.py": "030413d94f92dc378fe25e421932fcbf52a80eb2e511d1e087556adc11246670",
+          "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+          "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193"
+        },
+        "backup_directory": "/tmp/core-location-install-sytj1_44",
+        "protected_unchanged": true,
+        "records_unchanged": true,
+        "collections_verified": 80,
+        "health_status": 200,
+        "services": {
+          "backend": "RUNNING",
+          "frontend": "RUNNING",
+          "webhook-crond": "STOPPED"
+        },
+        "production_published": false,
+        "business_records_written": false,
+        "acceptance_directory": "/tmp/core-location-candidate-rs_nsvbk"
+      }
+    }
+  },
+  "purepay_first_install": {
+    "result": "rolled_back",
+    "reason": "Installer queried nonexistent /api/health; corrected to verified /api/ review-health endpoint.",
+    "rollback_verification": {
+      "baseline_matches": true,
+      "receipts": [
+        {
+          "restored_source": true,
+          "records_reverted": false,
+          "protected_unchanged": true
+        }
+      ],
+      "services": "backend STOPPED Oct 25 03:09 PM\ncode-server RUNNING pid 610, uptime 0:13:06\nfrontend RUNNING pid 3796, uptime 0:04:21\nmongodb RUNNING pid 95, uptime 0:15:21\nnginx-code-proxy RUNNING pid 93, uptime 0:15:21\nwebhook-crond STOPPED Oct 25 03:03 PM\n"
+    }
+  },
+  "production_published": false,
+  "real_payroll_or_payments_executed": false,
+  "credential_changes": false,
+  "arabella_changed": false,
+  "remaining": [
+    "PurePay company review refresh for new assignment contract",
+    "Hosted location delivery and replay acceptance",
+    "Independent time approval, document exchange and financial callback/recovery acceptance",
+    "Actual Thunderhawk end-to-end round trip and production release"
+  ],
+  "hosted_capability_inspection": {
+    "checked_at": "2026-10-25T15:17:08+00:00",
+    "mode": "read_only_synthetic_integration",
+    "tenant_id": 999,
+    "database_identity_verified": true,
+    "private_identity_verified": true,
+    "local_writes": false,
+    "provider_record_writes": false,
+    "configuration_changed": false,
+    "saved_purepay_binding": {
+      "id": 1,
+      "status": "active",
+      "revision": 3,
+      "remote_organization_id": "org_purepay_demo"
+    },
+    "purepay_assignment_context": {
+      "available": true,
+      "organization_matches": true,
+      "binding_verified": false,
+      "assignment_contract_version": "2026-10-25.1",
+      "assignment_location_supported": true,
+      "provider_record_writes": false
+    },
+    "quanta_binding": {
+      "available": true,
+      "http_status": 200
+    },
+    "quanta_assignment_location": {
+      "available": true,
+      "http_status": 200
+    },
+    "time_review_gate": {
+      "eligible_in_both_permission_models": 1,
+      "entries": [
+        {
+          "entry_id": 1,
+          "status": "pending_review",
+          "independent_eligible_reviewers": 0,
+          "existing_operator_is_creator": true
+        }
+      ]
+    },
+    "onboarding_delivery_enabled": false,
+    "document_intake_enabled": false,
+    "private_document_storage_ready": true,
+    "run_id": 40206145442,
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40206145442",
+    "inspector_commit": "4b07def27211b68bc6c7ad787515aa8c0981e712",
+    "inspector_ci_run": 40206144666,
+    "inspector_ci_jobs_passed": 9,
+    "financial_connection_present": false,
+    "field_dictionary_count": 1346
+  }
+}

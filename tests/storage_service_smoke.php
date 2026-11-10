@@ -68,6 +68,27 @@ $assert("put signed_url issued",   str_contains($put['signed_url'], 'sig='));
 $head = $svc->head($put['key']);
 $assert("head returns size",       isset($head['size_bytes']) && $head['size_bytes'] === strlen('PDF-bytes-here'));
 $assert("head returns etag",       !empty($head['etag']));
+$assert('bounded read returns exact bytes', $svc->read($put['key'], 100) === 'PDF-bytes-here');
+$literalPath=$driver->abs($put['key']);
+$literal=$svc->put('time',7,'timesheet','2026-W08','literal.txt',$literalPath,['source_is_bytes'=>true,'if_not_exists'=>true]);
+$assert('explicit raw bytes never dereference a matching filesystem path',$svc->read($literal['key'],4096)===$literalPath);
+$driver->delete($literal['key']);
+$reservedKey=$svc->build_key('people',42,'document',991,'reserved.pdf');
+$svc->put_reserved('people',42,'document',991,$reservedKey,$literalPath,['mime'=>'application/pdf','if_not_exists'=>false,'source_is_bytes'=>false]);
+$assert('reserved storage writes force raw bytes',$svc->read($reservedKey,4096)===$literalPath);
+try{$svc->put_reserved('people',42,'document',991,$reservedKey,'overwrite',['if_not_exists'=>false]);$assert('reserved storage is immutable',false);}
+catch(RuntimeException $e){$assert('reserved storage is immutable',true);}
+foreach(['people/43/document/991/12345678-file.pdf','people/42/document/992/12345678-file.pdf','people/42/document/991/12345678-../bad.pdf','people/42/document/991/file.pdf']as$bad){
+    try{$svc->put_reserved('people',42,'document',991,$bad,'unsafe');$assert('reserved storage rejects unowned or noncanonical key',false);}
+    catch(InvalidArgumentException $e){$assert('reserved storage rejects unowned or noncanonical key',true);}
+}
+$driver->delete($reservedKey);
+try {
+    $svc->read($put['key'], 3);
+    $assert('bounded read rejects oversized object', false);
+} catch (\RuntimeException $e) {
+    $assert('bounded read rejects oversized object', true);
+}
 
 echo "\nSigned URL HMAC verification\n";
 parse_str(parse_url($put['signed_url'], PHP_URL_QUERY) ?: '', $qs);
@@ -80,6 +101,27 @@ $post = $svc->get_presigned_post($put['key']);
 $assert("presigned-post has form_action", !empty($post['form_action']));
 $assert("presigned-post has 'sig' field",  isset($post['fields']['sig']));
 $assert("presigned-post has 'key' field",  isset($post['fields']['key']));
+$assert('signed POST token verifies', $driver->verify_signed_post_token(
+    $post['fields']['key'], (int) $post['fields']['expires'], $post['fields']['sig']));
+$assert('tampered POST token is refused', !$driver->verify_signed_post_token(
+    $post['fields']['key'], (int) $post['fields']['expires'], 'bad'));
+$assert('expired POST token is refused', !$driver->verify_signed_post_token(
+    $post['fields']['key'], time() - 1, $post['fields']['sig']));
+$assert('own tenant key accepted', LocalDriver::key_belongs_to_tenant($put['key'], 7));
+$assert('other tenant key refused', !LocalDriver::key_belongs_to_tenant($put['key'], 8));
+$assert('traversal key refused', !LocalDriver::key_belongs_to_tenant('time/7/timesheet/1/../secret', 7));
+
+$immutableKey = $svc->build_key('csv_imports', 7, 'csv_import_run', 1, 'sample.csv');
+$driver->put($immutableKey, "a,b\n1,2\n", ['if_not_exists' => true, 'mime' => 'text/csv']);
+try {
+    $driver->put($immutableKey, 'replacement', ['if_not_exists' => true]);
+    $assert('signed upload cannot overwrite an existing object', false);
+} catch (\RuntimeException $e) {
+    $assert('signed upload cannot overwrite an existing object', true);
+}
+$assert('rejected overwrite preserves original bytes',
+    file_get_contents($driver->abs($immutableKey)) === "a,b\n1,2\n");
+$driver->delete($immutableKey);
 
 echo "\nRetention + legal hold (advisory on local driver)\n";
 $svc->apply_retention($put['key'], new \DateTimeImmutable('+7 years'));
@@ -97,8 +139,15 @@ echo "\nS3Driver loadable (without instantiation)\n";
 $assert("S3Driver class exists",
     class_exists(\Core\Storage\S3Driver::class));
 
-// Cleanup
-@exec('rm -rf ' . escapeshellarg($tmpRoot));
+// Cleanup only the two paths created by this test, on every host OS.
+foreach ([$put['key'], $immutableKey,$reservedKey] as $key) {
+    $dir = dirname($driver->abs($key));
+    while ($dir !== $tmpRoot && str_starts_with($dir . DIRECTORY_SEPARATOR, $tmpRoot . DIRECTORY_SEPARATOR)) {
+        @rmdir($dir);
+        $dir = dirname($dir);
+    }
+}
+@rmdir($tmpRoot);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

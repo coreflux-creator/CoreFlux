@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 
 export default function AgingTable() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
-  const { data, loading, error } = useApi(`/modules/ap/api/aging.php?as_of=${asOf}`);
-  const rows = data?.rows ?? [];
+  const scope = useAccountingEntityScope();
+  const url = scope.ready
+    ? `/modules/ap/api/aging.php?as_of=${asOf}${scope.apiQuery ? `&${scope.apiQuery}` : ''}`
+    : null;
+  const { data, loading, error } = useApi(url, { enabled: scope.ready });
+  const current = data?.as_of === asOf && Number(data?.entity_id || 0) === Number(scope.entityId || 0);
+  const rows = current ? (data.rows ?? []) : [];
+  const busy = !scope.loaded || (scope.ready && (loading || (!current && !error)));
 
   const totals = rows.reduce((acc, r) => {
     acc.current   += Number(r.bucket_current || 0);
@@ -24,13 +32,17 @@ export default function AgingTable() {
           <h3 style={{ margin: 0 }}>Accounts payable aging</h3>
           <p className="report-page__meta">Posted vendor balances as of {asOf}</p>
         </div>
-        <label style={{ fontSize: 13 }}>As of <input className="input" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} data-testid="ap-aging-asof" style={{ marginLeft: 8 }} /></label>
+        <div style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
+          <AccountingEntitySelector scope={scope} />
+          <label style={{ fontSize: 13 }}>As of <input className="input" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} data-testid="ap-aging-asof" style={{ marginLeft: 8 }} /></label>
+        </div>
       </div>
 
-      {loading && <p>Loading…</p>}
-      {error && <p className="error">Error: {error.message}</p>}
+      {scope.label && <p className="report-page__meta">{scope.label}</p>}
+      {busy && <p>Loading…</p>}
+      {(scope.error || error) && <p className="error">Error: {scope.error || error.message}</p>}
 
-      {!loading && !error && (
+      {!busy && !scope.error && !error && (
         <div className="aging-summary" data-testid="ap-aging-summary">
           <AgingSummary label="Total payables" value={totals.total_due} tone="blue" />
           <AgingSummary label="Current" value={totals.current} tone="teal" />
@@ -43,7 +55,7 @@ export default function AgingTable() {
       <table className="data-table" data-testid="ap-aging-data">
         <thead><tr><th>Vendor</th><th style={{textAlign:'right'}}>Current</th><th style={{textAlign:'right'}}>1-30</th><th style={{textAlign:'right'}}>31-60</th><th style={{textAlign:'right'}}>61-90</th><th style={{textAlign:'right'}}>91+</th><th style={{textAlign:'right'}}>Total due</th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={7} className="empty" data-testid="ap-aging-empty">No open bills.</td></tr>}
+          {rows.length === 0 && !busy && !scope.error && !error && <tr><td colSpan={7} className="empty" data-testid="ap-aging-empty">No open bills.</td></tr>}
           {rows.map((r, i) => (
             <tr key={i} data-testid={`ap-aging-row-${i}`}>
               <td>{r.vendor_name}</td>

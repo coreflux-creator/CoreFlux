@@ -4,19 +4,30 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>404 Not Found</title>
-  <link rel="stylesheet" href="assets/css/styles.css" />
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    .not-found-page { min-height: 100vh; display: flex; flex-direction: column; background: #f6f9fc; color: #0d2948; }
+    .not-found-page header { padding: 12px 28px; background: #fff; border-bottom: 3px solid #087df1; }
+    .not-found-page .logo { height: 52px; margin: 0; }
+    .not-found-page main { box-sizing: border-box; width: min(100%, 640px); flex: 1; margin: 0 auto; padding: 76px 24px 40px; }
+    .not-found-page h1 { margin: 0 0 12px; font-size: 44px; }
+    .not-found-page main p { color: #4b6178; font-size: 17px; line-height: 1.5; }
+    .not-found-page main a { display: inline-block; margin-top: 14px; padding: 10px 16px; border-radius: 6px; background: #0b5bd3; color: #fff; text-decoration: none; font-weight: 600; }
+    .not-found-page main a:focus-visible { outline: 3px solid #087df1; outline-offset: 3px; }
+    .not-found-page footer { border-top: 1px solid #d6e4f2; background: #fff; }
+  </style>
 </head>
 <body class="not-found-page">
   <header>
-    <img src="assets/icons/logo.png" alt="CoreFlux Logo" class="logo" style="height: 125px;" />
+    <img src="/assets/brand/coreflux-logo.png" alt="CoreFlux Logo" class="logo" />
   </header>
   <main>
     <h1>404</h1>
     <p>Oops! The page you're looking for doesn’t exist.</p>
-    <a href="index.html">Return to Homepage</a>
+    <a href="/">Return to workspace</a>
   </main>
   <footer>
-    <p>Powered by <img src="assets/icons/swirl-logo.png" alt="Swirl Logo" style="height: 24px;" /></p>
+    <p>Powered by <img src="/assets/brand/coreflux-mark.png" alt="CoreFlux mark" style="height: 24px;" /></p>
   </footer>
 </body>
 </html>

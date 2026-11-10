@@ -1,0 +1,109 @@
+{
+  "observed_at": "2026-10-23T17:37:31.452Z",
+  "environment": "clockin-hub-16 development preview",
+  "workspace": "Acme Construction",
+  "thunderhawk_present": false,
+  "installed_candidate": "ef354ff52a3dc389a412152ac7557fcd99765ce9",
+  "fixture": {
+    "workspace_id": "0598d4ef-3075-4289-9714-c93f904aa85d",
+    "workspace_name": "Acme Construction",
+    "case_id": "cfo_7f44f4c0e5742dbeb0aed0f32698af77b1754b349caf46f225942991f6e0870c",
+    "fixture_instance": "4dd20481-1c94-4e0d-82f9-cc95a14aea05",
+    "placement_number": "PL-91001",
+    "worker_email": "worker@acme.test",
+    "created": true,
+    "task_count": 3,
+    "source": "Direct synthetic presentation fixture through native publication service",
+    "api_delivery_verified": false,
+    "live_thunderhawk": false,
+    "credentials_changed": false
+  },
+  "checks": [
+    {
+      "name": "Scoped onboarding and private-document key options are explicit and unchecked",
+      "passed": true
+    },
+    {
+      "name": "Administrator can review the synthetic requirements without worker submission controls",
+      "passed": true
+    },
+    {
+      "name": "Document intake defaults off and is enabled only for the existing Acme demo workspace during the test",
+      "passed": true
+    },
+    {
+      "name": "Existing demo worker signs in without credential reset or invitation",
+      "passed": true
+    },
+    {
+      "name": "A missing file and missing acknowledgement are blocked by the actual browser forms",
+      "passed": true
+    },
+    {
+      "name": "Worker submits the 722-byte synthetic PDF through the mounted application",
+      "passed": true
+    },
+    {
+      "name": "Worker submits an attestation and both receipts remain awaiting Core review",
+      "passed": true
+    },
+    {
+      "name": "Staff requirement has no worker action",
+      "passed": true
+    },
+    {
+      "name": "Stored PDF checksum equals the selected local file; one retained physical upload",
+      "passed": true
+    },
+    {
+      "name": "Reload retains both receipts without another upload",
+      "passed": true
+    },
+    {
+      "name": "Restoring disabled intake preserves history and received status",
+      "passed": true
+    },
+    {
+      "name": "Received evidence does not incorrectly prompt resubmission when intake is disabled",
+      "passed": true
+    }
+  ],
+  "storage": {
+    "case_id": "cfo_7f44f4c0e5742dbeb0aed0f32698af77b1754b349caf46f225942991f6e0870c",
+    "workspace": "Acme Construction",
+    "receipt_count": 2,
+    "document_count": 1,
+    "upload_request_count": 1,
+    "physical_attempts": 1,
+    "sha256": "18f31ce20b1539c5561445178a1ee7f178f59d8ffc2f883a19fe8fe54881cc07",
+    "size_bytes": 722,
+    "document_receipt_id": "cfs_44dc20f717f41309311ae5a1c388c8a052521ea21fc16103477f7fe542a3e73e",
+    "request_id": "4a70a449-f677-4597-81fe-c92c4efbbb27",
+    "case_version": 3,
+    "all_receipts_await_core_review": true,
+    "requirements_not_approved": true,
+    "native_storage_reader_verified": true,
+    "integration_api_auth_verified": false,
+    "core_s3_import_verified": false
+  },
+  "configuration_restored": {
+    "configuration_restored": true,
+    "configuration_sha256": "42358afa03f162df2dd6193b8f7d2aabbc5fe75b45d0736b3a519a21cb489c8e",
+    "document_transfer_enabled": false,
+    "background_workers_disabled": true,
+    "files_and_receipts_retained": true,
+    "status": "backend: stopped\nbackend: started\n"
+  },
+  "ui_tests_passed": 12,
+  "credential_reset": false,
+  "api_key_creation": false,
+  "production_published": false,
+  "core_api_delivery_verified": false,
+  "core_s3_import_verified": false,
+  "actual_thunderhawk_round_trip_verified": false,
+  "evidence": {
+    "screenshot": "onboarding-worker-submitted-20261023.png",
+    "installation": "onboarding-preview-install-20261023.json",
+    "display_fix": "onboarding-received-state-fix-20261023.json"
+  }
+}

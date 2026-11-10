@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "recorded_date": "2026-11-01",
+  "scope": "Outside-host SSH inspection and explicit early-preparation cleanup",
+  "production_changed": false,
+  "controller": "deploy/core_release_coordinator.py",
+  "verified": [
+    "The outside-host controller executes the real native worker through separate key-authenticated SSH accounts with strict host-key verification.",
+    "Both accounts use identical pinned worker dependencies and separately pinned private native configurations; production selects /usr/bin/php8.2 explicitly.",
+    "A changed dependency, changed native configuration or wrong SSH account refuses before native control state is created.",
+    "The application account permanently selects and verifies preparation abort before the master can select it, preventing incompatible recovery directions after possible SQL.",
+    "An interrupted committed database upgrade refuses early cleanup and leaves the master's control state unchanged for paired recovery.",
+    "Completed outcomes are recovered through fresh native inspection after an intentionally dropped SSH reply without repeating the completed action.",
+    "Concurrent edits on either account prevent service restoration; resuming a pending abort requires an explicit matching owner and phase.",
+    "Restoration and completion obtain a fresh challenged inspection through the other authenticated SSH account.",
+    "The complete controller sequence restores both real native schedules and web routing and verifies the original state again after restart.",
+    "Early cleanup runs with the database connection file removed; independent native database fingerprints, HTTP and scheduler checks confirm original data and service state."
+  ],
+  "native_checks": {
+    "control": 39,
+    "complete_external_abort": 9,
+    "before_hold_and_dropped_reply": 23,
+    "partial_native_hold": 20,
+    "partial_backup_and_concurrent_changes": 25,
+    "interrupted_ddl_and_paired_recovery": 33
+  },
+  "native_log_sha256": {
+    "initial_control_and_abort_cases": "5de8d2c169925d3f37d506a1e2624ca71f5ec365286e93ad3bf071b27f8e531d",
+    "final_interruption_cases": "490244372fab23043f624a154d3a42de97393c596bfcd4af699be2423ce5ea2e",
+    "explicit_php_runtime_and_dropped_reply": "1c26fc124126dece3ea17878139de4c900315a205b4e926ce0c1432e35176c64"
+  },
+  "local_checks": {"upgrade_contract": 47, "maintenance": 31, "maintenance_channel": 24},
+  "operational_scope": {
+    "commands": ["inspect", "abort-preparation", "resume-preparation-abort"],
+    "target": "Existing reviewed Core operation only; both native account configurations must already be staged privately.",
+    "receipt": "Fresh exclusive local file records the requested command before execution, then the verified native results.",
+    "unknown_native_outcome": "Stop and inspect; do not infer success, retry native mutations or select database recovery automatically.",
+    "pending_abort": "Explicit resume requires both the account and phase matching its durable native intent."
+  },
+  "limits": [
+    "The controller has no forward deployment, SQL upgrade, database restore, cache activation or payment path.",
+    "Live writer observations, held backup streaming and full-candidate execution coordination remain to be connected and rehearsed.",
+    "No live maintenance, production migration, public code replacement, provider mutation or financial execution occurred.",
+    "Exact-commit CI must also run all existing guarded upgrade, activation and paired-recovery scenarios."
+  ]
+}

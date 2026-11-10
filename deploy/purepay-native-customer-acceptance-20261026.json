@@ -1,0 +1,103 @@
+{
+  "checked_at": "2026-10-26T22:25:28Z",
+  "scope": "Core isolated simulation tenant 999 and PurePay Meridian demo; actual Thunderhawk acceptance remains pending",
+  "purepay_preview_commit": "0a0534818f574c6e4b85cc309ede156cbb4da138",
+  "customer_contract_version": "2026-10-26.1",
+  "connection": {
+    "human_created_entered_and_submitted": true,
+    "organization_id": "org_purepay_demo",
+    "revision": 5,
+    "replacement_last4": "COUM",
+    "previous_last4": "SpQA",
+    "added_capability": "write:customer_inputs",
+    "company_review_verified": true,
+    "protected_local_sets_unchanged": 334,
+    "previous_key_revoked": false
+  },
+  "acceptance": {
+    "passed": true,
+    "client_number": "CL-2",
+    "company_number": "CO-709",
+    "customer_id": "cus_07d433e2de0384bb516d13dea8eed6f7",
+    "customer_delivery_id": 22,
+    "link_delivery_id": 23,
+    "one_customer_attempt": true,
+    "local_audit_failure_after_provider_success_recovered": true,
+    "native_send_reconcile_and_link_replay_passed": true,
+    "legacy_client_number": "CL-1",
+    "legacy_customer_id": "cus_2851af69d9",
+    "legacy_mapping_preserved": true,
+    "final_continuation_protected_local_sets_unchanged": 333,
+    "final_continuation_other_provider_records_unchanged": true,
+    "browser_verified_both_synthetic_customers": true,
+    "network_response_loss_injected": false
+  },
+  "acceptance_helper_corrections": [
+    "Initial pre-write protection check attempted to JSON-hash binary encrypted delivery history; replaced with SHA-256 of byte-preserving serialization. No customer existed at the following read-only inspection.",
+    "First native creation recovered the intentionally failed local audit, then the helper passed link-send arguments in the wrong order. Corrected the helper and resumed the original delivered customer and existing link preview; did not repeat customer creation.",
+    "Final protected-set proof covers the successful continuation from the already-created customer, not an independently retained provider-wide snapshot before initial creation."
+  ],
+  "flags": {
+    "persistent_customer_delivery_changed": false,
+    "temporary_flags_restored": true,
+    "payroll_or_payments_executed": false,
+    "production_changed": false
+  },
+  "preview_restore": {
+    "verified_at": "2026-10-26T22:21:05.589929Z",
+    "managed_paths": 1012,
+    "source_configuration_git_and_modes_restored": true,
+    "backend": "STOPPED",
+    "frontend": "RUNNING",
+    "webhook_crond": "RUNNING",
+    "cache_symlink_unchanged": true,
+    "old_disposable_cache_lost_on_host_resume": true,
+    "empty_cache_recreated_and_used": true,
+    "host_released_at": "2026-10-26T22:25:28Z"
+  },
+  "scheduler_audit": {
+    "unexpected_preview_restarts": true,
+    "initiator": "unavailable in supervisor evidence",
+    "configured_business_targets": "same UUID preview host, at 00:00 and 11:00 UTC",
+    "business_job_due_during_window": false,
+    "observed_cron_request_count": 0,
+    "cron_runs_received_in_window": 0,
+    "review_guard_precedes_handler_task_launch": true,
+    "limitation": "No independent provider-wide financial before/after snapshot; request logs lack per-request timestamps. No observed scheduled business dispatch is supported, not universal absence of unrelated provider mutations."
+  },
+  "receipts": {
+    "archive_sha256": "459b12a253fb5ae6800007d83bbd65149a72f7b19bdba46c53b4b808958c0ef2",
+    "archive_bytes": 158428,
+    "local_directory": "output/core-customer-key-handoff-20261026",
+    "private_host_audit": "/app/audit/core-customer-v4-private-audit",
+    "local_credential_handoff_stopped": true
+  },
+  "field_dictionary": {
+    "customer_source_mappings": 5,
+    "customer_payload_leaf_fields": 8,
+    "contract_version": "2026-10-26.1",
+    "sync_enabled": false,
+    "local_checks_passed": 236,
+    "local_suites": 6,
+    "deployed": true
+  },
+  "remaining": [
+    "Actual Thunderhawk operational round trip and financial reconciliation",
+    "Supported Core production ownership/scheduler/recovery procedure",
+    "Separate explicit production cutover authorization and maintenance window"
+  ],
+  "customer_acceptance_core_commit": "6613a8e42eedd52b87fb83676be61cb4dbeee0e0",
+  "latest_core_staging_commit": "829fbe1221f23ee5ed9d3d1d4fe90d159f4536fd",
+  "staging_release": {
+    "commit": "829fbe1221f23ee5ed9d3d1d4fe90d159f4536fd",
+    "ci_run": 40412674370,
+    "ci_jobs_passed": 9,
+    "deployment_run": 40413207070,
+    "deployment_and_standard_acceptance": "passed",
+    "migrations_applied": [],
+    "customer_company_connection_and_both_deliveries_preserved": true,
+    "installed_dictionary_version": "2026-10-26.1",
+    "verified_customer_payload_fields": 8,
+    "production_changed": false
+  }
+}

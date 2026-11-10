@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-30T16:53:24+00:00",
+  "scope": "Local disposable MariaDB using fresh production structure and migration metadata; no business records",
+  "candidate_commit": "07ca035e8433afaabaf0d993aa5490c7a11d5535",
+  "candidate_migration_files": 329,
+  "source_snapshot": {
+    "observed_at": "2026-10-30T16:38:21+00:00",
+    "sha256": "1d5cb9937c3abb5437e80a40d8606f83084edb44862150de7f2d4388b108f150",
+    "server_version": "10.11.18-MariaDB-deb12-log",
+    "objects": 393,
+    "triggers": 19,
+    "business_rows_exported": 0,
+    "database_writes": false
+  },
+  "acceptance": {
+    "server_version": "10.11.18-MariaDB",
+    "pending_files": 78,
+    "executed_statements": 736,
+    "plan_sha256": "bd36605733eee2658b91558ab664af9729e60e366c3f09f433366ad0d170fd77",
+    "passed": true,
+    "original_migration_history_preserved": true,
+    "deployed_sources_recovered_from_git_and_hash_verified": true,
+    "process_stopped": true
+  },
+  "delta_from_october_26": [
+    "core/migrations/183_purepay_financial_observations.sql",
+    "core/migrations/184_purepay_financial_line_links.sql"
+  ],
+  "ci": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41091159477",
+    "conclusion": "success"
+  },
+  "production_preflight": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/41091360349",
+    "conclusion": "success",
+    "full_package_plan_sha256": "e9233ff8f2ff07cca5410f3f6037fe2b3c4a45a543be3a86517959ca95272e93",
+    "complete_remote_report_recovered": true,
+    "remote_report_sha256": "0512096a7ed043a1e2cc98eece1459e89b7bfb91ea6de045f4e0a73bf20c2730",
+    "local_private_wrapper": "output/full-core-release-20261030/production-preflight-complete.private.json"
+  },
+  "artifacts": {
+    "production-structure.json": {
+      "path": "output/full-core-structure-rehearsal-20261030/production-structure.json",
+      "sha256": "1d5cb9937c3abb5437e80a40d8606f83084edb44862150de7f2d4388b108f150"
+    },
+    "preparation.json": {
+      "path": "output/full-core-structure-rehearsal-20261030/preparation.json",
+      "sha256": "74940b92c2feab2d6bf1dd9d9ceaf56c16a0ad33d7124189c4261686ff4fd0f7"
+    },
+    "manifest.json": {
+      "path": "output/full-core-structure-rehearsal-20261030/manifest.json",
+      "sha256": "28e7a60d658271885a77669de35e9e4b74276f42ef3601535c4bbb92702931a7"
+    },
+    "exact-plan.json": {
+      "path": "output/full-core-structure-rehearsal-20261030/exact-plan.json",
+      "sha256": "4e66b58a13fd31d8ac5d0ff73cd2b4df4fe220fda470a10f55a20047e50fb1b7"
+    },
+    "rehearsal-result.json": {
+      "path": "output/full-core-structure-rehearsal-20261030/rehearsal-result.json",
+      "sha256": "a2ca7c4c95cd4095c0f065418ead07a5f9c8c014fcc978311dbc80b6984885c7"
+    },
+    "local-db-current/process.json": {
+      "path": "output/full-core-structure-rehearsal-20261030/local-db-current/process.json",
+      "sha256": "a0c592b2a27e2563d8bc1c696dbfc73a9ad4d0878b5fbb4ea0c455feb1fe4ef7"
+    },
+    "prepare_rehearsal.py": {
+      "path": "output/full-core-structure-rehearsal-20261030/prepare_rehearsal.py",
+      "sha256": "f2a25b1f8ba6a8290923316dfd54576549a3de7f41174574ee922be959c58ab8"
+    },
+    "rehearse_structure.php": {
+      "path": "output/full-core-structure-rehearsal-20261030/rehearse_structure.php",
+      "sha256": "c5b7b36b59b212e889d101fdee8594bec8c7291298aee157f4cf96cb7566f9f1"
+    },
+    "run_rehearsal.py": {
+      "path": "output/full-core-structure-rehearsal-20261030/run_rehearsal.py",
+      "sha256": "8adec0b409fe261a4c9dc11f943ec5fa6f686c390790d7ff7a3c09808d7f2bbf"
+    },
+    "application-owner-ssh-check.json": {
+      "path": "output/full-core-release-20261030/application-owner-ssh-check.json",
+      "sha256": "4bf155de1ebc2bff830e7c9653e06cc2129f129692d785834b341e37b89f44ae"
+    }
+  },
+  "production_changed": false,
+  "staging_changed": false,
+  "production_activation_authorized_by_this_receipt": false,
+  "limitations": [
+    "The local manifest contains migrations only; its plan hash differs from the full application-package plan.",
+    "Structure and migration history only. This is not a populated conversion, production backup/restore, or large-table timing acceptance.",
+    "Application-owner SSH is verified. Full writer pause/drain, absent application-crontab handling, owner-preserving file deployment rehearsal, and matched backup/recovery remain open release requirements.",
+    "The coordinating publishing chat owns production activation; this evidence does not deploy or authorize a cutover."
+  ],
+  "application_owner_ssh": {
+    "verified_at": "2026-10-30T16:59:30+00:00",
+    "login": "kunalverma2",
+    "resolved_uid": 1004,
+    "gid": 33,
+    "existing_public_key_fingerprint": "SHA256:MmNm6mrlbtSGMJyZrLSIQ+kLxHuZPNkTSn0BG/SVZxg",
+    "webroot_uid": 1004,
+    "htaccess_uid": 1004,
+    "htaccess_mode": "0664",
+    "read_only_remote_check": true,
+    "application_crontab_exit": 1,
+    "application_crontab_active_lines": 0,
+    "cron_absence_requires_explicit_handling_before_maintenance": true
+  }
+}

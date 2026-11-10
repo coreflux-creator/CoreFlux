@@ -1,0 +1,355 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-26T20:25:53.766181+00:00",
+  "purepay_candidate": "3ed5ea9d73b18a849503641e28547605da0d683e",
+  "purepay_source_tree": "b6506c07b533182bc23ace898410f7050dbef2d2",
+  "parents": [
+    "07256681a09a43492334930a1df47c0f001e034a",
+    "6c2653659b00098f8ec9b4133bf4f41ca8dbdc4d"
+  ],
+  "core_consumer_revision": "33e087239c4e0434e4e5372f10fbd2ef4af76964",
+  "merge_resolutions": [
+    "Keep assignment contract2026-10-25.1 with new customer contract2026-10-26.1",
+    "Preserve returned/cancelled payment webhook events alongside message events",
+    "Describe both event families in Developer Settings"
+  ],
+  "full_integration_modules_preserved_from_0725668": {
+    "backend/integration_payment_outbox.py": "e920b3753d986b77c43ac4d91b96d6830fc053725aa12cd6723f0e7502c7efa5",
+    "backend/integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+    "backend/integration_payment_history.py": "aca849278e2b01f3cd8beac527708ac2d19afd28e15f0f9afb78bae5e5fda743",
+    "backend/integration_bill_reservations.py": "8bde190b9a886399b44c06cc01cfc30f952930b1ee3ca3d2e4486d94de37d099",
+    "backend/integration_financial_context.py": "9b044e6c7f2a0ee593c1d2426a5f168d0523b010a53cd9e68f9adaccd9776648",
+    "backend/coreflux_payroll_observations.py": "eb936eb9ea6fd6072c9207e4425c6dc10136c3c2d6ccf3b852b38eb1cf2f8781",
+    "backend/coreflux_payroll_drafts.py": "f776074171931ab4cefa61478a702d846f05189827a40201cbfe4b8518254352",
+    "backend/coreflux_payroll_lifecycle.py": "28d37c3d84da47a4f5ee33003f8beee1eb656590b55bf7128e79894f2cf678fa",
+    "backend/coreflux_assignments.py": "dde3f33a74a2804326a74f29a47ef6edac35946995a4306dc9dfbab555787710",
+    "backend/coreflux_pilot_scope.py": "00ae53bdb45b31ecef2bc7d2460340a9250f60a107697d9d610c3dd6f6f0f555"
+  },
+  "frontend": {
+    "suites": 57,
+    "tests_passed": 380,
+    "tests_failed": 0,
+    "production_build": "passed",
+    "source_files_hash_verified": 474
+  },
+  "core_ui_contracts": {
+    "passed": 33,
+    "failed": 0
+  },
+  "initial_backend_run": {
+    "passed": 913,
+    "subtests_passed": 28,
+    "failed": 6,
+    "skipped": 40,
+    "failure_causes": {
+      "incomplete_captured_openapi_test_globals": 1,
+      "test_relative_working_directory": 1,
+      "mongomock_missing_convert_operator": 4
+    }
+  },
+  "hosted_actual_mongo": {
+    "source_tree": "b6506c07b533182bc23ace898410f7050dbef2d2",
+    "result": 0,
+    "external_network_attempts": 0,
+    "counts": {
+      "passed": 187,
+      "failed": 0,
+      "skipped": 1
+    },
+    "owned_mongo_stopped": true,
+    "owned_database_removed": true,
+    "shared_database_used": false,
+    "startup_run": false,
+    "shared_runtime_changed": false,
+    "shared_source_configuration_and_git_preserved": true,
+    "tested_source_files_unchanged": 672,
+    "archive_sha256": "ed4d21785c1675c87534e6ccea4872e407705ce5c4da82cf737080972015fe4f",
+    "directory": "/tmp/core-full-review-_ea1tt4v"
+  },
+  "actual_php_companion_checks": {
+    "result": 0,
+    "external_network_attempts": 0,
+    "database": "memory",
+    "core_php": "actual consumer code; guarded loopback HTTP fixtures or stdin only",
+    "counts": {
+      "passed": 40,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "all_original_failures_passed_on_followup": true,
+  "all_original_skips_passed_with_actual_core_php": true,
+  "followup_coverage": [
+    {
+      "test": "test_bill_payment_history.py::test_public_openapi_describes_version_limits_and_read_only_semantics",
+      "initial_outcome": "failed",
+      "later_passed": true
+    },
+    {
+      "test": "test_bill_payment_history.py::test_actual_provider_response_is_preserved_by_core_php",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_assignments.py::test_active_core_rows_never_feed_native_automation_or_defaults",
+      "initial_outcome": "failed",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_php_graph_roundtrip_review_and_native_preservation",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[missing_economics]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[missing_adjustment]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[wrong_instance]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[mistyped_root]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[fee_without_basis_value]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[wrong_cycle_purpose]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[missing_cycle]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[cycle_directory_drift]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[item_wrong_party]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[item_wrong_channel]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[changed_term_summary]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[changed_ot]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[wrong_labor]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[unknown_currency]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[extra_bank]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[unknown_fee]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[numeric_amount]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[false_waiver]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[inconsistent_override]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[missing_override]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[wrong_engagement_overhead]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[duplicate_party]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[duplicate_source]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[duplicate_item]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[missing_client_basis]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[invalid_approval_date]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[legacy_extra_cost]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[outside_rate_period]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[current_flags_unknown]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_incomplete_or_conflicting_commercial_graph_is_rejected[current_cycle_unknown]",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_commercial_revision_retains_approved_history_and_requires_vendor_mapping",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_revising_current_configuration_does_not_rewrite_prior_receipt",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_php_c2c_terms_keep_payee_and_source_waiver_without_employee_creation",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_legacy_commercial_packet_remains_exact_and_replayable",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_commercial.py::test_location_revision_preserves_approved_terms_and_prior_receipt",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_customers_actual.py::test_real_core_php_customer_transport_and_legacy_link_contract",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_coreflux_php.py::test_core_php_link_contract",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_payroll_lifecycle.py::test_real_php_validates_actual_allocated_and_cancelled_provider_receipts",
+      "initial_outcome": "skipped",
+      "later_passed": true
+    },
+    {
+      "test": "test_vendor_messages.py::test_history_paging_actual_mongo_and_no_receipt_writes",
+      "initial_outcome": "failed",
+      "later_passed": true
+    },
+    {
+      "test": "test_vendor_messages.py::test_filters_reference_fields_and_whitelist",
+      "initial_outcome": "failed",
+      "later_passed": true
+    },
+    {
+      "test": "test_vendor_messages.py::test_timestamp_microseconds_offset_order_and_inclusive_cutoff",
+      "initial_outcome": "failed",
+      "later_passed": true
+    },
+    {
+      "test": "test_vendor_messages.py::test_text_redaction",
+      "initial_outcome": "failed",
+      "later_passed": true
+    }
+  ],
+  "independent_customer_regression": {
+    "candidate": "combined-tree-e4f49764d95d607ec01df242ed0cbe8d94d65c6a",
+    "corrected_original_workflow_passed": true,
+    "conflict_cases": {
+      "contradictory_local_and_provider_id": {
+        "rejected": true,
+        "status": 409
+      },
+      "partially_recorded_company": {
+        "rejected": true,
+        "status": 409
+      }
+    },
+    "database": "memory",
+    "startup_run": false,
+    "external_network_attempts": 0,
+    "production_changed": false
+  },
+  "limits": [
+    "Synthetic fixture verification, not a production or actual Thunderhawk round trip",
+    "No real payroll, payment or financial posting was executed",
+    "Publication handover is being developed separately and is not included in this candidate",
+    "Native Core CL-2 hosted customer acceptance still requires preview staging and the dedicated demo key capability"
+  ],
+  "shared_preview_services_observed": {
+    "backend": "STOPPED",
+    "frontend": "RUNNING",
+    "webhook-crond": "RUNNING"
+  },
+  "source_staged_as_application": false,
+  "published": false,
+  "production_changed": false,
+  "credentials_changed": false,
+  "customer_delivery_enabled": false,
+  "actual_thunderhawk_acceptance": false,
+  "receipt_sha256": {
+    "memory": "676feb5081ebfd3b5e23acba5a81f79e40cf8e3314f9a5441ca3635153be6eb5",
+    "hosted": "e85037685c12f224182228aa634ba1eb25b196163813dc068f1e1c5a7879846f",
+    "php": "4a09e3627340114c4cf4f66907d7391269075a8aab3fef195e7b7e05eb5803af",
+    "frontend": "6d6fda2c3108ac6c493887d98a3677ad31fc191e49de65439ebf18948acd7e66"
+  }
+}

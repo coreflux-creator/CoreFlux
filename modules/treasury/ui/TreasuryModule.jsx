@@ -23,6 +23,7 @@ import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScena
  * forecasts) but no longer hosts tenant-level API token forms.
  */
 export default function TreasuryModule({ session }) {
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   const navItems = [
     { to: '/modules/treasury/overview', label: 'Overview' },
     { to: '/modules/treasury/forecast', label: 'Liquidity Forecast' },
@@ -40,13 +41,16 @@ export default function TreasuryModule({ session }) {
     { to: '/modules/treasury/sweep-destinations', label: 'Sweep destinations' },
     { to: '/modules/treasury/mercury-webhooks', label: 'Webhooks' },
   ];
+  const visibleNavItems = standaloneAccounting
+    ? navItems.filter(item => ['Overview', 'Deposit accounts', 'Liability accounts', 'Reconciliation', 'Saved Rules'].includes(item.label))
+    : navItems;
   return (
     <div className="treasury-module" data-testid="treasury-module">
       <header className="module-workspace-header">
         <span className="workspace-eyebrow">Cash and capital</span>
         <h1>Treasury</h1>
         <p>Monitor accounts, liquidity, obligations, and cash movement.</p>
-        <ModuleTabs items={navItems} primaryCount={5} label="Treasury sections" testId="treasury-section-nav" />
+        <ModuleTabs items={visibleNavItems} primaryCount={5} label="Treasury sections" testId="treasury-section-nav" preserveEntityScope />
       </header>
       <Routes>
         <Route index                element={<Navigate to="overview" replace />} />
@@ -59,7 +63,7 @@ export default function TreasuryModule({ session }) {
         <Route path="rules"         element={<SavedRules session={session} />} />
         <Route path="recipients"    element={
           <>
-            <IntegrationSettingsBanner />
+            <IntegrationSettingsBanner standaloneAccounting={standaloneAccounting} />
             <MercuryRecipients />
           </>
         } />
@@ -72,16 +76,14 @@ export default function TreasuryModule({ session }) {
         <Route path="sweep-rules"      element={<SweepRulesAdmin />} />
         <Route path="sweep-destinations" element={<SweepDestinations />} />
         <Route path="mercury-webhooks"   element={<MercuryWebhookConfig />} />
-        {/* Back-compat: anyone deep-linked into the old payout-rails tab
-            (AP PaymentsList CTA, bookmarks) lands on Admin → Integrations
-            where the connection settings now live. */}
-        <Route path="payout-rails"  element={<Navigate to="/admin/integrations" replace />} />
+        {/* Older payout-rails links open the connection page available in this product. */}
+        <Route path="payout-rails"  element={<Navigate to={standaloneAccounting ? '/modules/treasury/overview' : '/admin/integrations'} replace />} />
         <Route path="*"             element={<Navigate to="overview" replace />} />
       </Routes>
     </div>
   );
 }
-function IntegrationSettingsBanner() {
+function IntegrationSettingsBanner({ standaloneAccounting = false }) {
   return (
     <div
       data-testid="treasury-integrations-banner"
@@ -95,9 +97,9 @@ function IntegrationSettingsBanner() {
         color: 'var(--cf-text)',
       }}
     >
-      Looking for Plaid Transfer or Mercury connection settings? They've moved to{' '}
-      <Link to="/admin/integrations" data-testid="treasury-integrations-link" style={{ color: 'var(--cf-accent)', fontWeight: 500 }}>
-        Admin → Integrations
+      {standaloneAccounting ? 'Manage your bank connection from ' : 'Looking for Plaid Transfer or Mercury connection settings? They\'ve moved to '}
+      <Link to={standaloneAccounting ? '/modules/treasury/overview' : '/admin/integrations'} data-testid="treasury-integrations-link" style={{ color: 'var(--cf-accent)', fontWeight: 500 }}>
+        {standaloneAccounting ? 'Treasury overview' : 'Admin → Integrations'}
       </Link>.
     </div>
   );

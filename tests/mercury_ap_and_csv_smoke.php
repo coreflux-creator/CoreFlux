@@ -60,8 +60,8 @@ $a('action requires ap.payment.send RBAC',
     preg_match('/send_via_mercury.*rbac_legacy_require/s', $ap));
 $a('action calls mpCreateFromApPayment',         $c($ap, 'mpCreateFromApPayment($tid, $id'));
 $a('returns instruction_id in response',         $c($ap, "'instruction_id' =>"));
-$a('GET response now includes mercury_connected flag',
-    $c($ap, "'mercury_connected'     => \$mercuryConnected"));
+$a('GET response exposes Mercury only outside standalone accounting',
+    $c($ap, "'mercury_connected'     => getenv('COREFLUX_ENV') === 'coreaccounting' ? false : \$mercuryConnected"));
 $a('mercury_connected reads mercury_connections',
     $c($ap, "FROM mercury_connections WHERE tenant_id = :tenant_id"));
 $a('mercury_connected gracefully degrades',
@@ -71,7 +71,8 @@ $a('mercury_connected gracefully degrades',
 // ----------------------------------------------------------------- AP UI
 echo "\nmodules/ap/ui/PaymentsList.jsx — per-row Send via Mercury\n";
 $pl = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx');
-$a('reads mercury_connected from API',           $c($pl, 'mercuryConnected = !!data?.mercury_connected'));
+$a('reads Mercury connection only outside standalone accounting',
+    $c($pl, 'mercuryConnected = !standaloneAccounting && !!data?.mercury_connected'));
 $a('mercuryEligible() guard',
     $c($pl, 'const mercuryEligible = (p) =>') &&
     $c($pl, "p.status === 'sent'") &&

@@ -1,0 +1,75 @@
+{
+  "scope": "Stable custom-field identity in the metadata-only integration dictionary",
+  "runtime_commit": "b3013ea847b724cb043cf09b9bd0ed3c5d6f2782",
+  "dictionary_version": "2026-10-24.2",
+  "behavior": {
+    "editable_labels_used_as_mapping_keys": false,
+    "definition_identity": "Owning directory tenant, entity, definition table and original definition ID",
+    "dedicated_keys": ["field_key", "field_name"],
+    "missing_or_invalid_key": "Retain definition identity, export a null lookup path, and require stable-key review",
+    "existing_custom_values_or_provider_ids_changed": false,
+    "visibility_and_pii_restrictions_preserved": true,
+    "sync_enabled_by_dictionary": false
+  },
+  "validation": {
+    "local_record_number_and_field_contract_checks": 304,
+    "ci_run": 40152568293,
+    "ci_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40152568293",
+    "ci_jobs_passed": 9,
+    "mariadb_checks": 60,
+    "mariadb_job": 121046983831,
+    "scenarios": [
+      "Dedicated person and legacy field keys retain their lookup paths",
+      "Duplicate display labels have distinct definition identities",
+      "Renaming a display label does not rename the definition identity",
+      "Missing or invalid keys never become invented mapping targets",
+      "Owner, entity, archived-definition and field-visibility boundaries remain enforced"
+    ]
+  },
+  "staging": {
+    "run": 40152721273,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40152721273",
+    "conclusion": "success",
+    "installed_changed_files": 7,
+    "migrations_applied": [],
+    "payroll_authority_enabled": false,
+    "private_integration_identity_retained": true,
+    "private_backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/b3013ea847b724cb043cf09b9bd0ed3c5d6f2782-20261025020145",
+    "finance_rollback_checks": 61,
+    "onboarding_native_http_checks": 17,
+    "accounting_lifecycle_split_receipt_and_log_only_delivery": "passed"
+  },
+  "readiness": {
+    "run": 40152948009,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40152948009",
+    "checked_at": "2026-10-25T02:03:34+00:00",
+    "mode": "read_only_synthetic_integration",
+    "tenant": 999,
+    "dictionary_version": "2026-10-24.2",
+    "standard_and_workflow_fields": 1345,
+    "unverified_workflow_containers": [],
+    "quanta_workspace_http_status": 200,
+    "quanta_onboarding_http_status": 200,
+    "person_id": 15,
+    "placement_id": 13,
+    "onboarding_version": 5,
+    "confirmed_plan_version": 4,
+    "time_entry_id": 1,
+    "hours": "8.00",
+    "time_status": "pending_review",
+    "approved_by_user_id": null,
+    "independent_eligible_reviewers": 0,
+    "saved_purepay_binding_revision": 3,
+    "onboarding_delivery_enabled": false,
+    "document_intake_enabled": false,
+    "provider_document_transfer_enabled": false,
+    "private_document_storage_ready": true
+  },
+  "limitations": [
+    "The read-only hosted inspector verifies the installed dictionary version and existing demo records; legacy custom-field behavior is covered by isolated MariaDB fixtures.",
+    "This does not establish complete actual Thunderhawk standard/custom-field alignment or its end-to-end round trip.",
+    "Worker login, independent time approval, reviewed payroll-input/result exchange and production release requirements remain open."
+  ],
+  "production_changed": false,
+  "real_payroll_payment_or_financial_posting_executed": false
+}

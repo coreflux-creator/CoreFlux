@@ -16,66 +16,26 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/active_entity.php';
+require_once __DIR__ . '/../../../core/plaid_schema.php';
+require_once __DIR__ . '/../../../core/accounting/account_mutation.php';
 
 $ctx = api_require_auth();
 
-/**
- * Self-heal: ensure the live-balance columns exist on plaid_accounts before
- * the GET LEFT-JOIN runs them. Production tenants who haven't pulled
- * migration 010 yet would otherwise hit "Unknown column pa.current_balance_cents"
- * and get an empty list back.
- */
-function _treasuryLiabilityEnsurePlaidBalanceColumns(): void {
-    static $done = false;
-    if ($done) return;
-    $pdo = getDB();
-    foreach ([
-        ['current_balance_cents',   'BIGINT NULL'],
-        ['available_balance_cents', 'BIGINT NULL'],
-        ['limit_balance_cents',     'BIGINT NULL'],
-        ['iso_currency_code',       'CHAR(3) NULL'],
-        ['balance_as_of',           'TIMESTAMP NULL'],
-    ] as [$col, $def]) {
-        try {
-            $chk = $pdo->prepare(
-                "SELECT COUNT(*) FROM information_schema.columns
-                  WHERE table_schema = DATABASE()
-                    AND table_name   = 'plaid_accounts'
-                    AND column_name  = :c"
-            );
-            $chk->execute(['c' => $col]);
-            if ((int) $chk->fetchColumn() === 0) {
-                $pdo->exec("ALTER TABLE plaid_accounts ADD COLUMN {$col} {$def}");
-            }
-        } catch (\Throwable $_) { /* non-fatal */ }
-    }
-    // Also ensure tla.plaid_account_id exists (from migration 002).
-    try {
-        $chk = $pdo->prepare(
-            "SELECT COUNT(*) FROM information_schema.columns
-              WHERE table_schema = DATABASE()
-                AND table_name   = 'treasury_liability_accounts'
-                AND column_name  = 'plaid_account_id'"
-        );
-        $chk->execute();
-        if ((int) $chk->fetchColumn() === 0) {
-            $pdo->exec("ALTER TABLE treasury_liability_accounts
-                          ADD COLUMN plaid_account_id VARCHAR(80) NULL");
-        }
-    } catch (\Throwable $_) { /* non-fatal */ }
-    $done = true;
-}
-
 switch (api_method()) {
     case 'GET': {
-        _treasuryLiabilityEnsurePlaidBalanceColumns();
+        try {
+            plaidRequireBalanceSchema(getDB());
+            plaidRequireLiabilityLinkSchema(getDB());
+        } catch (PlaidSchemaException $e) {
+            api_error($e->getMessage(), 503);
+        }
         // Liabilities are CREDIT-normal accounts, so we flip the sign so
         // the UI shows a positive outstanding balance. Also surface the
         // live Plaid balance (cached on plaid_accounts) so users see the
         // outstanding even before any JE has posted.
         $rows = scopedQuery(
             "SELECT
-                aa.id, aa.code, aa.name, aa.account_type, aa.active,
+                aa.id, aa.code, aa.name, aa.account_type, aa.normal_side, aa.active,
                 tla.entity_id, ae.code AS entity_code, ae.legal_name AS entity_name,
                 tla.subtype, tla.last4, tla.institution_name, tla.credit_limit_cents,
                 tla.apr_bps, tla.statement_day, tla.autopay_from_bank_account_id,
@@ -93,7 +53,9 @@ switch (api_method()) {
              LEFT JOIN plaid_accounts pa
                ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
              LEFT JOIN accounting_journal_entries je
-               ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
+               ON je.tenant_id = aa.tenant_id
+              AND (tla.entity_id IS NULL OR je.entity_id = tla.entity_id)
+              AND je.status IN ('posted', 'reversed')
              LEFT JOIN accounting_journal_entry_lines jel
                ON jel.je_id = je.id AND jel.account_id = aa.id
              WHERE aa.tenant_id = :tenant_id
@@ -141,12 +103,12 @@ switch (api_method()) {
         $pdo = getDB();
         $pdo->beginTransaction();
         try {
-            $accountId = scopedInsert('accounting_accounts', [
-                'code'         => trim((string) $body['code']),
-                'name'         => trim((string) $body['name']),
+            $accountFields = accountingReviewAccountChange((int) $ctx['tenant_id'], null, [
+                'code' => $body['code'],
+                'name' => $body['name'],
                 'account_type' => 'liability',
-                'active'       => 1,
             ]);
+            $accountId = scopedInsert('accounting_accounts', $accountFields);
             scopedInsert('treasury_liability_accounts', [
                 'account_id'          => $accountId,
                 'entity_id'           => (int) $entity['id'],
@@ -204,11 +166,12 @@ switch (api_method()) {
                 "SELECT COUNT(*) AS c
                    FROM accounting_journal_entry_lines jel
                    JOIN accounting_journal_entries je ON je.id = jel.je_id
-                  WHERE je.tenant_id = :tenant_id AND jel.account_id = :id AND je.status = 'posted'",
+                  WHERE je.tenant_id = :tenant_id AND jel.account_id = :id
+                    AND je.status IN ('posted', 'reversed')",
                 ['id' => $id]
             );
             if ((int) ($usage['c'] ?? 0) > 0) {
-                api_error('Cannot hard-delete: posted journal entries reference this liability. Use mode=hide instead.', 409, [
+                api_error('Cannot hard-delete: ledger journal entries reference this liability. Use mode=hide instead.', 409, [
                     'posted_lines' => (int) $usage['c'],
                 ]);
             }

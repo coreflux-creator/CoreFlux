@@ -1,23 +1,24 @@
 import React, { useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
+import { defaultRequires1099, extractedRequires1099 } from './vendorTaxDefaults.mjs';
 
 /**
  * Inline "Add new vendor" dialog used from BillCreate's vendor picker when
  * the typed name doesn't match any existing vendor. Two paths:
  *
- *   • Hourly labor — full onboarding required. We refuse to create the
- *     vendor here and direct the user to People > New person, since
- *     hourly_labor must be backed by a person + placement chain.
+ *   • ERP hourly labor — full person/placement onboarding is required.
+ *     Standalone accounting can create a contractor vendor without a placement.
  *
  *   • Service provider (default) — minimal: name + optional payment
  *     details + optional remit-to email. Created in one POST and returned
  *     to the caller so the bill form can use it immediately.
  */
-export default function VendorQuickCreate({ initialName, onCreated, onCancel }) {
+export default function VendorQuickCreate({ initialName, onCreated, onCancel, standaloneAccounting = false }) {
   const [category, setCategory] = useState('service_provider');
   const [name, setName]         = useState(initialName || '');
-  const [vendorType, setVendorType] = useState('w9_business');
+  const [vendorType, setVendorType] = useState('other');
+  const [requires1099, setRequires1099] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [remitEmail, setRemitEmail] = useState('');
   const [remitPhone, setRemitPhone] = useState('');
@@ -44,6 +45,7 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
       // Pre-fill the form. User reviews everything before submit.
       if (d.vendor_name)    setName(d.vendor_name);
       if (d.vendor_type)    setVendorType(d.vendor_type);
+      setRequires1099((current) => extractedRequires1099(d, current));
       if (d.tax_id_last4)   setTaxIdLast4(String(d.tax_id_last4).slice(0, 4));
       setExtractInfo({ classification: d.tax_classification, model: res.model });
     } catch (e) { setExtractError(e); }
@@ -52,18 +54,21 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
 
   const submit = async (e) => {
     e.preventDefault();
-    if (category === 'hourly_labor') {
+    if (!standaloneAccounting && category === 'hourly_labor') {
       // Hard-block the shortcut; redirect to full onboarding.
       onCancel();
-      window.location.href = '/modules/people/clients/new'; // user will route to People manually
+      window.location.href = '/modules/people/new';
       return;
     }
     setBusy(true); setErr(null);
     try {
+      const selectedCategory = standaloneAccounting && ['1099_individual', 'c2c_corp'].includes(vendorType)
+        ? 'hourly_labor' : 'service_provider';
       const body = {
         vendor_name: name.trim(),
         vendor_type: vendorType,
-        vendor_category: 'service_provider',
+        vendor_category: selectedCategory,
+        requires_1099: requires1099,
         payment_method: paymentMethod || null,
         remit_to_email: remitEmail || null,
         remit_to_phone: remitPhone || null,
@@ -72,11 +77,13 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
       };
       const res = await api.post('/modules/ap/api/vendors.php', body);
       onCreated({
-        id: res.company_id || res.id,
+        id: res.id,
         vendor_id: res.id,
         name: name.trim(),
+        vendor_type: vendorType,
+        requires_1099: requires1099,
         company_id: res.company_id || null,
-        vendor_category: 'service_provider',
+        vendor_category: selectedCategory,
       });
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
@@ -95,10 +102,12 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
       >
         <h3 style={{ margin: '0 0 4px' }}>Add vendor</h3>
         <p style={{ margin: '0 0 16px', fontSize: 13, color: '#666' }}>
-          Pick a category. <strong>Hourly labor</strong> must go through full onboarding (person + placement). <strong>Service provider</strong> only needs name + optional payment details.
+          {standaloneAccounting
+            ? 'Add a vendor for this bill. Contractor and service vendors can be billed without a placement.'
+            : <>Pick a category. <strong>Hourly labor</strong> must go through full onboarding (person + placement). <strong>Service provider</strong> only needs name + optional payment details.</>}
         </p>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {!standaloneAccounting && <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
           {[
             { value: 'service_provider', label: 'Service provider', desc: 'Microsoft, AWS, utilities, SaaS' },
             { value: 'hourly_labor',     label: 'Hourly labor',     desc: 'W-2, 1099, C2C — needs onboarding' },
@@ -120,9 +129,9 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{opt.desc}</p>
             </label>
           ))}
-        </div>
+        </div>}
 
-        {category === 'hourly_labor' ? (
+        {!standaloneAccounting && category === 'hourly_labor' ? (
           <div data-testid="vendor-quick-create-hourly-notice" style={{ padding: 12, background: '#fffbea', borderRadius: 6, border: '1px solid #fde68a', marginBottom: 16 }}>
             Hourly-labor vendors must be onboarded as a Person with a Placement (and a Placement Chain row if there's a vendor portal in between us and the client). Click <strong>Continue to onboarding</strong> to start that flow — your bill draft will be lost and you can come back to enter it once the vendor is fully set up.
           </div>
@@ -160,7 +169,13 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
             </Field>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <Field label="Type">
-                <select className="input" value={vendorType} onChange={(e) => setVendorType(e.target.value)} data-testid="vendor-quick-create-type">
+                <select className="input" value={vendorType} onChange={(e) => {
+                  const nextType = e.target.value;
+                  setVendorType(nextType);
+                  setRequires1099(defaultRequires1099(nextType));
+                }} data-testid="vendor-quick-create-type">
+                  {standaloneAccounting && <option value="1099_individual">1099 individual</option>}
+                  {standaloneAccounting && <option value="c2c_corp">C2C company</option>}
                   <option value="w9_business">W-9 business</option>
                   <option value="utility">Utility</option>
                   <option value="other">Other</option>
@@ -173,12 +188,16 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
                   <option value="wire">Wire</option>
                   <option value="check">Check</option>
                   <option value="card">Credit card</option>
-                  <option value="plaid">Plaid</option>
-                  <option value="mercury">Mercury</option>
+                  {!standaloneAccounting && <option value="plaid">Plaid</option>}
+                  {!standaloneAccounting && <option value="mercury">Mercury</option>}
                   <option value="other">Other</option>
                 </select>
               </Field>
             </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <input type="checkbox" checked={requires1099} onChange={(e) => setRequires1099(e.target.checked)} data-testid="vendor-quick-create-requires-1099" />
+              Requires 1099-NEC
+            </label>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
               <Field label="Remit-to email (where to send invoices/payment notices)">
                 <input className="input" type="email" value={remitEmail} onChange={(e) => setRemitEmail(e.target.value)} data-testid="vendor-quick-create-remit-email" />
@@ -202,7 +221,7 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <button type="button" className="btn btn--ghost" onClick={onCancel} data-testid="vendor-quick-create-cancel">Cancel</button>
-          {category === 'hourly_labor' ? (
+          {!standaloneAccounting && category === 'hourly_labor' ? (
             <button type="submit" className="btn btn--primary" data-testid="vendor-quick-create-onboard">Continue to onboarding →</button>
           ) : (
             <button type="submit" className="btn btn--primary" data-testid="vendor-quick-create-submit" disabled={busy || !name.trim()}>

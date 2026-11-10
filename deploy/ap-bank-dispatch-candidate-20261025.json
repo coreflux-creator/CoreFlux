@@ -1,0 +1,49 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "ap_bank_dispatch_source_candidate_not_deployed",
+  "core_candidate_commit": "46470b5d8083839752b70283d9df79a0f524f8da",
+  "provider_candidate_unchanged": "cff7b26013d9b820a2a3c7d13ddf24b63e7fb713",
+  "ci": {
+    "run_id": 40184548859,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40184548859",
+    "head_sha": "46470b5d8083839752b70283d9df79a0f524f8da",
+    "conclusion": "success",
+    "jobs_passed": 9,
+    "allocation_recovery_mercury_bank_mariadb_checks": 138,
+    "bank_delivery_component_checks": 6,
+    "database": "Disposable MariaDB 10.11 with two independent sessions",
+    "bank_file": "Actual NACHA registry driver with synthetic company and recipient instructions",
+    "online_provider": "Synthetic callback at the dispatch boundary; actual Plaid HTTP behavior and financial semantics not verified",
+    "mercury_network_attempts": 0
+  },
+  "implemented": [
+    "Migration 180 preserves immutable encrypted dispatch requests and original results with durable AP claims",
+    "NACHA formatting, original encrypted file storage and AP claims commit together before bytes reach the browser",
+    "Missing explicit AP origin company, company ID or routing configuration cannot fall back to placeholder values",
+    "Online AP claims commit before provider I/O; lost or inconsistent responses cannot trigger another dispatch",
+    "PurePay, Mercury and bank dispatch contend on the original AP row and retain claims despite missing reverse references",
+    "Full original bank batches and exact file bytes are recoverable with company and separate download permissions",
+    "Uncertain bank outcomes block allocation changes, void and settlement; recorded NACHA keeps the existing explicit manual clearance path"
+  ],
+  "inspection": {
+    "ap_csv_templates": "Reporting dataset uses NULL recipient routing and account fields; its export is not the NACHA origination path",
+    "visual_review": "Actual React component inspected in Chrome with local synthetic saved-file and uncertain-outcome responses"
+  },
+  "boundaries": {
+    "core_deployed": false,
+    "provider_deployed": false,
+    "production_changed": false,
+    "real_payment_executed": false,
+    "payroll_executed": false,
+    "accounting_posted": false,
+    "arabella_changed": false
+  },
+  "remaining": [
+    "Mercury AP lifecycle checks and original bank-result reconciliation",
+    "Audited uncertain-funding recovery and provider execution semantics",
+    "Combined hosted Core/PurePay acceptance and real Mongo contention",
+    "Financial credential rebinding and Thunderhawk replacement-key verification",
+    "Thunderhawk staffing, onboarding, independent time approval, payroll and financial round-trip evidence",
+    "Controlled publication after the remaining release requirements are verified"
+  ]
+}

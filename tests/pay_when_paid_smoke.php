@@ -59,11 +59,33 @@ $a("null → not pwp, default 30",                $r['is_pwp'] === false && $r['
 echo "\nbillingAllocatePayment() triggers PWP\n";
 $billingLib = (string) file_get_contents(__DIR__ . '/../modules/billing/lib/billing.php');
 $a('lib loads ap/lib/pwp.php on demand',        str_contains($billingLib, "@require_once __DIR__ . '/../../ap/lib/pwp.php'"));
-$a('release runs AFTER commit (durable AR)',    preg_match('/\$pdo->commit\(\);\s*\n\s*\/\/ Pay-When-Paid trigger/s', $billingLib) === 1);
-$a('release only for newly-paid invoices',      str_contains($billingLib, "(\$a['new_status'] ?? null) !== 'paid'"));
-$a('release calls apPwpReleaseForArInvoice',    str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $a[\'invoice_id\'], $actorUserId)'));
+$a('release runs after own commit or is deferred by caller',
+    str_contains($billingLib, 'if ($ownsTxn) $pdo->commit();')
+    && str_contains($billingLib, "!empty(\$request['defer_pwp'])"));
+$a('release only for newly-paid invoices',
+    str_contains($billingLib, "(\$allocation['new_status'] ?? null) !== 'paid'"));
+$a('release calls apPwpReleaseForArInvoice',
+    str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $allocation[\'invoice_id\'], $actorUserId)'));
 $a('release errors are non-fatal (logged)',     str_contains($billingLib, "[billingAllocatePayment] PWP release failed"));
 $a('response includes pwp results',             str_contains($billingLib, "'pwp' => \$pwpResults"));
+$a('PWP release does not approve vendor bills',
+    !str_contains((string) file_get_contents($libPath), 'approved_by_user_id = COALESCE(approved_by_user_id, :u)'));
+$a('PWP release locks its AR invoice before checking the paid balance',
+    str_contains((string) file_get_contents($libPath), 'WHERE id = :id AND tenant_id = :t FOR UPDATE')
+    && str_contains((string) file_get_contents($libPath), "\$invRow['status'] !== 'paid'"));
+$a('manual and automatic PWP links preserve legal entity and released status',
+    str_contains((string) file_get_contents($libPath), 'PWP bill and invoice must belong to the same legal entity')
+    && str_contains((string) file_get_contents($libPath), 'AND b.entity_id = :e')
+    && str_contains((string) file_get_contents($libPath), 'AND i.entity_id = :e')
+    && str_contains((string) file_get_contents($libPath), "['triggered', 'partial_triggered']"));
+$a('unlink keeps an unreleased PWP bill on collection hold',
+    str_contains((string) file_get_contents($libPath), "\$bill['pwp_status'] !== 'awaiting_ar'")
+    && str_contains((string) file_get_contents($libPath), 'SET linked_ar_invoice_id = NULL')
+    && !str_contains((string) file_get_contents($libPath), 'SET linked_ar_invoice_id = NULL, pwp_status = "not_pwp"'));
+$a('late manual link releases a paid invoice without approving the bill',
+    str_contains((string) file_get_contents($libPath), "\$invoice['status'] === 'paid'")
+    && str_contains((string) file_get_contents($libPath), 'apPwpReleaseForArInvoice($tenantId, $arInvoiceId, $actorUserId)')
+    && !str_contains((string) file_get_contents($libPath), 'approved_at = COALESCE(approved_at, NOW())'));
 
 echo "\nfrom-time-bundle auto-link\n";
 $invSrc = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');

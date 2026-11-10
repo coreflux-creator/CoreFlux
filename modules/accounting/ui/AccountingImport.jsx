@@ -13,7 +13,7 @@ import { api } from '../../../dashboard/src/lib/api';
 const IMPORT_TYPES = {
   je: {
     label: 'Journal entries',
-    description: 'One row per debit or credit line. A Placement ID automatically supplies its assignment dimensions.',
+    description: 'One row per debit or credit line. Each batch posts together after review; a Placement ID supplies its assignment dimensions.',
     required: [
       { label: 'Batch ref', aliases: ['batch ref', 'batch_ref'], defaultable: true },
       { label: 'Posting date', aliases: ['posting date', 'posting_date'] },
@@ -33,7 +33,7 @@ const IMPORT_TYPES = {
   },
   periods: {
     label: 'Accounting periods',
-    description: 'Create or update periods for an entity and control their close status.',
+    description: 'Create open or future periods. Close or reopen an existing period in the Periods view.',
     required: [
       { label: 'Entity id', aliases: ['entity id', 'entity_id'] },
       { label: 'Period number', aliases: ['period number', 'period_number'] },
@@ -162,9 +162,13 @@ export default function AccountingImport() {
   const canCommit = Boolean(
     dry &&
     dry.row_count > 0 &&
-    (dry.error_count === 0 || (skipInvalid && validRows > 0)) &&
+    (dry.error_count === 0 || (type === 'coa' && skipInvalid && validRows > 0)) &&
     !busyAction
   );
+  const commitStopped = Boolean(result?.aborted || (
+    result?.imported_count === 0 && result?.skipped_count > 0 &&
+    Object.keys(result?.errors || {}).length > 0
+  ));
 
   const invalidateCheck = () => {
     setDry(null);
@@ -235,7 +239,7 @@ export default function AccountingImport() {
     setErr(null);
     try {
       setResult(await api.post(
-        `/modules/accounting/api/import.php?action=commit&type=${type}${skipInvalid ? '&skip_invalid=1' : ''}`,
+        `/modules/accounting/api/import.php?action=commit&type=${type}${type === 'coa' && skipInvalid ? '&skip_invalid=1' : ''}`,
         requestBody()
       ));
     } catch (error) {
@@ -258,7 +262,7 @@ export default function AccountingImport() {
       <header style={{ marginBottom: 'var(--cf-space-5)' }}>
         <h2 style={{ margin: '0 0 var(--cf-space-1)' }}>CSV ledger import</h2>
         <p style={{ margin: 0, color: 'var(--cf-text-secondary)', maxWidth: 820 }}>
-          Upload a file or paste rows from Excel. CoreFlux checks every row before anything is posted.
+          Upload a file or paste rows from Excel. Check the file before committing; journal and period imports post as a whole.
         </p>
       </header>
 
@@ -482,7 +486,7 @@ export default function AccountingImport() {
           >
             {busyAction === 'commit' ? 'Importing...' : 'Commit import'}
           </button>
-          {dry?.error_count > 0 && validRows > 0 && (
+          {type === 'coa' && dry?.error_count > 0 && validRows > 0 && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <input
                 type="checkbox"
@@ -524,14 +528,14 @@ export default function AccountingImport() {
               ? <AlertCircle size={17} aria-hidden="true" />
               : <CheckCircle2 size={17} aria-hidden="true" />}
             {dry.error_count
-              ? `${dry.error_count} ${dry.error_count === 1 ? 'row needs' : 'rows need'} attention`
+              ? `${dry.error_count} ${dry.error_count === 1 ? 'issue needs' : 'issues need'} attention`
               : `${dry.row_count} ${dry.row_count === 1 ? 'row is' : 'rows are'} ready to import`}
           </div>
           {dry.errors && Object.keys(dry.errors).length > 0 && (
             <ul style={{ fontSize: 13, margin: '10px 0 0', paddingLeft: 22 }}>
               {Object.entries(dry.errors).slice(0, 20).map(([rowNumber, messages]) => (
                 <li key={rowNumber} style={{ marginBottom: 4 }}>
-                  <strong>Row {rowNumber}:</strong> {(messages || []).map(formatImportError).join('; ')}
+                  <strong>{rowNumber.startsWith('batch:') ? `Batch ${rowNumber.slice(6)}` : `Row ${rowNumber}`}:</strong> {(messages || []).map(formatImportError).join('; ')}
                 </li>
               ))}
             </ul>
@@ -542,9 +546,9 @@ export default function AccountingImport() {
       {result && (
         <div
           data-testid="accounting-import-commit-result"
-          style={{ marginTop: 12, background: '#ecfdf5', border: '1px solid #a7e2cf', borderLeft: '3px solid #0f9f78', padding: 14 }}
+          style={{ marginTop: 12, background: commitStopped ? '#fffbeb' : '#ecfdf5', border: `1px solid ${commitStopped ? '#f3c98b' : '#a7e2cf'}`, borderLeft: `3px solid ${commitStopped ? '#d97706' : '#0f9f78'}`, padding: 14 }}
         >
-          <strong>Import complete:</strong> {result.imported_count} imported, {result.skipped_count} skipped.
+          <strong>{commitStopped ? 'Import stopped:' : 'Import complete:'}</strong> {result.imported_count} imported{result.replayed_count ? `, ${result.replayed_count} already posted` : ''}, {result.skipped_count} skipped.
           {result.errors && Object.keys(result.errors).length > 0 && (
             <ul style={{ fontSize: 13, margin: '8px 0 0', paddingLeft: 22 }}>
               {Object.entries(result.errors).slice(0, 20).map(([key, messages]) => (

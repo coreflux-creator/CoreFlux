@@ -157,6 +157,8 @@ return [
         'accounting.recurring_je.resume',
         'accounting.recurring_je.end',
         'accounting.recurring_je.run',
+        'accounting.recurring_je.draft_posted',
+        'accounting.recurring_je.run_reversed',
         'accounting.recurring_je.auto_ended',
         'accounting.allocation.rule_created',
         'accounting.allocation.previewed',

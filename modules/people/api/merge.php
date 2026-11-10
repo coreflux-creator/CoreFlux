@@ -62,7 +62,7 @@ try {
     foreach ($resolutions as $field => $choice) {
         if ($choice !== 'duplicate') continue;
         if (!array_key_exists($field, $duplicate)) continue;
-        if (in_array($field, ['id', 'tenant_id', 'created_at', 'created_by_user_id', 'deleted_at'], true)) continue;
+        if (in_array($field, array_merge(['id', 'tenant_id', 'created_at', 'created_by_user_id', 'deleted_at'], coreRecordNumberFields()), true)) continue;
         $diff[$field] = ['from' => $primary[$field] ?? null, 'to' => $duplicate[$field] ?? null];
         $update[$field] = $duplicate[$field];
     }
@@ -130,6 +130,7 @@ try {
     ]);
     $counts['people_pii_access_log'] = $stmt->rowCount();
 
+    coreRecordNumbersMerge($pdo, (int) currentTenantId(), 'person', $primaryId, $duplicateId, (int) ($user['id'] ?? 0));
     // Soft-delete duplicate
     $stmt = $pdo->prepare(
         'UPDATE people SET deleted_at = NOW(), email_primary = CONCAT("merged_", id, "_", email_primary)

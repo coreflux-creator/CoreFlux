@@ -73,9 +73,13 @@ $check('catalog import and export emit audit events',
     str_contains($manifest, "'billing.item.csv_imported'")
     && str_contains($manifest, "'billing.item.csv_exported'"));
 if ($deploy !== null) {
+    $lintTargets = file($root . '/scripts/light_workspace_php_lint.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     $check('light deployment ships and verifies the new surfaces',
-        substr_count($deploy, 'modules/billing/api/items_csv_import.php') >= 2
-        && substr_count($deploy, 'modules/billing/api/items_csv_export.php') >= 2
+        str_contains($deploy, 'modules/billing/api/items_csv_import.php')
+        && str_contains($deploy, 'modules/billing/api/items_csv_export.php')
+        && in_array('modules/billing/api/items_csv_import.php', $lintTargets, true)
+        && in_array('modules/billing/api/items_csv_export.php', $lintTargets, true)
+        && str_contains($deploy, 'done < scripts/light_workspace_php_lint.txt')
         && str_contains($deploy, 'modules/billing/ui/ItemsCsvImport.jsx')
         && str_contains($deploy, 'php tests/billing_items_csv_roundtrip_smoke.php'));
 }

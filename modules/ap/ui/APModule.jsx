@@ -37,28 +37,30 @@ const navItems = [
   { to: '/modules/ap/settings',         label: 'Settings' },
 ];
 
-export default function APModule() {
+export default function APModule({ session }) {
+  const standaloneAccounting = session?.product_mode === 'coreaccounting';
   return (
     <div className="people-directory" data-testid="ap-module">
       <header className="module-workspace-header">
         <span className="workspace-eyebrow">Accounts payable / bills</span>
         <h1>Bills &amp; payments</h1>
-        <p>From approved work to payment-ready obligations.</p>
-        <ModuleTabs items={navItems.map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" />
+        <p>Review bills, approvals, payments, and payables.</p>
+        <ModuleTabs items={navItems.filter(n => !standaloneAccounting || !['/modules/ap/weekly-queue', '/modules/ap/settings'].includes(n.to)).map(n => ({ ...n, testId: `ap-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Accounts payable sections" testId="ap-section-nav" preserveEntityScope />
       </header>
 
       <Routes>
         <Route index element={<Navigate to="bills" replace />} />
-        <Route path="bills" element={<BillsList />} />
-        <Route path="bills/csv_import" element={<BillsCsvImport />} />
-        <Route path="bills/new" element={<BillCreate />} />
-        <Route path="bills/:id" element={<BillDetail />} />
-        <Route path="weekly-queue" element={<WeeklyQueue />} />
-        <Route path="payments" element={<PaymentsList />} />
-        <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
+        <Route path="overview" element={<Navigate to="../bills" replace />} />
+        <Route path="bills" element={<BillsList session={session} />} />
+        <Route path="bills/csv_import" element={<BillsCsvImport standaloneAccounting={standaloneAccounting} />} />
+        <Route path="bills/new" element={<BillCreate session={session} />} />
+        <Route path="bills/:id" element={<BillDetail session={session} />} />
+        <Route path="weekly-queue" element={standaloneAccounting ? <Navigate to="../bills" replace /> : <WeeklyQueue />} />
+        <Route path="payments" element={<PaymentsList session={session} />} />
+        <Route path="payments/csv_import" element={<PaymentsCsvImport standaloneAccounting={standaloneAccounting} />} />
         <Route path="approvals" element={<Approvals />} />
         <Route path="vendors" element={<VendorsList />} />
-        <Route path="vendors/csv_import" element={<VendorsCsvImport />} />
+        <Route path="vendors/csv_import" element={<VendorsCsvImport standaloneAccounting={standaloneAccounting} />} />
         <Route path="expenses" element={<ExpensesList />} />
         <Route path="expenses/new" element={<ExpenseCreate />} />
         <Route path="recurring" element={<RecurringBills />} />
@@ -68,7 +70,7 @@ export default function APModule() {
         <Route path="aging" element={<AgingTable />} />
         <Route path="1099" element={<Ledger1099 />} />
         <Route path="export" element={<Export />} />
-        <Route path="settings" element={<Settings />} />
+        <Route path="settings" element={standaloneAccounting ? <Navigate to="../payments" replace /> : <Settings />} />
       </Routes>
     </div>
   );

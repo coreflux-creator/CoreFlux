@@ -22,10 +22,17 @@
       "required": ["vendor_id", "amount"]
     },
     "BillPay": {
-      "writableProperties": ["pay_via"],
+      "writableProperties": ["pay_via", "amount"],
       "required": ["pay_via"],
+      "supplementalVerification": {
+        "date": "2026-10-25",
+        "kind": "reviewed provider source and isolated application regression",
+        "source": "backend/server.py: PayBillBody, _pay_existing_bill, _create_payment_locked",
+        "tests": "contract_tests/test_wallet_payment_evidence.py: explicit amount overrides payment plan and rejects changed open balance"
+      },
       "constraints": {
-        "pay_via.allowed": ["wallet"]
+        "pay_via.allowed": ["wallet"],
+        "amount": "Explicit gross USD amount from the durable Core payment obligation; do not rely on the provider payment-plan default"
       }
     },
     "Webhook": {

@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-23",
+  "candidate": "d942c386a008455e4c5a80e478e253aceb9efa6d",
+  "shared_head": "9cd71c83e5569e029d2ef55054be5d0d1e6e15cd",
+  "host": "agent-env-b72adfe8-90bf-42be-a8d0-38528e050f4f",
+  "preview": "https://beautiful-kalam-6.preview.emergentagent.com",
+  "stage": "verified",
+  "runtime_files": 7,
+  "installed_hashes": {
+    "backend/quanta.py": "9a52754747be18ed99eaba62875e193eeb5eb391605c430811452d076a32baa1",
+    "backend/coreflux_exchange.py": "9e2554ed19eb93be61a94dcff8e25f6529d0df7bd59aeb6ae68da3366fef25b3",
+    "frontend/src/components/coreApiKeyScopes.js": "292115533633f340b48a4fb767201cf7507896acb6fdc6313ea860c6dd54c56d",
+    "backend/coreflux_people_setup.py": "4d4c249a23f33418ccabf96aa6ee9411395fac565deb41528c98e33d43ffbb21",
+    "backend/quanta_webhooks.py": "acc22afa3fc3d7252a04e4d3e7d025470400a86a2d3d5e9bfcc8405a04900a82",
+    "frontend/src/components/DeveloperSettings.jsx": "f7bea2d13cc681ece88ca680cee6e38b676217421f1015d7b1ba029614635683",
+    "frontend/src/pages/Quanta.jsx": "fbc949f3dd82189768823d73b03e7872bef95a2e4687cae63e217177603d5093"
+  },
+  "documents_unchanged": true,
+  "document_count": 20596,
+  "nonempty_collections": 112,
+  "health": {
+    "message": "Pure//Pay API",
+    "startup_mode": "review",
+    "background_jobs": false,
+    "startup_migrations": false,
+    "scheduled_operations": false
+  },
+  "configuration_changed": false,
+  "shared_head_unchanged": true,
+  "shared_index_unchanged": true,
+  "unrelated_source_unchanged": true,
+  "production_deployment": false,
+  "backup_directory": "/tmp/purepay-integration-preview-install-vbnlph62",
+  "browser_acceptance": {
+    "date": "2026-10-23",
+    "candidate": "d942c386a008455e4c5a80e478e253aceb9efa6d",
+    "preview": "https://beautiful-kalam-6.preview.emergentagent.com",
+    "workspace": "Meridian Holdings LLC (existing demo)",
+    "checks": {
+      "existing_session_loaded": true,
+      "core_records_scope_visible": true,
+      "extra_scopes_default_off": true,
+      "setup_scope_disabled_without_payroll_read": true,
+      "setup_scope_remains_off_when_payroll_read_selected": true,
+      "scope_form_restored_before_navigation": true,
+      "no_key_created": true,
+      "webhook_secret_requirement_visible": true,
+      "webhook_endpoint_uses_preview_origin": true,
+      "no_sync_or_configuration_save": true
+    },
+    "existing_connection": {
+      "destination": "https://helloquanta.app",
+      "mode": "Existing automatic workflow",
+      "hourly_catchup_setting": true,
+      "background_jobs_running": false,
+      "missing_signing_secret": true,
+      "linked_people": 0,
+      "imported_entries": 0
+    },
+    "evidence": [
+      "integration-preview-core-scopes-20261023.png",
+      "integration-preview-webhook-20261023.png"
+    ],
+    "limits": [
+      "Existing demo workspace only; no Thunderhawk round trip.",
+      "No authenticated Core provider exchange.",
+      "No production publication or Live/Test setting save."
+    ]
+  }
+}

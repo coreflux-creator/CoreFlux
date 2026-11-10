@@ -32,7 +32,13 @@ $check('invoice detail and list expose saved recipient data',
     && str_contains($api, "\$invoiceRow['recipient_email']")
     && str_contains($detail, 'data?.default_recipient?.email'));
 $check('invoice list exposes journal posting state',
-    str_contains($api, 'journal_entry_id, sent_at'));
+    str_contains($api, 'bi.journal_entry_id, bi.sent_at')
+    && str_contains($api, 'AS journal_status')
+    && str_contains($list, "row.journal_status === 'posted'"));
+$check('unapprovable drafts explain the independent reviewer requirement',
+    str_contains($detail, 'billing-invoice-approval-guidance')
+    && str_contains($detail, 'This draft needs approval from a different authorized user.')
+    && str_contains($detail, 'to="/modules/billing/approvals"'));
 $check('server search uses separate placeholders to avoid native-prepare HY093 errors',
     str_contains($api, 'invoice_number LIKE :q_invoice')
     && str_contains($api, 'client_name LIKE :q_client')
@@ -40,13 +46,14 @@ $check('server search uses separate placeholders to avoid native-prepare HY093 e
     && str_contains($api, "\$params['q_client']"));
 
 $failedGuard = strpos($api, "if ((\$sendRes['status'] ?? 'failed') !== 'sent')");
-$sentUpdate = strpos($api, 'UPDATE billing_invoices SET status = "sent"', $failedGuard === false ? 0 : $failedGuard);
-$check('failed email leaves invoice approved and retryable',
+$finalize = strpos($api, 'billingDeliveryFinalize(', $failedGuard === false ? 0 : $failedGuard);
+$check('unconfirmed email stays under review before delivery finalization',
     $failedGuard !== false
-    && $sentUpdate !== false
-    && $failedGuard < $sentUpdate
-    && str_contains($api, 'The invoice remains approved so you can retry.')
-    && str_contains($api, "'retryable' => true"));
+    && $finalize !== false
+    && $failedGuard < $finalize
+    && str_contains($api, 'billingDeliveryMarkUncertain($tid, $id,')
+    && str_contains($api, "'invoice_status' => \$row['status']")
+    && str_contains($api, "'delivery_status' => 'uncertain', 'retryable' => false"));
 
 $check('invoice work queue supports bulk approve, post, and send',
     str_contains($list, 'billing-invoices-approve-selected')

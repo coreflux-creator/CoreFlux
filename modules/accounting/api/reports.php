@@ -22,21 +22,63 @@ rbac_legacy_require($user, 'accounting.coa.view');
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
 $type = (string) ($_GET['type'] ?? '');
-$eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
+$consolidate = !empty($_GET['consolidate']);
+$eid = null;
+if (array_key_exists('entity_id', $_GET)) {
+    if ($consolidate) api_error('Choose either one legal entity or a consolidation scope.', 422);
+    $rawEntityId = $_GET['entity_id'];
+    if (!is_scalar($rawEntityId) || trim((string) $rawEntityId) === '') {
+        api_error('Choose a legal entity from this workspace.', 422);
+    }
+    try {
+        $eid = accountingValidateActiveEntityId($tid, $rawEntityId);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 // Consolidation-mode input: ?consolidate=1&entity_ids=1,2,3
 // Or derive from an ownership root: ?consolidate=1&root_entity_id=1
-$consolidate = !empty($_GET['consolidate']);
 $entityIds   = [];
 if ($consolidate) {
-    if (!empty($_GET['entity_ids'])) {
-        $entityIds = array_values(array_filter(array_map('intval', explode(',', (string) $_GET['entity_ids']))));
-    } elseif (!empty($_GET['root_entity_id'])) {
+    if (!in_array($type, ['income_statement', 'balance_sheet', 'trial_balance'], true)) {
+        api_error('Consolidation is available for income statement, balance sheet, and trial balance.', 422);
+    }
+    if (array_key_exists('entity_ids', $_GET) && array_key_exists('root_entity_id', $_GET)) {
+        api_error('Choose either entity_ids or root_entity_id for consolidation.', 422);
+    }
+    if (array_key_exists('entity_ids', $_GET)) {
+        if (!is_string($_GET['entity_ids'])) api_error('Choose valid consolidation entities.', 422);
+        foreach (preg_split('/\s*,\s*/', trim($_GET['entity_ids'])) as $value) {
+            if ($value === '') api_error('Choose valid consolidation entities.', 422);
+            try {
+                $entityIds[] = accountingValidateActiveEntityId($tid, $value);
+            } catch (\InvalidArgumentException $e) {
+                api_error($e->getMessage(), 422);
+            }
+        }
+    } elseif (array_key_exists('root_entity_id', $_GET)) {
+        if (!is_scalar($_GET['root_entity_id']) || trim((string) $_GET['root_entity_id']) === '') {
+            api_error('Choose a valid consolidation root entity.', 422);
+        }
+        try {
+            $rootEntityId = accountingValidateActiveEntityId($tid, $_GET['root_entity_id']);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
+        if ($rootEntityId === null) api_error('Choose a valid consolidation root entity.', 422);
         $asOfForTree = $_GET['as_of'] ?? $_GET['to'] ?? date('Y-m-d');
-        $tree = entityRelationshipResolveDescendants($tid, (int) $_GET['root_entity_id'], $asOfForTree);
-        $entityIds = array_map('intval', array_keys($tree));
+        $tree = entityRelationshipResolveDescendants($tid, $rootEntityId, $asOfForTree);
+        foreach (array_keys($tree) as $value) {
+            try {
+                $entityIds[] = accountingValidateActiveEntityId($tid, $value);
+            } catch (\InvalidArgumentException $e) {
+                api_error($e->getMessage(), 422);
+            }
+        }
     }
     if (!$entityIds) api_error('consolidate=1 requires entity_ids=... or root_entity_id=...', 422);
+    $entityIds = array_values(array_unique($entityIds));
 }
 
 /**

@@ -81,7 +81,7 @@ if ($method === 'GET') {
     $liabilityLinks = [];
     try {
         $liabilityLinks = scopedQuery(
-            'SELECT id, account_id, subtype, institution_name, last4
+            'SELECT id, account_id, entity_id, subtype, institution_name, last4
                FROM treasury_liability_accounts
               WHERE tenant_id = :tenant_id AND account_id = :account_id ORDER BY id',
             ['account_id' => $accountId]

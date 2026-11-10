@@ -75,6 +75,7 @@ $expected = [
     'ap.view'                            => ['ap', 'read'],
     // billing
     'billing.invoice.approve'            => ['billing', 'admin'],
+    'billing.approvals.manage'            => ['billing', 'admin'],
     'billing.invoice.create'             => ['billing', 'write'],
     'billing.invoice.draft'              => ['billing', 'write'],
     'billing.invoice.send'               => ['billing', 'admin'],

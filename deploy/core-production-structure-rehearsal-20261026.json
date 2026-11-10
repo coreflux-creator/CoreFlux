@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-26T21:46:09+00:00",
+  "scope": "Local disposable MariaDB using actual production structure and migration metadata, with no business records",
+  "candidate_commit": "3ca517137489a54d558d74f5ce4b6d4900952151",
+  "candidate_migration_files": 327,
+  "source_snapshot": {
+    "observed_at": "2026-10-26T21:25:40+00:00",
+    "sha256": "c1692fec6f760524f48d9df417ec3c69245c587ecde8961f2c8eac0dd79737a9",
+    "server_version": "10.11.18-MariaDB-deb12-log",
+    "objects": 393,
+    "base_tables": 387,
+    "views": 6,
+    "triggers": 19,
+    "canonical_ledger_rows": 269,
+    "legacy_ledger_rows": 255,
+    "business_rows_exported": 0
+  },
+  "initial_failure": {
+    "candidate_commit": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+    "pending_files": 77,
+    "migration": "core/migrations/156_billing_invoice_approval_attempts.sql",
+    "statement": 1,
+    "sqlstate": "42000",
+    "driver_code": 1091,
+    "cause": "Retired deployed migration 118 already removed uq_wfi_subject. The later 156/158 uniqueness semantics also conflict with completed-review history.",
+    "artifact": {
+      "path": "output/full-core-structure-rehearsal-20261026/rehearsal-result.json",
+      "sha256": "ee58cf9994c1fce127828fcd5c82a58abc5671fe7ffe63907e337c8abd735c55"
+    }
+  },
+  "correction": {
+    "successor": "core/migrations/182_workflow_pending_subject_identity.sql",
+    "retired_paths": [
+      "core/migrations/156_billing_invoice_approval_attempts.sql",
+      "core/migrations/158_payroll_workflow_review_attempts.sql"
+    ],
+    "historical_sql_preserved_in_test_fixtures": true,
+    "successful_installed_source_and_ledger_preserved": true,
+    "pending_only_unique_identity": true,
+    "duplicate_pending_requires_recovery": true,
+    "staging_crlf_ledger_identity_preserved": true
+  },
+  "acceptance": {
+    "server_version": "10.11.18-MariaDB",
+    "pending_files": 76,
+    "executed_statements": 734,
+    "plan_sha256": "e49f4b0576376c92fc09353142f613227dd8ef3a99e846b85c192015101c6a6e",
+    "passed": true,
+    "original_migration_history_preserved": true,
+    "workflow_schema_variant_checks": 26,
+    "migration_plan_checks_windows": 50,
+    "parser_checks": 98,
+    "process_stopped": true
+  },
+  "live_read_only_inspections": {
+    "production": {
+      "at": "2026-10-26T21:44:38+00:00",
+      "target": "production",
+      "duplicate_pending_subjects": 0,
+      "subjects_with_multiple_terminal_reviews": 0,
+      "retired_workflow_history": {
+        "156_billing_invoice_approval_attempts.sql": {
+          "row": null,
+          "source_sha256": null
+        },
+        "158_payroll_workflow_review_attempts.sql": {
+          "row": null,
+          "source_sha256": null
+        }
+      },
+      "business_rows_exported": 0,
+      "database_changed": false
+    },
+    "staging": {
+      "at": "2026-10-26T21:45:02+00:00",
+      "target": "staging",
+      "duplicate_pending_subjects": 0,
+      "subjects_with_multiple_terminal_reviews": 1,
+      "retired_workflow_history": {
+        "156_billing_invoice_approval_attempts.sql": {
+          "row": {
+            "filename": "156_billing_invoice_approval_attempts.sql",
+            "sha256": "dba46125929147bfa0bc4284fb2e7a54e7260c2eac3b25eb17600345ae63708f",
+            "failed": 0
+          },
+          "legacy_sha256": null,
+          "source_sha256": "04fdd6550cc3ba61c3edcf920e47e17c3081d1ce96fefaed12a48bd8522106f3"
+        },
+        "158_payroll_workflow_review_attempts.sql": {
+          "row": {
+            "filename": "158_payroll_workflow_review_attempts.sql",
+            "sha256": "011dd07f2b65567ac2d8bce7e4ba5606abcf8951fed1addb4b9eaf828972664d",
+            "failed": 0
+          },
+          "legacy_sha256": null,
+          "source_sha256": "011dd07f2b65567ac2d8bce7e4ba5606abcf8951fed1addb4b9eaf828972664d"
+        }
+      },
+      "business_rows_exported": 0,
+      "database_changed": false
+    }
+  },
+  "artifacts": {
+    "production-structure.json": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/production-structure.json",
+      "sha256": "c1692fec6f760524f48d9df417ec3c69245c587ecde8961f2c8eac0dd79737a9"
+    },
+    "preparation.json": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/preparation.json",
+      "sha256": "4a9d150b91a27be1013e02653276242d158a4b333277dc6e4515e007a6e3d145"
+    },
+    "manifest.json": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/manifest.json",
+      "sha256": "abe8934d02621443e51d14111640949437d71e952bfb96655ea6b56169925411"
+    },
+    "exact-plan.json": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/exact-plan.json",
+      "sha256": "c806e95f459813819b29e59e565bf274e16eb8362811ecd9f6355dd20ada6e5a"
+    },
+    "rehearsal-result.json": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/rehearsal-result.json",
+      "sha256": "0ef1cf1e1f7cd7379446504e679cafd2e4a6d6bfbd090bf92b29d175def7d3ff"
+    },
+    "local-db-final/process.json": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/local-db-final/process.json",
+      "sha256": "26e7f255a021490c28bbc6997a25227ae612cc7b0e4f74df3c91f9b4591730be"
+    },
+    "prepare_rehearsal.py": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/prepare_rehearsal.py",
+      "sha256": "14eb46813a375cc1f53f9ad6f04d5a24cea85ef11966240b3ddae275fda3080f"
+    },
+    "rehearse_structure.php": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/rehearse_structure.php",
+      "sha256": "7e02f564110fc7a12b2de7b380288a2e967a45b7f43d345633f44d21486d3472"
+    },
+    "run_rehearsal.py": {
+      "path": "output/full-core-structure-rehearsal-final-20261026/run_rehearsal.py",
+      "sha256": "8adec0b409fe261a4c9dc11f943ec5fa6f686c390790d7ff7a3c09808d7f2bbf"
+    }
+  },
+  "production_changed": false,
+  "staging_changed": false,
+  "production_execution_authorized": false,
+  "limitations": [
+    "Schema and migration metadata only; populated conversion, source-data backfill and large-table timing are unproven.",
+    "Full application package, production writers/drain and app-owner deployment have not been exercised by this local fixture.",
+    "Fresh consistent backup and restore proof plus supported Cloudways ownership/scheduler procedure remain required.",
+    "Actual Thunderhawk and remaining customer/financial acceptance remain open; no real payroll, payments or posting."
+  ]
+}

@@ -90,8 +90,9 @@ $a('ap/bills ?action=from-time-entries wired',
     str_contains($billApi, "'POST' && \$action === 'from-time-entries'"));
 $a('ap from-time-entries requires ap.bill.create permission',
     preg_match("/from-time-entries[\s\S]{0,400}rbac_legacy_require\(\\\$user, 'ap\\.bill\\.create'\)/", $billApi) === 1);
-$a('ap from-time-entries upserts ap_vendors_index',
-    preg_match("/from-time-entries[\s\S]{0,3500}INSERT INTO ap_vendors_index/", $billApi) === 1);
+$a('ap from-time-entries resolves the saved vendor classification',
+    preg_match("/from-time-entries[\s\S]{0,1200}apPrepareGeneratedDraftVendor/", $billApi) === 1
+    && !str_contains($billApi, 'INSERT INTO ap_vendors_index'));
 
 $a('staffing approved_entries action wired',
     str_contains($tsApi, "'GET' && \$action === 'approved_entries'"));

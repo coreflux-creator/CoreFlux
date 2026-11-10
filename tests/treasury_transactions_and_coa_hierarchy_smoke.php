@@ -38,7 +38,11 @@ $assert('flips amount sign (Plaid + outflow → ledger - debit)',
                                              strpos($src, '* -1') !== false);
 $assert('handles MUTATION_DURING_PAGINATION',strpos($src, 'MUTATION_DURING_PAGINATION') !== false);
 $assert('refuses sync when no destinations', strpos($src, 'No mirrored deposit or liability accounts') !== false);
-$assert('removed → match_status=ignored',    strpos($src, "match_status = 'ignored'") !== false);
+$providerSync = (string) file_get_contents(__DIR__ . '/../core/treasury/provider_statement_sync.php');
+$assert('removed unmatched lines become ignored without changing matched lines',
+    strpos($src, 'treasuryProviderIgnoreRemovedLine(') !== false
+    && strpos($providerSync, "SET match_status = 'ignored'") !== false
+    && strpos($providerSync, "AND match_status = 'unmatched'") !== false);
 $assert('updates plaid_items.transactions_cursor',
                                              strpos($src, "'transactions_cursor'") !== false);
 $assert('per-account counter in result',     strpos($src, "'per_account'") !== false);
@@ -69,7 +73,7 @@ $assert('POST ?action=categorize_and_post handler',
                                              strpos($at, "categorize_and_post") !== false);
 $assert('uses accountingPostJe with idempotency key',
                                              strpos($at, "accountingPostJe(") !== false
-                                             && strpos($at, "treasury_feed:{") !== false);
+                                             && strpos($at, 'treasuryStatementPostingKey($type, $lineId, false, $postingAttempt)') !== false);
 $assert('charge: DR counterpart, CR side',   strpos($at, "\$debitId  = \$counterId") !== false);
 $assert('payment: DR side, CR counterpart',  strpos($at, "\$debitId  = \$sideAccountId") !== false);
 $assert('rejects same-account counterpart',  strpos($at, 'Counterpart cannot be the same') !== false);

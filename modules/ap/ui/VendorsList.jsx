@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
+import { withVendorType } from './vendorTaxDefaults.mjs';
 
 export default function VendorsList() {
   const [q, setQ] = useState('');
@@ -66,7 +67,7 @@ export default function VendorsList() {
           {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
           {rows.map(v => (
             <tr key={v.id} data-testid={`ap-vendor-row-${v.id}`}>
-              <td><IdBadge id={v.id} prefix="V" /></td>
+              <td><IdBadge id={v.id} number={v.vendor_number} prefix="V" /></td>
               <td>{v.vendor_name}</td>
               <td><span className="badge">{v.vendor_type}</span></td>
               <td>{v.default_terms}</td>
@@ -173,7 +174,7 @@ function PortalInviteButton({ vendor }) {
 }
 
 function VendorCreateModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ vendor_name: '', vendor_type: '1099_individual', default_terms: 'NET30', tax_id_full: '', requires_1099: true });
+  const [form, setForm] = useState({ vendor_name: '', vendor_type: 'other', default_terms: 'NET30', tax_id_full: '', requires_1099: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const submit = async () => {
@@ -190,7 +191,10 @@ function VendorCreateModal({ onClose, onCreated }) {
             <input className="input" value={form.vendor_name} onChange={(e) => setForm({ ...form, vendor_name: e.target.value })} data-testid="ap-vendor-name" style={{ marginTop: 4 }} />
           </label>
           <label style={{ fontSize: 13 }}><span style={{ color: 'var(--cf-text-secondary)' }}>Type</span>
-            <select className="input" value={form.vendor_type} onChange={(e) => setForm({ ...form, vendor_type: e.target.value })} data-testid="ap-vendor-type" style={{ marginTop: 4 }}>
+            <select className="input" value={form.vendor_type} onChange={(e) => {
+              const vendorType = e.target.value;
+              setForm((current) => withVendorType(current, vendorType));
+            }} data-testid="ap-vendor-type" style={{ marginTop: 4 }}>
               <option value="1099_individual">1099 Individual</option>
               <option value="c2c_corp">C2C Corp</option>
               <option value="w9_business">W9 Business</option>

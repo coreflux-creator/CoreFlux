@@ -49,7 +49,10 @@ foreach (['vendor_name','vendor_type','vendor_category','default_terms','remit_t
 $a('vendor template action',                 str_contains($ven, "action === 'template'") && str_contains($ven, 'vendors_template.csv'));
 $a('vendor dry_run action',                  str_contains($ven, "action === 'dry_run'") && str_contains($ven, "dryRun('ap_vendors'"));
 $a('vendor commit action',                   str_contains($ven, "action === 'commit'") && str_contains($ven, "commit('ap_vendors'"));
-$a('vendor upsert by name',                  str_contains($ven, 'ON DUPLICATE KEY UPDATE'));
+$a('vendor update by name is explicit and guarded',
+    str_contains($ven, '$namedVendorId = (int) $find->fetchColumn();')
+    && str_contains($ven, 'apUpdateVendorIdentity($pdo, $tid, $namedVendorId')
+    && !str_contains($ven, 'ON DUPLICATE KEY UPDATE'));
 $a('vendor RBAC gate ap.bill.create',        str_contains($ven, "'ap.bill.create'"));
 $a('vendor audit emitted',                   str_contains($ven, 'ap.vendor.csv_imported'));
 

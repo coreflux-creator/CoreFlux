@@ -1,0 +1,235 @@
+{
+  "date": "2026-10-25",
+  "core_runtime": "e34e413e9fbc57003bda8b164ceb4690e5672a55",
+  "ci": {
+    "conclusion": "success",
+    "headSha": "e34e413e9fbc57003bda8b164ceb4690e5672a55",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40212056417"
+  },
+  "ci_jobs_passed": 9,
+  "deployment": {
+    "conclusion": "success",
+    "headSha": "e34e413e9fbc57003bda8b164ceb4690e5672a55",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40212296171"
+  },
+  "legacy_location_contract_checks": 71,
+  "publication_guard_checks": 35,
+  "quanta_location_publication": {
+    "run": {
+      "conclusion": "success",
+      "headSha": "e34e413e9fbc57003bda8b164ceb4690e5672a55",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40212818094"
+    },
+    "receipts": [
+      {
+        "checked_at": "2026-10-25T16:41:34+00:00",
+        "mode": "--publish-demo-location",
+        "tenant_id": 999,
+        "production_changed": false,
+        "native_assignment_activated": false,
+        "time_approved": false,
+        "financial_execution": false,
+        "credentials_changed": false,
+        "delivery": {
+          "id": 14,
+          "state": "delivered",
+          "remote_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+          "remote_receipt_id": "cfd_cb10fab0b2462a2698819fe1fef60964811953a0e6ce861077386f0ae898ce7c"
+        },
+        "quanta": {
+          "assignment_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+          "worker_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+          "version": 3,
+          "work_location": {
+            "city": null,
+            "state": "NJ",
+            "country": "US"
+          },
+          "original_receipt_replay_identical": true,
+          "other_assignment_fields_unchanged": true,
+          "worker_identity_unchanged": true
+        },
+        "completed_and_nonpilot_deliveries_unchanged": true,
+        "local_business_and_connections_unchanged": true,
+        "passed": true,
+        "publication_flag_restored": true
+      },
+      {
+        "checked_at": "2026-10-25T16:41:39+00:00",
+        "mode": "--publish-demo-location",
+        "tenant_id": 999,
+        "production_changed": false,
+        "native_assignment_activated": false,
+        "time_approved": false,
+        "financial_execution": false,
+        "credentials_changed": false,
+        "already_unchanged": true,
+        "quanta": {
+          "assignment_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+          "worker_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+          "version": 3,
+          "work_location": {
+            "city": null,
+            "state": "NJ",
+            "country": "US"
+          },
+          "original_receipt_replay_identical": true,
+          "other_assignment_fields_unchanged": true,
+          "worker_identity_unchanged": true
+        },
+        "completed_and_nonpilot_deliveries_unchanged": true,
+        "local_business_and_connections_unchanged": true,
+        "passed": true,
+        "publication_flag_restored": true
+      }
+    ]
+  },
+  "purepay_commercial_publication": {
+    "run": {
+      "conclusion": "success",
+      "headSha": "5440181e25719d9043d2b3e60b64962958869e13",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40211912453"
+    },
+    "receipts": [
+      {
+        "checked_at": "2026-10-25T16:30:17+00:00",
+        "mode": "--publish-demo-commercial",
+        "tenant_id": 999,
+        "production_changed": false,
+        "native_assignment_activated": false,
+        "time_approved": false,
+        "financial_execution": false,
+        "credentials_changed": false,
+        "delivery": {
+          "id": 12,
+          "state": "delivered",
+          "remote_id": "cpa_98f87893fc9f73c253c75d20eacd8025e381e8ea11bde1dde96605bf946a5be4",
+          "remote_receipt_id": "cpa_98f87893fc9f73c253c75d20eacd8025e381e8ea11bde1dde96605bf946a5be4"
+        },
+        "purepay": {
+          "provider_review": {
+            "state": "revision_ready",
+            "assignment_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+            "assignment_status": "draft",
+            "accepted_revision": "859d6839ec2cc8830f051778d57a69a664747087bb7cc4012bc3a4afa7021e16"
+          },
+          "source_revision": "b3c39040daa72a7917de8a53bdfdcbd8aabb8ca8071e1c75f08f6eddcaa5a7d0",
+          "previous_revision": "859d6839ec2cc8830f051778d57a69a664747087bb7cc4012bc3a4afa7021e16",
+          "worksite_city": null,
+          "commercial_values_preserved": true,
+          "original_receipt_replay_identical": true,
+          "native_revision_review_pending": true
+        },
+        "completed_and_nonpilot_deliveries_unchanged": true,
+        "local_business_and_connections_unchanged": true,
+        "passed": true,
+        "publication_flag_restored": true
+      },
+      {
+        "checked_at": "2026-10-25T16:30:19+00:00",
+        "mode": "--publish-demo-commercial",
+        "tenant_id": 999,
+        "production_changed": false,
+        "native_assignment_activated": false,
+        "time_approved": false,
+        "financial_execution": false,
+        "credentials_changed": false,
+        "delivery": {
+          "id": 12,
+          "state": "delivered",
+          "remote_id": "cpa_98f87893fc9f73c253c75d20eacd8025e381e8ea11bde1dde96605bf946a5be4",
+          "remote_receipt_id": "cpa_98f87893fc9f73c253c75d20eacd8025e381e8ea11bde1dde96605bf946a5be4"
+        },
+        "purepay": {
+          "provider_review": {
+            "state": "revision_ready",
+            "assignment_id": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+            "assignment_status": "draft",
+            "accepted_revision": "859d6839ec2cc8830f051778d57a69a664747087bb7cc4012bc3a4afa7021e16"
+          },
+          "source_revision": "b3c39040daa72a7917de8a53bdfdcbd8aabb8ca8071e1c75f08f6eddcaa5a7d0",
+          "previous_revision": "859d6839ec2cc8830f051778d57a69a664747087bb7cc4012bc3a4afa7021e16",
+          "worksite_city": null,
+          "commercial_values_preserved": true,
+          "original_receipt_replay_identical": true,
+          "native_revision_review_pending": true
+        },
+        "completed_and_nonpilot_deliveries_unchanged": true,
+        "local_business_and_connections_unchanged": true,
+        "passed": true,
+        "publication_flag_restored": true
+      }
+    ]
+  },
+  "purepay_preview_resume": {
+    "at": "2026-10-25T16:29:06.835004+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "resumed": true,
+    "review_health": {
+      "message": "Pure//Pay API",
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "services": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "webhook-crond": "STOPPED"
+    },
+    "source_config_unchanged": true,
+    "records_unchanged": true,
+    "collections_verified": 144,
+    "production_changed": false
+  },
+  "purepay_native_review": {
+    "at": "2026-10-25T16:35:00.617Z",
+    "url": "https://pure-pay-support.preview.emergentagent.com/links",
+    "company": "Meridian Holdings LLC",
+    "placement": "PL-13",
+    "person": "P-15",
+    "client": "CL-1",
+    "assignmentId": "asg_core_0a33a112da5a16fd7d1ed5105e02368300ff7266efc49214933955327002921e",
+    "previousAndProposedTermsInspected": true,
+    "regularBill": "60.0000",
+    "regularPay": "30.0000",
+    "currency": "USD",
+    "unit": "hour",
+    "startDate": "2026-10-01",
+    "endDate": "2026-10-31",
+    "city": null,
+    "state": "NJ",
+    "country": "US",
+    "applyDisabled": true,
+    "assignmentDraft": true,
+    "revisionAccepted": false,
+    "persistentProvisioningChanged": false
+  },
+  "quanta_preflight": {
+    "host": "agent-env-14a1f661-002e-4d95-969e-ebcfd6ce88ba",
+    "head": "90ed420bf458da1097ba10dd7f2d7f190332f7df",
+    "held": true,
+    "before": {
+      "backend": "RUNNING",
+      "frontend": "RUNNING",
+      "webhook-crond": "RUNNING"
+    },
+    "scheduler_stopped": true,
+    "hashes": {
+      "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+      "backend/app/routers/v1/coreflux.py": "5a91dfc9c892b611ccbedb2ea02650e16717328463280810fe644a4e3d554091",
+      "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+      "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193",
+      "backend/server.py": "d7f76914cfa87cf8cec85a585aa92be0dd02a4c09d12a0e78e8d19c41b1fbd08"
+    }
+  },
+  "actual_thunderhawk_round_trip": false,
+  "production_cutover": false,
+  "credentials_changed": false,
+  "real_financial_execution": false,
+  "arabella_changed": false
+}

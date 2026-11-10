@@ -1,0 +1,143 @@
+{
+  "scope": "Existing isolated Core pilot and held PurePay development preview",
+  "core_runtime": "8fd81fc550232c2582dd7bd645e65f4d42458053",
+  "ci": {
+    "run": 40161581668,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40161581668",
+    "jobs_passed": 9,
+    "payment_evidence_checks": 87,
+    "purepay_delivery_mariadb_checks": 278
+  },
+  "deployment": {
+    "run": 40161770960,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40161770960",
+    "job": 121074658790,
+    "completed_at": "2026-10-25T04:27:20Z",
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/8fd81fc550232c2582dd7bd645e65f4d42458053-20261025042650",
+    "conclusion": "success"
+  },
+  "provider_source_commit": "41805a6317f6cda38fa59766c0adcea2df4c1cb7",
+  "provider_source_remote": "Local preserved PurePay source repository; not a GitHub or production publication",
+  "provider_installation": {
+    "at": "2026-10-25T04:26:37.243963+00:00",
+    "installed": true,
+    "source_hashes": {
+      "backend/server.py": "c5ced4a8ad59d8b940fffe19711e33c5a8011ee9446c643fe58099fc59f028c7",
+      "backend/integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+      "backend/integration_payment_outbox.py": "fce13b51b3d4159d05b0f254c0d406c27a3c7d54a5b0814149068c0bb6e15b7c",
+      "frontend/src/components/DeveloperSettings.jsx": "e9f252cf62ce9885fa387ed04f7cb61d2dcdd2f4a512c59443f13af075fbf229",
+      "frontend/src/pages/ApiDocs.jsx": "59d42e12f1e0573a361e5e6d4db3dbe58cead495c5d70f724539ec269ab25413"
+    },
+    "protected_unchanged_during_install": true,
+    "post_install": {
+      "at": "2026-10-25T04:26:37.240817+00:00",
+      "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+      "health": {
+        "startup_mode": "review",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false
+      },
+      "source_files_verified": 6321,
+      "head_and_configuration_unchanged": true,
+      "protected_differences": {
+        "index": {
+          "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+          "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+        }
+      },
+      "demo_unchanged": true,
+      "demo_counts": {
+        "pay_runs": 50,
+        "coreflux_payroll_inputs": 0,
+        "coreflux_payroll_authorities": 0
+      },
+      "demo_run_count": 50,
+      "published": false,
+      "credential_changes": false,
+      "candidate_installed": true,
+      "index_semantics": {
+        "equals_current_head": true,
+        "entries": 6256,
+        "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+        "historical_byte_equivalence_proven": false
+      }
+    },
+    "jsx_sources_parsed": 2,
+    "production_published": false,
+    "business_records_written": false,
+    "callback_worker_started": false,
+    "backup_directory": "/app/audit/core-payment-callbacks-2026-10-25"
+  },
+  "provider_final_verification": {
+    "at": "2026-10-25T04:28:42.771274+00:00",
+    "host": "agent-env-0e87516a-1271-4bb5-8431-089cb078627b",
+    "health": {
+      "startup_mode": "review",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false
+    },
+    "source_files_verified": 6321,
+    "head_and_configuration_unchanged": true,
+    "protected_differences": {
+      "index": {
+        "current": "60acd02191ea88d1b3fd850ff0fc06c3664221e442b67fb13fb3063a49fe379d",
+        "previous": "0c1b9a35cc80048bb27db729f8e78b456089232f22c42457b41c57a0f50cf3bc"
+      }
+    },
+    "demo_unchanged": true,
+    "demo_counts": {
+      "pay_runs": 50,
+      "coreflux_payroll_inputs": 0,
+      "coreflux_payroll_authorities": 0
+    },
+    "demo_run_count": 50,
+    "published": false,
+    "credential_changes": false,
+    "candidate_installed": true,
+    "index_semantics": {
+      "equals_current_head": true,
+      "entries": 6256,
+      "sha256": "6dac25df59d86e3aaedda33aa7b9d0789f4a05bfe27d12995c6f035d3318b22c",
+      "historical_byte_equivalence_proven": false
+    }
+  },
+  "provider_installed_acceptance": {
+    "runtime_hashes": {
+      "server.py": "c5ced4a8ad59d8b940fffe19711e33c5a8011ee9446c643fe58099fc59f028c7",
+      "integration_payment_results.py": "7684e16efee935be7312fd44359ca0ca79a0fe34b4ad12a36a9fbd7004aa3ec0",
+      "moov_client.py": "8ba337b3ca635c11393cf5b9c494b5c274a1113bf6cef196ca2f34891d5a12bb",
+      "integration_payment_outbox.py": "fce13b51b3d4159d05b0f254c0d406c27a3c7d54a5b0814149068c0bb6e15b7c"
+    },
+    "dependency_hashes": {},
+    "pytest_exit": 0,
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true,
+    "real_database_used": false,
+    "candidate_hashes": {},
+    "feature_gate_fixture": false,
+    "real_session_authentication": false,
+    "bill_payment_history": false,
+    "wallet_payment_evidence": false,
+    "payment_outbox": true,
+    "workflow": false,
+    "live_workspace_acceptance": false,
+    "report_directory": "/tmp/purepay-core-full-app-h68o8yqv"
+  },
+  "provider_checks_passed": 84,
+  "behavior": [
+    "Durable event-log recovery, leased queue batches, stable event identity and current tenant/payment/endpoint validation before delivery.",
+    "Retry uses identical event bytes and a fresh signature timestamp; response-loss and worker restart are covered.",
+    "Core rejects same-ID changed content and responds retryably to unresolved callbacks.",
+    "Verified rail delivery may coexist with bookkeeping references; ledger-only and conflicting results remain unconfirmed.",
+    "Returned/cancelled events are explicit; later reversal of a settled result requires reconciliation."
+  ],
+  "historical_currency_backfilled": false,
+  "existing_subscriptions_migrated": false,
+  "live_callback_round_trip_verified": false,
+  "actual_thunderhawk_round_trip_complete": false,
+  "production_cutover": false,
+  "real_financial_execution": false
+}

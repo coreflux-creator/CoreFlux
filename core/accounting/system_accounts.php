@@ -32,6 +32,7 @@ const ACCOUNTING_SYSTEM_ACCOUNTS = [
     ['code' => '2200', 'name' => 'Payroll Payable',            'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 300],
     ['code' => '2210', 'name' => 'Payroll Tax Payable',        'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 310],
     ['code' => '2220', 'name' => 'Payroll Deduction Payable',  'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 320],
+    ['code' => '2300', 'name' => 'Customer Deposits',          'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 400],
     ['code' => '2500', 'name' => 'Intercompany Payable',       'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 500],
     // Equity
     ['code' => '3000', 'name' => 'Opening Balance Equity',     'type' => 'equity',    'side' => 'credit', 'subtype' => 'equity',            'section' => 'equity',             'sort' => 100],
@@ -60,15 +61,21 @@ const ACCOUNTING_SYSTEM_ACCOUNTS = [
     ['code' => '9900', 'name' => 'Rounding Gain/Loss',         'type' => 'other_expense','side' => 'debit','subtype' => 'other_expense',    'section' => 'other_expense',      'sort' => 900],
 ];
 
+// Starter categories are useful defaults, not protected control accounts.
+const ACCOUNTING_STARTER_ACCOUNTS = [
+    ['code' => '6200', 'name' => 'Contract Services Expense', 'type' => 'expense',
+     'side' => 'debit', 'subtype' => 'operating_expense', 'section' => 'operating_expenses', 'sort' => 200],
+];
+
 /**
- * Seed (or stamp) the 17 system accounts for a tenant. Returns the count
+ * Seed (or stamp) the system accounts for a tenant. Returns the count
  * of rows inserted (existing ones are left alone but stamped is_system=1).
  */
 function accountingSeedSystemAccounts(int $tenantId): array {
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('No DB');
 
-    $inserted = 0; $stamped = 0; $repaired = 0;
+    $inserted = 0; $stamped = 0; $repaired = 0; $starterInserted = 0;
     $sel = $pdo->prepare(
         'SELECT id, is_system_account FROM accounting_accounts
           WHERE tenant_id = :t AND code = :c'
@@ -110,6 +117,24 @@ function accountingSeedSystemAccounts(int $tenantId): array {
         $inserted++;
     }
 
+    $starterInsert = $pdo->prepare(
+        'INSERT INTO accounting_accounts
+            (tenant_id, code, name, account_type, subtype, normal_side,
+             is_postable, is_system_account, statement_section, sort_order, active)
+         VALUES (:t, :code, :name, :type, :subtype, :side,
+             1, 0, :section, :sort, 1)'
+    );
+    foreach (ACCOUNTING_STARTER_ACCOUNTS as $a) {
+        $sel->execute(['t' => $tenantId, 'c' => $a['code']]);
+        if ($sel->fetch(\PDO::FETCH_ASSOC)) continue;
+        $starterInsert->execute([
+            't' => $tenantId, 'code' => $a['code'], 'name' => $a['name'],
+            'type' => $a['type'], 'subtype' => $a['subtype'], 'side' => $a['side'],
+            'section' => $a['section'], 'sort' => $a['sort'],
+        ]);
+        $starterInserted++;
+    }
+
     // Early versions assigned these two control-account names to the wrong
     // codes. Repair only the exact legacy system names; differently named
     // tenant accounts are left untouched.
@@ -136,6 +161,7 @@ function accountingSeedSystemAccounts(int $tenantId): array {
         'inserted' => $inserted,
         'stamped' => $stamped,
         'repaired' => $repaired,
+        'starter_inserted' => $starterInserted,
         'total' => count(ACCOUNTING_SYSTEM_ACCOUNTS),
     ];
 }

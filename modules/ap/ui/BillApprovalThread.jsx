@@ -32,7 +32,7 @@ export default function BillApprovalThread({ billId }) {
         <div data-testid="ap-bill-approval-steps" style={{ marginBottom: 8 }}>
           {steps.map((s) => (
             <div key={s.id} style={{ fontSize: 12, padding: '4px 0', borderBottom: '1px dashed #e5e7eb' }}>
-              <span className={`badge badge--${s.state}`}>{s.state}</span>
+              <span className={`badge badge--${s.state}`}>{s.state === 'superseded' ? 'Not needed' : s.state}</span>
               {' '}step {s.step_no} · {s.approver_name || s.approver_email || `user #${s.approver_user_id}`}
               {s.decision_at ? <span className="muted"> · {new Date(s.decision_at).toLocaleString()}</span> : null}
               {s.decision_note ? <em style={{ display: 'block', marginLeft: 12 }}>{s.decision_note}</em> : null}

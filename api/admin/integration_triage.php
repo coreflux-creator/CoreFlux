@@ -282,28 +282,31 @@ if (in_array('purepay-failed', $wanted, true)) {
     try {
         $stmt = $db->prepare(
             "SELECT id, tenant_id, source_ref, core_payment_id, purepay_bill_id,
-                    purepay_payment_id, amount_cents, status, last_error, created_at, updated_at
+                    purepay_payment_id, amount_cents, status, last_error, last_error_json, created_at, updated_at
                FROM purepay_payment_links
               WHERE tenant_id=:t
-                AND status IN ('failed','returned','needs_review','pushed_unverified','posted_unverified','settled_failed_review')
+                AND (status IN ('failed','returned','needs_review','pushed_unverified','posted_unverified','settled_failed_review')
+                     OR last_error_json IS NOT NULL)
            ORDER BY updated_at DESC, id DESC LIMIT {$limit}"
         );
         $stmt->execute(['t' => $tenantId]);
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $critical = in_array($row['status'], ['needs_review', 'posted_unverified', 'settled_failed_review'], true);
+            $evidenceReview = isset((json_decode((string)($row['last_error_json'] ?? ''), true) ?? [])['payment_evidence_review']);
+            $displayStatus = $evidenceReview ? 'needs_review' : $row['status'];
+            $critical = $evidenceReview || in_array($row['status'], ['needs_review', 'posted_unverified', 'settled_failed_review'], true);
             $severity = $critical ? 'critical' : 'warn';
             $items[] = [
                 'source' => 'purepay-failed', 'id' => (int) $row['id'], 'tenant_id' => (int) $row['tenant_id'],
                 'severity' => $severity,
-                'summary' => 'Pure//Pay payment ' . $row['status'] . ' — ' . $row['source_ref']
+                'summary' => 'Pure//Pay payment ' . $displayStatus . ' — ' . $row['source_ref']
                     . ' ($' . number_format(((int) $row['amount_cents']) / 100, 2) . ')',
                 'playbook' => [
-                    'code' => $row['status'], 'category' => 'payment_rail',
+                    'code' => $displayStatus, 'category' => 'payment_rail',
                     'severity' => $critical ? 'manual_review' : 'fix_data',
                     'summary' => $row['last_error'] ?: 'Pure//Pay release requires attention',
                     'suggested_fix' => $row['status'] === 'settled_failed_review'
                         ? 'A failure arrived after settlement. Compare provider and bank records, then resolve the accounting discrepancy manually; do not resend this payout.'
-                        : (in_array($row['status'], ['needs_review','pushed_unverified','posted_unverified'], true)
+                        : (in_array($displayStatus, ['needs_review','pushed_unverified','posted_unverified'], true)
                             ? 'Verify the provider bill and payment before retrying the same CoreFlux reference. Do not create another payout while the outcome is uncertain.'
                             : 'Confirm the failed or returned payout in Pure//Pay, then prepare a new CoreFlux payment for the reopened AP balance.'),
                     'docs_link' => 'https://purepay.online/developers',

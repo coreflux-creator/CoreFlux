@@ -159,6 +159,7 @@ switch ($action) {
         $row = jobdivaConnection($tid);
         if (!$row) {
             api_ok([
+                'tenant_id'      => $tid,
                 'connected'      => false,
                 'status'         => 'disconnected',
                 'recent_events'  => [],
@@ -198,6 +199,7 @@ switch ($action) {
         $whEvents->execute(['t' => $tid]);
 
         api_ok([
+            'tenant_id'         => $tid,
             'connected'         => $row['status'] !== 'disconnected',
             'status'            => $row['status'],
             'client_id'         => $row['client_id'],

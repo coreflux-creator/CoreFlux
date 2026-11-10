@@ -1,0 +1,117 @@
+{
+  "date": "2026-10-25",
+  "run_id": 40207378442,
+  "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40207378442",
+  "helper_commit": "a275343b30b9b72b3c794d315caa0b52a1c337de",
+  "ci_run": 40207172161,
+  "ci_jobs_passed": 9,
+  "targeted_identity_and_delta_checks": 24,
+  "native_company_reviews": [
+    {
+      "verified": true,
+      "tenant_id": 999,
+      "organization_id": "org_purepay_demo",
+      "assignment_contract_version": "2026-10-25.1",
+      "review_refreshed": true,
+      "exact_replay": false,
+      "original_receipt_checks": 9,
+      "original_deliveries_unchanged": true,
+      "credential_and_revision_unchanged": true,
+      "capabilities_unchanged": true,
+      "ap_connection_unchanged": true,
+      "provider_record_writes": false,
+      "payroll_or_payments_executed": false,
+      "audit_rows_added": 1
+    },
+    {
+      "verified": true,
+      "tenant_id": 999,
+      "organization_id": "org_purepay_demo",
+      "assignment_contract_version": "2026-10-25.1",
+      "review_refreshed": false,
+      "exact_replay": true,
+      "original_receipt_checks": 9,
+      "original_deliveries_unchanged": true,
+      "credential_and_revision_unchanged": true,
+      "capabilities_unchanged": true,
+      "ap_connection_unchanged": true,
+      "provider_record_writes": false,
+      "payroll_or_payments_executed": false,
+      "audit_rows_added": 0
+    }
+  ],
+  "native_original_receipt_replay": {
+    "verified": true,
+    "tenant_id": 999,
+    "organization_id": "org_purepay_demo",
+    "deliveries": [
+      {
+        "delivery_id": 2,
+        "operation": "people.inputs",
+        "state": "delivered",
+        "same_original_receipt": true,
+        "replay_identical": true
+      },
+      {
+        "delivery_id": 5,
+        "operation": "assignments.inputs",
+        "state": "delivered",
+        "same_original_receipt": true,
+        "replay_identical": true
+      },
+      {
+        "delivery_id": 7,
+        "operation": "record.link",
+        "state": "delivered",
+        "same_original_receipt": true,
+        "replay_identical": true
+      },
+      {
+        "delivery_id": 8,
+        "operation": "record.link",
+        "state": "delivered",
+        "same_original_receipt": true,
+        "replay_identical": true
+      },
+      {
+        "delivery_id": 9,
+        "operation": "record.link",
+        "state": "delivered",
+        "same_original_receipt": true,
+        "replay_identical": true
+      }
+    ],
+    "native_lookups": 10,
+    "original_deliveries_unchanged": true,
+    "connection_unchanged": true,
+    "ap_connection_unchanged": true,
+    "provider_record_writes": false,
+    "payroll_or_payments_executed": false,
+    "native_payroll_observation": {
+      "available": true,
+      "contract_version": "2026-10-25.1",
+      "page_size": 1,
+      "more_runs": true,
+      "capture_saved": false,
+      "detail_verified": true,
+      "empty_collection": false,
+      "observation_hash": "db95cf444407b8bd786028bf7fedf05e624fd09a4aced1c2bc6dd147e4b3c8c9",
+      "line_count": 2,
+      "linked_people": 0,
+      "repeated_review_identical": true,
+      "core_time_match_evaluated": false,
+      "settlement_evaluated": false
+    }
+  },
+  "runtime_installation": false,
+  "credentials_changed": false,
+  "production_published": false,
+  "actual_thunderhawk_round_trip": false,
+  "real_payroll_or_payments_executed": false,
+  "remaining": [
+    "Hosted revised assignment delivery and acceptance",
+    "Independent time approval",
+    "Worker/document submission and financial callback/recovery acceptance",
+    "Actual Thunderhawk round trip and authorized production release"
+  ]
+}

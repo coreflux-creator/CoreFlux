@@ -1,0 +1,29 @@
+{
+  "checked_at": "2026-10-24T03:01:20.051Z",
+  "commit": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+  "ci": {
+    "run": 40055629231,
+    "all_nine_jobs": "success",
+    "new_database_regressions": 14
+  },
+  "staging": {
+    "run": 40055807786,
+    "conclusion": "success",
+    "app_id": 6707602,
+    "database": "muzqvdvqbx",
+    "backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/99e16c7ff011a85b88ec09d2bf904477885662bd-20261024025205",
+    "migrations_applied": [
+      "modules/time/migrations/012_quanta_source_enums.sql"
+    ]
+  },
+  "acceptance": {
+    "approved_quanta_hours": 8,
+    "core_imported_rows": 1,
+    "replayed_inserted_rows": 0,
+    "replayed_already_imported": 1,
+    "core_status": "pending_review",
+    "self_approval_blocked": true,
+    "unapproved_payroll_export_blocked": true
+  },
+  "production_changed": false
+}

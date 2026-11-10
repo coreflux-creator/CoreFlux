@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "recorded_date": "2026-11-01",
+  "scope": "private-full-candidate-staging-and-native-path-verification",
+  "candidate_commit": "6b7841894cbfc818769de216f2719b0fbb3ab2e8",
+  "manifest_sha256": "be3ea9dcc6d4fbb587186ce62d73342899ae394f61ecd73be7878802c7bc1390",
+  "archive_sha256": "c0c4ab529feebe143542bcaf4655c3d67abcd90daf2acbe32f985d9135f7de46",
+  "application_uid": 1004,
+  "package_directory_mode": "0700",
+  "manifest_files_verified_by_application_account": 7131,
+  "native_combined_release_checks": 259,
+  "native_file_release_checks": 41,
+  "native_combined_log_sha256": "48994dc7cb93b0254e12fbc3c30d72f58ddbcbb5d116c30fe29e56dc537df238",
+  "native_file_log_sha256": "011c65f9598b5b7d1a0001cab583c4448f00b5fecee3b22d884c7ed8ff3c2269",
+  "verified": [
+    "The full archive was streamed into an application-owned private directory outside the webroot, verified against its manifest, and only then extracted.",
+    "The production candidate guard independently verified all extracted manifest files as the application account without opening the database or beginning maintenance.",
+    "Ordinary spaces in asset filenames are accepted; control characters, linked paths and traversal remain rejected.",
+    "Native fixtures exercise assets with spaces in the candidate manifest and owner-preserving file replacement and recovery."
+  ],
+  "production_webroot_changed": false,
+  "production_database_opened": false,
+  "maintenance_started": false,
+  "limits": [
+    "Private staging is preparation, not publication or a live upgrade.",
+    "The frozen application candidate and the newer deployment controller are separate artifacts.",
+    "The final outside-host coordinated full-candidate rehearsal and cutover authorization remain outstanding."
+  ]
+}

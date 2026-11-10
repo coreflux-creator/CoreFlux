@@ -1,0 +1,58 @@
+{
+  "creation": {
+    "at": "2026-10-26T19:17:30+00:00",
+    "mode": "--create-demo-client",
+    "tenant_id": 999,
+    "provider_requests": 0,
+    "production_changed": false,
+    "credentials_changed": false,
+    "financial_writes": false,
+    "existing_client_link_preserved": {
+      "id": 8,
+      "state": "delivered",
+      "remote_id": "cus_2851af69d9"
+    },
+    "matching_fixture_companies": [],
+    "matching_fixture_clients": [],
+    "created": true,
+    "client_id": 2,
+    "company_id": 709,
+    "client_number": "CL-2",
+    "company_number": "CO-709",
+    "name": "Synthetic Core Customer Creation 20261026",
+    "email": "core-customer-20261026@example.invalid",
+    "audit_id": 7244,
+    "protected_table_sets": 335,
+    "existing_protected_data_unchanged": true,
+    "source_hash": "5086c66b36ba1eb764513ea95c5dc78a5a6febfa76ec916714ef6ede58adf53b",
+    "passed": true,
+    "customer_creation_attempts": 0,
+    "customer_delivery_enabled": false
+  },
+  "repeat_creation_rejected": true,
+  "read_only_recheck": {
+    "at": "2026-10-26T19:17:52+00:00",
+    "mode": "--inspect-demo-client",
+    "tenant_id": 999,
+    "provider_requests": 0,
+    "production_changed": false,
+    "credentials_changed": false,
+    "financial_writes": false,
+    "existing_client_link_preserved": {
+      "id": 8,
+      "state": "delivered",
+      "remote_id": "cus_2851af69d9"
+    },
+    "matching_fixture_companies": [
+      709
+    ],
+    "matching_fixture_clients": [
+      2
+    ],
+    "native_number_triggers": 2,
+    "created": false,
+    "passed": true,
+    "customer_creation_attempts": 0,
+    "customer_delivery_enabled": false
+  }
+}

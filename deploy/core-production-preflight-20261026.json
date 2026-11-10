@@ -1,0 +1,149 @@
+{
+  "date": "2026-10-26",
+  "kind": "read_only_production_release_preflight",
+  "candidate_commit": "81779d0d8ec1831140019f0a78e394d76890d0a7",
+  "run_id": 40346520387,
+  "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40346520387",
+  "conclusion": "success",
+  "production_runtime_changed": false,
+  "database_identity_verified": true,
+  "live_bundle": "spa-assets/index-95sB_8ni.js",
+  "candidate_bundle": "spa-assets/index-Dk3TgzYs.js",
+  "changed_file_count": 441,
+  "added_file_count": 4870,
+  "runtime_source_differences": [
+    "core/config.php",
+    "core/migrations/007_subtenant_provisioning.sql",
+    "core/migrations/041_csv_mapping_presets.sql",
+    "core/migrations/043_simulation_harness.sql",
+    "modules/people/lib/companies.php",
+    "modules/placements/api/economics.php",
+    "modules/placements/api/placements.php",
+    "modules/placements/lib/economics.php",
+    "session.php"
+  ],
+  "pending_migration_count": 77,
+  "recorded_migration_hash_drift_count": 3,
+  "migration_plan_actions": [
+    {
+      "Name": "apply_pending",
+      "Count": 77
+    },
+    {
+      "Name": "keep_applied",
+      "Count": 248
+    },
+    {
+      "Name": "retain_deployed",
+      "Count": 3
+    }
+  ],
+  "migration_plan_blockers": [],
+  "migration_plan_source_review_ready": true,
+  "migration_plan_sha256": "6f764e784e3fc4a6cfa39381794f9c558408852e761aadc08e15b7178fd9dbdb",
+  "activation_authorized": false,
+  "remaining_release_gates": [
+    "Review migration/data impact and production-only source changes",
+    "Confirm web/worker flags, backup and recovery procedure",
+    "Explicit production cutover authorization"
+  ],
+  "requirements_before_apply": [
+    "Bind the final candidate and fresh database/source inventory to this plan hash",
+    "Retain reviewed deployed migration bytes and their existing ledger records",
+    "Verify matching file/database backup and tested recovery",
+    "Pause and verify all web, API and worker writers; drain existing work",
+    "Obtain explicit production cutover authorization"
+  ],
+  "runtime_source_fingerprints": [
+    {
+      "path": "core/config.php",
+      "git_blob": "296510537cedf7c66433479e922cd636023be9de",
+      "normalized_git_blob": "296510537cedf7c66433479e922cd636023be9de",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "455c6be62157ae4c64855a0ef49687c64e80856a",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "2c1892a1fc1778b464c50fee29f70ca16f172e89"
+    },
+    {
+      "path": "core/migrations/007_subtenant_provisioning.sql",
+      "git_blob": "9d2477212bf669aec2d5be613ede9e22a4517dbb",
+      "normalized_git_blob": "9d2477212bf669aec2d5be613ede9e22a4517dbb",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "3beeef22c339b0c3229270c99d465b8c6ede62f1",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "2d63c32c6ff20f11241f9da7affbc43217ca78f6"
+    },
+    {
+      "path": "core/migrations/041_csv_mapping_presets.sql",
+      "git_blob": "8f8a853bc225dd2a96391c0fb6d0e7c16a2e4bdc",
+      "normalized_git_blob": "8f8a853bc225dd2a96391c0fb6d0e7c16a2e4bdc",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "d46216adad1f204743af0dcb7e01e50820c83b71",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "adb0b10eb20f410f6f024ad095bf6d200cbc2efc"
+    },
+    {
+      "path": "core/migrations/043_simulation_harness.sql",
+      "git_blob": "09515e5b299f867e6b120009a5e3982690e082ca",
+      "normalized_git_blob": "09515e5b299f867e6b120009a5e3982690e082ca",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "f2480fcbfc85d6653c8edfdf862bf08df77b7678",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "acd4755cc13b4e183577741b58d74db6aa499df5"
+    },
+    {
+      "path": "modules/people/lib/companies.php",
+      "git_blob": "90967191c03f82a2c8843834110db37ca2d5d8fa",
+      "normalized_git_blob": "90967191c03f82a2c8843834110db37ca2d5d8fa",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "eed257c27f1d6c18fd83524da8e2973f37d52cad",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "fbabe362289ec7e05746e58f9424c0e70ae45722"
+    },
+    {
+      "path": "modules/placements/api/economics.php",
+      "git_blob": "4775d5ba7aba0ce8caec445fcf756b0358f09713",
+      "normalized_git_blob": "4775d5ba7aba0ce8caec445fcf756b0358f09713",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "e0c43a124a133d29f2a9013765e2a89dd277bc83",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "20f8179a0d77a15662fd57d9b2c0aaa84e03b419"
+    },
+    {
+      "path": "modules/placements/api/placements.php",
+      "git_blob": "5bc84c71e1b99b04dcdf6944f9c6423cbc2b6824",
+      "normalized_git_blob": "5bc84c71e1b99b04dcdf6944f9c6423cbc2b6824",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "f58bd18bdf80600d7704dd35283469dd27cbb285",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "fbabe362289ec7e05746e58f9424c0e70ae45722"
+    },
+    {
+      "path": "modules/placements/lib/economics.php",
+      "git_blob": "0757876c1b462785b82fee0c07d9df26f167174e",
+      "normalized_git_blob": "0757876c1b462785b82fee0c07d9df26f167174e",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "bba2373520f73563f5dcccbad4cc04c27429fee1",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "20f8179a0d77a15662fd57d9b2c0aaa84e03b419"
+    },
+    {
+      "path": "session.php",
+      "git_blob": "098d9312e390785535cf3ba5ec8503507041e8e1",
+      "normalized_git_blob": "098d9312e390785535cf3ba5ec8503507041e8e1",
+      "raw_blob_known_to_local_repository": true,
+      "normalized_blob_known_to_local_repository": true,
+      "candidate_blob": "1b418d599dd767a9dd32710fff427e6e746ad0b9",
+      "matches_candidate_after_line_endings": false,
+      "matching_history_commit": "16fdca770877c1fab302e05e70ca3230cc57e9fb"
+    }
+  ]
+}

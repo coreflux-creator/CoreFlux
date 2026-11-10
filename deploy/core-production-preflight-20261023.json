@@ -1,0 +1,81 @@
+{
+  "captured_at": "2026-10-24T00:26:16Z",
+  "workflow_run": "40044783352",
+  "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40044783352",
+  "mode": "read-only-production-inspection",
+  "candidate_commit": "b247f8ee2171b0b36e56c153ee3abf90f3768e43",
+  "workflow_conclusion": "success",
+  "database_identity_verified": true,
+  "live_bundle": "spa-assets/index-95sB_8ni.js",
+  "candidate_bundle": "spa-assets/index-DE24O-6a.js",
+  "changed_file_count": 413,
+  "added_file_count": 4689,
+  "production_source_differences": 99,
+  "pending_migration_count": 68,
+  "retained_historical_migration_count": 3,
+  "migration_source_review_ready": true,
+  "migration_plan_blockers": [],
+  "accounting_schema": {
+    "required_tables": 33,
+    "required_columns": 219,
+    "required_unique_keys": 17,
+    "missing": [
+      "storage_objects",
+      "storage_signed_url_audit",
+      "accounting_journal_entries.void_reason",
+      "accounting_journal_entries.voided_at",
+      "accounting_journal_entries.voided_by_user_id",
+      "accounting_bank_accounts.entity_scope_id",
+      "accounting_bank_statement_imports.updated_at",
+      "accounting_bank_statement_lines.updated_at",
+      "billing_invoices.amount_credited",
+      "billing_invoice_tokens.revoked_at",
+      "billing_invoice_tokens.revoked_by_user_id",
+      "billing_invoice_tokens.delivery_request_id",
+      "billing_invoice_tokens.delivery_status",
+      "billing_invoice_tokens.delivery_recipient",
+      "billing_invoice_tokens.delivery_provider_id",
+      "billing_invoice_tokens.delivery_error",
+      "billing_invoice_tokens.delivery_started_at",
+      "billing_invoice_tokens.delivery_finished_at",
+      "billing_payments.bank_account_id",
+      "billing_payments.journal_entry_id",
+      "billing_payments.voided_at",
+      "billing_payment_allocations.reversed_at",
+      "ap_bills.amount_credited",
+      "accounting_credit_applications",
+      "coreone_accounting_credentials",
+      "coreone_document_requests",
+      "accounting_bank_accounts UNIQUE (tenant_id, entity_scope_id, gl_account_code)",
+      "billing_invoice_tokens UNIQUE (token_hash)",
+      "billing_invoice_tokens UNIQUE (tenant_id, invoice_id, delivery_request_id)",
+      "coreone_document_requests UNIQUE (tenant_id, source_type, source_record_id)"
+    ],
+    "incompatible": [
+      "accounting_bank_accounts legacy UNIQUE (tenant_id, gl_account_code) blocks cross-entity cash mappings"
+    ]
+  },
+  "outbound_flags_from_cli_configuration": {
+    "COREFLUX_QUANTA_METADATA_DELIVERY": false,
+    "COREFLUX_QUANTA_WORKER_DELIVERY": false,
+    "COREFLUX_QUANTA_ONBOARDING_DELIVERY": false,
+    "COREFLUX_PUREPAY_CORE_LINK_DELIVERY": false,
+    "COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY": false,
+    "COREFLUX_PUREPAY_PAYROLL_AUTHORITY": false,
+    "COREFLUX_PUREPAY_PEOPLE_DELIVERY": false,
+    "COREFLUX_PUREPAY_ASSIGNMENT_DELIVERY": false
+  },
+  "production_storage": {
+    "driver": "local",
+    "s3_bucket_configured": false,
+    "s3_kms_key_configured": false,
+    "object_access_verified": false
+  },
+  "activation_performed": false,
+  "private_unmasked_receipt": "/tmp/core-integration-40044783352/production-preflight.json",
+  "limitations": [
+    "Read-only inspection, not production activation or cutover readiness.",
+    "GitHub masks some numeric values and hashes. This compact receipt omits those values; the private unmasked receipt is required for execution.",
+    "The subsequent JobDiva division fallback is not part of this inspected candidate."
+  ]
+}

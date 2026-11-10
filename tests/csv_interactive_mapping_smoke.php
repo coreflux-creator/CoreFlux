@@ -30,6 +30,7 @@ echo "Core service\n";
         'first_name' => ['label' => 'First name', 'required' => true],
         'last_name'  => ['label' => 'Last name',  'required' => true],
         'email'      => ['label' => 'Primary email', 'type' => 'email'],
+        'external_id' => ['label' => 'External ID (audit / integration)', 'aliases' => ['External ID']],
     ],
 ]);
 
@@ -39,7 +40,7 @@ $ins = \Core\CsvImportService::inspect('__map_test', $csv);
 $a('inspect returns headers array',          isset($ins['headers']) && count($ins['headers']) === 4);
 $a('inspect returns auto_map',               isset($ins['auto_map']) && count($ins['auto_map']) === 4);
 $a('inspect returns fields with metadata',
-    isset($ins['fields']) && count($ins['fields']) === 3 &&
+    isset($ins['fields']) && count($ins['fields']) === 4 &&
     !empty($ins['fields'][0]['key']) && isset($ins['fields'][0]['required']));
 $a('inspect auto_map is null for unmatched', $ins['auto_map'][0] === null && $ins['auto_map'][3] === null);
 
@@ -50,6 +51,12 @@ $a('inspect auto_map matches by label',
     $ins2['auto_map'][0] === 'first_name' &&
     $ins2['auto_map'][1] === 'last_name' &&
     $ins2['auto_map'][2] === 'email');
+
+$vendorCsv = "First name,Last name,External ID\nQA4,Vendor,qa4-external-1\n";
+$vendorInspect = \Core\CsvImportService::inspect('__map_test', $vendorCsv);
+$vendorDry = \Core\CsvImportService::dryRun('__map_test', $vendorCsv);
+$a('plain External ID auto-maps to the audit field', $vendorInspect['auto_map'][2] === 'external_id');
+$a('plain External ID survives preview parsing', ($vendorDry['rows'][2]['external_id'] ?? null) === 'qa4-external-1');
 
 // 2. dryRun with header-name-keyed column_map (the UI shape)
 $mapByHeader = ['FName' => 'first_name', 'LName' => 'last_name', 'Mail' => 'email'];
@@ -87,6 +94,8 @@ $a('resolveHeaderMap supports header-keyed', str_contains($svc, '$headerIndex'))
 $a('readRequestColumnMap exists',            str_contains($svc, 'public static function readRequestColumnMap'));
 
 echo "\nEndpoints expose ?action=inspect and forward column_map\n";
+$vendorEndpoint = $read(__DIR__ . '/../modules/ap/api/csv_import.php');
+$a('vendor importer accepts plain External ID', str_contains($vendorEndpoint, "'aliases' => ['External ID']"));
 $endpoints = [
     'people'           => '/../modules/people/api/csv_import.php',
     'placements'       => '/../modules/placements/api/csv_import.php',

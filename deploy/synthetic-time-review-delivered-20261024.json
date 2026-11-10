@@ -1,0 +1,55 @@
+{
+  "workflow_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40145474814",
+  "runner_commit": "10528e51b24f509ed589f6361bf9a315948daf8a",
+  "installed_core_commit": "0477c6308f673ed358d2a4034d6f6fd23f54f433",
+  "redactions": {
+    "remote_review_id": "GitHub masked characters in the source log; stored as null, not reconstructed."
+  },
+  "receipt": {
+    "checked_at": "2026-10-24T20:08:25-04:00",
+    "tenant_id": 999,
+    "mode": "synthetic_pending_time_review",
+    "application_deployed": false,
+    "persistent_configuration_changed": false,
+    "permissions_changed": false,
+    "time_approved": false,
+    "payroll_or_financial_writes": false,
+    "source_identity_verified": true,
+    "delivery": {
+      "id": 11,
+      "state": "delivered",
+      "remote_id": null,
+      "remote_receipt_id": "cfd_d71145d4dd05b7fe1dc7acf5c11243d031b79110191156d6b0e580cb4da50ade"
+    },
+    "native_replay_verified": true,
+    "remote": {
+      "id": null,
+      "assignment_id": "cfa_33fdaed15cffaba6f9468cba05de1ac9d39651031f2eb5bfdc7079f3a87c45ac",
+      "source_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676",
+      "version": 1,
+      "state": "pending_review"
+    },
+    "fresh_comparison": "unchanged",
+    "existing_time_and_identity_unchanged": true,
+    "passed": true,
+    "publication_flag_restored": true
+  },
+  "portal": {
+    "screenshot": "time-review-portal-delivered-20261024.png",
+    "placement_number": "PL-13",
+    "hours": 8,
+    "assignment_version": 2,
+    "last_shared": "2026-10-25T00:08:27.113284+00:00",
+    "view": "owner/admin",
+    "person_number": "P-15",
+    "entry_date": "2026-10-19",
+    "workspace": "Acme Construction",
+    "worker_login_verified": false,
+    "status": "Awaiting Core review"
+  },
+  "limitations": [
+    "Demo companies only; actual Thunderhawk round trip remains open.",
+    "Independent Core approval and controlled worker inbox remain outstanding.",
+    "No payroll, payment, financial posting or production cutover performed."
+  ]
+}

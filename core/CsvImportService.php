@@ -34,6 +34,8 @@
  *                           'enum'  => ['w2','1099','c2c','temp','perm','candidate','alumni']],
  *       'email_primary' => ['label' => 'Primary email', 'required' => true,
  *                           'type'  => 'email'],
+ *       'external_id'   => ['label' => 'External ID',
+ *                           'validate' => fn(string $value): ?string => null],
  *       'work_auth_expiry' => ['label' => 'Work auth expiry', 'type' => 'date'],
  *     ],
  *     'unique_within_batch' => ['email_primary'],
@@ -41,6 +43,8 @@
  */
 
 namespace Core;
+
+require_once __DIR__ . "/record_numbers.php";
 
 class CsvImportService
 {
@@ -223,7 +227,21 @@ class CsvImportService
             foreach ($cells as $i => $value) {
                 $field = $headerMap[$i] ?? null;
                 if (!$field) continue;
-                $row[$field] = trim((string) $value);
+                $value = trim((string) $value, " \t\r\n");
+                $referenceType = $schema['fields'][$field]['reference_type'] ?? null;
+                if ($referenceType && $value !== '') {
+                    try {
+                        $normalized = \coreRecordNumberInputId($referenceType, $value);
+                        if (isset($row[$field]) && $row[$field] !== '' && (string) $row[$field] !== (string) $normalized) {
+                            $rowErrors[] = "{$field}: conflicting ID and number columns";
+                        }
+                        $value = (string) $normalized;
+                    } catch (\InvalidArgumentException $e) {
+                        $rowErrors[] = "{$field}: " . $e->getMessage();
+                    }
+                }
+                // A blank duplicate number column must not erase a supplied ID.
+                if (!$referenceType || $value !== '' || !isset($row[$field])) $row[$field] = $value;
             }
 
             // Callers may supply explicit fallback values for fields that are
@@ -261,7 +279,13 @@ class CsvImportService
                 if ($type === 'number' && !is_numeric($val)) {
                     $rowErrors[] = "{$field}: not numeric '{$val}'";
                 }
-                if ($type === 'integer') {
+                if (!empty($def['reference_type'])) {
+                    try {
+                        $row[$field] = \coreRecordNumberInputId($def['reference_type'], (string) $val);
+                    } catch (\InvalidArgumentException $e) {
+                        $rowErrors[] = "{$field}: " . $e->getMessage();
+                    }
+                } elseif ($type === 'integer') {
                     // Accept either the bare integer (1042 — what
                     // <IdBadge /> writes to the clipboard) OR the
                     // displayed form (P-1042, PL-1042, B-1042 — what
@@ -289,6 +313,12 @@ class CsvImportService
                     if (in_array($lc, ['1','true','yes','y','t'], true))      $row[$field] = 1;
                     else if (in_array($lc, ['0','false','no','n','f',''], true)) $row[$field] = 0;
                     else $rowErrors[] = "{$field}: invalid boolean '{$val}'";
+                }
+                if (isset($def['validate'])) {
+                    $message = $def['validate']((string) $val);
+                    if (is_string($message) && $message !== '') {
+                        $rowErrors[] = "{$field}: {$message}";
+                    }
                 }
             }
 
@@ -328,8 +358,7 @@ class CsvImportService
      *
      * @param callable $onRow  fn(array $row): int  — module's writer; returns inserted id, or throws
      * $opts['atomic'] wraps all valid row callbacks in one transaction.
-     * It is ignored when skip_invalid is explicitly enabled because that
-     * mode intentionally asks for a partial import.
+     * $opts['row_atomic'] protects each accepted row when skip_invalid is on.
      *
      * @return array {imported_count, skipped_count, errors, ids}
      */
@@ -355,20 +384,65 @@ class CsvImportService
         $errors   = $dry['errors'];
         $ids      = [];
         $atomic   = !empty($opts['atomic']) && !$skipInvalid;
-        $pdo      = null;
+        $rowAtomic = !empty($opts['row_atomic']) && $skipInvalid;
+        $pdo      = function_exists('getDB') ? \getDB() : null;
         $ownsTxn  = false;
+        $allSavepoint = false;
         if ($atomic) {
-            $pdo = \getDB();
+            if (!$pdo instanceof \PDO) throw new \RuntimeException('CSV import database is unavailable.');
             $ownsTxn = !$pdo->inTransaction();
-            if ($ownsTxn) $pdo->beginTransaction();
+            if ($ownsTxn) {
+                $pdo->beginTransaction();
+            } else {
+                if ($pdo->exec('SAVEPOINT csv_import_all') === false) {
+                    throw new \RuntimeException('Could not start the CSV import savepoint.');
+                }
+                $allSavepoint = true;
+            }
         }
         foreach ($dry['rows'] as $rowNum => $row) {
             if (isset($dry['errors'][$rowNum])) { $skipped++; continue; }
+            $rowSavepoint = false;
+            $rowOwnsTxn = false;
             try {
+                if ($rowAtomic && !$pdo instanceof \PDO) {
+                    throw new \RuntimeException('CSV import database is unavailable.');
+                }
+                if ($rowAtomic && !$pdo->inTransaction()) {
+                    if (!$pdo->beginTransaction()) {
+                        throw new \RuntimeException('Could not start the CSV row transaction.');
+                    }
+                    $rowOwnsTxn = true;
+                } elseif ($pdo instanceof \PDO && $pdo->inTransaction()
+                    && ($rowAtomic || $atomic || getenv('COREFLUX_ENV') === 'coreaccounting')) {
+                    if ($pdo->exec('SAVEPOINT csv_import_row') === false) {
+                        throw new \RuntimeException('Could not start the CSV row savepoint.');
+                    }
+                    $rowSavepoint = true;
+                }
                 $id = (int) $onRow($row);
+                if ($rowOwnsTxn && !$pdo->commit()) {
+                    throw new \RuntimeException('Could not complete the CSV row transaction.');
+                }
+                if ($rowSavepoint && $pdo->exec('RELEASE SAVEPOINT csv_import_row') === false) {
+                    throw new \RuntimeException('Could not complete the CSV row savepoint.');
+                }
                 $ids[$rowNum] = $id;
                 $imported++;
             } catch (\Throwable $e) {
+                if ($rowOwnsTxn && $pdo->inTransaction()) {
+                    $pdo->rollBack();
+                } elseif ($rowSavepoint && $pdo->inTransaction()) {
+                    try {
+                        if ($pdo->exec('ROLLBACK TO SAVEPOINT csv_import_row') === false
+                            || $pdo->exec('RELEASE SAVEPOINT csv_import_row') === false) {
+                            throw new \RuntimeException('Could not roll back the CSV row savepoint.');
+                        }
+                    } catch (\Throwable $rollbackError) {
+                        $pdo->rollBack();
+                        throw $rollbackError;
+                    }
+                }
                 $errors[$rowNum] = $errors[$rowNum] ?? [];
                 $errors[$rowNum][] = 'persist failed: ' . $e->getMessage();
                 $skipped++;
@@ -376,7 +450,19 @@ class CsvImportService
         }
 
         if ($atomic && $errors) {
-            if ($ownsTxn && $pdo?->inTransaction()) $pdo->rollBack();
+            if ($ownsTxn && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            } elseif ($allSavepoint) {
+                try {
+                    if ($pdo->exec('ROLLBACK TO SAVEPOINT csv_import_all') === false
+                        || $pdo->exec('RELEASE SAVEPOINT csv_import_all') === false) {
+                        throw new \RuntimeException('Could not roll back the CSV import savepoint.');
+                    }
+                } catch (\Throwable $rollbackError) {
+                    if ($pdo->inTransaction()) $pdo->rollBack();
+                    throw $rollbackError;
+                }
+            }
             return [
                 'imported_count' => 0,
                 'skipped_count'  => $dry['row_count'],
@@ -385,7 +471,11 @@ class CsvImportService
                 'message'        => 'No rows were imported because one or more rows failed business validation.',
             ];
         }
-        if ($atomic && $ownsTxn && $pdo?->inTransaction()) $pdo->commit();
+        if ($atomic && $ownsTxn && $pdo->inTransaction()) $pdo->commit();
+        if ($allSavepoint && $pdo->exec('RELEASE SAVEPOINT csv_import_all') === false) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw new \RuntimeException('Could not complete the CSV import savepoint.');
+        }
 
         return [
             'imported_count' => $imported,

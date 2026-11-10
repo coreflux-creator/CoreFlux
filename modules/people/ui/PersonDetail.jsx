@@ -6,6 +6,7 @@ import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import OnboardingTab from './OnboardingTab';
 
 const CLASSIFICATION_LABELS = {
   w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
@@ -48,6 +49,7 @@ export default function PersonDetail({ session }) {
     { slug: 'overview',   label: 'Overview' },
     { slug: 'placements', label: 'Placements' },
     { slug: 'documents',  label: 'Documents' },
+    ...(canSeePII ? [{ slug: 'onboarding', label: 'Onboarding' }] : []),
     { slug: 'skills',     label: 'Skills' },
     { slug: 'pipeline',   label: 'Pipeline' },
     { slug: 'compliance', label: 'Compliance' },
@@ -63,7 +65,7 @@ export default function PersonDetail({ session }) {
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="person-detail-back">← Directory</button>
           <h1 data-testid="person-detail-name" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>{person.preferred_name || person.first_name} {person.last_name}</span>
-            <IdBadge id={person.id} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
+            <IdBadge id={person.id} number={person.person_number} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
           </h1>
           <p style={{ color: '#666' }}>
             <span data-testid="person-detail-classification" className={`badge badge--${person.classification}`}>{CLASSIFICATION_LABELS[person.classification] || person.classification}</span>
@@ -110,6 +112,7 @@ export default function PersonDetail({ session }) {
         <Route path="overview"  element={<OverviewTab person={person} reload={reload} />} />
         <Route path="placements"element={<PlacementsTab personId={person.id} />} />
         <Route path="documents" element={<DocumentsTab  personId={person.id} />} />
+        <Route path="onboarding" element={<OnboardingTab key={person.id} personId={person.id} />} />
         <Route path="skills"    element={<SkillsTab     personId={person.id} />} />
         <Route path="pipeline"  element={<PipelineTab   personId={person.id} />} />
         <Route path="compliance"element={<ComplianceTab person={person} reload={reload} />} />

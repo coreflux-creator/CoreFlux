@@ -1,0 +1,134 @@
+{
+  "verified_at": "2026-10-24T02:12:59.251Z",
+  "core_runtime": "f5939673ff2367ef71f6124f00262004db924349",
+  "identity_deployer_fix": "14d893ed263c0e9d11c4d383a1b8e8d4f6bc1b48",
+  "core": {
+    "app_id": 6707602,
+    "database": "muzqvdvqbx",
+    "tenant_id": 999,
+    "tenant_name": "CoreFlux CI Simulation",
+    "is_simulation": true
+  },
+  "ci": {
+    "run": 40052458422,
+    "conclusion": "success"
+  },
+  "staging": {
+    "run": 40052665308,
+    "conclusion": "success",
+    "private_backup": "/home/master/.coreflux-integration-backups/muzqvdvqbx/f5939673ff2367ef71f6124f00262004db924349-20261024020725",
+    "migrations_applied": []
+  },
+  "configuration": {
+    "ok": true,
+    "tenant_id": 999,
+    "connection_id": 1,
+    "encrypted_key_stored": true,
+    "organization_binding_confirmed": false,
+    "base": "https://beautiful-kalam-6.preview.emergentagent.com/api/v1",
+    "remote_organization": {
+      "id": "org_purepay_demo",
+      "name": "Meridian Holdings LLC"
+    },
+    "capabilities": [
+      "read:coreflux",
+      "read:payroll",
+      "read:people_setup",
+      "write:assignment_inputs",
+      "write:coreflux",
+      "write:payroll_inputs",
+      "write:people_inputs"
+    ],
+    "ap_connection_unchanged": true,
+    "private_backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux-preview-connection-backups/purepay-20261024020806-1c3caf27",
+    "config_sha256": "a9fab583fa3b120fc0d88a3aa55f5aee8c78eef242aa9a473b2b1d46cb91d617",
+    "remote_writes": false
+  },
+  "cli_probe": {
+    "ok": true,
+    "base": "https://beautiful-kalam-6.preview.emergentagent.com/api/v1",
+    "context": {
+      "organization": {
+        "id": "org_purepay_demo",
+        "name": "Meridian Holdings LLC"
+      },
+      "capabilities": [
+        "read:coreflux",
+        "read:payroll",
+        "read:people_setup",
+        "write:assignment_inputs",
+        "write:coreflux",
+        "write:payroll_inputs",
+        "write:people_inputs"
+      ],
+      "link_contract_version": "2026-10-21.1",
+      "contract_version": "2026-10-20.1",
+      "execution_side_effects": false,
+      "payroll_input_contract_version": "2026-10-21.1",
+      "payroll_authority_contract_version": "2026-10-21.1",
+      "people_input_contract_version": "2026-10-22.1",
+      "assignment_input_contract_version": "2026-10-22.2",
+      "people_setup_contract_version": "2026-10-22.1"
+    },
+    "remote_writes": false
+  },
+  "web_probe": {
+    "http_status": 200,
+    "anonymous_status": 404,
+    "web": {
+      "ok": true,
+      "environment": "isolated staging",
+      "tenant_id": 999,
+      "preview_endpoint": true,
+      "encrypted_credential_read": true,
+      "organization": {
+        "id": "org_purepay_demo",
+        "name": "Meridian Holdings LLC"
+      },
+      "capabilities": [
+        "read:coreflux",
+        "read:payroll",
+        "read:people_setup",
+        "write:assignment_inputs",
+        "write:coreflux",
+        "write:payroll_inputs",
+        "write:people_inputs"
+      ],
+      "organization_binding_confirmed": false,
+      "ap_api_base": "https://purepay.online/api/v1",
+      "payroll_authority_enabled": false,
+      "document_transfer_enabled": false,
+      "remote_writes": false
+    },
+    "temporary_probe_removed": true
+  },
+  "identity_file_access": {
+    "ok": true,
+    "mode": "0640",
+    "group_unchanged": true,
+    "content_unchanged": true,
+    "scope": "isolated installation UUID only"
+  },
+  "key_creation": {
+    "user_authorized_retry": true,
+    "persisted_after_reload": true,
+    "one_time_secret_cleared": true,
+    "credential_in_chat_or_repository": false
+  },
+  "scope": {
+    "provider_organization_confirmation_pending": false,
+    "quanta_workspace_confirmation_pending": false,
+    "real_thunderhawk_round_trip": false,
+    "production_runtime_changed": false,
+    "provider_record_writes": true,
+    "actual_payroll_or_payments": false,
+    "provider_record_scope": "User-approved synthetic demo records only"
+  },
+  "current_state": {
+    "checked_at": "2026-10-24T03:01:20.052Z",
+    "core_runtime": "99e16c7ff011a85b88ec09d2bf904477885662bd",
+    "organization_binding_confirmed": true,
+    "quanta_workspace_binding_confirmed": true,
+    "synthetic_acceptance_receipt": "deploy/synthetic-integration-acceptance-20261023.json"
+  }
+}

@@ -53,7 +53,7 @@ $checks = [
     ['time_entries_rate_snapshot','Approved-time rate snapshots', 'admin_hc_column_exists', ['time_entries', 'rate_snapshot_id']],
     ['staffing_external_approval','External timesheet approval channel', 'admin_hc_column_exists', ['staffing_timesheets', 'approved_via']],
     ['billing_amount_due',      'Invoice balance tracking',       'admin_hc_column_exists', ['billing_invoices', 'amount_due']],
-    ['billing_sent_event',      'Invoice-sent accounting event',  'admin_hc_registry_event', 'billing.invoice.sent'],
+    ['billing_sent_event',      'Invoice-issued accounting event', 'admin_hc_registry_event', 'ar.invoice.issued'],
     ['staffing_hours_event',    'Approved-hours accounting event','admin_hc_registry_event', 'staffing.worker_hours.approved'],
     ['billing_catalog_read',    'Products & services read path',  'admin_hc_billing_catalog_read'],
     ['bank_review_read',        'Bank review queue read path',    'admin_hc_bank_review_read'],

@@ -76,8 +76,8 @@ $a('closeRunRefreshProgress auto-bumps initiated → in_progress',
 $a('closeRunRefreshProgress stamps completed_at when all tasks done',
     $c($lib, "if (!\$completedAt && \$total > 0 && \$done === \$total"));
 $a('closeRunBuildPacket refuses when locked',                $c($lib, "is locked; reopen first"));
-$a('closeRunBuildPacket persists legacy accounting_close_packets row',
-    $c($lib, 'INSERT INTO accounting_close_packets'));
+$a('closeRunBuildPacket records the canonical close packet',
+    $c($lib, 'accountingRecordClosePacket($tenantId, $periodId, $actorUserId'));
 $a('closeRunBuildPacket creates a first-class artifact_objects row',
     $c($lib, "artifactCreate(\$tenantId, 'accounting_close_packet'"));
 $a('closeRunBuildPacket artifact failure does NOT block close',

@@ -297,13 +297,15 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
                   WHERE m.tenant_id = :t
                     AND m.source_system = 'jobdiva'
                     AND m.internal_entity_type = 'placement'
-                    AND p.end_client_company_id IS NOT NULL
-                    AND sc.company_id IS NOT NULL
-                    AND sc.company_id <> p.end_client_company_id",
+                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
+                    AND (sc.company_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM companies bc WHERE bc.id = sc.company_id
+                          AND bc.tenant_id = sc.tenant_id AND bc.deleted_at IS NULL
+                    ))",
                 ['t' => $tenantId]
             );
             $relationships['placement_graph']['client_company_mismatch'] = $clientMismatch;
-            _jobdivaMappingAddIssue($issues, 'critical', 'placement_client_company_mismatch', 'placement', $clientMismatch, 'Some JobDiva placements point at a staffing client whose company does not match the placement end-client company.', 'Repair client links, then inspect any remaining mismatches for duplicate company/client records.');
+            _jobdivaMappingAddIssue($issues, 'critical', 'placement_client_company_mismatch', 'placement', $clientMismatch, 'Some JobDiva bill-to clients have no valid company in the selected directory.', 'Review the exact assignment billing identity; end clients may legitimately differ.');
         }
 
         if (_jobdivaMappingColumnExists($pdo, 'placements', 'person_id')) {
@@ -489,28 +491,18 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
     }
 
     $stmt = $pdo->prepare(
-        "SELECT p.id, p.client_id, p.end_client_company_id, p.end_client_name, c.name AS company_name,
+        "SELECT p.id, p.client_id, p.coreflux_overridden_fields,
                 sc.id AS existing_client_id, sc.company_id AS existing_client_company_id,
                 sc.name AS existing_client_name,
                 m.external_id AS mapping_external_id,
                 m.payload_snapshot
            FROM external_entity_mappings m
            JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-      LEFT JOIN companies c ON c.id = p.end_client_company_id AND c.tenant_id = p.tenant_id AND c.deleted_at IS NULL
       LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
           WHERE m.tenant_id = :t
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-            AND (
-                 m.payload_snapshot IS NOT NULL
-              OR p.client_id IS NULL
-              OR p.end_client_company_id IS NULL
-              OR p.end_client_company_id = 0
-              OR sc.id IS NULL
-              OR (p.end_client_company_id IS NOT NULL AND p.end_client_company_id <> 0 AND (sc.company_id IS NULL OR sc.company_id = 0))
-              OR (p.end_client_company_id IS NOT NULL AND sc.company_id IS NOT NULL AND sc.company_id <> p.end_client_company_id)
-            )
        ORDER BY p.updated_at DESC
           LIMIT {$limit}"
     );
@@ -520,10 +512,12 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
     foreach ($rows as $row) {
         $summary['checked']++;
         $placementId = (int) $row['id'];
-        $companyId = !empty($row['end_client_company_id']) ? (int) $row['end_client_company_id'] : null;
-        if ($companyId === null && !empty($row['existing_client_company_id'])) {
-            $companyId = (int) $row['existing_client_company_id'];
+        $overrides = json_decode((string) ($row['coreflux_overridden_fields'] ?? '[]'), true);
+        if (is_array($overrides) && in_array('client_id', $overrides, true)) {
+            $summary['skipped']++;
+            continue;
         }
+        $companyId = !empty($row['existing_client_company_id']) ? (int) $row['existing_client_company_id'] : null;
 
         $payload = [];
         if (is_string($row['payload_snapshot'] ?? null) && trim((string) $row['payload_snapshot']) !== '') {
@@ -551,14 +545,16 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
             : ['authoritative' => false, 'name' => ''];
         $name = trim((string) ($evidence['name'] ?? ''));
 
-        if (!empty($evidence['authoritative']) && function_exists('jobdivaProjectorResolveEndClientCompany')) {
+        if (!empty($evidence['authoritative']) && function_exists('jobdivaProjectorResolveBillingClientCompany')) {
             try {
-                $resolvedCompanyId = jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId);
+                $resolvedCompanyId = jobdivaProjectorResolveBillingClientCompany($tenantId, $payload, $userId);
                 if ($resolvedCompanyId !== null && $resolvedCompanyId > 0) {
                     $companyId = (int) $resolvedCompanyId;
                 }
             } catch (\Throwable $e) {
-                error_log('[jobdiva mapping repair] end-client resolve failed: ' . $e->getMessage());
+                $summary['failed']++;
+                $summary['errors'][] = "placement {$placementId}: " . $e->getMessage();
+                continue;
             }
         }
 
@@ -588,7 +584,7 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
                     'name' => (string) $existingCanonicalClient['name'],
                 ];
             $clientId = (int) ($clientRef['client_id'] ?? 0);
-            if ($clientId <= 0) {
+            if ($clientId <= 0 || $clientId === (int) $row['client_id']) {
                 $summary['skipped']++;
                 continue;
             }
@@ -599,15 +595,6 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
                 'id' => $placementId,
             ];
             $sets = ['client_id = :client_id', 'updated_at = :updated_at'];
-            if (!empty($clientRef['company_id'])) {
-                $sets[] = 'end_client_company_id = :end_client_company_id';
-                $patch['end_client_company_id'] = (int) $clientRef['company_id'];
-            }
-            if (!empty($clientRef['name'])
-                && jobdivaProjectorCompanyNameKey((string) ($row['end_client_name'] ?? '')) !== jobdivaProjectorCompanyNameKey((string) $clientRef['name'])) {
-                $sets[] = 'end_client_name = :end_client_name';
-                $patch['end_client_name'] = (string) $clientRef['name'];
-            }
             $pdo->prepare(
                 'UPDATE placements SET ' . implode(', ', $sets) . ' WHERE tenant_id = :tenant_id AND id = :id'
             )->execute($patch);

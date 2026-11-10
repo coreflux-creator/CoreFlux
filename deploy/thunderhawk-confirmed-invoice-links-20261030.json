@@ -1,0 +1,275 @@
+{
+  "recorded_at": "2026-10-30T16:09:10.575216+00:00",
+  "scope": "User-confirmed historical source-line associations in Core staging company 2002",
+  "core_runtime_commit": "d8ecb77b32885c4b92906b2dd2befef52fbba68e",
+  "provider_module_commit": "c9a2db6d6d01530c519247ca731e6d98ac412f0e",
+  "ci": {
+    "run": 41085674220,
+    "conclusion": "success",
+    "jobs_passed": 9
+  },
+  "staging_release": {
+    "run": 41086182701,
+    "conclusion": "success"
+  },
+  "local_validation": {
+    "mariadb_observation_and_link_checks": 54,
+    "financial_ui_tests": 13,
+    "dashboard_build": "passed"
+  },
+  "confirmed_associations": {
+    "checked_at": "2026-10-30T16:06:13+00:00",
+    "tenant_id": 2002,
+    "authorization": "User confirmed these five historical source lines for PL-864 on 2026-10-30",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "passed": true,
+    "created": 5,
+    "associations": [
+      {
+        "link_id": 1,
+        "capture_id": 4,
+        "document_id": "inv_82de265509",
+        "source_line_id": "il_qbo_6019_21",
+        "link_hash": "bf7a8f5f5b651e662e69197db087bffc1093a51d2ae1daab9d2b8eb156b12680",
+        "placement": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "placement",
+          "number": "PL-864"
+        },
+        "person": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-358"
+        },
+        "replayed_without_duplicate": true,
+        "history_verified": true,
+        "evidence_encrypted": true,
+        "future_item_rule": false,
+        "time_entries_matched": false,
+        "currency_verified": false,
+        "ledger_posted": false
+      },
+      {
+        "link_id": 2,
+        "capture_id": 5,
+        "document_id": "inv_ea597af5df",
+        "source_line_id": "il_qbo_4155_21",
+        "link_hash": "f7d89a5f88c13b0d34e7f8fb45c7284620de341cc6790d69ed921a79bc3e9076",
+        "placement": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "placement",
+          "number": "PL-864"
+        },
+        "person": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-358"
+        },
+        "replayed_without_duplicate": true,
+        "history_verified": true,
+        "evidence_encrypted": true,
+        "future_item_rule": false,
+        "time_entries_matched": false,
+        "currency_verified": false,
+        "ledger_posted": false
+      },
+      {
+        "link_id": 3,
+        "capture_id": 6,
+        "document_id": "inv_dcb25061c4",
+        "source_line_id": "il_qbo_3474_24",
+        "link_hash": "f7b7af714d09eb88db32dad66b256c18013905d75086e1c29e659054424fd74f",
+        "placement": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "placement",
+          "number": "PL-864"
+        },
+        "person": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-358"
+        },
+        "replayed_without_duplicate": true,
+        "history_verified": true,
+        "evidence_encrypted": true,
+        "future_item_rule": false,
+        "time_entries_matched": false,
+        "currency_verified": false,
+        "ledger_posted": false
+      },
+      {
+        "link_id": 4,
+        "capture_id": 7,
+        "document_id": "inv_191eb3675c",
+        "source_line_id": "il_qbo_6472_18",
+        "link_hash": "ffacc7b8b58c057ed40c593ebc0cf7534e39d6eb849177c7bd3602be915f6588",
+        "placement": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "placement",
+          "number": "PL-864"
+        },
+        "person": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-358"
+        },
+        "replayed_without_duplicate": true,
+        "history_verified": true,
+        "evidence_encrypted": true,
+        "future_item_rule": false,
+        "time_entries_matched": false,
+        "currency_verified": false,
+        "ledger_posted": false
+      },
+      {
+        "link_id": 5,
+        "capture_id": 8,
+        "document_id": "inv_0f1382bcb5",
+        "source_line_id": "il_qbo_7101_16",
+        "link_hash": "e89452e489b08b0d83b6806e8cc6cadd6aa64a1ed6e3effcf6d55cbc09159e0c",
+        "placement": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "placement",
+          "number": "PL-864"
+        },
+        "person": {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-358"
+        },
+        "replayed_without_duplicate": true,
+        "history_verified": true,
+        "evidence_encrypted": true,
+        "future_item_rule": false,
+        "time_entries_matched": false,
+        "currency_verified": false,
+        "ledger_posted": false
+      }
+    ],
+    "all_protected_business_records_unchanged": true
+  },
+  "native_http": {
+    "checked_at": "2026-10-30T16:07:11+00:00",
+    "production_changed": false,
+    "financial_postings": false,
+    "payments_or_payroll_executed": false,
+    "browser_test": false,
+    "passed": true,
+    "synthetic_actor_retired": true,
+    "synthetic_actor_id": 59,
+    "private_session_removed": true,
+    "checks": [
+      "anonymous API read denied",
+      "synthetic native login succeeded",
+      "ungranted financial access denied",
+      "missing AP read denied",
+      "missing billing read denied",
+      "missing People permission blocks placement identity",
+      "missing Placements permission blocks association review",
+      "authorized API returns exact source evidence",
+      "native HTTP resolves the confirmed source line and canonical placement/person",
+      "HTTP preview finds the existing user-confirmed association",
+      "association does not infer currency, time matching, postings or a future rule",
+      "client cannot supply owning directories",
+      "foreign pinned company denied",
+      "save requires explicit review confirmation",
+      "stale review refused",
+      "native API save reuses the confirmed line association",
+      "native API history decrypts the reviewed placement association",
+      "revoked billing access blocks saved history",
+      "HTTP checks created no duplicate associations"
+    ],
+    "requests": [
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 401
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 403
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "preview",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "preview",
+        "tenant_id": 999,
+        "status": 403
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 422
+      },
+      {
+        "action": "save",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 200
+      },
+      {
+        "action": "history",
+        "tenant_id": 2002,
+        "status": 403
+      }
+    ]
+  },
+  "interactive_browser_acceptance": false,
+  "remaining": [
+    "Structured service dates are absent; descriptions remain source prose",
+    "Source currency remains unknown",
+    "Historical time and payroll periods are not yet matched",
+    "No accounting or cash reconciliation is established by an identity association",
+    "Different-placement corrections require a separate reviewed correction workflow"
+  ]
+}

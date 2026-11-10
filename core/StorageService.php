@@ -52,11 +52,57 @@ class StorageService
             $this->driver = $driver;
             return;
         }
-        $name = strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
-        $this->driver = ($name === 's3') ? new S3Driver() : new LocalDriver();
+        $private = self::private_configuration();
+        $name = $private['driver'] ?? strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
+        if ($name === 's3') {
+            $this->driver = new S3Driver($private['s3'] ?? []);
+        } elseif (getenv('COREFLUX_ENV') === 'coreaccounting') {
+            require_once __DIR__ . '/accounting/private_storage.php';
+            if (!defined('DB_PASS') || (string) DB_PASS === '') {
+                throw new \RuntimeException('CoreAccounting local storage secret is unavailable.');
+            }
+            $privateRoot = coreAccountingPrivateStorageRoot(dirname(__DIR__));
+            $secret = hash_hmac('sha256', 'coreaccounting-local-storage-v1', (string) DB_PASS);
+            $this->driver = new LocalDriver($privateRoot . '/coreaccounting-storage', $secret);
+        } else {
+            $this->driver = new LocalDriver();
+        }
     }
 
     public function driver_name(): string { return $this->driver->driver_name(); }
+    public function location_fingerprint(): string { return $this->driver->location_fingerprint(); }
+
+    /** Configuration presence only: does not instantiate an SDK or prove access. */
+    public static function configuration_status(): array
+    {
+        $private = self::private_configuration();
+        $name = $private['driver'] ?? strtolower((string) (getenv('STORAGE_DRIVER') ?: 'local'));
+        return [
+            'driver' => in_array($name, ['local', 's3'], true) ? $name : 'unrecognized',
+            's3_bucket_configured' => trim((string) ($private['s3']['bucket'] ?? getenv('STORAGE_S3_BUCKET'))) !== '',
+            's3_kms_key_configured' => trim((string) ($private['s3']['kms_key_id'] ?? getenv('STORAGE_S3_KMS_KEY_ID'))) !== '',
+        ];
+    }
+
+    private static function private_configuration(): ?array
+    {
+        // Only a host-owned bootstrap may define this; never use request input.
+        if (!defined('COREFLUX_STORAGE_CONFIG')) return null;
+        $private = constant('COREFLUX_STORAGE_CONFIG');
+        if (!is_array($private) || array_diff(array_keys($private), ['driver', 's3'])
+            || ($private['driver'] ?? null) !== 's3' || !is_array($private['s3'] ?? null)
+            || !is_string($private['s3']['bucket'] ?? null) || trim($private['s3']['bucket']) === ''
+            || !is_string($private['s3']['kms_key_id'] ?? null) || trim($private['s3']['kms_key_id']) === '') {
+            throw new \RuntimeException('Invalid private storage configuration.');
+        }
+        return $private;
+    }
+
+    /** Local upload/download endpoints use this; modules continue through StorageService. */
+    public function local_driver(): ?LocalDriver
+    {
+        return $this->driver instanceof LocalDriver ? $this->driver : null;
+    }
 
     /**
      * Persist a file. Returns a structured payload describing the stored object.
@@ -67,7 +113,7 @@ class StorageService
      * @param int|string                $entityId
      * @param string                    $filename     original / display filename
      * @param string|resource           $localPathOrStream  file path or stream (or raw bytes for tests)
-     * @param array                     $opts        ['mime', 'metadata', 'tags', 'lock_until' (DateTime), 'lock_mode']
+     * @param array                     $opts        ['mime', 'metadata', 'tags', 'lock_until' (DateTime), 'lock_mode', 'source_is_bytes', 'if_not_exists']
      * @return array {key, version_id, etag, size_bytes, signed_url}
      */
     public function put(
@@ -96,6 +142,18 @@ class StorageService
         return $this->driver->get_signed_url($key, $ttlSeconds, $opts);
     }
 
+    /** Write an already-reserved server-side key, refusing any overwrite or scope change. */
+    public function put_reserved(string $module,int $tenantId,string $entityType,$entityId,string $key,string $bytes,array $opts=[]): array
+    {
+        $prefix=$this->sanitize_segment($module).'/'.$tenantId.'/'.$this->sanitize_segment($entityType).'/'.$this->sanitize_segment((string)$entityId).'/';
+        $name=str_starts_with($key,$prefix)?substr($key,strlen($prefix)):'';
+        if($tenantId<=0||$name===''||!preg_match('/^[a-f0-9]{8}-.+$/D',$name)||$this->sanitize_filename(substr($name,9))!==substr($name,9)
+            ||strlen($name)>209)throw new \InvalidArgumentException('StorageService: invalid reserved object identity');
+        // Module callers cannot turn a reserved write into an overwrite or local-file read.
+        $opts['if_not_exists']=true;$opts['source_is_bytes']=true;
+        return ['key'=>$key,'driver'=>$this->driver->driver_name()]+$this->driver->put($key,$bytes,$opts);
+    }
+
     public function get_presigned_post(string $key, array $constraints = []): array
     {
         return $this->driver->get_presigned_post($key, $constraints);
@@ -104,6 +162,11 @@ class StorageService
     public function head(string $key): ?array
     {
         return $this->driver->head($key);
+    }
+
+    public function read(string $key, int $maxBytes): ?string
+    {
+        return $this->driver->read($key, $maxBytes);
     }
 
     public function soft_delete(string $key): void

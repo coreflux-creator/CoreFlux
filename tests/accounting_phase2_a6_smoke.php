@@ -20,6 +20,7 @@ $a('indexes (tenant_id, group_id)',            $contains($mig, 'idx_apb_ic_group
 
 echo "\nAP bills.php — post_with_ic_split action\n";
 $bills = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
+$ap = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/ap.php');
 $a('action=post_with_ic_split handler',        $contains($bills, "\$action === 'post_with_ic_split'"));
 $a('requires ap.bill.post AND accounting.je.post',
     $contains($bills, "'ap.bill.post'") && $contains($bills, "'accounting.je.post'"));
@@ -30,7 +31,9 @@ $a('accepts slim entity_id + ap_account_code shape', $contains($bills, "'ap_acco
 $a('calls intercompanyPostSplit',              $contains($bills, 'intercompanyPostSplit('));
 $a('idempotency keyed on ic:bill:<id>',        $contains($bills, "'ic:bill:%d'"));
 $a('links group_id + source je_id back to bill',
-    $contains($bills, 'UPDATE ap_bills SET journal_entry_id = :j, intercompany_group_id = :g'));
+    $contains($bills, 'apAttachPostedBillJournal(')
+    && $contains($ap, 'function apAttachPostedBillJournal(')
+    && $contains($ap, 'UPDATE ap_bills SET journal_entry_id = :journal_id, intercompany_group_id = :group_id'));
 $a('audits ap.bill.posted_ic',                 $contains($bills, "'ap.bill.posted_ic'"));
 
 echo "\nlib/intercompany.php — elimination worksheet\n";

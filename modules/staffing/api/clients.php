@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/client_audit.php';
 require_once __DIR__ . '/../lib/clients.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -48,7 +49,8 @@ if ($method === 'GET' && $action === 'list') {
                   OR c.source_system LIKE :q_source
                   OR c.status LIKE :q_status
                   OR c.msa_status LIKE :q_msa
-                  OR CAST(c.payment_terms_days AS CHAR) LIKE :q_terms)';
+                  OR CAST(c.payment_terms_days AS CHAR) LIKE :q_terms OR ' . coreRecordNumberSearchSql('client', 'c', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $_GET['q']));
         $like = '%' . trim((string) $_GET['q']) . '%';
         foreach (['q_name','q_legal','q_industry','q_contact','q_email','q_phone','q_city','q_state','q_country','q_external','q_source','q_status','q_msa','q_terms'] as $key) {
             $params[$key] = $like;
@@ -59,7 +61,7 @@ if ($method === 'GET' && $action === 'list') {
         $where[] = 'EXISTS (
             SELECT 1 FROM placements sp
              WHERE sp.tenant_id = :source_placement_tid
-               AND sp.end_client_company_id = c.company_id
+               AND sp.client_id = c.id
                AND sp.status = \'active\'
                AND sp.deleted_at IS NULL
         )';
@@ -78,7 +80,7 @@ if ($method === 'GET' && $action === 'list') {
                     AND NOT EXISTS (
                         SELECT 1 FROM placements smp
                          WHERE smp.tenant_id = :source_manual_tid
-                           AND smp.end_client_company_id = c.company_id
+                           AND smp.client_id = c.id
                            AND smp.status = \'active\'
                            AND smp.deleted_at IS NULL
                     )
@@ -123,21 +125,23 @@ if ($method === 'GET' && $action === 'list') {
                    COALESCE(p.cnt, 0) AS active_placements
               FROM staffing_clients c
               LEFT JOIN (
-                  SELECT end_client_company_id, COUNT(*) AS cnt
+                  SELECT client_id, COUNT(*) AS cnt
                     FROM placements
                    WHERE tenant_id = :placements_tid AND status = 'active'
                      AND deleted_at IS NULL
-                     AND end_client_company_id IS NOT NULL
-                   GROUP BY end_client_company_id
-              ) p ON p.end_client_company_id = c.company_id
+                     AND client_id IS NOT NULL
+                   GROUP BY client_id
+              ) p ON p.client_id = c.id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY {$sortExpr} {$sortDir}, c.id DESC
              LIMIT " . $limit;
-    api_ok(['rows' => staffingClientCatalogQuery(
+    $numberedRows = coreRecordNumbersAttach(getDB(), $tenantId, 'client', staffingClientCatalogQuery(
         $tenantId,
         $sql,
         array_merge($params, ['placements_tid' => $placementsTenantId])
-    )]);
+    ));
+    $numberedRows = coreRecordNumbersAttachRelated(getDB(), $tenantId, 'company', $numberedRows, 'company_id');
+    api_ok(['rows' => $numberedRows]);
 }
 
 if ($method === 'POST' && $action === 'bulk_update') {
@@ -245,6 +249,8 @@ if ($method === 'GET' && $action === 'get') {
         ['id' => $id]
     );
     if (!$row) api_error('Not found', 404);
+    $row = coreRecordNumbersAttach(getDB(), $tenantId, 'client', [$row])[0];
+    $row = coreRecordNumbersAttachRelated(getDB(), $tenantId, 'company', [$row], 'company_id')[0];
     api_ok(['client' => $row]);
 }
 
@@ -381,7 +387,7 @@ if ($method === 'GET' && $action === 'stats') {
            FROM placements p
            JOIN staffing_clients sc
              ON sc.tenant_id = p.tenant_id
-            AND sc.company_id = p.end_client_company_id
+            AND sc.id = p.client_id
           WHERE p.tenant_id = :placements_tid
             AND sc.id = :id
             AND p.status = 'active'
@@ -397,7 +403,7 @@ if ($method === 'GET' && $action === 'stats') {
             "SELECT COALESCE(SUM(v.revenue), 0) AS r
                FROM v_timesheet_day_fin v
                JOIN placements p ON p.id = v.placement_id AND p.tenant_id = :placements_tid
-               JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.company_id = p.end_client_company_id
+               JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
               WHERE v.tenant_id = :tenant_id
                 AND sc.id = :id
                 AND v.work_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')"

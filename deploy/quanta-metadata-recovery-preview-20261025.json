@@ -1,0 +1,185 @@
+{
+  "date": "2026-10-25",
+  "status": "installed_and_original_demo_receipts_verified",
+  "core": {
+    "installed_commit": "b064dcb26a839ebd21f89fd3a1112beb188f6029",
+    "ci": {
+      "conclusion": "success",
+      "headSha": "b064dcb26a839ebd21f89fd3a1112beb188f6029",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40209561098"
+    },
+    "deployment": {
+      "conclusion": "success",
+      "headSha": "b064dcb26a839ebd21f89fd3a1112beb188f6029",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40209772738"
+    },
+    "ci_jobs_passed": 9,
+    "served_assets_verified": [
+      "index-DnBH-cmW.js",
+      "index-CSV1maaH.js",
+      "index-CYcM0MSD.css",
+      "index-SRkxIh9x.css"
+    ],
+    "focused_contract_checks": 108,
+    "mounted_recovery_ui_checks": 13,
+    "synthetic_chrome_review": "passed",
+    "staging_acceptance": [
+      "accounting_lifecycle",
+      "split_receipt",
+      "credit_application_61_checks_rolled_back",
+      "billing_delivery_log_only",
+      "onboarding_http_18_checks"
+    ]
+  },
+  "quanta": {
+    "date": "2026-10-25",
+    "preflight": {
+      "host": "agent-env-14a1f661-002e-4d95-969e-ebcfd6ce88ba",
+      "head": "90ed420bf458da1097ba10dd7f2d7f190332f7df",
+      "held": true,
+      "before": {
+        "backend": "RUNNING",
+        "frontend": "RUNNING",
+        "webhook-crond": "RUNNING"
+      },
+      "scheduler_stopped": true,
+      "hashes": {
+        "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+        "backend/app/routers/v1/coreflux.py": "030413d94f92dc378fe25e421932fcbf52a80eb2e511d1e087556adc11246670",
+        "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+        "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193",
+        "backend/server.py": "d7f76914cfa87cf8cec85a585aa92be0dd02a4c09d12a0e78e8d19c41b1fbd08"
+      }
+    },
+    "acceptance": {
+      "provider": "quanta",
+      "candidate": "bf1ce7d34cf82c2a33fb2b72e3a40738b9d05ad3",
+      "work_directory": "/tmp/core-location-candidate-m6dqq53k",
+      "frontend_exit": 0,
+      "backend": {
+        "runtime_hashes": {
+          "app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+          "app/routers/v1/coreflux.py": "030413d94f92dc378fe25e421932fcbf52a80eb2e511d1e087556adc11246670",
+          "app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+          "server.py": "d7f76914cfa87cf8cec85a585aa92be0dd02a4c09d12a0e78e8d19c41b1fbd08"
+        },
+        "test_files": [
+          "test_core_portal.py",
+          "test_coreflux.py",
+          "test_coreflux_location.py",
+          "test_coreflux_metadata_receipts.py",
+          "test_startup_access.py"
+        ],
+        "pytest_exit": 0,
+        "network_attempts": 0,
+        "full_application": true,
+        "lifespan_started": true,
+        "candidate_hashes": {
+          "app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+          "app/routers/v1/coreflux.py": "5a91dfc9c892b611ccbedb2ea02650e16717328463280810fe644a4e3d554091",
+          "app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca"
+        },
+        "real_database_used": false,
+        "live_workspace_acceptance": false,
+        "report_directory": "/tmp/quanta-core-full-app-_paeqqwb"
+      },
+      "hashes": {
+        "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+        "backend/app/routers/v1/coreflux.py": "5a91dfc9c892b611ccbedb2ea02650e16717328463280810fe644a4e3d554091",
+        "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+        "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193"
+      },
+      "installed": false,
+      "production_published": false,
+      "business_records_written": false
+    },
+    "installation": {
+      "provider": "quanta",
+      "candidate": "bf1ce7d34cf82c2a33fb2b72e3a40738b9d05ad3",
+      "at": "2026-10-25T16:01:50.892467+00:00",
+      "installed": true,
+      "hashes": {
+        "backend/app/coreflux_contract.py": "4f15cccd88a8345794e556a123c51245077447d52721eaf8caa39288b9adcb6b",
+        "backend/app/routers/v1/coreflux.py": "5a91dfc9c892b611ccbedb2ea02650e16717328463280810fe644a4e3d554091",
+        "backend/app/routers/core_assignments.py": "95db5f6afab2650213a4af5f7079344c6be791adf01401d1edd5c1b3af7795ca",
+        "frontend/src/pages/CoreAssignmentsPage.jsx": "f39421d57371715ae087f818067ec64ec12c4f8c19b4b76dba651366ae25f193"
+      },
+      "backup_directory": "/tmp/core-location-install-b7nvcf8x",
+      "protected_unchanged": true,
+      "records_unchanged": true,
+      "collections_verified": 80,
+      "health_status": 200,
+      "services": {
+        "backend": "RUNNING",
+        "frontend": "RUNNING",
+        "webhook-crond": "STOPPED"
+      },
+      "production_published": false,
+      "business_records_written": false,
+      "acceptance_directory": "/tmp/core-location-candidate-m6dqq53k"
+    },
+    "local_contract_checks": 55,
+    "production_published": false,
+    "live_thunderhawk_round_trip": false
+  },
+  "readiness_run": {
+    "conclusion": "success",
+    "headSha": "069a22706520311ca4c27fe39b3fce2a2f6037c5",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40210018518"
+  },
+  "quanta_original_receipts": {
+    "verified": true,
+    "checked": 2,
+    "receipts": [
+      {
+        "delivery_id": 6,
+        "operation": "assignment.update",
+        "original_receipt_verified": true,
+        "repeat_read_identical": true
+      },
+      {
+        "delivery_id": 4,
+        "operation": "assignment.create",
+        "original_receipt_verified": true,
+        "repeat_read_identical": true
+      }
+    ],
+    "local_history_unchanged": true,
+    "provider_record_writes": false
+  },
+  "location_delivery_pending": {
+    "core": {
+      "city": null,
+      "state": "NJ",
+      "country": "US"
+    },
+    "quanta_assignment_found": true,
+    "quanta_location_present": false,
+    "quanta_matches_core": false,
+    "provider_record_writes": false
+  },
+  "purepay_company_review": {
+    "available": false,
+    "provider_record_writes": false,
+    "reason": "context_or_configuration_check_failed"
+  },
+  "synthetic_commercial_source": null,
+  "time_review_gate": {
+    "eligible_in_both_permission_models": 1,
+    "entries": [
+      {
+        "entry_id": 1,
+        "status": "pending_review",
+        "independent_eligible_reviewers": 0,
+        "existing_operator_is_creator": true
+      }
+    ]
+  },
+  "credential_changes": false,
+  "real_financial_execution": false,
+  "production_cutover": false,
+  "arabella_changed": false
+}

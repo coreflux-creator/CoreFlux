@@ -1,0 +1,25 @@
+<?php
+declare(strict_types=1);
+if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST'
+    || !hash_equals('__COREFLUX_OPCACHE_TOKEN__',(string)($_SERVER['HTTP_X_COREFLUX_DEPLOY_RESET'] ?? ''))) {
+    http_response_code(404); exit;
+}
+header('Content-Type: application/json');
+try {
+    $root=dirname(__DIR__,2);
+    if (realpath($root)!=='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html') throw new RuntimeException();
+    require_once $root.'/core/config.php';
+    require_once $root.'/core/purepay_adapter.php';
+    if (!defined('COREFLUX_STAGING') || COREFLUX_STAGING!==true
+        || purepayApiBase()!=='https://pure-pay-support.preview.emergentagent.com/api/v1') throw new RuntimeException();
+    // The guard must reject this locally; no provider request is permitted.
+    try {
+        purepayCall('fixture-no-provider-credential','POST','/bills');
+        throw new RuntimeException();
+    } catch (PurePayApiException $e) {
+        if ($e->getMessage()!=='PurePay financial preview is read-only.') throw new RuntimeException();
+    }
+    echo json_encode(['ok'=>true,'read_only_preview'=>true]);
+} catch (Throwable $e) {
+    http_response_code(503); echo json_encode(['ok'=>false]);
+}

@@ -1,0 +1,29 @@
+{
+  "candidate": "87b14b9d7e532abb3c50167cd9be2721769a9e96",
+  "installed_file": "frontend/src/pages/CoreOnboardingPanel.jsx",
+  "before_sha256": "8f56eb53e351880c9e67bb1374ba9f982e334a16d8601045c62973907a4f1fba",
+  "installed_sha256": "644637185947678df95f58cdb76bdb1dde26c79bd2a426f4471a58eeeb5c56e9",
+  "frontend_build_exit": 0,
+  "shared_head_unchanged": true,
+  "shared_index_unchanged": true,
+  "unrelated_source_unchanged": true,
+  "protected_configuration_unchanged": true,
+  "database_used": false,
+  "backend_changed": false,
+  "services_restarted": false,
+  "document_transfer_enabled": false,
+  "background_workers_disabled": true,
+  "published": false,
+  "backup_directory": "/tmp/quanta-onboarding-status-ui-2pw8w8na",
+  "checked_at": "2026-10-26T17:17:51.651Z",
+  "local_mounted_ui_tests": 20,
+  "native_worker_verification": {
+    "person_number": "P-15",
+    "placement_number": "PL-13",
+    "workspace": "Acme Construction",
+    "approved_requirements": 3,
+    "misleading_resubmission_guidance": false,
+    "worker_session_retained": true,
+    "screenshot": "output/worker-onboarding-approved-20261026.png"
+  }
+}

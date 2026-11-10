@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
+require_once __DIR__ . '/placements.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
 {
@@ -54,102 +55,90 @@ function placementEconomicsEnsureVendor(
     string $vendorType,
     ?string $terms = null,
     ?bool $pwp = null,
-    ?int $placementId = null
+    ?int $placementId = null,
+    ?int $workspaceId = null
 ): ?array {
     $displayName = trim($displayName);
     if ($tenantId <= 0 || $displayName === '') return null;
-    if (!in_array($vendorType, ['1099_individual','c2c_corp','w9_business','utility','other'], true)) {
-        $vendorType = 'other';
-    }
+    if ($companyId !== null && $companyId <= 0) throw new RuntimeException('Review the vendor company identity before linking it.');
+    if (!in_array($vendorType, ['1099_individual','c2c_corp','w9_business','utility','other'], true)) $vendorType = 'other';
 
     $pdo = getDB();
-    $existing = null;
-    if ($companyId) {
-        $st = $pdo->prepare(
-            'SELECT * FROM ap_vendors_index
-              WHERE tenant_id = :t AND company_id = :c
-              ORDER BY id ASC LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'c' => $companyId]);
-        $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    }
-    if (!$existing) {
-        $st = $pdo->prepare(
-            'SELECT * FROM ap_vendors_index
-              WHERE tenant_id = :t AND vendor_name = :n
-              ORDER BY id ASC LIMIT 1'
-        );
-        $st->execute(['t' => $tenantId, 'n' => $displayName]);
-        $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    }
+    $ownTransaction = !$pdo->inTransaction();
+    $savepoint = 'staffing_vendor_' . bin2hex(random_bytes(8));
+    if ($ownTransaction) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $existing = null;
+        if ($companyId !== null) {
+            $companyOwner = companiesDirectoryTenantId($tenantId);
+            if ($workspaceId !== null && placementsCompanyDirectoryTenantId($workspaceId) !== $companyOwner) {
+                throw new PlacementCompanyScopeConflict('The company and placement directories do not match this workspace.');
+            }
+            $st = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL FOR UPDATE');
+            $st->execute(['c'=>$companyId, 't'=>$companyOwner]);
+            if (!$st->fetchColumn()) throw new RuntimeException('The vendor company is outside the current company directory or is no longer active.');
+            // Lock the company even when no vendor exists. Concurrent resolution
+            // of the same company must not create two differently named vendors.
+            $st = $pdo->prepare('SELECT * FROM ap_vendors_index WHERE tenant_id=:t AND company_id=:c ORDER BY id LIMIT 2 FOR UPDATE');
+            $st->execute(['t'=>$tenantId, 'c'=>$companyId]);
+            $matches = $st->fetchAll(PDO::FETCH_ASSOC);
+            if (count($matches)>1) throw new RuntimeException('This company has multiple vendor records. Review their identities before linking the placement.');
+            $existing = $matches[0] ?? null;
+        }
+        if (!$existing) {
+            $st = $pdo->prepare('SELECT * FROM ap_vendors_index WHERE tenant_id=:t AND vendor_name=:n LIMIT 2 FOR UPDATE');
+            $st->execute(['t'=>$tenantId, 'n'=>$displayName]);
+            $matches = $st->fetchAll(PDO::FETCH_ASSOC);
+            if (count($matches)>1) throw new RuntimeException('Multiple vendors have this name. Review the vendor identity before linking.');
+            $existing = $matches[0] ?? null;
+            // A name is not authority to bind an unlinked vendor, replace its
+            // company, or adopt a company vendor for a person-only payee.
+            if ($existing && ($companyId !== null || !empty($existing['company_id']))) {
+                throw new RuntimeException('A vendor with this name has a different or unreviewed company identity. Review the company-to-vendor link before using it on the placement.');
+            }
+        }
 
-    $normalTerms = placementEconomicsNormaliseTerms(
-        $terms,
-        (string) ($existing['default_terms'] ?? 'NET30')
-    );
-    $normalPwp = $pwp === null
-        ? (int) ($existing['default_pwp'] ?? (placementEconomicsTermsArePwp($normalTerms) ? 1 : 0))
-        : ($pwp ? 1 : 0);
-
-    if ($companyId) {
-        try {
+        $normalTerms = placementEconomicsNormaliseTerms($terms, (string)($existing['default_terms'] ?? 'NET30'));
+        $normalPwp = $pwp === null ? (int)($existing['default_pwp'] ?? (placementEconomicsTermsArePwp($normalTerms) ? 1 : 0)) : ($pwp ? 1 : 0);
+        if ($existing) {
+            // The locked identity is already verified; never retarget it here.
+            $pdo->prepare('UPDATE ap_vendors_index SET placement_id_last=COALESCE(:p,placement_id_last) WHERE tenant_id=:t AND id=:i')
+                ->execute(['p'=>$placementId,'t'=>$tenantId,'i'=>(int)$existing['id']]);
+            $vendorId = (int)$existing['id'];
+        } else {
+            $pdo->prepare('INSERT INTO ap_vendors_index
+                (tenant_id,vendor_name,company_id,vendor_type,default_terms,default_pwp,requires_1099,placement_id_last)
+                VALUES(:t,:n,:c,:type,:terms,:pwp,:tax,:p)')
+                ->execute(['t'=>$tenantId,'n'=>$displayName,'c'=>$companyId,'type'=>$vendorType,'terms'=>$normalTerms,
+                    'pwp'=>$normalPwp,'tax'=>$vendorType==='1099_individual'?1:0,'p'=>$placementId]);
+            $vendorId = (int)$pdo->lastInsertId();
+        }
+        if ($companyId !== null) {
             companiesAddRole($companyId, 'vendor');
             companiesBumpUsage($companyId);
-        } catch (\Throwable $e) {
-            error_log('[placement economics] company vendor role skipped: ' . $e->getMessage());
         }
+        $result = [
+            'id'=>$vendorId, 'company_id'=>$existing ? ($existing['company_id']===null?null:(int)$existing['company_id']) : $companyId,
+            'vendor_name'=>$existing ? (string)$existing['vendor_name'] : $displayName,
+            'vendor_type'=>$existing ? (string)$existing['vendor_type'] : $vendorType,
+            'requires_1099'=>$existing ? (int)$existing['requires_1099'] : ($vendorType==='1099_individual'?1:0),
+            'default_terms'=>$existing ? (string)($existing['default_terms'] ?? 'NET30') : $normalTerms,
+            'default_pwp'=>$existing ? (int)($existing['default_pwp'] ?? 0) : $normalPwp,
+        ];
+        if ($ownTransaction) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        return $result;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            if ($ownTransaction) $pdo->rollBack();
+            else {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+        throw $error;
     }
-
-    if ($existing) {
-        $pdo->prepare(
-            'UPDATE ap_vendors_index
-                SET vendor_name = :name,
-                    company_id = COALESCE(:company_id, company_id),
-                    vendor_type = :vendor_type,
-                    placement_id_last = COALESCE(:placement_id, placement_id_last)
-              WHERE tenant_id = :t AND id = :id'
-        )->execute([
-            'name' => $displayName,
-            'company_id' => $companyId,
-            'vendor_type' => $vendorType,
-            'placement_id' => $placementId,
-            't' => $tenantId,
-            'id' => (int) $existing['id'],
-        ]);
-        $vendorId = (int) $existing['id'];
-    } else {
-        $pdo->prepare(
-            'INSERT INTO ap_vendors_index
-                (tenant_id, vendor_name, company_id, vendor_type, default_terms,
-                 default_pwp, requires_1099, placement_id_last)
-             VALUES
-                (:t, :name, :company_id, :vendor_type, :terms,
-                 :pwp, :requires_1099, :placement_id)'
-        )->execute([
-            't' => $tenantId,
-            'name' => $displayName,
-            'company_id' => $companyId,
-            'vendor_type' => $vendorType,
-            'terms' => $normalTerms,
-            'pwp' => $normalPwp,
-            'requires_1099' => $vendorType === '1099_individual' ? 1 : 0,
-            'placement_id' => $placementId,
-        ]);
-        $vendorId = (int) $pdo->lastInsertId();
-    }
-
-    return [
-        'id' => $vendorId,
-        'company_id' => $companyId,
-        'vendor_name' => $displayName,
-        'vendor_type' => $vendorType,
-        'default_terms' => $existing
-            ? (string) ($existing['default_terms'] ?? 'NET30')
-            : $normalTerms,
-        'default_pwp' => $existing
-            ? (int) ($existing['default_pwp'] ?? 0)
-            : $normalPwp,
-    ];
 }
 
 function placementEconomicsEnsureCycle(
@@ -370,6 +359,12 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
     $name = trim((string) ($party['display_name'] ?? ''));
     if ($tenantId <= 0 || $placementId <= 0 || $sourceRef === '' || $name === '') return 0;
 
+    if (!empty($party['company_id'])) {
+        $checkCompany = getDB()->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL');
+        $checkCompany->execute(['c' => (int) $party['company_id'], 't' => companiesDirectoryTenantId($tenantId)]);
+        if (!$checkCompany->fetchColumn()) throw new RuntimeException('The economic participant company is outside the placement company directory or is no longer active.');
+    }
+
     $allowedSources = ['placement','worker','chain','corp','referral','commission','manual','integration'];
     $allowedFlows = ['receivable','payable','informational'];
     $allowedChannels = ['ar','ap','payroll','none'];
@@ -422,19 +417,27 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
              :effective_from, :effective_to, :source_system, :source_external_id,
              :source_managed, 1, :created_by_user_id)
          ON DUPLICATE KEY UPDATE
-             source_type = VALUES(source_type), source_id = VALUES(source_id),
-             role = VALUES(role), display_name = VALUES(display_name),
-             company_id = VALUES(company_id), person_id = VALUES(person_id),
-             user_id = VALUES(user_id), ap_vendor_id = VALUES(ap_vendor_id),
-              money_flow = VALUES(money_flow), settlement_channel = VALUES(settlement_channel),
-              fee_basis = VALUES(fee_basis), fee_pct = VALUES(fee_pct), fee_flat = VALUES(fee_flat),
-              payment_terms = IF(payment_terms_overridden = 1, payment_terms, VALUES(payment_terms)),
-              pwp_enabled = IF(pwp_overridden = 1, pwp_enabled, VALUES(pwp_enabled)),
-              operating_cycle_id = IF(cycle_overridden = 1, operating_cycle_id, VALUES(operating_cycle_id)),
-             effective_from = VALUES(effective_from), effective_to = VALUES(effective_to),
-             source_system = COALESCE(VALUES(source_system), source_system),
-             source_external_id = COALESCE(VALUES(source_external_id), source_external_id),
-             active = 1'
+             source_type = IF(source_managed = 0 AND VALUES(source_managed) = 1, source_type, VALUES(source_type)),
+             source_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, source_id, VALUES(source_id)),
+             role = IF(source_managed = 0 AND VALUES(source_managed) = 1, role, VALUES(role)),
+             display_name = IF(source_managed = 0 AND VALUES(source_managed) = 1, display_name, VALUES(display_name)),
+             company_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, company_id, VALUES(company_id)),
+             person_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, person_id, VALUES(person_id)),
+             user_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, user_id, VALUES(user_id)),
+             ap_vendor_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, ap_vendor_id, VALUES(ap_vendor_id)),
+             money_flow = IF(source_managed = 0 AND VALUES(source_managed) = 1, money_flow, VALUES(money_flow)),
+             settlement_channel = IF(source_managed = 0 AND VALUES(source_managed) = 1, settlement_channel, VALUES(settlement_channel)),
+             fee_basis = IF(source_managed = 0 AND VALUES(source_managed) = 1, fee_basis, VALUES(fee_basis)),
+             fee_pct = IF(source_managed = 0 AND VALUES(source_managed) = 1, fee_pct, VALUES(fee_pct)),
+             fee_flat = IF(source_managed = 0 AND VALUES(source_managed) = 1, fee_flat, VALUES(fee_flat)),
+             payment_terms = IF(source_managed = 0 AND VALUES(source_managed) = 1, payment_terms, IF(payment_terms_overridden = 1, payment_terms, VALUES(payment_terms))),
+             pwp_enabled = IF(source_managed = 0 AND VALUES(source_managed) = 1, pwp_enabled, IF(pwp_overridden = 1, pwp_enabled, VALUES(pwp_enabled))),
+             operating_cycle_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, operating_cycle_id, IF(cycle_overridden = 1, operating_cycle_id, VALUES(operating_cycle_id))),
+             effective_from = IF(source_managed = 0 AND VALUES(source_managed) = 1, effective_from, VALUES(effective_from)),
+             effective_to = IF(source_managed = 0 AND VALUES(source_managed) = 1, effective_to, VALUES(effective_to)),
+             source_system = IF(source_managed = 0 AND VALUES(source_managed) = 1, source_system, COALESCE(VALUES(source_system), source_system)),
+             source_external_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, source_external_id, COALESCE(VALUES(source_external_id), source_external_id)),
+             active = IF(source_managed = 0 AND VALUES(source_managed) = 1, active, 1)'
     )->execute([
         't' => $tenantId,
         'p' => $placementId,
@@ -473,33 +476,51 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
 
 function placementEconomicsReconcile(int $tenantId, int $placementId, array $options = []): array
 {
+    $tenantId = (int) placementsGraphTenantId($tenantId);
     $summary = ['available' => true, 'placement_id' => $placementId, 'written' => 0, 'source_refs' => [], 'errors' => []];
     if ($tenantId <= 0 || $placementId <= 0) return $summary;
 
+    $transactionStarted = false;
+    $ownTransaction = false;
+    $savepoint = 'placement_graph_' . bin2hex(random_bytes(8));
     try {
         $pdo = getDB();
+        $companyOwner = companiesDirectoryTenantId($tenantId);
         $st = $pdo->prepare(
             'SELECT p.*, pe.first_name, pe.last_name, pe.email_primary,
                     pe.pay_frequency AS person_pay_frequency,
                     ec.name AS end_client_company_name,
-                    ec.payment_terms_days AS end_client_company_terms_days,
+                    sc.company_id AS billing_link_company_id,
+                    bc.id AS billing_company_id, bc.name AS billing_company_name,
+                    bc.payment_terms_days AS billing_company_terms_days,
                     sc.payment_terms_days AS staffing_client_terms_days,
                     t.billing_invoice_terms AS tenant_billing_terms
                FROM placements p
           LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-          LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
+          LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :end_company_owner AND ec.deleted_at IS NULL
           LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
+          LEFT JOIN companies bc ON bc.id = sc.company_id AND bc.tenant_id = :bill_company_owner AND bc.deleted_at IS NULL
           LEFT JOIN tenants t ON t.id = p.tenant_id
               WHERE p.tenant_id = :t AND p.id = :p LIMIT 1'
         );
-        $st->execute(['t' => $tenantId, 'p' => $placementId]);
+        $st->execute(['t' => $tenantId, 'p' => $placementId, 'end_company_owner' => $companyOwner, 'bill_company_owner' => $companyOwner]);
         $placement = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
         if (!$placement) {
             $summary['available'] = false;
             $summary['errors'][] = 'placement not found';
             return $summary;
         }
+        foreach (['end_client_company_id', 'billing_link_company_id'] as $link) {
+            if (empty($placement[$link])) continue;
+            $valid = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL');
+            $valid->execute(['c' => (int) $placement[$link], 't' => $companyOwner]);
+            if (!$valid->fetchColumn()) throw new RuntimeException('Review the placement company links before rebuilding its economic graph.');
+        }
 
+        $ownTransaction = !$pdo->inTransaction();
+        if ($ownTransaction) $pdo->beginTransaction();
+        else $pdo->exec('SAVEPOINT ' . $savepoint);
+        $transactionStarted = true;
         placementEconomicsEnsureDerivedCycles($tenantId, $placement);
 
         $sourceSystem = str_starts_with((string) ($placement['external_id'] ?? ''), 'jd:') ? 'jobdiva' : 'coreflux';
@@ -533,7 +554,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             }
         }
         if ($clientTermsRaw === '') {
-            $clientDays = $placement['staffing_client_terms_days'] ?? $placement['end_client_company_terms_days'] ?? null;
+            $clientDays = $placement['staffing_client_terms_days'] ?? $placement['billing_company_terms_days'] ?? null;
             if ($clientDays !== null && $clientDays !== '') {
                 $clientTermsRaw = (int) $clientDays === 0 ? 'DUE_ON_RECEIPT' : 'NET' . max(0, (int) $clientDays);
             }
@@ -563,16 +584,26 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             return $id;
         };
 
-        $clientName = trim((string) ($placement['end_client_company_name'] ?: $placement['end_client_name']));
+        $clientName = trim((string) ($placement['billing_company_name'] ?? ''));
         if ($clientName !== '') {
             $record([
-                'source_ref' => 'placement:end_client', 'source_type' => 'placement',
-                'source_id' => $placementId, 'role' => 'end_client', 'display_name' => $clientName,
-                'company_id' => $placement['end_client_company_id'] ?: null,
+                'source_ref' => 'placement:bill_to', 'source_type' => 'placement',
+                'source_id' => $placementId, 'role' => 'bill_to_client', 'display_name' => $clientName,
+                'company_id' => $placement['billing_company_id'],
                 'money_flow' => 'receivable', 'settlement_channel' => 'ar',
                 'payment_terms' => $clientTerms, 'pwp_enabled' => 0,
                 'operating_cycle_id' => $billingCycleId, 'source_system' => $sourceSystem,
                 'source_external_id' => $sourceExternal,
+            ]);
+        }
+        $endClientName = trim((string) ($placement['end_client_company_name'] ?: $placement['end_client_name']));
+        if ($endClientName !== '') {
+            $record([
+                'source_ref' => 'placement:work_recipient', 'source_type' => 'placement',
+                'source_id' => $placementId, 'role' => 'end_client', 'display_name' => $endClientName,
+                'company_id' => $placement['end_client_company_id'] ?: null,
+                'money_flow' => 'informational', 'settlement_channel' => 'none',
+                'source_system' => $sourceSystem, 'source_external_id' => $sourceExternal,
             ]);
         }
 
@@ -611,7 +642,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
         if ($engagement === 'c2c' && $corp && $corpName !== '') {
             $companyId = !empty($corp['company_id']) ? (int) $corp['company_id'] : null;
             if (!$companyId) {
-                $companyId = companiesUpsertByName($tenantId, $corpName, [], ['vendor']);
+                $companyId = companiesUpsertByName($companyOwner, $corpName, [], ['vendor']);
                 $pdo->prepare('UPDATE placement_corp_details SET company_id = :c WHERE tenant_id = :t AND placement_id = :p')
                     ->execute(['c' => $companyId, 't' => $tenantId, 'p' => $placementId]);
             }
@@ -653,10 +684,10 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 ($companyId && (int) ($placement['end_client_company_id'] ?? 0) === $companyId)
                 || (!$companyId && $clientName !== '' && strcasecmp($name, $clientName) === 0)
             );
-            if ($sameEndClient) continue;
+            if ($sameEndClient || $isClient) continue;
             if (!$companyId) {
                 $companyRole = $isClient ? 'client' : $role;
-                $companyId = companiesUpsertByName($tenantId, $name, [], [$companyRole]);
+                $companyId = companiesUpsertByName($companyOwner, $name, [], [$companyRole]);
                 $pdo->prepare('UPDATE placement_client_chain SET company_id = :c WHERE tenant_id = :t AND id = :id')
                     ->execute(['c' => $companyId, 't' => $tenantId, 'id' => (int) $row['id']]);
             }
@@ -690,12 +721,12 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                     CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
                     u.name AS user_name
                FROM placement_referrals r
-          LEFT JOIN companies c ON c.id = r.referrer_company_id AND c.tenant_id = r.tenant_id
+          LEFT JOIN companies c ON c.id = r.referrer_company_id AND c.tenant_id = :company_owner AND c.deleted_at IS NULL
           LEFT JOIN people pe ON pe.id = r.referrer_person_id AND pe.tenant_id = r.tenant_id
           LEFT JOIN users u ON u.id = r.referrer_user_id
               WHERE r.tenant_id = :t AND r.placement_id = :p'
         );
-        $refSt->execute(['t' => $tenantId, 'p' => $placementId]);
+        $refSt->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => $companyOwner]);
         foreach ($refSt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
             $type = (string) $row['referrer_type'];
             $name = trim((string) ($row['company_name'] ?: $row['referrer_vendor_name'] ?: $row['person_name'] ?: $row['user_name']));
@@ -703,7 +734,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             $channel = $type === 'user' ? 'payroll' : 'ap';
             $companyId = !empty($row['referrer_company_id']) ? (int) $row['referrer_company_id'] : null;
             if ($type === 'vendor' && !$companyId && trim((string) ($row['referrer_vendor_name'] ?? '')) !== '') {
-                $companyId = companiesUpsertByName($tenantId, (string) $row['referrer_vendor_name'], [], ['referrer','vendor']);
+                $companyId = companiesUpsertByName($companyOwner, (string) $row['referrer_vendor_name'], [], ['referrer','vendor']);
                 $pdo->prepare('UPDATE placement_referrals SET referrer_company_id = :c WHERE tenant_id = :t AND id = :id')
                     ->execute(['c' => $companyId, 't' => $tenantId, 'id' => (int) $row['id']]);
             }
@@ -764,6 +795,10 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
         placementEconomicsRepairPrimaryLaborPayee($tenantId, $placementId, $engagement);
 
         $managedRefs = array_values(array_unique($summary['source_refs']));
+        // Keep a legacy debtor with user-reviewed terms visible for resolution.
+        // The resulting multiple-receivable check blocks a new contract until reviewed.
+        $legacyOverrideGuard = ' AND NOT (source_ref = "placement:end_client"
+            AND (payment_terms_overridden = 1 OR pwp_overridden = 1 OR cycle_overridden = 1))';
         $managedSourceTypes = ['placement','worker','chain','corp','referral','commission'];
         $params = ['t' => $tenantId, 'p' => $placementId];
         $sourcePh = [];
@@ -782,18 +817,30 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             $pdo->prepare(
                 'UPDATE placement_economic_parties SET active = 0
                   WHERE tenant_id = :t AND placement_id = :p
-                    AND source_type IN (' . implode(',', $sourcePh) . ')
-                    AND source_ref NOT IN (' . implode(',', $ph) . ')'
+                    AND source_managed = 1 AND source_type IN (' . implode(',', $sourcePh) . ')
+                    AND source_ref NOT IN (' . implode(',', $ph) . ')' . $legacyOverrideGuard
             )->execute($params);
         } else {
             $pdo->prepare(
                 'UPDATE placement_economic_parties SET active = 0
                   WHERE tenant_id = :t AND placement_id = :p
-                    AND source_type IN (' . implode(',', $sourcePh) . ')'
+                    AND source_managed = 1 AND source_type IN (' . implode(',', $sourcePh) . ')' . $legacyOverrideGuard
             )->execute($params);
         }
+        if ($ownTransaction) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        $transactionStarted = false;
     } catch (\Throwable $e) {
+        if ($transactionStarted && $pdo->inTransaction()) {
+            if ($ownTransaction) $pdo->rollBack();
+            else {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
         $summary['available'] = false;
+        $summary['written'] = 0;
+        $summary['source_refs'] = [];
         $summary['errors'][] = $e->getMessage();
         error_log('[placement economics reconcile] ' . $e->getMessage());
     }
@@ -804,17 +851,20 @@ function placementEconomicsParties(int $tenantId, int $placementId): array
 {
     $st = getDB()->prepare(
         'SELECT ep.*, c.name AS company_name,
+                CASE WHEN ep.settlement_channel = "ar" AND ep.company_id = sc.company_id THEN sc.id ELSE NULL END AS client_id,
                 v.vendor_name, v.vendor_type, v.default_terms AS vendor_default_terms,
                 COALESCE(v.default_pwp, 0) AS vendor_default_pwp,
                 oc.name AS cycle_name, oc.purpose AS cycle_purpose, oc.cadence AS cycle_cadence
            FROM placement_economic_parties ep
-      LEFT JOIN companies c ON c.id = ep.company_id AND c.tenant_id = ep.tenant_id
+      LEFT JOIN placements p ON p.id = ep.placement_id AND p.tenant_id = ep.tenant_id
+      LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
+      LEFT JOIN companies c ON c.id = ep.company_id AND c.tenant_id = :company_owner AND c.deleted_at IS NULL
       LEFT JOIN ap_vendors_index v ON v.id = ep.ap_vendor_id AND v.tenant_id = ep.tenant_id
       LEFT JOIN staffing_operating_cycles oc ON oc.id = ep.operating_cycle_id AND oc.tenant_id = ep.tenant_id
           WHERE ep.tenant_id = :t AND ep.placement_id = :p AND ep.active = 1
           ORDER BY FIELD(ep.money_flow, "receivable", "payable", "informational"), ep.id'
     );
-    $st->execute(['t' => $tenantId, 'p' => $placementId]);
+    $st->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => companiesDirectoryTenantId($tenantId)]);
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
@@ -1053,6 +1103,7 @@ function placementEconomicsReceivableContract(
 
 function placementEconomicsContext(int $tenantId, int $placementId, bool $reconcile = true): array
 {
+    $tenantId = (int) placementsGraphTenantId($tenantId);
     $reconcileResult = $reconcile ? placementEconomicsReconcile($tenantId, $placementId) : ['available' => true];
     if (empty($reconcileResult['available'])) {
         return ['available' => false, 'parties' => [], 'cycles' => [], 'readiness' => [], 'reconcile' => $reconcileResult];
@@ -1646,6 +1697,7 @@ function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
             'role' => $party['role'] ?? 'other',
             'display_name' => $party['display_name'] ?? '',
             'company_id' => !empty($party['company_id']) ? (int) $party['company_id'] : null,
+            'client_id' => !empty($party['client_id']) ? (int) $party['client_id'] : null,
             'person_id' => !empty($party['person_id']) ? (int) $party['person_id'] : null,
             'user_id' => !empty($party['user_id']) ? (int) $party['user_id'] : null,
             'ap_vendor_id' => !empty($party['ap_vendor_id']) ? (int) $party['ap_vendor_id'] : null,
@@ -1690,6 +1742,7 @@ function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
             'economic_party_id' => (int) $billTo['id'],
             'client_name' => (string) $billTo['display_name'],
             'client_company_id' => $billTo['company_id'],
+            'client_id' => $billTo['client_id'],
             'payment_terms' => (string) ($billTo['resolved_payment_terms'] ?? 'NET30'),
             'payment_terms_days' => placementEconomicsTermsDays(
                 (string) ($billTo['resolved_payment_terms'] ?? 'NET30'),

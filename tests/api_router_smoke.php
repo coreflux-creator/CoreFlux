@@ -311,8 +311,7 @@ $assert("resolves treasury/recommendations module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/recommendations.php'));
 
 $file = apiRouterResolveFile('treasury', 'policy');
-$assert("resolves treasury/policy module endpoint",
-    $file !== null && str_ends_with($file, '/modules/treasury/api/policy.php'));
+$assert("unimplemented treasury/policy is not exposed", $file === null);
 
 $file = apiRouterResolveFile('treasury', 'payments');
 $assert("resolves treasury/payments module endpoint",
@@ -339,8 +338,7 @@ $assert("resolves treasury/liquidity-forecast module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/liquidity_forecast.php'));
 
 $file = apiRouterResolveFile('treasury', 'liquidity-forecast-variance');
-$assert("resolves treasury/liquidity-forecast-variance module endpoint",
-    $file !== null && str_ends_with($file, '/modules/treasury/api/liquidity_forecast_variance.php'));
+$assert("unimplemented treasury/liquidity-forecast-variance is not exposed", $file === null);
 
 $file = apiRouterResolveFile('treasury', 'scenario');
 $assert("resolves treasury/scenario module endpoint",
@@ -515,6 +513,29 @@ $assert("resolves custom field values platform alias",
 $file = apiRouterResolveFile('people', 'custom-field-layouts');
 $assert("resolves custom field layouts platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_layouts.php'));
+
+$missingRequires = [];
+$moduleFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+    __DIR__ . '/../modules', FilesystemIterator::SKIP_DOTS
+));
+foreach ($moduleFiles as $moduleFile) {
+    if (!$moduleFile->isFile() || $moduleFile->getExtension() !== 'php') continue;
+    $path = str_replace('\\', '/', $moduleFile->getPathname());
+    if (!preg_match('~/modules/[^/]+/api/[^/]+\.php$~', $path)) continue;
+    $source = file_get_contents($path);
+    if ($source === false) {
+        $missingRequires[] = $path . ' could not be read';
+        continue;
+    }
+    preg_match_all("~require_once\\s+__DIR__\\s*\\.\\s*'([^']+)'~", $source, $requires);
+    foreach ($requires[1] as $relative) {
+        if (realpath($moduleFile->getPath() . '/' . $relative) === false) {
+            $missingRequires[] = $path . ' -> ' . $relative;
+        }
+    }
+}
+$assert('module API wrappers have no missing require_once targets', $missingRequires === []);
+foreach ($missingRequires as $missingRequire) echo "  Missing: $missingRequire\n";
 
 // ---------------------------------------------------------------------------
 echo "\n";

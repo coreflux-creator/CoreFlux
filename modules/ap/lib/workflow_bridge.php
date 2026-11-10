@@ -21,7 +21,8 @@ function apWorkflowSubmitBillForApproval(
     int $tenantId,
     array $bill,
     ?int $actorUserId = null,
-    string $via = 'api'
+    string $via = 'api',
+    bool $deferPush = false
 ): array {
     $pdo = getDB();
     if (!$pdo) throw new \RuntimeException('No DB');
@@ -52,7 +53,7 @@ function apWorkflowSubmitBillForApproval(
     $routeActorUserId = !empty($bill['created_by_user_id'])
         ? (int) $bill['created_by_user_id']
         : ($actorUserId ?: null);
-    $routing = apRouteBillForApproval($tenantId, $bill, $routeActorUserId);
+    $routing = apRouteBillForApproval($tenantId, $bill, $routeActorUserId, $deferPush);
     if (empty($routing['matched'])) {
         throw new \RuntimeException('No approval workflow policy matched this AP bill');
     }

@@ -80,12 +80,14 @@ foreach ([
     'simInvariantNoLegacyDirectGL',
     'simInvariantReplayReproducible',
     'simInvariantCustomerBalanceMatchesGL',
+    'simInvariantPostedSourceLinks',
 ] as $fn) {
     $a("function exported: {$fn}",         function_exists($fn));
 }
 
 echo "\nRunner CLI shape + safety guards\n";
 $runner = $read(__DIR__ . '/../sim/runner.php');
+$documentLinks = $read(__DIR__ . '/../sim/lib/document_links.php');
 $a('runner exists',                        $runner !== '');
 $a('runner parses --scenario',             str_contains($runner, "'scenario:'"));
 $a('runner parses --seed',                 str_contains($runner, "'seed::'"));
@@ -96,10 +98,72 @@ $a('runner installs validated tenant context', str_contains($runner, 'setRequest
 $a('runner refuses non-sim tenant',        str_contains($runner, 'is not flagged is_simulation=1. Refusing to run'));
 $a('runner reuses accountingProcessEvent', str_contains($runner, 'accountingProcessEvent(') && str_contains($runner, 'posting_engine/process.php'));
 $a('runner persists simulation_runs row',  str_contains($runner, 'INSERT INTO simulation_runs'));
+$a('runner checks posted source links', str_contains($runner, 'simInvariantPostedSourceLinks($pdo, $tenantId)'));
 $a('runner persists assertions',           str_contains($runner, 'INSERT INTO simulation_assertions'));
 $a('runner persists replay_logs',          str_contains($runner, 'INSERT INTO replay_logs'));
+$a('replays count unique observed JEs without claiming new postings',
+    str_contains($runner, "'je_observed' => 0")
+    && str_contains($runner, "\$ctx['state']['observed_je_ids'][\$jeId]")
+    && str_contains($runner, "\$metric === 'je_posted' ? \$ctx['metrics']['je_observed']"));
 $a('sim AP bills include line items',      str_contains($runner, 'INSERT INTO ap_bill_lines'));
 $a('sim AR invoices include line items',   str_contains($runner, 'INSERT INTO billing_invoice_lines'));
+$a('posted sim invoices and bills link to the journal entry',
+    str_contains($runner, 'simLinkPostedDocument($ctx[\'tenant_id\'], $type, $payload, $jeId)')
+    && str_contains($documentLinks, "'billing.invoice.sent', 'ar.invoice.issued' => ['billing_invoices', 'invoice_id']")
+    && str_contains($documentLinks, "'ap.bill.approved' => ['ap_bills', 'bill_id']"));
+$paymentLinks = $read(__DIR__ . '/../sim/lib/payment_links.php');
+$a('cleared sim payments retain their bill allocation and posted JE',
+    str_contains($runner, 'simLinkClearedPayment(')
+    && str_contains($runner, 'INSERT INTO ap_payments')
+    && str_contains($paymentLinks, 'journal_entry_id = :je_id')
+    && str_contains($paymentLinks, 'INSERT INTO ap_payment_allocations'));
+$a('scenario records use tenant-scoped generated IDs',
+    str_contains($runner, "WHERE tenant_id = :tenant_id AND internal_ref = :internal_ref FOR UPDATE")
+    && str_contains($runner, "WHERE tenant_id = :tenant_id AND invoice_number = :number FOR UPDATE")
+    && str_contains($runner, 'simResolveDocumentId($ctx, \'bills\'')
+    && !str_contains($runner, 'ON DUPLICATE KEY UPDATE total = VALUES(total)'));
+$bankLinks = $read(__DIR__ . '/../sim/lib/bank_links.php');
+$bankScenario = $read(__DIR__ . '/../sim/scenarios/treasury_bank_feed_categorize.json');
+$a('treasury simulation creates and matches a real bank line',
+    str_contains($runner, 'simStepCreateBankLine($ctx, $step)')
+    && str_contains($runner, 'simLinkPostedBankLine($ctx[\'tenant_id\'], $lineId, $jeId)')
+    && str_contains($bankLinks, 'matched_je_id = :je_id')
+    && str_contains($bankScenario, '"bank_line_matched"'));
+$seedScript = $read(__DIR__ . '/../scripts/ci_seed_sim_tenant.php');
+$a('tenant-only seed skips schema and rejects non-simulation tenants',
+    str_contains($seedScript, 'in_array(\'--tenant-only\', $argv, true)')
+    && str_contains($seedScript, 'if (!$tenantOnly)')
+    && str_contains($seedScript, '(int) $existingTenant[\'is_simulation\'] !== 1')
+    && !str_contains($seedScript, 'ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)'));
+$workflow = $read(__DIR__ . '/../.github/workflows/ci.yml');
+$liveJob = explode('  coreaccounting-clean-install:', explode('  live-business-graph:', $workflow, 2)[1] ?? '', 2)[0];
+$a('live simulation runs on the canonical clean-install graph',
+    str_contains($liveJob, 'php deploy/bootstrap_coreaccounting.php --confirm-empty-staging --database=coreaccounting_ci')
+    && str_contains($liveJob, 'php deploy/bootstrap_coreaccounting.php --verify-schema')
+    && str_contains($liveJob, 'php scripts/ci_seed_sim_tenant.php --tenant-only --require-new')
+    && !str_contains($liveJob, "run: php scripts/ci_seed_sim_tenant.php\n"));
+$peopleBase = strpos($seedScript, "'modules/people/migrations/001_init.sql'");
+$sharedPersonBase = strpos($seedScript, "'modules/people/migrations/003_spec_alignment.sql'");
+$apBase = strpos($seedScript, "'modules/ap/migrations/001_init.sql'");
+$billingBase = strpos($seedScript, "'modules/billing/migrations/001_init.sql'");
+$entityColumns = strpos($seedScript, "'modules/accounting/migrations/007_consolidation.sql'");
+$invoiceJournalLink = strpos($seedScript, "'modules/accounting/migrations/008_consolidation_runs.sql'");
+$paymentEntity = strpos($seedScript, "'modules/ap/migrations/020_payment_entity_scope.sql'");
+$a('live simulation adds source entity and journal columns after their base tables',
+    $peopleBase !== false && $sharedPersonBase !== false
+    && $apBase !== false && $billingBase !== false
+    && $entityColumns !== false && $invoiceJournalLink !== false && $paymentEntity !== false
+    && $peopleBase < $sharedPersonBase && $sharedPersonBase < $entityColumns
+    && $apBase < $entityColumns
+    && $billingBase < $entityColumns && $entityColumns < $invoiceJournalLink
+    && $entityColumns < $paymentEntity);
+$duplicateScenario = json_decode($read(__DIR__ . '/../sim/scenarios/duplicate_webhook_idempotent.json'), true);
+$firstEvent = $duplicateScenario['steps'][1] ?? [];
+$replayedEvent = $duplicateScenario['steps'][2] ?? [];
+$a('duplicate webhook scenario repeats the exact financial intent',
+    ($firstEvent['event_type'] ?? null) === ($replayedEvent['event_type'] ?? null)
+    && ($firstEvent['source_record_id'] ?? null) === ($replayedEvent['source_record_id'] ?? null)
+    && ($firstEvent['payload'] ?? null) === ($replayedEvent['payload'] ?? null));
 $a('runner exits non-zero on failure',     str_contains($runner, "exit(\$status === 'passed' ? 0 : 1)"));
 
 echo "\nDry-run executes end-to-end without DB\n";

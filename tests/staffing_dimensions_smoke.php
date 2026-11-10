@@ -47,7 +47,9 @@ $assert('assignment owners outrank commission-attribution fallbacks',
 $timesheets = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
 $assert('approved-hour event is assignment-grained',
     str_contains($timesheets, "':placement:' . \$placementId")
-    && str_contains($timesheets, 'te.placement_id, engagement_type'));
+    && str_contains($timesheets, 'te.placement_id, te.dimension_snapshot_hash'));
+$assert('approved-hour event is dimension-versioned',
+    str_contains($timesheets, "':segment:' . substr(\$snapshotHash, 0, 24)"));
 $assert('event posts in accounting tenant',
     str_contains($timesheets, "effectiveTenantIdForModule('accounting'")
     && str_contains($timesheets, 'accountingProcessEvent($accountingTenantId'));
@@ -107,7 +109,8 @@ $assert('manual bill liability retains canonical vendor dimension',
     str_contains($apPost, "'vendor' => \$documentVendorDimension")
     && str_contains($apPost, "!isset(\$documentDimensions['vendor'])"));
 $assert('AP documents resolve and persist an issuing entity',
-    str_contains($apPost, 'activeEntityResolveForTenant(')
+    str_contains($apPost, "require_once __DIR__ . '/../../../core/active_entity.php';")
+    && str_contains($apPost, 'activeEntityResolveForTenant(')
     && str_contains($apPost, 'UPDATE ap_bills SET entity_id'));
 $assert('billing documents repair legacy missing entity ownership',
     str_contains($billingPost, 'activeEntityResolveForTenant(')
@@ -126,9 +129,9 @@ $assert('accrued bill event uses reclassification lines',
     str_contains($apPost, '$eventPostingLines = $reclassifyOnly ? $reclassLines : $payloadLines')
     && str_contains($apPost, "'posting_mode' => \$reclassifyOnly ? 'ap_reclassification'"));
 $assert('manual AP bills never clear time accruals merely because the feature is enabled',
-    str_contains($apPost, '$allLinesWereAccrued')
-    && str_contains($apPost, "['time', 'time_entry', 'economic_item']")
-    && str_contains($apPost, '!empty($settings[\'multi_period_split_enabled\']) && $allLinesWereAccrued'));
+    str_contains($apPost, 'accountingSourceAccrualParts(')
+    && str_contains($apPost, '$reclassLines[] = $payloadLines[$lineIndex]')
+    && !str_contains($apPost, '!empty($settings[\'multi_period_split_enabled\'])'));
 
 $apLib = $read(__DIR__ . '/../modules/ap/lib/ap.php');
 $defaultSeed = $read(__DIR__ . '/../core/posting_engine/seed_defaults.php');
@@ -165,7 +168,7 @@ $assert('ordinary AP lines do not silently become direct labor',
     str_contains($apPost, "?: '6990'")
     && str_contains($apPost, 'A blank coding choice is an exception to resolve, not direct labor.'));
 $assert('manual AP vendors receive a durable reporting identity',
-    str_contains($apPost, 'INSERT INTO ap_vendors_index')
+    str_contains($read(__DIR__ . '/../modules/ap/lib/bill_drafts.php'), 'INSERT INTO ap_vendors_index')
     && str_contains($apPost, "'ap_vendor:' . (int) \$vendorRow['id']"));
 
 echo "\nReporting and integrity\n";

@@ -15,6 +15,7 @@ import MoneyMovementPreview from './MoneyMovementPreview';
 import MoneyMovementArchive from './MoneyMovementArchive';
 import ItemsCatalog from './ItemsCatalog';
 import ItemsCsvImport from './ItemsCsvImport';
+import BillingApprovalSettings from './BillingApprovalSettings';
 
 const navItems = [
   { to: '/modules/billing/invoices',  label: 'Invoices' },
@@ -26,35 +27,41 @@ const navItems = [
   { to: '/modules/billing/clients',   label: 'Client contacts' },
   { to: '/modules/billing/money-movement',         label: 'Money movement' },
   { to: '/modules/billing/money-movement/archive', label: 'Archive' },
+  { to: '/modules/billing/approvals', label: 'Approval settings', adminOnly: true },
 ];
 
 export default function BillingModule({ session }) {
+  const user = session?.user || {};
+  const canManageApprovals = ['admin', 'tenant_admin', 'master_admin'].includes(user.role)
+    || user.global_role === 'master_admin';
   return (
     <div className="people-directory" data-testid="billing-module">
       <header className="module-workspace-header">
         <span className="workspace-eyebrow">Money in</span>
         <h1>Billing</h1>
         <p>Invoice clients, collect cash, and manage receivables.</p>
-        <ModuleTabs items={navItems.map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" />
+        <ModuleTabs items={navItems.filter(n => !n.adminOnly || canManageApprovals).map(n => ({ ...n, testId: `billing-nav-${n.label.toLowerCase()}` }))} primaryCount={5} label="Billing sections" testId="billing-section-nav" preserveEntityScope />
       </header>
 
       <Routes>
         <Route index element={<Navigate to="invoices" replace />} />
+        <Route path="overview" element={<Navigate to="../invoices" replace />} />
         <Route path="invoices" element={<InvoicesList session={session} />} />
-        <Route path="invoices/csv_import" element={<InvoicesCsvImport />} />
-        <Route path="invoices/new" element={<InvoiceCreate />} />
-        <Route path="invoices/:id/edit" element={<InvoiceCreate />} />
+        <Route path="invoices/csv_import" element={<InvoicesCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
+        <Route path="invoices/new" element={<InvoiceCreate session={session} />} />
+        <Route path="invoices/:id/edit" element={<InvoiceCreate session={session} />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />
         <Route path="items" element={<ItemsCatalog />} />
-        <Route path="items/csv_import" element={<ItemsCsvImport />} />
+        <Route path="items/csv_import" element={<ItemsCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="payments" element={<PaymentsList />} />
-        <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
+        <Route path="payments/csv_import" element={<PaymentsCsvImport standaloneAccounting={session?.product_mode === 'coreaccounting'} />} />
         <Route path="aging" element={<AgingTable />} />
         <Route path="dunning" element={<DunningQueue />} />
         <Route path="contracts" element={<RecurringContracts />} />
         <Route path="clients" element={<ClientContacts />} />
         <Route path="money-movement" element={<MoneyMovementPreview />} />
         <Route path="money-movement/archive" element={<MoneyMovementArchive />} />
+        <Route path="approvals" element={<BillingApprovalSettings />} />
       </Routes>
     </div>
   );

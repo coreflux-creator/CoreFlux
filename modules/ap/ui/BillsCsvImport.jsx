@@ -8,18 +8,26 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * the SAME CSV, grouped by `bill_number`. Powered by Core\CsvImportService
  * via /api/ap/bills_csv_import.php.
  */
-export default function BillsCsvImport() {
+export default function BillsCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/ap/api/bills_csv_import.php"
       entityLabel="AP Bills"
+      groupLabel="bill"
+      description="Create or update bills in bulk. Every file is validated before import."
       backTo="../bills"
       backLabel="← Bills"
       testidPrefix="ap-bills-csv-import"
       presetEntity="ap_bills"
+      standaloneAccounting={standaloneAccounting}
+      resultLinks={(result) => Object.entries(result.ids || {}).map(([number, id]) => ({
+        label: number,
+        to: `/modules/ap/bills/${id}`,
+      }))}
       previewColumns={[
         { key: 'bill_number',      label: 'Bill #' },
         { key: 'vendor_name',      label: 'Vendor' },
+        { key: 'entity_code',      label: 'Entity' },
         { key: 'bill_date',        label: 'Bill date' },
         { key: 'due_date',         label: 'Due' },
         { key: 'line_description', label: 'Line' },

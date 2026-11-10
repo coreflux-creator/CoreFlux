@@ -20,7 +20,7 @@ require_once __DIR__ . '/../lib/companies.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
-$tid    = (int) $ctx['tenant_id'];
+$tid    = companiesUseDirectoryScope();
 $method = api_method();
 $action = $_GET['action'] ?? '';
 

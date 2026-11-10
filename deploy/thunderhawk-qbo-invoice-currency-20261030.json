@@ -1,0 +1,166 @@
+{
+  "recorded_at": "2026-10-30T16:30:35.745912+00:00",
+  "scope": "Authoritative GET-only QuickBooks evidence for the five pilot-confirmed PL-864 invoice lines",
+  "source_evidence": {
+    "checked_at": "2026-10-30T16:25:48.801215+00:00",
+    "organization_id": "org_0369a63ff2cb",
+    "qbo_realm_id": "9341453235663641",
+    "environment": "production",
+    "company_name": "Thunderhawk Technology Partners LLC",
+    "provider_method": "GET",
+    "source_wrapper": "server._qbo_call",
+    "local_invoice_hash_before": "f6f11d62a95fbb4bdce47fce6aff840d34a75abfd8cd2dedb8dcbb67187ebd30",
+    "local_invoice_hash_after": "f6f11d62a95fbb4bdce47fce6aff840d34a75abfd8cd2dedb8dcbb67187ebd30",
+    "local_invoices_unchanged": true,
+    "invoice_or_payment_writes": false,
+    "pilot_changes": false,
+    "background_startup_invoked": false,
+    "token_refresh_allowed": false,
+    "invoices": [
+      {
+        "invoice_id": "inv_82de265509",
+        "qbo_invoice_id": "6019",
+        "source_line_id": "il_qbo_6019_21",
+        "currency": "USD",
+        "service_date": null,
+        "comparison": {
+          "customer_ref_matches": true,
+          "item_ref_matches": true,
+          "quantity_matches": true,
+          "unit_price_matches": true,
+          "amount_matches": true,
+          "description_matches": true
+        },
+        "sync_token": "4",
+        "stored_sync_token": "4",
+        "provider_invoice_sha256": "efb40447ef9c742f6e3e5c799d76b7778975e28d8d487a4fd4c3a8fc8d7aa4c0"
+      },
+      {
+        "invoice_id": "inv_ea597af5df",
+        "qbo_invoice_id": "4155",
+        "source_line_id": "il_qbo_4155_21",
+        "currency": "USD",
+        "service_date": null,
+        "comparison": {
+          "customer_ref_matches": true,
+          "item_ref_matches": true,
+          "quantity_matches": true,
+          "unit_price_matches": true,
+          "amount_matches": true,
+          "description_matches": true
+        },
+        "sync_token": "2",
+        "stored_sync_token": "2",
+        "provider_invoice_sha256": "003c17aa36b6cc4d657e99eb481b4312195f18c610a3ed961f0a9c0c6b2a81c6"
+      },
+      {
+        "invoice_id": "inv_dcb25061c4",
+        "qbo_invoice_id": "3474",
+        "source_line_id": "il_qbo_3474_24",
+        "currency": "USD",
+        "service_date": null,
+        "comparison": {
+          "customer_ref_matches": true,
+          "item_ref_matches": true,
+          "quantity_matches": true,
+          "unit_price_matches": true,
+          "amount_matches": true,
+          "description_matches": true
+        },
+        "sync_token": "12",
+        "stored_sync_token": "12",
+        "provider_invoice_sha256": "e0b583c3478121b101890db1ba5e8b49afcc72f48ef85ae3c131f34d9c7fb992"
+      },
+      {
+        "invoice_id": "inv_191eb3675c",
+        "qbo_invoice_id": "6472",
+        "source_line_id": "il_qbo_6472_18",
+        "currency": "USD",
+        "service_date": null,
+        "comparison": {
+          "customer_ref_matches": true,
+          "item_ref_matches": true,
+          "quantity_matches": true,
+          "unit_price_matches": true,
+          "amount_matches": true,
+          "description_matches": true
+        },
+        "sync_token": "5",
+        "stored_sync_token": "5",
+        "provider_invoice_sha256": "eac3d67f04fbbd6186132a2a758357062d6afe1a627326a7b95dd9fe416de72d"
+      },
+      {
+        "invoice_id": "inv_0f1382bcb5",
+        "qbo_invoice_id": "7101",
+        "source_line_id": "il_qbo_7101_16",
+        "currency": "USD",
+        "service_date": null,
+        "comparison": {
+          "customer_ref_matches": true,
+          "item_ref_matches": true,
+          "quantity_matches": true,
+          "unit_price_matches": true,
+          "amount_matches": true,
+          "description_matches": true
+        },
+        "sync_token": "5",
+        "stored_sync_token": "5",
+        "provider_invoice_sha256": "51d1991182b3703fae6050a4c05f82069ebe27ed1f308af8551f7c9cc1451735"
+      }
+    ]
+  },
+  "selected_line_summary": {
+    "private_evidence_sha256": "1320310dfe69df3ffce177be342536061df3c18eeb30f09e7217e61888c18fa2",
+    "currency": "USD",
+    "selected_line_count": 5,
+    "selected_line_total": "72128.0",
+    "selected_line_quantity": "736",
+    "structured_service_dates_present": 0
+  },
+  "currency_retention_fix": {
+    "commit": "e51e0d19351e380da2b7aee547ef37db99fcd21a",
+    "repository": "PurePay",
+    "offline_checks": 86,
+    "network_attempts": 0,
+    "live_data_rewritten": false,
+    "production_release_status": "live_verified_by_authorized_publishing_chat",
+    "production_commit": "cf2b3d6",
+    "production_base": "94efa5c",
+    "production_source_digest": "6afe17e21a3c8f791f42408658472746f90ea0b0b268828e4255089e1d7ef736",
+    "deployment_id": "27d8c370-58cb-4f0a-b23d-6cfd8f8633e1",
+    "combined_production_baseline_checks": 198,
+    "production_workers_healthy": true,
+    "provider_import_or_backfill_triggered": false
+  },
+  "existing_core_captures_changed": false,
+  "existing_line_associations_changed": false,
+  "time_or_payroll_reconciled": false,
+  "structured_service_dates_inferred": false,
+  "publication_report": {
+    "source": "authorized publishing chat 01a12bce-fe4b-7ae3-823d-308310a2ae4d",
+    "purepay_commit": "cf2b3d6",
+    "quanta_commit": "92b662e",
+    "full_core_upgrade_published": false,
+    "dependent_quanta_portal_published": false
+  },
+  "reader_compatibility_note": "Initial attempt passed integration-only expect_realm/expect_env arguments to the older production wrapper and failed before transport. The final reader pins organization, company, environment and GET-only paths at connection and transport; fresh tokens required, no refresh allowed. Existing usage and backoff behavior retained.",
+  "follow_up_source_checks": {
+    "checked_at": "2026-10-30T16:34:27.932374+00:00",
+    "purepay_person_id": "emp_ea232efec736",
+    "purepay_time_entries_for_person": 0,
+    "purepay_quanta_links_for_person": 0,
+    "quanta_workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+    "quanta_workspace_name": "Thunderhawk",
+    "quanta_workspace_timezone": "America/New_York",
+    "quanta_worker_count": 0,
+    "historical_payroll_run": "run_54dde5d17c05",
+    "period_start": "2026-10-05",
+    "period_end": "2026-10-18",
+    "pay_date": "2026-10-23",
+    "payroll_line_hours": "80.0",
+    "payroll_line_has_source_time_refs": false,
+    "payroll_line_currency": null,
+    "question_pending": "Location/system holding approved Alexander hours for October 5\u201318",
+    "source_records_changed": false
+  }
+}

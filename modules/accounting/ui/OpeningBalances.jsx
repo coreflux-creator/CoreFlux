@@ -1,0 +1,300 @@
+import React, { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Check, Download, FileUp, Upload, X } from 'lucide-react';
+import { api, useApi } from '../../../dashboard/src/lib/api';
+
+const ENDPOINT = '/modules/accounting/api/opening_balances.php';
+
+export default function OpeningBalances() {
+  const { data: entities, loading: loadingEntities, error: entitiesError } = useApi('/modules/accounting/api/entities.php');
+  const fileRef = useRef(null);
+  const arFileRef = useRef(null);
+  const apFileRef = useRef(null);
+  const [entityId, setEntityId] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [includeYtd, setIncludeYtd] = useState(false);
+  const [csv, setCsv] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [arCsv, setArCsv] = useState('');
+  const [apCsv, setApCsv] = useState('');
+  const [arFileName, setArFileName] = useState('');
+  const [apFileName, setApFileName] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [posted, setPosted] = useState(null);
+  const activeEntities = (entities?.rows || []).filter(row => Number(row.active) === 1);
+
+  const resetReview = () => {
+    setPreview(null);
+    setConfirmed(false);
+    setPosted(null);
+    setError('');
+  };
+
+  const chooseFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const contents = await file.text();
+      setCsv(contents);
+      setFileName(file.name);
+      resetReview();
+    } catch {
+      setError('Could not read this file.');
+    }
+  };
+
+  const chooseDocuments = async (event, kind) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const contents = await file.text();
+      if (kind === 'ar') { setArCsv(contents); setArFileName(file.name); }
+      else { setApCsv(contents); setApFileName(file.name); }
+      resetReview();
+    } catch {
+      setError('Could not read this file.');
+    }
+  };
+
+  const removeFile = kind => {
+    if (kind === 'balances') { setCsv(''); setFileName(''); }
+    else if (kind === 'ar') { setArCsv(''); setArFileName(''); }
+    else { setApCsv(''); setApFileName(''); }
+    resetReview();
+  };
+
+  const review = async () => {
+    setBusy('preview'); setError(''); setPosted(null); setConfirmed(false);
+    try {
+      setPreview(await api.post(`${ENDPOINT}?action=preview`, {
+        entity_id: Number(entityId), csv, ar_csv: arCsv, ap_csv: apCsv,
+        start_date: startDate, include_ytd: includeYtd,
+      }));
+    } catch (err) {
+      setPreview(null);
+      setError(err.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const commit = async () => {
+    if (!preview?.preview_token || !confirmed || busy) return;
+    setBusy('commit'); setError('');
+    try {
+      const result = await api.post(`${ENDPOINT}?action=commit`, {
+        entity_id: Number(entityId), csv, ar_csv: arCsv, ap_csv: apCsv,
+        start_date: startDate, include_ytd: includeYtd,
+        preview_token: preview.preview_token,
+      });
+      setPosted(result);
+    } catch (err) {
+      setError(err.message);
+      setPreview(null);
+      setConfirmed(false);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const balancePreview = preview?.balances || preview;
+  const hasDocuments = Boolean(preview?.balances);
+  const openingEquity = preview?.opening_equity || balancePreview?.opening_equity;
+  const postedJournalId = preview?.journal_entry_id || balancePreview?.journal_entry_id;
+  const reviewErrors = preview?.error_count > 0
+    ? hasDocuments
+      ? Object.entries(preview.errors).flatMap(([group, rows]) => Object.entries(rows).map(([row, messages]) => ({
+        label: `${group.toUpperCase()} ${row === '0' ? 'file' : `row ${row}`}`, messages,
+      })))
+      : Object.entries(preview.errors).map(([row, messages]) => ({
+        label: row === '0' ? 'File' : `Row ${row}`, messages,
+      }))
+    : [];
+
+  return (
+    <section className="opening-balances" data-testid="accounting-opening-balances">
+      <header className="opening-balances__header">
+        <div>
+          <h2>Opening balances</h2>
+          <p>Bring a new legal entity&apos;s balances, open invoices, bills, and credits into the books.</p>
+        </div>
+        <div className="opening-balances__templates">
+          {['balances', 'ar', 'ap'].map(kind => (
+            <a key={kind} className="btn btn--ghost" href={`${ENDPOINT}?action=template&kind=${kind}`}
+              download={`accounting-opening-${kind}.csv`}>
+              <Download size={15} aria-hidden="true" /> {kind === 'balances' ? 'Balances' : kind.toUpperCase()} template
+            </a>
+          ))}
+        </div>
+      </header>
+
+      <div className="opening-balances__cutover-options">
+        <label>Start using Core on
+          <input type="date" value={startDate} disabled={busy !== ''}
+            onChange={event => { setStartDate(event.target.value); resetReview(); }}
+            data-testid="opening-start-date" />
+        </label>
+        <p>Leave blank to start on the first fiscal day. Opening balances post on the preceding day.</p>
+        <label><input type="checkbox" checked={includeYtd} disabled={busy !== ''}
+          onChange={event => { setIncludeYtd(event.target.checked); resetReview(); }}
+          data-testid="opening-include-ytd" />
+          For a midyear start, I included cumulative income and expenses from the fiscal-year start through the opening date.</label>
+      </div>
+      <div className="opening-balances__inputs">
+        <label className="opening-balances__entity">Legal entity
+          <select value={entityId} onChange={event => { setEntityId(event.target.value); resetReview(); }}
+            disabled={loadingEntities || busy !== ''} data-testid="opening-entity">
+            <option value="">Select entity</option>
+            {activeEntities.map(entity => (
+              <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name}</option>
+            ))}
+          </select>
+        </label>
+        <button className="btn btn--primary opening-balances__action" type="button" onClick={review}
+          disabled={!entityId || (!csv.trim() && !arCsv.trim() && !apCsv.trim()) || busy !== ''} data-testid="opening-preview">
+          {busy === 'preview' ? 'Reviewing' : 'Preview cutover'}
+        </button>
+        <div className="opening-balances__file opening-balances__file--balances">
+          <span className="opening-balances__label">Balances CSV</span>
+          <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
+            onChange={chooseFile} hidden data-testid="opening-file" />
+          <div className="opening-balances__file-select">
+            <button className="btn btn--ghost" type="button" onClick={() => fileRef.current?.click()}
+              disabled={busy !== ''} title={fileName || 'Choose balances CSV'}>
+              <FileUp size={15} aria-hidden="true" /> <span>{fileName || 'Choose file'}</span>
+            </button>
+            {fileName && <button className="btn btn--ghost opening-balances__remove" type="button"
+              onClick={() => removeFile('balances')} disabled={busy !== ''} title="Remove balances CSV"
+              aria-label="Remove balances CSV"><X size={15} aria-hidden="true" /></button>}
+          </div>
+        </div>
+        <div className="opening-balances__file opening-balances__file--ar">
+          <span className="opening-balances__label">Open customer items CSV</span>
+          <input ref={arFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
+            onChange={event => chooseDocuments(event, 'ar')} hidden data-testid="opening-ar-file" />
+          <div className="opening-balances__file-select">
+            <button className="btn btn--ghost" type="button" onClick={() => arFileRef.current?.click()}
+              disabled={busy !== ''} title={arFileName || 'Choose open invoices CSV'}>
+              <FileUp size={15} aria-hidden="true" /> <span>{arFileName || 'Choose file'}</span>
+            </button>
+            {arFileName && <button className="btn btn--ghost opening-balances__remove" type="button"
+              onClick={() => removeFile('ar')} disabled={busy !== ''} title="Remove open invoices CSV"
+              aria-label="Remove open invoices CSV"><X size={15} aria-hidden="true" /></button>}
+          </div>
+        </div>
+        <div className="opening-balances__file opening-balances__file--ap">
+          <span className="opening-balances__label">Open vendor items CSV</span>
+          <input ref={apFileRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"
+            onChange={event => chooseDocuments(event, 'ap')} hidden data-testid="opening-ap-file" />
+          <div className="opening-balances__file-select">
+            <button className="btn btn--ghost" type="button" onClick={() => apFileRef.current?.click()}
+              disabled={busy !== ''} title={apFileName || 'Choose open bills CSV'}>
+              <FileUp size={15} aria-hidden="true" /> <span>{apFileName || 'Choose file'}</span>
+            </button>
+            {apFileName && <button className="btn btn--ghost opening-balances__remove" type="button"
+              onClick={() => removeFile('ap')} disabled={busy !== ''} title="Remove open bills CSV"
+              aria-label="Remove open bills CSV"><X size={15} aria-hidden="true" /></button>}
+          </div>
+        </div>
+      </div>
+      <p className="opening-balances__note">Balances CSV is optional when open invoices or bills are supplied. Open amounts are unpaid balances at cutover, not original gross totals. AR/AP control accounts are generated from source documents. Payroll and tax controls require separate sources. Cutover is available only before first activity.</p>
+      <p className="opening-balances__note">Credits use negative open amounts and require the original source type and a traceable source reference. Credits remain visible in aging. After import, <Link to="../opening-credits">apply opening credits</Link> to the same customer&apos;s invoices or vendor&apos;s bills. Use a unique reviewed item reference when the source has no document number.</p>
+      {!loadingEntities && !entitiesError && activeEntities.length === 0 && (
+        <p className="opening-balances__note">No legal entity is set up yet. <Link to="/modules/accounting/entities">Create one</Link> before importing balances.</p>
+      )}
+      {entitiesError && <p role="alert" className="error">{entitiesError.message}</p>}
+      {error && <p role="alert" className="error" data-testid="opening-error">{error}</p>}
+
+      {preview && (
+        <div className="opening-balances__review" data-testid="opening-review">
+          <div className="opening-balances__summary">
+            <div><span>Entity</span><strong>{balancePreview.entity_name}</strong></div>
+            <div><span>Balances as of</span><strong>{balancePreview.posting_date}</strong></div>
+            <div><span>Start using Core</span><strong>{balancePreview.start_date}</strong></div>
+            <div><span>First fiscal day</span><strong>{balancePreview.first_fiscal_day}</strong></div>
+            {balancePreview.midyear && <div><span>YTD net income</span><strong>${balancePreview.ytd_net_income}</strong></div>}
+            {hasDocuments && <div><span>Open AR</span><strong>{preview.ar_count} · ${preview.ar_total}</strong></div>}
+            {hasDocuments && <div><span>Open AP</span><strong>{preview.ap_count} · ${preview.ap_total}</strong></div>}
+            {openingEquity && <div><span>Opening Balance Equity · 3000</span>
+              <strong>{openingEquity.negative ? `($${openingEquity.amount})` : `$${openingEquity.amount}`}</strong></div>}
+          </div>
+          {balancePreview.midyear && <p className="opening-balances__note">
+            Income and expenses are cumulative through {balancePreview.posting_date}. This preserves fiscal-year totals;
+            it does not reconstruct earlier monthly activity. Reports starting on {balancePreview.start_date} exclude this opening activity.
+          </p>}
+          {preview.error_count > 0 && (
+            <div className="opening-balances__errors" role="alert" data-testid="opening-preview-errors">
+              <strong>{preview.error_count} issue{preview.error_count === 1 ? '' : 's'} to resolve</strong>
+              {reviewErrors.map(({ label, messages }) => (
+                <p key={label}>{label}: {messages.join(' ')}</p>
+              ))}
+            </div>
+          )}
+          {balancePreview.rows.length > 0 ? <div className="opening-balances__table-wrap">
+            <table className="data-table opening-balances__table">
+              <thead><tr><th>Account</th><th>Balance</th><th>Debit</th><th>Credit</th></tr></thead>
+              <tbody>
+                {balancePreview.rows.map(row => (
+                  <tr key={row.account_code}>
+                    <td><strong>{row.account_code}</strong> {row.account_name}</td>
+                    <td>{row.negative ? '(' : ''}{row.balance}{row.negative ? ')' : ''}</td>
+                    <td>{row.debit}</td><td>{row.credit}</td>
+                  </tr>
+                ))}
+                {(balancePreview.balancing_equity.debit !== '0.00' || balancePreview.balancing_equity.credit !== '0.00') && (
+                  <tr className="opening-balances__equity"><td><strong>3000</strong> Opening Balance Equity</td><td>Calculated</td>
+                    <td>{balancePreview.balancing_equity.debit}</td><td>{balancePreview.balancing_equity.credit}</td></tr>
+                )}
+              </tbody>
+              <tfoot><tr><th colSpan="2">Journal total</th><th>{balancePreview.total_debit}</th><th>{balancePreview.total_credit}</th></tr></tfoot>
+            </table>
+          </div> : <p className="opening-balances__note">No other opening account balances.</p>}
+          {hasDocuments && preview.ar_rows.length > 0 && (
+            <div className="opening-balances__documents">
+              <h3>Open customer items</h3>
+              <div className="opening-balances__table-wrap"><table className="data-table opening-balances__table">
+                <thead><tr><th>Item reference</th><th>Source</th><th>Client</th><th>Due</th><th>Open balance</th></tr></thead>
+                <tbody>{preview.ar_rows.map(row => <tr key={row.invoice_number}>
+                  <td>{row.invoice_number}</td><td>{row.source_type || 'Invoice'}{row.source_reference ? ` · ${row.source_reference}` : ''}</td>
+                  <td>{row.client_name}</td><td>{row.due_date}</td><td>{row.open_amount}</td>
+                </tr>)}</tbody>
+              </table></div>
+            </div>
+          )}
+          {hasDocuments && preview.ap_rows.length > 0 && (
+            <div className="opening-balances__documents">
+              <h3>Open vendor items</h3>
+              <div className="opening-balances__table-wrap"><table className="data-table opening-balances__table">
+                <thead><tr><th>Item reference</th><th>Source</th><th>Vendor</th><th>Due</th><th>Open balance</th></tr></thead>
+                <tbody>{preview.ap_rows.map((row, index) => <tr key={`${row.vendor_name}-${row.bill_number}-${index}`}>
+                  <td>{row.bill_number}</td><td>{row.source_type || 'Bill'}{row.source_reference ? ` · ${row.source_reference}` : ''}</td>
+                  <td>{row.vendor_name}</td><td>{row.due_date}</td><td>{row.open_amount}</td>
+                </tr>)}</tbody>
+              </table></div>
+            </div>
+          )}
+          {preview.already_posted ? (
+            <p className="opening-balances__success" role="status"><Check size={16} aria-hidden="true" /> Already posted.
+              {postedJournalId && <Link to={`/modules/accounting/journal-entries/${postedJournalId}`}>View journal</Link>}</p>
+          ) : preview.preview_token && !posted ? (
+            <div className="opening-balances__commit">
+              <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
+                I verified the cutover date, amounts, parties, and calculated equity.</label>
+              <button className="btn btn--primary" type="button" onClick={commit} disabled={!confirmed || busy !== ''}
+                data-testid="opening-post"><Upload size={15} aria-hidden="true" /> {busy === 'commit' ? 'Posting' : 'Post cutover'}</button>
+            </div>
+          ) : null}
+          {posted && <p className="opening-balances__success" role="status" data-testid="opening-posted">
+            <Check size={16} aria-hidden="true" /> Opening cutover posted.
+            {posted.journal_entry_id && <Link to={`/modules/accounting/journal-entries/${posted.journal_entry_id}`}>View journal</Link>}
+          </p>}
+        </div>
+      )}
+    </section>
+  );
+}

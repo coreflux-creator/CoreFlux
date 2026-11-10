@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "recorded_date": "2026-11-01",
+  "scope": "isolated-native-production-shaped-fixture",
+  "live_production_changed": false,
+  "external_network": false,
+  "host_application_mounts": false,
+  "database": "synthetic MariaDB with production-shaped name and application-only grants",
+  "runtime": "PHP 8.2 FPM, Apache, native crontab, UID 1003 and UID 1004",
+  "native_test": "tests/full_core_production_upgrade_linux.sh",
+  "native_log_sha256": "e902718e8188cdce78edeff0dd3f991ba388c392ce32e58ea631638d9bda4607",
+  "native_checks": 173,
+  "scenarios": {
+    "stale_witness_refused_before_writes": 24,
+    "existing_database_connection_refused_before_writes": 24,
+    "connection_opened_during_witness_refused_before_writes": 24,
+    "master_schedule_drift_stops_after_first_ddl": 27,
+    "process_loss_after_first_ddl_requires_recovery": 26,
+    "completed_database_and_file_upgrade_recovers_as_pair": 27,
+    "verified_database_files_and_cache_activate_together": 21
+  },
+  "binding_contract_checks": 47,
+  "backup": {
+    "source_writers_held": true,
+    "actual_two_owner_file_backups": true,
+    "native_full_schema_and_data": true,
+    "encryption": "aes-256-gcm-envelope-v1",
+    "authenticated_readback_matches": true,
+    "empty_target_restore_as_application_database_user": true
+  },
+  "verified": [
+    "The explicit production library entry requires exact private release, migration, maintenance and backup bindings.",
+    "Both native schedule holds and actual authenticated FPM observations are checked; each SQL guard requires a fresh advancing observation.",
+    "Database identity, events and visible connections are rechecked after waiting for outside-host observations.",
+    "Committed DDL survives process loss with its FAIL marker; automatic replay is refused.",
+    "File apply and recovery preserve the two owners' actual bytes and metadata.",
+    "Recovery restores exact synthetic rows, decimals, binary values, migration ledgers and schema before reopening.",
+    "Targeted cache refresh and explicit routing activation serve both owners' new code with the upgraded database."
+  ],
+  "limits": [
+    "This is a synthetic combined fixture, not the full production dataset or final release candidate.",
+    "The outside-host production coordinator, global deployment lock, actual-content inventory builder and final combined release rehearsal remain work.",
+    "A live release still requires matching verified database and file backups captured under the actual writer hold.",
+    "No production maintenance, migration, payroll, payment, financial posting or cutover was performed."
+  ]
+}

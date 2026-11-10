@@ -32,6 +32,7 @@ $rows = [[
         'FREQUENCY_LABEL' => 'Weekly',
         'BILL_RATE' => 62.98,
         'BILL_RATE_PER' => 'H',
+        'CURRENCY' => 'USD',
         'WORKING_STATE' => 'AZ',
         'WORKING_COUNTRY' => 'US',
         'NET_BILL' => '$62.98/H',
@@ -47,6 +48,8 @@ $rows = [[
     ]],
     'SALARY' => [[
         'SALARY' => 60,
+        'SALARY_PER' => 'H',
+        'CURRENCY' => 'USD',
         'SUBCONTRACT_COMPANYID' => '12319524',
         'PAYMENT_FREQUENCY' => 'Weekly',
         'EMPLOYMENT_CATEGORY' => 'Subcontract',
@@ -124,6 +127,18 @@ $assert('preview exposes current-to-proposed field changes with JobDiva authorit
         && $field['authority'] === 'exact_assignment'
     )) === 1);
 
+$conflictingClass = $payload;
+$conflictingClass['_jd_contract']['classification_review']['observations'][] = [
+    'path'=>'Assignment.SALARY.employment_type', 'key'=>'employment_type', 'value'=>'W2',
+];
+$conflictingClassProposal = jobdivaContractProjectionBuild($conflictingClass, $currentGraph, '57137454');
+$assert('conflicting assignment classification blocks hourly cost and margin despite valid rate units',
+    empty($conflictingClassProposal['complete'])
+    && $conflictingClassProposal['classification_review']['status'] === 'needs_review'
+    && $conflictingClassProposal['economics']['hourly_costs'] === null
+    && $conflictingClassProposal['economics']['gross_margin'] === null
+    && $conflictingClassProposal['economics']['gross_margin_pct'] === null);
+
 $missingContract = jobdivaContractProjectionBuild([
     'startId' => '57137454',
     'candidateId' => '1001',
@@ -146,6 +161,8 @@ $assert('raw exact assignment detail materializes the same canonical rates',
 
 $referralContract = $contract;
 $referralContract['engagement_type'] = 'referral';
+$referralContract['employment_category'] = 'Referral';
+unset($referralContract['classification_review']);
 $referralContract['bill_rate'] = 4.0;
 $referralContract['bill_rate_in_vms'] = null;
 $referralContract['net_bill_rate'] = 4.0;

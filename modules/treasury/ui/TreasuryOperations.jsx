@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, ArrowRightLeft, Check, CreditCard, Play, Plus,
+  AlertCircle, ArrowRightLeft, Check, ChevronLeft, ChevronRight, CreditCard, Play, Plus,
   RefreshCw, Send, X,
 } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useAccountingEntityScope } from '../../../dashboard/src/lib/useAccountingEntityScope';
+import AccountingEntitySelector from '../../../dashboard/src/components/AccountingEntitySelector';
 import { fmtDate, fmtMoney } from '../../../dashboard/src/lib/format';
 
 const OPEN_STATUSES = new Set(['draft', 'pending_approval', 'approved', 'scheduled', 'failed']);
@@ -21,14 +23,36 @@ const STATUS_TONE = {
 };
 
 export default function TreasuryOperations({ kind }) {
+  const scope = useAccountingEntityScope();
   const isPayment = kind === 'payments';
   const { id: routeId } = useParams();
+  const [urlParams, setUrlParams] = useSearchParams();
   const endpoint = isPayment ? '/api/treasury_payments.php' : '/api/treasury_transfers.php';
-  const list = useApi(`${endpoint}?limit=500`);
+  const requestedQueue = urlParams.get('queue');
+  const filter = ['pending', 'open', 'all'].includes(requestedQueue) ? requestedQueue : 'open';
+  const changeFilter = value => {
+    const next = new URLSearchParams(urlParams);
+    if (value === 'open') next.delete('queue'); else next.set('queue', value);
+    setUrlParams(next, { replace: true });
+    setPage(1);
+  };
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(100);
+  const offset = routeId ? 0 : (page - 1) * perPage;
+  const statusFilter = routeId || filter === 'all' ? '' : filter;
+  const listParams = new URLSearchParams({ limit: String(perPage), offset: String(offset) });
+  if (statusFilter) listParams.set('status', statusFilter);
+  if (scope.entityId) listParams.set('entity_id', String(scope.entityId));
+  if (routeId) listParams.set('id', routeId);
+  const listRequest = useApi(`${endpoint}?${listParams}`, { enabled: scope.ready });
+  const response = listRequest.data;
+  const list = { ...listRequest, data: scope.ready && response?.entity_id === scope.entityId
+    && response?.status_filter === statusFilter && Number(response?.limit) === perPage
+    && Number(response?.offset) === offset && Number(response?.record_id || 0) === Number(routeId || 0)
+    ? response : null };
   const accountsApi = useApi('/modules/treasury/api/deposit_accounts.php');
   const entitiesApi = useApi('/modules/accounting/api/entities.php');
   const ledgerApi = useApi('/modules/accounting/api/accounts.php?active=1&postable=1');
-  const [filter, setFilter] = useState('open');
   const [selected, setSelected] = useState(() => new Set());
   const [showCreate, setShowCreate] = useState(false);
   const [busy, setBusy] = useState('');
@@ -43,11 +67,22 @@ export default function TreasuryOperations({ kind }) {
     [accounts],
   );
   const visible = useMemo(() => rows.filter(row => {
-    if (routeId && String(row.id) !== String(routeId)) return false;
-    return filter === 'all' || OPEN_STATUSES.has(String(row.status));
+    if (routeId) return String(row.id) === String(routeId);
+    return filter === 'all' || (filter === 'pending' ? row.status !== 'failed' && OPEN_STATUSES.has(String(row.status)) : OPEN_STATUSES.has(String(row.status)));
   }), [filter, routeId, rows]);
+  const total = Number(list.data?.total || 0);
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
 
-  useEffect(() => setSelected(new Set()), [kind, filter]);
+  useEffect(() => {
+    if (list.data && page > pageCount) setPage(pageCount);
+  }, [list.data, page, pageCount]);
+
+  useEffect(() => {
+    setSelected(new Set());
+    setShowCreate(false);
+    setMessage(null);
+    setPage(1);
+  }, [kind, filter, scope.scopeKey]);
 
   const toggle = id => setSelected(current => {
     const next = new Set(current);
@@ -119,6 +154,7 @@ export default function TreasuryOperations({ kind }) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <AccountingEntitySelector scope={scope} testId={`treasury-${kind}-entity`} />
           <button className="btn btn--ghost" type="button" onClick={reload} disabled={list.loading || Boolean(busy)} title="Refresh">
             <RefreshCw size={15} /> Refresh
           </button>
@@ -134,6 +170,7 @@ export default function TreasuryOperations({ kind }) {
           endpoint={endpoint}
           accounts={accounts}
           entities={entities}
+          entityId={scope.entityId}
           ledgerAccounts={ledgerAccounts}
           onCreated={async () => { setShowCreate(false); await reload(); }}
           onMessage={setMessage}
@@ -141,12 +178,13 @@ export default function TreasuryOperations({ kind }) {
       )}
 
       {message && <div style={alertStyle(message.kind)} role="status">{message.text}</div>}
-      {list.error && <div style={alertStyle('error')}><AlertCircle size={16} /> {list.error.message}</div>}
+      {(scope.error || list.error) && <div style={alertStyle('error')}><AlertCircle size={16} /> {scope.error || list.error.message}</div>}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', margin: '16px 0 10px', flexWrap: 'wrap' }}>
         <div className="segmented-control" aria-label="Queue filter" style={{ display: 'inline-flex' }}>
-          <button type="button" className={filter === 'open' ? 'is-active' : ''} onClick={() => setFilter('open')}>Open</button>
-          <button type="button" className={filter === 'all' ? 'is-active' : ''} onClick={() => setFilter('all')}>All</button>
+          <button type="button" className={filter === 'pending' ? 'is-active' : ''} onClick={() => changeFilter('pending')}>Pending</button>
+          <button type="button" className={filter === 'open' ? 'is-active' : ''} onClick={() => changeFilter('open')}>Open</button>
+          <button type="button" className={filter === 'all' ? 'is-active' : ''} onClick={() => changeFilter('all')}>All</button>
         </div>
         <BulkActions rows={selectedRows} busy={busy} onRun={bulk} />
       </div>
@@ -176,24 +214,39 @@ export default function TreasuryOperations({ kind }) {
                 <td><RowActions row={row} busy={busy} onAction={act} /></td>
               </tr>
             ))}
-            {!list.loading && !visible.length && <tr><td colSpan={8} style={{ padding: 34, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>{routeId ? 'This item was not found in the current workspace.' : `No ${filter === 'open' ? 'open ' : ''}${kind}.`}</td></tr>}
-            {list.loading && <tr><td colSpan={8} style={{ padding: 34, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>Loading…</td></tr>}
+            {list.data && !list.loading && !visible.length && <tr><td colSpan={8} style={{ padding: 34, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>{routeId ? 'This item was not found in the selected legal entity.' : `No ${filter === 'all' ? '' : `${filter} `}${kind}.`}</td></tr>}
+            {(list.loading || !list.data) && !scope.error && !list.error && <tr><td colSpan={8} style={{ padding: 34, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>Loading…</td></tr>}
           </tbody>
         </table>
       </div>
+      {!routeId && list.data && total > 0 && (
+        <footer style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginTop: 12, fontSize: 12, color: '#64748b' }}>
+          <span>{offset + 1}–{Math.min(offset + perPage, total)} of {total} {kind}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label>Rows <select className="input" value={perPage} onChange={event => { setPerPage(Number(event.target.value)); setPage(1); }} aria-label="Rows per page">
+              {[25, 50, 100, 200, 500].map(size => <option key={size} value={size}>{size}</option>)}
+            </select></label>
+            <button className="btn btn--ghost" type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page <= 1 || list.loading} aria-label="Previous page"><ChevronLeft size={15} /></button>
+            <span>Page {page} of {pageCount}</span>
+            <button className="btn btn--ghost" type="button" onClick={() => setPage(current => Math.min(pageCount, current + 1))} disabled={page >= pageCount || list.loading} aria-label="Next page"><ChevronRight size={15} /></button>
+          </div>
+        </footer>
+      )}
     </section>
   );
 }
 
-function CreateOperationForm({ kind, endpoint, accounts, entities, ledgerAccounts, onCreated, onMessage }) {
+function CreateOperationForm({ kind, endpoint, accounts, entities, entityId, ledgerAccounts, onCreated, onMessage }) {
   const isPayment = kind === 'payments';
   const today = new Date().toISOString().slice(0, 10);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(isPayment ? {
-    bank_account_id: '', entity_id: '', payee_name: '', amount: '', payment_date: today,
+    bank_account_id: '', entity_id: entityId || '', payee_name: '', amount: '', payment_date: today,
     payment_method: 'ach', counterparty_account_id: '', memo: '',
   } : { source_bank_account_id: '', destination_bank_account_id: '', amount: '', transfer_date: today, memo: '' });
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const scopedAccounts = entityId ? accounts.filter(row => Number(row.entity_id) === entityId) : accounts;
+  const scopedEntities = entityId ? entities.filter(row => Number(row.id) === entityId) : entities;
 
   const submit = async event => {
     event.preventDefault();
@@ -223,13 +276,13 @@ function CreateOperationForm({ kind, endpoint, accounts, entities, ledgerAccount
     <form onSubmit={submit} style={{ border: '1px solid var(--cf-border)', borderLeft: '3px solid var(--cf-accent)', borderRadius: 7, background: '#fff', padding: 16, marginTop: 14 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
         {isPayment ? <>
-          <Field label="Pay from"><select value={form.bank_account_id} onChange={event => { const id = event.target.value; const account = accounts.find(row => String(row.id) === id); setForm(current => ({ ...current, bank_account_id: id, entity_id: account?.entity_id || current.entity_id })); }} required><option value="">Choose account</option>{accounts.map(row => <option key={row.id} value={row.id}>{row.name}{row.last4 ? ` · ${row.last4}` : ''}</option>)}</select></Field>
-          <Field label="Entity"><select value={form.entity_id} onChange={event => set('entity_id', event.target.value)} required><option value="">Choose entity</option>{entities.map(row => <option key={row.id} value={row.id}>{row.code} · {row.legal_name}</option>)}</select></Field>
+          <Field label="Pay from"><select value={form.bank_account_id} onChange={event => { const id = event.target.value; const account = scopedAccounts.find(row => String(row.id) === id); setForm(current => ({ ...current, bank_account_id: id, entity_id: account?.entity_id || current.entity_id })); }} required><option value="">Choose account</option>{scopedAccounts.map(row => <option key={row.id} value={row.id}>{row.name}{row.last4 ? ` · ${row.last4}` : ''}</option>)}</select></Field>
+          <Field label="Entity"><select value={form.entity_id} onChange={event => set('entity_id', event.target.value)} required><option value="">Choose entity</option>{scopedEntities.map(row => <option key={row.id} value={row.id}>{row.code} · {row.legal_name}</option>)}</select></Field>
           <Field label="Payee"><input value={form.payee_name} onChange={event => set('payee_name', event.target.value)} required /></Field>
           <Field label="Offset account"><select value={form.counterparty_account_id} onChange={event => set('counterparty_account_id', event.target.value)} required><option value="">Choose GL account</option>{ledgerAccounts.filter(row => row.account_type !== 'asset').map(row => <option key={row.id} value={row.id}>{row.code} · {row.name}</option>)}</select></Field>
           <Field label="Method"><select value={form.payment_method} onChange={event => set('payment_method', event.target.value)}>{['ach', 'check', 'wire', 'card', 'other'].map(value => <option key={value} value={value}>{value.toUpperCase()}</option>)}</select></Field>
         </> : <>
-          <Field label="From"><select value={form.source_bank_account_id} onChange={event => set('source_bank_account_id', event.target.value)} required><option value="">Choose source</option>{accounts.map(row => <option key={row.id} value={row.id}>{row.name}{row.last4 ? ` · ${row.last4}` : ''}</option>)}</select></Field>
+          <Field label="From"><select value={form.source_bank_account_id} onChange={event => set('source_bank_account_id', event.target.value)} required><option value="">Choose source</option>{scopedAccounts.map(row => <option key={row.id} value={row.id}>{row.name}{row.last4 ? ` · ${row.last4}` : ''}</option>)}</select></Field>
           <Field label="To"><select value={form.destination_bank_account_id} onChange={event => set('destination_bank_account_id', event.target.value)} required><option value="">Choose destination</option>{accounts.filter(row => String(row.id) !== String(form.source_bank_account_id)).map(row => <option key={row.id} value={row.id}>{row.name}{row.last4 ? ` · ${row.last4}` : ''}</option>)}</select></Field>
         </>}
         <Field label="Amount"><input type="number" min="0.01" step="0.01" value={form.amount} onChange={event => set('amount', event.target.value)} required /></Field>

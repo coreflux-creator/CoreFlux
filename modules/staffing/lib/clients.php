@@ -62,9 +62,8 @@ function staffingClientFindForCompany(int $tenantId, ?int $companyId): ?array
 }
 
 /**
- * Reassert the placement -> client consumer link from canonical company
- * identity. `placements.client_id` is a convenience pointer; it must never
- * disagree with `placements.end_client_company_id`.
+ * Deduplicate an established bill-to profile within the same company.
+ * End-client identity never supplies or replaces the billing relationship.
  */
 function staffingClientRelinkCanonicalPlacements(int $tenantId): int
 {
@@ -72,39 +71,25 @@ function staffingClientRelinkCanonicalPlacements(int $tenantId): int
     if (!$pdo) throw new \RuntimeException('No database connection');
     $stmt = $pdo->prepare(
         'UPDATE placements p
+           JOIN staffing_clients current_client
+             ON current_client.tenant_id = p.tenant_id AND current_client.id = p.client_id
            JOIN (
-                 SELECT tenant_id,
-                        company_id,
-                        COALESCE(
-                            MIN(CASE WHEN status = \'active\' THEN id END),
-                            MIN(id)
-                        ) AS client_id
-                   FROM staffing_clients
-                  WHERE company_id IS NOT NULL
-               GROUP BY tenant_id, company_id
+                 SELECT tenant_id, company_id,
+                        COALESCE(MIN(CASE WHEN status = \'active\' THEN id END), MIN(id)) AS client_id
+                   FROM staffing_clients WHERE company_id IS NOT NULL
+                  GROUP BY tenant_id, company_id
                 ) canonical_choice
              ON canonical_choice.tenant_id = p.tenant_id
-            AND canonical_choice.company_id = p.end_client_company_id
+            AND canonical_choice.company_id = current_client.company_id
            JOIN staffing_clients canonical
-             ON canonical.id = canonical_choice.client_id
-            AND canonical.tenant_id = canonical_choice.tenant_id
-      LEFT JOIN staffing_clients current_client
-             ON current_client.tenant_id = p.tenant_id
-            AND current_client.id = p.client_id
-            SET p.client_id = canonical.id,
-                p.end_client_name = canonical.name,
-                p.updated_at = NOW()
-          WHERE p.tenant_id = :tenant_id
-            AND p.deleted_at IS NULL
-            AND p.end_client_company_id IS NOT NULL
-            AND (
-                 p.client_id IS NULL
-              OR current_client.id IS NULL
-              OR current_client.company_id IS NULL
-              OR current_client.company_id <> p.end_client_company_id
-              OR current_client.id <> canonical.id
-              OR COALESCE(p.end_client_name, \'\') <> canonical.name
-            )'
+             ON canonical.id = canonical_choice.client_id AND canonical.tenant_id = p.tenant_id
+            SET p.client_id = canonical.id, p.updated_at = NOW()
+          WHERE p.tenant_id = :tenant_id AND p.deleted_at IS NULL
+            AND current_client.id <> canonical.id
+            AND (p.coreflux_overridden_fields IS NULL OR (
+                JSON_VALID(p.coreflux_overridden_fields)
+                AND NOT JSON_CONTAINS(p.coreflux_overridden_fields, \'"client_id"\')
+            ))'
     );
     $stmt->execute(['tenant_id' => $tenantId]);
     return $stmt->rowCount();
@@ -128,7 +113,7 @@ function staffingClientRetireUnsupportedJobDivaPromotions(int $tenantId): int
             AND company_map.internal_entity_id = sc.company_id
       LEFT JOIN placements p
              ON p.tenant_id = sc.tenant_id
-            AND p.end_client_company_id = sc.company_id
+            AND p.client_id = sc.id
             AND p.deleted_at IS NULL
       LEFT JOIN external_entity_mappings customer_map
              ON customer_map.tenant_id = sc.tenant_id
@@ -160,7 +145,7 @@ function staffingClientRetireUnsupportedJobDivaPromotions(int $tenantId): int
             AND company_map.internal_entity_id = sc.company_id
       LEFT JOIN placements p
              ON p.tenant_id = sc.tenant_id
-            AND p.end_client_company_id = sc.company_id
+            AND p.client_id = sc.id
             AND p.deleted_at IS NULL
       LEFT JOIN external_entity_mappings customer_map
              ON customer_map.tenant_id = sc.tenant_id
@@ -211,7 +196,7 @@ function staffingClientRetireUnsupportedLegacyRows(int $tenantId): int
             SELECT 1
               FROM placements direct_placement
              WHERE direct_placement.tenant_id = sc.tenant_id
-               AND direct_placement.end_client_company_id = sc.company_id
+               AND direct_placement.client_id = sc.id
                AND direct_placement.deleted_at IS NULL
                AND NOT EXISTS (
                    SELECT 1
@@ -263,7 +248,7 @@ function staffingClientRetireUnsupportedLegacyRows(int $tenantId): int
                 SELECT 1
                   FROM placements direct_placement
                  WHERE direct_placement.tenant_id = sc.tenant_id
-                   AND direct_placement.end_client_company_id = sc.company_id
+                   AND direct_placement.client_id = sc.id
                    AND direct_placement.deleted_at IS NULL
                    AND NOT EXISTS (
                        SELECT 1
@@ -325,7 +310,7 @@ function staffingClientRetireQboSubcustomers(int $tenantId): int
             AND customer_map.source_system IN ('qbo', 'quickbooks_online')
       LEFT JOIN placements p
              ON p.tenant_id = sc.tenant_id
-            AND p.end_client_company_id = sc.company_id
+            AND p.client_id = sc.id
             AND p.deleted_at IS NULL
       LEFT JOIN audit_log manual_audit
              ON manual_audit.tenant_id = sc.tenant_id
@@ -359,22 +344,23 @@ function staffingClientReactivateProvenActivePlacementClients(int $tenantId): ar
     if (!$pdo) throw new \RuntimeException('No database connection');
 
     $companyStmt = $pdo->prepare(
-        "SELECT p.end_client_company_id AS company_id,
+        "SELECT billing_client.company_id AS company_id,
                 MIN(COALESCE(p.client_id, 0)) AS preferred_client_id
            FROM placements p
+           JOIN staffing_clients billing_client ON billing_client.tenant_id = p.tenant_id AND billing_client.id = p.client_id
           WHERE p.tenant_id = :tenant_id
             AND p.status = 'active'
             AND p.deleted_at IS NULL
-            AND p.end_client_company_id IS NOT NULL
+            AND billing_client.company_id IS NOT NULL
             AND NOT EXISTS (
                 SELECT 1
                   FROM staffing_clients active_client
                  WHERE active_client.tenant_id = p.tenant_id
-                   AND active_client.company_id = p.end_client_company_id
+                   AND active_client.company_id = billing_client.company_id
                    AND active_client.status = 'active'
             )
-       GROUP BY p.end_client_company_id
-       ORDER BY p.end_client_company_id"
+       GROUP BY billing_client.company_id
+       ORDER BY billing_client.company_id"
     );
     $companyStmt->execute(['tenant_id' => $tenantId]);
     $companies = $companyStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
@@ -407,7 +393,7 @@ function staffingClientReactivateProvenActivePlacementClients(int $tenantId): ar
                     SELECT 1
                       FROM placements direct_placement
                      WHERE direct_placement.tenant_id = sc.tenant_id
-                       AND direct_placement.end_client_company_id = sc.company_id
+                       AND direct_placement.client_id = sc.id
                        AND direct_placement.deleted_at IS NULL
                        AND NOT EXISTS (
                            SELECT 1
@@ -492,12 +478,15 @@ function staffingClientCatalogIntegritySummary(int $tenantId): array
     if (!$pdo) throw new \RuntimeException('No database connection');
     $queries = [
         'active_clients' => "SELECT COUNT(*) FROM staffing_clients WHERE tenant_id = :t AND status = 'active'",
-        'canonical_companies' => 'SELECT COUNT(DISTINCT end_client_company_id) FROM placements WHERE tenant_id = :t AND deleted_at IS NULL AND end_client_company_id IS NOT NULL',
+        'canonical_companies' => 'SELECT COUNT(DISTINCT sc.company_id) FROM placements p JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id WHERE p.tenant_id = :t AND p.deleted_at IS NULL',
         'client_company_mismatches' => 'SELECT COUNT(*)
              FROM placements p
         LEFT JOIN staffing_clients sc ON sc.tenant_id = p.tenant_id AND sc.id = p.client_id
-            WHERE p.tenant_id = :t AND p.deleted_at IS NULL AND p.end_client_company_id IS NOT NULL
-              AND (sc.id IS NULL OR sc.company_id IS NULL OR sc.company_id <> p.end_client_company_id)',
+            WHERE p.tenant_id = :t AND p.deleted_at IS NULL
+              AND (sc.id IS NULL OR sc.company_id IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM companies bc WHERE bc.id = sc.company_id
+                    AND bc.tenant_id = sc.tenant_id AND bc.deleted_at IS NULL
+              ))',
         'active_jobdiva_placeholders' => "SELECT COUNT(*) FROM staffing_clients WHERE tenant_id = :t AND status = 'active' AND name REGEXP '^JobDiva Company [0-9]+$'",
         'active_unproven_clients' => "SELECT COUNT(*)
              FROM staffing_clients sc
@@ -519,7 +508,7 @@ function staffingClientCatalogIntegritySummary(int $tenantId): array
                   SELECT 1
                     FROM placements direct_placement
                    WHERE direct_placement.tenant_id = sc.tenant_id
-                     AND direct_placement.end_client_company_id = sc.company_id
+                     AND direct_placement.client_id = sc.id
                      AND direct_placement.deleted_at IS NULL
                      AND NOT EXISTS (
                          SELECT 1

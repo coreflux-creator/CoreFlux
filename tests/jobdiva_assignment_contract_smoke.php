@@ -30,6 +30,76 @@ echo "=================================\n";
 $assert('ISO assignment end-of-day preserves the source business date',
     jobdivaNormaliseDate('2026-12-01T23:59:59') === '2026-12-01');
 
+foreach (['weekly', 'biweekly', 'semimonthly', 'monthly', 'adhoc'] as $cadence) {
+    $assert('canonical cadence survives normalization: ' . $cadence,
+        jobdivaAssignmentContractCadence($cadence) === $cadence);
+}
+foreach (['BiWeekly (Friday)' => 'biweekly', 'BI_WEEKLY' => 'biweekly',
+    'Every two weeks' => 'biweekly', 'SemiMonthly (15th/last)' => 'semimonthly',
+    'SEMI_MONTHLY' => 'semimonthly', 'Twice a month' => 'semimonthly',
+    'Weekly (Sun-Sat)' => 'weekly', 'Monthly' => 'monthly'] as $label => $expected) {
+    $assert('source cadence label retains its frequency: ' . $label,
+        jobdivaAssignmentContractCadence($label) === $expected);
+}
+foreach (['bimonthly', 'Bi-Monthly', 'bi_monthly', 'Bimonthly (scheduled)',
+    'quarterly', 'annual', ''] as $ambiguous) {
+    $assert('unsupported or ambiguous cadence needs source review: ' . $ambiguous,
+        jobdivaAssignmentContractCadence($ambiguous) === null);
+}
+$cadenceContract = jobdivaAssignmentContractBuild([[
+    'Start ID' => 'cadence-fixture',
+    'BILLING' => [['FREQUENCY_LABEL' => 'semimonthly']],
+    'SALARY' => [['PAYMENT_FREQUENCY' => 'biweekly']],
+]], [], 'cadence-fixture');
+$assert('Billing and Salary retain separate canonical frequencies in the assignment contract',
+    ($cadenceContract['client_bill_cycle'] ?? '') === 'semimonthly'
+    && ($cadenceContract['vendor_pay_cycle'] ?? '') === 'biweekly');
+
+$divisionRows = [[
+    'Start ID' => 'division-fixture',
+    'JOB' => [['DIVISIONNAME' => '  Eastern Delivery  ', 'DIVISION' => 'Eastern Delivery', 'DIVISIONID' => '285000']],
+    'BILLING' => [['Branch' => 'Contract Branch']],
+]];
+$divisionContract = jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture');
+$assert('exact assignment Job division is retained separately from the explicit branch',
+    ($divisionContract['job_division'] ?? '') === 'Eastern Delivery'
+    && ($divisionContract['branch'] ?? '') === 'Contract Branch');
+unset($divisionRows[0]['BILLING']);
+$divisionContract = jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture');
+$assert('division fallback does not fabricate employer, WC or an explicit contract branch',
+    ($divisionContract['job_division'] ?? '') === 'Eastern Delivery'
+    && ($divisionContract['branch'] ?? '') === ''
+    && ($divisionContract['workers_comp_class'] ?? '') === ''
+    && empty($divisionContract['accounting_entity_id']));
+$assert('placement branch default uses the exact division when explicit branch is absent',
+    jobdivaPlacementBranchDefault(['_jd_contract' => $divisionContract], $divisionContract) === 'Eastern Delivery');
+$assert('explicit branch remains ahead of the division fallback',
+    jobdivaPlacementBranchDefault(['branch' => 'Existing Branch'], $divisionContract) === 'Existing Branch');
+$GLOBALS['CF_FIELD_MAP_CACHE']['1|jobdiva|placement'] = [
+    'branch' => ['external_field' => 'customOffice', 'transform' => 'none'],
+];
+$assert('configured tenant branch mapping wins over division fallback',
+    tenantIntegrationFieldMapPluckInternal(1, 'jobdiva', 'placement', 'branch', ['customOffice' => 'Mapped Branch'],
+        static fn() => jobdivaPlacementBranchDefault([], $divisionContract)) === 'Mapped Branch');
+tenantIntegrationFieldMapFlushCache();
+$divisionRows[] = ['Start ID' => 'other-start', 'JOB' => [['DIVISIONNAME' => 'Other Division']]];
+$assert('unrelated Start division cannot contaminate the selected assignment',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === 'Eastern Delivery');
+$assert('fallback job context without a matched assignment cannot establish the division',
+    (jobdivaAssignmentContractBuild([], ['JOB' => [['DIVISIONNAME' => 'Unverified Division']]], 'missing-start')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'][0]['DIVISION'] = 'Conflicting Division';
+$assert('conflicting labels remain unresolved',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'] = [['DIVISIONID' => '285000', 'DIVISION' => '285000']];
+$assert('numeric division identifiers are not used as branch labels',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'] = [['DIVISIONNAME' => '-', 'DIVISION' => null]];
+$assert('division placeholders do not supply a branch',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === '');
+$divisionRows[0]['JOB'] = [['DIVISION' => 'Eastern Delivery']];
+$assert('legacy Division label works without Division Name',
+    (jobdivaAssignmentContractBuild($divisionRows, [], 'division-fixture')['job_division'] ?? '') === 'Eastern Delivery');
+
 $w2Rows = [[
     'Start ID' => '56830791',
     'Employment Category' => 'Hourly Employee',
@@ -221,6 +291,31 @@ $assert('active lifecycle requires the approved pay side when salary evidence ex
     ($productionContract['salary_approved'] ?? null) === true
     && (string) ($productionContract['salary_status'] ?? '') === '2');
 
+foreach ([null, '', false, 0, 'unknown'] as $approval) {
+    $incompleteApproval = $productionShape;
+    $incompleteApproval[0]['BILLING'][0]['APPROVED'] = $approval;
+    $incompleteContract = jobdivaAssignmentContractBuild($incompleteApproval, [], '57137454');
+    $assert('actual start alone cannot activate an assignment without explicit billing approval',
+        !in_array($incompleteContract['placement_status'] ?? '', ['active', 'pending_start'], true));
+}
+$missingApproval = $productionShape;
+unset($missingApproval[0]['BILLING'][0]['APPROVED']);
+$assert('absent billing approval cannot be inferred from salary approval',
+    (jobdivaAssignmentContractBuild($missingApproval, [], '57137454')['placement_status'] ?? '') === '');
+
+$identityHint = ['id'=>'57137454', 'candidate id'=>'201', 'job id'=>'301', 'start date'=>'2026-07-06'];
+$identifiedDetail = $productionShape[0];
+$identifiedDetail['EMPLOYEE_ID'] = '201';
+$identifiedDetail['JOB_ID'] = '301';
+$assert('compound assignment detail with consistent identities remains usable',
+    count(jobdivaAssignmentContractRowsForStart([$identifiedDetail], $identityHint, '57137454')) === 1);
+foreach (['START_ID'=>'999', 'EMPLOYEE_ID'=>'999', 'JOB_ID'=>'999'] as $field=>$foreignId) {
+    $conflictedDetail = $identifiedDetail;
+    $conflictedDetail['SALARY'][0][$field] = $foreignId;
+    $assert('nested identity disagreement cannot be hidden by a matching top-level identity',
+        jobdivaAssignmentContractRowsForStart([$conflictedDetail], $identityHint, '57137454') === []);
+}
+
 $billingOnlyShape = $productionShape;
 $billingOnlyShape[0]['Start ID'] = '57862244';
 $billingOnlyShape[0]['SALARY'][0]['APPROVED'] = 0;
@@ -343,7 +438,7 @@ $clientContract = jobdivaAssignmentContractBuild([[
         'BILL_RATE' => 74.26,
     ]],
 ]], $markerContext, '57612620');
-$assert('exact Assignment billing company owns the end-client identity',
+$assert('exact Assignment billing company identifies the bill-to party',
     ($clientContract['client_company_id'] ?? '') === '10803946'
     && ($clientContract['client_company_name'] ?? '') === 'TCS');
 $openEndedContract = jobdivaAssignmentContractBuild([[
@@ -368,9 +463,16 @@ $assert('tenant field mappings cannot overwrite the exact billing company',
     integrationFieldMapJobDivaContractOwnsTarget(
         'jobdiva',
         'placement',
-        ['target_table' => 'placements', 'target_column' => 'end_client_name'],
+        ['target_table' => 'placements', 'target_column' => 'client_id'],
         ['_jd_contract' => $clientContract]
     ));
+$assert('billing evidence alone cannot claim end-client ownership',
+    !integrationFieldMapJobDivaContractOwnsTarget('jobdiva','placement',
+        ['target_table'=>'placements','target_column'=>'end_client_name'],['_jd_contract'=>$clientContract]));
+$assert('explicit end-client evidence protects its separate target',
+    integrationFieldMapJobDivaContractOwnsTarget('jobdiva','placement',
+        ['target_table'=>'placements','target_column'=>'end_client_name'],
+        ['_jd_contract'=>array_replace($clientContract,['end_client_company_name'=>'Synthetic work recipient'])]));
 $assert('placeholder company names are distinguished from source names',
     jobdivaCompanyNameIsPlaceholder('JobDiva Company 12319524', '12319524')
     && !jobdivaCompanyNameIsPlaceholder('Techvy Corp', '12319524'));

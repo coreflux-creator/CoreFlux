@@ -32,6 +32,9 @@ require_once __DIR__ . '/tenant_mail.php';
 require_once __DIR__ . '/mail/suppressions.php';
 
 function sendEmail(array $args): array {
+    if (defined('COREFLUX_STAGING') && COREFLUX_STAGING) {
+        throw new RuntimeException('Direct SMTP delivery is disabled in staging.');
+    }
     if (empty($args['to']))       throw new InvalidArgumentException('sendEmail: to is required');
     if (empty($args['subject']))  throw new InvalidArgumentException('sendEmail: subject is required');
     if (empty($args['body_text']))throw new InvalidArgumentException('sendEmail: body_text is required');
@@ -46,6 +49,17 @@ function sendEmail(array $args): array {
             'html'    => $args['body_html'] ?? '',
             'text'    => $args['body_text'] ?? '',
         ]);
+    }
+
+    if (getenv('COREFLUX_ENV') === 'coreaccounting') {
+        if (SMTP_HOST === '' || SMTP_USER === '' || SMTP_PASS === ''
+            || !filter_var(SMTP_FROM_EMAIL, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('CoreAccounting SMTP delivery is not configured.');
+        }
+        if (!empty($args['from_email'])
+            && strcasecmp(trim((string) $args['from_email']), SMTP_FROM_EMAIL) !== 0) {
+            throw new RuntimeException('From address does not match the configured CoreAccounting sender.');
+        }
     }
 
     // Lazy-load PHPMailer from the vendored copy
@@ -284,7 +298,12 @@ if (!function_exists('mailerSend')) {
                     'from'      => $args['from_email']  ?? null,
                     'from_name' => $args['from_name']   ?? null,
                     'reply_to'  => $args['reply_to']    ?? null,
-                ], static fn($v) => $v !== null && $v !== '')
+                ], static fn($v) => $v !== null && $v !== '') + [
+                    'outbox_redactions' => array_values(array_filter(
+                        (array) ($args['outbox_redactions'] ?? []),
+                        static fn($value): bool => is_string($value) && $value !== ''
+                    )),
+                ]
             );
             if (($res['status'] ?? '') === 'sent') {
                 return [

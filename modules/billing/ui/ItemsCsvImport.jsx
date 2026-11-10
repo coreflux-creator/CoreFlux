@@ -1,7 +1,7 @@
 import React from 'react';
 import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
 
-export default function ItemsCsvImport() {
+export default function ItemsCsvImport({ standaloneAccounting = false }) {
   return (
     <CsvImportPage
       endpoint="/modules/billing/api/items_csv_import.php"
@@ -10,6 +10,7 @@ export default function ItemsCsvImport() {
       backLabel="Products & services"
       testidPrefix="billing-items-csv-import"
       presetEntity="billing_items"
+      standaloneAccounting={standaloneAccounting}
       defaultUpdateExisting
       updateExistingLabel="Update matching item IDs, external IDs, or codes"
       description="Export your catalog, complete or revise it in a spreadsheet, then upload it here. Existing items are matched safely before any changes are applied."

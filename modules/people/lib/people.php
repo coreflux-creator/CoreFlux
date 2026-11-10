@@ -14,6 +14,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/record_numbers.php';
 
 /** Safe non-PII fields ALWAYS allowed for SELECT. */
 function peopleSafeFields(): string
@@ -42,7 +43,8 @@ function peopleGet(int $personId): ?array
     $sql = 'SELECT ' . peopleSafeFields() . '
             FROM people
             WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL';
-    return scopedFind($sql, ['id' => $personId]);
+    $row = scopedFind($sql, ['id' => $personId]);
+    return $row ? coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'person', [$row])[0] : null;
 }
 
 /**
@@ -133,7 +135,8 @@ function peopleGetWithPII(int $personId): ?array
     $sql = 'SELECT ' . peopleSafeFields() . ', ' . peoplePIIFields() . '
             FROM people
             WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL';
-    return scopedFind($sql, ['id' => $personId]);
+    $row = scopedFind($sql, ['id' => $personId]);
+    return $row ? coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'person', [$row])[0] : null;
 }
 
 /**
@@ -153,7 +156,9 @@ function peopleList(array $filters = []): array
         $where[] = '(p.first_name LIKE :q OR p.last_name LIKE :q2 OR p.preferred_name LIKE :q3 '
                  . 'OR p.email_primary LIKE :q4 OR p.external_id = :qexact '
                  . "OR CONCAT_WS(' ', p.first_name, p.last_name) LIKE :q5 "
-                 . "OR CONCAT_WS(' ', p.preferred_name, p.last_name) LIKE :q6)";
+                 . "OR CONCAT_WS(' ', p.preferred_name, p.last_name) LIKE :q6 OR "
+                 . coreRecordNumberSearchSql('person', 'p', 'qnumber') . ')';
+        $params['qnumber'] = strtoupper(trim((string) $filters['q']));
         $params['q']      = '%' . $filters['q'] . '%';
         $params['q2']     = $params['q'];
         $params['q3']     = $params['q'];
@@ -241,6 +246,7 @@ function peopleList(array $filters = []): array
                 ORDER BY ' . $orderSql . '
                 LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset;
     $rows = scopedQuery($listSql, $params);
+    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'person', $rows);
 
     return [
         'rows'     => $rows,

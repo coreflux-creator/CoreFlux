@@ -70,6 +70,7 @@ $daily7d         = [];
 $topPurposes24h  = [];
 $recentFailures  = [];
 $tableMissing    = false;
+$reportError     = false;
 
 if ($pdo) {
     try {
@@ -144,7 +145,8 @@ if ($pdo) {
               WHERE tenant_id = :t
                 AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
            GROUP BY purpose
-           ORDER BY (sent + failed) DESC
+           ORDER BY SUM(CASE WHEN status IN ('sent','failed','bounced','complaint')
+                             THEN 1 ELSE 0 END) DESC
               LIMIT 5"
         );
         $st->execute(['t' => $tid]);
@@ -179,10 +181,10 @@ if ($pdo) {
             ];
         }
     } catch (\Throwable $e) {
-        // Most likely: mail_outbox table not deployed in this env.
-        // Keep the endpoint useful (returns config + status) so the
-        // tile can still flag "table not present" instead of 500ing.
-        $tableMissing = true;
+        $tableMissing = $e instanceof \PDOException
+            && ((string) $e->getCode() === '42S02' || (int) ($e->errorInfo[1] ?? 0) === 1146);
+        $reportError = !$tableMissing;
+        if ($reportError) error_log('[mail_health] report query failed: ' . $e->getMessage());
     }
 }
 
@@ -198,6 +200,9 @@ if ($defaultDriver === 'log') {
 } elseif ($tableMissing) {
     $status = 'silent';
     $hint   = 'mail_outbox table is missing in this environment — run migrations/003_mail_service.sql to start auditing sends.';
+} elseif ($reportError) {
+    $status = 'degraded';
+    $hint   = 'Mail activity could not be fully read. Check the server logs.';
 } elseif ($rollup['total'] === 0) {
     $status = 'silent';
     $hint   = 'No mail activity in the last 24 hours. Send a test from Mail Settings to confirm wiring.';
@@ -230,4 +235,5 @@ api_ok([
     'status'           => $status,
     'hint'             => $hint,
     'table_missing'    => $tableMissing,
+    'report_error'     => $reportError,
 ]);

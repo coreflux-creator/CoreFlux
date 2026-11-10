@@ -12,7 +12,9 @@ import { api } from '../lib/api';
  */
 export default function Login() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState('magic'); // 'magic' | 'password' | 'sso'
+  const [mode, setMode] = useState(
+    import.meta.env.VITE_COREFLUX_LOGIN_MODE === 'password' ? 'password' : 'magic',
+  ); // 'magic' | 'password' | 'sso'
 
   // Magic link
   const [email, setEmail] = useState('');
@@ -25,6 +27,7 @@ export default function Login() {
   const [pwUsername, setPwUsername] = useState('');
   const [pwPassword, setPwPassword] = useState('');
   const [pwError, setPwError] = useState('');
+  const [pwLoading, setPwLoading] = useState(false);
 
   // SSO
   const [ssoSlug, setSsoSlug] = useState('');
@@ -52,24 +55,32 @@ export default function Login() {
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
     setPwError('');
+    setPwLoading(true);
     const formData = new FormData();
     formData.append('username', pwUsername);
     formData.append('password', pwPassword);
+    const next = new URLSearchParams(window.location.search).get('next');
+    if (next?.startsWith('/') && !next.startsWith('//')) formData.append('next', next);
     try {
       const response = await fetch('/login.php', {
         method: 'POST',
         body: formData,
         credentials: 'include',
       });
-      if (response.redirected) {
-        const target = new URL(response.url).pathname;
-        navigate(target);
-      } else {
-        const text = await response.text();
-        setPwError(text || 'Login failed');
+      const destination = new URL(response.url, window.location.origin);
+      if (!response.ok || destination.pathname === '/login.html'
+          || destination.pathname === '/login.php') {
+        setPwError('Could not sign in. Check your username and password.');
+        return;
       }
+      const session = await fetch('/session.php', { credentials: 'include', cache: 'no-store' });
+      if (!session.ok) throw new Error('Session was not established');
+      const path = destination.pathname === '/spa.php' ? '/' : destination.pathname;
+      navigate(path + destination.search + destination.hash, { replace: true });
     } catch (err) {
-      setPwError('Network error');
+      setPwError('Could not connect to CoreFlux. Please try again.');
+    } finally {
+      setPwLoading(false);
     }
   };
 
@@ -196,8 +207,8 @@ export default function Login() {
                 style={styles.input}
               />
             </label>
-            <button type="submit" data-testid="login-password-submit" style={styles.primaryBtn}>
-              Sign in
+            <button type="submit" disabled={pwLoading} data-testid="login-password-submit" style={styles.primaryBtn}>
+              {pwLoading ? 'Signing in…' : 'Sign in'}
             </button>
             {pwError && (
               <p data-testid="login-password-error" style={styles.errorText}>{pwError}</p>

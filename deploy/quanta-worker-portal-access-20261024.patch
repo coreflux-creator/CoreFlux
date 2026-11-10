@@ -1,0 +1,571 @@
+commit 79332871db81acf99ac2d7637870d8dbe061605c
+Author:     coreflux-creator <kunalkverma@gmail.com>
+AuthorDate: Sat Oct 24 13:51:32 2026 -0400
+Commit:     coreflux-creator <kunalkverma@gmail.com>
+CommitDate: Sat Oct 24 13:51:32 2026 -0400
+
+    Enable reviewed portal access for existing Core workers without replacing their identities
+
+diff --git a/backend/app/routers/core_assignments.py b/backend/app/routers/core_assignments.py
+index e01ac2d..c6859de 100644
+--- a/backend/app/routers/core_assignments.py
++++ b/backend/app/routers/core_assignments.py
+@@ -41,7 +41,9 @@ async def access(response: Response, principal: Principal = Depends(get_current_
+             raise HTTPException(403, detail="Workspace membership unavailable")
+         worker_id = worker["id"]
+         can_view_workspace = bool(ADMIN_ROLES.intersection(worker.get("roles") or []))
+-    return {"tenant": tenant, "worker_id": worker_id, "identity_id": principal.identity_id, "can_view_workspace": can_view_workspace}
++    return {"tenant": tenant, "worker_id": worker_id, "identity_id": principal.identity_id,
++            "can_view_workspace": can_view_workspace,
++            "can_manage_team": not principal.virtual_membership and bool({"admin", "tenant_admin"}.intersection(worker.get("roles") or []))}
+ 
+ 
+ def query_for(ctx, view: View, search: str, status: str | None = None):
+@@ -72,7 +74,7 @@ async def shape_rows(rows, ctx, view):
+     link_ids = list({r["person_link_id"] for r in rows})
+     workers = {r["id"]: r for r in await db.users.find(
+         {"tenant_id": tenant_id, "id": {"$in": worker_ids}},
+-        {"id": 1, "full_name": 1, "status": 1, "roles": 1, "identity_id": 1, "approver_user_id": 1}).to_list(None)}
++        {"id": 1, "full_name": 1, "email": 1, "status": 1, "roles": 1, "identity_id": 1, "approver_user_id": 1}).to_list(None)}
+     links = {r["id"]: r for r in await db.coreflux_person_links.find(
+         {"tenant_id": tenant_id, "id": {"$in": link_ids}},
+         {"id": 1, "worker_id": 1, "person": 1}).to_list(None)}
+@@ -118,6 +120,9 @@ async def shape_rows(rows, ctx, view):
+                 "worker_role": "worker" in (worker.get("roles") or []),
+                 "login_identity_linked": identity is not None,
+                 "login_identity_enabled": identity is not None and not bool(identity.get("disabled_at")),
++                "portal_access": {"worker_id": worker["id"], "email": worker["email"]}
++                    if ctx.get("can_manage_team") and worker.get("status") == "active"
++                    and worker.get("roles") == ["worker"] and not worker.get("identity_id") and worker.get("email") else None,
+                 "direct_approver_name": approver.get("full_name"),
+                 "direct_approver_configured": approver.get("status") == "active" and bool(
+                     {"approver", "admin", "tenant_admin", "master"}.intersection(approver.get("roles") or [])),
+diff --git a/backend/app/routers/tenant.py b/backend/app/routers/tenant.py
+index 8a92a07..21b9755 100644
+--- a/backend/app/routers/tenant.py
++++ b/backend/app/routers/tenant.py
+@@ -79,6 +79,7 @@ class DirectAddUserRequest(BaseModel):
+     employee_id: Optional[str] = None
+     external_id: Optional[str] = None
+     approver_user_id: Optional[str] = None
++    existing_worker_id: Optional[str] = Field(default=None, min_length=1, max_length=200)
+ 
+ 
+ @router.post("/users", status_code=201)
+@@ -100,7 +101,19 @@ async def add_user(
+     existing_membership = await db.users.find_one({
+         "tenant_id": principal.tenant_id, "email": email,
+     })
+-    if existing_membership and existing_membership.get("status") == "active":
++    portal_setup = payload.existing_worker_id is not None
++    if portal_setup:
++        # An imported, active worker is a directory profile, not yet a login.
++        # This separate, explicitly targeted action must never edit that profile
++        # or implicitly reactivate, elevate, or rebind an existing login.
++        if payload.model_fields_set != {"email", "existing_worker_id"}:
++            raise HTTPException(status_code=422, detail="Portal setup cannot change profile fields or roles.")
++        if (not existing_membership or existing_membership["id"] != payload.existing_worker_id
++                or existing_membership.get("status") != "active"
++                or existing_membership.get("identity_id")
++                or existing_membership.get("roles") != ["worker"]):
++            raise HTTPException(status_code=409, detail="Worker access changed. Refresh the profile before enabling portal access.")
++    elif existing_membership and existing_membership.get("status") == "active":
+         raise HTTPException(status_code=409, detail="That email is already on this workspace.")
+ 
+     roles = (existing_membership.get("roles") if existing_membership and "roles" not in payload.model_fields_set
+@@ -189,6 +202,14 @@ async def add_user(
+             raise HTTPException(status_code=409, detail="This member was added meanwhile. Refresh the team directory.")
+         user_id = user.id
+ 
++    if portal_setup:
++        await audit.record(
++            "worker_portal_access_enabled", tenant_id=principal.tenant_id,
++            user_id=principal.user.id, subject_type="user", subject_id=user_id,
++            metadata={"identity_id": identity["id"], "roles": ["worker"]},
++            ip=request.client.host if request.client else "",
++        )
++
+     tenant = await db.tenants.find_one({"id": principal.tenant_id})
+     tenant_name = (tenant or {}).get("name") or "Quanta"
+ 
+@@ -206,6 +227,7 @@ async def add_user(
+         add_result = await mail.safe_send_for_tenant(
+             (tenant or {}).get("theme"), email, subject, html, text,
+         )
++        email_sent = bool(add_result["sent"])
+         await audit.record(
+             "user_membership_added_to_existing_identity",
+             tenant_id=principal.tenant_id, user_id=principal.user.id,
+@@ -231,6 +253,7 @@ async def add_user(
+         set_result = await mail.safe_send_for_tenant(
+             (tenant or {}).get("theme"), email, subject, html, text,
+         )
++        email_sent = bool(set_result["sent"])
+         await audit.record(
+             "identity_password_set_link_sent",
+             tenant_id=principal.tenant_id, user_id=principal.user.id,
+@@ -243,6 +266,7 @@ async def add_user(
+     return {
+         "user_id": user_id, "identity_id": identity["id"],
+         "identity_existed": identity_existed,
++        "email_sent": email_sent,
+     }
+ 
+ 
+diff --git a/backend/contract_tests/accept_onboarding_candidate.py b/backend/contract_tests/accept_onboarding_candidate.py
+index 70c600b..2cf8e94 100644
+--- a/backend/contract_tests/accept_onboarding_candidate.py
++++ b/backend/contract_tests/accept_onboarding_candidate.py
+@@ -12,6 +12,9 @@ import tempfile
+ 
+ def main(packet):
+     artifact = 'onboarding-documents' if packet.get('documents') is True else 'onboarding'
++    worker_portal = packet.get('artifact') == 'worker-portal-access'
++    if worker_portal:
++        artifact = 'worker-portal-access'
+     if packet.get('recovery') is True:
+         artifact = 'onboarding-document-recovery'
+         if packet.get('recovery_revision') == 2:
+@@ -31,7 +34,7 @@ def main(packet):
+             path = app / name
+             if path.is_symlink() or not path.resolve().is_relative_to(app):
+                 raise RuntimeError('Unexpected source path')
+-            values[name] = sha(path.read_bytes().replace(b'\r\n', b'\n'))
++            values[name] = sha(path.read_bytes().replace(b'\r\n', b'\n')) if path.is_file() else None
+             if values[name] != expected:
+                 raise RuntimeError('Source changed: ' + name)
+         protected = {}
+@@ -62,6 +65,8 @@ def main(packet):
+     (frontend / 'node_modules').symlink_to(app / 'frontend/node_modules', target_is_directory=True)
+     frontend_hashes = {}
+     allowed = {'src/pages/CoreAssignmentsPage.jsx', 'src/pages/CoreOnboardingPanel.jsx', 'src/pages/admin/ApiKeysPage.jsx'}
++    if worker_portal:
++        allowed = {'src/pages/CoreAssignmentsPage.jsx', 'src/pages/WorkerPortalAccess.jsx'}
+     if set(packet['frontend']) != allowed:
+         raise RuntimeError('Unexpected frontend candidate scope')
+     for name, source in packet['frontend'].items():
+@@ -84,7 +89,8 @@ def main(packet):
+               'protected_configuration_unchanged': True, 'live_database_used': False,
+               'published': False, 'directory': str(work)}
+     (work / 'result.json').write_text(json.dumps(report, indent=2))
+-    Path('/tmp/quanta-' + artifact + '-acceptance-20261023.json').write_text(json.dumps(report, indent=2))
++    date = '20261024' if worker_portal else '20261023'
++    Path('/tmp/quanta-' + artifact + '-acceptance-' + date + '.json').write_text(json.dumps(report, indent=2))
+     print('QUANTA_ONBOARDING_ACCEPTANCE ' + json.dumps(report), flush=True)
+     if build.returncode:
+         print('\n'.join(frontend_log.read_text().splitlines()[-50:]))
+diff --git a/backend/contract_tests/core_portal_ui.test.mjs b/backend/contract_tests/core_portal_ui.test.mjs
+index ef9550c..55dd824 100644
+--- a/backend/contract_tests/core_portal_ui.test.mjs
++++ b/backend/contract_tests/core_portal_ui.test.mjs
+@@ -14,7 +14,8 @@ const fixture = {
+   useAuth: () => ({ user: state.user, hasRole: roles => roles.some(role => state.user.roles.includes(role)) }),
+   loadStoredUser: () => state.user,
+   formatApiError: error => error.response?.data?.detail || error.message,
+-  api: { get: (url, options) => new Promise((resolve, reject) => state.requests.push({ url, options, resolve, reject })) },
++  api: { get: (url, options) => new Promise((resolve, reject) => state.requests.push({ method:'get', url, options, resolve, reject })),
++    post: (url, body) => new Promise((resolve, reject) => state.requests.push({ method:'post', url, body, resolve, reject })) },
+ };
+ const built = await build({ entryPoints: [fileURLToPath(new URL('../../frontend/src/pages/CoreAssignmentsPage.jsx', import.meta.url))],
+   bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', external: ['react', 'react/jsx-runtime', 'fixture'],
+@@ -44,6 +45,49 @@ async function resolve(request, data) { await act(async()=>{request.resolve({dat
+ const content = tree => JSON.stringify(tree.toJSON());
+ const findButton = (tree,text) => tree.root.findAllByType('button').find(button=>button.children.join('')===text);
+ 
++async function mountPortalSetup() {
++  const tree=await mount(); const item=row();
++  item.onboarding={...item.onboarding,login_identity_linked:false,login_identity_enabled:false,
++    portal_access:{worker_id:'existing-worker',email:'synthetic@example.com'}};
++  await resolve(state.requests[0],body([item])); return tree;
++}
++
++test('portal setup requires explicit review and cancel makes no request',async()=>{
++  const tree=await mountPortalSetup();
++  await act(async()=>findButton(tree,'Enable worker portal access').props.onClick());
++  assert.ok(content(tree).includes('synthetic@example.com'));
++  assert.ok(content(tree).includes('P-1'));
++  assert.equal(state.requests.filter(r=>r.method==='post').length,0);
++  await act(async()=>findButton(tree,'Cancel').props.onClick());
++  assert.ok(!content(tree).includes('Enable access and send instructions'));
++  assert.equal(state.requests.filter(r=>r.method==='post').length,0);
++  await act(async()=>tree.unmount());
++});
++
++for (const sent of [true,false]) test(`portal setup targets the existing worker and reports email delivery ${sent}`,async()=>{
++  const tree=await mountPortalSetup();
++  await act(async()=>findButton(tree,'Enable worker portal access').props.onClick());
++  let pending;
++  await act(async()=>{ const send=findButton(tree,'Enable access and send instructions');pending=send.props.onClick();send.props.onClick(); });
++  const posts=state.requests.filter(r=>r.method==='post');assert.equal(posts.length,1);
++  assert.equal(posts[0].url,'/tenant/users');
++  assert.deepEqual(posts[0].body,{email:'synthetic@example.com',existing_worker_id:'existing-worker'});
++  await resolve(posts[0],{user_id:'existing-worker',identity_id:'identity-new',email_sent:sent});await pending;
++  assert.ok(content(tree).includes(sent?'Sign-in instructions were sent':'email was not delivered'));
++  await act(async()=>tree.unmount());
++});
++
++test('portal setup ignores a late result after switching workspace',async()=>{
++  const tree=await mountPortalSetup();
++  await act(async()=>findButton(tree,'Enable worker portal access').props.onClick());
++  let pending;await act(async()=>{pending=findButton(tree,'Enable access and send instructions').props.onClick();});
++  const post=state.requests.find(r=>r.method==='post');
++  await act(async()=>{state.user={id:'user-b',tenant_id:'b',roles:['worker']};tree.update(React.createElement(Page));});
++  await resolve(post,{user_id:'existing-worker',identity_id:'identity-new',email_sent:true});await pending;
++  assert.ok(!content(tree).includes('Portal access enabled'));
++  await act(async()=>tree.unmount());
++});
++
+ test('cards preserve numbers and explain setup without granting access',()=>{
+   const html=renderToStaticMarkup(React.createElement(mod.exports.AssignmentCards,{items:[row('PL-810','<script>unsafe</script>')],view:'workspace'}));
+   for(const text of ['PL-810','P-1','CL-1','CO-1','Open-ended','not confirmation that onboarding is complete','Not directly assigned'])assert.ok(html.includes(text),text);
+diff --git a/backend/contract_tests/full_app_acceptance.py b/backend/contract_tests/full_app_acceptance.py
+index cfa122e..7f853bb 100644
+--- a/backend/contract_tests/full_app_acceptance.py
++++ b/backend/contract_tests/full_app_acceptance.py
+@@ -35,7 +35,8 @@ def main(bundle):
+     candidates = bundle.get("candidate_sources", {})
+     allowed_candidates = {"server.py", "app/indexes.py", "app/models.py", "app/routers/v1/time_entries.py",
+                           "app/coreflux_onboarding.py", "app/coreflux_documents.py", "app/coreflux_contract.py", "app/api_scopes.py",
+-                          "app/routers/v1/coreflux.py", "app/routers/core_assignments.py", "app/routers/core_onboarding.py"}
++                          "app/routers/v1/coreflux.py", "app/routers/core_assignments.py", "app/routers/core_onboarding.py",
++                          "app/routers/tenant.py"}
+     if set(candidates) - allowed_candidates:
+         raise RuntimeError("Unexpected candidate override")
+     for relative, source in candidates.items():
+@@ -96,6 +97,10 @@ def main(bundle):
+     import pytest
+ 
+     substitutions = {
++        "test_membership_reactivation.py": (
++            '    api = FastAPI(); api.include_router(native.router)',
++            '    from server import app as api',
++        ),
+         "test_api_key_creation.py": (
+             '    api = FastAPI(); api.include_router(routes.router)',
+             '    from server import app as api',
+diff --git a/backend/contract_tests/install_onboarding_preview.py b/backend/contract_tests/install_onboarding_preview.py
+index 2353bfd..536d0e1 100644
+--- a/backend/contract_tests/install_onboarding_preview.py
++++ b/backend/contract_tests/install_onboarding_preview.py
+@@ -19,10 +19,23 @@ def main(packet):
+     git = lambda *args: subprocess.check_output(['git', '-C', str(root), *args])
+     file_hash = lambda path: sha(path.read_bytes()) if path.is_file() else None
+     candidate = packet['candidate']
++    worker_portal = packet.get('worker_portal_access') is True
+     if git('rev-parse', 'HEAD').decode().strip() != packet['head']:
+         raise RuntimeError('Shared HEAD changed')
+-    if git('rev-parse', packet['ref']).decode().strip() != candidate:
++    if not worker_portal and git('rev-parse', packet['ref']).decode().strip() != candidate:
+         raise RuntimeError('Review ref changed')
++    if worker_portal:
++        # This source-only increment is tied to the hosted acceptance receipt
++        # and a local immutable review commit. Preserve the shared Git index.
++        receipt = json.loads(Path('/tmp/quanta-worker-portal-access-acceptance-20261024.json').read_text())
++        if receipt['frontend_exit'] or receipt['backend']['pytest_exit'] or receipt['backend']['network_attempts']:
++            raise RuntimeError('Passing isolated hosted acceptance is required')
++        accepted = {'backend/' + name: digest for name, digest in receipt['backend']['candidate_hashes'].items()}
++        accepted.update({'frontend/' + name: digest for name, digest in receipt['frontend_candidate_hashes'].items()})
++        if accepted != packet['hashes']:
++            raise RuntimeError('Runtime candidate differs from the tested source')
++        packet['protected'] = {name: file_hash(Path(name) if name.startswith('/') else root / name)
++                               for name in ['backend/.env', 'frontend/.env', '/etc/supervisor/conf.d/supervisord.conf']}
+     for name, expected in packet['baseline'].items():
+         if file_hash(root / name) != expected:
+             raise RuntimeError('Shared source changed: ' + name)
+@@ -44,9 +57,13 @@ def main(packet):
+         'frontend/src/pages/CoreAssignmentsPage.jsx', 'frontend/src/pages/CoreOnboardingPanel.jsx',
+         'frontend/src/pages/admin/ApiKeysPage.jsx',
+     }
++    if worker_portal:
++        allowed = {'backend/app/routers/tenant.py', 'backend/app/routers/core_assignments.py',
++                   'frontend/src/pages/CoreAssignmentsPage.jsx', 'frontend/src/pages/WorkerPortalAccess.jsx'}
+     if set(packet['hashes']) != allowed:
+         raise RuntimeError('Exact runtime path set required')
+-    source = {name: git('show', candidate + ':' + name) for name in allowed}
++    source = ({name: packet['sources'][name].encode() for name in allowed} if worker_portal
++              else {name: git('show', candidate + ':' + name) for name in allowed})
+     for name, raw in source.items():
+         if sha(raw) != packet['hashes'][name]:
+             raise RuntimeError('Reviewed candidate mismatch: ' + name)
+@@ -72,7 +89,8 @@ def main(packet):
+             db = client[settings['DB_NAME']]
+             out = {}
+             for name in ('tenants', 'identities', 'users', 'api_keys', 'invites', 'webhook_subscriptions',
+-                         'coreflux_person_links', 'coreflux_assignments', 'time_entries', 'timesheets'):
++                         'coreflux_person_links', 'coreflux_assignments', 'coreflux_onboarding',
++                         'coreflux_document_transfers', 'time_entries', 'timesheets'):
+                 rows = await db[name].find({}).sort('_id', 1).to_list(None)
+                 out[name] = dict(count=len(rows), sha256=sha(dumps(rows, json_options=CANONICAL_JSON_OPTIONS,
+                                                                sort_keys=True).encode()))
+diff --git a/backend/contract_tests/test_core_portal.py b/backend/contract_tests/test_core_portal.py
+index 850f874..7bc8259 100644
+--- a/backend/contract_tests/test_core_portal.py
++++ b/backend/contract_tests/test_core_portal.py
+@@ -110,9 +110,26 @@ async def test_admin_report_includes_drafts_and_scoped_readiness(case):
+     assert {r["placement_number"] for r in body["items"]} == {"PL-1", "PL-2", "PL-3", "PL-4"}
+     row = next(r for r in body["items"] if r["placement_number"] == "PL-1")
+     assert row["onboarding"] == {"worker_status": "active", "worker_role": True,
+-        "login_identity_linked": True, "login_identity_enabled": True,
++        "login_identity_linked": True, "login_identity_enabled": True, "portal_access": None,
+         "direct_approver_name": "approver-a", "direct_approver_configured": True}
+     assert "PRIVATE" not in response.text
++
++
++async def test_portal_setup_target_is_current_worker_and_admin_only(case):
++    await case.db.users.update_one({"id": "other-a"}, {"$unset": {"identity_id": ""}})
++    before = await case.db.users.find_one({"id": "other-a"})
++    response = await case.client.get(BASE, params={"view": "workspace"}, headers=case.headers("admin-a"))
++    row = next(r for r in response.json()["items"] if r["placement_number"] == "PL-4")
++    assert row["onboarding"]["portal_access"] == {"worker_id": "other-a", "email": "other-a@example.invalid"}
++    own = await case.client.get(BASE, headers=case.headers())
++    assert "portal_access" not in own.text and "other-a@example.invalid" not in own.text
++    assert await case.db.users.find_one({"id": "other-a"}) == before
++    for change in ({"roles": ["worker", "approver"]}, {"roles": ["worker"], "status": "disabled"},
++                   {"roles": ["worker"], "status": "active", "identity_id": "missing-identity"}):
++        await case.db.users.update_one({"id": "other-a"}, {"$set": change})
++        response = await case.client.get(BASE, params={"view": "workspace"}, headers=case.headers("admin-a"))
++        row = next(r for r in response.json()["items"] if r["placement_number"] == "PL-4")
++        assert row["onboarding"]["portal_access"] is None
+     await case.db.worksite_assignments.update_one({"id": "access-a"}, {"$set": {"active": False}})
+     assert (await case.client.get(BASE + "/" + case.rows[1]["id"], headers=case.headers())).json()["worksite_assigned"] is False
+ 
+diff --git a/backend/contract_tests/test_membership_reactivation.py b/backend/contract_tests/test_membership_reactivation.py
+index 0f1cba9..20b68b6 100644
+--- a/backend/contract_tests/test_membership_reactivation.py
++++ b/backend/contract_tests/test_membership_reactivation.py
+@@ -25,8 +25,74 @@ pytestmark = pytest.mark.asyncio
+ BASE = "/api/tenant/users"
+ 
+ 
++async def portal_profile(case):
++    await case.db.users.update_one({"id": "worker"}, {
++        "$set": {"status": "active", "roles": ["worker"]}, "$unset": {"identity_id": ""}})
++    return {"email": "worker@example.com", "existing_worker_id": "worker"}
++
++
++async def test_explicit_portal_setup_preserves_active_profile_and_provider_links(case):
++    body = await portal_profile(case)
++    before = await case.db.users.find_one({"id": "worker"})
++    other = await case.db.users.find_one({"id": "worker-b"})
++    identity = await case.db.identities.find_one({"id": "idn-worker"})
++    response = await case.client.post(BASE, headers=case.headers(), json=body)
++    assert response.status_code == 201, response.text
++    after = await case.db.users.find_one({"id": "worker"})
++    assert after["identity_id"] == "idn-worker" and response.json()["email_sent"] is True
++    assert {k: v for k, v in after.items() if k not in {"identity_id", "updated_at"}} == {k: v for k, v in before.items() if k != "updated_at"}
++    assert await case.db.users.find_one({"id": "worker-b"}) == other
++    assert await case.db.identities.find_one({"id": "idn-worker"}) == identity
++    assert len(case.mails) == 1 and "PRIVATE" not in response.text
++    replay = await case.client.post(BASE, headers=case.headers(), json=body)
++    assert replay.status_code == 409 and len(case.mails) == 1
++
++
++async def test_portal_setup_creates_only_identity_for_existing_worker(case):
++    body = await portal_profile(case)
++    await case.db.users.update_one({"id": "worker"}, {"$set": {"email": "portal-new@example.com"}})
++    body["email"] = "portal-new@example.com"
++    before_count = await case.db.users.count_documents({})
++    response = await case.client.post(BASE, headers=case.headers(), json=body)
++    assert response.status_code == 201, response.text
++    identity = await case.db.identities.find_one({"email": body["email"]})
++    assert identity and not identity.get("password_hash")
++    assert await case.db.users.count_documents({}) == before_count
++    assert len(case.mails) == 1 and "set-password" in case.mails[0][3]
++    assert "FIXTURE_ONLY" not in response.text
++
++
++@pytest.mark.parametrize("change", [{"existing_worker_id": "worker-b"}, {"email": "absent@example.com"},
++    {"roles": ["tenant_admin"]}, {"employee_id": "REPLACE"}, {"full_name": "Change name"}])
++async def test_portal_setup_rejects_wrong_target_or_profile_edits(case, change):
++    body = await portal_profile(case)
++    before = await case.db.users.find_one({"id": "worker"})
++    response = await case.client.post(BASE, headers=case.headers(), json={**body, **change})
++    assert response.status_code in {409, 422} and case.mails == []
++    assert await case.db.users.find_one({"id": "worker"}) == before
++
++
++@pytest.mark.parametrize("change", [{"status": "disabled"}, {"roles": ["worker", "approver"]},
++    {"roles": ["admin"]}, {"identity_id": "idn-worker"}])
++async def test_portal_setup_does_not_reactivate_elevate_or_rebind(case, change):
++    body = await portal_profile(case)
++    await case.db.users.update_one({"id": "worker"}, {"$set": change})
++    before = await case.db.users.find_one({"id": "worker"})
++    response = await case.client.post(BASE, headers=case.headers("owner"), json=body)
++    assert response.status_code == 409 and case.mails == []
++    assert await case.db.users.find_one({"id": "worker"}) == before
++
++
++async def test_normal_add_does_not_implicitly_enable_an_active_imported_profile(case):
++    await portal_profile(case)
++    response = await case.client.post(BASE, headers=case.headers(), json={"email": "worker@example.com"})
++    assert response.status_code == 409 and case.mails == []
++    assert not (await case.db.users.find_one({"id": "worker"})).get("identity_id")
++
++
+ @pytest_asyncio.fixture
+ async def case(monkeypatch):
++    native_connect = socket.socket.connect
+     def refuse_network(*args, **kwargs):
+         raise AssertionError("This fixture cannot connect to any external service")
+     monkeypatch.setattr(socket.socket, "connect", refuse_network)
+@@ -78,8 +144,12 @@ async def case(monkeypatch):
+     await db.users.insert_one(dict(member, id="worker-b", tenant_id="b"))
+     api = FastAPI(); api.include_router(native.router)
+     async with AsyncClient(transport=ASGITransport(app=api), base_url="https://fixture.invalid") as client:
+-        yield SimpleNamespace(db=db, client=client, mails=mails, member=member,
+-                              headers=lambda who="admin": {"Authorization": "Bearer " + tokens[who]})
++        try:
++            yield SimpleNamespace(db=db, client=client, mails=mails, member=member,
++                                  headers=lambda who="admin": {"Authorization": "Bearer " + tokens[who]})
++        finally:
++            # Windows asyncio opens an internal socketpair during loop teardown.
++            monkeypatch.setattr(socket.socket, "connect", native_connect)
+ 
+ 
+ @pytest.mark.parametrize("extra", [{}, {"employee_id": None, "external_id": None, "approver_user_id": None},
+diff --git a/frontend/src/pages/CoreAssignmentsPage.jsx b/frontend/src/pages/CoreAssignmentsPage.jsx
+index 6c76261..f645d70 100644
+--- a/frontend/src/pages/CoreAssignmentsPage.jsx
++++ b/frontend/src/pages/CoreAssignmentsPage.jsx
+@@ -5,12 +5,13 @@ import { useAuth } from "@/lib/auth";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import CoreOnboardingPanel from "./CoreOnboardingPanel";
++import WorkerPortalAccess from "./WorkerPortalAccess";
+ 
+ const field = "rounded-md border border-slate-200 bg-white px-3 py-2 text-sm";
+ const label = (value) => value ? value[0].toUpperCase() + value.slice(1) : "—";
+ const dateLabel = (value) => value || "Open-ended";
+ 
+-export function AssignmentCards({ items, view }) {
++export function AssignmentCards({ items, view, canManageTeam = false, isCurrent, onPortalAccess }) {
+   return <div className="grid gap-4" data-testid="core-assignment-cards">
+     {items.map((item) => <Card key={item.id}>
+       <CardHeader className="pb-3">
+@@ -45,6 +46,9 @@ export function AssignmentCards({ items, view }) {
+               <li>Worksite membership: {item.worksite_assigned ? "Assigned" : "Not assigned"}</li>
+             </ul>
+             <p className="mt-3 text-xs text-slate-500">These are setup checks, not confirmation that onboarding is complete. A workspace default may provide the approver.</p>
++            {canManageTeam && item.onboarding.portal_access && <WorkerPortalAccess
++              key={item.onboarding.portal_access.worker_id} target={item.onboarding.portal_access}
++              name={item.worker_name} personNumber={item.person_number} isCurrent={isCurrent} onComplete={onPortalAccess} />}
+           </div>}
+         </details>
+       </CardContent>
+@@ -61,6 +65,7 @@ function AssignmentWorkspace({ userId, tenantId, defaultView, canManageTeam }) {
+   const [busy, setBusy] = useState(false);
+   const [exporting, setExporting] = useState(false);
+   const [error, setError] = useState("");
++  const [portalNotice, setPortalNotice] = useState("");
+   const [refresh, setRefresh] = useState(0);
+   const generation = useRef(0);
+   const mounted = useRef(true);
+@@ -143,9 +148,11 @@ function AssignmentWorkspace({ userId, tenantId, defaultView, canManageTeam }) {
+       <Button type="button" variant="outline" disabled={busy} onClick={() => { generation.current++; setData(null); setRefresh(value => value + 1); }}>Refresh</Button>
+     </form>
+     {error && <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
++    {portalNotice && <div role="status" className="rounded-md border border-slate-200 bg-white p-3 text-sm">{portalNotice}</div>}
+     {busy && !data && <p role="status" className="text-sm text-slate-500">Loading assignments…</p>}
+     {data && data.items.length === 0 && <Card><CardContent className="py-8 text-center"><h2 className="font-medium">No shared assignments found</h2><p className="mt-2 text-sm text-slate-600">{view === "mine" ? "Your active and past assignments appear here once your Core person is linked and the placement is shared." : "Share reviewed placement details from Core, or adjust the filters."}</p></CardContent></Card>}
+-    {data && <AssignmentCards items={data.items} view={view} />}
++    {data && <AssignmentCards items={data.items} view={view} canManageTeam={canManageTeam}
++      isCurrent={currentSession} onPortalAccess={notice => { setPortalNotice(notice); setRefresh(value => value + 1); }} />}
+     {data?.next_cursor && <Button variant="outline" onClick={more} disabled={busy}>{busy ? "Loading…" : "Load more assignments"}</Button>}
+     {data && <p className="text-xs text-slate-500">Showing {data.items.length} assignment{data.items.length === 1 ? "" : "s"}{data.next_cursor ? "; more available" : ""}. Reports include all matches, up to 5,000. Assignment details come from Core; worksite access and time approval remain managed in Quanta.</p>}
+     <CoreOnboardingPanel key={view} view={view} userId={userId} tenantId={tenantId} />
+diff --git a/frontend/src/pages/WorkerPortalAccess.jsx b/frontend/src/pages/WorkerPortalAccess.jsx
+new file mode 100644
+index 0000000..43b51a6
+--- /dev/null
++++ b/frontend/src/pages/WorkerPortalAccess.jsx
+@@ -0,0 +1,44 @@
++import { useEffect, useRef, useState } from "react";
++import { api, formatApiError } from "@/lib/api";
++import { Button } from "@/components/ui/button";
++
++export default function WorkerPortalAccess({ target, name, personNumber, isCurrent, onComplete }) {
++  const [reviewing, setReviewing] = useState(false);
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState("");
++  const active = useRef(true);
++  const inFlight = useRef(false);
++  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
++  const enable = async () => {
++    if (inFlight.current || !isCurrent()) return;
++    inFlight.current = true;
++    setBusy(true); setError("");
++    try {
++      const { data } = await api.post("/tenant/users", { email: target.email, existing_worker_id: target.worker_id });
++      if (!active.current || !isCurrent()) return;
++      if (data.user_id !== target.worker_id || typeof data.identity_id !== "string" || !data.identity_id) {
++        throw new Error("The result could not be confirmed. Refresh team setup before trying again.");
++      }
++      onComplete(data.email_sent === true
++        ? `Portal access enabled for ${name}. Sign-in instructions were sent to ${target.email}.`
++        : `Portal access enabled for ${name}, but the email was not delivered. The worker can use Forgot password on the sign-in page.`);
++    } catch (err) {
++      if (active.current && isCurrent()) setError(formatApiError(err));
++    } finally {
++      inFlight.current = false;
++      if (active.current) setBusy(false);
++    }
++  };
++  return <div className="mt-3" data-testid="worker-portal-access">
++    {!reviewing ? <Button type="button" variant="outline" onClick={() => setReviewing(true)}>Enable worker portal access</Button>
++      : <div role="region" aria-label={`Review portal access for ${personNumber}`} className="space-y-3 rounded-md border border-slate-300 bg-white p-4">
++        <p className="text-sm font-medium">Enable portal access for {name} · {personNumber}?</p>
++        <p className="text-sm text-slate-600">Send sign-in instructions to <strong>{target.email}</strong>. This gives the existing worker access to their own assignments, onboarding and time. Their person number, worksite and assignment links stay in place.</p>
++        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
++        <div className="flex flex-wrap gap-2">
++          <Button type="button" disabled={busy} onClick={enable}>{busy ? "Enabling access…" : "Enable access and send instructions"}</Button>
++          <Button type="button" variant="outline" disabled={busy} onClick={() => { setReviewing(false); setError(""); }}>Cancel</Button>
++        </div>
++      </div>}
++  </div>;
++}
+diff --git a/verification/worker-portal-access-acceptance-20261024.json b/verification/worker-portal-access-acceptance-20261024.json
+new file mode 100644
+index 0000000..9d68a2e
+--- /dev/null
++++ b/verification/worker-portal-access-acceptance-20261024.json
+@@ -0,0 +1,40 @@
++{
++  "backend": {
++    "runtime_hashes": {
++      "app/routers/tenant.py": "6007f920e09d251afb0d61c0e66a48ccd01adf896dda5112c032cbcc3d9d5dae",
++      "app/routers/core_assignments.py": "e3da057065bf372839c53afe03b7a068ba09af483885b508775a94ed536115b5"
++    },
++    "test_files": [
++      "test_core_portal.py",
++      "test_coreflux.py",
++      "test_membership_reactivation.py",
++      "test_worker_profiles.py"
++    ],
++    "pytest_exit": 0,
++    "network_attempts": 0,
++    "full_application": true,
++    "lifespan_started": false,
++    "candidate_hashes": {
++      "app/routers/tenant.py": "2b729cf8ac3505e7a209659f5146d0c82a14b9d659b90f2da595044dfaecc00d",
++      "app/routers/core_assignments.py": "f12ba93f3538a44c5de4e839047436f0d0e00a90f7708be596db2f0237707e90"
++    },
++    "real_database_used": false,
++    "live_workspace_acceptance": false,
++    "report_directory": "/tmp/quanta-core-full-app-kul0wlxx"
++  },
++  "backend_summary": [
++    "112 passed in 1.47s"
++  ],
++  "frontend_exit": 0,
++  "frontend_candidate_hashes": {
++    "src/pages/CoreAssignmentsPage.jsx": "aa57683d9f7ccf71a0c1ec1bba11945e144498a708e0b23ee2f524fdac51072c",
++    "src/pages/WorkerPortalAccess.jsx": "8c5d0d2c2a86b1f2d69c0b0d9eeeabbb0de05dbb62577d8ae9986578d8acc415"
++  },
++  "shared_head_unchanged": true,
++  "shared_source_unchanged": true,
++  "shared_index_unchanged": true,
++  "protected_configuration_unchanged": true,
++  "live_database_used": false,
++  "published": false,
++  "directory": "/tmp/quanta-worker-portal-access-acceptance-98fxf7ml"
++}

@@ -1,0 +1,141 @@
+{
+  "recorded_date": "2026-10-25",
+  "kind": "isolated_core_source_approval_release_verified",
+  "installed_commit": "d68a4a7d01db82924028eba11cce8e2a92c11562",
+  "ci": {
+    "databaseId": 40191778581,
+    "headSha": "d68a4a7d01db82924028eba11cce8e2a92c11562",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40191778581",
+    "successful_jobs": 9
+  },
+  "changes": [
+    "Require explicit BILLING approval, alongside SALARY approval, for active assignment classification.",
+    "Reject conflicting Start, person or job identity aliases across compound detail records.",
+    "Report safe live contract lifecycle flags separately from import eligibility."
+  ],
+  "source_inspection": {
+    "databaseId": 40191772512,
+    "headSha": "d68a4a7d01db82924028eba11cce8e2a92c11562",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40191772512",
+    "successful_jobs": 1,
+    "canonical_person": "P-358",
+    "canonical_placement": "PL-864",
+    "exact_assignment_verified": true,
+    "exact_detail_verified": true,
+    "contract_lifecycle": {
+      "status": "active",
+      "billing_approved": true,
+      "salary_approved": true,
+      "actual_start": true,
+      "actual_end": false,
+      "billing_closed": false,
+      "salary_closed": false
+    },
+    "alignment": {
+      "branch": "matches_fresh_source",
+      "workers_comp_class": "source_value_missing",
+      "worksite_city": "core_column_unavailable",
+      "worksite_state": "matches_fresh_source",
+      "worksite_country": "matches_fresh_source",
+      "engagement_type": "matches_fresh_source",
+      "start_date": "matches_fresh_source",
+      "end_date": "matches_fresh_source",
+      "status": "matches_fresh_source"
+    },
+    "import_authorized": false,
+    "record_writes": false,
+    "connection_settings_changed": false,
+    "session_token_persisted": false
+  },
+  "deployment": {
+    "databaseId": 40192060429,
+    "headSha": "d68a4a7d01db82924028eba11cce8e2a92c11562",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40192060429",
+    "successful_jobs": 1,
+    "target_application": "muzqvdvqbx",
+    "simulation_tenant": 999,
+    "changed_files": 17,
+    "migrations_applied": [],
+    "runtime_and_schema_verified": true,
+    "served_assets_verified": 4,
+    "acceptance": {
+      "accounting_staging_lifecycle": "passed",
+      "accounting_split_receipt_staging": "passed",
+      "accounting_credit_applications_mariadb": {
+        "status": "passed",
+        "checks": 61,
+        "rollback": true
+      },
+      "billing_delivery_staging_http": "passed: log-only delivery",
+      "staffing_onboarding_staging_http": {
+        "status": "passed",
+        "checks": 17,
+        "portal_delivery": "not_checked",
+        "payroll_authorization": "not_evaluated"
+      }
+    }
+  },
+  "post_deployment_readiness": {
+    "databaseId": 40192367094,
+    "headSha": "d68a4a7d01db82924028eba11cce8e2a92c11562",
+    "conclusion": "success",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40192367094",
+    "successful_jobs": 1,
+    "checked_at": "2026-10-25T12:17:06+00:00",
+    "quanta_binding": {
+      "available": false,
+      "http_status": 404
+    },
+    "saved_purepay_binding": {
+      "id": 1,
+      "status": "active",
+      "revision": 3,
+      "remote_organization_id": "org_purepay_demo"
+    },
+    "purepay_live_api_checked": false,
+    "time_review_gate": {
+      "eligible_in_both_permission_models": 1,
+      "entries": [
+        {
+          "entry_id": 1,
+          "status": "pending_review",
+          "independent_eligible_reviewers": 0,
+          "existing_operator_is_creator": true
+        }
+      ]
+    },
+    "financial_connection_present": false,
+    "financial_api_key_stored": false,
+    "financial_callback_secret_stored": false,
+    "onboarding_delivery_enabled": false,
+    "document_intake_enabled": false,
+    "local_writes": false,
+    "provider_record_writes": false,
+    "configuration_changed": false
+  },
+  "normal_sync_finding": {
+    "supersedes": "The earlier claim that normal import still requires a new missing-Start-status pipeline.",
+    "existing_path": "JobDivaSettings drains jobdivaSyncReviewAssignmentContractsBatch after the census. That batch discards cached detail, fetches fresh financial detail and derives reviewed lifecycle before projecting.",
+    "direct_lookup": "The separate exact Start lookup remains review-only when status is absent; source observation alone does not grant import eligibility."
+  },
+  "boundaries": {
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payment_executed": false,
+    "real_payroll_executed": false,
+    "payroll_authority_enabled": false,
+    "full_integration_acceptance_complete": false
+  },
+  "remaining": [
+    "Restore and verify the original Quanta preview; the latest read returned 404.",
+    "Verify current PurePay API continuity; saved binding state alone is not live proof.",
+    "Complete the separate demo financial credential and signed callback setup.",
+    "Complete independent time approval and worker/document delivery.",
+    "Verify the Thunderhawk replacement-key consumer before retiring its old key.",
+    "Resolve source WC/employer evidence and compare remaining fields and values.",
+    "Complete the Thunderhawk end-to-end round trip before production release readiness."
+  ]
+}

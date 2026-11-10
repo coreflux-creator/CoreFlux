@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import RailPicker from '../../../dashboard/src/components/RailPicker';
 import GustoConnectCard from './GustoConnectCard';
+import PayrollApprovalSettings from './PayrollApprovalSettings';
 
 export default function PayrollSettings() {
   const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php?module=payroll');
@@ -52,8 +53,7 @@ export default function PayrollSettings() {
     finally { setBusy(false); }
   };
 
-  if (!loaded || railsLoading || accountsLoading) return <p>Loading…</p>;
-
+  const companyLoading = !loaded || railsLoading || accountsLoading;
   const accounts = accountsData?.rows || [];
 
   return (
@@ -63,6 +63,9 @@ export default function PayrollSettings() {
         <p>Company-level payroll configuration. Required before running payroll for the first time.</p>
       </header>
 
+      <PayrollApprovalSettings />
+
+      {companyLoading ? <p>Loading company settings…</p> : (
       <form onSubmit={submit} className="payroll-settings__form">
         <GustoConnectCard />
 
@@ -259,6 +262,7 @@ export default function PayrollSettings() {
           {busy ? 'Saving…' : 'Save settings'}
         </button>
       </form>
+      )}
     </section>
   );
 }

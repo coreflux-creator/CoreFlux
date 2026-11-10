@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "observed_at": "2026-11-01T21:02:51+00:00",
+  "scope": "read-only two-owner SSH release preparation",
+  "candidate_commit": "6b7841894cbfc818769de216f2719b0fbb3ab2e8",
+  "config_sha256": "70886290bfd03b26e41e2531dfa17dd46efa50a36c5a42634b18d0e71c3161d9",
+  "control_spec_sha256": "22463ebec208e2c5b77efe4b90f3c823d2a52902c37433251359f27cfaf83218",
+  "owners": {
+    "1003": {
+      "candidate_files_verified": 7131,
+      "planned_file_changes": 72,
+      "preimage_drift_count": 0,
+      "access_issue_count": 0,
+      "schedule_state": "installed",
+      "schedule_jobs": 9,
+      "control_directory_exists": false,
+      "response_sha256": "51731378c90c24870b4d0d8b12a1e74137068fa1a829e24e7bb178eec3083ba5"
+    },
+    "1004": {
+      "candidate_files_verified": 7131,
+      "planned_file_changes": 5359,
+      "preimage_drift_count": 0,
+      "access_issue_count": 0,
+      "schedule_state": "absent",
+      "schedule_jobs": 0,
+      "control_directory_exists": false,
+      "response_sha256": "321550ca821e4bdf2d43d3be28f7fff0f70f64acf8d0d503cc998ad57aac07e1"
+    }
+  },
+  "native_combined_and_control_checks": 265,
+  "native_log_sha256": "08edf66d86b38afcff68903d53abefa62faf265cc4f10e888c258cc7ba0904a9",
+  "verified": [
+    "The outside-host coordinator uses the two existing SSH accounts with strict host-key checking, no credential copying, and no automatic retry.",
+    "Each remote worker and its libraries are checked against their reviewed source hashes before execution.",
+    "Fresh challenge, account, candidate, manifest and plan fingerprints bind each response to the requested inspection.",
+    "Both actual accounts verified every candidate manifest file and all planned live preimages, including owner, group, mode, size and timestamp.",
+    "Native fixtures verify absent release-state preservation, rejection of a different owner, and detection and preservation of a concurrent file edit."
+  ],
+  "production_webroot_changed": false,
+  "production_database_opened": false,
+  "maintenance_started": false,
+  "limits": [
+    "The worker implements inspection only; it cannot pause jobs, deploy files, run SQL or activate Core.",
+    "Live preimage and access observations must be refreshed under the final writer hold.",
+    "Actual outside-host execution coordination and the full-candidate combined release rehearsal remain outstanding.",
+    "No production cutover or financial execution was authorized by this inspection."
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T17:31:32.0169470+00:00",
+  "scope": "Read-only reviewer eligibility for the Acme/Meridian demo",
+  "inspector_sha": "9fc040fdb2a3386ebce906648a824200c9b90752",
+  "installed_application_sha": "37ee60b78d95aaabecc9a935e00446267c021e13",
+  "inspection": {
+    "run_id": 40116377142,
+    "job_id": 120938409568,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40116377142",
+    "conclusion": "success",
+    "log_redaction_note": "GitHub masked the onboarding-submission dictionary count; the observation is retained as null and was not recovered.",
+    "result": {
+      "checked_at": "2026-10-24T13:30:35-04:00",
+      "mode": "read_only_synthetic_integration",
+      "tenant_id": 999,
+      "database_identity_verified": true,
+      "private_identity_verified": true,
+      "local_writes": false,
+      "provider_record_writes": false,
+      "configuration_changed": false,
+      "onboarding_delivery_enabled": false,
+      "document_intake_enabled": false,
+      "private_document_storage_ready": true,
+      "field_dictionary": {
+        "contract_version": "2026-10-24.1",
+        "metadata_only": true,
+        "activates_sync": false,
+        "field_count": 1193,
+        "workflow_fields": {
+          "quanta_onboarding_publication": 24,
+          "quanta_onboarding_submission": null,
+          "purepayroll_result": 104
+        },
+        "unverified_workflow_containers": []
+      },
+      "synthetic_records": {
+        "person": {
+          "id": 15,
+          "status": "active"
+        },
+        "placement": {
+          "id": 13,
+          "person_id": 15,
+          "status": "active"
+        }
+      },
+      "onboarding_cases": [
+        {
+          "id": "480d78b8-8de0-4e80-a5dd-0c7fe98ec42c",
+          "version": 5,
+          "plan_version": 4,
+          "confirmed_plan_version": 4
+        }
+      ],
+      "synthetic_time": [
+        {
+          "id": 1,
+          "hours": "8.00",
+          "status": "pending_review",
+          "approved_by_user_id": null,
+          "timesheet_id": 2,
+          "quanta_entry_id": "d9caaf9a-877b-4f59-89d9-c2b71983a676"
+        }
+      ],
+      "saved_purepay_binding": {
+        "id": 1,
+        "status": "active",
+        "revision": 2,
+        "remote_organization_id": "org_purepay_demo"
+      },
+      "quanta_binding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_onboarding": {
+        "available": true,
+        "http_status": 200
+      },
+      "quanta_document_transfer": {
+        "available": false,
+        "reason": "contract_or_configuration_check_failed"
+      },
+      "quanta_document_context": {
+        "http_status": 200,
+        "workspace_matches": true,
+        "contract_matches": true,
+        "transfer_enabled": false,
+        "approval_stays_in_core": true,
+        "size_limit_matches": true
+      },
+      "existing_operator": {
+        "found": true,
+        "active_membership": true,
+        "permissions": {
+          "people.onboarding.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.manage": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.onboarding.review": {
+            "legacy": true,
+            "membership": true
+          },
+          "placements.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "people.docs.view": {
+            "legacy": true,
+            "membership": true
+          },
+          "integrations.quanta.manage": {
+            "legacy": true,
+            "membership": true
+          }
+        }
+      },
+      "time_review_gate": {
+        "eligible_in_both_permission_models": 1,
+        "entries": [
+          {
+            "entry_id": 1,
+            "status": "pending_review",
+            "independent_eligible_reviewers": 0,
+            "existing_operator_is_creator": true
+          }
+        ]
+      }
+    }
+  },
+  "reviewer_proposal": {
+    "status": "awaiting_user_choice_not_provisioned",
+    "purpose": "Exercise synthetic entry TS-2 through the native review control; not evidence of independent human review",
+    "tenant_id": 999,
+    "legacy_role": "manager",
+    "membership_persona": "manager",
+    "module_access": {
+      "time": "admin",
+      "all_other_modules": "none"
+    },
+    "global_admin": false,
+    "other_tenant_memberships": [],
+    "credentials_or_invitations_to_issue": false,
+    "required_preconditions": [
+      "User chooses a temporary demo reviewer or supplies an existing staff reviewer.",
+      "Both authorization models allow time review and deny payroll execution, payment release and journal posting.",
+      "A no-login claim requires enforced restrictions across passwordless and SSO paths; a NULL password alone is insufficient.",
+      "Refresh source time, placement and approved rates before any review action."
+    ],
+    "cleanup": "Disable a temporary reviewer after the test while preserving the audit reference."
+  },
+  "remaining_gates": [
+    "Independent time reviewer selection",
+    "Worker identity and onboarding/document submission",
+    "PurePay owner restores and verifies its test preview before binding changes or payroll exchange"
+  ],
+  "boundaries": {
+    "reviewer_created": false,
+    "permissions_granted": false,
+    "time_approved": false,
+    "provider_binding_changed": false,
+    "real_payroll_or_payments_executed": false,
+    "production_changed": false
+  }
+}

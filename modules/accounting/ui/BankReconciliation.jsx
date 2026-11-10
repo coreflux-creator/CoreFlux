@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate, fmtDateTime } from '../../../dashboard/src/lib/format';
 import ReconciliationPacket from './ReconciliationPacket';
@@ -7,6 +7,8 @@ import IntercompanySplitDialog from '../../../dashboard/src/components/Intercomp
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
 import AccountLink from '../../../dashboard/src/components/AccountLink';
 import { SplitIcPanel as BankReceiptSplitPanel } from '../../treasury/ui/AccountTransactions';
+import BankIntegrityReview from './BankIntegrityReview';
+import { ShieldAlert } from 'lucide-react';
 
 /**
  * Bank Reconciliation module.
@@ -18,6 +20,7 @@ export default function BankReconciliation() {
   return (
     <Routes>
       <Route index element={<AccountsList />} />
+      <Route path="integrity" element={<BankIntegrityReview />} />
       <Route path=":id" element={<AccountDetail />} />
       <Route path=":id/rules" element={<RulesList />} />
       <Route path="reconciliations/:id" element={<ReconciliationsList />} />
@@ -62,6 +65,7 @@ function ReconciliationsList() {
       {err && <p className="error">{err}</p>}
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error.message}</p>}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Reconciliations" tabIndex={0}>
       <table className="data-table" data-testid="accounting-recon-table">
         <thead><tr><th>Period end</th><th>Status</th><th style={{textAlign:'right'}}>Statement</th><th style={{textAlign:'right'}}>GL</th><th style={{textAlign:'right'}}>Diff</th><th>Opened</th><th>Closed</th><th></th></tr></thead>
         <tbody>
@@ -82,17 +86,36 @@ function ReconciliationsList() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
 
 function AccountsList() {
   const [showClosed, setShowClosed] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const requestedEntity = searchParams.get('entity_id');
+  const entityId = requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? Number(requestedEntity) : null;
   const apiUrl = '/modules/accounting/api/bank_accounts.php' + (showClosed ? '?include_closed=1' : '');
   const { data, loading, error, reload } = useApi(apiUrl);
-  const [showNew, setShow] = useState(false);
+  const { data: entityData } = useApi('/modules/accounting/api/entities.php');
+  const entities = entityData?.rows || [];
+  const entityNames = Object.fromEntries(entities.map(entity => [entity.id, entity.code]));
+  const availableEntity = !entityId || entities.some(entity => Number(entity.id) === entityId);
+  const displayedAccounts = (data?.rows || []).filter(account => !entityId || Number(account.entity_id) === entityId);
+  const [showNew, setShow] = useState(searchParams.get('new') === '1');
   const [busy, setBusy] = useState(null);
-  const counts = data?.counts || {};
+  const counts = entityId ? {
+    active: displayedAccounts.filter(account => account.status === 'active').length,
+    closed: displayedAccounts.filter(account => account.status === 'closed').length,
+  } : data?.counts || {};
+  const selectEntity = (value) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === 'all') next.delete('entity_id');
+    else next.set('entity_id', value);
+    setSearchParams(next, { replace: true });
+  };
   const close = async (id) => {
     if (!confirm('Close this bank account? It will be hidden from the active list (and from Treasury). You can reopen it later.')) return;
     setBusy(id);
@@ -117,6 +140,11 @@ function AccountsList() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Link className="btn btn--ghost" to="integrity" data-testid="accounting-bank-integrity-link"><ShieldAlert size={16} aria-hidden="true" /> Review integrity</Link>
+          <select className="input" aria-label="Legal entity" data-testid="accounting-bank-accounts-entity" value={entityId || 'all'} onChange={event => selectEntity(event.target.value)}>
+            <option value="all">All entities</option>
+            {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name || entity.name}</option>)}
+          </select>
           <label style={{ fontSize: 12, color: '#475569', display: 'flex', gap: 4, alignItems: 'center' }}>
             <input
               type="checkbox"
@@ -131,20 +159,32 @@ function AccountsList() {
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
-      {showNew && <NewAccountForm onDone={() => { setShow(false); reload(); }} onCancel={() => setShow(false)} />}
+      {entityData && !availableEntity && <p className="error" role="alert">That legal entity is not available in this workspace.</p>}
+      {showNew && <NewAccountForm preferredEntityId={entityId}
+        onDone={(id, createdEntityId) => { setShow(false); navigate(`${id}?entity_id=${createdEntityId}`); }}
+        onCancel={() => {
+          setShow(false);
+          if (searchParams.has('new')) {
+            const next = new URLSearchParams(searchParams);
+            next.delete('new');
+            setSearchParams(next, { replace: true });
+          }
+        }} />}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank accounts" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-accounts-table">
-        <thead><tr><th>Name</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Entity</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {(data?.rows || []).length === 0 && !loading && (
-            <tr><td colSpan={8} className="empty" data-testid="accounting-bank-accounts-empty">No bank accounts {showClosed ? '' : '(check "Show closed" to see archived ones)'}.</td></tr>
+          {displayedAccounts.length === 0 && !loading && (
+            <tr><td colSpan={9} className="empty" data-testid="accounting-bank-accounts-empty">No bank accounts {showClosed ? '' : '(check "Show closed" to see archived ones)'}.</td></tr>
           )}
-          {(data?.rows || []).map(a => (
+          {displayedAccounts.map(a => (
             <tr key={a.id}
                 data-testid={`accounting-bank-account-row-${a.id}`}
                 style={{ opacity: a.status === 'closed' ? 0.55 : 1 }}>
               <td>
-                <Link to={`${a.id}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link>
+                <Link to={`${a.id}${entityId ? `?entity_id=${entityId}` : ''}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link>
               </td>
+              <td>{entityNames[a.entity_id] || '—'}</td>
               <td><AccountLink accountId={a.gl_account_id} accountCode={a.gl_account_code} entityId={a.entity_id}><code>{a.gl_account_code}</code></AccountLink></td>
               <td>{a.bank_name || '—'}</td>
               <td>{a.last4 || '—'}</td>
@@ -181,17 +221,41 @@ function AccountsList() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
 
-function NewAccountForm({ onDone, onCancel }) {
-  const [form, setForm] = useState({ name: '', gl_account_code: '', bank_name: '', last4: '' });
+function NewAccountForm({ preferredEntityId, onDone, onCancel }) {
+  const [form, setForm] = useState({ name: '', entity_id: '', gl_account_code: '', bank_name: '', last4: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
+  const { data: entitiesData, loading: entitiesLoading, error: entitiesError } = useApi('/modules/accounting/api/entities.php');
+  const { data: accountsData, loading: accountsLoading, error: accountsError } = useApi('/modules/accounting/api/accounts.php?type=asset&active=1&postable=1');
+  const { data: banksData, loading: banksLoading, error: banksError } = useApi('/modules/accounting/api/bank_accounts.php?include_closed=1');
+  const entities = (entitiesData?.rows || []).filter(entity => Number(entity.active) === 1);
+  const entityId = form.entity_id || (entities.some(entity => Number(entity.id) === preferredEntityId)
+    ? String(preferredEntityId) : (entities.length === 1 ? String(entities[0].id) : ''));
+  const selectedEntity = entities.find(entity => String(entity.id) === entityId);
+  const usedCodes = new Set((banksData?.rows || [])
+    .filter(bank => bank.entity_id == null || String(bank.entity_id) === entityId)
+    .map(bank => bank.gl_account_code));
+  const cashAccounts = selectedEntity ? (accountsData?.rows || []).filter(account =>
+    account.normal_side === 'debit' && !usedCodes.has(account.code)
+      && ((account.cash_flow_tag === 'cash_and_equivalents' && Number(account.is_system_account) === 0)
+        || (account.code === '1000' && (Number(account.is_system_account) === 1
+          || (account.is_system_account == null && account.name === 'Cash'))))
+      && (!account.currency || account.currency === selectedEntity.base_currency)) : [];
+  const loadingOptions = entitiesLoading || accountsLoading || banksLoading;
+  const optionError = entitiesError || accountsError || banksError;
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
-    try { await api.post('/modules/accounting/api/bank_accounts.php', form); onDone(); }
+    try {
+      const result = await api.post('/modules/accounting/api/bank_accounts.php', {
+        ...form, entity_id: Number(entityId), currency: selectedEntity.base_currency,
+      });
+      onDone(result.id, Number(entityId));
+    }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(false); }
   };
@@ -199,14 +263,35 @@ function NewAccountForm({ onDone, onCancel }) {
     <form onSubmit={submit} data-testid="accounting-bank-account-form" style={{ marginBottom: 16, padding: 12, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, background: '#fafbff' }}>
       <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>New bank account</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-        <input className="input" placeholder="Name (e.g. Operating Chase ...4421)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-bank-account-name" required />
-        <input className="input" placeholder="GL account code" value={form.gl_account_code} onChange={(e) => setForm({ ...form, gl_account_code: e.target.value })} data-testid="accounting-bank-account-gl" required />
-        <input className="input" placeholder="Bank name" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} data-testid="accounting-bank-account-bank-name" />
-        <input className="input" placeholder="Last 4" maxLength={4} value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value })} data-testid="accounting-bank-account-last4" />
+        <label style={{ fontSize: 12 }}>Account name
+          <input className="input" placeholder="Operating Chase ...4421" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-bank-account-name" required style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
+        <label style={{ fontSize: 12 }}>Legal entity
+          <select className="input" value={entityId} onChange={e => setForm({ ...form, entity_id: e.target.value, gl_account_code: '' })} data-testid="accounting-bank-account-entity" required style={{ display: 'block', width: '100%', marginTop: 4 }}>
+            <option value="">Choose legal entity</option>
+            {entities.map(entity => <option key={entity.id} value={entity.id}>{entity.code} · {entity.legal_name}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12 }}>Cash ledger account
+          <select className="input" value={form.gl_account_code} onChange={e => setForm({ ...form, gl_account_code: e.target.value })} data-testid="accounting-bank-account-gl" required style={{ display: 'block', width: '100%', marginTop: 4 }}>
+            <option value="">Choose a cash ledger account</option>
+            {cashAccounts.map(account => <option key={account.id} value={account.code}>{account.code} · {account.name}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12 }}>Bank name
+          <input className="input" placeholder="Optional" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} data-testid="accounting-bank-account-bank-name" style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
+        <label style={{ fontSize: 12 }}>Last 4 digits
+          <input className="input" placeholder="Optional" maxLength={4} value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value })} data-testid="accounting-bank-account-last4" style={{ display: 'block', width: '100%', marginTop: 4 }} />
+        </label>
       </div>
+      {!loadingOptions && !optionError && selectedEntity && cashAccounts.length === 0 && <p style={{ margin: '8px 0 0', fontSize: 13 }}>
+        No unused cash account is available for this entity. <Link to={`/modules/accounting/accounts?entity_id=${entityId}&bank_setup=1`}>Add an asset account marked Bank/cash</Link> to the chart first.
+      </p>}
+      {optionError && <p className="error">Could not load bank setup options: {optionError.message}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="btn btn--ghost" type="button" onClick={onCancel}>Cancel</button>
-        <button className="btn btn--primary" type="submit" disabled={busy} data-testid="accounting-bank-account-save">{busy ? 'Saving…' : 'Save'}</button>
+        <button className="btn btn--primary" type="submit" disabled={busy || loadingOptions || !!optionError || !cashAccounts.length || !selectedEntity} data-testid="accounting-bank-account-save">{busy ? 'Saving…' : 'Save'}</button>
       </div>
       {err && <p className="error" data-testid="accounting-bank-account-error">{err}</p>}
     </form>
@@ -215,6 +300,13 @@ function NewAccountForm({ onDone, onCancel }) {
 
 function AccountDetail() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEntity = searchParams.get('entity_id');
+  const bankListPath = `/modules/accounting/bank-rec${requestedEntity && /^[1-9][0-9]*$/.test(requestedEntity) ? `?entity_id=${requestedEntity}` : ''}`;
+  const focusedLineId = searchParams.get('line_id');
+  const requestedStatus = searchParams.get('match_status');
+  const lineStatus = requestedStatus === 'all' ? ''
+    : ['matched', 'ignored'].includes(requestedStatus) ? requestedStatus : 'unmatched';
   const accountApi = useApi(`/modules/accounting/api/bank_accounts.php?id=${id}`);
   const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1&postable=1');
   const [filters, setFilters] = useState({ q: '', date_from: '', date_to: '', amount_min: '', amount_max: '' });
@@ -231,19 +323,24 @@ function AccountDetail() {
   const statementUrl = useMemo(() => {
     const params = new URLSearchParams({
       bank_account_id: id,
-      match_status: 'unmatched',
       page: String(page),
       per_page: String(perPage),
     });
+    if (lineStatus) params.set('match_status', lineStatus);
+    if (focusedLineId) params.set('line_id', focusedLineId);
     Object.entries(appliedFilters).forEach(([key, value]) => {
       if (String(value || '').trim()) params.set(key, String(value).trim());
     });
     return `/modules/accounting/api/bank_statements.php?${params.toString()}`;
-  }, [id, page, perPage, appliedFilters]);
+  }, [id, lineStatus, focusedLineId, page, perPage, appliedFilters]);
   const { data, loading, error, reload } = useApi(statementUrl);
   const [csv, setCsv]       = useState('');
+  const [csvSource, setCsvSource] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState(null);
   const [busy, setBusy]     = useState(null);
   const [actErr, setErr]    = useState(null);
+  const [applyRulesResult, setApplyRulesResult] = useState(null);
   const bankAccount = accountApi.data?.account || null;
   const total = Number(data?.total || 0);
   const pages = Number(data?.pages || 1);
@@ -256,31 +353,62 @@ function AccountDetail() {
 
   const importCsv = async (e) => {
     e.preventDefault();
-    setBusy('import'); setErr(null);
+    setBusy('import'); setImportError(null); setImportResult(null);
     try {
-      await api.post(`/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=${id}`, { csv });
+      const result = await api.post(`/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=${id}`, { csv });
+      setImportResult(result);
       setCsv('');
+      setCsvSource('');
       reload();
-    } catch (e2) { setErr(e2.message); }
+    } catch (e2) { setImportError(e2.message); }
     finally { setBusy(null); }
   };
+  const selectCsvFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportError(null); setImportResult(null);
+    if (file.size > 10000000) {
+      setImportError('CSV is too large (10 MB maximum)');
+      return;
+    }
+    try {
+      setCsv(await file.text());
+      setCsvSource(file.name);
+    } catch (_e) {
+      setImportError('Could not read that CSV file. Try again or paste its contents.');
+    }
+  };
   const applyRules = async () => {
-    setBusy('apply'); setErr(null);
-    try { await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${id}`); reload(); }
+    setBusy('apply'); setErr(null); setApplyRulesResult(null);
+    try {
+      const result = await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${id}`);
+      setApplyRulesResult(result);
+      reload();
+    }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(null); }
   };
 
   return (
     <section data-testid="accounting-bank-account-detail">
-      <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 16 }}>
+      <Link to={bankListPath} style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
+      {focusedLineId && <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13 }} data-testid="accounting-bank-focused-line">
+        Reviewing bank line #{focusedLineId}
+        <button className="btn btn--ghost" type="button" onClick={() => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('line_id');
+          setSearchParams(next, { replace: true });
+        }}>Show all lines</button>
+      </div>}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Statement lines</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', minWidth: 0 }}>
           <PlaidLinkButton
             purpose="bank_feed"
             accountingBankAccountId={Number(id)}
             label="Connect bank (Plaid)"
+            deferUntilClick
             testIdSuffix="bank-feed"
             onLinked={async (r) => {
               try {
@@ -308,14 +436,26 @@ function AccountDetail() {
 
       {accountApi.loading && <p>Loading account...</p>}
       {accountApi.error && <p className="error">{accountApi.error.message}</p>}
+      {actErr && <p className="error" data-testid="accounting-bank-action-error">{actErr}</p>}
+      {applyRulesResult && <p role="status" data-testid="accounting-bank-rules-result">
+        Rule suggestions updated on {Number(applyRulesResult.auto_applied || 0) + Number(applyRulesResult.suggested || 0)} lines.
+        {Number(applyRulesResult.lineage_conflict_count) > 0 && ` ${applyRulesResult.lineage_conflict_count} linked line${Number(applyRulesResult.lineage_conflict_count) === 1 ? '' : 's'} skipped for ledger review.`}
+      </p>}
 
       <form onSubmit={importCsv} style={{ marginBottom: 16 }}>
         <details>
           <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--cf-text-secondary)' }}>Import CSV</summary>
+          <label style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
+            Choose a bank CSV file
+            <input type="file" accept=".csv,text/csv" className="input" onChange={selectCsvFile}
+                   data-testid="accounting-bank-csv-file" style={{ display: 'block', marginTop: 4 }} />
+          </label>
+          {csvSource && <p style={{ fontSize: 12, margin: '6px 0' }}>{csvSource} ready to import</p>}
           <textarea
             value={csv}
-            onChange={(e) => setCsv(e.target.value)}
-            placeholder="date,description,amount,fitid&#10;2026-02-15,AWS Charge,-340.12,abc123"
+            onChange={(e) => { setCsv(e.target.value); setCsvSource(''); setImportResult(null); setImportError(null); }}
+            placeholder={'date,description,amount,fitid\n2026-02-15,AWS Charge,-340.12,abc123'}
+            aria-label="Bank CSV contents"
             rows={6}
             className="input"
             data-testid="accounting-bank-csv-input"
@@ -324,9 +464,38 @@ function AccountDetail() {
           <button className="btn btn--primary" type="submit" disabled={!csv.trim() || busy === 'import'} data-testid="accounting-bank-csv-import" style={{ marginTop: 8 }}>
             {busy === 'import' ? 'Importing…' : 'Import CSV'}
           </button>
-          {actErr && <p className="error" data-testid="accounting-bank-import-error">{actErr}</p>}
+          {importError && <p className="error" data-testid="accounting-bank-import-error">{importError}</p>}
         </details>
       </form>
+      {importResult && (
+        <p role="status" data-testid="accounting-bank-import-result" style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+          Imported {importResult.inserted} line{importResult.inserted === 1 ? '' : 's'}.
+          {' '}{importResult.duplicates} already present.
+          {importResult.date_from && ` ${importResult.date_from} to ${importResult.date_to}.`}
+        </p>
+      )}
+
+      <div role="group" aria-label="Statement line status" data-testid="accounting-bank-line-status-filter"
+           style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+        {[
+          ['unmatched', 'Needs review'],
+          ['matched', 'Matched'],
+          ['ignored', 'Ignored'],
+          ['', 'All'],
+        ].map(([value, label]) => (
+          <button key={label} type="button" aria-pressed={lineStatus === value}
+                  className={lineStatus === value ? 'btn btn--primary' : 'btn btn--ghost'}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    if (value === 'unmatched') next.delete('match_status');
+                    else next.set('match_status', value || 'all');
+                    setSearchParams(next);
+                    setPage(1);
+                  }}>
+            {label}
+          </button>
+        ))}
+      </div>
 
       <div
         data-testid="accounting-bank-line-filters"
@@ -381,7 +550,7 @@ function AccountDetail() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
         <span data-testid="accounting-bank-line-result-count">
-          {total === 0 ? 'No' : `${((currentPage - 1) * perPage) + 1}-${Math.min(currentPage * perPage, total)} of ${total}`} unmatched lines
+          {total === 0 ? 'No' : `${((currentPage - 1) * perPage) + 1}-${Math.min(currentPage * perPage, total)} of ${total}`} {lineStatus || 'total'} lines
         </span>
         <label>
           Rows&nbsp;
@@ -401,15 +570,23 @@ function AccountDetail() {
 
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
+      {Number(data?.lineage_conflict_count) > 0 && (
+        <p className="error" role="alert" data-testid="accounting-bank-lineage-conflicts">
+          {data.lineage_conflict_count} bank line{Number(data.lineage_conflict_count) === 1 ? '' : 's'} linked to posted journals need ledger review before they can be resolved.
+        </p>
+      )}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank statement lines" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-lines-table">
         <thead><tr><th>Date</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th><th>AI</th><th></th></tr></thead>
         <tbody>
           {(data?.rows || []).length === 0 && !loading && (
             <tr><td colSpan={6} className="empty" data-testid="accounting-bank-lines-empty">
-              {hasFilters ? 'No unmatched lines match these filters.' : 'No unmatched lines. Import a statement above to get started.'}
+              {hasFilters ? 'No statement lines match these filters.'
+                : lineStatus === 'unmatched' ? 'No lines need review.'
+                : `No ${lineStatus || 'statement'} lines yet.`}
             </td></tr>
           )}
-          {(data?.rows || []).map(l => (
+          {(data?.rows || []).map(l => l.match_status === 'unmatched' ? (
             <BankLineRow
               key={l.id}
               line={l}
@@ -417,9 +594,10 @@ function AccountDetail() {
               bankAccount={bankAccount}
               accounts={accountsApi.data?.rows || []}
             />
-          ))}
+          ) : <ResolvedBankLineRow key={l.id} line={l} reload={reload} />)}
         </tbody>
       </table>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10 }}>
         <button className="btn btn--ghost" type="button" onClick={() => setPage((value) => Math.max(1, value - 1))}
                 disabled={currentPage <= 1 || loading} data-testid="accounting-bank-line-page-prev">Previous</button>
@@ -433,13 +611,138 @@ function AccountDetail() {
   );
 }
 
+function ResolvedBankLineRow({ line, reload }) {
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [showPayoutCorrection, setShowPayoutCorrection] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const correctReceipt = async (event) => {
+    event.preventDefault();
+    if (!reason.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=reverse_receipt&line_id=${line.id}`, { reason: reason.trim() });
+      setShowCorrection(false);
+      setReason('');
+      await reload();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  const correctPayout = async (event) => {
+    event.preventDefault();
+    if (!reason.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=correct_processor_payout&line_id=${line.id}`, { reason: reason.trim() });
+      setShowPayoutCorrection(false);
+      setReason('');
+      await reload();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <>
+    <tr data-testid={`accounting-bank-line-${line.id}`}>
+      <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
+      <td>
+        {line.description}
+        {Number(line.correction_count) > 0 && (
+          <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Corrected {line.correction_count} time{Number(line.correction_count) === 1 ? '' : 's'}
+            {line.last_reversal_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.last_reversal_je_id}`}>View reversal</Link></>}
+          </div>
+        )}
+        {(line.applied_invoices || []).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 3, fontSize: 12 }} data-testid={`accounting-bank-line-invoices-${line.id}`}>
+            {line.applied_invoices.map(invoice => (
+              <Link key={invoice.id} to={`/modules/billing/invoices/${invoice.id}`}>
+                {invoice.invoice_number} · {fmtMoney(invoice.amount)}
+              </Link>
+            ))}
+          </div>
+        )}
+        {line.processor_payout && (
+          <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}
+               data-testid={`accounting-processor-payout-${line.id}`}>
+            Processor payout · gross {fmtMoney(line.processor_payout.gross_amount)} · fees {fmtMoney(line.processor_payout.fee_amount)}
+          </div>
+        )}
+      </td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(line.amount)}</td>
+      <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
+      <td>—</td>
+      <td style={{ whiteSpace: 'nowrap' }}>
+        {line.matched_je_id ? <Link to={`/modules/accounting/journal-entries/${line.matched_je_id}`}>View journal</Link> : '—'}
+        {line.can_correct_receipt && (
+          <button type="button" className="btn btn--ghost" onClick={() => setShowCorrection(value => !value)}
+                  data-testid={`accounting-bank-correct-receipt-${line.id}`} style={{ marginLeft: 8 }}>
+            Correct receipt
+          </button>
+        )}
+        {line.processor_payout && (
+          <button type="button" className="btn btn--ghost" onClick={() => setShowPayoutCorrection(value => !value)}
+                  data-testid={`accounting-bank-correct-payout-${line.id}`} style={{ marginLeft: 8 }}>
+            Correct payout
+          </button>
+        )}
+      </td>
+    </tr>
+    {showCorrection && (
+      <tr><td colSpan={6}>
+        <form onSubmit={correctReceipt} style={{ display: 'flex', alignItems: 'end', flexWrap: 'wrap', gap: 8, padding: '8px 0' }}>
+          <label style={{ flex: '1 1 300px', fontSize: 12 }}>
+            Correction reason
+            <input className="input" value={reason} onChange={event => setReason(event.target.value)}
+                   maxLength={500} required disabled={busy} style={{ display: 'block', width: '100%' }}
+                   data-testid={`accounting-bank-correction-reason-${line.id}`} />
+          </label>
+          <button type="submit" className="btn btn--primary" disabled={busy || !reason.trim()}
+                  data-testid={`accounting-bank-correction-submit-${line.id}`}>
+            {busy ? 'Correcting…' : 'Reverse and reopen'}
+          </button>
+          <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => setShowCorrection(false)}>Cancel</button>
+          <small style={{ flexBasis: '100%', color: 'var(--cf-text-secondary)' }}>
+            Restores invoice balances and reopens this bank line for matching. This does not send a cash refund.
+          </small>
+          {error && <span className="error" role="alert" style={{ flexBasis: '100%' }}>{error}</span>}
+        </form>
+      </td></tr>
+    )}
+    {showPayoutCorrection && (
+      <tr><td colSpan={6}>
+        <form onSubmit={correctPayout} style={{ display: 'flex', alignItems: 'end', flexWrap: 'wrap', gap: 8, padding: '8px 0' }}>
+          <label style={{ flex: '1 1 300px', fontSize: 12 }}>
+            Correction reason
+            <input className="input" value={reason} onChange={event => setReason(event.target.value)}
+                   maxLength={500} required disabled={busy} style={{ display: 'block', width: '100%' }} />
+          </label>
+          <button type="submit" className="btn btn--primary" disabled={busy || !reason.trim()}>
+            {busy ? 'Correcting…' : 'Reverse and reopen'}
+          </button>
+          <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => setShowPayoutCorrection(false)}>Cancel</button>
+          <small style={{ flexBasis: '100%', color: 'var(--cf-text-secondary)' }}>
+            Reverses only the clearing-to-bank payout and fee, then reopens this bank line. Captured customer payments stay applied to invoices.
+          </small>
+          {error && <span className="error" role="alert" style={{ flexBasis: '100%' }}>{error}</span>}
+        </form>
+      </td></tr>
+    )}
+    </>
+  );
+}
+
 function BankLineRow({ line, reload, bankAccount, accounts }) {
   const [busy, setBusy] = useState(null);
   const [aiResp, setAi] = useState(null);
   const [err, setErr]   = useState(null);
   const [splitOpen, setSplitOpen] = useState(false);
   const [receiptSplitOpen, setReceiptSplitOpen] = useState(false);
+  const [suggestedInvoice, setSuggestedInvoice] = useState(null);
   const [apPaymentOpen, setApPaymentOpen] = useState(false);
+  const [payoutOpen, setPayoutOpen] = useState(false);
 
   const callAi = async (action) => {
     setBusy(action); setErr(null);
@@ -456,7 +759,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
       action: 'suggest_match',
       candidates: line.invoice_matches || [],
       review_required: true,
-      note: 'Exact-balance invoice candidates found for this receipt.',
+      note: 'Review the invoice and amount before applying this receipt.',
     });
   };
 
@@ -464,7 +767,25 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
     <>
       <tr data-testid={`accounting-bank-line-${line.id}`}>
         <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
-        <td>{line.description}</td>
+        <td>
+          {line.description}
+          {line.lineage_conflict && (
+            <div role="alert" data-testid={`accounting-bank-line-conflict-${line.id}`}
+                 style={{ marginTop: 5, color: '#92400e', fontSize: 12 }}>
+              {line.lineage_conflict.message}
+              {(line.lineage_conflict.journal_ids || []).map(journalId => (
+                <Link key={journalId} to={`/modules/accounting/journal-entries/${journalId}`}
+                      style={{ marginLeft: 8 }}>Journal #{journalId}</Link>
+              ))}
+            </div>
+          )}
+          {Number(line.correction_count) > 0 && (
+            <div style={{ marginTop: 3, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Corrected {line.correction_count} time{Number(line.correction_count) === 1 ? '' : 's'}
+              {line.last_reversal_je_id && <> · <Link to={`/modules/accounting/journal-entries/${line.last_reversal_je_id}`}>View reversal</Link></>}
+            </div>
+          )}
+        </td>
         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: line.amount < 0 ? '#991b1b' : '#065f46' }}>{fmtMoney(line.amount)}</td>
         <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
         <td style={{ fontSize: 11 }}>
@@ -477,7 +798,8 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
                   padding: '2px 6px', borderRadius: 4,
                 }}
               >
-                {line.invoice_match.status === 'draft' ? 'Draft invoice' : 'Invoice'} {line.invoice_match.invoice_number}
+                {line.invoice_match.status === 'draft' ? 'Draft invoice'
+                  : line.invoice_match.can_apply_partial ? 'Partial invoice' : 'Invoice'} {line.invoice_match.invoice_number}
               </span>
             )
             : line.ap_payment_match ? (
@@ -498,7 +820,9 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
             : '—'}
         </td>
         <td>
-          <div style={{ display: 'flex', gap: 4 }}>
+          {line.lineage_conflict ? (
+            <span style={{ color: '#92400e', fontSize: 12 }}>Ledger review required</span>
+          ) : <div style={{ display: 'flex', gap: 4 }}>
             <button
               className={(line.invoice_match || line.ap_payment_match) ? 'btn btn--primary' : 'btn btn--ghost'}
               onClick={line.ap_payment_match
@@ -517,14 +841,26 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
             </button>
             <button
               className="btn btn--primary"
-              onClick={() => Number(line.amount) > 0 ? setReceiptSplitOpen(true) : setSplitOpen(true)}
+              onClick={() => {
+                if (Number(line.amount) > 0) {
+                  setSuggestedInvoice(null);
+                  setReceiptSplitOpen(true);
+                } else setSplitOpen(true);
+              }}
               disabled={!bankAccount || !bankAccount.entity_id || !bankAccount.gl_account_code}
               data-testid={`accounting-bank-ic-split-${line.id}`}
               title={Number(line.amount) > 0
                 ? 'Apply this receipt to one or more customer invoices and assign any remainder'
                 : 'Split this line across entities'}
             >{Number(line.amount) > 0 ? 'Apply receipt' : 'Split / IC'}</button>
-          </div>
+            {Number(line.amount) > 0 && (
+              <button type="button" className="btn btn--ghost" onClick={() => setPayoutOpen(true)}
+                      disabled={!bankAccount?.entity_id || !bankAccount?.gl_account_code}
+                      data-testid={`accounting-bank-settle-processor-${line.id}`}>
+                Processor payout
+              </button>
+            )}
+          </div>}
         </td>
       </tr>
       {receiptSplitOpen && (
@@ -534,6 +870,7 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
               line={line}
               type="deposit"
               accounts={accounts}
+              initialInvoice={suggestedInvoice}
               onSubmit={async ({ invoiceAllocations, accountSplits }) => {
                 if (invoiceAllocations.length > 0) {
                   await api.post(`/modules/accounting/api/bank_statements.php?action=split_match_invoices&line_id=${line.id}`, {
@@ -548,9 +885,10 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
                   });
                 }
                 setReceiptSplitOpen(false);
+                setSuggestedInvoice(null);
                 reload();
               }}
-              onCancel={() => setReceiptSplitOpen(false)}
+              onCancel={() => { setReceiptSplitOpen(false); setSuggestedInvoice(null); }}
             />
           </td>
         </tr>
@@ -564,6 +902,14 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
               onMatched={() => { setApPaymentOpen(false); reload(); }}
               onCancel={() => setApPaymentOpen(false)}
             />
+          </td>
+        </tr>
+      )}
+      {payoutOpen && (
+        <tr data-testid={`accounting-bank-processor-payout-row-${line.id}`}>
+          <td colSpan={6} style={{ background: '#f0f9ff', padding: 14, borderLeft: '3px solid #0284c7' }}>
+            <ProcessorPayoutPanel line={line} onMatched={() => { setPayoutOpen(false); reload(); }}
+                                  onCancel={() => setPayoutOpen(false)} />
           </td>
         </tr>
       )}
@@ -588,6 +934,11 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
               ai={aiResp}
               onDismiss={() => setAi(null)}
               onAccepted={() => { setAi(null); reload(); }}
+              onApplyPartial={candidate => {
+                setSuggestedInvoice(candidate);
+                setAi(null);
+                setReceiptSplitOpen(true);
+              }}
             />
           </td>
         </tr>
@@ -596,6 +947,100 @@ function BankLineRow({ line, reload, bankAccount, accounts }) {
         <tr><td colSpan={6}><p className="error" data-testid={`accounting-bank-ai-error-${line.id}`}>{err}</p></td></tr>
       )}
     </>
+  );
+}
+
+function ProcessorPayoutPanel({ line, onMatched, onCancel }) {
+  const { data, loading, error } = useApi(`/modules/accounting/api/bank_statements.php?action=processor_payout_candidates&line_id=${line.id}`);
+  const [selected, setSelected] = useState([]);
+  const [search, setSearch] = useState('');
+  const [feeAccountId, setFeeAccountId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [postError, setPostError] = useState(null);
+  const filteredPayments = (data?.payments || []).filter(payment =>
+    `${payment.client_name || ''} ${payment.reference || ''} ${payment.qbo_charge_id || ''}`
+      .toLowerCase().includes(search.trim().toLowerCase()));
+  const grossCents = (data?.payments || []).filter(payment => selected.includes(Number(payment.payment_id)))
+    .reduce((sum, payment) => sum + Math.round(Number(payment.amount) * 100), 0);
+  const netCents = Math.round(Number(line.amount) * 100);
+  const feeCents = grossCents - netCents;
+  const ready = selected.length > 0 && feeCents >= 0 && (feeCents === 0 || Boolean(feeAccountId));
+  const toggle = (id) => setSelected(current => current.includes(id)
+    ? current.filter(value => value !== id) : [...current, id]);
+  const settle = async (event) => {
+    event.preventDefault();
+    if (!ready) return;
+    setBusy(true); setPostError(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=settle_processor_payout&line_id=${line.id}`, {
+        payment_ids: selected,
+        fee_amount: (feeCents / 100).toFixed(2),
+        fee_account_id: feeCents > 0 ? Number(feeAccountId) : null,
+      });
+      onMatched?.();
+    } catch (e) { setPostError(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={settle} data-testid={`accounting-processor-payout-panel-${line.id}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <strong>Settle captured processor payments</strong>
+        <button type="button" className="btn btn--ghost" onClick={onCancel}>Close</button>
+      </div>
+      {loading && <p className="muted">Loading captures…</p>}
+      {error && <p className="error" role="alert">{error.message}</p>}
+      {!loading && !error && (data?.payments || []).length === 0 && (
+        <p className="muted">No captured processor payments are available for this entity and currency.</p>
+      )}
+      {(data?.payments || []).length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <label style={{ display: 'block', maxWidth: 360, fontSize: 12 }}>
+            Find capture
+            <input className="input" type="search" value={search} onChange={event => setSearch(event.target.value)}
+                   placeholder="Client, reference or charge ID" style={{ display: 'block', width: '100%' }} />
+          </label>
+          <small className="muted">{selected.length} selected</small>
+          <div style={{ maxHeight: 230, overflowY: 'auto' }}>
+          <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+            <thead><tr><th></th><th>Captured</th><th>Client</th><th>Charge</th><th style={{ textAlign: 'right' }}>Gross</th></tr></thead>
+            <tbody>{filteredPayments.map(payment => (
+              <tr key={payment.payment_id}>
+                <td><input type="checkbox" checked={selected.includes(Number(payment.payment_id))}
+                           onChange={() => toggle(Number(payment.payment_id))} disabled={busy}
+                           aria-label={`Include payment ${payment.payment_id}`} /></td>
+                <td>{fmtDate(payment.received_at)}</td>
+                <td>{payment.client_name}</td>
+                <td>{payment.qbo_charge_id}</td>
+                <td style={{ textAlign: 'right' }}>{fmtMoney(payment.amount)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {filteredPayments.length === 0 && <p className="muted">No captures match that search.</p>}
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'end', marginTop: 12 }}>
+        <span>Gross <strong>{fmtMoney(grossCents / 100)}</strong></span>
+        <span>Bank deposit <strong>{fmtMoney(netCents / 100)}</strong></span>
+        <span>Processor fee <strong>{feeCents >= 0 ? fmtMoney(feeCents / 100) : 'Select more captures'}</strong></span>
+        {feeCents > 0 && (
+          <label>Fee expense account
+            <select className="input" value={feeAccountId} onChange={event => setFeeAccountId(event.target.value)}
+                    required style={{ display: 'block' }}>
+              <option value="">Select an account</option>
+              {(data?.fee_accounts || []).map(account => (
+                <option key={account.id} value={account.id}>{account.code} · {account.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button type="submit" className="btn btn--primary" disabled={busy || !ready}
+                data-testid={`accounting-processor-payout-submit-${line.id}`}>
+          {busy ? 'Posting…' : 'Post and match payout'}
+        </button>
+      </div>
+      {postError && <p className="error" role="alert">{postError}</p>}
+    </form>
   );
 }
 
@@ -660,7 +1105,7 @@ function ApPaymentMatchPanel({ line, candidates, onMatched, onCancel }) {
   );
 }
 
-function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
+function AiResultPanel({ line, ai, onDismiss, onAccepted, onApplyPartial }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
 
@@ -809,6 +1254,13 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
                 onClick={() => acceptMatch(c)}
                 data-testid={`accounting-bank-apply-invoice-${line.id}-${c.invoice_id}`}
               >{busy === key ? 'Applying…' : 'Apply payment'}</button>
+            ) : c.can_apply_partial ? (
+              <button
+                className="btn btn--primary"
+                disabled={Boolean(busy)}
+                onClick={() => onApplyPartial?.(c)}
+                data-testid={`accounting-bank-apply-partial-${line.id}-${c.invoice_id}`}
+              >Apply partial</button>
             ) : (
               <Link
                 className="btn btn--ghost"
@@ -890,6 +1342,7 @@ function RulesList() {
       )}
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
+      <div className="data-table-wrap" style={{ maxWidth: '100%' }} role="region" aria-label="Bank rules" tabIndex={0}>
       <table className="data-table" data-testid="accounting-bank-rules-table">
         <thead><tr><th>Name</th><th>Pattern</th><th>Target</th><th>Direction</th><th>Mode</th><th>Applied</th><th>Source</th><th></th></tr></thead>
         <tbody>
@@ -924,6 +1377,7 @@ function RulesList() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }

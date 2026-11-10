@@ -1,0 +1,143 @@
+{
+  "recorded_on": "2026-10-24",
+  "scope": "User-approved Core simulation 999 and Quanta Acme Construction",
+  "application_release_changed": false,
+  "checks": [
+    {
+      "run_id": 40107738992,
+      "run_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40107738992",
+      "source_commit": "a5fc72d043115d2bb9d8654cd98516a7a0ca4f8f",
+      "result": {
+        "checked_at": "2026-10-24T11:37:06-04:00",
+        "mode": "read_only_synthetic_integration",
+        "tenant_id": 999,
+        "database_identity_verified": true,
+        "private_identity_verified": true,
+        "local_writes": false,
+        "provider_record_writes": false,
+        "configuration_changed": false,
+        "onboarding_delivery_enabled": false,
+        "document_intake_enabled": false,
+        "private_document_storage_ready": true,
+        "synthetic_records": {
+          "person": {
+            "id": 15,
+            "status": "active"
+          },
+          "placement": {
+            "id": 13,
+            "person_id": 15,
+            "status": "active"
+          }
+        },
+        "onboarding_cases": [],
+        "quanta_binding": {
+          "available": true,
+          "http_status": 200
+        },
+        "quanta_onboarding": {
+          "available": true,
+          "http_status": 200
+        },
+        "quanta_document_transfer": {
+          "available": false,
+          "reason": "contract_or_configuration_check_failed"
+        }
+      }
+    },
+    {
+      "run_id": 40108362296,
+      "run_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40108362296",
+      "source_commit": "3dc08db964dc4fd1035de965b0f666c05e18c872",
+      "result": {
+        "checked_at": "2026-10-24T15:45:***+00:00",
+        "mode": "read_only_synthetic_integration",
+        "tenant_id": 999,
+        "database_identity_verified": true,
+        "private_identity_verified": true,
+        "local_writes": false,
+        "provider_record_writes": false,
+        "configuration_changed": false,
+        "onboarding_delivery_enabled": false,
+        "document_intake_enabled": false,
+        "private_document_storage_ready": true,
+        "synthetic_records": {
+          "person": {
+            "id": 15,
+            "status": "active"
+          },
+          "placement": {
+            "id": 13,
+            "person_id": 15,
+            "status": "active"
+          }
+        },
+        "onboarding_cases": [],
+        "quanta_binding": {
+          "available": true,
+          "http_status": 200
+        },
+        "quanta_onboarding": {
+          "available": true,
+          "http_status": 200
+        },
+        "quanta_document_transfer": {
+          "available": false,
+          "reason": "contract_or_configuration_check_failed"
+        },
+        "quanta_document_context": {
+          "http_status": 200,
+          "workspace_matches": true,
+          "contract_matches": true,
+          "transfer_enabled": false,
+          "approval_stays_in_core": true,
+          "size_limit_matches": true
+        },
+        "existing_operator": {
+          "found": true,
+          "active_membership": true,
+          "permissions": {
+            "people.onboarding.view": {
+              "legacy": true,
+              "membership": true
+            },
+            "people.onboarding.manage": {
+              "legacy": true,
+              "membership": true
+            },
+            "people.onboarding.review": {
+              "legacy": true,
+              "membership": true
+            },
+            "placements.view": {
+              "legacy": true,
+              "membership": true
+            },
+            "people.docs.view": {
+              "legacy": true,
+              "membership": true
+            },
+            "integrations.quanta.manage": {
+              "legacy": true,
+              "membership": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "worksite": {
+    "worker_id": "cfw_2c5e38cf6059e5d00f16b534feb7e2006c697e0e82b5b009cabcfa86eef0892c",
+    "person_number": "P-15",
+    "placement_number": "PL-13",
+    "worksite_id": "f143a992-6f30-4f01-a294-1cde6591e80e",
+    "worksite_name": "Acme Northside",
+    "action": "Native Quanta Worksites > Add worker > Assign",
+    "before": "Needs review in Quanta",
+    "after": "Assigned to an active worksite",
+    "screenshot": "core-quanta-worksite-aligned-20261024.png",
+    "existing_workers_preserved": true,
+    "login_or_invitation_created": false,
+    "roles_or_approval_permissions_changed": false
+  }
+}

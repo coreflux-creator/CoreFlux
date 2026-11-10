@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "recorded_date": "2026-11-01",
+  "scope": "isolated-native-coordinated-release-control",
+  "production_changed": false,
+  "native_log_sha256": "5996e6a5b908c7b31a552d488b9dd72addd1bbf270dd30f4da93cdaf7fb6611d",
+  "native_checks": 259,
+  "independent_process_control_checks": 28,
+  "combined_release_checks": 231,
+  "scenarios": {
+    "wrong_owner_backup_plan": 28,
+    "stale_witness": 28,
+    "existing_database_connection": 28,
+    "connection_during_witness": 28,
+    "master_schedule_drift": 31,
+    "process_loss_after_ddl": 30,
+    "paired_database_file_recovery": 33,
+    "candidate_activation": 25
+  },
+  "verified": [
+    "Each account uses one fixed owner-private lock and active-operation record outside the webroot.",
+    "Process exit releases the native lock but does not release unresolved operation ownership.",
+    "Intent is persisted and directory entries are synced before a native side effect.",
+    "An uncertain outcome requires independent inspection or explicit recovery; the action cannot be replayed.",
+    "Native combined tests transport actual other-owner receipts before dependent backup, file, cache, activation and recovery phases.",
+    "Production database execution now requires the held application-owner control object, exact upgrade intent and both reviewed file-plan fingerprints.",
+    "Recovery cannot be relabelled as never started after an uncertain first action.",
+    "Activation intent permanently prevents automatic restoration of the original database backup, including after response loss.",
+    "Missing, changed, other-operation and incomplete terminal receipts refuse further progress."
+  ],
+  "limits": [
+    "The control contract cannot replace the native receipt producer; peer receipts must come directly from the authenticated other-owner worker.",
+    "The small control-contract fixture uses labelled synthetic peer receipts; the combined native fixture uses actual separate-owner actions.",
+    "The outside-host production transport, staging of both private owner packages and final full-candidate rehearsal remain to be completed.",
+    "The current production planning snapshot is not a held-writer backup and cannot authorize cutover.",
+    "No live maintenance, migration, payroll, payment, financial posting or cutover occurred."
+  ]
+}

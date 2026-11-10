@@ -356,7 +356,7 @@ if ($method === 'GET' && $action === 'detail') {
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
                 qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
-                qi.source_dimension_values_json,
+                qi.source_dimension_values_json, qi.source_approval_json,
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
@@ -444,7 +444,7 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
                 qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
-                qi.source_dimension_values_json,
+                qi.source_dimension_values_json, qi.source_approval_json,
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te

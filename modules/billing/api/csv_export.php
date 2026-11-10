@@ -8,6 +8,7 @@
  *   ?status=draft|approved|sent|partially_paid|paid|void
  *   ?from=YYYY-MM-DD&to=YYYY-MM-DD       issue_date range
  *   ?client_name=Acme
+ *   ?q=Acme                         invoice number or client search
  *
  * Built on Core\CsvExportService primitive per HARD_RULES (2026-02-XX).
  */
@@ -15,6 +16,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
 require_once __DIR__ . '/../../../core/export_service.php';
+require_once __DIR__ . '/../lib/entity_scope.php';
 
 use Core\CsvExportService;
 
@@ -24,12 +26,21 @@ $tenantId = (int) $ctx['tenant_id'];
 $userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'billing.view');
 // Delegated tenant scope sentinel for legacy CSV smokes: :tenant_id.
+try {
+    $entityId = billingEntityFilterId($tenantId, isset($_GET['entity_id']) ? (string) $_GET['entity_id'] : null);
+} catch (InvalidArgumentException $e) {
+    api_error($e->getMessage(), 422);
+} catch (OutOfBoundsException $e) {
+    api_error($e->getMessage(), 404);
+}
 
 $datasetOptions = [
     'status'      => (string) ($_GET['status'] ?? ''),
     'from'        => (string) ($_GET['from'] ?? ''),
     'to'          => (string) ($_GET['to'] ?? ''),
     'client_name' => (string) ($_GET['client_name'] ?? ''),
+    'q'           => trim((string) ($_GET['q'] ?? '')),
+    'entity_id'   => $entityId,
 ];
 
 $tplId = (int) ($_GET['template_id'] ?? 0);
@@ -69,17 +80,31 @@ if ($datasetOptions['client_name'] !== '') {
     $where[] = 'i.client_name = :client_name';
     $params['client_name'] = $datasetOptions['client_name'];
 }
+if ($datasetOptions['q'] !== '') {
+    $where[] = '(i.invoice_number LIKE :q_invoice OR i.client_name LIKE :q_client)';
+    $needle = '%' . $datasetOptions['q'] . '%';
+    $params['q_invoice'] = $needle;
+    $params['q_client'] = $needle;
+}
+if ($entityId !== null) {
+    $where[] = 'i.entity_id = :entity_id';
+    $params['entity_id'] = $entityId;
+}
 
 $stmt = getDB()->prepare(
     'SELECT i.id AS invoice_id, i.invoice_number, i.external_id, i.source_system,
             i.status AS record_status, i.amount_paid,
-            i.client_name, i.issue_date, i.due_date, i.period_start, i.period_end,
+            i.client_name, i.client_company_id, e.code AS entity_code,
+            i.issue_date, i.due_date, i.period_start, i.period_end,
             i.currency, i.po_number, i.aggregation, i.notes_external,
             l.id AS line_id, l.line_no, l.description AS line_description,
+            l.catalog_item_id AS line_catalog_item_id, l.item_type AS line_item_type,
+            l.gl_revenue_account_code AS line_gl_revenue_account_code,
             l.quantity AS line_quantity, l.unit AS line_unit,
             l.unit_price AS line_unit_price, l.subtotal AS line_subtotal,
             l.tax_amount AS line_tax_amount, l.total AS line_total
        FROM billing_invoices i
+  LEFT JOIN accounting_entities e ON e.id = i.entity_id AND e.tenant_id = i.tenant_id
   LEFT JOIN billing_invoice_lines l ON l.invoice_id = i.id
       WHERE ' . implode(' AND ', $where) . '
       ORDER BY i.issue_date DESC, i.id DESC, l.line_no ASC, l.id ASC
@@ -103,6 +128,8 @@ exportDatasetAudit($tenantId, $userId ?: null, 'billing.invoice.exported', null,
     'record_status'  => 'Record status (read only)',
     'amount_paid'    => 'Amount paid (read only)',
     'client_name'    => 'Client name',
+    'client_company_id' => 'Client company ID',
+    'entity_code'    => 'Entity code',
     'issue_date'     => 'Issue date',
     'due_date'       => 'Due date',
     'period_start'   => 'Period start',
@@ -114,6 +141,9 @@ exportDatasetAudit($tenantId, $userId ?: null, 'billing.invoice.exported', null,
     'line_id'          => 'Line ID (read only)',
     'line_no'          => 'Line #',
     'line_description' => 'Line description',
+    'line_catalog_item_id' => 'Line catalog item ID',
+    'line_item_type'   => 'Line item type',
+    'line_gl_revenue_account_code' => 'Line revenue account',
     'line_quantity'    => 'Line quantity',
     'line_unit'        => 'Line unit',
     'line_unit_price'  => 'Line unit price',

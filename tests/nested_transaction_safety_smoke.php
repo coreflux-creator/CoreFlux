@@ -8,14 +8,13 @@
  *   • Create Invoice (POST /api/billing/invoices)
  *   • AR payment allocation triggering PWP release (billing → ap chain)
  *
- * Every lib-level helper that opens its own tx MUST detect an outer
- * caller-owned tx and skip its begin/commit. This file proves the
- * `$ownsTxn = !$pdo->inTransaction();` guard pattern is wired
- * everywhere on the bill-create / invoice-create / payment-allocate
- * code paths.
+ * Helpers that open their own tx detect an outer caller-owned tx.
+ * The shared AP bill service also uses a savepoint so an error cannot
+ * leave partial writes inside the caller's transaction.
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
@@ -43,12 +42,12 @@ $assertGuard = function (string $path, string $fn) use ($a) {
     $a("{$fn}: guards rollBack()",                        str_contains($body, 'if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();'));
 };
 
-$assertGuard('/app/modules/ap/lib/ap.php',      'apNextInternalRef');
-$assertGuard('/app/modules/ap/lib/ap.php',      'apAllocatePayment');
-$assertGuard('/app/modules/ap/lib/pwp.php',     'apPwpAutoLinkForArInvoice');
-$assertGuard('/app/modules/ap/lib/pwp.php',     'apPwpReleaseForArInvoice');
-$assertGuard('/app/modules/billing/lib/billing.php', 'billingNextInvoiceNumber');
-$assertGuard('/app/modules/billing/lib/billing.php', 'billingAllocatePayment');
+$assertGuard($root . '/modules/ap/lib/ap.php',      'apNextInternalRef');
+$assertGuard($root . '/modules/ap/lib/ap.php',      'apAllocatePayment');
+$assertGuard($root . '/modules/ap/lib/pwp.php',     'apPwpAutoLinkForArInvoice');
+$assertGuard($root . '/modules/ap/lib/pwp.php',     'apPwpReleaseForArInvoice');
+$assertGuard($root . '/modules/billing/lib/billing.php', 'billingNextInvoiceNumber');
+$assertGuard($root . '/modules/billing/lib/billing.php', 'billingAllocatePayment');
 
 echo "\n2. Live PDO exercise — apNextInternalRef survives an outer-owned tx\n";
 
@@ -69,7 +68,7 @@ $replaceForUpdate = static function (string $src): string {
 
 // Load apNextInternalRef in isolation with stubbed getDB().
 $GLOBALS['pdo'] = $pdo;
-$libAp = $replaceForUpdate((string) file_get_contents('/app/modules/ap/lib/ap.php'));
+$libAp = $replaceForUpdate((string) file_get_contents($root . '/modules/ap/lib/ap.php'));
 // Extract just the apNextInternalRef function.
 preg_match('/(\/\*\*[^\/]*?Atomically allocate the next internal bill[^\/]*?\*\/\s*function apNextInternalRef.*?^\})/sm', $libAp, $m);
 $snippet = $m[1] ?? '';
@@ -106,7 +105,7 @@ $a('and is durable when helper owns the tx',
     (int) $pdo->query('SELECT ap_next_bill_seq FROM tenants WHERE id = 1')->fetchColumn() === 44);
 
 // Same exercise for billingNextInvoiceNumber.
-$libBilling = $replaceForUpdate((string) file_get_contents('/app/modules/billing/lib/billing.php'));
+$libBilling = $replaceForUpdate((string) file_get_contents($root . '/modules/billing/lib/billing.php'));
 preg_match('/(\/\*\*[^\/]*?Atomically allocate the next invoice number[^\/]*?\*\/\s*function billingNextInvoiceNumber.*?^\})/sm', $libBilling, $m2);
 if (!empty($m2[1])) eval($m2[1]);
 
@@ -117,12 +116,17 @@ $a('billingNextInvoiceNumber inside outer tx succeeds', $caughtB === null, $caug
 $a('returns INV-YYYY-0017 format', $inv !== null && preg_match('/^INV-\d{4}-0017$/', $inv) === 1, (string) $inv);
 $pdo->commit();
 
-echo "\n3. The Create-Bill API handler still wraps in cf_begin_transaction()\n";
-$billsApi = (string) file_get_contents('/app/modules/ap/api/bills.php');
-$a('POST/create still uses cf_begin_transaction',
-    (bool) preg_match("/if \\(\\\$method === 'POST' && \\\$action === ''\\) \\{.*?cf_begin_transaction\\(\\);/s", $billsApi));
-$a('and calls apNextInternalRef inside the tx',
-    (bool) preg_match("/cf_begin_transaction\\(\\);.*?apNextInternalRef/s", $billsApi));
+echo "\n3. The Create-Bill API delegates to the transaction-owning shared service\n";
+$billsApi = (string) file_get_contents($root . '/modules/ap/api/bills.php');
+$billService = (string) file_get_contents($root . '/modules/ap/lib/bill_drafts.php');
+$a('POST/create delegates to apCreateManualBill',
+    (bool) preg_match("/if \\(\\\$method === 'POST' && \\\$action === ''\\) \\{.*?apCreateManualBill\\(/s", $billsApi));
+$a('shared service owns an outer transaction or nested savepoint',
+    str_contains($billService, '$owns = !$pdo->inTransaction()')
+    && str_contains($billService, 'SAVEPOINT ')
+    && str_contains($billService, 'ROLLBACK TO SAVEPOINT '));
+$a('internal reference is allocated inside the service transaction',
+    (bool) preg_match('/if \\(\\$owns\\) \\$pdo->beginTransaction\\(\\);.*?apNextInternalRef\\(\\$tenantId\\)/s', $billService));
 
 echo "\n— pass={$pass}  fail={$fail}\n";
 exit($fail === 0 ? 0 : 1);

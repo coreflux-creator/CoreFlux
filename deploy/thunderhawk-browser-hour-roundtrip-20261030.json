@@ -1,0 +1,209 @@
+{
+  "observed_at": "2026-10-30T03:09:27.5083905Z",
+  "scope": "Thunderhawk isolated worker-browser hour, native Core review, held PurePayroll draft and Core return",
+  "core_runtime_revision": "43007a5a38f8d1c4273f5db4c5dd000665be730a",
+  "quanta_frontend_revision": "9d828dc2913e91e130a6002c5cdd11a1d9bb61bf",
+  "quanta_backend_revision": "3f0ebd34336eb382abd20ab7dd7a7e603792083f",
+  "tenant_id": 2002,
+  "source_entry_id": "69f7fc04-ce35-497b-ad2d-589eabca1455",
+  "core_time_entry_id": 3,
+  "core_timesheet_id": 4,
+  "independent_human_review": false,
+  "production_changed": false,
+  "real_payroll_executed": false,
+  "receipts": {
+    "core_approval": {
+      "checked_at": "2026-10-29T23:00:12-04:00",
+      "tenant_id": 2002,
+      "entry_id": 3,
+      "timesheet_id": 4,
+      "hours": 1,
+      "production_changed": false,
+      "independent_human_review": false,
+      "payroll_or_financial_postings": false,
+      "original_reviewer_still_retired": {
+        "user_id": 52,
+        "membership_id": 38,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "reviewer": {
+        "user_id": 53,
+        "membership_id": 39,
+        "display_name": "Thunderhawk Browser Hour Test Approver",
+        "tenant_id": 2002,
+        "time_review_allowed_in_both_models": true,
+        "other_modules_denied": true,
+        "global_admin": false,
+        "other_active_tenant_memberships": 0,
+        "audit_verified": true,
+        "created": true,
+        "credentials_issued": false,
+        "invitation_sent": false
+      },
+      "self_approval_rejected": true,
+      "duplicate_approval_rejected": true,
+      "native_approval_state": "approved",
+      "delivery": {
+        "id": 39,
+        "state": "delivered",
+        "remote_id": "cft_9cb1964dc6b6b23daf99833916cb14a6ff7a6d47a83a5d45ae18a72846c391d7",
+        "remote_receipt_id": "cfd_1d46a8614a7f11b001b41785f9c11313d2849491a7c4786c1a0fc9a20128c02d"
+      },
+      "provider_core_review_status": "accepted",
+      "reviewer_retirement": {
+        "user_id": 53,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "prior_records_unchanged": true,
+      "passed": true
+    },
+    "retired_reviewer_recovery": {
+      "checked_at": "2026-10-29T23:05:45-04:00",
+      "tenant_id": 2002,
+      "entry_id": 3,
+      "timesheet_id": 4,
+      "hours": 1,
+      "production_changed": false,
+      "independent_human_review": false,
+      "payroll_or_financial_postings": false,
+      "original_reviewer_still_retired": {
+        "user_id": 52,
+        "membership_id": 38,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "reviewer": {
+        "user_id": 53,
+        "membership_id": 39,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "recovered_existing_native_approval": true,
+      "native_approval_state": "approved",
+      "provider_core_review_status": "accepted",
+      "reviewer_retirement": {
+        "user_id": 53,
+        "membership_id": 39,
+        "account_inactive": true,
+        "active_memberships": 0,
+        "module_grants": 0,
+        "audit_identity_preserved": true
+      },
+      "prior_records_unchanged": true,
+      "passed": true
+    },
+    "input_and_reservation": {
+      "checked_at": "2026-10-29T23:01:28-04:00",
+      "tenant_id": 2002,
+      "mode": "isolated_browser_hour",
+      "production_changed": false,
+      "payroll_execution_requested": false,
+      "financial_posting_requested": false,
+      "input_delivery_id": 40,
+      "input_id": "cpi_390401c8dcc2bc7b7e979232c4c294ad6347d42e4a920bd0777dd693572a399b",
+      "input_replay_verified": true,
+      "authority_id": "cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+      "provider_receipt": {
+        "authority": {
+          "components": 1,
+          "content_hash": "5cc9a8a1078a8381af4a09dda5ed1c5ad6b040a0269bba746600c7476e714d31",
+          "contract_version": "2026-10-21.1",
+          "id": "cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+          "input_id": "cpi_390401c8dcc2bc7b7e979232c4c294ad6347d42e4a920bd0777dd693572a399b",
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "organization_id": "org_0369a63ff2cb",
+          "source_time_reserved": true,
+          "time_tenant_id": 2002
+        },
+        "state": "available",
+        "provider_usable": true,
+        "payroll_created": false,
+        "release_confirmed": false,
+        "release_receipt_id": null
+      },
+      "source_time_and_prior_reservation_unchanged": true,
+      "passed": true
+    },
+    "held_draft": {
+      "checked_at": "2026-10-29T23:03:16.109465-04:00",
+      "organization_id": "org_0369a63ff2cb",
+      "input_id": "cpi_390401c8dcc2bc7b7e979232c4c294ad6347d42e4a920bd0777dd693572a399b",
+      "authority_id": "cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+      "production_changed": false,
+      "real_payroll_executed": false,
+      "passed": true,
+      "run_id": "run_core_af63f6606e0cdfdb12fb3c9d60df37451d59feb32a1f0316fdc88d995c91c23d",
+      "status": "draft",
+      "gross": "65.00",
+      "hours": "1.00",
+      "pay_rate": "65.0000",
+      "currency": "USD",
+      "execution_hold": true,
+      "pay_date": "2026-11-06",
+      "prior_drafts_unchanged": true,
+      "duplicate_request_same_draft": true,
+      "execution_rejected": true,
+      "payments_bills_invoices_unchanged": true
+    },
+    "core_return": {
+      "checked_at": "2026-10-29T23:04:10-04:00",
+      "tenant_id": 2002,
+      "authority_id": "cpa_0d44c7f660e4181fd94ee6d418082e0576c0687fdbec0e0afaf6e41ab1212357",
+      "production_changed": false,
+      "payroll_executed": false,
+      "financial_postings": false,
+      "tax_calculation_validated": false,
+      "onboarding_changed": false,
+      "passed": true,
+      "observation_id": 4,
+      "run_id": "run_core_af63f6606e0cdfdb12fb3c9d60df37451d59feb32a1f0316fdc88d995c91c23d",
+      "state": "draft",
+      "calculation_mode": "manual",
+      "source_gross": "65.00",
+      "gross": "65.00",
+      "execution_hold": true,
+      "result_hash": "1105f2037e9f3df2bf4f48104e8cb8c5a15b92eeae57d326370a11c73a84e333",
+      "original_source_reconciled": true,
+      "replay_reuses_observation": true,
+      "encrypted_result_verified": true,
+      "source_time_unchanged": true
+    },
+    "quanta_ui": {
+      "passed": true,
+      "files": 56,
+      "served_index_sha256": "5f8ec6f463018f5f9396a72a7b4230edafa3a93023fbf78c429aa3fd504afd81",
+      "source_commit": "9d828dc",
+      "backend_restarted": false,
+      "production_changed": false
+    }
+  },
+  "browser_checks": {
+    "quanta_worker_hours": "Total hours 1:00; Hours entered 1:00; no false open punch",
+    "quanta_core_status": "Both October 19 eight hours and October 26 one hour show Accepted in Core",
+    "purepayroll_input": "P-358, PL-864, Core entry 3, Quanta original entry, 1.00 hour, USD 65.0000 frozen rate, USD 65.00 gross preview",
+    "purepayroll_hold": "Draft created; pilot drafts held for review; approval and funding unavailable",
+    "payroll_execution_not_requested_through_browser": true,
+    "temporary_local_login_file_removed": true,
+    "screenshots": [
+      "quanta-worker-hours-corrected.png",
+      "quanta-browser-hour-accepted.png",
+      "pure-browser-hour-held-draft.png"
+    ]
+  },
+  "remaining": [
+    "Core staff browser test: staging navigation blocked by Chrome client; Cloudways session signed out",
+    "Hosted provider second-company isolation and field-ownership conflict checks",
+    "Remaining source classification and commission evidence",
+    "Production readiness and separately authorized publishing"
+  ]
+}

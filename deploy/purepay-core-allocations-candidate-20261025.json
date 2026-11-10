@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-10-25T08:51:39.628038+00:00",
+  "kind": "core_source_candidate_not_deployed",
+  "core_source_commit": "eea4aa215ecfe405ab278629516b8b1c757043cf",
+  "core_branch": "codex/accounting-core-integration",
+  "pull_request": "https://github.com/coreflux-creator/CoreFlux/pull/146",
+  "provider_contract_candidate_commit": "ed40d8dbb5581730136b9563d37c02871262c730",
+  "ci": {
+    "run_id": 40178001665,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/40178001665",
+    "head_sha": "eea4aa215ecfe405ab278629516b8b1c757043cf",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "source_hashes_lf": {
+    "core/migrations/178_purepay_allocated_payments.sql": "9ac6c45948574bbc01ec0d0eb79114c0525738a8ff3bd1aecc4c13163b0775fd",
+    "core/purepay_allocated_payments.php": "8ee20641a3add28a15c9b98a008caad9ce3d9217fc045eb841f07464b28fd4c0",
+    "core/payment_rails/purepay_driver.php": "1ea778564b8b1c8a0fb84a7ee65f33dfadfe6678ac83fab9845c8317f9986996",
+    "core/payment_rails/originate_helpers.php": "db5ab36f39efb4b37588bce075fd0945c710c436b35e4c4a0a6ab56c38f63a0e",
+    "core/purepay_payment_evidence.php": "0a4d86d528127e265a3cda36f167cf92aff4c1624dab41880e985e9b9caa1965",
+    "core/purepay_webhooks.php": "0d88c2bbe1ed6bb9192d2f7a4f914788fcdcc9d2af4b8c29b18a6124ebdbb295",
+    "cron/purepay_payment_sync.php": "fc7b333f9cf05714f5aee38acbeb8817b75b8ef957b0b736c89b555895fe0221",
+    "modules/ap/lib/ap.php": "d36236d3e965c84dcb443782ef2dcffe7c9ec224777c9ae40ba0d431269ef772",
+    "modules/ap/api/payments.php": "47f288db2dc0915e13f3bcdfd4e479d6d8836724f69c061ee50d578b086bdc25",
+    "tests/purepay_allocated_payments_mariadb.php": "eb18e227db4209755b6c9500645da7827fd306466a7c7bae7f28871cc381f39c",
+    "tests/purepay_delivery_mariadb.php": "cf3227ef7846ba3542c626887f00a9ea80a46e9ab2bde55f1d47ee22718f2e59"
+  },
+  "validation": {
+    "database": "isolated MariaDB 10.11 CI service",
+    "allocation_checks": 51,
+    "historical_receipt_checks": 105,
+    "company_checks": 31,
+    "bill_identity_checks": 37,
+    "money_evidence_checks": 87,
+    "provider_rpc_replaced_with_synthetic_transport": true,
+    "cross_language_digest_vector_verified": true,
+    "two_sql_sessions_receipt_ownership_verified": true,
+    "real_provider_or_mongo_used": false,
+    "hosted_cross_application_round_trip": false,
+    "live_financial_actions": false
+  },
+  "behavior": [
+    "Fresh dispatch reserves the original mapped PurePay bills instead of creating replacement bills.",
+    "Every child allocation binds original Core/provider identity and exact gross cents to immutable receipt history.",
+    "Parent settlement requires every original allocation to settle; mixed outcomes and terminal conflicts remain held.",
+    "Reconciliation and signed callbacks cannot execute another payout or post/reverse journals.",
+    "Historical payment receipts retain independent read/reconciliation and receipt ownership guards.",
+    "A callback for an unbound payment cannot adopt it into a new allocation; original reservation reconciliation is required."
+  ],
+  "deployment": {
+    "core_staging_changed": false,
+    "provider_preview_changed": false,
+    "production_changed": false
+  },
+  "remaining": [
+    "Operator controls for reviewing allocations, resuming interrupted dispatch and releasing unexecuted claims.",
+    "Audited recovery for uncertain or failed funding, provider/native conflicts, and abandoned reservations.",
+    "Reviewed credential rebinding for old payment receipts without changing original identities.",
+    "Real Mongo contention and combined hosted acceptance before enabling this provider contract.",
+    "Financial preview credential/callback setup and production Thunderhawk key handoff.",
+    "Full Thunderhawk staffing, onboarding, independently approved time, payroll and financial result round trip."
+  ]
+}

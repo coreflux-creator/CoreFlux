@@ -51,3 +51,4 @@ memory/backups/*
 !memory/backups/.gitkeep
 *.tar.gz
 config.local.php
+db.local.php

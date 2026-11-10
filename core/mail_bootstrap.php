@@ -8,6 +8,7 @@
  *
  * Wiring rules:
  *   - RESEND_API_KEY set  → ResendDriver registered, becomes default outbound.
+ *   - CoreAccounting mode → only COREFLUX_ACCOUNTING_RESEND_API_KEY and its sender are used.
  *   - key missing         → ResendDriver remains default and fails visibly.
  *   - MAIL_DRIVER=log     → LogDriver becomes default (explicit dev/test mode).
  *
@@ -39,21 +40,27 @@ if (!function_exists('cf_mail_bootstrap')) {
         static $booted = null;
         if ($booted instanceof MailService) return $booted;
 
-        // Resend key may live in env (Cloudways pattern) or as a define() in
-        // /app/core/config.local.php (matches existing OpenAI / Plaid secrets).
-        // Either path satisfies the "configured" check.
-        $resendKey = (string) getenv('RESEND_API_KEY');
-        if ($resendKey === '' && defined('RESEND_API_KEY')) {
-            $resendKey = (string) constant('RESEND_API_KEY');
-        }
+        // The standalone service must not inherit an ERP provider key or sender
+        // from a copied host-local config file.
+        $standaloneAccounting = getenv('COREFLUX_ENV') === 'coreaccounting';
+        $resendDriver = $standaloneAccounting
+            ? new ResendDriver(
+                coreAccountingMailSetting('COREFLUX_ACCOUNTING_RESEND_API_KEY'),
+                coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_EMAIL'),
+                coreAccountingMailSetting('COREFLUX_ACCOUNTING_FROM_NAME'),
+                null,
+                true
+            )
+            : new ResendDriver();
         // Log-only delivery must be explicit. A missing production key should
         // produce a failed send (from ResendDriver's configuration guard), not
         // a false `sent` result from LogDriver when nothing left the server.
         $mailDriverOverride = strtolower(trim((string) getenv('MAIL_DRIVER')));
-        $logOnly            = $mailDriverOverride === 'log';
+        $staging            = defined('COREFLUX_STAGING') && COREFLUX_STAGING;
+        $logOnly            = $staging || $mailDriverOverride === 'log';
         $default            = $logOnly
             ? new LogDriver()
-            : new ResendDriver();
+            : $resendDriver;
 
         $writer = function (array $row): int {
             try {
@@ -62,13 +69,13 @@ if (!function_exists('cf_mail_bootstrap')) {
                 $stmt = $pdo->prepare(
                     'INSERT INTO mail_outbox
                       (tenant_id, module, purpose, connection_id, driver,
-                       to_addresses_json, from_address, reply_to, subject,
+                       to_addresses_json, cc_addresses_json, from_address, reply_to, subject,
                        body_text, body_html, attachments_json,
                        status, provider_message_id, sent_at, error,
                        created_at)
                      VALUES
                       (:tenant_id, :module, :purpose, :connection_id, :driver,
-                       :to_addresses_json, :from_address, :reply_to, :subject,
+                       :to_addresses_json, :cc_addresses_json, :from_address, :reply_to, :subject,
                        :body_text, :body_html, :attachments_json,
                        :status, :provider_message_id, :sent_at, :error,
                        NOW())'
@@ -80,6 +87,7 @@ if (!function_exists('cf_mail_bootstrap')) {
                     'connection_id'       => $row['connection_id'] ?? null,
                     'driver'              => $row['driver'],
                     'to_addresses_json'   => $row['to_addresses_json'],
+                    'cc_addresses_json'   => $row['cc_addresses_json'] ?? null,
                     'from_address'        => $row['from_address'] ?? null,
                     'reply_to'            => $row['reply_to'] ?? null,
                     'subject'             => $row['subject'],
@@ -101,7 +109,7 @@ if (!function_exists('cf_mail_bootstrap')) {
         $booted = MailService::reset($default, $writer);
         // Keep both drivers addressable for diagnostics and explicit overrides.
         if ($default->driver_name() === 'resend') $booted->register_driver(new LogDriver());
-        else                                      $booted->register_driver(new ResendDriver());
+        elseif (!$staging)                        $booted->register_driver($resendDriver);
         return $booted;
     }
 }
