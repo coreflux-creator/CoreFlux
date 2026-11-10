@@ -160,3 +160,33 @@ partial additions from an earlier per-file installer retain the per-file recover
 path. Native tests cover 1,026-file installation, metadata preservation, guard loss,
 staged drift, concurrent target creation, interruptions before and after the tree
 rename, recovery interruption and resumption, and unexpected public entries.
+
+## Explicit external paired recovery
+
+`core_release_coordinator.py recovery-step` uses the same pinned owner transport,
+private step configuration and fresh native observations as `forward-step`. It
+executes only the requested phase. Both owners must explicitly select
+`request-recovery` before restoration; the controller refuses original-backup
+recovery if either owner may have activated, has completed release, or selected
+preparation abort. An interrupted release can be fenced in the recovery direction.
+An interrupted recovery cannot be restarted by repeating the phase command.
+
+The application owner first runs `begin-database-recovery`, pinning both
+`guard_sha256` and `expectation_sha256`. The separate encrypted restore API must
+authenticate the entire outside-host archive before emptying the native target.
+`confirm-database-recovery` requires that exact pending expectation and checks the
+actual restored database fingerprint. Only its completed native receipt permits
+the master owner to recover files. Both owners then run `recover-files` and
+`verify-recovery`; the application owner runs `refresh-recovery-cache` and
+`restore-routing`; finally the master runs `restore-scheduler`. Fresh peer
+receipts enforce the database, file verification and routing prerequisites.
+
+File recovery pins `cache_plan_sha256` as well as its guard, for either owner.
+Added PHP is invalidated through the authenticated held application pool before
+its files are removed; only the exact recovery plan is accepted. Cache verification
+cannot request an unrelated invalidation. Completed phase receipts are checked
+against both their native result bytes and the requested evidence. Lost replies
+remain inspection tasks; no direction selection, retry or destructive restore is
+automatic. The native-writer fixture runs this external recovery path as well as
+the forward path. Full-candidate activation and recovery remain separate rehearsal
+scenarios: do not activate and then attempt to restore the old backup.

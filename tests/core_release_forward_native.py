@@ -1,9 +1,10 @@
-"""Exercise the real external forward controller, only in the disposable native fixture."""
+"""Exercise the real external forward/recovery controller in the disposable native fixture."""
 import json
 from pathlib import Path
 import sys
 
 from core_native_hold_fixture import controller_for, observer_for, FixtureStatus, fixture_only
+from core_release_coordinator import RECOVERY_INPUTS
 
 base = Path(sys.argv[1])
 fixture_only(base)
@@ -35,7 +36,8 @@ try:
             controller.call = lose_phase
         # PHP's empty associative array is encoded as []; the real CLI takes a JSON object.
         data = {} if initial['input'] == [] else initial['input']
-        result = controller.forward_step(uid, action, data)
+        step = controller.recovery_step if action in RECOVERY_INPUTS else controller.forward_step
+        result = step(uid, action, data)
     print(json.dumps({'response': result, 'challenge': initial['challenge'], 'owner_uid': uid}, separators=(',', ':')))
 except Exception as error:
     # This fixture contains only synthetic data; retain controller refusal details for diagnosis.

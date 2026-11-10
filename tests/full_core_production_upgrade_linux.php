@@ -109,9 +109,10 @@ function fixtureForwardRequest(string $base, int $uid, string $action): array
 {
     $request=fixtureOwnerRequest($base,$uid,$action,false);
     $fields=match($request['action']) {
-        'hold','resume-scheduler','complete','inspect-control'=>[],
+        'hold','resume-scheduler','complete','inspect-control','request-recovery','restore-scheduler'=>[],
         'upgrade-database'=>['binding_sha256'],
-        'refresh-cache'=>['guard_sha256','cache_plan_sha256'],
+        'refresh-cache','refresh-recovery-cache','recover-files'=>['guard_sha256','cache_plan_sha256'],
+        'begin-database-recovery','confirm-database-recovery'=>['guard_sha256','expectation_sha256'],
         default=>['guard_sha256'],
     };
     $request['input']=array_intersect_key($request['input'],array_flip($fields));
@@ -131,10 +132,11 @@ function fixtureOwner(string $base, int $uid, string $action, array $extraInput 
         fixtureWrite($base . '/cache-plan-for-' . $uid . '.json', $bytes, $uid);
     }
     $externalForward=getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1' && in_array($action,
-        ['pause','prepare','apply','verify-applied','refresh-cache','activate','complete','inspect-database-state','inspect-control'],true);
+        ['pause','prepare','apply','verify-applied','refresh-cache','activate','complete','inspect-database-state','inspect-control',
+         'request-recovery','begin-database-recovery','confirm-database-recovery','recover','verify-original','refresh-recovery-cache'],true);
     if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1' && $action === 'restore-hold') {
         $state=json_decode(file_get_contents(dirname(FIXTURE_ROOT).'/private_html/core-release-control-'.$uid.'/operation-'.$spec['operation'].'/state.json'),true);
-        $externalForward=$state['direction'] === 'release';
+        $externalForward=in_array($state['direction'], ['release','recovery'], true);
     }
     $initial=$externalForward ? fixtureForwardRequest($base,$uid,$action) : fixtureOwnerRequest($base,$uid,$action);
     $initial['input'] += $extraInput;

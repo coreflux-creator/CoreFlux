@@ -60,6 +60,29 @@ FORWARD_PEERS = {
     1004: {'prepare-files': 'hold', 'upgrade-database': 'prepare-files',
            'refresh-cache': 'verify-files', 'complete': 'resume-scheduler'},
 }
+RECOVERY_PHASES = {
+    1003: ('recover-files', 'verify-recovery', 'restore-scheduler'),
+    1004: ('restore-database', 'recover-files', 'verify-recovery', 'refresh-recovery-cache', 'restore-routing'),
+}
+RECOVERY_INPUTS = {
+    'request-recovery': (),
+    'begin-database-recovery': ('guard_sha256', 'expectation_sha256'),
+    'confirm-database-recovery': ('guard_sha256', 'expectation_sha256'),
+    'recover-files': ('guard_sha256', 'cache_plan_sha256'),
+    'verify-recovery': ('guard_sha256',),
+    'refresh-recovery-cache': ('guard_sha256', 'cache_plan_sha256'),
+    'restore-routing': ('guard_sha256',), 'restore-scheduler': (),
+}
+RECOVERY_TIMEOUT_LIMITS = {
+    'request-recovery': 120, 'begin-database-recovery': 120,
+    'confirm-database-recovery': 3600, 'recover-files': 7200, 'verify-recovery': 7200,
+    'refresh-recovery-cache': 600, 'restore-routing': 120, 'restore-scheduler': 120,
+}
+HELD_RECOVERY = frozenset(phase for phase, fields in RECOVERY_INPUTS.items() if fields)
+RECOVERY_PEERS = {
+    1003: {'recover-files': 'restore-database', 'restore-scheduler': 'restore-routing'},
+    1004: {'restore-routing': 'verify-recovery'},
+}
 MAX_MESSAGE = 1024 * 1024
 
 
@@ -75,6 +98,22 @@ def validate_forward_timeout(phase: str, seconds: int | None) -> None:
     if seconds is not None and (type(seconds) is not int or phase not in FORWARD_TIMEOUT_LIMITS
                                 or not 30 <= seconds <= FORWARD_TIMEOUT_LIMITS[phase]):
         raise ValueError('Reviewed phase timeout must be a bounded integer number of seconds')
+
+
+def validate_recovery_input(uid: int, phase: str, data: dict) -> None:
+    database = ('begin-database-recovery', 'confirm-database-recovery') if uid == 1004 else ()
+    if (type(uid) is not int or uid not in RECOVERY_PHASES
+            or phase not in ('request-recovery', *RECOVERY_PHASES[uid], *database)
+            or phase not in RECOVERY_INPUTS or not isinstance(data, dict)
+            or set(data) != set(RECOVERY_INPUTS[phase])
+            or any(not exact_hex(value, 64) for value in data.values())):
+        raise ValueError('Exact owner, recovery phase and reviewed input fingerprints required')
+
+
+def validate_recovery_timeout(phase: str, seconds: int | None) -> None:
+    if seconds is not None and (type(seconds) is not int or phase not in RECOVERY_TIMEOUT_LIMITS
+                                or not 30 <= seconds <= RECOVERY_TIMEOUT_LIMITS[phase]):
+        raise ValueError('Reviewed recovery timeout must be a bounded integer number of seconds')
 
 
 def native_json(value) -> bytes:
@@ -215,19 +254,21 @@ class Coordinator:
     def _exchange(self, uid: int, action: str, query: dict, challenge: str, data: dict | None = None) -> dict:
         if not isinstance(query, dict) or query.get('owner_uid') != uid or query.get('controller_challenge') != challenge:
             raise ValueError('Native exchange identity differs')
-        if query.get('kind') == 'hold-witness' and action in (*HELD_FORWARD, 'capture-database-stream','empty-recovery-database','restore-database-stream'):
+        if query.get('kind') == 'hold-witness' and action in (*HELD_FORWARD, *HELD_RECOVERY, 'capture-database-stream','empty-recovery-database','restore-database-stream'):
             spec = self.config['control_spec']
             if self.observe is None or any(query.get(key) != spec[key] for key in ('operation','candidate_commit','migration_plan_sha256')):
                 raise ValueError('Actual current writer observations are required for database transfer')
             return self.observe(query)
         if query.get('kind') == 'invalidate':
             spec = self.config['control_spec']
-            if (action != 'refresh-cache' or uid != 1004 or self.invalidate is None
-                    or query.get('phase') != 'candidate'
+            cache_phase = {'refresh-cache': 'candidate', 'refresh-recovery-cache': 'recovery',
+                           'recover-files': 'recovery'}.get(action)
+            if (cache_phase is None or (action != 'recover-files' and uid != 1004) or self.invalidate is None
+                    or query.get('phase') != cache_phase
                     or any(query.get(key) != spec[key] for key in ('operation', 'candidate_commit'))
                     or not exact_hex(query.get('cache_plan_sha256'), 64)
                     or query['cache_plan_sha256'] != (data or {}).get('cache_plan_sha256')):
-                raise ValueError('Only the exact requested candidate cache plan may be invalidated')
+                raise ValueError('Only the exact requested phase and cache plan may be invalidated')
             return self.invalidate(query['cache_plan_sha256'])
         if query.get('operation') != self.config['control_spec']['operation'] or query.get('control_spec_sha256') != self.spec_hash:
             raise ValueError('Native exchange belongs to another release')
@@ -244,7 +285,7 @@ class Coordinator:
              *, capture_sink=None, restore_source=None, timeout: float | None = None) -> dict:
         if uid not in OWNERS or action not in (*READ_ACTIONS, *ABORT_PHASES,
                                               'request-preparation-abort', 'resume-preparation-abort',
-                                              *FORWARD_INPUTS,
+                                              *FORWARD_INPUTS, *RECOVERY_INPUTS,
                                               'capture-database-stream','empty-recovery-database','restore-database-stream'):
             raise ValueError('Explicit reviewed native action required')
         if action in FORWARD_INPUTS:
@@ -253,6 +294,12 @@ class Coordinator:
                 raise ValueError('Current native hold observations required before a forward action')
             if action == 'refresh-cache' and self.invalidate is None:
                 raise ValueError('Exact authenticated maintenance channel required for cache refresh')
+        if action in RECOVERY_INPUTS:
+            validate_recovery_input(uid, action, data or {})
+            if action in HELD_RECOVERY and self.observe is None:
+                raise ValueError('Current native hold observations required before a recovery action')
+            if action in ('recover-files', 'refresh-recovery-cache') and self.invalidate is None:
+                raise ValueError('Exact authenticated maintenance channel required for recovery cache refresh')
         if ((action == 'capture-database-stream') != (capture_sink is not None)
                 or (action == 'restore-database-stream') != (restore_source is not None)):
             raise ValueError('Explicit bounded database stream endpoint required')
@@ -303,7 +350,7 @@ class Coordinator:
                     result = event['response']
                     if not isinstance(result, dict):
                         raise ValueError('Native response object required')
-                elif set(event) == {'request'} and exchanges < (40000 if action in (*HELD_FORWARD, 'capture-database-stream','empty-recovery-database','restore-database-stream') else 2):
+                elif set(event) == {'request'} and exchanges < (40000 if action in (*HELD_FORWARD, *HELD_RECOVERY, 'capture-database-stream','empty-recovery-database','restore-database-stream') else 2):
                     exchanges += 1
                     query = event['request']
                     if query.get('kind') == 'database-restore-chunk':
@@ -348,6 +395,8 @@ class Coordinator:
                 expected = forward_evidence(action, data or {})
                 if result['control']['evidence_sha256'] != expected:
                     raise ValueError('Native forward outcome differs from the requested inputs')
+            if action in RECOVERY_INPUTS:
+                self._verify_recovery_result(uid, action, data or {}, result)
             if action == 'inspect-database-state' and (
                     result.get('operation') != self.config['control_spec']['operation']
                     or result.get('candidate_commit') != self.config['control_spec']['candidate_commit']
@@ -408,6 +457,66 @@ class Coordinator:
         budget = timeout_seconds if timeout_seconds is not None else (3600 if phase == 'upgrade-database' else None)
         return self.call(uid, phase, data, peer, timeout=budget)
 
+    def _verify_recovery_result(self, uid: int, phase: str, data: dict, result: dict) -> None:
+        if phase == 'request-recovery':
+            self._verify_state(uid, result)
+            state = result['state']
+            if (state.get('direction') != 'recovery' or state.get('pending') is not None
+                    or state.get('terminal') is not None or state.get('activation_may_have_started') is not False):
+                raise ValueError('Native recovery direction was not established')
+        elif phase == 'begin-database-recovery':
+            if set(result) != {'intent'} or not exact_hex(result['intent'], 64):
+                raise ValueError('Durable native database recovery intent required')
+        else:
+            native_phase = 'restore-database' if phase == 'confirm-database-recovery' else phase
+            outcome = self._verify_completed(uid, native_phase, result)
+            expected = data['expectation_sha256'] if phase == 'confirm-database-recovery' else forward_evidence(phase, data)
+            if outcome['evidence_sha256'] != expected:
+                raise ValueError('Native recovery outcome differs from the requested inputs')
+
+    def recovery_step(self, uid: int, phase: str, data: dict, *, timeout_seconds: int | None = None) -> dict:
+        """One explicit recovery action; never selects recovery or repeats a destructive restore automatically."""
+        validate_recovery_input(uid, phase, data)
+        validate_recovery_timeout(phase, timeout_seconds)
+        other = 1004 if uid == 1003 else 1003
+        reports = {owner: self.call(owner, 'inspect-control') for owner in (uid, other)}
+        for owner, report in reports.items():
+            state = report['state']
+            peer_restored = (owner == other and uid == 1003 and phase == 'restore-scheduler'
+                             and state['terminal'] == 'recovered')
+            if (state.get('activation_may_have_started') is not False
+                    or (state['terminal'] is not None and not peer_restored)
+                    or state['direction'] not in ('release', 'recovery')):
+                raise ValueError('Old-backup recovery is forbidden after activation or another terminal direction')
+        own = reports[uid]
+        if phase == 'request-recovery':
+            if own['state']['direction'] != 'release':
+                raise ValueError('Already selected recovery must be inspected, not replayed')
+            # A failed release intent can be fenced; a pending recovery cannot be replaced.
+            if any(r['state']['direction'] == 'recovery' and r['state']['pending'] is not None
+                   for r in reports.values()):
+                raise ValueError('Inspect the pending recovery before changing another owner')
+            return self.call(uid, phase, data, timeout=timeout_seconds)
+        native_phase = 'restore-database' if phase in ('begin-database-recovery', 'confirm-database-recovery') else phase
+        for owner, report in reports.items():
+            state = report['state']
+            if state['direction'] != 'recovery':
+                raise ValueError('Both owners must explicitly select recovery first')
+            pending = state['pending']
+            if owner == uid and phase == 'confirm-database-recovery':
+                if (not isinstance(pending, dict) or pending.get('action') != 'restore-database'
+                        or pending.get('evidence_sha256') != data['expectation_sha256']):
+                    raise ValueError('Confirmation requires the exact pending database recovery intent')
+            elif pending is not None:
+                raise ValueError('Pending native recovery must be inspected, never replayed')
+        next_phase = next((p for p in RECOVERY_PHASES[uid] if p not in (own.get('completed') or {})), None)
+        if native_phase != next_phase:
+            raise ValueError('Recovery action is completed or out of order for this owner')
+        required = RECOVERY_PEERS[uid].get(phase)
+        peer = self._verify_completed(other, required, (reports[other].get('completed') or {}).get(required)) if required else None
+        budget = timeout_seconds if timeout_seconds is not None else (3600 if phase == 'confirm-database-recovery' else None)
+        return self.call(uid, phase, data, peer, timeout=budget)
+
     def step(self, uid: int, phase: str, *, resume: bool = False) -> dict:
         if phase not in (*ABORT_PHASES, 'request-preparation-abort'):
             raise ValueError('Explicit preparation-abort phase required')
@@ -456,14 +565,14 @@ class Coordinator:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['inspect', 'abort-preparation', 'resume-preparation-abort', 'forward-step'])
+    parser.add_argument('action', choices=['inspect', 'abort-preparation', 'resume-preparation-abort', 'forward-step', 'recovery-step'])
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--config-sha256', required=True)
     parser.add_argument('--identity', required=True)
     parser.add_argument('--ssh', default='ssh')
     parser.add_argument('--known-hosts')
     parser.add_argument('--owner', type=int, choices=[1003, 1004])
-    parser.add_argument('--phase', choices=(*ABORT_PHASES, *FORWARD_INPUTS))
+    parser.add_argument('--phase', choices=(*ABORT_PHASES, *FORWARD_INPUTS, *RECOVERY_INPUTS))
     parser.add_argument('--step-config', type=Path)
     parser.add_argument('--step-config-sha256')
     parser.add_argument('--output', type=Path, required=True)
@@ -471,28 +580,29 @@ def main() -> None:
     raw = args.config.read_bytes()
     if not exact_hex(args.config_sha256, 64) or hashlib.sha256(raw).hexdigest() != args.config_sha256:
         raise ValueError('Reviewed local coordinator configuration changed')
-    if ((args.action in ('resume-preparation-abort', 'forward-step') and (args.owner is None or args.phase is None))
-            or (args.action not in ('resume-preparation-abort', 'forward-step') and (args.owner is not None or args.phase is not None))
+    if ((args.action in ('resume-preparation-abort', 'forward-step', 'recovery-step') and (args.owner is None or args.phase is None))
+            or (args.action not in ('resume-preparation-abort', 'forward-step', 'recovery-step') and (args.owner is not None or args.phase is not None))
             or (args.action == 'resume-preparation-abort' and args.phase not in ABORT_PHASES)):
         raise ValueError('Explicit owner and phase required only for the selected step')
-    if args.action != 'forward-step' and (args.step_config or args.step_config_sha256):
-        raise ValueError('Forward inputs cannot be attached to another action')
+    if args.action not in ('forward-step', 'recovery-step') and (args.step_config or args.step_config_sha256):
+        raise ValueError('Release step inputs cannot be attached to another action')
     controller = Coordinator(json.loads(raw), args.identity, ssh=args.ssh, known_hosts=args.known_hosts)
     step = None
-    if args.action == 'forward-step':
+    if args.action in ('forward-step', 'recovery-step'):
+        recovery = args.action == 'recovery-step'
         if not args.step_config or not exact_hex(args.step_config_sha256, 64):
-            raise ValueError('Separately reviewed forward-step configuration required')
+            raise ValueError('Separately reviewed step configuration required')
         step_raw = args.step_config.read_bytes()
         if hashlib.sha256(step_raw).hexdigest() != args.step_config_sha256:
-            raise ValueError('Reviewed forward-step configuration changed')
+            raise ValueError('Reviewed step configuration changed')
         step = json.loads(step_raw)
         if (step.get('version') != 1 or step.get('owner_uid') != args.owner or step.get('phase') != args.phase):
-            raise ValueError('Forward-step configuration must pin the exact owner and phase')
-        validate_forward_input(args.owner, args.phase, step['input'])
-        validate_forward_timeout(args.phase, step.get('timeout_seconds'))
+            raise ValueError('Step configuration must pin the exact owner and phase')
+        (validate_recovery_input if recovery else validate_forward_input)(args.owner, args.phase, step['input'])
+        (validate_recovery_timeout if recovery else validate_forward_timeout)(args.phase, step.get('timeout_seconds'))
         if any(step.get(key) != controller.config['control_spec'][key] for key in ('operation', 'candidate_commit')):
-            raise ValueError('Forward step belongs to another reviewed release')
-        if args.phase in HELD_FORWARD:
+            raise ValueError('Step belongs to another reviewed release')
+        if args.phase in (HELD_RECOVERY if recovery else HELD_FORWARD):
             from core_native_hold_observer import NativeHoldObserver, MaintenanceStatus
             binding_raw = Path(step['hold_binding_path']).read_bytes()
             expected = step['input'].get('binding_sha256', step['input'].get('guard_sha256'))
@@ -514,6 +624,8 @@ def main() -> None:
             result = controller.abort_preparation()
         elif args.action == 'forward-step':
             result = controller.forward_step(args.owner, args.phase, step['input'], timeout_seconds=step.get('timeout_seconds'))
+        elif args.action == 'recovery-step':
+            result = controller.recovery_step(args.owner, args.phase, step['input'], timeout_seconds=step.get('timeout_seconds'))
         else:
             result = controller.step(args.owner, args.phase, resume=True)
         receipt.write(encode({'status': 'verified', 'result': result}) + b'\n')
