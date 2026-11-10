@@ -33,8 +33,13 @@ try:
                 finally:
                     controller._command = saved
             controller.call = lose_phase
-        result = controller.forward_step(uid, action, initial['input'])
+        # PHP's empty associative array is encoded as []; the real CLI takes a JSON object.
+        data = {} if initial['input'] == [] else initial['input']
+        result = controller.forward_step(uid, action, data)
     print(json.dumps({'response': result, 'challenge': initial['challenge'], 'owner_uid': uid}, separators=(',', ':')))
 except Exception as error:
-    print(type(error).__name__ + ': forward phase refused or interrupted; inspect native state', file=sys.stderr)
+    # This fixture contains only synthetic data; retain controller refusal details for diagnosis.
+    print(type(error).__name__ + ': ' + str(error), file=sys.stderr)
+    if error.__cause__:
+        print(type(error.__cause__).__name__ + ': ' + str(error.__cause__), file=sys.stderr)
     sys.exit(2)

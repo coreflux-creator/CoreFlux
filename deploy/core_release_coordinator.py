@@ -462,6 +462,8 @@ def main() -> None:
         if hashlib.sha256(step_raw).hexdigest() != args.step_config_sha256:
             raise ValueError('Reviewed forward-step configuration changed')
         step = json.loads(step_raw)
+        if (step.get('version') != 1 or step.get('owner_uid') != args.owner or step.get('phase') != args.phase):
+            raise ValueError('Forward-step configuration must pin the exact owner and phase')
         validate_forward_input(args.owner, args.phase, step['input'])
         if any(step.get(key) != controller.config['control_spec'][key] for key in ('operation', 'candidate_commit')):
             raise ValueError('Forward step belongs to another reviewed release')

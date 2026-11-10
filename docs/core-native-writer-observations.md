@@ -83,7 +83,8 @@ because a timeout elapsed.
 
 The CLI requires `--owner`, `--phase`, the existing pinned coordinator configuration,
 and a separate `--step-config` with `--step-config-sha256`. That private JSON pins
-the `operation`, `candidate_commit` and exact phase `input`. Held phases additionally
+`version: 1`, `owner_uid`, `phase`, `operation`, `candidate_commit` and exact phase
+`input`. Held phases additionally
 specify `hold_binding_path`, `maintenance_url` and `maintenance_token`. The binding's
 actual bytes must match the requested `guard_sha256` or `binding_sha256`. Keep this
 file outside source control: its token is private. Receipts record its fingerprint,
