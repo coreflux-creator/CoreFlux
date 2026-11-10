@@ -141,8 +141,8 @@ TARGET
 cat > "$fixture/core-native-fixture.service" <<'UNIT'
 [Unit]
 Description=Core actual native observers and paired recovery
-Requires=user@1003.service user@1004.service
-After=basic.target user@1003.service user@1004.service
+Requires=basic.target dbus.service systemd-logind.service user@1003.service user@1004.service
+After=basic.target dbus.service systemd-logind.service user@1003.service user@1004.service
 JobTimeoutSec=180
 JobTimeoutAction=exit-force
 [Service]
@@ -175,6 +175,12 @@ for scenario in "${scenarios[@]}"; do
         docker create --name "$container" "$image" >/dev/null
         docker export "$container" | sudo tar -xpf - -C "$rootfs"
         docker rm "$container" >/dev/null
+        # docker export does not replace mktemp's root directory metadata.
+        # A runner-owned mode-0700 / blocks native tmpfiles and both user managers.
+        test "$(dirname "$(realpath "$rootfs")")" = "$(realpath "$fixture")"
+        sudo chown 0:0 -- "$rootfs"
+        sudo chmod 0755 -- "$rootfs"
+        test "$(stat -c '%u:%g:%a' "$rootfs")" = 0:0:755
         printf '%s\n' "$scenario" | sudo tee "$rootfs/fixture/scenario" >/dev/null
         result=0
         sudo timeout --signal=TERM --kill-after=15s 660s systemd-nspawn --directory="$rootfs" \

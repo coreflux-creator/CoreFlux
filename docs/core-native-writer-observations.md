@@ -39,7 +39,19 @@ unrelated services and platform certificate jobs are not changed.
 
 Validation includes adversarial PHP policy tests, Python composition tests,
 actual PHP 8.2 execution, and read-only observations on both hosting accounts.
-The existing native upgrade/recovery fixture continues to use its prior writer
-adapter. Replacing that adapter with this observer, including real scheduler
-visibility in the isolated fixture, and the full application-candidate rehearsal
-remain required before treating this as production release acceptance.
+The default native upgrade/recovery fixture retains its prior writer adapter.
+The `--native-writers activate recover` variant instead runs the real observer
+inside a network-isolated systemd container on a disposable GitHub runner. It
+uses actual user managers, empty scheduler observations, SSH sessions and FPM
+process identities. A harmless unreviewed application-user process must prevent
+database baseline capture before the normal activation/recovery flow proceeds.
+
+The first real-observer CI attempt timed out during startup without diagnostic
+output; it did not establish acceptance. The diagnostic rerun found that Docker's
+export retained the temporary root directory's runner ownership and mode 0700,
+so native tmpfiles rejected root-to-child ownership transitions and user runtime
+directories could not connect to the system bus. The fixture now sets only that
+exact exported root to root:root mode 0755 and explicitly starts the native basic,
+bus and login services. Boot diagnostics remain enabled. Passing this variant
+and rehearsing the full application candidate remain required before treating
+this as production release acceptance.
