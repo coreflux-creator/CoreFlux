@@ -124,7 +124,11 @@ function coreWriterPolicyClassify(array $report, string $policyBytes, string $po
         if ($matches) { $parents[$role] = $matches[0]; $allowed[$matches[0]] = true; }
     }
     foreach ($report['processes'] as $record) {
-        if (!isset($allowed[$record['pid']])) throw new RuntimeException('Unreviewed native process remains; retain hold.');
+        if (!isset($allowed[$record['pid']])) {
+            // Private diagnostics retain identities and fingerprints, never command arguments.
+            $identity = array_intersect_key($record, array_flip(['pid','ppid','start_ticks','uids','command_title_sha256','core_reference','state']));
+            throw new RuntimeException('Unreviewed native process remains; retain hold. ' . json_encode($identity, JSON_THROW_ON_ERROR));
+        }
     }
     return ['inventory_sha256'=>$policyHash,'registry_unchanged'=>true,'core_cli_processes'=>0,'unmanaged_writers'=>0,
         'owner_uid'=>$report['owner_uid'],'observed_at_unix'=>$report['observed_at_unix'],
