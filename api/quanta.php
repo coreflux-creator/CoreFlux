@@ -135,10 +135,14 @@ try {
     $body = api_json_body();
 
     if (in_array($action, ['profile_baseline_preview', 'profile_baseline_send', 'profile_baseline_status',
-        'profile_review_preview', 'profile_review_apply', 'profile_review_status'], true)) {
+        'profile_review_list', 'profile_review_preview', 'profile_review_apply', 'profile_review_status'], true)) {
         rbac_legacy_require($user, 'people.view');
         // Contact decisions change the shared people directory, not just integration settings.
         if (str_starts_with($action, 'profile_review_')) rbac_legacy_require($user, 'people.manage');
+        if ($action === 'profile_review_list') {
+            if (isset($body['cursor']) && !is_string($body['cursor'])) throw new InvalidArgumentException('Invalid request page.');
+            api_ok(quantaProfileReviewPage($tenantId, $body['cursor'] ?? null));
+        }
         if (in_array($action, ['profile_baseline_preview', 'profile_review_preview'], true)) {
             if (!is_int($body['person_id'] ?? null) || $body['person_id'] <= 0) throw new InvalidArgumentException('Choose a Core person.');
             if ($action === 'profile_baseline_preview') api_ok(quantaProfileBaselinePreview($tenantId, $actorId, $body['person_id']));

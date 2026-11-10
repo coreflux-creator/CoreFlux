@@ -3,6 +3,57 @@
 declare(strict_types=1);
 require_once __DIR__ . '/profile_baseline_delivery.php';
 
+/** List only requests whose canonical person resolves in the authorized Core directory. */
+function quantaProfileReviewPage(int $tenant, ?string $cursor = null): array
+{
+    if ($cursor !== null && (!preg_match('/^[A-Za-z0-9_-]{1,2048}$/D', $cursor))) throw new InvalidArgumentException('Invalid request page.');
+    $pdo = getDB(); $access = quantaProfileBaselineAccess($tenant);
+    $owner = effectiveTenantIdForModule('people', $tenant) ?? $tenant;
+    $page = quantaGet($access['api_key'], QUANTA_CORE_CONTRACT_PATH . '/profile-changes',
+        ['limit' => 25] + ($cursor === null ? [] : ['cursor' => $cursor]));
+    [$items, $pagination] = quantaListPage($page, QUANTA_CORE_CONTRACT_PATH . '/profile-changes');
+    if (count($items) > 25 || ($pagination['has_more'] && (!is_string($pagination['next_cursor'] ?? null)
+        || !preg_match('/^[A-Za-z0-9_-]{1,2048}$/D', $pagination['next_cursor']) || $pagination['next_cursor'] === $cursor))) {
+        throw new RuntimeException('The contact request page is incomplete.');
+    }
+    $rows = []; $unavailable = 0;
+    foreach ($items as $item) {
+        try {
+            quantaProfileExactFields($item, ['proposal', 'outcome']);
+            $p = $item['proposal'];
+            if (!is_array($p) || !is_array($p['person'] ?? null)) throw new RuntimeException('Invalid source identity.');
+            $reference = quantaCoreReferenceValidate($p['person'], 'person');
+            if ($reference['instance_id'] !== $access['instance_id'] || $reference['directory_tenant_id'] !== $owner) {
+                $unavailable++; continue;
+            }
+            $s = $pdo->prepare('SELECT record_id FROM core_record_numbers WHERE tenant_id=:t AND entity_type="person" AND record_number=:n');
+            $s->execute(['t' => $owner, 'n' => $reference['number']]); $ids = $s->fetchAll(PDO::FETCH_COLUMN);
+            if (count($ids) !== 1) { $unavailable++; continue; }
+            $personId = (int)$ids[0]; $source = quantaProfileReviewSource($pdo, $tenant, $owner, $personId, $access);
+            $p = quantaProfileProposalValidate($p, $access['context']['workspace']['id'], $source['reference'], $source['worker_id'], $p['id']);
+            if (!quantaProfileBaselineSaved($pdo, $tenant, $access['binding_hash'], $owner, $personId, $p['baseline'])) {
+                $unavailable++; continue;
+            }
+            $receipt = quantaProfileReviewReceipt($pdo, $tenant, ['workspace' => $p['tenant_id'], 'proposal' => $p,
+                'owner' => $owner, 'person_id' => $personId, 'worker_id' => $source['worker_id'],
+                'binding_hash' => $access['binding_hash'], 'proposal_hash' => quantaProfileDigest($p)]);
+            $rows[] = ['change_id' => $p['id'], 'person_id' => $personId, 'person_number' => $reference['number'],
+                'person_name' => trim($source['record']['first_name'] . ' ' . $source['record']['last_name']),
+                'changed_fields' => $p['changed_fields'], 'created_at' => $p['created_at'],
+                'state' => $receipt['decision'] ?? ($item['outcome'] === null ? 'pending_review' : 'source_decided')];
+        } catch (InvalidArgumentException|RuntimeException $e) { $unavailable++; }
+    }
+    // Recheck uncached directory policy before exposing any personal details from the page.
+    if ($pdo->inTransaction()) throw new LogicException('Contact listing requires its own transaction.');
+    $pdo->beginTransaction();
+    try {
+        quantaWorkspaceAssertCurrent($pdo, $tenant, $access, true); quantaWorkerDeliveryDirectoryLock($pdo, $tenant, $owner);
+        $pdo->commit();
+    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+    return ['rows' => $rows, 'unavailable_count' => $unavailable,
+        'next_cursor' => $pagination['has_more'] ? $pagination['next_cursor'] : null];
+}
+
 function quantaProfileProposalRead(array $access, array $person, string $worker, string $id): array
 {
     if (!preg_match('/^cpc_[a-f0-9]{64}$/D', $id)) throw new InvalidArgumentException('Choose a Quanta contact request.');

@@ -4,6 +4,7 @@ import { AlertCircle, ArrowLeft, ArrowRight, BriefcaseBusiness, Check, Clock3, K
 import { api, getPinnedTenantId, useApi } from '../lib/api';
 import QuantaIdentityReview from './QuantaIdentityReview';
 import QuantaPublicationPanel from './QuantaPublicationPanel';
+import QuantaContactReview from './QuantaContactReview';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
 import QuantaMetadataPanel, { QuantaMetadataRecovery } from './QuantaMetadataPanel';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
@@ -302,6 +303,7 @@ export default function QuantaSettings() {
     {connected && <>
       <QuantaWorkspacePanel key={`workspace-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspace={status.data?.workspace} />
       {catalog && <QuantaPublicationPanel key={`workers-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspaceId={status.data?.workspace?.id} people={people} />}
+      {catalog && <QuantaContactReview key={`contacts-${status.data?.workspace?.id}-${status.data?.connection_revision}`} workspaceId={status.data?.workspace?.id} people={people} />}
       {identityReview && <QuantaIdentityReview key={`intake-${identityScope}`} request={identityReview} workspaceId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision}
         onClose={() => setIdentityReview(null)} onComplete={result => {
           setIdentityReview(null); setCreateDraft(null); setLinkDrafts({}); setPreview(null); setSelected([]);

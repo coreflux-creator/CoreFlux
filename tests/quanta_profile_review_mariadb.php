@@ -9,6 +9,9 @@ $pdo->exec('ALTER TABLE people ADD updated_at DATETIME NULL');
 $n = 0; $mode = 'ok'; $send($preview(108)); $proposals = []; $reads = 0; $readMode = 'ok';
 $baselineTransport = $GLOBALS['__quanta_transport'];
 $GLOBALS['__quanta_transport'] = static function ($method, $url) use ($baselineTransport, &$proposals, &$reads, &$readMode, $pdo) {
+    if (str_ends_with(parse_url($url, PHP_URL_PATH), '/profile-changes')) {
+        return ['status' => 200, 'body' => json_encode(['items' => array_map(static fn($p) => ['proposal' => $p, 'outcome' => null], array_values($proposals)), 'has_more' => false, 'next_cursor' => null])];
+    }
     if (!str_contains($url, '/profile-changes/')) return $baselineTransport($method, $url);
     $reads++; $id = basename(parse_url($url, PHP_URL_PATH));
     if ($readMode === 'offline') throw new RuntimeException('Synthetic provider unavailable');
@@ -52,7 +55,7 @@ $check(!str_contains($row['decision_ct'], '202 555') && !str_contains($row['prop
 $readCount = $reads; $readMode = 'offline'; $savedPerson = $personNow();
 $check($apply($r)['replayed'] === true && $reads === $readCount && $personNow() === $savedPerson && $count() === 1, 'Lost acknowledgement retry needs no provider IO or second update');
 $check($fails(fn() => $apply($r, 'rejected', 'Changed my mind')) && $count() === 1, 'Contradictory retry cannot replace the decision');
-$check(quantaProfileReviewStatus(11, 7, $r['review_token'])['result'] === $result, 'Status returns the original committed result');
+$check(quantaProfileDigest(quantaProfileReviewStatus(11, 7, $r['review_token'])['result']) === quantaProfileDigest($result), 'Status returns the original committed result');
 $readMode = 'ok'; $r2 = $review($id);
 $check($apply($r2)['replayed'] === true && $count() === 1, 'A second preview of the same source request still applies once');
 
@@ -105,4 +108,12 @@ $token = json_decode(decryptField(base64_decode($expired['review_token'], true))
 $expired['review_token'] = base64_encode(encryptField(integrationDeliveryJson($token)));
 $check($fails(fn() => $apply($expired)) && $count() === 5, 'Expired uncommitted review cannot update contact');
 $check((int)$pdo->query('SELECT COUNT(*) FROM quanta_worker_links')->fetchColumn() === 8, 'No additional provider identity created by decisions');
+$listed = quantaProfileReviewPage(11);
+$check(count(array_filter($listed['rows'], static fn($r) => $r['state'] === 'accepted')) === 4
+    && count(array_filter($listed['rows'], static fn($r) => $r['state'] === 'rejected')) === 1, 'Request list identifies the saved native decisions');
+$check($listed['unavailable_count'] === 1, 'Unproven provider baseline is withheld from request list');
+$foreign = $make(['first_name' => 'Foreign directory']);
+$proposals[$foreign]['person']['directory_tenant_id'] = 12;
+$listed = quantaProfileReviewPage(11);
+$check($listed['unavailable_count'] === 2 && !str_contains(json_encode($listed), 'Foreign directory'), 'Other directory contact details never enter the review list');
 echo "Quanta profile review MariaDB: $n passed\n";
