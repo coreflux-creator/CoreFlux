@@ -43,7 +43,9 @@ $GLOBALS['__quanta_core_write_transport'] = static function ($method, $url, $hea
     return ['status' => 200, 'body' => json_encode($returned[$id])];
 };
 $prepareReturn = static function (array $fields, string $decision = 'accepted', string $reason = '') use ($send, $preview, $make, $review, $apply): string {
-    $send($preview(108)); $id = $make($fields); $apply($review($id), $decision, $reason); return $id;
+    $publication = $preview(108);
+    if ($publication['status'] !== 'unchanged') $send($publication);
+    $id = $make($fields); $apply($review($id), $decision, $reason); return $id;
 };
 $pushReturn = static fn($id, $resume = false) => quantaProfileReturnSend(11, 7, $id, $resume);
 $inspectReturn = static fn($id) => quantaProfileReturnStatus(11, 7, $id);
