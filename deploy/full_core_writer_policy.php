@@ -43,7 +43,8 @@ function coreWriterPolicyClassify(array $report, string $policyBytes, string $po
     foreach (['user_timers','running_user_services','queued_at_jobs'] as $key) {
         $expected = $policy['schedulers'][(string)$report['owner_uid']][$key] ?? null;
         if (!is_array($expected) || ($report[$key] ?? null) !== $expected) throw new RuntimeException('Native scheduler state differs.');
-        if ($key === 'queued_at_jobs' && in_array('at-observation-unavailable', $reviewedLimits, true)) continue;
+        if ($key === 'queued_at_jobs' && $expected === ['available'=>false]
+            && in_array('at-observation-unavailable', $reviewedLimits, true)) continue;
         if (($expected['available'] ?? null) !== true || ($expected['exit'] ?? null) !== 0
             || ($expected['nonempty_lines'] ?? null) !== 0 || ($expected['stdout_bytes'] ?? null) !== 0
             || ($expected['stdout_sha256'] ?? null) !== hash('sha256','')) throw new RuntimeException('Unheld native scheduler remains.');
