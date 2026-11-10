@@ -72,6 +72,15 @@ $run=$runtime;$run['database_children']=['timeout'=>['parent'=>'owner','command_
     'client'=>['parent'=>'timeout','command_title_sha256'=>hash('sha256','dump')]];
 $bad=$report;$bad['processes'][]=$p(401,102,1004,'timeout');$bad['processes'][]=$p(402,401,1004,'dump');
 $check($classify($bad,$policy,$run)['unmanaged_writers']===0,'Exact direct native transfer descendants accepted.');
+$dead=$report;$dead['processes'][]=$p(401,102,1004,'')+['state'=>'Z','empty_command'=>true,'command_bytes'=>0,'command_sha256'=>hash('sha256','')];
+$check($classify($dead,$policy,$run)['unmanaged_writers']===0,'Exited native transfer child cannot write while awaiting reap.');
+$refuse(fn()=>$classify($dead,$policy,$runtime),'Exited child is not exempt outside an authenticated transfer.');
+$alive=$dead;$alive['processes'][5]['state']='S';
+$refuse(fn()=>$classify($alive,$policy,$run),'Living process with an empty title remains forbidden.');
+$foreign=$dead;$foreign['processes'][5]['ppid']=101;
+$refuse(fn()=>$classify($foreign,$policy,$run),'Exited sibling cannot claim the active owner child.');
+$changed=$dead;$changed['processes'][5]['command_bytes']=1;
+$refuse(fn()=>$classify($changed,$policy,$run),'Inconsistent exited command evidence rejected.');
 $bad['processes'][6]['ppid']=101;
 $refuse(fn()=>$classify($bad,$policy,$run),'Sibling database process cannot claim active transfer.');
 $bad=$report;$bad['processes'][]=$p(401,102,1004,'timeout');$bad['processes'][]=$p(402,102,1004,'timeout');

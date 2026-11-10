@@ -116,8 +116,15 @@ function coreWriterPolicyClassify(array $report, string $policyBytes, string $po
             || !preg_match('/^[a-f0-9]{64}$/D',$command['command_title_sha256'] ?? '')) throw new RuntimeException('Exact native transfer command required.');
         $matches = [];
         foreach ($report['processes'] as $record) {
+            // A direct transfer child can finish while the owner waits for this
+            // observation. Linux then exposes a zombie with no command bytes
+            // until proc_close reaps it. It cannot execute or write again.
+            $exited = ($record['state'] ?? null) === 'Z' && ($record['empty_command'] ?? null) === true
+                && ($record['command_bytes'] ?? null) === 0 && ($record['core_reference'] ?? null) === false
+                && ($record['command_sha256'] ?? null) === hash('sha256','')
+                && ($record['command_title_sha256'] ?? null) === hash('sha256','');
             if (($record['uids'] ?? null) === [1004,1004,1004,1004]
-                && $record['command_title_sha256'] === $command['command_title_sha256']
+                && ($record['command_title_sha256'] === $command['command_title_sha256'] || $exited)
                 && ($record['ppid'] ?? null) === ($parents[$command['parent']] ?? -1)) $matches[] = $record['pid'];
         }
         if (count($matches) > 1) throw new RuntimeException('Multiple native transfer processes.');
