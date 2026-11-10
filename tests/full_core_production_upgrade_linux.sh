@@ -51,6 +51,7 @@ COPY core-native-fixture.target /etc/systemd/system/core-native-fixture.target
 RUN if [ "$NATIVE_WRITERS" = 1 ]; then \
       systemctl mask cron.service atd.service apache2.service mariadb.service ssh.service console-getty.service \
       && ln -sf /etc/systemd/system/core-native-fixture.target /etc/systemd/system/default.target \
+      && mkdir -p /var/log/journal \
       && truncate -s 0 /etc/machine-id; fi
 WORKDIR /app
 ENTRYPOINT ["bash", "/start.sh"]
@@ -142,6 +143,8 @@ cat > "$fixture/core-native-fixture.service" <<'UNIT'
 Description=Core actual native observers and paired recovery
 Requires=user@1003.service user@1004.service
 After=basic.target user@1003.service user@1004.service
+JobTimeoutSec=180
+JobTimeoutAction=exit-force
 [Service]
 Type=oneshot
 WorkingDirectory=/app
@@ -174,10 +177,12 @@ for scenario in "${scenarios[@]}"; do
         docker rm "$container" >/dev/null
         printf '%s\n' "$scenario" | sudo tee "$rootfs/fixture/scenario" >/dev/null
         result=0
-        sudo timeout --signal=TERM --kill-after=15s 660s systemd-nspawn --quiet --directory="$rootfs" \
+        sudo timeout --signal=TERM --kill-after=15s 660s systemd-nspawn --directory="$rootfs" \
             --machine="core-native-${GITHUB_RUN_ID}-${scenario}" --boot --private-network --register=no \
-            --settings=no --console=pipe || result=$?
+            --settings=no --console=pipe systemd.log_target=console systemd.show_status=yes || result=$?
         if [ "$result" != 0 ] || [ "$(sudo cat "$rootfs/fixture/result.exit" 2>/dev/null || true)" != 0 ]; then
+            printf 'Native fixture %s exited with host status %s\n' "$scenario" "$result"
+            sudo journalctl --directory="$rootfs/var/log/journal" --no-pager -n 200 || true
             sudo find "$rootfs/fixture" -name 'error-*.json' -type f -exec cat {} \;
             sudo cat "$rootfs/fixture/commands.stderr" 2>/dev/null || true
             exit 1
