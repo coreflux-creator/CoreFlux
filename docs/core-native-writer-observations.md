@@ -117,3 +117,19 @@ It deliberately loses the final response after native file verification, recover
 the completed receipt via fresh inspection and verifies replay refusal. The paired
 recovery fixture also runs its forward preparation through this controller. These
 tests use synthetic data and private loopback transport, not the live Core release.
+
+The populated Windows-to-Linux rehearsal found two operational issues before any
+application file or database mutation. FPM's whole-second timestamp can appear to
+precede a new request when the two host clocks differ by less than a second. Its
+comparison now uses the same bounded two-second clock skew as the native SSH
+observations, rounded for FPM's second precision. The complete witness still has
+the independent 15-second deadline; old, future and timezone-free values fail.
+
+Each witness now uses two authenticated SSH observations. The peer account reads
+its actual hold before and after inspecting processes, under its native release
+lock, and returns both results in one response. The active account's independent
+observer remains lock-free. This removes the separate peer-hold SSH round trip
+without caching observations, skipping an account, relaxing process classification,
+or changing the per-file guards. The peer observation cannot execute a database or
+release action through its read-only callbacks. Full-package timing and the native
+activation/recovery scenarios must validate this change before release acceptance.

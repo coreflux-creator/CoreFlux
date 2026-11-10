@@ -40,17 +40,32 @@ try {
     // Observation must not acquire the native release lock already held by the active owner.
     if (in_array($request['action'], ['inspect-writers','witness-writers'], true)) {
         $input = $request['input'];
+        $peerOwner = null; $peerHold = null;
+        if ($request['action'] === 'witness-writers') {
+            $runtime = $input['runtime'] ?? [];
+            foreach (['operation','candidate_commit'] as $key) if (($runtime[$key] ?? null) !== ($config['control_spec'][$key] ?? null)) throw new RuntimeException('Writer observation operation differs.');
+            if (!in_array($runtime['owner_uid'] ?? null, [1003,1004], true)) throw new RuntimeException('Exact active native owner required.');
+            // Only the peer can acquire its release lock. The active owner's
+            // independent process observer must never re-enter that owner's lock.
+            if ($runtime['owner_uid'] !== posix_geteuid()) {
+                $readOnly = static fn() => throw new RuntimeException('Writer witness cannot execute a release or database action.');
+                $peerOwner = new FullCoreReleaseOwner($config, $argv[3], $readOnly, $readOnly, $readOnly);
+                $peerHold = $peerOwner->heldObservation();
+            }
+        }
         $report = coreWriterObserve(['version'=>1,'action'=>'inspect-writers','owner_uid'=>posix_geteuid(),
             'challenge'=>$input['challenge'] ?? '']);
         $result = $report;
         if ($request['action'] === 'witness-writers') {
-            $runtime = $input['runtime'] ?? [];
-            foreach (['operation','candidate_commit'] as $key) if (($runtime[$key] ?? null) !== ($config['control_spec'][$key] ?? null)) throw new RuntimeException('Writer observation operation differs.');
             $policyBytes = ownerWorkerPrivate($config['writer_policy_path'] ?? '', $config['writer_policy_sha256'] ?? '');
             $classified = coreWriterPolicyClassify($report,$policyBytes,$config['writer_policy_sha256'],$runtime);
             $result = array_intersect_key($report,array_flip(['version','root','owner_uid','challenge','started_at_unix','observed_at_unix','boot_id']))
                 + ['scope'=>'native-writer-classification','writers'=>$classified,
                     'runtime_sha256'=>hash('sha256',FullCoreReleaseControl::encode($runtime))];
+            if ($peerOwner !== null) {
+                if ($peerOwner->heldObservation() !== $peerHold) throw new RuntimeException('Peer hold changed during native writer observation.');
+                $result['hold'] = $peerHold;
+            }
         }
         echo json_encode(['response'=>$result,'challenge'=>$request['challenge'],'owner_uid'=>posix_geteuid()],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
         exit;

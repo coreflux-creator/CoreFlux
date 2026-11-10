@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 from core_release_coordinator import Coordinator
@@ -66,6 +67,8 @@ class FakeCoordinator:
                   'writers': {'owner_uid': uid, 'inventory_sha256': binding['writer_inventory_sha256'],
                               'registry_unchanged': True, 'core_cli_processes': 0, 'unmanaged_writers': 0,
                               'observation_sha256': 'e' * 64}}
+        if uid != data['runtime']['owner_uid']:
+            report['hold'] = hold(uid)
         if self.mutate:
             self.mutate(report)
         return report
@@ -87,8 +90,14 @@ coordinator = FakeCoordinator()
 observer = NativeHoldObserver(coordinator, binding, web)
 result = observer(query)
 check(result['writers']['unmanaged_writers'] == 0, 'Composes both native observations')
-check(coordinator.calls == [(1003, 'witness-held'), (1003, 'witness-writers'), (1004, 'witness-writers')],
-      'Never re-enters active owner lock')
+check(coordinator.calls == [(1003, 'witness-writers'), (1004, 'witness-writers')],
+      'Both fresh native observations include the peer hold without another SSH session or active-owner lock')
+master_query = copy.deepcopy(query)
+master_query.update(owner_uid=1003, own_hold=hold(1003))
+coordinator.calls = []
+check(observer(master_query)['application']['cli_uid'] == 1004, 'Master action verifies the application peer hold')
+check(coordinator.calls == [(1004, 'witness-writers'), (1003, 'witness-writers')],
+      'Master action also observes peer first and never re-enters its own lock')
 for key, value in [('owner_pid', True), ('owner_start_ticks', ''), ('challenge', 'old'), ('operation', '0' * 32)]:
     bad = copy.deepcopy(query); bad[key] = value
     refuse(lambda: observer(bad), 'Rejects changed active process or release')
@@ -100,6 +109,11 @@ for field, value in [('challenge', '0' * 64), ('runtime_sha256', '0' * 64), ('st
     refuse(lambda: observer(query), 'Rejects stale, replayed or mismatched native writer response')
 coordinator.mutate = lambda r: r['writers'].update(unmanaged_writers=1)
 refuse(lambda: observer(query), 'Unknown native process prevents positive witness')
+coordinator.mutate = lambda r: r.pop('hold',None)
+refuse(lambda: observer(query), 'Combined peer observation requires explicit current hold evidence')
+for field, value in [('receipt_sha256','0'*64),('held_cron_sha256','0'*64),('cli_uid',1004)]:
+    coordinator.mutate = lambda r, field=field, value=value: r.get('hold',{}).update({field:value})
+    refuse(lambda: observer(query), 'Peer process evidence cannot substitute for its current matching hold')
 coordinator.mutate = lambda r: r.update(boot_id=str(r['owner_uid']))
 refuse(lambda: observer(query), 'Rejects different host observations')
 coordinator.mutate = None
@@ -109,6 +123,17 @@ for field, value in [('request_pool_quiet', False), ('process_ids', [300, 300]),
     refuse(lambda: NativeHoldObserver(coordinator, binding, lambda: status)(query), 'Invalid authenticated pool blocks witness')
 status = web(); status['observed_at'] = '2020-01-01T00:00:00+00:00'
 refuse(lambda: NativeHoldObserver(coordinator, binding, lambda: status)(query), 'Stale pool report rejected')
+# Real FPM emits gmdate('c') at second precision. A small legitimate clock skew
+# across a second boundary must not interrupt a native phase after intent creation.
+with patch('core_native_hold_observer.time.time', return_value=1000.8):
+    for stamp in (999, 998):
+        status = web(); status['observed_at'] = datetime.fromtimestamp(stamp, timezone.utc).isoformat()
+        check(observer._web(status, 1000.2) == [300, 301], 'Accepts bounded cross-host skew at FPM second precision')
+    for stamp in (997, 1003):
+        status = web(); status['observed_at'] = datetime.fromtimestamp(stamp, timezone.utc).isoformat()
+        refuse(lambda: observer._web(status, 1000.2), 'Rejects web timestamp outside bounded clock skew')
+    status = web(); status['observed_at'] = '1970-01-01T00:16:40'
+    refuse(lambda: observer._web(status, 1000.2), 'Rejects a web timestamp without a timezone')
 path = '/core-maintenance-' + binding['operation'] + '-' + '1' * 32 + '.php'
 check(MaintenanceStatus('https://www.corefluxapp.com' + path, '2' * 64, binding['operation']).path == path,
       'Exact HTTPS private endpoint accepted')

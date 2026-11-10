@@ -87,7 +87,10 @@ class NativeHoldObserver:
         }.items()):
             raise ValueError('Authenticated Core web observation differs')
         stamp = datetime.fromisoformat(web['observed_at'].replace('Z', '+00:00'))
-        if stamp.tzinfo is None or not (int(started) <= stamp.timestamp() <= time.time() + 2):
+        # FPM reports whole UTC seconds, on a different host. Apply the same
+        # bounded two-second clock skew as native SSH observations, with flooring
+        # for that timestamp precision. The full witness still expires at 15s.
+        if stamp.tzinfo is None or not (int(started - 2) <= stamp.timestamp() <= time.time() + 2):
             raise ValueError('Core web observation is stale')
         pool = web.get('pool', {})
         if any(pool.get(k) is not True for k in ('pool_matches', 'self_running', 'self_script_matches',
@@ -116,8 +119,6 @@ class NativeHoldObserver:
             raise ValueError('Authenticated active native owner required')
         own = self._hold(uid, query.get('own_hold'))
         other = 1004 if uid == 1003 else 1003
-        # The active owner's durable lock is held. Only the other owner may be opened here.
-        peer = self._hold(other, self.coordinator.call(other, 'witness-held'))
         web = self.status()
         pids = self._web(web, started)
         runtime = {k: query[k] for k in ('operation', 'candidate_commit', 'owner_uid', 'owner_pid', 'owner_start_ticks')}
@@ -126,12 +127,18 @@ class NativeHoldObserver:
                        pool_pids=pids, database_children=query.get('database_children', []),
                        worker_commands={str(u): self.coordinator.worker_command_hash(u) for u in (1003, 1004)})
         witnesses = []
-        for observer in (1003, 1004):
+        peer = None
+        # The peer's one authenticated observation includes its independently
+        # locked hold readback. Never re-enter the active owner's release lock.
+        # Both accounts still inspect live processes for every witness; no cache.
+        for observer in (other, uid):
             challenge = secrets.token_hex(32)
             data = {'challenge': challenge, 'runtime': runtime}
             requested = time.time()
             report = self.coordinator.call(observer, 'witness-writers', data)
             self.coordinator._verify_writer_response(observer, 'witness-writers', data, report, requested)
+            if observer == other:
+                peer = self._hold(other, report.get('hold'))
             writers = report.get('writers', {})
             if (writers.get('owner_uid') != observer or writers.get('inventory_sha256') != self.binding['writer_inventory_sha256']
                     or writers.get('registry_unchanged') is not True or writers.get('core_cli_processes') != 0
