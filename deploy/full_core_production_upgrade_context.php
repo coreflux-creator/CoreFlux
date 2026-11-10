@@ -211,8 +211,14 @@ final class FullCoreProductionUpgradeContext
         $this->maintenance->assertHeld($b['operation']);
         $this->assertDatabaseIdle($db);
         $challenge = bin2hex(random_bytes(32)); $requested = microtime(true);
-        $w = ($this->witness)(['challenge' => $challenge, 'operation' => $b['operation'],
-            'candidate_commit' => $b['candidate_commit'], 'migration_plan_sha256' => $b['migration_plan_sha256']]);
+        // This context already owns the maintenance lock. Export the receipt just
+        // verified through it instead of asking the outer owner to acquire it again.
+        $ownHold = ['scope'=>'application-scheduler-and-web','root'=>self::ROOT,'operation'=>$b['operation'],
+            'cli_uid'=>1004,'receipt_sha256'=>hash('sha256',$receiptBytes),
+            'held_cron_sha256'=>$receipt['held_cron_sha256'],'held_web_sha256'=>$receipt['held_web_sha256']];
+        $w = ($this->witness)(['kind'=>'hold-witness','challenge' => $challenge, 'operation' => $b['operation'],
+            'candidate_commit' => $b['candidate_commit'], 'migration_plan_sha256' => $b['migration_plan_sha256'],
+            'own_hold'=>$ownHold]);
         if (!is_array($w)) throw new RuntimeException('Release witness unavailable.');
         $this->lastAccepted = self::validateWitness($w, $b, $challenge, $requested, $this->lastAccepted);
         // Recheck locally after waiting for outside-host observations, including connections opened during that wait.

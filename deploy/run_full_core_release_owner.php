@@ -55,14 +55,13 @@ try {
         echo json_encode(['response'=>$result,'challenge'=>$request['challenge'],'owner_uid'=>posix_geteuid()],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
         exit;
     }
-    $owner = null;
-    $exchange = static function (array $query) use ($request, &$owner): array {
+    $exchange = static function (array $query) use ($request): array {
         $identity = coreWriterProcess(getmypid(), 'coreWriterRead');
         $query += ['owner_uid' => posix_geteuid(), 'owner_pid' => getmypid(), 'controller_challenge' => $request['challenge']];
         $query += ['owner_start_ticks'=>$identity['start_ticks']];
         // Upgrade guards and owner guards share the same real observation path.
         if (!isset($query['kind'])) $query['kind'] = 'hold-witness';
-        if ($query['kind'] === 'hold-witness' && !isset($query['own_hold'])) $query['own_hold'] = $owner->heldObservation();
+        if ($query['kind'] === 'hold-witness' && !is_array($query['own_hold'] ?? null)) throw new RuntimeException('Active maintenance owner observation required.');
         echo json_encode(['request' => $query], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"; fflush(STDOUT);
         return ownerWorkerRead();
     };
