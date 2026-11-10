@@ -236,4 +236,3 @@ function quantaProfileReturnPage(int $tenant, ?string $after = null): array
     return ['rows' => $rows, 'unavailable_count' => $unavailable, 'next_cursor' => $more ? end($ids) : null,
         'delivery_enabled' => quantaProfileReturnEnabled($tenant)];
 }
-

@@ -59,4 +59,3 @@ export default function QuantaContactReturns({ workspaceId }) {
     {page?.next_cursor && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => load(page.next_cursor)}>More decision returns</button>}
   </section>;
 }
-

@@ -136,4 +136,3 @@ $list = quantaProfileReturnPage(11);
 $check(count(array_filter($list['rows'], static fn($r) => $r['state'] === 'delivered')) === 11, 'Local outbox retains completed receipts and native conflicts');
 $check((int)$pdo->query('SELECT COUNT(*) FROM quanta_worker_links')->fetchColumn() === 8, 'Return workflow preserves all existing provider identities');
 echo "Quanta profile return MariaDB: $n passed\n";
-

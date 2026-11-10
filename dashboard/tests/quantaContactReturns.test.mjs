@@ -74,4 +74,3 @@ test('disabled pilot allows inspection without exposing write controls', async (
     assert.ok(button(f, 'Inspect return receipt')); assert.ok(text(f.tree.root).includes('not enabled for this pilot'));
   } finally { f.close(); }
 });
-
