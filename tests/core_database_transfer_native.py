@@ -32,6 +32,9 @@ config = {'version': 1, 'control_spec': json.loads((base / 'spec.json').read_byt
 controller = Coordinator(config, '/fixture/ssh-key', known_hosts='/fixture/known-hosts', observe=observe,
                          php_binary='/usr/local/bin/php', endpoints={1003: Endpoint('127.0.0.1', 'coremaster', 2222),
                                                                   1004: Endpoint('127.0.0.1', 'coreapp', 2222)})
+if os.environ.get('CORE_FIXTURE_NATIVE_WRITERS') == '1':
+    from core_native_hold_fixture import observer_for
+    controller.observe = observer_for(controller, base, 1004)
 key_path = base / 'backup' / 'archive.key'
 archive = base / 'backup' / 'database.aesgcm'
 guard = hashlib.sha256((base / 'guard-1004.json').read_bytes()).hexdigest()

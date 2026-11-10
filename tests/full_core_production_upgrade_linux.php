@@ -63,7 +63,7 @@ function fixtureQuietHttp(array $spec): array
 function fixtureOwnerNativeCommand(string $base, int $uid): array
 {
     return [PHP_BINARY,
-        __DIR__.'/../deploy/run_full_core_release_owner.php','--execute-owner-config',
+        'deploy/run_full_core_release_owner.php','--execute-owner-config',
         $base.'/owner-config-'.$uid.'.json',hash_file('sha256',$base.'/owner-config-'.$uid.'.json')];
 }
 function fixtureOwnerCommand(string $base, int $uid): array
@@ -71,7 +71,15 @@ function fixtureOwnerCommand(string $base, int $uid): array
     return ['/usr/bin/ssh','-T','-i','/fixture/ssh-key','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
         '-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile=/fixture/known-hosts','-o','ConnectTimeout=5',
         '-p','2222',($uid === 1003 ? 'coremaster' : 'coreapp').'@127.0.0.1',
-        'exec '.implode(' ',array_map('escapeshellarg',fixtureOwnerNativeCommand($base,$uid)))];
+        'cd /app && exec '.implode(' ',array_map('escapeshellarg',fixtureOwnerNativeCommand($base,$uid)))];
+}
+function fixtureNativeWitness(string $base, array $request, string $challenge, bool $upgrade = false): array
+{
+    $input=$base.'/native-witness-input.json';
+    fixtureWrite($input,json_encode(['query'=>$request,'controller_challenge'=>$challenge],JSON_THROW_ON_ERROR),0);
+    [$code,$bytes]=fixtureCommand(['python3',__DIR__.'/core_native_hold_fixture.py',$base,$upgrade?'upgrade':'hold'],$input);
+    if($code!==0) return []; // The real native owner must refuse an unavailable observation.
+    return json_decode($bytes,true,512,JSON_THROW_ON_ERROR);
 }
 function fixtureOwnerRequest(string $base, int $uid, string $action): array
 {
@@ -131,6 +139,8 @@ function fixtureOwner(string $base, int $uid, string $action, array $extraInput 
         } elseif (($request['kind'] ?? null) === 'preparation-abort-witness') {
             [$exit,$bytes] = fixtureOwner($base,$uid === 1003 ? 1004 : 1003,'inspect-preparation-abort',['challenge'=>$request['challenge']]);
             $response = $exit === 0 ? json_decode($bytes,true,512,JSON_THROW_ON_ERROR) : [];
+        } elseif (getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') {
+            $response = fixtureNativeWitness($base,$request,$initial['challenge']);
         } else {
             $other = $uid === 1003 ? 1004 : 1003;
             [$exit,$bytes] = fixtureOwner($base,$other,'witness-held');
@@ -485,6 +495,12 @@ $check(fixtureHttp($spec, null, '/read.php')[0] === 503, 'business HTTP blocked 
 $appReceipt = $base . '/maintenance-1004/maintenance-' . $operation . '/receipt.json';
 $masterReceipt = $base . '/maintenance-1003/scheduler-' . $operation . '/receipt.json';
 $a = json_decode(file_get_contents($appReceipt), true); $m = json_decode(file_get_contents($masterReceipt), true);
+$writerPolicyHash=hash('sha256','network-isolated fixture; cron daemon absent; no application bootstrap or external DB network');
+if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') {
+    [$policyCode,$policyHash]=fixtureCommand(['python3',__DIR__.'/core_native_hold_fixture.py',$base,'prepare']);
+    $check($policyCode===0&&preg_match('/^[a-f0-9]{64}$/D',trim($policyHash))===1,'both real native scheduler inventories bind the actual writer policy');
+    $writerPolicyHash=trim($policyHash);
+}
 $binding = ['version' => 1, 'action' => 'apply-reviewed-core-database-upgrade', 'root' => FIXTURE_ROOT, 'database' => FIXTURE_DB,
     'application_uid' => 1004, 'master_uid' => 1003, 'database_server_id' => (int)$rootDb->query('SELECT @@server_id')->fetchColumn(),
     'operation' => $operation, 'candidate_commit' => $commit, 'package_directory' => $base . '/package-1004',
@@ -492,7 +508,7 @@ $binding = ['version' => 1, 'action' => 'apply-reviewed-core-database-upgrade', 
     'migration_plan_sha256' => $plan['plan_sha256'], 'application_maintenance_receipt_sha256' => hash_file('sha256', $appReceipt),
     'master_maintenance_receipt_sha256' => hash_file('sha256', $masterReceipt), 'held_web_sha256' => $spec['held_web_sha256'],
     'application_held_cron_sha256' => $a['held_cron_sha256'], 'master_held_cron_sha256' => $m['held_cron_sha256'],
-    'writer_inventory_sha256' => hash('sha256', 'network-isolated fixture; cron daemon absent; no application bootstrap or external DB network'),
+    'writer_inventory_sha256' => $writerPolicyHash,
     'release_control_spec_sha256' => hash('sha256', FullCoreReleaseControl::encode($spec['control']))];
 foreach ([1003,1004] as $uid) fixtureWrite($base.'/guard-'.$uid.'.json',FullCoreReleaseControl::encode($binding),$uid);
 $pair = ['version' => 1, 'source_writers_held' => true];
@@ -510,6 +526,16 @@ foreach ([1003, 1004] as $uid) {
     [$exit, $out] = fixtureOwner($base, $uid, 'prepare'); $check($exit === 0, 'actual per-owner file backup verified under native holds');
     $pair['file_owners'][$uid] = json_decode(file_get_contents($base . '/files-' . $uid . '/prepared.json'), true, 512, JSON_THROW_ON_ERROR);
     $pair['file_owners'][$uid]['prepared_receipt_sha256'] = hash_file('sha256', $base . '/files-' . $uid . '/prepared.json');
+}
+if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') {
+    $writer=proc_open(['/usr/sbin/runuser','-u','coreapp','--','/bin/sleep','60'],
+        [0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file','/fixture/commands.stderr','a']],$writerPipes);
+    if(!is_resource($writer)) throw new RuntimeException('Native adversarial writer unavailable.');
+    try {
+        $check(fixtureOwner($base,1004,'inspect-database-state')[0]===2
+            && !is_file($base.'/native-1004/original-database-state.json') && $snapshot()===$before,
+            'actual unreviewed application process blocks the native observer before recording a database baseline');
+    } finally {proc_terminate($writer);proc_close($writer);}
 }
 [$fingerprintExit,$fingerprintBytes]=fixtureOwner($base,1004,'inspect-database-state');
 $check($fingerprintExit === 0 && json_decode($fingerprintBytes,true)['snapshot_sha256'] === $beforeFingerprint['snapshot_sha256'],
@@ -552,11 +578,14 @@ $upgrade = static function (string $fault = '') use ($base, $binding, $spec, $ro
                 if (fixtureCommand(['crontab', '-u', 'coremaster', $base . '/changed.cron'])[0] !== 0) throw new RuntimeException('Fixture cron drift failed.');
                 $masterChanged = true;
             }
-            [$exit, $out] = fixtureOwner($base, 1003, 'master-witness');
-            [$http, $web] = fixtureQuietHttp($spec);
-            $w = $request + ['observed_at_unix' => microtime(true), 'backup_pair_sha256' => $binding['backup_pair_sha256'],
-                'master' => $exit === 0 ? json_decode($out, true) : [], 'web' => $http === 200 ? json_decode($web, true) : [],
-                'writers' => fixtureWriters($base, $binding['writer_inventory_sha256'], $request['owner_pid'])];
+            if(getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') $w=fixtureNativeWitness($base,$request,$initial['challenge'],true);
+            else {
+                [$exit, $out] = fixtureOwner($base, 1003, 'master-witness');
+                [$http, $web] = fixtureQuietHttp($spec);
+                $w = $request + ['observed_at_unix' => microtime(true), 'backup_pair_sha256' => $binding['backup_pair_sha256'],
+                    'master' => $exit === 0 ? json_decode($out, true) : [], 'web' => $http === 200 ? json_decode($web, true) : [],
+                    'writers' => fixtureWriters($base, $binding['writer_inventory_sha256'], $request['owner_pid'])];
+            }
             if ($fault === 'stale') $w['challenge'] = str_repeat('0', 64);
         }
         if ($fault === 'late-db' && $requests === 1) $lateConnection = fixtureDb();

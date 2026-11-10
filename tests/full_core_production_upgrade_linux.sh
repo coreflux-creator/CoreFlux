@@ -2,6 +2,13 @@
 # Production-shaped paths/owners, native services, synthetic data, no host mounts or external network.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+native_writers=0
+if [ "${1:-}" = --native-writers ]; then
+    native_writers=1; shift
+    # This variant requires a fresh disposable CI VM with its native container manager.
+    test "${GITHUB_ACTIONS:-}" = true && test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+    command -v systemd-nspawn >/dev/null
+fi
 fixture="$(mktemp -d "${RUNNER_TEMP:-/tmp}/core-production-upgrade.XXXXXXXX")"
 image="core-production-upgrade:${GITHUB_RUN_ID:-local}-${RANDOM}"
 container="core-production-upgrade-${GITHUB_RUN_ID:-local}-${RANDOM}"
@@ -12,6 +19,7 @@ cp deploy/full_core_migration_history.json "$fixture/deploy/"
 cp deploy/inspect_full_core_release_owner.php "$fixture/deploy/"
 cp deploy/run_full_core_release_owner.php deploy/full_core_database_state.php "$fixture/deploy/"
 cp deploy/core_release_coordinator.py deploy/inspect_full_core_release.py "$fixture/deploy/"
+cp deploy/core_native_hold_observer.py "$fixture/deploy/"
 cp deploy/full_core_database_transfer.php deploy/core_database_archive.py deploy/core_database_backup.py "$fixture/deploy/"
 cp deploy/inspect_full_core_writers.php deploy/full_core_writer_policy.php "$fixture/deploy/"
 cp core/migration_hash.php "$fixture/core/"
@@ -19,9 +27,12 @@ cp tests/full_core_production_upgrade_linux.php tests/full_core_release_control_
 cp tests/core_release_coordinator_native.py "$fixture/tests/"
 cp tests/core_database_transfer_native.py "$fixture/tests/"
 cp tests/core_database_archive_smoke.py "$fixture/tests/"
+cp tests/core_native_hold_fixture.py "$fixture/tests/"
 cat > "$fixture/Dockerfile" <<'DOCKER'
 FROM php:8.2-fpm-bookworm
+ARG NATIVE_WRITERS=0
 RUN apt-get update && apt-get install -y --no-install-recommends apache2 mariadb-server mariadb-client cron util-linux openssh-server openssh-client python3 python3-cryptography \
+    && if [ "$NATIVE_WRITERS" = 1 ]; then apt-get install -y --no-install-recommends systemd systemd-sysv libpam-systemd dbus at; fi \
     && rm -rf /var/lib/apt/lists/* && docker-php-ext-install pdo_mysql opcache \
     && a2enmod rewrite headers proxy proxy_fcgi >/dev/null \
     && useradd -m --uid 1003 --gid 33 coremaster && useradd -m --uid 1004 --gid 33 coreapp \
@@ -34,6 +45,13 @@ COPY core /app/core
 COPY tests /app/tests
 COPY apache.conf /etc/apache2/sites-available/000-default.conf
 COPY start.sh /start.sh
+COPY native-fixture.sh /native-fixture.sh
+COPY core-native-fixture.service /etc/systemd/system/core-native-fixture.service
+COPY core-native-fixture.target /etc/systemd/system/core-native-fixture.target
+RUN if [ "$NATIVE_WRITERS" = 1 ]; then \
+      systemctl mask cron.service atd.service apache2.service mariadb.service ssh.service console-getty.service \
+      && ln -sf /etc/systemd/system/core-native-fixture.target /etc/systemd/system/default.target \
+      && truncate -s 0 /etc/machine-id; fi
 WORKDIR /app
 ENTRYPOINT ["bash", "/start.sh"]
 DOCKER
@@ -52,6 +70,7 @@ ServerName fixture.local
 APACHE
 cat > "$fixture/start.sh" <<'START'
 set -euo pipefail
+touch /run/core-production-upgrade-fixture
 mkdir -p /run/sshd
 ssh-keygen -q -t ed25519 -N '' -f /fixture/ssh-key
 cp /fixture/ssh-key.pub /fixture/authorized-keys
@@ -111,10 +130,63 @@ php "$test_script" "$@" || {
 }
 if [ "${1:-}" = control ]; then python3 tests/core_database_archive_smoke.py; fi
 START
-docker build --quiet --tag "$image" "$fixture"
+cat > "$fixture/core-native-fixture.target" <<'TARGET'
+[Unit]
+Description=Offline Core native-writer rehearsal
+Requires=core-native-fixture.service
+After=core-native-fixture.service
+AllowIsolate=yes
+TARGET
+cat > "$fixture/core-native-fixture.service" <<'UNIT'
+[Unit]
+Description=Core actual native observers and paired recovery
+Requires=user@1003.service user@1004.service
+After=basic.target user@1003.service user@1004.service
+[Service]
+Type=oneshot
+WorkingDirectory=/app
+ExecStart=/bin/bash /native-fixture.sh
+TimeoutStartSec=600
+StandardOutput=journal+console
+StandardError=journal+console
+UNIT
+cat > "$fixture/native-fixture.sh" <<'NATIVE'
+set -uo pipefail
+export CORE_FIXTURE_NATIVE_WRITERS=1
+for uid in 1003 1004; do
+    runuser -u "$(getent passwd "$uid" | cut -d: -f1)" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+        systemctl --user list-timers --all --no-legend --no-pager || { systemctl --no-block exit 1; exit 1; }
+done
+bash /start.sh "$(cat /fixture/scenario)"
+result=$?
+printf '%s\n' "$result" > /fixture/result.exit
+systemctl --no-block exit "$result"
+exit "$result"
+NATIVE
+docker build --quiet --build-arg "NATIVE_WRITERS=$native_writers" --tag "$image" "$fixture"
 scenarios=(control abort-coordinator abort-before-hold abort-partial-hold abort-file-backup wrong-file-plan stale extra-db late-db guard-loss crash recover activate transfer-loss)
 if [ "$#" -gt 0 ]; then scenarios=("$@"); fi
 for scenario in "${scenarios[@]}"; do
+    if [ "$native_writers" = 1 ]; then
+        rootfs="$(mktemp -d "$fixture/rootfs.XXXXXXXX")"
+        docker create --name "$container" "$image" >/dev/null
+        docker export "$container" | sudo tar -xpf - -C "$rootfs"
+        docker rm "$container" >/dev/null
+        printf '%s\n' "$scenario" | sudo tee "$rootfs/fixture/scenario" >/dev/null
+        result=0
+        sudo timeout --signal=TERM --kill-after=15s 660s systemd-nspawn --quiet --directory="$rootfs" \
+            --machine="core-native-${GITHUB_RUN_ID}-${scenario}" --boot --private-network --register=no \
+            --settings=no --console=pipe || result=$?
+        if [ "$result" != 0 ] || [ "$(sudo cat "$rootfs/fixture/result.exit" 2>/dev/null || true)" != 0 ]; then
+            sudo find "$rootfs/fixture" -name 'error-*.json' -type f -exec cat {} \;
+            sudo cat "$rootfs/fixture/commands.stderr" 2>/dev/null || true
+            exit 1
+        fi
+        # Exact mktemp child of this fixture only; no live files or host-mounted data.
+        test "$(dirname "$(realpath "$rootfs")")" = "$(realpath "$fixture")"
+        sudo rm -rf --one-file-system -- "$rootfs"
+        continue
+    fi
     docker run --network none --name "$container" "$image" "$scenario" || { docker logs "$container"; exit 1; }
     docker rm "$container" >/dev/null
 done
