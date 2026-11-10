@@ -48,6 +48,12 @@ FORWARD_INPUTS = {
     'refresh-cache': ('guard_sha256', 'cache_plan_sha256'), 'activate': ('guard_sha256',),
     'resume-scheduler': (), 'complete': (), 'inspect-database-state': ('guard_sha256',),
 }
+# Large packages need a reviewed phase budget, never weaker per-observation freshness.
+FORWARD_TIMEOUT_LIMITS = {
+    'prepare-files': 7200, 'apply-files': 7200, 'verify-files': 7200,
+    'upgrade-database': 7200, 'inspect-database-state': 3600, 'refresh-cache': 600,
+    'hold': 120, 'activate': 120, 'resume-scheduler': 120, 'complete': 120,
+}
 HELD_FORWARD = frozenset(phase for phase, fields in FORWARD_INPUTS.items() if fields)
 FORWARD_PEERS = {
     1003: {'prepare-files': 'hold', 'apply-files': 'upgrade-database', 'resume-scheduler': 'activate'},
@@ -63,6 +69,12 @@ def validate_forward_input(uid: int, phase: str, data: dict) -> None:
             or not isinstance(data, dict) or set(data) != set(FORWARD_INPUTS[phase])
             or any(not exact_hex(value, 64) for value in data.values())):
         raise ValueError('Exact owner, forward phase and reviewed input fingerprints required')
+
+
+def validate_forward_timeout(phase: str, seconds: int | None) -> None:
+    if seconds is not None and (type(seconds) is not int or phase not in FORWARD_TIMEOUT_LIMITS
+                                or not 30 <= seconds <= FORWARD_TIMEOUT_LIMITS[phase]):
+        raise ValueError('Reviewed phase timeout must be a bounded integer number of seconds')
 
 
 def native_json(value) -> bytes:
@@ -369,9 +381,10 @@ class Coordinator:
             raise ValueError(f'Owner {uid} has no verified completed {phase} receipt')
         return self._verify_completed(uid, phase, completed)
 
-    def forward_step(self, uid: int, phase: str, data: dict) -> dict:
+    def forward_step(self, uid: int, phase: str, data: dict, *, timeout_seconds: int | None = None) -> dict:
         """Execute one next phase; completed or uncertain phases require inspection, never replay."""
         validate_forward_input(uid, phase, data)
+        validate_forward_timeout(phase, timeout_seconds)
         other = 1004 if uid == 1003 else 1003
         reports = {owner: self.call(owner, 'inspect-control') for owner in (uid, other)}
         for report in reports.values():
@@ -392,7 +405,8 @@ class Coordinator:
         if required:
             completed = (reports[other].get('completed') or {}).get(required)
             peer = self._verify_completed(other, required, completed)
-        return self.call(uid, phase, data, peer, timeout=3600 if phase == 'upgrade-database' else None)
+        budget = timeout_seconds if timeout_seconds is not None else (3600 if phase == 'upgrade-database' else None)
+        return self.call(uid, phase, data, peer, timeout=budget)
 
     def step(self, uid: int, phase: str, *, resume: bool = False) -> dict:
         if phase not in (*ABORT_PHASES, 'request-preparation-abort'):
@@ -475,6 +489,7 @@ def main() -> None:
         if (step.get('version') != 1 or step.get('owner_uid') != args.owner or step.get('phase') != args.phase):
             raise ValueError('Forward-step configuration must pin the exact owner and phase')
         validate_forward_input(args.owner, args.phase, step['input'])
+        validate_forward_timeout(args.phase, step.get('timeout_seconds'))
         if any(step.get(key) != controller.config['control_spec'][key] for key in ('operation', 'candidate_commit')):
             raise ValueError('Forward step belongs to another reviewed release')
         if args.phase in HELD_FORWARD:
@@ -498,7 +513,7 @@ def main() -> None:
         elif args.action == 'abort-preparation':
             result = controller.abort_preparation()
         elif args.action == 'forward-step':
-            result = controller.forward_step(args.owner, args.phase, step['input'])
+            result = controller.forward_step(args.owner, args.phase, step['input'], timeout_seconds=step.get('timeout_seconds'))
         else:
             result = controller.step(args.owner, args.phase, resume=True)
         receipt.write(encode({'status': 'verified', 'result': result}) + b'\n')

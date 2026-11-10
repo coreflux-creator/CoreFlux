@@ -48,11 +48,13 @@ class ObservedController(Coordinator):
     def __init__(self):
         super().__init__(config, 'unused-fixture-key')
         self.calls = []
+        self.budgets = []
         self.reports = {uid: {'state': {'direction': 'release', 'pending': None, 'terminal': None},
                               'completed': {}} for uid in (1003, 1004)}
 
     def call(self, uid, phase, data=None, peer=None, **kwargs):
         self.calls.append((uid, phase, data, peer))
+        self.budgets.append((phase, kwargs.get('timeout')))
         return copy.deepcopy(self.reports[uid]) if phase == 'inspect-control' else {'executed': phase}
 
 
@@ -81,6 +83,21 @@ refuse(lambda: controller.forward_step(1004, 'prepare-files', {'guard_sha256': '
 controller.reports[1003]['completed']['hold'] = completed(1003, 'hold')
 controller.forward_step(1004, 'prepare-files', {'guard_sha256': '1' * 64})
 check(controller.calls[-1][3] == completed(1003, 'hold')['control'], 'Only fresh authenticated peer receipt is forwarded')
+controller.calls.clear(); controller.budgets.clear()
+controller.forward_step(1004, 'prepare-files', {'guard_sha256': '1' * 64}, timeout_seconds=7200)
+check(controller.budgets == [('inspect-control', None), ('inspect-control', None), ('prepare-files', 7200)],
+      'Large file-phase budget does not enlarge either observation deadline')
+for phase, data, value in [('prepare-files', {'guard_sha256': '1' * 64}, value)
+                          for value in (True, 0, 29, 7201, '7200', float('inf'), float('nan'))] + [
+                              ('hold', {}, 121), ('activate', {'guard_sha256': '1' * 64}, 600)]:
+    controller.calls.clear()
+    refuse(lambda: controller.forward_step(1004, phase, data, timeout_seconds=value),
+           'Invalid or oversized phase budget refused')
+    check(not controller.calls, 'Invalid budget cannot open SSH or mutate native state')
+controller.reports[1004]['state']['pending'] = {'action': 'prepare-files'}
+refuse(lambda: controller.forward_step(1004, 'prepare-files', {'guard_sha256': '1' * 64}, timeout_seconds=7200),
+       'A larger budget never permits replay after interruption')
+controller.reports[1004]['state']['pending'] = None
 for field, value in [('operation', '0' * 32), ('owner_uid', 1004), ('owner_plan_sha256', '0' * 64),
                       ('candidate_commit', '0' * 40), ('native_receipt_sha256', '0' * 64)]:
     bad = completed(1003, 'hold'); bad['control'][field] = value

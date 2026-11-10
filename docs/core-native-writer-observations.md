@@ -91,6 +91,16 @@ file outside source control: its token is private. Receipts record its fingerpri
 not its contents. Every invocation requires a new `--output` path and writes a
 durable request before a native action.
 
+The same fingerprinted step configuration can set integer `timeout_seconds` for a
+measured full-package phase. File preparation, application, verification and the
+database upgrade permit 30–7200 seconds; database inspection permits up to 3600;
+cache refresh permits up to 600; other phases retain a 120-second ceiling. Omitting
+the field preserves the existing timeout. This affects only the selected phase,
+not SSH inspections, the 15-second writer-witness freshness window, the maintenance
+token's expiry, or durable interruption/replay rules. A timeout still requires
+fresh state inspection; a larger budget is never a reason to repeat an uncertain
+action. Rehearsal timing must establish the operational budget before deployment.
+
 The phase order is: hold both owners; prepare both file backups; inspect and capture
 the application database; bind the verified encrypted backup with both file-backup
 receipts; upgrade the application database; apply and verify each owner's files;
