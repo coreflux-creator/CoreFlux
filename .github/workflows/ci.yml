@@ -2,7 +2,7 @@ name: CoreFlux CI
 
 on:
   push:
-    branches: [main, master, develop, codex/coreaccounting-native]
+    branches: [main, master, develop, codex/coreaccounting-native, codex/quanta-profile-return]
   pull_request:
     branches: [main, master, develop]
   schedule:
@@ -185,6 +185,12 @@ jobs:
 
       - name: Verify Quanta worker delivery and receipt recovery
         run: php tests/quanta_worker_delivery_mariadb.php
+
+      - name: Verify reviewed contact baselines and receipt recovery
+        run: |
+          php tests/quanta_profile_change_contract.php
+          php tests/quanta_profile_baseline_contract.php
+          php tests/quanta_profile_baseline_mariadb.php
 
       - name: Verify reviewed Quanta worker intake
         run: php tests/quanta_worker_intake_mariadb.php
