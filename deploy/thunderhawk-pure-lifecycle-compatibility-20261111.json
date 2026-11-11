@@ -1,0 +1,303 @@
+{
+  "checked_at": "2026-11-11T18:17:04.279336+00:00",
+  "goal_turn_classification": "progress",
+  "previous_goal_turn": {
+    "classification": "no_progress",
+    "reason": "Answered the standalone accounting access question. This continuation revalidated provider state, fixed CI and found/restored the incompatible isolated release."
+  },
+  "goal_complete": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings": false,
+  "core_ci": {
+    "conclusion": "success",
+    "headSha": "ef68de25f74cf3c83f89ed7f892e97136290f25f",
+    "status": "completed",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43072575578",
+    "job_count": 11
+  },
+  "pure_people_provisioning": {
+    "checked_at": "2026-11-11T17:37:42.219624+00:00",
+    "passed": true,
+    "phase": "complete",
+    "private_backup": "/srv/core-integration-pilot/20261029/private/pure-people-before-bac14c9d951c46c782e1a81090ec404c",
+    "production_changed": false,
+    "payroll_payments_postings": false,
+    "health": {
+      "maintenance": false,
+      "state": "active",
+      "message": "Pure//Pay is completing a release. Please try again shortly.",
+      "startup_mode": "isolated_pilot",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false,
+      "provider_egress_enabled": false
+    },
+    "container_id": "1ef188caf34fc77b339d1590a504fe82a3219b54daf732c5ab8177631759b689",
+    "started_at": "2026-11-11T17:37:46.353448155Z",
+    "source_unchanged": true,
+    "original_documents_preserved": 84,
+    "collections_and_indexes_preserved": 26,
+    "other_services_unchanged": true,
+    "execution_hold_checks": 5,
+    "people_provisioning_enabled": true
+  },
+  "native_provider_acceptance": {
+    "checked_at": "2026-11-11T17:39:19.991959+00:00",
+    "passed": true,
+    "phase": "complete",
+    "production_changed": false,
+    "real_payroll_payments_postings": false,
+    "person_review_hash": "44166a8e1cbc6cc620a209621db3cfd5dc1b6acb26a00cf42f30dbd0d14ab521",
+    "employee_id": "emp_core_6db3732563a74d57f1e5cc00e6b257008e47eee22fd0b83502b04e24eab51717",
+    "assignment_review_state": "ready",
+    "missing_links": [],
+    "assignment_id": "asg_core_aff68d7460216d12beedbe1e0e6a3ddee7921840a562577d275d992b1d131008",
+    "assignment_status": "draft",
+    "accepted_revision": "6a0c515b5e086905ab7909c27288afa7f581422b103184b322be394fd811eda2",
+    "duplicate_requests_same_records": true,
+    "altered_reviews_rejected": true,
+    "original_documents_preserved_except_reviewer_login_time": 84,
+    "added_collections": {
+      "employees": 1,
+      "coreflux_record_links": 2,
+      "assignments": 1,
+      "login_events": 1,
+      "sessions": 1
+    },
+    "employee_status": "inactive",
+    "synthetic_session_retired": true,
+    "package": {
+      "path": "/srv/core-integration-pilot/20261029/private/lifecycle-native-8c59a0ca65b16489.py",
+      "sha256": "8c59a0ca65b164896e51390a07885ea38e6fbabf764d5448f1122f5ebd4c7340",
+      "state": "/srv/core-integration-pilot/20261029/private/synthetic-lifecycle-pure-native-resume-20261111.json"
+    }
+  },
+  "native_provider_acceptance_complete": true,
+  "operational_lifecycle_complete": false,
+  "native_provider_states": {
+    "person_number": "P-368",
+    "placement_number": "PL-874",
+    "employee_status": "inactive",
+    "assignment_status": "draft"
+  },
+  "rejected_candidate_installation": {
+    "checked_at": "2026-11-11T17:59:11.100968+00:00",
+    "phase": "complete",
+    "passed": true,
+    "backup": "/srv/core-integration-pilot/20261029/private/pure-lifecycle-before-a9c83e9ebfcf4a468133e50bdd86ab7f",
+    "candidate": "/srv/core-integration-pilot/20261029/private/pure-lifecycle-candidate-d6717f79c1fa4972927bd7dcb0840c1a",
+    "stamp": {
+      "release_id": "pure-core-lifecycle-6231559-20261111",
+      "deployment_id": "032a97ee-c4e2-4ede-8444-1e6cfc74ccc8",
+      "source_digest": "90092fb32298374bf50b2453e1be699c0d506793a73e8a65e302c54d0f0976db"
+    },
+    "production_changed": false,
+    "real_payroll_payments_postings": false,
+    "offline_tests": 189,
+    "provider_egress": false,
+    "nested_mounts_preflight": {
+      "mounts_checked": 6
+    },
+    "previous_rollback_verified": true,
+    "health": {
+      "maintenance": false,
+      "state": "active",
+      "message": "Pure//Pay is completing a release. Please try again shortly.",
+      "startup_mode": "isolated_pilot",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false,
+      "provider_egress_enabled": false
+    },
+    "container_id": "0b27a896076413f991a0df85f56554dbe286bfeee4e306ba0bf9ee32df4f165f",
+    "site_id": "f387ca2ea00e58f434c3906c7ce43ba1a5f1ad69d5df02eced6fde614e13f1de",
+    "original_documents_preserved": 90,
+    "collections_and_indexes_preserved": 26,
+    "unrelated_services_unchanged": true,
+    "backend_files": 296,
+    "frontend_files": 64,
+    "employee_setup_scope": [
+      "emp_core_6db3732563a74d57f1e5cc00e6b257008e47eee22fd0b83502b04e24eab51717"
+    ],
+    "execution_hold_checks": 5,
+    "package": {
+      "helper": "/srv/core-integration-pilot/20261029/private/install-pure-lifecycle-e2f20a506e4ec28b.py",
+      "sha256": "e2f20a506e4ec28b80e4f067d8a16eb5c024fe2ad5cfee993b97c3f9d3ff028c",
+      "state": "/srv/core-integration-pilot/20261029/private/pure-lifecycle-current-source-install-resume-20261111.json"
+    }
+  },
+  "candidate_compatibility_failure": {
+    "valid": false,
+    "errors": [
+      {
+        "type": "union_tag_invalid",
+        "loc": [],
+        "msg": "Input tag '2026-10-25.1' found using 'contract_version' does not match any of the expected tags: '2026-10-22.1', '2026-10-22.2'",
+        "ctx": {
+          "discriminator": "'contract_version'",
+          "tag": "2026-10-25.1",
+          "expected_tags": "'2026-10-22.1', '2026-10-22.2'"
+        }
+      }
+    ]
+  },
+  "restoration": {
+    "checked_at": "2026-11-11T18:03:42.825798+00:00",
+    "passed": true,
+    "phase": "complete",
+    "rejected_candidate": "/srv/core-integration-pilot/20261029/private/pure-lifecycle-incompatible-3e6399b48d394eb78d9213721bba8f93",
+    "database_restored": false,
+    "production_changed": false,
+    "real_payroll_payments_postings": false,
+    "health": {
+      "maintenance": false,
+      "state": "active",
+      "message": "Pure//Pay is completing a release. Please try again shortly.",
+      "startup_mode": "isolated_pilot",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false,
+      "provider_egress_enabled": false
+    },
+    "original_runtime_files": 197,
+    "documents_preserved": 94,
+    "collections_and_indexes_preserved": 26,
+    "other_services_unchanged": true,
+    "container_id": "5adb6c0f69afa11692613ab3b3174fff21ddf1483d20cb7f13a1a06833f2e0f0",
+    "site_id": "e9df8ea4ae1bc969e5d54b313a99d48598477d88f5767e6bff90a75a8ef0e395"
+  },
+  "core_receipt_after_restoration": {
+    "passed": true,
+    "checked_at": "2026-11-11T18:09:19+00:00",
+    "person_number": "P-368",
+    "placement_number": "PL-874",
+    "person_review": {
+      "state": "created",
+      "employee_id": "emp_core_6db3732563a74d57f1e5cc00e6b257008e47eee22fd0b83502b04e24eab51717"
+    },
+    "assignment_review": {
+      "state": "created",
+      "assignment_id": "asg_core_aff68d7460216d12beedbe1e0e6a3ddee7921840a562577d275d992b1d131008",
+      "assignment_status": "draft",
+      "accepted_revision": "6a0c515b5e086905ab7909c27288afa7f581422b103184b322be394fd811eda2"
+    },
+    "core_tables_unchanged": 368,
+    "database_writes": false,
+    "real_payroll_payments_postings": false
+  },
+  "pure_candidate": {
+    "source_commit": "3a265c50bab58087b13bd6ee563fa6f15d69b404",
+    "published": false,
+    "installed": false,
+    "status": "incomplete_do_not_activate",
+    "initial_isolation_checks_passed": 189,
+    "initial_checks_did_not_prove_saved_contract_compatibility": true,
+    "preserved_route_parity": {
+      "scope": "Static preserved-pilot route parity; not proof of runtime or behavior parity",
+      "missing_routes": [
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/admin/moov/webhook-reviews"
+        },
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/bills/{bill_id}/payments"
+        },
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/bills/{bill_id}/reservations/{reservation_id}"
+        },
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/context"
+        },
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/customers/by-external-identity"
+        },
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/qbo/customer-links/review"
+        },
+        {
+          "module": "server.py",
+          "method": "GET",
+          "path": "/qbo/customers"
+        },
+        {
+          "module": "server.py",
+          "method": "POST",
+          "path": "/bills/{bill_id}/reservations"
+        },
+        {
+          "module": "server.py",
+          "method": "POST",
+          "path": "/bills/{bill_id}/reservations/{reservation_id}/execute"
+        },
+        {
+          "module": "server.py",
+          "method": "POST",
+          "path": "/bills/{bill_id}/reservations/{reservation_id}/reconcile"
+        },
+        {
+          "module": "server.py",
+          "method": "POST",
+          "path": "/bills/{bill_id}/reservations/{reservation_id}/release"
+        },
+        {
+          "module": "server.py",
+          "method": "POST",
+          "path": "/customers/{customer_id}/qbo/link"
+        }
+      ],
+      "count": 12,
+      "candidate_ready_to_install": false,
+      "fresh_source_files": [
+        "server.py",
+        "qbo_bill_lines.py"
+      ]
+    },
+    "expanded_test_handle": {
+      "archive_sha256": "6e8f62668dc8a6d9e58cd840cba853e175125d5d704ff536074ff0c30a6879e5",
+      "remote": "/srv/core-integration-pilot/20261029/private/lifecycle-fixture-6e8f62668dc8a6d9",
+      "container_name": "core-pure-lifecycle-check-6e8f62668dc8",
+      "phase": "started",
+      "files": 1499,
+      "test_dependencies": {
+        "pytest": "8.4.2",
+        "pytest-asyncio": "0.24.0",
+        "mongomock-motor": "0.0.34",
+        "mongomock": "4.3.0",
+        "sentinels": "1.1.1",
+        "pluggy": "1.7.0",
+        "iniconfig": "2.3.1",
+        "packaging": "26.3",
+        "pytz": "2026.5",
+        "pygments": "2.21.0"
+      },
+      "network": "none",
+      "live_database": false,
+      "container_id": "e52cc860f81e3bba244ebc7db9e8a9d525f434bcc4ff316fc63f0aa95c38a13f"
+    }
+  },
+  "coordination": "PurePay chat notified; pilot mutation hold released after verified restoration.",
+  "next_actions": [
+    "Poll the exact expanded contract-test container; do not restart a live run.",
+    "Complete preserved customer lifecycle, bill reservation, financial context/history and payment-result hooks on current Pure source; verify all preserved routes and behaviors before hosted activation.",
+    "Include saved synthetic v3 assignment and actual Core W2/C2C packets in release preflight; rebuild the current frontend with preserved integration screens.",
+    "Resume scoped native synthetic employee/assignment activation after compatible pilot upgrade, then Quanta worker/worksite time authority, independent approval, Core intake, held payroll-input reconciliation, replay, correction and offboarding."
+  ],
+  "remaining_full_goal": [
+    "Thunderhawk end-to-end people/placement/onboarding/time/approval and financial-result round trip",
+    "Historical time association and reconciliation",
+    "Remaining field alignment, capture paths and exception handling",
+    "Production release remains separate and requires explicit authorization"
+  ]
+}

@@ -8,7 +8,7 @@ PERSON='cpp_35e915068e58c292fe92f97afcefdecd5edc1f698e8160111ffdfcafb533caa4'
 ASSIGNMENT='cpa_a09e554d86e41986180b5187311fff6074c3b30f7af4e92a9e1ebb3996485676'
 STATE=PRIVATE/'synthetic-lifecycle-pure-native-20261111.json'
 def request(path,token=None,body=None):
-    assert path=='/auth/login' or path.startswith('/payroll/core-people/'+PERSON) or path.startswith('/assignments/core/'+ASSIGNMENT)
+    assert path in ['/auth/login','/security/overview'] or path.startswith('/payroll/core-people/'+PERSON) or path.startswith('/assignments/core/'+ASSIGNMENT)
     headers={'Content-Type':'application/json'}
     if token:headers['Authorization']='Bearer '+token
     req=urllib.request.Request('http://127.0.0.1:19180/api'+path,None if body is None else json.dumps(body).encode(),headers)
@@ -24,24 +24,52 @@ from pymongo import MongoClient
 from bson import json_util
 assert os.environ['DB_NAME']=='corepilot_pure_20261029' and os.environ['PUREPAY_STARTUP_MODE']=='isolated_pilot' and os.environ['PUREPAY_PROVIDER_EGRESS']=='disabled'
 db=MongoClient(os.environ['MONGO_URL'])[os.environ['DB_NAME']]
-print(json.dumps({name:sorted(hashlib.sha256(json_util.dumps(row,sort_keys=True).encode()).hexdigest() for row in db[name].find({})) for name in sorted(db.list_collection_names())}))'''
+result={}
+for name in sorted(db.list_collection_names()):
+ rows=[]
+ for row in db[name].find({}):
+  if name=='users' and row.get('id')=='usr_2d19df3dfa23' and row.get('organization_id')=='org_0369a63ff2cb':row.pop('last_login',None)
+  rows.append(hashlib.sha256(json_util.dumps(row,sort_keys=True).encode()).hexdigest())
+ result[name]=sorted(rows)
+print(json.dumps(result))'''
     r=subprocess.run(['docker','exec','-i',CONTAINER,'python','-'],input=code,text=True,capture_output=True,timeout=30)
     if r.returncode:raise RuntimeError('Isolated provider snapshot failed')
     return json.loads(r.stdout)
 def checkpoint(report):
     with STATE.open('w') as f:json.dump(report,f,indent=2)
+def retire_session(session_id):
+    code=r'''import json,os,sys
+from datetime import datetime,timezone
+from pymongo import MongoClient
+assert os.environ['DB_NAME']=='corepilot_pure_20261029' and os.environ['PUREPAY_STARTUP_MODE']=='isolated_pilot' and os.environ['PUREPAY_PROVIDER_EGRESS']=='disabled'
+db=MongoClient(os.environ['MONGO_URL'])[os.environ['DB_NAME']];sid=json.load(sys.stdin)['session_id']
+row=db.sessions.find_one({'id':sid,'user_id':'usr_2d19df3dfa23','email':'thunderhawk-core-pilot@example.invalid','revoked':False});assert row
+assert db.sessions.update_one({'_id':row['_id'],'id':sid,'revoked':False},{'$set':{'revoked':True,'revoked_at':datetime.now(timezone.utc).isoformat()}}).modified_count==1
+print(json.dumps({'retired':True}))'''
+    r=subprocess.run(['docker','exec','-i',CONTAINER,'python','-c',code],input=json.dumps({'session_id':session_id}),text=True,capture_output=True,timeout=30)
+    if r.returncode:raise RuntimeError('Exact synthetic session retirement failed')
+    assert json.loads(r.stdout)['retired'] is True
 def main():
-    assert sys.argv[1:]==['--accept-synthetic-metadata'] and os.geteuid()==0 and PRIVATE.is_dir() and not PRIVATE.is_symlink()
+    global STATE
+    assert sys.argv[1:] in [['--accept-synthetic-metadata'],['--resume-after-provisioning-enabled']] and os.geteuid()==0 and PRIVATE.is_dir() and not PRIVATE.is_symlink()
+    if sys.argv[1:] == ['--resume-after-provisioning-enabled']:
+        previous=json.loads(STATE.read_text());enabled=json.loads((PRIVATE/'synthetic-lifecycle-pure-provisioning-20261111.json').read_text())
+        assert previous['passed'] is False and previous['phase'] in ['login','person_review'] and 'employee_id' not in previous
+        assert enabled['passed'] is True and enabled['people_provisioning_enabled'] is True
+        STATE=PRIVATE/'synthetic-lifecycle-pure-native-resume-20261111.json'
     if STATE.exists():raise RuntimeError('Inspect the existing native review outcome; do not repeat an uncertain write')
     before=snapshot()
     with os.fdopen(os.open(str(STATE)+'.before.private.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as f:json.dump(before,f)
     with os.fdopen(os.open(STATE,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as f:f.write('{}')
-    report={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'passed':False,'phase':'login','production_changed':False,'real_payroll_payments_postings':False}
+    report={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'passed':False,'phase':'login','production_changed':False,'real_payroll_payments_postings':False};session_id=None
     try:
         plan=json.loads((PRIVATE/'thunderhawk-bootstrap-plan.private.json').read_text())
         status,login=request('/auth/login',body={'email':'thunderhawk-core-pilot@example.invalid','password':plan['pure_password']})
         assert status==200 and login['organization']['id']==ORG and login['user']['id']=='usr_2d19df3dfa23'
         token=login['token'];del plan,login
+        status,security=request('/security/overview',token)
+        assert status==200 and security['current_session_id']
+        session_id=security['current_session_id']
         base='/payroll/core-people/'+PERSON
         report['phase']='person_review';checkpoint(report)
         status,review=request(base,token)
@@ -76,8 +104,12 @@ def main():
             old,new=Counter(before.get(name,[])),Counter(after.get(name,[]));assert not old-new,('Original record changed',name)
             preserved+=sum(old.values())
             if new-old:additions[name]=sum((new-old).values())
-        assert additions=={'employees':1,'coreflux_record_links':2,'assignments':1},additions
-        report.update(passed=True,phase='complete',original_documents_preserved=preserved,added_collections=additions,employee_status='inactive')
+        assert additions=={'employees':1,'coreflux_record_links':2,'assignments':1,'sessions':1,'login_events':1},additions
+        report.update(passed=True,phase='complete',original_documents_preserved_except_reviewer_login_time=preserved,added_collections=additions,employee_status='inactive')
     except Exception as e:report.update(failure=type(e).__name__,failure_message=str(e)[:600])
+    finally:
+        if session_id:
+            try:retire_session(session_id);report['synthetic_session_retired']=True
+            except Exception as e:report.update(passed=False,session_retirement_failure=type(e).__name__)
     checkpoint(report);print(json.dumps(report));return 0 if report['passed'] else 1
 if __name__=='__main__':raise SystemExit(main())
