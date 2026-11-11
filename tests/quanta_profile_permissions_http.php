@@ -124,7 +124,7 @@ try {
         'change_id'=>'cpc_' . str_repeat('a',64),'confirm_return'=>false])[0]===422,'Return requires explicit confirmation: ' . $action);
     $expect($call('profile_review_apply',['review_token'=>'invalid','decision'=>'accepted','reason'=>'','confirm_decision'=>false])[0]===422,
         'Core contact decision requires explicit confirmation');
-    $expect($call('profile_return_send',['change_id'=>'cpc_' . str_repeat('a',64),'confirm_return'=>true])[0]===422,
+    $expect($call('profile_return_send',['change_id'=>'cpc_' . str_repeat('a',64),'confirm_return'=>true])[0]===409,
         'Even authorized return remains blocked by the disabled pilot gate');
     RBACResolver::grantModule($membership,'people','read',[$tenant],$actor);
     foreach ($reviews as $action) $expect($call($action)[0]===403,'Same session loses decision rights after grant downgrade: ' . $action);
