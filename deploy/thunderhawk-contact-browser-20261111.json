@@ -199,7 +199,19 @@
     "reason": "Saved request and review text stayed pending after acceptance/return",
     "tests_passed": 10,
     "build_passed": true,
-    "deployed": false
+    "deployed": true,
+    "source_commit": "2e3ac3a539a00d5d727d62bb16ac59e3fb586f95",
+    "installed_at": "2026-11-11T00:50:39+00:00",
+    "served_files_verified": 6,
+    "installed_files": {
+      "index.html": "f5a4f670ead727c3ecf1d6215397a173bc7bbe1a851a9a5b0927721f89bc3591",
+      "spa-assets/index-CnHyAgJH.js": "ad0dc72080d9d31caa6fcec6b9f41f93906fb6152b86205145476cb4b64b054a",
+      "spa-assets/index-CYcM0MSD.css": "34076d40e2e528e51f4313b79dc1942a93b9c629e9f426fadd5f8b795d28d9fc",
+      "spa-assets/index-Dsj9yfpE.js": "f6ee82147810420abadac458496a800d959a6856e49e00217ba72154433afcb8",
+      "spa-assets/index-SRkxIh9x.css": "e4a8bde4c3c6f480a044435c9c2ff93c61eaef47fad8471d791d3df9fb5976e8",
+      "dashboard/dist/index.html": "f5a4f670ead727c3ecf1d6215397a173bc7bbe1a851a9a5b0927721f89bc3591"
+    },
+    "verification_scope": "Ten UI tests, successful build, owner-preserving isolated installation and browser fetch SHA-256 verification; original authenticated round trip used the prior dashboard."
   },
   "remaining": [
     "Hosted interrupted-return recovery, native provider conflict and offboarding",
