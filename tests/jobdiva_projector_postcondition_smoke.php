@@ -105,3 +105,17 @@ $ownedGraph['placement']['coreflux_overridden_fields']='{}';
 try{jobdivaContractOwnedFields($ownedGraph);throw new LogicException('Object-shaped ownership accepted');}
 catch(RuntimeException $e){if($e->getCode()!==422)throw $e;}
 echo "Contract ownership aliases and strict metadata: ok\n";
+
+$extraReceivable=['active'=>1,'source_type'=>'manual','role'=>'client','settlement_channel'=>'ar','payment_terms_overridden'=>1,'cycle_overridden'=>1];
+if(jobdivaContractOwnedFields(['economic_parties'=>[$extraReceivable]])!==[]) {
+    throw new RuntimeException('An additional receivable participant acquired ownership of the main billing contract');
+}
+$billTo=$extraReceivable+['source_ref'=>'placement:bill_to'];
+$billTo['source_type']='placement';$billTo['role']='bill_to_client';
+$billingFields=jobdivaContractOwnedFields(['economic_parties'=>[$billTo]]);
+foreach(['client_payment_terms','client_payment_terms_override','client_bill_cycle','billing_operating_cycle_id'] as $field) {
+    if(!in_array($field,$billingFields,true))throw new RuntimeException('Reviewed bill-to ownership missing: '.$field);
+}
+$billTo['active']=0;
+if(jobdivaContractOwnedFields(['economic_parties'=>[$billTo]])!==[])throw new RuntimeException('Inactive billing party still controls the current contract');
+echo "Contract ownership follows the active bill-to party: ok\n";

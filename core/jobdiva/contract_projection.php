@@ -43,13 +43,16 @@ function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagemen
     foreach ($currentGraph['economic_parties'] ?? [] as $party) {
         if (empty($party['active'])) continue;
         $channel = $party['settlement_channel'] ?? '';
+        $billing = ($party['source_ref'] ?? '') === 'placement:bill_to'
+            || (($party['source_type'] ?? '') === 'placement'
+                && in_array($party['role'] ?? '', ['bill_to_client','end_client'], true));
         $labor = in_array($party['role'] ?? '', ['worker','c2c_vendor','individual_vendor'], true)
             || in_array($party['source_type'] ?? '', ['worker','corp'], true);
         if (!empty($party['cycle_overridden'])) {
-            if ($channel === 'ar') array_push($owned,'client_bill_cycle','billing_operating_cycle_id');
+            if ($billing && $channel === 'ar') array_push($owned,'client_bill_cycle','billing_operating_cycle_id');
             elseif ($labor && in_array($channel,['ap','payroll'],true)) array_push($owned,'vendor_pay_cycle',$channel.'_operating_cycle_id');
         }
-        if ($channel === 'ar' && !empty($party['payment_terms_overridden'])) array_push($owned,'client_payment_terms_override','client_payment_terms');
+        if ($billing && $channel === 'ar' && !empty($party['payment_terms_overridden'])) array_push($owned,'client_payment_terms_override','client_payment_terms');
         if ($labor && $channel === 'ap') {
             if (!empty($party['payment_terms_overridden'])) array_push($owned,'vendor_payment_terms','vendor_payment_terms_override');
             if (!empty($party['pwp_overridden'])) array_push($owned,'paid_when_paid','vendor_pwp_enabled');
