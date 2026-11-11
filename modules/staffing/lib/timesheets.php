@@ -198,6 +198,10 @@ function staffingTimesheetArtifactStatus(string $status): string
 
 function staffingTimesheetArtifactPayload(array $header): array
 {
+    $hours = (float) ($header['total_hours'] ?? 0);
+    // Match the JSON representation persisted by the artifact writer so a whole
+    // hour does not alternate between 2.0 in memory and 2 after reading storage.
+    $hours = floor($hours) === $hours ? (int) $hours : $hours;
     return [
         'timesheet_id'  => (int) $header['id'],
         'display_id'    => staffingTimesheetDisplayId((int) $header['id']),
@@ -205,7 +209,7 @@ function staffingTimesheetArtifactPayload(array $header): array
         'period_start'  => (string) $header['period_start'],
         'period_end'    => (string) $header['period_end'],
         'status'        => (string) ($header['status'] ?? 'draft'),
-        'total_hours'   => (float) ($header['total_hours'] ?? 0),
+        'total_hours'   => $hours,
         'approved_by_user_id' => !empty($header['approved_by_user_id']) ? (int) $header['approved_by_user_id'] : null,
         'approved_at'   => $header['approved_at'] ?? null,
         'origin_source' => (string) ($header['origin_source'] ?? 'manual_entry'),

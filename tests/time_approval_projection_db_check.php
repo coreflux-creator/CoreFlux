@@ -39,6 +39,13 @@ $financialState = static function () use ($pdo): array {
     return $state;
 };
 $financialBefore = $financialState();
+foreach (['0.00', '2.00', '2.25'] as $hours) {
+    $payload = staffingTimesheetArtifactPayload([
+        'id' => 1, 'person_id' => 1, 'period_start' => '2026-11-09', 'period_end' => '2026-11-15', 'total_hours' => $hours,
+    ]);
+    $assert(artifactComparableJson($payload) === artifactComparableJson(json_decode(json_encode($payload), true)),
+        "{$hours} hours retain an identical artifact payload after storage");
+}
 $pdo->beginTransaction();
 try {
     $users = [];
