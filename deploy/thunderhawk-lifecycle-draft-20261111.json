@@ -1,0 +1,205 @@
+{
+  "checked_at": "2026-11-11T16:55:33.331839+00:00",
+  "scope": "Native draft setup in the isolated simulation; source-only Pure compatibility validation",
+  "fixture": {
+    "checked_at": "2026-11-11T16:52:43+00:00",
+    "passed": true,
+    "phase": "prepared",
+    "case": "SYNTH-LIFECYCLE-20261111",
+    "tenant_id": 2002,
+    "synthetic": true,
+    "browser_acceptance": false,
+    "provider_writes": false,
+    "operational_policy_enabled": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "operator_id": 64,
+    "operator_membership_id": 50,
+    "person_id": 368,
+    "placement_id": 874,
+    "rate_id": 3,
+    "person_number": "P-368",
+    "placement_number": "PL-874",
+    "dimension_readiness": {
+      "ready": false,
+      "as_of": "2026-11-11",
+      "reporting_gaps": [
+        "job",
+        "recruiter",
+        "account_manager",
+        "wc_class"
+      ],
+      "missing_labels": [
+        "job / requisition",
+        "recruiter",
+        "account manager",
+        "workers compensation class"
+      ],
+      "time_blockers": [
+        "wc_class"
+      ],
+      "billing_blockers": [],
+      "ap_blockers": []
+    },
+    "operator_retired": true,
+    "private_session_removed": true,
+    "changed_tables": {
+      "audit_log": {
+        "before": 8070,
+        "after": 8072
+      },
+      "core_record_numbers": {
+        "before": 953,
+        "after": 955
+      },
+      "membership_audit": {
+        "before": 87,
+        "after": 92
+      },
+      "people": {
+        "before": 67,
+        "after": 68
+      },
+      "people_employees": {
+        "before": 3,
+        "after": 5
+      },
+      "placement_economic_parties": {
+        "before": 71,
+        "after": 74
+      },
+      "placement_rates": {
+        "before": 2,
+        "after": 3
+      },
+      "placements": {
+        "before": 65,
+        "after": 66
+      },
+      "staffing_operating_cycles": {
+        "before": 6,
+        "after": 7
+      },
+      "tenant_memberships": {
+        "before": 49,
+        "after": 50
+      },
+      "user_tenants": {
+        "before": 55,
+        "after": 56
+      },
+      "users": {
+        "before": 51,
+        "after": 52
+      }
+    },
+    "unchanged_tables": 356,
+    "existing_pilot_employee_bridge_person_id": 358,
+    "verifier_sha256": "78e73eb16eecbd2a5690c625d6ce2b74b78785ac5aedf638f8431732b801676a",
+    "private_directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-case-78e73eb16eecbd2a"
+  },
+  "native_requests": [
+    {
+      "path": "/login.php",
+      "tenant": 2002,
+      "status": 302
+    },
+    {
+      "path": "/api/placements/placements?id=864",
+      "tenant": 2,
+      "status": 403
+    },
+    {
+      "path": "/api/placements/placements",
+      "tenant": 2002,
+      "status": 201
+    },
+    {
+      "path": "/api/placements/rates?placement_id=874",
+      "tenant": 2002,
+      "status": 201
+    },
+    {
+      "path": "/api/placements/placements?id=874",
+      "tenant": 2002,
+      "status": 200
+    },
+    {
+      "path": "/logout.php",
+      "tenant": 2002,
+      "status": 302
+    }
+  ],
+  "runtime_pins": {
+    "modules/Placements/api/placements.php": "4acc595361b6fae0aacf0f421b6d6e9a7ddd2c29ef31301185cc50ec53ad7ff3",
+    "modules/Placements/api/rates.php": "4308d255739b6b31081c37eb1816d033e03c6ed1c81facaa44605b9bfa20fb66",
+    "modules/Placements/lib/placements.php": "f7e2574c4afb3c40dacaa3305247099d0d2b9c052e93451eea7fb4f3e9f554bc",
+    "modules/Placements/lib/rate_approve.php": "94e4c03d4cb08b5d3f4211dfbef0bc1681cbdaf3dfc02807ca3cd138774c725f",
+    "modules/people/lib/people.php": "2521ff90c9b6b0014d31b97aa18c5ffbdd40285f29fd1e124c6c6488cc2d566c",
+    "modules/people/lib/employees.php": "12b5883158416310b1261fde7a8be3172c61cf6af68f132e94e775d2e5eb1865",
+    "core/record_numbers.php": "a1a48d8e705ab1d7ef15649e740078166911fdac81df3e297fbdc4710797fe15"
+  },
+  "independent_verification": {
+    "passed": true,
+    "checked_at": "2026-11-11T16:54:07+00:00",
+    "original_rows_preserved": 34084,
+    "tables_verified": 368,
+    "attributed_additions": {
+      "audit_log": 2,
+      "core_record_numbers": 2,
+      "membership_audit": 5,
+      "people": 1,
+      "people_employees": 2,
+      "placement_economic_parties": 3,
+      "placement_rates": 1,
+      "placements": 1,
+      "staffing_operating_cycles": 1,
+      "tenant_memberships": 1,
+      "user_tenants": 1,
+      "users": 1
+    },
+    "test_operator_retired": true,
+    "case": {
+      "person": "P-368",
+      "placement": "PL-874",
+      "status": "draft",
+      "rate_approved": false
+    },
+    "provider_outboxes_unchanged": true,
+    "operational_time_enabled": false,
+    "financial_execution": false
+  },
+  "pure_compatibility": {
+    "commit": "f6164095b50845b3c18f4693f009c4fe0fdd422c",
+    "base": "2b93a0e8066a260d761aceb4d1c8eaee62e0ed9a",
+    "checks": 158,
+    "network_attempts": 0,
+    "quanta_source": "dd5d9d15a8a59d08fb7031c90bf6236d71e7c8d6",
+    "quanta_full_application_checks": 141,
+    "wire_unchanged": true,
+    "wire_sha256": "9776dc6ac6ffe252f28435de06c3170cf2f2cb5e7f5e54ee20ea31e706929774",
+    "installed": false,
+    "worktree": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\PurePay-time-binding",
+    "provenance_file": "backend/tests/fixtures/quanta_assignment_wire.provenance.json"
+  },
+  "prior_core_ci": {
+    "run": 43059614997,
+    "conclusion": "failure",
+    "headSha": "75d2decf41f210732fd2c867ac4d38ea6aafc414",
+    "status": "completed",
+    "reason": "Native writer job failed before fixture execution resolving azure.archive.ubuntu.com. Ten other jobs passed."
+  },
+  "next_steps": [
+    "Continue the existing P-368 / PL-874 case; never re-run creation or end/reopen PL-864.",
+    "Set clearly labelled synthetic WC and complete draft economics/cycles, approve test rates, then activate only PL-874.",
+    "Publish the synthetic person and assignment to isolated Quanta/PurePayroll, with reviewed worksite and stable references.",
+    "Enable only required pilot time authority through scoped native administration; no direct API-key database patch.",
+    "Create manual time, use a separate test approver, exchange Core and Pure results, then test correction/replay and offboarding.",
+    "Adopt and test paired Pure compatibility in the hosted pilot; current validation does not establish hosted acceptance."
+  ],
+  "goal_complete": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings": false
+}
