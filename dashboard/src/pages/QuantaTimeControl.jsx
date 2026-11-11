@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { useWorkspaceRequest } from './QuantaMetadataPanel';
+import QuantaLegacyTime from './QuantaLegacyTime';
 
 const endpoint = '/api/quanta.php?action=time_control_';
 const pending = state => ['sending', 'uncertain'].includes(state);
@@ -79,6 +80,9 @@ export default function QuantaTimeControl({ people, worksites, tenantId, connect
       {(context.unbound_time.count > 0 || !context.unbound_time.complete) && <p role="status">{context.unbound_time.count} existing time entries need assignment review{!context.unbound_time.complete ? '; the inventory is incomplete' : ''}. Enabling assignments is held. An existing setup can still hold new time.</p>}
       {!context.delivery_enabled && <p>Assignment time setup is not enabled for this connection.</p>}
       {!review && <button className="btn btn-secondary" disabled={locked || legacyBlocked} onClick={() => run('preview')}>Preview time setup change</button>}
+      {(context.unbound_time.count > 0 || !context.unbound_time.complete) && <QuantaLegacyTime
+        key={`${tenantId}/${connectionRevision}/${person}/${site}`} tenantId={tenantId} connectionRevision={connectionRevision}
+        personId={Number(person)} worksiteId={site} disabled={locked} />}
     </div>}
     {review && <div>
       {!review.receipt_only && <p>Reviewed selection: {review.selected_placements.length ? review.selected_placements.join(', ') : 'Hold new time at this worksite'}.</p>}

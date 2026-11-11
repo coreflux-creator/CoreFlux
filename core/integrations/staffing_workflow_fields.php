@@ -165,6 +165,18 @@ function staffingWorkflowPayloadFields(array $columns): array
         '/api/v1/integrations/coreflux/time-access','core_to_quanta','2026-11-11.1',
         'core/quanta/time_control_contract.php',$timeControl,'reviewed_core_time_setup',
         'explicit_operational_scopes_and_rollout; original_receipt_only_recovery; no_hours_approvals_rates_or_financial_writes');
+    $legacyTime=[
+        'contract_version'=>['string','Exact historical time association contract version.'],
+        'assignment_id'=>['string','Original reviewed Quanta assignment derived from the typed Core placement.'],
+        'source_entry_id'=>['string','Original approved Quanta entry, already imported with the same Core review evidence.'],
+        'expected_version'=>['integer','Reviewed association version; zero means first association.'],
+        'expected_context_hash'=>['sha256','Provider proof of original source, whole-week classification, approval and Core review.'],
+        'confirm_existing_time'=>['boolean','Literal true after review; associates history without rewriting source time or granting approval.'],
+    ];
+    $add('quanta_legacy_time','integration_deliveries.payload_ct','body.','quanta',
+        '/api/v1/integrations/coreflux/legacy-time','core_to_quanta','2026-11-12.1',
+        'core/quanta/legacy_time_contract.php',$legacyTime,'reviewed_core_time_history',
+        'original_source_and_approval_preserved; explicit_scope_and_rollout; original_receipt_only_recovery; no_financial_execution');
     $timeReview=[
         'contract_version'=>['string','Exact time-review observation contract version.'],
         'assignment_id'=>['string','Existing Quanta assignment, derived from the typed Core placement and provider workspace.'],

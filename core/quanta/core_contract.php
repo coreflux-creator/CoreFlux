@@ -203,6 +203,10 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
         require_once __DIR__.'/time_control_contract.php';
         $body=quantaTimeControlBody($body);quantaTimeControlExpectedValidate($workspaceId,$body,$expected);
         $id=$expected['id'];$path='/time-access';$codes=[200,201];
+    } elseif ($operation==='time.legacy') {
+        require_once __DIR__.'/legacy_time_contract.php';
+        $body=quantaLegacyTimeBody($body);quantaLegacyTimeExpectedValidate($workspaceId,$body,$expected);
+        $id=$expected['id'];$path='/legacy-time';$codes=[200,201];
     } else { throw new InvalidArgumentException('Unsupported Quanta contract operation'); }
     $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.$path;
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
@@ -229,6 +233,6 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
     foreach ($expected as $field=>$value) {
         if (!array_key_exists($field,$record) || integrationDeliveryHash([$record[$field]])!==integrationDeliveryHash([$value])) throw new QuantaContractWriteException('response_mismatch',true);
     }
-    if($operation==='time.access'&&($record['last_delivery_id']??null)!==$record['delivery_id'])throw new QuantaContractWriteException('setup_receipt_mismatch',true);
+    if(in_array($operation,['time.access','time.legacy'],true)&&($record['last_delivery_id']??null)!==$record['delivery_id'])throw new QuantaContractWriteException('setup_receipt_mismatch',true);
     return $record;
 }

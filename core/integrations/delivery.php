@@ -55,7 +55,7 @@ function integrationDeliveryPreview(PDO $pdo, int $tenantId, int $actorId, array
     }
     if (!in_array($context['provider'], ['quanta','purepay','purepayroll'], true)) throw new InvalidArgumentException('Unsupported delivery provider');
     // Every operation added here needs a reviewed adapter and fixture before it can be queued.
-    $operations=['person'=>['worker.create','worker.update','person.link','worker.profile.create','worker.profile.update','profile.baseline.publish','time.access'],'placement'=>['assignment.create','assignment.update','onboarding.publish','time.review']];
+    $operations=['person'=>['worker.create','worker.update','person.link','worker.profile.create','worker.profile.update','profile.baseline.publish','time.access'],'placement'=>['assignment.create','assignment.update','onboarding.publish','time.review','time.legacy']];
     $quanta=$context['provider']==='quanta' && in_array($context['operation'],$operations[$context['entity_type']]??[],true);
     $purepay=$context['provider']==='purepay' && (($context['operation']==='record.link' && in_array($context['entity_type'],['person','placement','client','vendor'],true))
         || ($context['operation']==='customer.create' && $context['entity_type']==='client'));

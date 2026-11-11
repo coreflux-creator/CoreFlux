@@ -267,10 +267,11 @@ function quantaComponentCategory(string $component, bool $internal = false): arr
     };
 }
 
-function quantaRoutes(int $tenantId): array
+function quantaRoutes(int $tenantId, bool $lock = false, ?array $owners = null): array
 {
-    $placementTenant = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
-    $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    if ($lock && !getDB()->inTransaction()) throw new LogicException('Route locks require a transaction');
+    $placementTenant = $owners['placements'] ?? effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    $peopleTenant = $owners['people'] ?? effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $stmt = getDB()->prepare(
         'SELECT r.*, p.person_id, p.status AS placement_status, p.engagement_type,
                 p.tenant_id AS placement_directory_tenant_id, pe.tenant_id AS person_directory_tenant_id,
@@ -283,7 +284,7 @@ function quantaRoutes(int $tenantId): array
       LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet AND pe.deleted_at IS NULL
       LEFT JOIN core_record_numbers pn ON pn.tenant_id=p.tenant_id AND pn.entity_type="placement" AND pn.record_id=p.id
       LEFT JOIN core_record_numbers nn ON nn.tenant_id=pe.tenant_id AND nn.entity_type="person" AND nn.record_id=pe.id
-          WHERE r.tenant_id = :t ORDER BY r.worker_id, r.worksite_id, r.effective_from'
+          WHERE r.tenant_id = :t ORDER BY r.worker_id, r.worksite_id, r.effective_from' . ($lock ? ' FOR UPDATE' : '')
     );
     $stmt->execute(['pt' => $placementTenant, 'pet' => $peopleTenant, 't' => $tenantId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];

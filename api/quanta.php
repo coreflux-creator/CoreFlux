@@ -11,6 +11,7 @@ require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
 require_once __DIR__ . '/../core/quanta/time_control_delivery.php';
+require_once __DIR__ . '/../core/quanta/legacy_time_delivery.php';
 require_once __DIR__ . '/../core/quanta/routes.php';
 require_once __DIR__ . '/../core/quanta/profile_review.php';
 require_once __DIR__ . '/../core/quanta/profile_return_delivery.php';
@@ -199,6 +200,26 @@ try {
         if($action==='time_control_receipt')api_ok(quantaTimeControlReceipt($tenantId,$body['delivery_id'],$body['review_hash']));
         if(($body['confirm_time_control']??null)!==true)throw new InvalidArgumentException('Confirm the reviewed assignment time setup');
         api_ok(quantaTimeControlSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
+    }
+
+    if (in_array($action,['legacy_time_inventory','legacy_time_preview','legacy_time_pending','legacy_time_send','legacy_time_receipt'],true)) {
+        foreach(['people.view','placements.view','time.view','time.review'] as $permission)rbac_legacy_require($user,$permission);
+        if($action==='legacy_time_pending') {
+            if(isset($body['before'])&&(!is_int($body['before'])||$body['before']<=0))throw new InvalidArgumentException('Invalid delivery page');
+            api_ok(quantaLegacyTimePending($tenantId,$body['before']??null));
+        }
+        if($action==='legacy_time_inventory') {
+            if(!is_int($body['person_id']??null)||$body['person_id']<=0||!is_string($body['worksite_id']??null))throw new InvalidArgumentException('Choose a Core person and Quanta worksite');
+            api_ok(quantaLegacyTimeInventory($tenantId,$body['person_id'],$body['worksite_id']));
+        }
+        if($action==='legacy_time_preview') {
+            if(!is_string($body['source_entry_id']??null))throw new InvalidArgumentException('Choose existing imported time');
+            api_ok(quantaLegacyTimePreview($tenantId,$actorId,$body['source_entry_id']));
+        }
+        if(!is_int($body['delivery_id']??null)||$body['delivery_id']<=0||!is_string($body['review_hash']??null))throw new InvalidArgumentException('Choose the original historical time link');
+        if($action==='legacy_time_receipt')api_ok(quantaLegacyTimeReceipt($tenantId,$body['delivery_id'],$body['review_hash']));
+        if(($body['confirm_existing_time']??null)!==true)throw new InvalidArgumentException('Confirm the reviewed historical time link');
+        api_ok(quantaLegacyTimeSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
     }
 
     if (in_array($action,['time_review_pending','time_review_preview','time_review_send','time_review_receipt'],true)) {

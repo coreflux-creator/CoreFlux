@@ -33,6 +33,7 @@ $actions = ['profile_baseline_preview','profile_baseline_send','profile_baseline
 $reviews = array_slice($actions, 3);
 $timeControls=['time_control_context','time_control_preview','time_control_pending','time_control_send','time_control_receipt'];
 $timeControls=array_merge($timeControls,['save_routes','delete_route']);
+$timeControls=array_merge($timeControls,['legacy_time_inventory','legacy_time_preview','legacy_time_pending','legacy_time_send','legacy_time_receipt']);
 $actions=array_merge($actions,$timeControls);
 $counts = static function() use ($pdo): array {
     $out = [];
@@ -142,6 +143,12 @@ try {
     $envelope=['delivery_id'=>1,'review_hash'=>str_repeat('a',64)];
     foreach([false,1,'true',null] as $confirmation)$expect($call('time_control_send',$envelope+['confirm_time_control'=>$confirmation])[0]===422,'Time setup requires literal confirmation');
     $expect($call('time_control_send',$envelope+['confirm_time_control'=>true])[0]===409,'Disabled operational rollout blocks even confirmed time setup');
+    [$status,$data]=$call('legacy_time_pending');
+    $expect($status===200&&($data['rows']??null)===[],'Time reviewer reads its local historical recovery queue');
+    $expect($call('legacy_time_inventory',['person_id'=>0,'worksite_id'=>'site-1'])[0]===422,'Historical inventory requires a local person');
+    $expect($call('legacy_time_preview',['source_entry_id'=>'invalid/path'])[0]===422,'Historical review rejects malformed source identity');
+    foreach([false,1,'true',null] as $confirmation)$expect($call('legacy_time_send',$envelope+['confirm_existing_time'=>$confirmation])[0]===422,'Historical linking requires literal confirmation');
+    $expect($call('legacy_time_send',$envelope+['confirm_existing_time'=>true])[0]===409,'Historical linking stays disabled until rollout');
     foreach($timeControls as $action)$expect($call($action,[],true,999)[0]===403,'Foreign company cannot manage time setup: '.$action);
     RBACResolver::grantModule($membership,'time','read',[$tenant],$actor);
     foreach($timeControls as $action)$expect($call($action)[0]===403,'Same session loses time setup rights on downgrade: '.$action);

@@ -228,6 +228,7 @@ jobs:
           php tests/quanta_time_control_smoke.php
           php tests/quanta_assignment_routes_smoke.php
           php tests/quanta_time_control_fixture.php < tests/fixtures/quanta_time_control_native.json
+          php tests/quanta_legacy_time_fixture.php < tests/fixtures/quanta_legacy_time_native.json
           php -l deploy/accept_synthetic_time_review.php
           if COREFLUX_ENV=staging php deploy/accept_synthetic_time_review.php --share-demo-pending-review; then
             echo 'Demo acceptance unexpectedly ran outside the isolated pilot.' >&2
@@ -238,6 +239,7 @@ jobs:
           php tests/quanta_time_provenance_mariadb.php
           php tests/quanta_time_review_mariadb.php
           php tests/quanta_time_control_mariadb.php
+          php tests/quanta_legacy_time_mariadb.php
           php tests/quanta_assignment_routes_mariadb.php
           php tests/synthetic_time_reviewer_mariadb.php
           php tests/synthetic_time_approval_guard_smoke.php

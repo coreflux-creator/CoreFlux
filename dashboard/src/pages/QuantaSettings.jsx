@@ -9,6 +9,7 @@ import QuantaContactReview from './QuantaContactReview';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
 import QuantaMetadataPanel, { QuantaMetadataRecovery } from './QuantaMetadataPanel';
 import QuantaTimeControl, { QuantaTimeControlRecovery } from './QuantaTimeControl';
+import { QuantaLegacyTimeRecovery } from './QuantaLegacyTime';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
 import QuantaTimeReview, { QuantaTimeReviewRecovery } from './QuantaTimeReview';
 
@@ -433,5 +434,6 @@ export default function QuantaSettings() {
     <QuantaMetadataRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaTimeReviewRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaTimeControlRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
+    <QuantaLegacyTimeRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
   </div>;
 }
