@@ -45,13 +45,13 @@ $GLOBALS['__quanta_core_write_transport']=$transport;
 $GLOBALS['__quanta_document_transport']=static function($method,$url)use(&$calls){$calls[]=[$method,$url];return 403;};
 $person=integrationRecordReference('381e452a-5d11-4e2e-9daa-e9427501898a',999,'person','P-1');
 $link=['person'=>$person,'worker_id'=>'worker-1'];
-$profile=['person'=>$person,'email'=>'synthetic@example.test','full_name'=>'Synthetic Worker','phone'=>null,'worker_id'=>null,'expected_worker'=>null];
+$profile=['person'=>$person,'email'=>'synthetic@example.com','full_name'=>'Synthetic Worker','phone'=>null,'worker_id'=>null,'expected_worker'=>null];
 $idem=str_repeat('a',64);
 $receipt=['case_id'=>'cfo_'.str_repeat('b',64),'id'=>'cfs_'.str_repeat('c',64)];
 $operations=[
     ['GET','/workers',static fn()=>quantaGet('fixture-key','/workers')],
     ['GET',QUANTA_APPROVED_ENTRIES_PATH,static fn()=>quantaGet('fixture-key',QUANTA_APPROVED_ENTRIES_PATH)],
-    ['POST','/workers',static fn()=>quantaWriteWorker('fixture-key',null,['email'=>'synthetic@example.test','full_name'=>'Synthetic Worker','active'=>false],$idem)],
+    ['POST','/workers',static fn()=>quantaWriteWorker('fixture-key',null,['email'=>'synthetic@example.com','full_name'=>'Synthetic Worker','active'=>false],$idem)],
     ['POST',QUANTA_CORE_CONTRACT_PATH.'/person-links',static fn()=>quantaWriteContract('fixture-key','a','person.link',$link,$link,$idem)],
     ['POST',QUANTA_CORE_CONTRACT_PATH.'/worker-profiles',static fn()=>quantaWriteWorkerProfile('fixture-key','a',$profile,$idem)],
     ['GET',QUANTA_CORE_CONTRACT_PATH.'/onboarding/'.$receipt['case_id'].'/documents/'.$receipt['id'],static fn()=>quantaOnboardingDocumentBytes('fixture-key',$receipt,['size_bytes'=>10])],
