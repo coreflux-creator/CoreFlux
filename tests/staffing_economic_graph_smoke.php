@@ -13,6 +13,7 @@ $migration = $read('core/migrations/126_staffing_economic_graph.sql');
 $contractMigration = $read('core/migrations/127_staffing_contract_terms.sql');
 $economics = $read('modules/placements/lib/economics.php');
 $economicsApi = $read('modules/placements/api/economics.php');
+$economicsEdit = $read('modules/placements/lib/economics_edit.php');
 $cyclesApi = $read('modules/placements/api/cycles.php');
 $placementsApi = $read('modules/placements/api/placements.php');
 $rateApprove = $read('modules/placements/lib/rate_approve.php');
@@ -86,7 +87,9 @@ $assert('manual C2C vendor reuses the canonical corporate party identity',
     str_contains($economicsApi, "? 'corp:' . \$placementId")
     && str_contains($economicsApi, "'source_type' => \$role === 'c2c_vendor' ? 'corp' : 'manual'"));
 $assert('manual C2C terms mirror to the corporate source and removal clears it',
-    str_contains($economicsApi, 'payment_terms_override = :terms')
+    str_contains($economicsApi, 'placementEconomicsApplyNativePartyEdit')
+    && str_contains($economicsEdit, "UPDATE placement_corp_details SET ")
+    && str_contains($economicsEdit, "\$corpChanges['payment_terms_override']")
     && str_contains($economicsApi, 'DELETE FROM placement_corp_details'));
 $assert('cycles can be created and assigned by purpose',
     str_contains($cyclesApi, "['billing','ap','payroll']")

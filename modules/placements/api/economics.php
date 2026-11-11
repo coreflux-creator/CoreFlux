@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
+require_once __DIR__ . '/../lib/economics_edit.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -333,88 +334,15 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'placements.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
-    $before = scopedFind(
-        'SELECT * FROM placement_economic_parties WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $id]
-    );
-    if (!$before) api_error('Economic party not found', 404);
-    $body = api_json_body();
-    if (array_key_exists('cadence', $body)) {
-        $frequency = placementEconomicsApiCadence($tenantId, (string) $before['settlement_channel'], $body['cadence']);
-        $body['operating_cycle_id'] = $frequency['cycle_id'];
+    try {
+        $result = placementEconomicsApplyNativePartyEdit($tenantId, $id, api_json_body());
+    } catch (PDOException $e) {
+        error_log('[native economic party edit] ' . $e->getMessage());
+        api_error('The contract could not be saved. Refresh it and try again.', 503);
+    } catch (InvalidArgumentException | RuntimeException $e) {
+        api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
     }
-    if (array_key_exists('payment_terms', $body)) {
-        $body['payment_terms'] = placementEconomicsNormaliseTerms((string) $body['payment_terms']);
-        if ($before['settlement_channel'] === 'ar' && placementEconomicsTermsArePwp((string) $body['payment_terms'])) {
-            api_error('Paid when paid applies to AP, not client invoices', 422);
-        }
-        if ($before['settlement_channel'] === 'ap') {
-            $body['pwp_enabled'] = placementEconomicsTermsArePwp((string) $body['payment_terms']);
-        }
-    }
-    if (array_key_exists('operating_cycle_id', $body) && $body['operating_cycle_id'] !== null && $body['operating_cycle_id'] !== '') {
-        $cycle = scopedFind(
-            'SELECT id, purpose FROM staffing_operating_cycles
-              WHERE tenant_id = :tenant_id AND id = :id AND active = 1',
-            ['id' => (int) $body['operating_cycle_id']]
-        );
-        $expectedPurpose = $before['settlement_channel'] === 'ar' ? 'billing' : $before['settlement_channel'];
-        if (!$cycle || $cycle['purpose'] !== $expectedPurpose) {
-            api_error("Cycle must be an active {$expectedPurpose} cycle", 422);
-        }
-    }
-    if (!placementEconomicsUpdateParty($tenantId, $id, $body)) api_error('No fields changed', 422);
-    $placementUpdates = [];
-    $cadence = isset($frequency) ? (string) $frequency['cadence'] : null;
-    $cycleId = array_key_exists('operating_cycle_id', $body) ? ($body['operating_cycle_id'] ?: null) : null;
-    $terms = array_key_exists('payment_terms', $body) ? (string) $body['payment_terms'] : null;
-    $sourceType = (string) $before['source_type'];
-    $role = (string) $before['role'];
-    $channel = (string) $before['settlement_channel'];
-    if ($sourceType === 'placement' && $role === 'end_client') {
-        if ($cadence !== null) $placementUpdates['client_bill_cycle'] = $cadence;
-        if (array_key_exists('operating_cycle_id', $body)) $placementUpdates['billing_operating_cycle_id'] = $cycleId;
-        if ($terms !== null) $placementUpdates['client_payment_terms_override'] = $terms;
-    }
-    if (($sourceType === 'worker' && $channel === 'ap') || $sourceType === 'corp') {
-        if ($cadence !== null) $placementUpdates['vendor_pay_cycle'] = $cadence;
-        if (array_key_exists('operating_cycle_id', $body)) $placementUpdates['ap_operating_cycle_id'] = $cycleId;
-        if ($terms !== null) $placementUpdates['vendor_payment_terms_override'] = $terms;
-        if (array_key_exists('pwp_enabled', $body)) $placementUpdates['vendor_pwp_enabled'] = !empty($body['pwp_enabled']) ? 1 : 0;
-    }
-    if ($sourceType === 'worker' && $channel === 'payroll') {
-        if ($cadence !== null) $placementUpdates['vendor_pay_cycle'] = $cadence;
-        if (array_key_exists('operating_cycle_id', $body)) $placementUpdates['payroll_operating_cycle_id'] = $cycleId;
-    }
-    if ($placementUpdates) scopedUpdate('placements', (int) $before['placement_id'], $placementUpdates);
-    if ((string) $before['source_type'] === 'corp') {
-        $corpUpdates = [];
-        $corpParams = ['t' => $tenantId, 'p' => (int) $before['placement_id']];
-        if (array_key_exists('payment_terms', $body)) {
-            $corpUpdates[] = 'payment_terms_override = :terms';
-            $corpParams['terms'] = placementEconomicsNormaliseTerms((string) $body['payment_terms']);
-        }
-        if (array_key_exists('pwp_enabled', $body)) {
-            $corpUpdates[] = 'pwp_enabled = :pwp';
-            $corpParams['pwp'] = !empty($body['pwp_enabled']) ? 1 : 0;
-        }
-        if ($corpUpdates) {
-            getDB()->prepare(
-                'UPDATE placement_corp_details SET ' . implode(', ', $corpUpdates) .
-                ' WHERE tenant_id = :t AND placement_id = :p'
-            )->execute($corpParams);
-        }
-    }
-    $after = scopedFind(
-        'SELECT * FROM placement_economic_parties WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $id]
-    );
-    placementsAudit('placement.economic_party.updated', [
-        'placement_id' => (int) $before['placement_id'],
-        'economic_party_id' => $id,
-        'fields' => array_keys($body),
-    ], (int) $before['placement_id'], ['before' => $before, 'after' => $after]);
-    api_ok(['ok' => true, 'party' => $after]);
+    api_ok(['ok' => true, 'changed' => $result['changed'], 'party' => $result['party']]);
 }
 
 if ($method === 'DELETE' && $action === 'item') {
