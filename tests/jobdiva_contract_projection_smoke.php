@@ -227,6 +227,7 @@ $syncSource = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $economicsSource = (string) file_get_contents($root . '/modules/placements/lib/economics.php');
 $uiSource = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
 $reconciliationUi = (string) file_get_contents($root . '/modules/placements/ui/JobDivaReconciliation.jsx');
+$contractReviewUi = (string) file_get_contents($root . '/modules/placements/ui/JobDivaContractReview.jsx');
 $assert('stored reconciliation rejoins the exact financial placement mirror',
     str_contains($syncSource, "internal_entity_type = 'placement'")
     && str_contains($syncSource, "AND external_id IN (:raw, :canonical)")
@@ -251,7 +252,11 @@ $assert('placement UI separates settlement participants from attribution',
     && str_contains($uiSource, 'JobDiva assignment attribution')
     && str_contains($uiSource, 'Update draft contract'));
 $assert('reconciliation UI shows contract fields, participants, and checks',
-    str_contains($reconciliationUi, 'Canonical contract proposal')
+    str_contains($reconciliationUi, 'Contract field review')
+    && str_contains($reconciliationUi, '<JobDivaContractReview fields={contract.fields || []}')
+    && str_contains($contractReviewUi, 'Current Core value')
+    && str_contains($contractReviewUi, 'JobDiva value')
+    && str_contains($contractReviewUi, 'Retain Core value')
     && str_contains($reconciliationUi, 'Contract checks')
     && str_contains($reconciliationUi, 'Settlement participants'));
 
