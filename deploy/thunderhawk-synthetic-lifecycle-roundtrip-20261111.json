@@ -1,0 +1,157 @@
+{
+  "recorded_at": "2026-11-11T19:52:40.049669+00:00",
+  "status": "progress",
+  "goal_complete": false,
+  "previous_goal_turn_classification": "no progress",
+  "previous_goal_turn_reason": "Previous turn answered standalone accounting access; this turn performed the next native lifecycle steps.",
+  "scope": "Existing isolated Thunderhawk simulation tenant 2002, P-368 / PL-874, original Quanta hour only",
+  "source_revisions": {
+    "core_runtime": "ba0e408773f3ee974b3200dfe3d4a0efb6387445",
+    "quanta": "dd5d9d15a8a59d08fb7031c90bf6236d71e7c8d6",
+    "pure": "c0bf9eefba51dd6c039af7cebe9f3bf4e0de0d78"
+  },
+  "verified": {
+    "person_number": "P-368",
+    "placement_number": "PL-874",
+    "core_entry_id": 14,
+    "core_timesheet_id": 7,
+    "hours": "1.00",
+    "quanta_source_id": "dcfd06b9-6f30-4ed9-8426-789fc255f194",
+    "quanta_source_status": "approved",
+    "core_status": "approved",
+    "quanta_core_review": "accepted",
+    "independent_test_approver_id": 71,
+    "quanta_return_delivery_id": 90,
+    "quanta_review_version": 2,
+    "pure_person_link_delivery_id": 91,
+    "pure_assignment_link_delivery_id": 92,
+    "payroll_input_delivery_id": 93,
+    "payroll_input_id": "cpi_255117c910a9437a565ed773d63cc32857b901b132926b88790b458040d09bd9",
+    "authority_id": "cpa_92285a297913dd5feab0e0a3ed148ba14866619c2a01e790e0394a5c57931954",
+    "core_source_reservation": "held",
+    "provider_source_reservation": "allocated",
+    "run_id": "run_core_6ee5f0d01ee1a7ffa5316b44e2ef3f2927e1b01e43971ced17bb2a5024df7a06",
+    "run_status": "draft",
+    "execution_hold": true,
+    "source_gross": "50.00",
+    "currency": "USD",
+    "calculation_mode": "manual",
+    "core_observation_id": 5,
+    "result_hash": "08fa071c7cfb1a237e0aeb86c76fdd788de9d2dd8e2cb58fd707a2ea6b2ee925",
+    "encrypted_observation": true,
+    "self_approval_refused": true,
+    "approval_replay_refused": true,
+    "quanta_return_replay_stable": true,
+    "link_and_input_replay_stable": true,
+    "competing_source_reservation_refused": true,
+    "draft_stale_and_changed_requests_refused": true,
+    "draft_replay_and_reload_same_run": true,
+    "draft_execution_refused": true,
+    "both_core_and_quanta_origin_reserved": true,
+    "result_replay_same_observation": true,
+    "original_records_preserved": true,
+    "core_tables_verified": 368,
+    "quanta_collections_verified": 71,
+    "pure_collections_verified": 26,
+    "temporary_core_operators_retired": [
+      71,
+      72,
+      73,
+      74
+    ],
+    "native_sessions_retired": true
+  },
+  "known_gap": {
+    "status": "open",
+    "summary": "Atomic time approval reconciles header status but not the first-class timesheet artifact or header approver.",
+    "evidence": {
+      "timesheet_id": 7,
+      "header_status": "approved",
+      "header_approved_by_user_id": null,
+      "artifact_status": "review",
+      "artifact_version": 3,
+      "entry_approved_by_user_id": 71
+    },
+    "code": "modules/time/lib/time.php:159",
+    "required_followup": "Keep atomic entry approval, header approval attribution and artifact lifecycle consistent without triggering financial posting; verify on multiple entries and rejection/review transitions."
+  },
+  "verification_corrections": [
+    "Quanta API use legitimately updated last_used_at. Credential, permissions and change history were independently checked against the prior private preparation snapshot; source records remained unchanged.",
+    "Reservation API appended five permission-comparison audit rows. Read-only comparison verified these are scoped cancellation denials and all original Core rows remain intact.",
+    "Draft reservation has two source claims, one for Core and one for the Quanta origin. Read-only reconciliation verified both refer to the same original hour and draft; no second draft was created."
+  ],
+  "boundaries": {
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "tax_calculation_validated": false,
+    "independent_human_review": false,
+    "browser_acceptance": false
+  },
+  "provider_mutation_window": "Released at 19:52 UTC; no operations running. Fresh coordination required before more provider writes.",
+  "next_actions": [
+    "Fix and validate atomic timesheet approval attribution/artifact consistency.",
+    "Exercise correction and cancellation against the original held draft, then offboarding/assignment changes without losing prior approvals or source identity.",
+    "Complete worker-portal onboarding/document acceptance and remaining field alignment; full objective remains incomplete."
+  ],
+  "source_validation": {
+    "thunderhawk_lifecycle_native.php": {
+      "syntax_passed": true,
+      "sha256": "bd26427ac42a25d366bd816be791dada37905a9768946e9df058d0599e6cbcdd"
+    },
+    "approve_synthetic_quanta_hour.php": {
+      "syntax_passed": true,
+      "sha256": "73e30413625a133096dc1da07d4db9f1c01537c17a689916a8759f92f05ba6f7"
+    },
+    "return_synthetic_time_acceptance.php": {
+      "syntax_passed": true,
+      "sha256": "1465462efe3d786f853c8d8e83cd98c2e11db014e5bf66c90927d6cdd4c7b898"
+    },
+    "deliver_synthetic_lifecycle_payroll_input.php": {
+      "syntax_passed": true,
+      "sha256": "084b9a99e7ace2e82fb22371f5c4cef665122d741fc71cd9262088e2d8aa55c9"
+    },
+    "verify_synthetic_lifecycle_payroll_input.php": {
+      "syntax_passed": true,
+      "sha256": "bf06d591468d6c2f004842ef3a7f7b83b21eaadf0bf531c8b9cac9df03c440c3"
+    },
+    "create_synthetic_lifecycle_payroll_draft.py": {
+      "syntax_passed": true,
+      "sha256": "fe092baee68d0a5055af5fea9e8332ce129507dc764742576aa5a28c0d574b42"
+    },
+    "return_synthetic_lifecycle_payroll_result.php": {
+      "syntax_passed": true,
+      "sha256": "7ad34ad93cbd7e7881ebefd9d8bb2b4847273719749a45f3382e03cdd9c6e393"
+    }
+  },
+  "evidence": {
+    "core_approval": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-lifecycle-time_approval-result.json",
+      "sha256": "a76f127d397bc6ab67fdb711130cbce0345c42418114cab1c581ff676d6966b8"
+    },
+    "quanta_return": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-lifecycle-time_accept_return-result.json",
+      "sha256": "5684ab5ae143f08c2bb3096794db4fb0a92b87d1d5066828d92d87125c5ec7a7"
+    },
+    "quanta_readback": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-acceptance-provider-result.json",
+      "sha256": "7c95fff4940a07cbb9e7b1823454ee76bc8168ee27e84672e0240b1862aa0f5a"
+    },
+    "input_core_readback": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-payroll-core-readback-result.json",
+      "sha256": "8303d734715cd90e6ea31f9fc22c27ef5331c4b15c7deff8a33dd68c54ad8a45"
+    },
+    "input_provider_readback": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-payroll-provider-result.json",
+      "sha256": "6970c420ac43eb2c6327c1f7806c9b3b86ab6e0b2cf2bd4af9615b6ba7091384"
+    },
+    "draft_readback": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-payroll-draft-readback-result.json",
+      "sha256": "7d55fbe3685f77d4dad892f6e75f13dbea2cba670c04802e8870e3fa14c3acbf"
+    },
+    "core_result": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-lifecycle-payroll_result-result.json",
+      "sha256": "7e59bc631f5a53e15d6cacae333133d50b346d04ad141a1004fa4a404549f5f6"
+    }
+  }
+}

@@ -20,7 +20,7 @@ final class ThunderhawkLifecycleNative
 
     public function __construct(string $phase)
     {
-        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import'],true)||PHP_SAPI!=='cli'
+        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import','time_approval','time_accept_return','payroll_input','payroll_result'],true)||PHP_SAPI!=='cli'
             ||getenv('COREFLUX_ENV')!=='staging'||realpath(getcwd())!==self::ROOT||posix_geteuid()!==1003
             ||realpath(self::PRIVATE)!==self::PRIVATE||is_link(self::PRIVATE)||(fileperms(self::PRIVATE)&0777)!==0700)exit(2);
         $this->phase=$phase;$this->pdo=getDB();
@@ -68,16 +68,23 @@ final class ThunderhawkLifecycleNative
     }
     public function actor(array $modules):int
     {
+        $role=$this->phase==='time_approval'?'manager':'admin';
+        if($this->phase==='time_approval'&&$modules!==['time'=>'admin'])throw new RuntimeException('Approval actor must have time review access only');
         $this->modules=array_keys($modules);$password=bin2hex(random_bytes(32));$hash=password_hash($password,PASSWORD_DEFAULT);
         $this->pdo->beginTransaction();
         try{
-            $this->pdo->prepare('INSERT INTO users(tenant_id,name,email,password,password_hash,role,is_active,is_global_admin) VALUES(2002,"Synthetic lifecycle operator",?,?,?,"admin",1,0)')->execute([$this->email,$hash,$hash]);
+            $this->pdo->prepare('INSERT INTO users(tenant_id,name,email,password,password_hash,role,is_active,is_global_admin) VALUES(2002,"Synthetic lifecycle operator",?,?,?,?,1,0)')->execute([$this->email,$hash,$hash,$role]);
             $id=(int)$this->pdo->lastInsertId();
-            $membership=(int)provisionMembership($id,2002,'admin',['is_primary'=>true,'persona_label'=>'Synthetic lifecycle operator','status'=>'active'])['membership_id'];
+            $membership=(int)provisionMembership($id,2002,$role,['is_primary'=>true,'persona_label'=>'Synthetic lifecycle operator','status'=>'active'])['membership_id'];
             $this->pdo->commit();$this->actor=$id;$this->membership=$membership;
         }catch(Throwable $e){if($this->pdo->inTransaction())$this->pdo->rollBack();throw $e;}
         $this->report['operator_id']=$id;$this->report['operator_membership_id']=$membership;$this->checkpoint('operator_created');
         foreach($modules as $module=>$level)RBACResolver::grantModule($membership,$module,$level,[2002],4);
+        if($this->phase==='time_approval'){
+            $this->expect(RBACResolver::can($id,2002,'time','admin',2002),'Independent reviewer has time approval access');
+            foreach(['people','placements','staffing','companies','billing','ap','accounting','payroll','treasury','reports','integrations','tenant'] as $module)
+                $this->expect(!RBACResolver::can($id,2002,$module,'read'),'Independent reviewer cannot access '.$module);
+        }
         $this->cookie=tempnam(self::PRIVATE,'lifecycle-cookie-');if(!$this->cookie||!chmod($this->cookie,0600))throw new RuntimeException('Private session unavailable');
         [$status,,$location]=$this->request('/login.php',['username'=>$this->email,'password'=>$password,'redirect'=>'spa'],'POST',2002,true);unset($password,$hash);
         $this->expect($status===302&&!str_contains($location,'error='),'Native operator login succeeded');
@@ -88,12 +95,17 @@ final class ThunderhawkLifecycleNative
     {
         $url=parse_url($path);$route=$url['path']??'';parse_str($url['query']??'',$query);
         $routes=['/login.php','/logout.php','/api/people/people','/api/people/employees','/api/placements/placements','/api/placements/rates',
-            '/api/payroll/profiles','/api/payroll/pay_schedules','/api/payroll/cycles','/api/quanta.php','/api/purepay_core.php'];
+            '/api/payroll/profiles','/api/payroll/pay_schedules','/api/payroll/cycles','/api/quanta.php','/api/purepay_core.php','/api/time/entries'];
         if(!in_array($route,$routes,true)||!in_array($method,['GET','POST','PATCH'],true)||!in_array($tenant,[2002,2],true))throw new RuntimeException('Request outside fixture scope');
+        if($route==='/api/time/entries'&&($this->phase!=='time_approval'||(int)($query['id']??0)!==14
+            ||($method==='POST'&&($query['action']??'')!=='approve')||!in_array($method,['GET','POST'],true)))throw new RuntimeException('Time request outside original synthetic entry');
         if($route==='/api/payroll/cycles'&&isset($query['action']))throw new RuntimeException('Cycle advancement is outside this test');
         if($route==='/api/placements/placements'&&isset($query['action'])&&$query['action']!=='activate')throw new RuntimeException('Unreviewed placement action');
         if($route==='/api/quanta.php'&&!in_array($query['action']??'', ['publication_preview','publication_send','publication_status','metadata_preview','metadata_send','metadata_receipt','time_control_context','time_control_preview','time_control_send','time_control_receipt','save_routes','preview','import','time_review_preview','time_review_send'],true))throw new RuntimeException('Unreviewed Quanta action');
-        if($route==='/api/purepay_core.php'&&!in_array($query['action']??'', ['people_input_preview','people_input_send','people_input_status','assignment_input_preview','assignment_input_send','assignment_input_status'],true))throw new RuntimeException('Unreviewed Pure action');
+        $pureActions=['people_input_preview','people_input_send','people_input_status','assignment_input_preview','assignment_input_send','assignment_input_status'];
+        if($this->phase==='payroll_input')$pureActions=array_merge($pureActions,['link_preview','link_send','link_reconcile','payroll_input_preview','payroll_input_send','payroll_input_reconcile','payroll_reservation_reserve','payroll_reservation_send','payroll_reservation_reconcile']);
+        if($this->phase==='payroll_result')$pureActions=['payroll_result_refresh','payroll_result_history','payroll_reservation_reconcile'];
+        if($route==='/api/purepay_core.php'&&!in_array($query['action']??'',$pureActions,true))throw new RuntimeException('Unreviewed Pure action');
         $ch=curl_init('https://phpstack-1516771-6707602.cloudwaysapps.com'.$path);
         $headers=['Accept: application/json','X-CoreFlux-Tenant-Id: '.$tenant];
         $options=[CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_TIMEOUT=>45,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_CUSTOMREQUEST=>$method];
@@ -120,6 +132,12 @@ final class ThunderhawkLifecycleNative
                     ||($table==='placement_rates'&&(int)$row['id']===3)
                     ||($table==='placement_economic_parties'&&(int)$row['placement_id']===874)))continue;
                 if($this->phase==='time_import'&&$table==='quanta_connections'&&(int)$row['tenant_id']===2002&&(int)$row['id']===2){unset($row['last_import_at'],$row['last_import_error'],$row['updated_at']);}
+                if($this->phase==='time_approval'&&(int)($row['tenant_id']??0)===2002){
+                    if($table==='time_entries'&&(int)$row['id']===14)
+                        foreach(['status','rate_snapshot_id','approved_by_user_id','approved_at','approved_via','updated_at'] as $field)unset($row[$field]);
+                    if($table==='staffing_timesheets'&&(int)$row['id']===7)
+                        foreach(['status','approved_at','updated_at'] as $field)unset($row[$field]);
+                }
                 $rows[]=hash('sha256',serialize($row));
             }
             sort($rows,SORT_STRING);$result[$table]=$rows;
