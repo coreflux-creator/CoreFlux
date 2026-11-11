@@ -5,6 +5,30 @@ declare(strict_types=1);
 const QUANTA_PILOT_ROUTE_SQL_SHA256='99be19a4ee7426b18fe310a6c646c80388cfe755b1bb9060af5540cd658fe091';
 const QUANTA_PILOT_ROUTE_COLUMNS=['tenant_id','worker_id','worksite_id','dimension_key','effective_from'];
 
+/** Explicit native locks also fence non-HTTP writers; never claim this is transactional DDL. */
+function quantaPilotRouteLock(PDO $pdo):array
+{
+    if($pdo->inTransaction()||(int)$pdo->query('SELECT @@autocommit')->fetchColumn()!==1
+        ||(int)$pdo->query('SELECT @@innodb_table_locks')->fetchColumn()!==1)throw new RuntimeException('Clean connection and native InnoDB table locks required');
+    $cluster=$pdo->query("SHOW VARIABLES LIKE 'wsrep_on'")->fetch(PDO::FETCH_ASSOC);
+    if($cluster&&strtoupper((string)$cluster['Value'])!=='OFF')throw new RuntimeException('Cluster requires a separate maintenance procedure');
+    $tables=$pdo->query("SHOW FULL TABLES WHERE Table_type='BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN);sort($tables,SORT_STRING);
+    if(!in_array('quanta_time_routes',$tables,true))throw new RuntimeException('Routes table is missing');
+    $locks=[];foreach($tables as $table){
+        if(!preg_match('/^[A-Za-z0-9_]+$/D',$table))throw new RuntimeException('Unexpected database table name');
+        $locks[]='`'.$table.'` '.(in_array($table,['quanta_time_routes','_migrations'],true)?'WRITE':'READ');
+    }
+    $pdo->exec('SET SESSION lock_wait_timeout=10');$pdo->exec('SET autocommit=0');
+    try{$pdo->exec('LOCK TABLES '.implode(',',$locks));}
+    catch(Throwable $error){$pdo->exec('SET autocommit=1');throw $error;}
+    return $tables;
+}
+
+function quantaPilotRouteUnlock(PDO $pdo):void
+{
+    $pdo->exec('UNLOCK TABLES');$pdo->exec('SET autocommit=1');
+}
+
 function quantaPilotRouteState(PDO $pdo):array
 {
     $columns=$pdo->query("SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_SET_NAME,COLLATION_NAME,EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='quanta_time_routes' ORDER BY ORDINAL_POSITION")->fetchAll(PDO::FETCH_ASSOC);

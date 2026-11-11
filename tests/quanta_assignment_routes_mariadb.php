@@ -9,8 +9,15 @@ $routeUpgradeChecks=0;$routeCheck=static function(bool $ok,string $label)use(&$r
     if(!$ok)throw new RuntimeException($label);$routeUpgradeChecks++;echo "PASS $label\n";
 };
 $routeCheck($fails(fn()=>quantaPilotRouteApply($pdo,$routeSql."\n-- changed",$routeBaseline))&&quantaPilotRouteState($pdo)===$routeBaseline,'unreviewed deployment migration makes no schema change');
+$observer->exec('SET SESSION lock_wait_timeout=1');$observer->exec('SET SESSION innodb_lock_wait_timeout=1');
+$routeBlocked=static function(string $sql)use($observer):bool{
+    try{$observer->query($sql);return false;}catch(PDOException $error){return (int)($error->errorInfo[1]??0)===1205;}
+};
+$lockedTables=quantaPilotRouteLock($pdo);
+$routeCheck(in_array('time_entries',$lockedTables,true)&&$routeBlocked('SELECT COUNT(*) FROM quanta_time_routes'),'deployment fence blocks concurrent route access before DDL');
 $routeApplied=quantaPilotRouteApply($pdo,$routeSql,$routeBaseline);
 $routeCheck(quantaPilotRouteVerify($pdo,$routeBaseline)===$routeApplied,'actual deployment helper preserves route rows and verifies replacement schema');
+$routeCheck($routeBlocked('SELECT COUNT(*) FROM quanta_time_routes')&&$routeBlocked('UPDATE time_entries SET hours=hours WHERE id=1'),'native route and business-write fences survive actual DDL');
 $migrate('188_quanta_assignment_routes.sql');
 $routeCheck(quantaPilotRouteState($pdo)===$routeApplied,'deployment migration replay is exact');
 $pdo->exec("UPDATE quanta_time_routes SET quanta_assignment_id='cfa_".str_repeat('a',64)."',updated_at=updated_at");
@@ -26,6 +33,9 @@ quantaPilotRouteRestore($pdo,$routeBaseline);
 $routeCheck(quantaPilotRouteState($pdo)===$routeBaseline,'partial column-only migration recovers exactly');
 quantaPilotRouteRestore($pdo,$routeBaseline);
 $routeCheck(quantaPilotRouteState($pdo)===$routeBaseline,'already recovered schema replay changes nothing');
+$routeCheck($routeBlocked('SELECT COUNT(*) FROM quanta_time_routes')&&$routeBlocked('UPDATE time_entries SET hours=hours WHERE id=1'),'native fences survive schema recovery');
+quantaPilotRouteUnlock($pdo);
+$routeCheck((int)$observer->query('SELECT COUNT(*) FROM quanta_time_routes')->fetchColumn()===count($routeBaseline['rows']),'explicit release restores route access');
 echo "$routeUpgradeChecks route deployment/recovery checks passed\n";
 putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);setRequestTenantId(1);
 $pdo->exec('ALTER TABLE core_record_numbers ADD canonical_record_id BIGINT');$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=record_id');
