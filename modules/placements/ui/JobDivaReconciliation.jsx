@@ -101,7 +101,7 @@ export default function JobDivaReconciliation() {
     const ok = window.confirm(
       `Project ${storedSelected.size} verified JobDiva assignment${storedSelected.size === 1 ? '' : 's'} into CoreFlux?\n\n` +
       'Each selected Start ID will refresh its source-owned placement and related records. Reviewed Core ownership is preserved.\n\n' +
-      `${retained} differing source value${retained === 1 ? '' : 's'} will be retained as Core values. No placement will be deleted or archived.`,
+      `For ${retained} field${retained === 1 ? '' : 's'}, Core values will be retained where JobDiva differs. No placement will be deleted or archived.`,
     );
     if (!ok) return;
     setStoredBusy('apply');
@@ -270,7 +270,7 @@ export default function JobDivaReconciliation() {
           <strong>Canonical projection complete.</strong>{' '}
           {storedResult.created || 0} created, {storedResult.updated || 0} updated, {storedResult.restored || 0} restored, {storedResult.mapping_writes || 0} identity bindings,
           and {storedResult.field_map_writes} tenant field-map writes. No placements were deleted or archived.
-          <div style={{ marginTop: 6 }}>{storedResult.retained_core_fields || 0} differing source values retained under Core ownership.</div>
+          <div style={{ marginTop: 6 }}>{storedResult.retained_core_fields || 0} Core value{storedResult.retained_core_fields === 1 ? '' : 's'} retained where JobDiva differed.</div>
           {(storedResult.rows || []).filter(row => row.ownership_conflicts?.length).map(row => (
             <details key={row.start_id} style={{ marginTop: 8 }}>
               <summary>PL-{row.placement_id}: {row.ownership_conflicts.length} Core values retained</summary>

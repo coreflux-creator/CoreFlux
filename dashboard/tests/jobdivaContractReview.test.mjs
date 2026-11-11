@@ -36,9 +36,9 @@ test('review shows retained and source-owned values, preserving false values',as
 });
 test('confirmation counts only selected retained values and result exposes retained details',async()=>{
   const f=await fixture();try{await f.select();await f.click('Project selected assignments');
-    assert.ok(f.confirmations[0].includes('1 differing source value will be retained'));
+    assert.ok(f.confirmations[0].includes('For 1 field, Core values will be retained where JobDiva differs.'));
     assert.deepEqual(f.calls.find(c=>c.action==='stored_apply').body,{dry_run_token:'review-token',selected_start_ids:['1001'],page:1,per_page:20,confirm:'APPLY_STORED_JOBDIVA_ASSIGNMENTS'});
-    assert.ok(text(f.tree.root).includes('1 differing source values retained under Core ownership.'));
+    assert.ok(text(f.tree.root).includes('1 Core value retained where JobDiva differed.'));
     assert.ok(text(f.tree.root.findByProps({'data-testid':'jobdiva-retained-result-1001'})).includes('NET10NET60'));
   }finally{f.close();}
 });
