@@ -299,6 +299,7 @@ function quantaRouteFor(array $routes, array $entry, array $workerPeople, ?array
         (string) $route['worker_id'] === $entry['worker_id']
         && (string) $route['worksite_id'] === $entry['worksite_id']
         && (string) $route['dimension_key'] === $entry['dimension_key']
+        && (empty($route['quanta_assignment_id']) || $route['quanta_assignment_id'] === ($entry['core_assignment']['assignment_id'] ?? null))
         && (string) $route['effective_from'] <= $entry['work_date']
         && (empty($route['effective_to']) || (string) $route['effective_to'] >= $entry['work_date'])
     ));

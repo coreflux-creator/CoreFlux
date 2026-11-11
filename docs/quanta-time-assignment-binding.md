@@ -92,12 +92,39 @@ SQL outbox, final source check, isolation and receipt recovery with synthetic
 provider responses; it runs in the existing disposable MariaDB CI job. Hosted
 acceptance and actual provider concurrency are separate requirements.
 
+## Routes for overlapping placements
+
+Migration `188_quanta_assignment_routes.sql` adds an explicit Quanta assignment
+selector to each route. Existing rows retain an empty selector and their original
+identity, timestamps and review fingerprints. The replacement unique index allows
+the same worker/worksite/dimensions/start date for different captured assignments.
+It still prevents duplicate legacy starts.
+
+The route editor carries the assignment already recorded on source time and offers
+only the matching canonical person/placement and directory. Names do not choose a
+placement for captured time. The server verifies the paired workspace, linked
+person, provider assignment and full shared metadata before saving. Before the
+transaction writes, it rechecks local source and company ownership under locks.
+Route saves and deletes serialize through worker identity rows. Overlapping legacy
+routes and duplicate routes to one placement remain errors. A route's assignment
+identity cannot be changed or cleared by editing it.
+
+Unbound legacy entries never use an assignment-only route. Captured entries still
+check the original typed references, worksite, dimensions and dates. This does not
+adopt old unbound time or rewrite its approvals. A migrated empty selector is
+excluded from historical evidence fingerprints, avoiding spurious conflicts.
+
+Local verification includes route validation, actual native binding packets and
+UI selection behavior. `tests/quanta_assignment_routes_mariadb.php` exercises
+migration replay, transactional batch rollback, prior transaction snapshots and
+two database connections competing for the writer lock. Its result must be
+established by the exact committed CI run before staging acceptance.
+
 ## Still required for the integration
 
 No pilot time policy has been enabled. Finish reviewed handling of existing
-unbound time and the remaining kiosk/task/import entry paths. The Core route editor still rejects overlapping
-worker/worksite routes; its reviewed configuration must support assignment-specific
-routes before offering that scenario to users. Finish PurePay/PurePayroll handling,
+unbound time and the remaining kiosk/task/import entry paths. Deploy and validate
+the new explicit assignment routes in the isolated pilot. Finish PurePay/PurePayroll handling,
 concurrent mutation cases and the distinct synthetic hosted offboarding round trip.
 The full Core release and Thunderhawk financial reconciliation remain separate open
 requirements. This change authorizes no payroll, payments, financial postings or

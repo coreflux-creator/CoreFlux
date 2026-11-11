@@ -65,10 +65,18 @@ function quantaTimeBindingChecks(array $packet): array
     $check(quantaComponentHash(quantaNormalizeEntry($reordered,[],'approved'),$route,'regular',1.0)===quantaComponentHash($entry,$route,'regular',1.0),'Object-key ordering does not change source integrity');
     $check(!array_key_exists('core_assignment',$legacy) && quantaRouteFor([$route],$legacy,$workers)['placement_id']===42,'Unmanaged legacy entries retain their existing explicit routing');
     $check($fails(fn()=>quantaRouteFor([$route,$other],$legacy,$workers)),'Legacy ambiguity is still rejected');
+    $specific=$route+['quanta_assignment_id'=>$bound['assignment_id']];
+    $check(quantaRouteFor([$specific],$entry,$workers,$access)['placement_id']===42,'Captured assignment follows its explicitly scoped route');
+    $check($fails(fn()=>quantaRouteFor([$specific],$legacy,$workers)),'Unbound legacy time cannot use an assignment-only route');
+    $foreignRoute=array_replace($specific,['quanta_assignment_id'=>'cfa_'.str_repeat('a',64)]);
+    $check($fails(fn()=>quantaRouteFor([$foreignRoute],$entry,$workers,$access)),'A route to a different provider assignment cannot capture these hours');
+    $check(quantaRouteFor([$specific,$other],$legacy,$workers)['placement_id']===$other['placement_id'],'A distinct captured route does not redirect legacy hours');
+    $check(quantaTimeRouteEvidence($entry,$route+['quanta_assignment_id'=>''])===quantaTimeRouteEvidence($entry,$route),'Empty migrated route selector preserves prior captured evidence');
     $legacyRoute=$route;unset($legacyRoute['person_directory_tenant_id'],$legacyRoute['placement_directory_tenant_id']);
     $check(quantaTimeRouteEvidence($legacy,$route)===$legacyRoute && quantaTimeRouteEvidence($entry,$route)===$route,'Legacy evidence stays stable while captured time includes directory ownership');
     $access['binding_hash']=str_repeat('a',64);
     $check(quantaTimeSourceReviewHash($access,$legacy,$route,[])===quantaTimeSourceReviewHash($access,$legacy,$legacyRoute,[]),'New route directory columns do not invalidate existing legacy source reviews');
+    $check(quantaTimeSourceReviewHash($access,$legacy,$route+['quanta_assignment_id'=>''],[])===quantaTimeSourceReviewHash($access,$legacy,$route,[]),'Assignment-route migration preserves prior legacy source reviews');
     return ['passed'=>count($checks),'checks'=>$checks,'assignment_id'=>$bound['assignment_id'],
         'person'=>$bound['person'],'placement'=>$bound['placement'],'approval_evidence'=>$evidence,
         'normalized_entry'=>$entry,'database_used'=>false,'network_used'=>false];

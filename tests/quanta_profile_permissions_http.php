@@ -32,6 +32,7 @@ $actions = ['profile_baseline_preview','profile_baseline_send','profile_baseline
     'profile_return_list','profile_return_status','profile_return_send','profile_return_resume'];
 $reviews = array_slice($actions, 3);
 $timeControls=['time_control_context','time_control_preview','time_control_pending','time_control_send','time_control_receipt'];
+$timeControls=array_merge($timeControls,['save_routes','delete_route']);
 $actions=array_merge($actions,$timeControls);
 $counts = static function() use ($pdo): array {
     $out = [];

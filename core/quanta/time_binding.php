@@ -49,6 +49,7 @@ function quantaTimeBindingAssertWorkspace(array $binding, ?array $access): void
 
 function quantaTimeBindingRouteMatches(array $binding, array $route): bool
 {
+    if(!empty($route['quanta_assignment_id'])&&$route['quanta_assignment_id']!==$binding['assignment_id'])return false;
     foreach (['person','placement'] as $kind) {
         if (empty($route[$kind.'_directory_tenant_id']) || empty($route[$kind.'_number'])
             || (int)$route[$kind.'_directory_tenant_id']!==$binding[$kind]['directory_tenant_id']
@@ -59,6 +60,8 @@ function quantaTimeBindingRouteMatches(array $binding, array $route): bool
 
 function quantaTimeRouteEvidence(array $entry, array $route): array
 {
+    // A newly migrated empty selector is the same historical legacy route.
+    if(empty($route['quanta_assignment_id']))unset($route['quanta_assignment_id']);
     // Newly selected directory columns must not invalidate legacy review
     // fingerprints for time that has never carried a captured assignment.
     if (!array_key_exists('core_assignment',$entry)) {

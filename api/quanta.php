@@ -11,6 +11,7 @@ require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
 require_once __DIR__ . '/../core/quanta/time_control_delivery.php';
+require_once __DIR__ . '/../core/quanta/routes.php';
 require_once __DIR__ . '/../core/quanta/profile_review.php';
 require_once __DIR__ . '/../core/quanta/profile_return_delivery.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
@@ -46,7 +47,7 @@ function quantaApiPlacements(int $tenantId, bool $includeCancelled = false): arr
     $stmt = getDB()->prepare(
         'SELECT p.id, p.person_id, p.title, p.end_client_name, p.status, p.start_date,
                 COALESCE(p.actual_end_date, p.end_date) AS end_date,
-                pe.email_primary AS person_email,
+                pe.email_primary AS person_email, p.tenant_id AS placement_directory_tenant_id, pe.tenant_id AS person_directory_tenant_id,
                 CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name
            FROM placements p
            JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet AND pe.deleted_at IS NULL
@@ -369,96 +370,14 @@ try {
         api_ok(['worker_links' => quantaWorkerLinks($tenantId)]);
     }
 
-    if ($action === 'save_routes') {
-        $routes = $body['routes'] ?? null;
-        if (!is_array($routes) || !array_is_list($routes) || !$routes || count($routes) > 100) {
-            throw new InvalidArgumentException('Provide 1 to 100 placement routes');
+    if ($action === 'save_routes' || $action === 'delete_route') {
+        foreach(['people.view','placements.view','time.view','time.review'] as $permission)rbac_legacy_require($user,$permission);
+        if($action==='save_routes') {
+            if(!is_array($body['routes']??null))throw new InvalidArgumentException('Provide reviewed placement routes');
+            api_ok(['routes'=>quantaSaveRoutes($tenantId,$actorId,$body['routes'])]);
         }
-        $catalog = quantaCatalog(quantaApiKey($tenantId));
-        $workers = array_fill_keys(array_map('strval', array_column($catalog['workers'], 'id')), true);
-        $sites = array_fill_keys(array_map('strval', array_column($catalog['worksites'], 'id')), true);
-        $placementTenant = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
-        $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-        $pdo = getDB();
-        $owns = cf_tx_begin($pdo);
-        try {
-            $workerPeople = quantaWorkerPersonMap(quantaWorkerLinks($tenantId, true));
-            foreach ($routes as $route) {
-                if (!is_array($route)) throw new InvalidArgumentException('Invalid route');
-                $worker = trim((string) ($route['worker_id'] ?? ''));
-                $site = trim((string) ($route['worksite_id'] ?? ''));
-                $dimensions = quantaDimensions($route['dimension_values'] ?? null);
-                $dimensionKey = quantaDimensionKey($dimensions);
-                $placementId = (int) ($route['placement_id'] ?? 0);
-                $from = quantaApiDate((string) ($route['effective_from'] ?? ''), 'Route start');
-                $to = trim((string) ($route['effective_to'] ?? ''));
-                if ($to !== '') quantaApiDate($to, 'Route end');
-                if ($to !== '' && $to < $from) throw new InvalidArgumentException('Route end is before start');
-                if ($worker === '' || strlen($worker) > 128 || !isset($workers[$worker])) throw new InvalidArgumentException('Choose a worker from Quanta');
-                if (strlen($site) > 128 || ($site !== '' && !isset($sites[$site]))) throw new InvalidArgumentException('Choose a worksite from Quanta');
-                $placement = $pdo->prepare(
-                    'SELECT p.person_id, p.status FROM placements p JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :pet
-                     WHERE p.id = :id AND p.tenant_id = :pt AND p.deleted_at IS NULL AND pe.deleted_at IS NULL
-                       AND p.status != "cancelled" LIMIT 1'
-                );
-                $placement->execute(['id' => $placementId, 'pt' => $placementTenant, 'pet' => $peopleTenant]);
-                $placementRow = $placement->fetch(PDO::FETCH_ASSOC);
-                $personId = (int) ($placementRow['person_id'] ?? 0);
-                if (!$personId) throw new InvalidArgumentException("Placement PL-{$placementId} is not available");
-                if (!in_array((string) $placementRow['status'], ['active', 'ended'], true)) {
-                    throw new InvalidArgumentException("Placement PL-{$placementId} must be activated before routing time");
-                }
-                quantaAssertWorkerPerson($worker, $personId, $workerPeople);
-                $routeId = (int) ($route['id'] ?? 0);
-                if ($routeId > 0) {
-                    $owned = $pdo->prepare('SELECT id FROM quanta_time_routes WHERE tenant_id = :t AND id = :id FOR UPDATE');
-                    $owned->execute(['t' => $tenantId, 'id' => $routeId]);
-                    if (!$owned->fetchColumn()) throw new InvalidArgumentException('Route is not in this workspace');
-                }
-                $overlap = $pdo->prepare(
-                    'SELECT id FROM quanta_time_routes WHERE tenant_id = :t AND worker_id = :w AND worksite_id = :s
-                        AND dimension_key = :dk
-                        AND id != :id AND effective_from <= :new_to
-                        AND COALESCE(effective_to,"9999-12-31") >= :new_from LIMIT 1 FOR UPDATE'
-                );
-                $overlap->execute([
-                    't' => $tenantId, 'w' => $worker, 's' => $site, 'dk' => $dimensionKey, 'id' => $routeId,
-                    'new_to' => $to ?: '9999-12-31', 'new_from' => $from,
-                ]);
-                if ($overlap->fetchColumn()) throw new InvalidArgumentException('Worker/worksite route dates overlap');
-                $params = ['t' => $tenantId, 'w' => $worker, 's' => $site, 'dk' => $dimensionKey,
-                    'dv' => json_encode($dimensions, JSON_THROW_ON_ERROR), 'p' => $placementId, 'f' => $from, 'e' => $to ?: null];
-                if ($routeId > 0) {
-                    $pdo->prepare(
-                        'UPDATE quanta_time_routes SET worker_id=:w, worksite_id=:s, dimension_key=:dk,
-                         dimension_values_json=:dv, placement_id=:p,
-                         effective_from=:f, effective_to=:e WHERE tenant_id=:t AND id=:id'
-                    )->execute($params + ['id' => $routeId]);
-                } else {
-                    $pdo->prepare(
-                        'INSERT INTO quanta_time_routes
-                            (tenant_id,worker_id,worksite_id,dimension_key,dimension_values_json,
-                             placement_id,effective_from,effective_to,created_by_user_id)
-                         VALUES (:t,:w,:s,:dk,:dv,:p,:f,:e,:u)'
-                    )->execute($params + ['u' => $actorId]);
-                }
-            }
-            cf_tx_commit($pdo, $owns);
-        } catch (Throwable $e) {
-            cf_tx_rollback($pdo, $owns);
-            throw $e;
-        }
-        platformAuditLogWrite($tenantId, $actorId, 'quanta.routes.saved', null, ['count' => count($routes)], ['source' => 'quanta']);
-        api_ok(['routes' => quantaRoutes($tenantId)]);
-    }
-
-    if ($action === 'delete_route') {
-        $id = (int) ($body['id'] ?? 0);
-        if ($id <= 0) throw new InvalidArgumentException('Route ID required');
-        getDB()->prepare('DELETE FROM quanta_time_routes WHERE tenant_id = :t AND id = :id')
-            ->execute(['t' => $tenantId, 'id' => $id]);
-        platformAuditLogWrite($tenantId, $actorId, 'quanta.route.deleted', $id, [], ['source' => 'quanta']);
-        api_ok(['routes' => quantaRoutes($tenantId)]);
+        if(!is_int($body['id']??null))throw new InvalidArgumentException('Route ID required');
+        api_ok(['routes'=>quantaDeleteRoute($tenantId,$actorId,$body['id'])]);
     }
 
     if ($action === 'preview' || $action === 'import') {
