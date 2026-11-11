@@ -1,0 +1,132 @@
+{
+  "recorded_at": "2026-11-11T22:20:10.785188+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "Source changes for the terminal census and reviewed ownership release were committed and pushed; the existing final-candidate process was subsequently verified terminal and passing without restarting it.",
+  "goal_complete": false,
+  "scope": "Core isolated staging tenant 2002; no provider or production deployment",
+  "runtime_source": "b48af8abc895df4d28646c70975d5378834f2e77",
+  "ci": {
+    "run": "43109514659",
+    "commit": "b48af8abc895df4d28646c70975d5378834f2e77",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43109514659",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "The separate JobDiva terminal census locks the exact placement and preserves Core-owned status, planned end and actual end dates with an explicit skip reason",
+    "Terminal lifecycle changes and commercial graph reconciliation share one transaction",
+    "Returning fields to JobDiva locks the record, requires the reviewed field values and ownership, and rejects stale reviews",
+    "A Core-owned closure releases status and actual end date together; release and its audit receipt commit or roll back together",
+    "The paired screen prompts for closure release, sends the reviewed state and serializes release controls"
+  ],
+  "verification": {
+    "before_fix_reproduced": true,
+    "disposable_lifecycle_checks": 30,
+    "prior_ownership_checks": 17,
+    "placement_end_checks": 13,
+    "request_checks": 17,
+    "hosted_lifecycle_checks": 30,
+    "original_containers_preserved": 206,
+    "installed_files": 10,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_regression": 34356,
+    "fixture_rows_rolled_back": true,
+    "temporary_probe_removed": true,
+    "served_screen_assets_verified": true
+  },
+  "frontend": {
+    "previous_bundle_source": "6c83324bea0d7c4dcf8733316759a9ef0c784b1e",
+    "changed_inputs": [
+      "modules/placements/ui/PlacementDetail.jsx"
+    ],
+    "main_bundle": "spa-assets/index-CNO26_i-.js",
+    "secondary_bundle": "spa-assets/index-I-tNIXKA.js",
+    "service_worker": "Existing deployed service worker retained, with its cache version changed to the new bundle"
+  },
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "browser_acceptance": false,
+    "native_http_acceptance": false,
+    "hosted_test_method": "Deployed PHP lifecycle functions using synthetic records inside an outer rollback transaction; hosted screen asset hashes verified separately"
+  },
+  "coordination_window_released": true,
+  "remaining_scope": [
+    "Protect ordinary placement edits and bulk edits against concurrent source writes and malformed ownership",
+    "Complete per-field/destination ownership audit, including other force-source contract fields and custom fields",
+    "Complete native HTTP and rendered ownership-control acceptance",
+    "Complete worker/manager portal closure and remaining onboarding/document lifecycle acceptance",
+    "Complete financial-result, billing/AP/AR lineage and reconciliation acceptance"
+  ],
+  "installed_file_hashes": {
+    "modules/placements/lib/ownership.php": {
+      "before_sha256": null,
+      "sha256": "a0068df036b6fa56ed675c0a4b363952a6fd577814b1e7ab0572a889cea2e89d"
+    },
+    "core/jobdiva/sync.php": {
+      "before_sha256": "88ec8a081ff87f2acd6ec84f6ddc4f93c00d3ef658162193e7f0bfa1ba394efa",
+      "sha256": "22f1e8c44cecc3af808cc6a4adcde385a7e79506e91090619f0fc61dfd9c722a"
+    },
+    "modules/placements/api/placements.php": {
+      "before_sha256": "ef0cae6b6149f73abf6d3572be8b2feb9af49277562fe8c13e3afa8d0acdc775",
+      "sha256": "548231291d702ec0823c0f9d08137d8cf4430f3a5ea8528cafc21f3112e61728"
+    },
+    "modules/placements/ui/PlacementDetail.jsx": {
+      "before_sha256": "272a19fc49208151bdad90fe8440277db0301fbc56ec14c99be7d7a5a8b24bbf",
+      "sha256": "c517161512d12d217431983e56a9d302954973526b6df5e41820b75a1622c985"
+    },
+    "spa-assets/index-CNO26_i-.js": {
+      "before_sha256": null,
+      "sha256": "f5467dc47722333a9bbd20628a9393f28a3e63336e9fb4cdd13faa34a015dab9"
+    },
+    "spa-assets/index-I-tNIXKA.js": {
+      "before_sha256": null,
+      "sha256": "893f888649d917f066f0c5738e4cb483b209b8abdfdbbe3428ed4922b853f080"
+    },
+    "spa-assets/sw.js": {
+      "before_sha256": "34572ffb73beec80cc6fb45e032201da4ff12d7bedcbc7e1d486ff75c21a4cdb",
+      "sha256": "fe40dc05474844a3617726853b19a9297129341efa3f3e555dc9ee83cf67d936"
+    },
+    "spa-assets/index.html": {
+      "before_sha256": "78bcf199d3fdf7204258853af4c6cb8fcecda7e7207233a697f32a8a1b76eb2f",
+      "sha256": "4b239c4863a6cf30e6cd6cb0e50552020cfdff285b1ec81c67c511f395720b36"
+    },
+    "dashboard/dist/index.html": {
+      "before_sha256": "39c37fc39b5fc3b2bac1933aa83f912b35a926610dddf30abbb0231de7d20490",
+      "sha256": "4b239c4863a6cf30e6cd6cb0e50552020cfdff285b1ec81c67c511f395720b36"
+    },
+    "index.html": {
+      "before_sha256": "39c37fc39b5fc3b2bac1933aa83f912b35a926610dddf30abbb0231de7d20490",
+      "sha256": "4b239c4863a6cf30e6cd6cb0e50552020cfdff285b1ec81c67c511f395720b36"
+    }
+  },
+  "evidence": {
+    "lifecycle-ownership-b48af8ab-disposable-result.json": {
+      "path": "output/lifecycle-ownership-b48af8ab-disposable-result.json",
+      "sha256": "9e28eb4b4dd5d28d829ae716b7054a479d77e522e96166aa977c83ea6ac8e67b"
+    },
+    "lifecycle-ownership-install-result.json": {
+      "path": "output/lifecycle-ownership-install-result.json",
+      "sha256": "830a111a19e7bafd4bea5f61e88cbd770f3b95dee2da4912e25a15b5d354d79f"
+    },
+    "lifecycle-ownership-hosted-result.json": {
+      "path": "output/lifecycle-ownership-hosted-result.json",
+      "sha256": "f7e6cb9c5c101b7a76f18d0283e690230beb3c7d6d0a7a2abc5ec0fc5bb876dd"
+    },
+    "lifecycle-ownership-ci.json": {
+      "path": "output/lifecycle-ownership-ci.json",
+      "sha256": "c89eddd3421d5c85b9c02aff24c4735f3c264db6a372d53b6bfe82401ff60f0b"
+    },
+    "lifecycle-release-preflight.json": {
+      "path": "output/lifecycle-release-preflight.json",
+      "sha256": "aa27fc7938bea6b2180ee46ddc396c2efdd00e3c3b65253e9cdf9699bbb4b4ca"
+    },
+    "lifecycle-ownership-build-b48af8ab.log": {
+      "path": "output/lifecycle-ownership-build-b48af8ab.log",
+      "sha256": "5e10a567abe84c848417b7b02b657a8fa3df3e8486f35efc62952aff5f51f1db"
+    }
+  }
+}

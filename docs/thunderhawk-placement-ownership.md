@@ -41,4 +41,9 @@ to respect a Core-owned active status and dates. Other force-source contract
 fields, complete field/custom-field alignment, portal closure and document
 lifecycle, and financial reconciliation remain separate requirements.
 
+The subsequent release documented in `thunderhawk-lifecycle-ownership.md`
+closes the explicit ownership-release and separate terminal-census gaps above.
+Ordinary and bulk editing, other force-source fields, portal acceptance and
+financial reconciliation remain open.
+
 No real payroll, payments, financial postings or Arabella changes occurred.
