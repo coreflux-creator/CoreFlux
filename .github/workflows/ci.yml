@@ -46,6 +46,8 @@ jobs:
           python3 tests/core_release_recovery_smoke.py
       - name: Rehearse isolated Quanta update and exact runtime rollback
         run: python3 tests/quanta_time_pilot_installer_rehearsal.py
+      - name: Verify isolated Quanta storage configuration boundaries
+        run: python3 tests/quanta_storage_upgrade_guard_test.py
 
   native-writer-upgrade:
     name: Full-Core actual native writer observation

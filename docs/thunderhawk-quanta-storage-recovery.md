@@ -20,23 +20,49 @@ was tested read-only before the successful second attempt. The receipt is
 `deploy/thunderhawk-quanta-storage-backup-20261111.json`; the guarded reusable
 helper is `deploy/backup_thunderhawk_quanta_storage.py`.
 
-This proves a logical database backup and restoration, not the remaining storage
-conversion or a production recovery guarantee. The installed Quanta runtime is
-still `12ad6396`, Mongo is still standalone and operational time ownership remains
-disabled. Core, PurePay, PurePayroll, production and the Arabella pilot were not
-changed by this rehearsal.
+This proves a logical database backup and restoration, not a production recovery
+guarantee. The original backup was taken while Mongo was standalone. The storage
+conversion recorded below subsequently passed. The installed application remains
+`12ad6396` and operational time ownership remains disabled.
 
-The next storage step is to convert the existing isolated Mongo service to a
-single-member replica set while preserving its named data volume. Before that
-change, verify the current source still matches this recovery point or take a
-fresh backup. Drain all pilot writers, preserve the original Compose settings,
-verify the replacement uses the same volume and isolated network, and test both
-commit and rollback in another unserved namespace. If conversion fails, return
-the same service to its original standalone command and restart the unchanged
-web process; do not overwrite changed business data with an older dump.
+## Transaction storage conversion, November 11
 
-Only after storage and source preservation pass should the accepted coordinator
-runtime be installed and tested on the hosted pilot. Historical associations,
+`upgrade_thunderhawk_quanta_storage.py` verified that the original database still
+matched the restored backup, then drained only Quanta's web process. It converted
+the existing Mongo service into single-member replica set `corepilotquanta`,
+using the same image, named data volume, private internal network and 640 MiB
+memory limit. Its bounded oplog is 128 MiB. No database port was published and no
+additional service was created. Mongo's container was recreated, as expected.
+
+The procedure actually returned the service to its original standalone command,
+verified every original record and index, and then returned it to the replica
+set. The existing unchanged web application restarted successfully. Through its
+installed Python driver, an unserved temporary database proved that two writes
+were invisible before commit, visible after commit, and unchanged after an
+aborted update/delete transaction. That temporary database was removed.
+
+All 66 collections, 1,324 records, 12 time entries and 179 application files were
+preserved. Other service identities and start times were unchanged. A separate
+read-only verifier rechecked the full database snapshot, live primary, internal
+network, original volume, absence of temporary databases and healthy held web
+runtime. The receipt is `deploy/thunderhawk-quanta-storage-upgrade-20261111.json`.
+
+The original Compose file is backed up in the private receipt directory. Exactly
+one command line in its Quanta Mongo service was changed; the resolved Compose
+configuration differs only at that command. This deliberately updates the normal
+Compose file instead of relying on an optional overlay that a later restart
+could omit. The HTTPS Compose file and web environment were unchanged. The
+conversion follows [MongoDB's documented conversion procedure](https://www.mongodb.com/docs/v7.0/tutorial/convert-standalone-to-replica-set/).
+Five local boundary checks cover preserving unrelated services and refusing a
+missing, duplicate, changed or already-converted target.
+
+This is a single-host pilot, not redundant production storage. Future rollback
+must preserve newer writes and the application's coordination requirement; the
+pre-conversion dump must never be blindly restored over changed business data.
+The one-time converter intentionally refuses the now-upgraded host on replay.
+
+Storage and source preservation have passed. The accepted coordinator runtime
+still needs installation and testing on the hosted pilot. Historical associations,
 explicit time permissions, synthetic lifecycle and full financial-result
 reconciliation remain separate release requirements. No real payroll, payment,
 financial posting or production cutover is authorized by this evidence.
