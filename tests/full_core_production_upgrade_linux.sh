@@ -39,7 +39,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends apache2 mariadb
     && useradd -m --uid 1003 --gid 33 coremaster && useradd -m --uid 1004 --gid 33 coreapp \
     && usermod -p '*' coremaster && usermod -p '*' coreapp \
     && mkdir /fixture && touch /run/core-production-upgrade-fixture
-RUN printf '[www]\nuser=coreapp\ngroup=www-data\npm.max_children=4\npm.start_servers=2\npm.min_spare_servers=2\npm.max_spare_servers=3\n' > /usr/local/etc/php-fpm.d/zzz-fixture.conf \
+# Keep the fixture's complete pool stable between the HTTP status observation
+# and the independent process inventory. Dynamic spare-worker creation is an
+# unreviewed process change, which the production observer correctly refuses.
+RUN printf '[www]\nuser=coreapp\ngroup=www-data\npm=static\npm.max_children=4\n' > /usr/local/etc/php-fpm.d/zzz-fixture.conf \
     && printf 'opcache.enable=1\nopcache.validate_timestamps=0\nopcache.file_update_protection=0\n' > /usr/local/etc/php/conf.d/fixture.ini
 COPY deploy /app/deploy
 COPY core /app/core
