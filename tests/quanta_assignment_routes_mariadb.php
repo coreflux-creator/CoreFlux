@@ -24,9 +24,9 @@ $quantaContext=$context;$race=false;$mismatch=false;$writes=0;
 $GLOBALS['__quanta_transport']=static function($method,$url)use($quantaContext,&$records,&$race,&$mismatch,$observer):array{
     $path=parse_url($url,PHP_URL_PATH);
     if(str_ends_with($path,'/context'))$body=$quantaContext;
-    elseif(str_ends_with($path,'/workers'))$body=['data'=>[['id'=>'worker-1','active'=>true]],'pagination'=>['has_more'=>false,'next_cursor'=>null]];
-    elseif(str_ends_with($path,'/worksites'))$body=['data'=>[['id'=>'site-1','active'=>true]],'pagination'=>['has_more'=>false,'next_cursor'=>null]];
-    elseif(str_ends_with($path,'/dimensions'))$body=['data'=>[],'pagination'=>['has_more'=>false,'next_cursor'=>null]];
+    elseif(str_ends_with($path,'/workers'))$body=['items'=>[['id'=>'worker-1','active'=>true]],'has_more'=>false,'next_cursor'=>null];
+    elseif(str_ends_with($path,'/worksites'))$body=['items'=>[['id'=>'site-1','active'=>true]],'has_more'=>false,'next_cursor'=>null];
+    elseif(str_ends_with($path,'/dimensions'))$body=['items'=>[],'has_more'=>false,'next_cursor'=>null];
     elseif(str_contains($path,'/person-links/')){$assignment=reset($records);$body=['id'=>$assignment['person_link_id'],'tenant_id'=>'workspace-a','worker_id'=>'worker-1','person'=>$assignment['person']];}
     elseif(str_contains($path,'/assignments/')){
         $body=$records[basename($path)];if($mismatch)$body['title']='Pending provider edit';
