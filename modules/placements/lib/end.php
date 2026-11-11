@@ -45,7 +45,7 @@ function placementEnd(int $id, array $body): array
         // operator explicitly releases them through the override review.
         if (str_starts_with((string) ($before['external_id'] ?? ''), 'jd:')) {
             $raw = $before['coreflux_overridden_fields'] ?? null;
-            $overrides = $raw === null || $raw === '' ? [] : json_decode($raw, true);
+            $overrides = $raw === null || $raw === '' ? [] : json_decode($raw);
             if (!is_array($overrides) || !array_is_list($overrides)
                 || array_filter($overrides, static fn($field) => !is_string($field) || $field === '')) {
                 throw new RuntimeException('Review this placement\'s field ownership before ending it.', 422);
