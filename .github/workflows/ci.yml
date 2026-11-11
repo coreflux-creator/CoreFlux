@@ -224,6 +224,7 @@ jobs:
           php tests/quanta_time_current_smoke.php
           php tests/quanta_time_review_smoke.php
           php tests/quanta_time_control_smoke.php
+          php tests/quanta_time_control_fixture.php < tests/fixtures/quanta_time_control_native.json
           php -l deploy/accept_synthetic_time_review.php
           if COREFLUX_ENV=staging php deploy/accept_synthetic_time_review.php --share-demo-pending-review; then
             echo 'Demo acceptance unexpectedly ran outside the isolated pilot.' >&2

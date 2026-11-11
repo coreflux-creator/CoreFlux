@@ -57,6 +57,9 @@ $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FET
 $v=quantaTimeControlContext(1,19,'site-1')['view'];
 $check($v['choices'][0]['placement_id']===42&&$v['person_number']==='P-19'&&$posts===0,'context resolves canonical local placement without writing Quanta');
 $foreign=true;$check($fails(fn()=>quantaTimeControlContext(1,19,'site-1')),'foreign context is rejected');$foreign=false;
+$pdo->exec('UPDATE people SET status="inactive" WHERE id=19');
+$check($fails(fn()=>$preview())&&$posts===0,'inactive Core person cannot enable assignment time');
+$pdo->exec('UPDATE people SET status="active" WHERE id=19');
 $legacy=1;$check($fails(fn()=>$preview())&&$fails(fn()=>$preview([]))&&$posts===0,'initial enable and hold both require legacy time adoption');$legacy=0;
 $p=$preview();$check($p['selected_placements']===['PL-42']&&$preview()['delivery']['id']===$p['delivery']['id'],'review reuses one encrypted original request');
 $check($fails(fn()=>$send($p))&&$posts===0,'default-off control cannot send');

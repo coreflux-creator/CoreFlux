@@ -49,6 +49,7 @@ function quantaTimeControlSource(int $tenant,string $instance,int $personId,arra
 {
     $ids=quantaTimeControlPlacementIds($ids);$owners=quantaTimeControlOwners($tenant,$lock);$pdo=getDB();
     $person=quantaMetadataSource($pdo,$instance,$owners,'person',$personId,$lock);
+    if($ids&&($person['person_record']['status']??null)!=='active')throw new RuntimeException('Only an active Core person can receive assignment time. Review an empty selection to hold new time.');
     $links=array_values(array_filter(quantaWorkerLinks($tenant,$lock),static fn($r)=>(int)$r['person_id']===$personId));
     if(count($links)!==1)throw new RuntimeException('Link this person to exactly one Quanta worker first');
     $worker=quantaTimeControlIdentifier($links[0]['worker_id']);$placements=[];
@@ -158,17 +159,22 @@ function quantaTimeControlPreview(int $tenant,int $actor,int $personId,string $s
         'delivery'=>integrationDeliverySummary($row),'receipt_only'=>false];
 }
 
+function quantaTimeControlPayloadOwners(array $payload,array $owners): void
+{
+    $body=quantaTimeControlBody($payload['body']);quantaTimeControlExpectedValidate($payload['workspace_id'],$body,$payload['expected']);
+    $person=quantaCoreReferenceValidate($payload['person'],'person');$instance=integrationInstanceId();
+    if($person['instance_id']!==$instance||$person['directory_tenant_id']!==$owners['people'])throw new RuntimeException('Restore the original person directory before checking this setup');
+    foreach($payload['expected']['assignments'] as $selected)quantaTimeControlOwned($selected['identity'],$payload['workspace_id'],$body['worker_id'],$instance,$owners,$person);
+    quantaTimeControlPlacementIds($payload['placement_ids']);
+}
+
 function quantaTimeControlEnvelope(int $tenant,int $id,string $reviewHash): array
 {
     $row=integrationDeliveryGet(getDB(),$tenant,$id);$owners=quantaTimeControlOwners($tenant);
     if($row['provider']!=='quanta'||$row['operation']!=='time.access'||$row['entity_type']!=='person'
         ||(int)$row['entity_tenant_id']!==$owners['people']||!hash_equals($row['review_hash'],$reviewHash))throw new InvalidArgumentException('Choose the original time setup in its authorized directory');
     $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
-    $body=quantaTimeControlBody($payload['body']);quantaTimeControlExpectedValidate($payload['workspace_id'],$body,$payload['expected']);
-    $person=quantaCoreReferenceValidate($payload['person'],'person');$instance=integrationInstanceId();
-    if($person['instance_id']!==$instance||$person['directory_tenant_id']!==$owners['people'])throw new RuntimeException('Restore the original person directory before checking this setup');
-    foreach($payload['expected']['assignments'] as $selected)quantaTimeControlOwned($selected['identity'],$payload['workspace_id'],$body['worker_id'],$instance,$owners,$person);
-    quantaTimeControlPlacementIds($payload['placement_ids']);return [$row,$payload];
+    quantaTimeControlPayloadOwners($payload,$owners);return [$row,$payload];
 }
 
 function quantaTimeControlSend(int $tenant,int $actor,int $id,string $reviewHash): array
@@ -231,6 +237,8 @@ function quantaTimeControlReceipt(int $tenant,int $id,string $reviewHash): array
     $pdo=getDB();$pdo->beginTransaction();
     try{
         quantaWorkspaceAssertCurrent($pdo,$tenant,$access,true);
+        $owners=quantaTimeControlOwners($tenant,true);quantaTimeControlPayloadOwners($payload,$owners);
+        if($owners['people']!==(int)$row['entity_tenant_id'])throw new RuntimeException('Person directory changed during recovery');
         $q=$pdo->prepare('SELECT * FROM integration_deliveries WHERE tenant_id=:t AND id=:id FOR UPDATE');$q->execute(['t'=>$tenant,'id'=>$id]);$live=$q->fetch(PDO::FETCH_ASSOC);
         foreach(['payload_ct','binding_hash','review_hash','idempotency_key'] as $field)if(!$live||$live[$field]!==$row[$field])throw new RuntimeException('Original setup changed during recovery');
         $success=$outcome==='confirmed';

@@ -9,6 +9,7 @@ if (PHP_SAPI !== 'cli' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('CI') !=
 putenv('COREFLUX_DATA_KEY=' . base64_encode(random_bytes(32)));
 putenv('COREFLUX_INTEGRATION_INSTANCE_ID=381e452a-5d11-4e2e-9daa-e9427501898a');
 putenv('COREFLUX_QUANTA_PROFILE_RETURN=0');
+putenv('COREFLUX_QUANTA_TIME_ACCESS_DELIVERY=0');
 putenv('CF_RBAC_BRIDGE_MODE=dual');
 require_once __DIR__ . '/../core/quanta/profile_return_delivery.php';
 require_once __DIR__ . '/../core/memberships.php';
@@ -30,6 +31,8 @@ $actions = ['profile_baseline_preview','profile_baseline_send','profile_baseline
     'profile_review_list','profile_review_preview','profile_review_apply','profile_review_status',
     'profile_return_list','profile_return_status','profile_return_send','profile_return_resume'];
 $reviews = array_slice($actions, 3);
+$timeControls=['time_control_context','time_control_preview','time_control_pending','time_control_send','time_control_receipt'];
+$actions=array_merge($actions,$timeControls);
 $counts = static function() use ($pdo): array {
     $out = [];
     foreach (['people','placements','quanta_profile_baselines','quanta_profile_decisions','quanta_profile_returns',
@@ -126,6 +129,22 @@ try {
         'Core contact decision requires explicit confirmation');
     $expect($call('profile_return_send',['change_id'=>'cpc_' . str_repeat('a',64),'confirm_return'=>true])[0]===409,
         'Even authorized return remains blocked by the disabled pilot gate');
+    $priorReads=$reads();
+    foreach($timeControls as $action)$expect($call($action)[0]===403,'Integration admin alone cannot manage time setup: '.$action);
+    RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
+    RBACResolver::grantModule($membership,'time','read',[$tenant],$actor);
+    foreach($timeControls as $action)$expect($call($action)[0]===403,'Time read permission cannot configure assignment eligibility: '.$action);
+    RBACResolver::grantModule($membership,'time','write',[$tenant],$actor);
+    [$status,$data]=$call('time_control_pending');
+    $expect($status===200&&($data['rows']??null)===[],'Time reviewer can read its local recovery queue without a source catalog');
+    foreach(['time_control_context','time_control_preview'] as $action)$expect($call($action,['person_id'=>0,'worksite_id'=>'site-1'])[0]===422,'Authorized setup validates local person selection: '.$action);
+    $envelope=['delivery_id'=>1,'review_hash'=>str_repeat('a',64)];
+    foreach([false,1,'true',null] as $confirmation)$expect($call('time_control_send',$envelope+['confirm_time_control'=>$confirmation])[0]===422,'Time setup requires literal confirmation');
+    $expect($call('time_control_send',$envelope+['confirm_time_control'=>true])[0]===409,'Disabled operational rollout blocks even confirmed time setup');
+    foreach($timeControls as $action)$expect($call($action,[],true,999)[0]===403,'Foreign company cannot manage time setup: '.$action);
+    RBACResolver::grantModule($membership,'time','read',[$tenant],$actor);
+    foreach($timeControls as $action)$expect($call($action)[0]===403,'Same session loses time setup rights on downgrade: '.$action);
+    $expect($reads()===$priorReads,'Time setup permission checks make no provider requests');
     RBACResolver::grantModule($membership,'people','read',[$tenant],$actor);
     foreach ($reviews as $action) $expect($call($action)[0]===403,'Same session loses decision rights after grant downgrade: ' . $action);
     RBACResolver::revokeModule($membership,'integrations',$actor);
@@ -142,7 +161,7 @@ try {
         try {
             $pdo->beginTransaction();
             if ($membership !== null) {
-                foreach (['integrations','people'] as $module) RBACResolver::revokeModule($membership,$module,$actor);
+                foreach (['integrations','people','placements','time'] as $module) RBACResolver::revokeModule($membership,$module,$actor);
                 deactivateMembership($actor,$tenant);
             }
             $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE id=? AND tenant_id=?')->execute([$actor,$tenant]);
