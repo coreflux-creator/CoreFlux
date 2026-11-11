@@ -1,5 +1,9 @@
 # Stored JobDiva contract ownership review
 
+The later [native commercial edit release](thunderhawk-native-commercial-edit.md)
+addresses participant PATCH atomicity and canonical bill-to propagation. The
+remaining-scope list below records what was open at this review release.
+
 Published to isolated Core staging on November 11, 2026 from
 `bd9c6817612ea45f23f79b1780e3e01b4de0a35e`. All eleven jobs passed in
 [release CI](https://github.com/coreflux-creator/CoreFlux/actions/runs/43119568597).
