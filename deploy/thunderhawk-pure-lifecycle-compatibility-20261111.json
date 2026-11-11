@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-11-11T18:17:04.279336+00:00",
+  "checked_at": "2026-11-11T18:55:10.398396+00:00",
   "goal_turn_classification": "progress",
   "previous_goal_turn": {
     "classification": "no_progress",
-    "reason": "Answered the standalone accounting access question. This continuation revalidated provider state, fixed CI and found/restored the incompatible isolated release."
+    "reason": "Answered the standalone accounting access question. This continuation fixed current-source compatibility, completed expanded checks, installed the compatible pilot release and activated the synthetic native records."
   },
   "goal_complete": false,
   "production_changed": false,
@@ -11,9 +11,9 @@
   "real_payroll_payments_postings": false,
   "core_ci": {
     "conclusion": "success",
-    "headSha": "ef68de25f74cf3c83f89ed7f892e97136290f25f",
+    "headSha": "c8123bd74d623820b3f98f5fad067a5f409b8cd7",
     "status": "completed",
-    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43072575578",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43076300578",
     "job_count": 11
   },
   "pure_people_provisioning": {
@@ -78,8 +78,9 @@
   "native_provider_states": {
     "person_number": "P-368",
     "placement_number": "PL-874",
-    "employee_status": "inactive",
-    "assignment_status": "draft"
+    "employee_status": "active",
+    "assignment_status": "active",
+    "pay_method": "record_only"
   },
   "rejected_candidate_installation": {
     "checked_at": "2026-11-11T17:59:11.100968+00:00",
@@ -187,112 +188,239 @@
     "real_payroll_payments_postings": false
   },
   "pure_candidate": {
-    "source_commit": "3a265c50bab58087b13bd6ee563fa6f15d69b404",
+    "source_commit": "c0bf9eefba51dd6c039af7cebe9f3bf4e0de0d78",
     "published": false,
-    "installed": false,
-    "status": "incomplete_do_not_activate",
+    "installed": true,
+    "installed_scope": "isolated_core_pilot",
+    "status": "compatible_pilot_installed_synthetic_records_active",
     "initial_isolation_checks_passed": 189,
     "initial_checks_did_not_prove_saved_contract_compatibility": true,
     "preserved_route_parity": {
       "scope": "Static preserved-pilot route parity; not proof of runtime or behavior parity",
-      "missing_routes": [
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/admin/moov/webhook-reviews"
-        },
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/bills/{bill_id}/payments"
-        },
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/bills/{bill_id}/reservations/{reservation_id}"
-        },
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/context"
-        },
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/customers/by-external-identity"
-        },
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/qbo/customer-links/review"
-        },
-        {
-          "module": "server.py",
-          "method": "GET",
-          "path": "/qbo/customers"
-        },
-        {
-          "module": "server.py",
-          "method": "POST",
-          "path": "/bills/{bill_id}/reservations"
-        },
-        {
-          "module": "server.py",
-          "method": "POST",
-          "path": "/bills/{bill_id}/reservations/{reservation_id}/execute"
-        },
-        {
-          "module": "server.py",
-          "method": "POST",
-          "path": "/bills/{bill_id}/reservations/{reservation_id}/reconcile"
-        },
-        {
-          "module": "server.py",
-          "method": "POST",
-          "path": "/bills/{bill_id}/reservations/{reservation_id}/release"
-        },
-        {
-          "module": "server.py",
-          "method": "POST",
-          "path": "/customers/{customer_id}/qbo/link"
-        }
-      ],
-      "count": 12,
+      "missing_routes": [],
+      "count": 0,
       "candidate_ready_to_install": false,
       "fresh_source_files": [
         "server.py",
         "qbo_bill_lines.py"
       ]
     },
-    "expanded_test_handle": {
-      "archive_sha256": "6e8f62668dc8a6d9e58cd840cba853e175125d5d704ff536074ff0c30a6879e5",
-      "remote": "/srv/core-integration-pilot/20261029/private/lifecycle-fixture-6e8f62668dc8a6d9",
-      "container_name": "core-pure-lifecycle-check-6e8f62668dc8",
-      "phase": "started",
-      "files": 1499,
-      "test_dependencies": {
-        "pytest": "8.4.2",
-        "pytest-asyncio": "0.24.0",
-        "mongomock-motor": "0.0.34",
-        "mongomock": "4.3.0",
-        "sentinels": "1.1.1",
-        "pluggy": "1.7.0",
-        "iniconfig": "2.3.1",
-        "packaging": "26.3",
-        "pytz": "2026.5",
-        "pygments": "2.21.0"
+    "expanded_checks": {
+      "offline": {
+        "archive_sha256": "f9569e12150113e883702a55f67e166dc36edb4c409521c4c882957aed091271",
+        "remote": "/srv/core-integration-pilot/20261029/private/lifecycle-fixture-f9569e12150113e8",
+        "container_name": "core-pure-lifecycle-check-f9569e121501",
+        "phase": "exited",
+        "files": 1513,
+        "test_dependencies": {
+          "pytest": "8.4.2",
+          "pytest-asyncio": "0.24.0",
+          "mongomock-motor": "0.0.34",
+          "mongomock": "4.3.0",
+          "sentinels": "1.1.1",
+          "pluggy": "1.7.0",
+          "iniconfig": "2.3.1",
+          "packaging": "26.3",
+          "pytz": "2026.5",
+          "pygments": "2.21.0"
+        },
+        "network": "none",
+        "live_database": false,
+        "mode": "offline",
+        "container_id": "d675c3b6e530671ff9f0ffa7e8b1291cab7ccb6970878855441af8169ca0d2b2",
+        "mongo_container_id": null,
+        "running": false,
+        "exit_code": 0,
+        "started_at": "2026-11-11T18:45:16.855278051Z",
+        "finished_at": "2026-11-11T18:51:23.87311373Z",
+        "log": "pure-lifecycle-check-f9569e121501.log",
+        "result": {
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "live_database": false,
+          "disposable_mongo": false,
+          "hosted_acceptance": false
+        },
+        "summary": [
+          "742 passed, 1 skipped, 11 warnings in 360.35s (0:06:00)"
+        ]
       },
-      "network": "none",
-      "live_database": false,
-      "container_id": "e52cc860f81e3bba244ebc7db9e8a9d525f434bcc4ff316fc63f0aa95c38a13f"
+      "real_disposable_mongo": {
+        "archive_sha256": "689e3a7a0e80481a7641bb012808d77de8473b4a95f3b4fd8d2cb77087ea8623",
+        "remote": "/srv/core-integration-pilot/20261029/private/lifecycle-fixture-689e3a7a0e80481a",
+        "container_name": "core-pure-lifecycle-check-689e3a7a0e80",
+        "phase": "exited",
+        "files": 1513,
+        "test_dependencies": {
+          "pytest": "8.4.2",
+          "pytest-asyncio": "0.24.0",
+          "mongomock-motor": "0.0.34",
+          "mongomock": "4.3.0",
+          "sentinels": "1.1.1",
+          "pluggy": "1.7.0",
+          "iniconfig": "2.3.1",
+          "packaging": "26.3",
+          "pytz": "2026.5",
+          "pygments": "2.21.0"
+        },
+        "network": "none",
+        "live_database": false,
+        "mode": "mongo",
+        "container_id": "f30d7c7c6029d10b5a0672aa9c339b14bc45d44ad8a144d11a56344b031d78c1",
+        "mongo_container_id": "0660b6d58ca06e329962740679e240aab97e12526e37d8141bdcd227ee249e91",
+        "running": false,
+        "exit_code": 0,
+        "started_at": "2026-11-11T18:44:25.273819486Z",
+        "finished_at": "2026-11-11T18:45:00.441096693Z",
+        "log": "pure-lifecycle-check-689e3a7a0e80.log",
+        "result": {
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "live_database": false,
+          "disposable_mongo": true,
+          "hosted_acceptance": false
+        },
+        "summary": [
+          "145 passed, 1 skipped, 9 warnings in 30.82s"
+        ]
+      },
+      "actual_core_php": {
+        "bill": {
+          "passed": true,
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "actual_provider_response": true,
+          "actual_core_php_consumer": true,
+          "live_database": false,
+          "hosted_acceptance": false
+        },
+        "customer": {
+          "passed": true,
+          "pytest_exit": 0,
+          "network_attempts": 0,
+          "actual_provider_app": true,
+          "actual_core_php_consumer": true,
+          "owned_mongo_pid": 16732,
+          "live_database": false,
+          "hosted_acceptance": false
+        }
+      },
+      "ui": {
+        "passed": 27,
+        "suites": 5
+      },
+      "frontend_build": {
+        "passed": true,
+        "same_origin_api": true,
+        "source_file_count": 633,
+        "output_file_count": 64
+      }
+    },
+    "installation": {
+      "checked_at": "2026-11-11T18:53:13.622608+00:00",
+      "phase": "complete",
+      "passed": true,
+      "backup": "/srv/core-integration-pilot/20261029/private/pure-lifecycle-before-587cabe149aa4a5cb7fba8e53beb9821",
+      "candidate": "/srv/core-integration-pilot/20261029/private/pure-lifecycle-candidate-53253c86a2e9493aa69ce881ca28cba5",
+      "stamp": {
+        "release_id": "pure-core-compatible-c0bf9eefba51-20261111",
+        "deployment_id": "b5853592-6c41-4133-8e43-fb6c8aa932dc",
+        "source_digest": "9b381221dadacd65b68c1d5056abd0dcd5c4bb41fd07660c297b80a2e1baa058"
+      },
+      "production_changed": false,
+      "real_payroll_payments_postings": false,
+      "offline_test_summary": "742 passed, 1 skipped, 11 warnings in 360.35s (0:06:00)",
+      "mongo_tests": 145,
+      "php_contracts": 2,
+      "ui_tests": 27,
+      "provider_egress": false,
+      "nested_mounts_preflight": {
+        "mounts_checked": 6
+      },
+      "preserved_source_verified": true,
+      "source_commit": "c0bf9eefba51dd6c039af7cebe9f3bf4e0de0d78",
+      "health": {
+        "maintenance": false,
+        "state": "active",
+        "message": "Pure//Pay is completing a release. Please try again shortly.",
+        "startup_mode": "isolated_pilot",
+        "background_jobs": false,
+        "startup_migrations": false,
+        "scheduled_operations": false,
+        "provider_egress_enabled": false
+      },
+      "container_id": "643c9c0d99dc30cc6cd06a5baf627902571df683b650ef2b32220f1c274cc9e2",
+      "site_id": "2b45d594adf4813a34644818dede37df81116f3f2154e032381eb55f27ea6993",
+      "original_documents_preserved": 94,
+      "collections_and_indexes_preserved": 26,
+      "unrelated_services_unchanged": true,
+      "backend_files": 310,
+      "frontend_files": 64,
+      "employee_setup_scope": [
+        "emp_core_6db3732563a74d57f1e5cc00e6b257008e47eee22fd0b83502b04e24eab51717"
+      ],
+      "execution_hold_checks": 5,
+      "package": {
+        "helper": "/srv/core-integration-pilot/20261029/private/pure-compatible-install-2ea7704cd3968899.py",
+        "sha256": "2ea7704cd3968899c0e40160fee93f71a8ff3b69b00e9b62a1fde1579aa2673a",
+        "state": "/srv/core-integration-pilot/20261029/private/pure-compatible-install-20261111.json"
+      }
+    },
+    "native_activation": {
+      "checked_at": "2026-11-11T18:53:53.523319+00:00",
+      "passed": true,
+      "phase": "complete",
+      "production_changed": false,
+      "real_payroll_payments_postings": false,
+      "inactive_employee_blocks_assignment": true,
+      "incomplete_setup_blocks_employee": true,
+      "employee_id": "emp_core_6db3732563a74d57f1e5cc00e6b257008e47eee22fd0b83502b04e24eab51717",
+      "assignment_id": "asg_core_aff68d7460216d12beedbe1e0e6a3ddee7921840a562577d275d992b1d131008",
+      "employee_status": "active",
+      "assignment_status": "active",
+      "accepted_revision": "6a0c515b5e086905ab7909c27288afa7f581422b103184b322be394fd811eda2",
+      "hourly_rate": 50,
+      "pay_method": "record_only",
+      "altered_and_stale_reviews_rejected": true,
+      "current_review_replay_unchanged": true,
+      "native_session_retired": true,
+      "other_documents_preserved": 92,
+      "new_records": {
+        "sessions": 1,
+        "login_events": 1
+      },
+      "no_bank_or_tax_identity_added": true,
+      "package": {
+        "helper": "/srv/core-integration-pilot/20261029/private/pure-compatible-activate-1a3d4861435242f7.py",
+        "sha256": "1a3d4861435242f77b9c59e8b177514a4b9cb252936b274a9976d07e3b1ea6e3",
+        "state": "/srv/core-integration-pilot/20261029/private/synthetic-lifecycle-pure-compatible-activation-20261111.json"
+      }
+    },
+    "active_core_receipt": {
+      "passed": true,
+      "checked_at": "2026-11-11T18:54:18+00:00",
+      "person_number": "P-368",
+      "placement_number": "PL-874",
+      "person_review": {
+        "state": "created",
+        "employee_id": "emp_core_6db3732563a74d57f1e5cc00e6b257008e47eee22fd0b83502b04e24eab51717"
+      },
+      "assignment_review": {
+        "state": "created",
+        "assignment_id": "asg_core_aff68d7460216d12beedbe1e0e6a3ddee7921840a562577d275d992b1d131008",
+        "assignment_status": "active",
+        "accepted_revision": "6a0c515b5e086905ab7909c27288afa7f581422b103184b322be394fd811eda2"
+      },
+      "core_tables_unchanged": 368,
+      "database_writes": false,
+      "real_payroll_payments_postings": false
     }
   },
-  "coordination": "PurePay chat notified; pilot mutation hold released after verified restoration.",
+  "coordination": "Agreed isolated pilot window through 19:08 UTC; installation and native activation completed at 18:54 UTC. Public Pure release stayed unchanged.",
   "next_actions": [
-    "Poll the exact expanded contract-test container; do not restart a live run.",
-    "Complete preserved customer lifecycle, bill reservation, financial context/history and payment-result hooks on current Pure source; verify all preserved routes and behaviors before hosted activation.",
-    "Include saved synthetic v3 assignment and actual Core W2/C2C packets in release preflight; rebuild the current frontend with preserved integration screens.",
-    "Resume scoped native synthetic employee/assignment activation after compatible pilot upgrade, then Quanta worker/worksite time authority, independent approval, Core intake, held payroll-input reconciliation, replay, correction and offboarding."
+    "Enable the synthetic Quanta worker/worksite and publish time authority using the existing reviewed Core identities.",
+    "Capture and independently approve synthetic time, import into Core, deliver held payroll input and reconcile the provider result.",
+    "Exercise replay, correction, offboarding, onboarding documents, remaining capture paths and ownership conflicts without real financial execution."
   ],
   "remaining_full_goal": [
     "Thunderhawk end-to-end people/placement/onboarding/time/approval and financial-result round trip",
