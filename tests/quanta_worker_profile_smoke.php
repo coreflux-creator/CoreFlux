@@ -23,6 +23,14 @@ foreach (['active'=>true,'roles'=>['admin'],'identity_id'=>'replace','external_i
     $check($fails(fn()=>quantaWriteWorkerProfile('fixture-key','a',$body+[$field=>$value],str_repeat('1',64))),$field.' excluded before IO');
 }
 $check($transportCalls===1,'Rejected field changes never call the provider');
+foreach (['arpa','invalid','local','localhost','onion','test'] as $domain) {
+    $placeholder=array_replace($body,['email'=>'worker@no-email.'.$domain]);
+    $check($fails(fn()=>quantaWriteWorkerProfile('fixture-key','a',$placeholder,str_repeat('1',64))),
+        'Reserved '.$domain.' placeholder is rejected before delivery');
+}
+$check($transportCalls===1,'Reserved email placeholders never call the provider');
+$check(quantaWorkerProfileBodyValidate(array_replace($body,['email'=>'worker@invalid.example.com']))['email']==='worker@invalid.example.com',
+    'A normal domain containing a reserved word is not blocked');
 $check($fails(fn()=>quantaWriteWorkerProfile("bad\r\nkey",'a',$body,str_repeat('1',64))),'Header injection refused');
 $check($fails(fn()=>quantaWriteWorkerProfile('fixture-key','a',$body,'new-key')),'Persisted delivery identity required');
 $check($fails(fn()=>quantaWorkerProfileBodyValidate(array_replace($body,['worker_id'=>'worker-1']))),'Existing worker requires observation');
@@ -56,4 +64,8 @@ $check(quantaWorkerProfilePlan($source,null,null,[])['body']['email']==='new-hir
 $source['record']['email_primary']=null;
 $check($fails(fn()=>quantaWorkerProfilePlan($source,null,null,[])),
     'A missing new-worker sign-in address cannot be guessed from another identity');
+$source['record']['email_primary']='worker@no-email.invalid';
+try { quantaWorkerProfilePlan($source,null,null,[]); $placeholderBlocked=false; }
+catch (InvalidArgumentException $e) { $placeholderBlocked=str_contains($e->getMessage(),'Replace the placeholder primary email'); }
+$check($placeholderBlocked,'Native publication preview explains how to correct a placeholder address');
 echo json_encode(['passed'=>$passed,'scope'=>'Quanta worker-profile IO boundary']),"\n";

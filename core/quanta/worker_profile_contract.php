@@ -27,6 +27,13 @@ function quantaWorkerProfileBodyValidate(array $body): array
     $body['person']=quantaCoreReferenceValidate($body['person'],'person');
     if (!is_string($body['email']) || strlen($body['email'])>254 || !filter_var($body['email'],FILTER_VALIDATE_EMAIL)
         || $body['email']!==strtolower(trim($body['email']))) throw new InvalidArgumentException('Use the normalized primary email');
+    // Quanta's EmailStr validator rejects special-use domains. JobDiva intake
+    // can retain missing-address placeholders such as @no-email.invalid in
+    // Core; those must be corrected before proposing a Quanta sign-in address.
+    $domain=substr($body['email'],strrpos($body['email'],'@')+1);
+    if (preg_match('/(?:^|\.)(?:arpa|invalid|local|localhost|onion|test)$/D',$domain)) {
+        throw new InvalidArgumentException('Replace the placeholder primary email before preparing this person for Quanta.');
+    }
     foreach (['full_name'=>120,'phone'=>100] as $field=>$limit) {
         $value=$body[$field];
         if ($field==='phone' && $value===null) continue;
