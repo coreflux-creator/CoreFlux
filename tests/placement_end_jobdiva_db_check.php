@@ -7,6 +7,7 @@ if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'
 require_once __DIR__.'/../core/db.php';
 require_once __DIR__.'/../modules/placements/lib/end.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
+require_once __DIR__.'/../core/integrations/field_map_apply.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 $tenant=(int)$pdo->query('SELECT MIN(id) FROM tenants')->fetchColumn();if($tenant<=0)exit(2);
 setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
@@ -42,6 +43,26 @@ try{
     $audit=$read('audit_log');$graph=$read('placement_economic_parties');
     $again=placementEnd($placement,[]);
     $check(!$again['changed']&&placementAuditRow($placement)===$row&&$read('audit_log')===$audit&&$read('placement_economic_parties')===$graph,'Ending replay after source refresh remains a no-op');
+    // Exercise the actual configurable mapping path, including a legacy
+    // payload without a normalized assignment contract and a mixed bucket.
+    $pdo->prepare('DELETE FROM tenant_integration_field_map WHERE tenant_id=? AND integration="jobdiva" AND entity_type="placement"')->execute([$tenant]);
+    $mapping=$pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,internal_field,source_path,target_module,target_table,target_column,linked_entity,enabled) VALUES(:t,"jobdiva","placement",:source,:column,:source_path,"placements","placements",:target,"self",1)');
+    foreach(['status','actual_end_date','notes','title','coreflux_overridden_fields'] as $column){
+        $mapping->execute(['t'=>$tenant,'source'=>'mapped_'.$column,'column'=>$column,'source_path'=>'mapped_'.$column,'target'=>$column]);
+    }
+    $mapped=['mapped_status'=>'active','mapped_actual_end_date'=>'2026-11-11','mapped_notes'=>'Source replacement','mapped_title'=>'Source-owned title','mapped_coreflux_overridden_fields'=>'[]'];
+    $summary=integrationFieldMapApplyAll($tenant,'jobdiva','placement',$mapped,['self'=>$placement]);
+    $row=placementAuditRow($placement);
+    $check($summary['written']===1&&$summary['skipped']===4&&$summary['errors']===[]
+        &&$row['status']==='ended'&&$row['actual_end_date']==='2026-11-10'&&$row['notes']==='Core-owned note'
+        &&$row['title']==='Source-owned title'&&json_decode($row['coreflux_overridden_fields'],true)===['notes','status','actual_end_date'],
+        'Configured mappings retain Core-owned fields and ownership metadata while updating source-owned fields');
+    $check(count(array_filter($summary['skipped_reasons'],static fn($reason)=>str_starts_with($reason,'core_owned_placement_field')))===3
+        &&count(array_filter($summary['skipped_reasons'],static fn($reason)=>str_starts_with($reason,'protected_target')))===1,
+        'Mapping review explains each retained Core field and protected ownership target');
+    $caseWrite=integrationFieldMapWritePlacement($pdo,$tenant,$placement,['STATUS'=>'active','ACTUAL_END_DATE'=>'2026-11-12']);
+    $check($caseWrite['written']===0&&count($caseWrite['skipped'])===2&&placementAuditRow($placement)===$row,
+        'Case variations in mapping targets cannot bypass lifecycle ownership');
     // The existing clear-override review can explicitly hand both fields back.
     scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>'["notes"]']);
     jobdivaSyncUpsertPlacement($tenant,$person,null,$forced,'99110001');
@@ -51,10 +72,17 @@ try{
     $before=placementAuditRow($placement);
     try{placementEnd($placement,['actual_end_date'=>'2026-11-10']);$check(false,'Malformed ownership is refused');}
     catch(RuntimeException $e){$check($e->getCode()===422&&placementAuditRow($placement)===$before&&$pdo->inTransaction(),'Malformed ownership is refused without overwriting state or losing the caller transaction');}
+    try{jobdivaSyncUpsertPlacement($tenant,$person,null,$forced,'99110001');$check(false,'Malformed ownership stops the source writer');}
+    catch(RuntimeException $e){$check($e->getCode()===422&&placementAuditRow($placement)===$before&&$pdo->inTransaction(),'Malformed ownership stops the source writer without partial placement changes');}
+    $summary=integrationFieldMapApplyAll($tenant,'jobdiva','placement',$mapped,['self'=>$placement]);
+    $check($summary['written']===0&&count($summary['errors'])===1&&placementAuditRow($placement)===$before&&$pdo->inTransaction(),
+        'Malformed ownership blocks the whole mapped placement bucket and preserves the caller transaction');
     $foreign=$tenant+1000000;
     setRequestTenantId($foreign);$_SESSION['tenant_id']=$foreign;
     try{placementEnd($placement,[]);$check(false,'Cross-tenant ending is refused');}
     catch(RuntimeException $e){$check($e->getCode()===404,'Cross-tenant ending is refused');}
+    try{integrationFieldMapWritePlacement($pdo,$foreign,$placement,['title'=>'Wrong tenant']);$check(false,'Cross-tenant mapping is refused');}
+    catch(RuntimeException $e){$check($e->getMessage()==='Mapped placement not found.'&&$pdo->inTransaction(),'Cross-tenant mapped placement writes are refused');}
     setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
     $check([$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('accounting_events')]===$financialBefore,'End and source reconciliation create no financial postings');
 }finally{if($pdo->inTransaction())$pdo->rollBack();setRequestTenantId(null);}

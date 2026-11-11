@@ -23,7 +23,7 @@
  *       Applies every enabled mapping for (tenant, integration,
  *       entity_type) against the enriched $payload, writing into the
  *       linked rows resolved via $contextRowIds. Tenant mapping
- *       ALWAYS wins over hardcoded sync defaults (decision (d)).
+ *       wins over sync defaults, subject to explicit Core field ownership.
  *
  * Calling contract for the apply step:
  *   $contextRowIds = [
@@ -104,6 +104,7 @@ function integrationFieldMapIsProtectedTarget(string $table, string $column): bo
         'deleted_at',
         'created_by_user_id',
         'updated_by_user_id',
+        'coreflux_overridden_fields',
     ], true)) {
         return true;
     }
@@ -1201,10 +1202,8 @@ function integrationFieldMapJobDivaContractOwnsTarget(
  * the end-client company row, AND a custom field — all from one
  * enriched payload.
  *
- * Tenant mapping ALWAYS wins (decision d) — the apply step does NOT
- * check if the column is already populated; the latest write
- * overwrites. Operators who want "fallback" semantics should leave
- * the mapping disabled.
+ * Tenant mappings replace populated source-owned fields. Explicit Core
+ * placement ownership is checked under the row lock at write time.
  *
  * Returns a summary array describing what was attempted/written for
  * audit + debug purposes.
@@ -1347,6 +1346,7 @@ function integrationFieldMapApplyAll(
                 'placement_id' => $pendingPlacementRateFor,
                 'set' => [],
                 'raw_set' => [],
+                'maps' => [],
                 'cf' => [],
             ];
         }
@@ -1358,6 +1358,7 @@ function integrationFieldMapApplyAll(
         } else {
             $bucket[$key]['set'][$col] = $val;
             $bucket[$key]['raw_set'][$col] = $rawValForSafety;
+            $bucket[$key]['maps'][$col] = $m;
         }
     }
 
@@ -1366,6 +1367,14 @@ function integrationFieldMapApplyAll(
         if (!empty($b['set'])) {
             try {
                 $tableLower = strtolower((string) ($b['table'] ?? ''));
+                if ($tableLower === 'placements') {
+                    $write = integrationFieldMapWritePlacement($pdo, $tid, (int) $b['id'], $b['set']);
+                    $summary['written'] += $write['written'];
+                    foreach ($write['skipped'] as $column) {
+                        integrationFieldMapSkip($summary, $b['maps'][$column], 'core_owned_placement_field');
+                    }
+                    continue;
+                }
                 if ($integration === 'jobdiva' && $tableLower === 'placement_rates') {
                     if (jobdivaClassificationFromPayload($payload)['status'] !== 'resolved') {
                         $summary['skipped'] += count($b['set']);
@@ -1449,6 +1458,56 @@ function integrationFieldMapApplyAll(
     }
 
     return $summary;
+}
+
+/** Apply one placement bucket without racing native edits or releasing ownership. */
+function integrationFieldMapWritePlacement(PDO $pdo, int $tenantId, int $id, array $set): array
+{
+    $owns = !$pdo->inTransaction();
+    $savepoint = 'mapped_placement_' . bin2hex(random_bytes(8));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $lock = $pdo->prepare('SELECT coreflux_overridden_fields FROM placements WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');
+        $lock->execute([$tenantId, $id]);
+        $row = $lock->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new RuntimeException('Mapped placement not found.');
+        $raw = $row['coreflux_overridden_fields'];
+        $overrides = $raw === null || $raw === '' ? [] : json_decode($raw);
+        if (!is_array($overrides) || !array_is_list($overrides)
+            || array_filter($overrides, static fn($field) => !is_string($field) || $field === '')) {
+            throw new RuntimeException('Review the placement field ownership before applying source mappings.');
+        }
+        $skipped = [];
+        $sets = [];
+        $params = ['id' => $id, 't' => $tenantId];
+        foreach ($set as $column => $value) {
+            if (!preg_match('/^[a-zA-Z0-9_]+$/D', $column) || integrationFieldMapIsProtectedTarget('placements', $column)) {
+                throw new RuntimeException('Protected placement mapping target.');
+            }
+            if (in_array(strtolower($column), array_map('strtolower', $overrides), true)) {
+                $skipped[] = $column;
+                continue;
+            }
+            $sets[] = '`' . $column . '`=:v_' . $column;
+            $params['v_' . $column] = $value;
+        }
+        if ($sets) {
+            $pdo->prepare('UPDATE placements SET ' . implode(', ', $sets) . ' WHERE tenant_id=:t AND id=:id')->execute($params);
+        }
+        if ($owns) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        return ['written' => count($sets), 'skipped' => $skipped];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            if ($owns) $pdo->rollBack();
+            else {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+        throw $e;
+    }
 }
 
 /**

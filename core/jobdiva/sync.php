@@ -6712,11 +6712,10 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
         $assignmentAccountingEntityId = $existingAccountingEntityId > 0
             ? $existingAccountingEntityId
             : $resolveDefaultAccountingEntityId();
-        if (is_string($rawOverride) && $rawOverride !== '') {
-            $decoded = json_decode($rawOverride, true);
-            if (is_array($decoded)) {
-                $overrides = array_values(array_filter(array_map('strval', $decoded)));
-            }
+        $overrides = $rawOverride === null || $rawOverride === '' ? [] : json_decode($rawOverride);
+        if (!is_array($overrides) || !array_is_list($overrides)
+            || array_filter($overrides, static fn($field) => !is_string($field) || $field === '')) {
+            throw new RuntimeException('Review the placement field ownership before refreshing JobDiva.', 422);
         }
         if (!empty($jd['__cf_force_source_contract'])) {
             $contractOwnedFields = [
