@@ -391,6 +391,12 @@ function timeSubmitEntries(array $entryIds, array $user, bool $canManageOthers =
  */
 function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'): array
 {
+    $reviewChannel = $approvedVia;
+    // Bulk review is a human/manual decision, not a pre-approved import.
+    if ($approvedVia === 'bulk_review') $approvedVia = 'manual';
+    if (!in_array($approvedVia, ['manual', 'tokenized_client_email', 'bulk_pre_approved'], true)) {
+        throw new \RuntimeException('Unsupported time approval method', 422);
+    }
     $entry = timeEntryGet($id);
     if (!$entry) throw new \RuntimeException("Entry {$id} not found", 404);
     if ($entry['created_by_user_id'] && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0)) {
@@ -441,6 +447,7 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
     }
     timeEntryApprovedEmit($id, $approvedEntry, $approvedVia, [
         'approver_user_id' => $user['id'] ?? null,
+        'review_channel' => $reviewChannel,
         'quanta_source_check' => $sourceCheck ?: null,
     ]);
     return $approvedEntry;

@@ -99,6 +99,7 @@ try {
     $assert($read()[0]['approved_at'] === null, 'partial approval does not approve the weekly header');
     $approved = timeApproveEntry($entryIds[1], $users['alpha'], 'bulk_review');
     $assertState('approved', 'approved', $users['alpha']['id']);
+    $assert($approved['approved_via'] === 'manual', 'bulk human review uses the supported manual approval method');
     $assert((int) $approved['rate_snapshot_id'] === $rateId && $read()[0]['approved_at'] === $approved['approved_at'],
         'approval locks the reviewed rate and projects the source approval date');
     $refused(static fn() => timeApproveEntry($entryIds[1], $users['beta']), 409);
