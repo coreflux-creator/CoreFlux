@@ -47,8 +47,9 @@ $assert('writer supports a preflight before placement mutation',
     && strpos($sync, "jobdivaSyncUpsertPlacementRates(\$tid, 0, '', \$jd, true);") !== false);
 $assert('called from the INSERT branch (newly-created placement gets rates)',
     preg_match('/\$placementId = \(int\) \$pdo->lastInsertId\(\);\s*jobdivaSyncUpsertPlacementRates\(\$tid, \$placementId, \$startDate, \$jd\);/', $sync) === 1);
-$assert('called from the UPDATE branch (re-sync refreshes or drafts rates)',
-    preg_match('/jobdivaSyncUpsertPlacementRates\(\$tid, \$existingId, \$startDate, \$jd\);/', $sync) === 1);
+$assert('UPDATE refreshes rates from the retained canonical start date when employment models agree',
+    str_contains($sync, "\$effectiveStart = (string) \$canonical['start_date'];")
+    && preg_match('/if \(!\$modelConflict\) \{\s*jobdivaSyncUpsertPlacementRates\(\$tid, \$existingId, \$effectiveStart, \$jd\);/', $sync) === 1);
 
 echo "\njobdivaSyncUpsertPlacementRates — registry resolution\n";
 foreach (['bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit',
