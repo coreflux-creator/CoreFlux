@@ -3,7 +3,7 @@
   "scope": "Existing isolated Thunderhawk Quanta pilot",
   "source_commit": "ac626f245b4569d4216f8ee9ba835a5fe5b5af76",
   "source_differences": {},
-  "all_installed_backend_files_match_source": false,
+  "all_installed_backend_files_match_source": true,
   "install_passed": true,
   "existing_business_records_and_indexes_unchanged": true,
   "original_usage_records_unchanged": true,
