@@ -41,6 +41,10 @@ $save=static fn(array $rows)=>quantaSaveRoutes(1,7,$rows);
 $countRoutes=static fn()=>(int)getDB()->query('SELECT COUNT(*) FROM quanta_time_routes')->fetchColumn();
 $check($fails(fn()=>quantaSaveRoutes(2,7,[$bound(43)]))&&$countRoutes()===1,'another company cannot configure these routes');
 $check($fails(fn()=>$save([$base+['placement_id'=>43]]))&&$countRoutes()===1,'legacy overlap is still rejected');
+$pdo->exec('UPDATE placements SET status="draft" WHERE id=43');
+$activationError=null;try{$save([$bound(43)]);}catch(InvalidArgumentException $e){$activationError=$e->getMessage();}
+$check(str_contains($activationError??'','Activate the placement')&&$countRoutes()===1,'draft placement cannot receive a route or activate implicitly');
+$pdo->exec('UPDATE placements SET status="active" WHERE id=43');
 $check($fails(fn()=>$save([array_replace($bound(43),['quanta_assignment_id'=>$assignmentIds[44]])]))&&$countRoutes()===1,'another captured assignment cannot select the local placement');
 $mismatch=true;$check($fails(fn()=>$save([$bound(43)])),'unpublished metadata blocks captured routing');$mismatch=false;
 $observer->beginTransaction();$observer->query('SELECT COUNT(*) FROM quanta_time_routes')->fetchColumn();

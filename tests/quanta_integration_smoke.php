@@ -327,7 +327,8 @@ $check('new person requires people permission and is linked in one transaction',
     && str_contains($api, 'quantaWorkerIntakeApply') && str_contains($intake, 'peopleCreateExternalCandidate') && str_contains($intake, '$pdo->commit()'));
 $check('provisional people do not guess employment type or activate a placement',
     str_contains((string) file_get_contents($root . '/modules/people/lib/people.php'), '"candidate", :status, "unknown"')
-    && str_contains($api, 'must be activated before routing time'));
+    && str_contains($api, 'quantaSaveRoutes')
+    && str_contains((string) file_get_contents($root . '/core/quanta/routes.php'), 'Activate the placement before routing time'));
 $check('placement creation from Quanta requires reviewed type and date',
     str_contains((string) file_get_contents($root . '/modules/placements/ui/PlacementCreate.jsx'), "engagement_type: fromQuanta ? '' : 'w2'")
     && str_contains((string) file_get_contents($root . '/dashboard/src/pages/QuantaIdentityReview.jsx'), 'Create and link') && str_contains($ui, 'Find work to route'));
@@ -336,8 +337,9 @@ $check('placement creation preserves the shared database connection',
     str_contains($placementCreateApi, '$createTransactionPdo = null;')
     && !str_contains($placementCreateApi, '$pdo = null;'));
 $check('new route defaults to uncovered work and ends with the selected placement',
-    str_contains($ui, 'effective_from: routeStartDrafts[row.routeKey] || row.work_date')
-    && str_contains($ui, 'effective_to: placement?.end_date || null'));
+    str_contains($ui, 'quantaRoutingDraft(row, chosen')
+    && str_contains((string) file_get_contents($root . '/dashboard/src/lib/quantaRouting.js'), 'effective_from: from || row.work_date')
+    && str_contains((string) file_get_contents($root . '/dashboard/src/lib/quantaRouting.js'), 'effective_to: placement.end_date || null'));
 $check('integration hub links Quanta', str_contains((string) file_get_contents($root . '/dashboard/src/pages/IntegrationsHub.jsx'), 'integration-card-quanta'));
 
 require_once $root . '/scripts/quanta_reclassify_connecteam_soie.php';
