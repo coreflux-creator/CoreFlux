@@ -62,10 +62,29 @@ Core source `26812ae869d07c0319fb1b18e4efc48221552ff9` separately passed all
 eleven jobs in CI run 42955201527, including its assignment-specific route
 migration, independent database writer contention, source conflict, batch
 rollback and native permissions tests. Those Core changes and migration 188
-have not yet been installed in the isolated Core pilot. The frozen full-Core
-candidate `6b7841894cbfc818769de216f2719b0fbb3ab2e8` remains unchanged.
+were installed in the existing isolated Core pilot at 04:23 UTC on November 11.
+The installer preserves file ownership and fences database writers while the
+route schema changes. Its recovery helper passed twelve real MariaDB cases,
+including contention before and after schema changes and after restoration;
+all eleven jobs in CI run 42958101611 passed for `c819527c`.
 
-Remaining work includes the paired Core update, reviewed handling of existing
+Independent hosted verification at 04:32 UTC checked 21 installed files, six
+served frontend files, the migration ledger and all 367 original business
+tables. All three legacy routes remain exact apart from the new empty selector;
+all twelve original Core-to-Quanta time-review proofs still validate unchanged.
+Operational time configuration is disabled in both applications. Core's
+time-setup context currently returns 403 because its dedicated provider key
+lacks the separately selected `read:core_time_access` permission. A read-only
+inspection found 44 completed provider delivery receipts associated with that
+key; replacing it would change the identity used to retrieve those receipts.
+No credential or scope was changed during this deployment.
+
+Core installation and independent evidence are in
+`deploy/thunderhawk-core-assignment-time-20261111.json`, with the exact installer
+and verifier beside it. The frozen full-Core candidate
+`6b7841894cbfc818769de216f2719b0fbb3ab2e8` remains unchanged.
+
+Remaining work includes the reviewed provider permission update, handling of existing
 time, concurrent native mutation checks, remaining time-entry selectors, the
 reviewed PurePay candidate and PurePayroll authority, distinct synthetic
 offboarding, full-Core release acceptance and Thunderhawk reconciliation.

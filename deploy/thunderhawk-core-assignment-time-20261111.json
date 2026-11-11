@@ -1,0 +1,152 @@
+{
+  "scope": "Existing isolated Core pilot only; operational time configuration disabled",
+  "installed": {
+    "checked_at": "2026-11-11T04:23:00+00:00",
+    "source_commit": "26812ae869d07c0319fb1b18e4efc48221552ff9",
+    "production_changed": false,
+    "payroll_payments_or_financial_postings": false,
+    "passed": true,
+    "private_backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-time-before-dc23a15d7a358b6cd6cc5ff7",
+    "held_cache_refresh": {
+      "passed": true,
+      "sapi": "fpm-fcgi",
+      "gates": []
+    },
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi",
+      "gates": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      }
+    },
+    "passed_tables": 367,
+    "existing_records_unchanged": true,
+    "migration_tables_added": [],
+    "legacy_routes_preserved": 3,
+    "operational_policy_enabled": false,
+    "native_write_fence_used": true,
+    "migrations_applied": [
+      "188_quanta_assignment_routes.sql"
+    ],
+    "files_verified": 21,
+    "existing_contact_enablement_preserved": true,
+    "temporary_web_probe_removed": true,
+    "served_dashboard_verified": true,
+    "provider_write_requested": false,
+    "package_sha256": "6cf88c6e88a78d60d776697e61911b2d257cebbc0ee566f093ad1496e06d344c",
+    "release_directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-time-release-6cf88c6e88a78d60"
+  },
+  "independent_verification": {
+    "passed": true,
+    "checked_at": "2026-11-11T04:32:32+00:00",
+    "source_commit": "26812ae869d07c0319fb1b18e4efc48221552ff9",
+    "runtime_files_verified": 21,
+    "served_frontend_files": 6,
+    "file_owners_preserved": true,
+    "legacy_routes_preserved": 3,
+    "existing_tables_preserved": 367,
+    "migration_ledger_verified": true,
+    "provider_review_receipts_verified": 12,
+    "all_original_review_proofs_unchanged": true,
+    "time_setup": {
+      "state": "provider_read_permission_required",
+      "http_status": 403,
+      "activation_enabled": false
+    },
+    "operational_policy_enabled": false,
+    "provider_writes": false,
+    "real_payroll_payments_postings": false,
+    "production_changed": false,
+    "goal_complete": false,
+    "package_sha256": "6cf88c6e88a78d60d776697e61911b2d257cebbc0ee566f093ad1496e06d344c",
+    "release_directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-time-release-6cf88c6e88a78d60"
+  },
+  "schema_recovery_ci": {
+    "commit": "c819527cfa7764544717430d9d50fee26cc05648",
+    "run": 42958101611,
+    "jobs_passed": 11,
+    "real_mariadb_recovery_checks": 12
+  },
+  "key_permission_inspection": {
+    "core": {
+      "connection_id": 2,
+      "binding_revision": 2,
+      "workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+      "deliveries": [
+        {
+          "provider": "purepay",
+          "entity_type": "client",
+          "state": "delivered",
+          "count": 1
+        },
+        {
+          "provider": "purepay",
+          "entity_type": "person",
+          "state": "delivered",
+          "count": 1
+        },
+        {
+          "provider": "purepay",
+          "entity_type": "placement",
+          "state": "delivered",
+          "count": 1
+        },
+        {
+          "provider": "purepayroll",
+          "entity_type": "person",
+          "state": "delivered",
+          "count": 2
+        },
+        {
+          "provider": "purepayroll",
+          "entity_type": "placement",
+          "state": "delivered",
+          "count": 1
+        },
+        {
+          "provider": "quanta",
+          "entity_type": "person",
+          "state": "delivered",
+          "count": 10
+        },
+        {
+          "provider": "quanta",
+          "entity_type": "placement",
+          "state": "delivered",
+          "count": 29
+        }
+      ]
+    },
+    "quanta_key": {
+      "id": "4aae55c2-313b-4515-bc3c-12419811bdf2",
+      "name": "Core staging Thunderhawk isolated pilot",
+      "scopes": [
+        "read:coreflux",
+        "write:coreflux",
+        "read:workers",
+        "write:workers",
+        "read:worksites",
+        "read:dimensions",
+        "read:entries",
+        "read:timesheets",
+        "read:core_onboarding",
+        "write:core_onboarding",
+        "read:core_onboarding_documents"
+      ],
+      "scope_revision": 0,
+      "expires_at": null,
+      "receipt_states": [
+        {
+          "_id": "complete",
+          "count": 44
+        }
+      ]
+    },
+    "credential_changed": false,
+    "business_records_changed": false
+  },
+  "goal_complete": false
+}
