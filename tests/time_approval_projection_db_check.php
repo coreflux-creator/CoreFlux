@@ -49,7 +49,10 @@ try {
             ]);
         $users[$name] = ['id' => (int) $pdo->lastInsertId()];
     }
-    $personId = scopedInsert('people', ['first_name' => 'CI Projection', 'last_name' => 'Worker']);
+    $personId = scopedInsert('people', [
+        'first_name' => 'CI Projection', 'last_name' => 'Worker',
+        'email_primary' => 'ci-time-projection-worker@example.invalid', 'classification' => 'w2',
+    ]);
     $placementId = scopedInsert('placements', [
         'person_id' => $personId, 'status' => 'active', 'start_date' => '2026-11-01',
         'engagement_type' => 'w2', 'title' => 'CI synthetic approval projection',
