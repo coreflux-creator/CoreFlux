@@ -231,6 +231,9 @@ jobs:
           php tests/jobdiva_assignment_parties_smoke.php
           php tests/placement_company_roles_mariadb.php
 
+      - name: Verify scoped payroll cycle snapshots and audit receipts
+        run: php tests/payroll_cycle_audit_mariadb.php
+
       - name: Verify original Quanta workspace and source approval evidence
         run: |
           php tests/quanta_time_schema_mariadb.php

@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/artifacts.php';
 
 class PayCycleException extends \RuntimeException {}
@@ -217,21 +218,25 @@ function payrollCycleAutoAdvanceAll(?string $asOf = null): array
     return $log;
 }
 
-function payrollAuditLight(string $event, array $meta = [], ?int $targetId = null): void
+/** Read only the requested company's cycle for before/after audit evidence. */
+function payrollCycleAuditRow(int $tenantId, int $cycleId): ?array
+{
+    if ($tenantId <= 0 || $cycleId <= 0) return null;
+    $stmt = getDB()->prepare('SELECT * FROM payroll_pay_cycles WHERE tenant_id = :t AND id = :i LIMIT 1');
+    $stmt->execute(['t' => $tenantId, 'i' => $cycleId]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+function payrollAuditLight(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
-        $pdo = getDB();
         $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $tenantId = $opts['tenant_id'] ?? $ctx['tenant_id'] ?? (function_exists('currentTenantId') ? currentTenantId() : null);
+        $actor = $opts['actor_user_id'] ?? $ctx['user']['id'] ?? $_SESSION['user']['id'] ?? null;
+        // Older audit schemas keep snapshots in metadata; upgraded ones also
+        // receive their canonical before_json/after_json columns.
+        foreach (['before', 'after'] as $field) if (array_key_exists($field, $opts)) $meta[$field] = $opts[$field];
+        platformAuditLogWrite($tenantId === null ? null : (int) $tenantId, $actor === null ? null : (int) $actor,
+            $event, $targetId, $meta, array_merge(['source' => 'payroll', 'object_type' => 'payroll_cycle'], $opts));
     } catch (\Throwable $e) { error_log('[payroll.audit] ' . $event . ' failed: ' . $e->getMessage()); }
 }
