@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/workspace.php';
 require_once __DIR__.'/time_approval.php';
+require_once __DIR__.'/time_binding.php';
 
 /** This table uses imported_at, so the generic created_at insert helper does not apply. */
 function quantaTimeImportInsert(PDO $pdo,int $tenantId,array $data): int
@@ -66,7 +67,7 @@ function quantaTimeSourceDecision(array $entry,array $route,array $imports,strin
 function quantaTimeSourceReviewHash(array $access,array $entry,array $route,array $imports): string
 {
     return integrationDeliveryHash(['binding_hash'=>$access['binding_hash'],'entry'=>$entry,
-        'route'=>$route,'prior'=>$imports[$entry['id']]??[]]);
+        'route'=>quantaTimeRouteEvidence($entry,$route),'prior'=>$imports[$entry['id']]??[]]);
 }
 
 /** Metadata only: never alter approved hours, their frozen rates, or extraction state. */

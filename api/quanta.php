@@ -125,9 +125,11 @@ try {
         $key = quantaApiKey($tenantId);
         $sites = quantaWorksitesById(quantaListAll($key, '/worksites', [], 2000));
         $entries = quantaListAll($key, '/time-entries', ['updated_since' => $since . 'T00:00:00Z']);
+        $bound = array_filter($entries, static fn(array $entry):bool=>array_key_exists('core_assignment',$entry));
+        $access = $bound ? quantaWorkspaceForDelivery($tenantId) : null;
         api_ok(quantaRouteCandidates(
             $entries, $sites, quantaRoutes($tenantId),
-            quantaWorkerPersonMap(quantaWorkerLinks($tenantId))
+            quantaWorkerPersonMap(quantaWorkerLinks($tenantId)), $access
         ));
     }
 

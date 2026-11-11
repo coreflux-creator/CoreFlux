@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/identity.php';
 require_once __DIR__ . '/time_provenance.php';
+require_once __DIR__ . '/time_binding.php';
 require_once __DIR__ . '/../sub_tenants.php';
 require_once __DIR__ . '/../../modules/time/lib/time.php';
 require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php';
@@ -90,11 +91,15 @@ function quantaRouteIdentity(array $raw, array $worksites): array
     $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
     if (!$parsed || $parsed->format('Y-m-d') !== $date) throw new InvalidArgumentException("Quanta entry {$id} has an invalid work date");
 
-    return [
+    $identity = [
         'id' => $id, 'worker_id' => $worker, 'worksite_id' => $site,
         'dimension_values' => $dimensions, 'dimension_key' => quantaDimensionKey($dimensions),
         'work_date' => $date,
     ];
+    if (array_key_exists('core_assignment',$raw)) {
+        $identity['core_assignment']=quantaTimeBindingNormalize($raw['core_assignment'],$identity);
+    }
+    return $identity;
 }
 
 /** No guessed person, placement, timezone, or overtime classification. */
@@ -211,7 +216,7 @@ function quantaNormalizeEntry(array $raw, array $worksites, string $requestedSta
 }
 
 /** Distinct worker/worksite/dimension combinations, including unapproved source time. */
-function quantaRouteCandidates(array $rawEntries, array $worksites, array $routes = [], array $workerPeople = []): array
+function quantaRouteCandidates(array $rawEntries, array $worksites, array $routes = [], array $workerPeople = [], ?array $access = null): array
 {
     $candidates = [];
     $skipped = 0;
@@ -223,18 +228,20 @@ function quantaRouteCandidates(array $rawEntries, array $worksites, array $route
             continue;
         }
         try {
-            quantaRouteFor($routes, $entry, $workerPeople);
+            quantaRouteFor($routes, $entry, $workerPeople, $access);
             continue;
         } catch (RuntimeException $e) {
             // A missing or invalid route still needs operator review.
         }
         $key = $entry['worker_id'] . '|' . $entry['worksite_id'] . '|' . $entry['dimension_key'];
+        if (isset($entry['core_assignment'])) $key .= '|'.$entry['core_assignment']['assignment_id'];
         if (!isset($candidates[$key])) {
             $candidates[$key] = [
                 'route_key' => $key, 'worker_id' => $entry['worker_id'],
                 'worksite_id' => $entry['worksite_id'], 'dimension_values' => $entry['dimension_values'],
                 'dimension_key' => $entry['dimension_key'], 'work_date' => $entry['work_date'],
                 'entry_count' => 0,
+                ...(isset($entry['core_assignment']) ? ['core_assignment'=>$entry['core_assignment']] : []),
             ];
         }
         $candidates[$key]['work_date'] = min($candidates[$key]['work_date'], $entry['work_date']);
@@ -266,6 +273,7 @@ function quantaRoutes(int $tenantId): array
     $peopleTenant = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $stmt = getDB()->prepare(
         'SELECT r.*, p.person_id, p.status AS placement_status, p.engagement_type,
+                p.tenant_id AS placement_directory_tenant_id, pe.tenant_id AS person_directory_tenant_id,
                 p.start_date, p.end_date, p.actual_end_date,
                 p.title, p.end_client_name, p.deleted_at, pe.email_primary AS person_email,
                 CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
@@ -281,7 +289,7 @@ function quantaRoutes(int $tenantId): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-function quantaRouteFor(array $routes, array $entry, array $workerPeople): array
+function quantaRouteFor(array $routes, array $entry, array $workerPeople, ?array $access = null): array
 {
     $workerId = (string) $entry['worker_id'];
     if (!isset($workerPeople[$workerId])) {
@@ -294,6 +302,12 @@ function quantaRouteFor(array $routes, array $entry, array $workerPeople): array
         && (string) $route['effective_from'] <= $entry['work_date']
         && (empty($route['effective_to']) || (string) $route['effective_to'] >= $entry['work_date'])
     ));
+    if (array_key_exists('core_assignment',$entry)) {
+        $binding=quantaTimeBindingNormalize($entry['core_assignment'],$entry);
+        quantaTimeBindingAssertWorkspace($binding,$access);
+        $matching=array_values(array_filter($matching,static fn(array $r):bool=>quantaTimeBindingRouteMatches($binding,$r)));
+        if (!$matching) throw new RuntimeException('The reviewed Core route does not match the assignment captured in Quanta. Review the original placement.');
+    }
     if (!$matching) throw new RuntimeException('Map this Quanta worker, worksite, and dimensions to a CoreFlux placement');
     if (count($matching) !== 1) throw new RuntimeException('Overlapping Quanta placement routes need correction');
     $route = $matching[0];
@@ -340,6 +354,7 @@ function quantaComponentHash(array $entry, array $route, string $component, floa
         $component, $hours, $entry['description'], $entry['dimension_key'], $entry['worksite_id'],
     ];
     if (($route['engagement_type'] ?? '') === 'internal') $parts[] = 'internal';
+    if (array_key_exists('core_assignment',$entry)) $parts[] = quantaTimeBindingNormalize($entry['core_assignment'],$entry);
     return hash('sha256', json_encode($parts, JSON_THROW_ON_ERROR));
 }
 
@@ -369,6 +384,7 @@ function quantaEntryDecision(array $entry, array $route, array $imports, ?string
     if ($workspaceId !== null && ($sourceDecision = quantaTimeSourceDecision($entry, $route, $imports, $workspaceId))) return $sourceDecision;
     $prior = $imports[$entry['id']] ?? [];
     foreach ($prior as $component => $row) {
+        if (!quantaTimeBindingRetained($entry,$row)) return ['conflict','The captured Quanta assignment changed or disappeared. Reconcile the original import before continuing.'];
         if (!isset($entry['components'][$component])) return ['conflict', 'A previously imported hour type is now absent; correct it in CoreFlux'];
     }
     $changed = false;
@@ -418,7 +434,7 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
         try {
             $entry = quantaNormalizeEntry($raw, $worksites, $requestedStatus);
             $row += $entry;
-            $route = quantaRouteFor($routes, $entry, $workerPeople);
+            $route = quantaRouteFor($routes, $entry, $workerPeople, $access);
             $row['placement_id'] = (int) $route['placement_id'];
             $row['placement_number'] = $route['placement_number'];
             $row['person_number'] = $route['person_number'];
@@ -472,7 +488,7 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
         $imports = quantaImportLookup($tenantId, $selectedIds, true);
         foreach ($selectedIds as $id) {
             $entry = quantaNormalizeEntry($source[$id], $worksites, $requestedStatus);
-            $route = quantaRouteFor($routes, $entry, $workerPeople);
+            $route = quantaRouteFor($routes, $entry, $workerPeople, $access);
             [$decision, $message] = quantaEntryDecision($entry, $route, $imports, $access['context']['workspace']['id']);
             if ($decision === 'conflict') throw new RuntimeException("Quanta entry {$id}: {$message}");
             if ($decision === 'verify_source') {

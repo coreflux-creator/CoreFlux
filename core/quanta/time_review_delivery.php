@@ -27,7 +27,7 @@ function quantaTimeReviewProof(array $entry,array $route,array $imports,string $
         $components[]=['entry_id'=>(int)$r['time_entry_id'],'component'=>$name,'status'=>$state];
     }
     usort($components,static fn($a,$b)=>strcmp($a['component'],$b['component']));
-    return ['components'=>$components,'core_revision'=>integrationDeliveryHash(['entry'=>$entry,'route'=>$route,'imports'=>$prior])];
+    return ['components'=>$components,'core_revision'=>integrationDeliveryHash(['entry'=>$entry,'route'=>quantaTimeRouteEvidence($entry,$route),'imports'=>$prior])];
 }
 
 function quantaTimeReviewSnapshot(int $tenantId,string $entryId): array
@@ -54,7 +54,7 @@ function quantaTimeReviewSnapshot(int $tenantId,string $entryId): array
         || integrationDeliveryHash($assignment['person']??[])!==integrationDeliveryHash($person)
         || !is_array($remote['source_entry']??null) || ($remote['source_entry']['id']??null)!==$entryId) throw new RuntimeException('Quanta returned time outside the reviewed assignment');
     $entry=quantaNormalizeEntry($remote['source_entry'],[],'approved');
-    $route=quantaRouteFor(quantaRoutes($tenantId),$entry,quantaWorkerPersonMap(quantaWorkerLinks($tenantId)));
+    $route=quantaRouteFor(quantaRoutes($tenantId),$entry,quantaWorkerPersonMap(quantaWorkerLinks($tenantId)),$access);
     if((int)$route['placement_id']!==reset($placements) || (int)$route['person_id']!==reset($people)
         || ($assignment['worker_id']??null)!==$entry['worker_id']) throw new RuntimeException('Current time routing differs from the shared assignment');
     $proof=quantaTimeReviewProof($entry,$route,$imports,$workspace);
@@ -143,7 +143,7 @@ function quantaTimeReviewSend(int $tenantId,int $actorId,int $id,string $reviewH
         static function()use($pdo,$tenantId,$s,$payload):void {
             quantaWorkspaceAssertCurrent($pdo,$tenantId,$s['access'],true);
             $imports=quantaImportLookup($tenantId,[$s['entry']['id']],true,true);
-            $route=quantaRouteFor(quantaRoutes($tenantId),$s['entry'],quantaWorkerPersonMap(quantaWorkerLinks($tenantId,true)));
+            $route=quantaRouteFor(quantaRoutes($tenantId),$s['entry'],quantaWorkerPersonMap(quantaWorkerLinks($tenantId,true)),$s['access']);
             $proof=quantaTimeReviewProof($s['entry'],$route,$imports,$payload['workspace_id']);
             if($proof['core_revision']!==$payload['body']['core_revision']) throw new RuntimeException('Core time changed before delivery');
         });

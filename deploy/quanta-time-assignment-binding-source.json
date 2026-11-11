@@ -1,0 +1,44 @@
+{
+  "checked_at": "2026-11-11T02:22:47.644622+00:00",
+  "scope": "Paired source validation only",
+  "quanta_full_application_checks": 504,
+  "quanta_network_attempts": 0,
+  "quanta_real_database": false,
+  "cross_runtime_checks": 33,
+  "cross_runtime_wire_sha256": "9776dc6ac6ffe252f28435de06c3170cf2f2cb5e7f5e54ee20ea31e706929774",
+  "cross_runtime_network_or_database": false,
+  "core_existing_local_checks": {
+    "integration": 77,
+    "approval_evidence": 22,
+    "current_source": 15,
+    "review_return": 41,
+    "metadata_contract": 79
+  },
+  "quanta_base_commit": "5f1c2df2417214ad22f829fbf52649701274909a",
+  "core_base_commit": "36027547b840c21944c89625253975fcfb7fe914",
+  "quanta_changed_sha256": {
+    "backend/app/coreflux_time_access.py": "cc3084831b34afcdca7b2c210c16f13a9aad7ae088bf0af4921a889af2053f0b",
+    "backend/app/coreflux_time_reviews.py": "dc8781a3453bbeb06f2ff39b7c96ddc15f14529c56b90b9e90d189561f227e86",
+    "backend/app/events.py": "2a746de638e68cfb783f59101c7eb7279207dbc0d90b6717a5d9dc44662a0830",
+    "backend/app/routers/v1/time_entries.py": "dbc639dd10884741154c623f5be48826e1a0678b580e99cbe6cd9d194b9f62ac",
+    "backend/contract_tests/test_core_time_binding.py": "057c19eeeaa0d3e26a09b2758ecb42da640cc963492e875a141ac8dcd63e0ff0"
+  },
+  "core_changed_sha256": {
+    "api/quanta.php": "4e08658173d717d227c021bfe642ee966bcfc8bf257fbd2ac387c92f3e6e9366",
+    "core/quanta/sync.php": "ca3b2018b458f8af6d18f0324e7da85b874f9e7c6ecd1077c708dd7e32a476b2",
+    "core/quanta/time_approval.php": "906fb20f607fab6c2a602096029e213a969e7695f31c1644dcbc4d59c72771c7",
+    "core/quanta/time_binding.php": "6485e54ef7f7c5b4ed70395538be476ad8758532d57e18ad7b819afd9d89200a",
+    "core/quanta/time_current.php": "91094ebcea4626572a7f76294362ef862efe479023e9539d1bc5c0f1269cde7b",
+    "core/quanta/time_provenance.php": "c2ece67d8d257de46b4632c35fb33e6820344906f7132097954a54b2b515f3b9",
+    "core/quanta/time_review_delivery.php": "f64866090c4da26f6505d2ca61c1d6e2e955816d384379e182b70847afd312ba",
+    "tests/fixtures/quanta_time_binding_checks.php": "c8afe396295a669adff5009ec20941d110367d3022d013fc7c3906d4d77b5409",
+    "tests/quanta_time_binding_fixture.php": "4dd8b4fddfc7366637ebbc1d4c58fd850d210c96baf8c49a1fef83825af5d9ed",
+    "tests/quanta_time_binding_smoke.php": "c7fb491c6de549bf2d7f6773d29b0e6c80eb770daa4bc342f7446e2f097689d3",
+    "tests/quanta_time_provenance_mariadb.php": "a59aa10c50915c1989cd7d47bd9027bed46ced1a0975ae91014f456c5c10e0c2"
+  },
+  "runtime_manifest_sha256": "9011368b8b68f187f1b8b711f18ac78cddb314d7d3cbbbb053ab8218c95b0963",
+  "core_database_ci": "pending",
+  "hosted_acceptance": false,
+  "operational_policy_enabled": false,
+  "goal_complete": false
+}

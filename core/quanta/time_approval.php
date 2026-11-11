@@ -37,6 +37,10 @@ function quantaTimeApprovalNormalize(array $raw, string $status): ?array
 function quantaTimeApprovalFields(array $entry): array
 {
     $proof = $entry['source_approval'] ?? null;
+    if (array_key_exists('core_assignment',$entry)) {
+        require_once __DIR__.'/time_binding.php';
+        $proof = ($proof ?? ['version'=>1]) + ['core_assignment'=>quantaTimeBindingNormalize($entry['core_assignment'],$entry)];
+    }
     $json = $proof === null ? null : json_encode($proof, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     return ['source_approval_json' => $json, 'source_approval_hash' => $json === null ? null : hash('sha256', $json)];
 }

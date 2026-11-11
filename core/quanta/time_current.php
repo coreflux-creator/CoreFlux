@@ -114,7 +114,7 @@ function quantaTimeAssertCurrent(PDO $pdo, int $tenantId, array $entryIds): arra
     foreach ($state['rows'] as $sourceId=>$row) {
         if ($row['state'] !== 'approved') throw new RuntimeException("Quanta entry {$sourceId} is no longer available as approved time. Review its original import before continuing.");
         $entry = quantaNormalizeEntry($row['entry'], [], 'approved');
-        $route = quantaRouteFor($routes, $entry, $workers);
+        $route = quantaRouteFor($routes, $entry, $workers, $access);
         $prior = $imports[$sourceId]??[];
         if (!$entry['source_approval'] || count($prior) !== count($entry['components'])) throw new RuntimeException('Quanta source components or approval evidence changed. Refresh and review the import.');
         foreach ($entry['components'] as $component=>$hours) {

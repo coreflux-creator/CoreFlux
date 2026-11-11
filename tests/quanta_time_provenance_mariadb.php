@@ -180,5 +180,42 @@ $check($fails(fn()=>quantaTimeAssertLegacyBundles($pdo,1,[2,3])),'mixed-company 
 $pdo->exec('UPDATE time_downstream_feed SET entries_json=\'{"entry_ids":[999]}\' WHERE id=2');
 $check($fails(fn()=>quantaTimeAssertLegacyBundles($pdo,1,[2])),'missing bundle source cannot be silently consumed');
 $pdo->rollBack();
+// Captured assignment evidence uses the same real import receipt and consuming
+// transaction. All fixture changes below roll back for the dependent suites.
+$bindingPerson=integrationRecordReference($instance,1,'person','P-19');
+$bindingPlacement=integrationRecordReference($instance,1,'placement','PL-42');
+$captured=['contract_version'=>QUANTA_TIME_BINDING_VERSION,
+    'policy_id'=>'cfta_'.integrationDeliveryHash(['workspace-a','worker-1','site-1']),'policy_version'=>1,
+    'assignment_id'=>quantaCoreRemoteId('workspace-a',$bindingPlacement),'assignment_version'=>2,
+    'work_date'=>$validRemote['work_date'],'person'=>$bindingPerson,'placement'=>$bindingPlacement,
+    'worker_id'=>'worker-1','worksite_id'=>'site-1'];
+$remote=$validRemote+['core_assignment'=>$captured];
+$check($fails(fn()=>$verify()),'approved legacy imports cannot silently acquire a captured assignment');
+$bindingEntry=quantaNormalizeEntry($remote,$sites,'approved');
+$bindingRoute=quantaRoutes(1)[0];
+$bindingTimeBefore=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$bindingEvidenceBefore=$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$pdo->beginTransaction();
+foreach(quantaImportLookup(1,['entry-1'],true)['entry-1'] as $component=>$imported) {
+    $fields=quantaTimeApprovalFields($bindingEntry);
+    $pdo->prepare('UPDATE quanta_time_imports SET source_hash=:source_hash,source_approval_json=:source_approval_json,source_approval_hash=:source_approval_hash WHERE tenant_id=1 AND id=:id')
+        ->execute($fields+['source_hash'=>quantaComponentHash($bindingEntry,$bindingRoute,$component,$bindingEntry['components'][$component]),'id'=>$imported['id']]);
+    quantaTimeApprovalRecord($pdo,1,(int)$imported['id'],7,$access);
+}
+$check(quantaTimeAssertCurrent($pdo,1,[1,2])['source_entries']===1,'current captured assignment passes real transactional source verification');
+$bindingReceipts=$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$last=json_decode(end($bindingReceipts)['source_approval_json'],true);
+$check(integrationDeliveryHash($last['core_assignment'])===integrationDeliveryHash($captured),'captured assignment is durable in append-only approval evidence');
+foreach(quantaImportLookup(1,['entry-1'],true)['entry-1'] as $imported)quantaTimeApprovalRecord($pdo,1,(int)$imported['id'],7,$access);
+$check($bindingReceipts===$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'captured evidence replay creates no duplicate receipt');
+$remote['core_assignment']['assignment_version']++;
+$check($fails(fn()=>quantaTimeAssertCurrent($pdo,1,[1,2])),'changed captured revision blocks the complete consuming transaction');
+$remote=$validRemote;
+$check($fails(fn()=>quantaTimeAssertCurrent($pdo,1,[1,2])),'lost captured identity cannot downgrade an import to legacy time');
+$remote=$validRemote+['core_assignment'=>$captured];$remote['core_assignment']['person']['directory_tenant_id']=2;
+$check($fails(fn()=>quantaTimeAssertCurrent($pdo,1,[1,2])),'captured person directory mismatch blocks consumption');
+$pdo->rollBack();$remote=$validRemote;
+$check($bindingTimeBefore===$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
+    && $bindingEvidenceBefore===$pdo->query('SELECT * FROM quanta_time_approval_evidence ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'failed binding cases preserve all original time and approval history');
 unset($GLOBALS['__quanta_transport']);putenv('COREFLUX_INTEGRATION_INSTANCE_ID');setRequestTenantId(null);
 echo "Quanta time provenance MariaDB: {$passed} passed\n";
