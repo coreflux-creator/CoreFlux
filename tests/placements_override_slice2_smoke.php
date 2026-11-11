@@ -25,8 +25,8 @@
  *     and asserting it merges field names into coreflux_overridden_fields
  *     when external_id starts with 'jd:'.
  *
- * For a real integration test (DB + REST), see the existing
- * `jobdiva_placement_rates_smoke.php`.
+ * Actual native ending, source refresh, configurable mapping and malformed
+ * ownership behavior run against MariaDB in `placement_end_jobdiva_db_check.php`.
  */
 declare(strict_types=1);
 
@@ -56,8 +56,9 @@ $assert('sync reads coreflux_overridden_fields before UPDATE',
         '/SELECT\s+[^;]*coreflux_overridden_fields[^;]*FROM\s+placements/is',
         $syncSrc
     ) === 1);
-$assert('sync decodes the JSON override list',
-    str_contains($syncSrc, 'json_decode($rawOverride, true)'));
+$assert('sync distinguishes JSON ownership lists from objects',
+    str_contains($syncSrc, 'json_decode($rawOverride)') &&
+    str_contains($syncSrc, '!is_array($overrides) || !array_is_list($overrides)'));
 $assert('sync builds UPDATE assignments dynamically',
     preg_match('/\$assignments\s*=\s*\[\];/', $syncSrc) === 1);
 $assert('sync skips overridden fields with in_array',
