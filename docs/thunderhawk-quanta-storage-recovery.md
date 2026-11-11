@@ -22,8 +22,9 @@ helper is `deploy/backup_thunderhawk_quanta_storage.py`.
 
 This proves a logical database backup and restoration, not a production recovery
 guarantee. The original backup was taken while Mongo was standalone. The storage
-conversion recorded below subsequently passed. The installed application remains
-`12ad6396` and operational time ownership remains disabled.
+conversion and application installation recorded below subsequently passed.
+At this original backup checkpoint, the application was `12ad6396` and
+operational time ownership was disabled.
 
 ## Transaction storage conversion, November 11
 
@@ -76,11 +77,42 @@ collections. An independent check verified all 181 served runtime files, unchang
 sign-in page, original records, healthy held service and unchanged other services.
 The receipt is `deploy/thunderhawk-quanta-commit-runtime-20261111.json`.
 
-This installs the coordinator code but does not enable it: `COREFLUX_TIME_COMMITS`
-remains off and the operational time tenant allowlist remains empty. The next
-step must enable coordination only in the isolated pilot, verify the startup guard
-and hosted commit behavior, and preserve newer records during any rollback.
-Historical associations,
+That installation initially kept `COREFLUX_TIME_COMMITS` off. The activation
+below is separate; the operational time tenant allowlist remains empty.
+
+## Coordinated writes enabled in the isolated pilot
+
+Before activation, a fresh backup and independent restore check verified all
+69 current collections, 1,324 records, 12 time entries and 181 runtime files on
+the upgraded replica set. The backup helper now accepts either the original
+standalone or this exact single-member pilot replica set, and still requires
+coordination and operational time to be off. It is not a general backup tool for
+an already active coordinator.
+
+`activate_thunderhawk_quanta_commits.py` changed only the isolated web service's
+`COREFLUX_TIME_COMMITS` setting to `1`. The existing web service was recreated
+with the same image, volumes, hostname, limits, ports and other environment
+values; the Mongo and all other services retained their identities and start
+times. Startup added exactly one coordinator guard at revision 1. All original
+records and indexes remained identical, and all application files were unchanged.
+
+The installed application's actual coordinator and driver then passed a hosted
+probe in a fresh unserved database: two-record commit; record and guard rollback
+after failure; a competing writer waiting until an earlier decision committed;
+refusal of stale assignment eligibility; and refusal after losing the mode flag.
+No external network connection was attempted. The temporary database was removed.
+An independent read verified the source records, exact startup guard, runtime
+files, settings, healthy held web process and unchanged other services.
+
+The activation receipt is `deploy/thunderhawk-quanta-commit-activation-20261111.json`.
+Its recovery path can remove only an unused startup guard at revision 0 or 1 while
+every original collection is exact. Nine local boundary cases cover refusing
+later writes, changed records, extra guard rows and a preexisting guard. The
+successful activation did not exercise that failure-recovery path on this host.
+After business writes, preserve the guard and enabled mode; do not restore the
+pre-activation Compose file as an ordinary rollback.
+
+Operational time exchange is still disabled. Historical associations,
 explicit time permissions, synthetic lifecycle and full financial-result
 reconciliation remain separate release requirements. No real payroll, payment,
 financial posting or production cutover is authorized by this evidence.

@@ -103,7 +103,10 @@ try:
  assert mongo['State']['Running'] and mongo['Config']['Labels']['com.docker.compose.project']=='core-provider-pilot-20261029'
  assert any(m['Destination']=='/data/db' and m['Source']=='/var/lib/docker/volumes/core-provider-pilot-20261029_quanta-db/_data' for m in mongo['Mounts'])
  assert not any(v for v in (mongo['NetworkSettings'].get('Ports') or {}).values())
- assert not json.loads(js('print(JSON.stringify(db.hello()))')).get('setName')
+ hello=json.loads(js('print(JSON.stringify(db.hello()))'))
+ if hello.get('setName'):
+  assert hello['setName']=='corepilotquanta' and hello.get('isWritablePrimary') and hello.get('hosts')==['quanta-pilot-mongo:27017']
+ report['storage_mode']='replica_set' if hello.get('setName') else 'standalone'
  assert clone not in database_names()
  mem={k:int(v.strip().split()[0])*1024 for k,v in (line.split(':',1) for line in Path('/proc/meminfo').read_text().splitlines())}
  assert mem['MemAvailable']>=512*1024**2 and shutil.disk_usage(PRIVATE).free>=2*1024**3
