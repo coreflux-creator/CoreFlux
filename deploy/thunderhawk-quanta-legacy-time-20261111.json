@@ -1,0 +1,120 @@
+{
+  "checked_at": "2026-11-11T05:35:31.084492+00:00",
+  "scope": "existing isolated Thunderhawk Quanta pilot; Core read-only native consumer verification",
+  "source_commit": "12ad6396eea65ff90ae02891c577db7751b007c2",
+  "core_candidate_commit": "6c83324bea0d7c4dcf8733316759a9ef0c784b1e",
+  "core_web_runtime_commit": "26812ae869d07c0319fb1b18e4efc48221552ff9",
+  "core_web_candidate_deployed": false,
+  "package_sha256": "3b4a0761d40709828dd9967f54ca5458acb160d232c98f1d39b6adc9c76dd86c",
+  "installer_sha256": "15a41c9627e0470526d90befdac0ecb65019de548ce7ddc2b45d5d8b83035d34",
+  "core_ci": {
+    "run": 42965422005,
+    "conclusion": "success",
+    "passed_jobs": 11
+  },
+  "source_checks": {
+    "quanta_native_checks": 158,
+    "native_wire_checks": 24,
+    "dashboard_checks": 224,
+    "mariadb_historical_checks": 25,
+    "native_http_permission_checks": 214
+  },
+  "installed": {
+    "source_commit": "12ad6396eea65ff90ae02891c577db7751b007c2",
+    "production_changed": false,
+    "financial_execution": false,
+    "passed": true,
+    "frontend_unchanged": true,
+    "historical_associations_created": 0,
+    "existing_business_records_and_indexes_unchanged": true,
+    "previous_usage_records_unchanged": true,
+    "appended_usage_events": 54,
+    "new_empty_collections": [],
+    "background_work_held": true,
+    "operational_policy_enabled": false,
+    "new_container": false,
+    "other_services_unchanged": true,
+    "private_backup": "/srv/core-integration-pilot/20261029/private/quanta-legacy-time-before-d2503b4c8b3e46219cff3f8eb6bd3213",
+    "native_unauthenticated_access_denied": true,
+    "target": {
+      "id": "f4988aa4a83d4b6106c205ecf9c1e8f63d0a975a9da846f3269450f2ed8a7d11",
+      "running": true,
+      "started_at": "2026-11-11T05:31:22.769919705Z"
+    },
+    "installed_files": {
+      "backend/app/coreflux_legacy_time.py": "64f2b050a2e3dd1029afee82a787e5968c129a55171cc2b266700ae97cd34f65",
+      "backend/app/coreflux_time_access.py": "7cb7c4f9253642c5cbb26a3d2294f9e475ffa9d0592894f67a6a817da887aae0",
+      "backend/app/routers/v1/coreflux.py": "920c0ca427118b9794e898f290a4e858c8a9f61859e7d423b5c964e6ce491e2d",
+      "backend/app/routers/v1/time_entries.py": "112076bc789dd0a02928da0eb450865e8a298ac0013b9599cf762315ee563730"
+    },
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    }
+  },
+  "independent_verification": {
+    "worker_reads_passed": true,
+    "native_worker_and_identity_unchanged": true,
+    "onboarding_case_count": 1,
+    "onboarding_state": "current",
+    "approved_tasks": 3,
+    "worker_unmanaged_selector_verified": true,
+    "worker_admin_setup_denied": true,
+    "admin_context_read_passed": true,
+    "activation_held_verified": true,
+    "existing_unbound_time_count": 12,
+    "assignment_reviews": [
+      {
+        "placement_number": "PL-864",
+        "current_reviews": 12,
+        "reviews": 12
+      }
+    ],
+    "worker_workspace_access_denied": true,
+    "passed": true,
+    "all_installed_runtime_bytes_verified": true,
+    "served_frontend_files": 54,
+    "unchanged_collection_count": 66,
+    "other_services_unchanged": true,
+    "token_persisted": false,
+    "full_hosted_assignment_closure_acceptance": false
+  },
+  "core_consumer_verification": {
+    "passed": true,
+    "checked_at": "2026-11-11T05:33:33+00:00",
+    "source_commit": "6c83324bea0d7c4dcf8733316759a9ef0c784b1e",
+    "candidate_contract_used_privately": true,
+    "core_web_runtime_changed": false,
+    "provider_contexts_verified": 12,
+    "original_core_review_proofs_unchanged": true,
+    "native_provider_context_hashes_verified": true,
+    "source_proof_set_sha256": "c7cf24a8fce76060dcf0bb41af57340c32861f203f931636b68da057e103955e",
+    "historical_associations_created": 0,
+    "provider_writes": false,
+    "operational_policy_enabled": false,
+    "real_payroll_payments_postings": false
+  },
+  "provider_key_rotated": false,
+  "provider_time_write_permission_added": false,
+  "operational_policy_enabled": false,
+  "historical_associations_created": 0,
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings": false,
+  "goal_complete": false,
+  "remaining": [
+    "Core web candidate deployment and native review acceptance",
+    "Mongo cross-document capture/source/approval/lifecycle race acceptance",
+    "Reviewed association of the twelve original entries",
+    "Managed synthetic capture/approval/offboarding round trip",
+    "PurePay/PurePayroll authority contract adoption and financial-result reconciliation"
+  ]
+}

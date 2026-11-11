@@ -39,8 +39,21 @@ Validation:
   native login/session and permission checks. Database/HTTP CI results must be
   checked on the committed head before release; local PHP has no MySQL driver.
 
-This is not hosted yet. The installed Core pilot remains on `26812ae8`, Quanta
-on `d8c82eb`, and operational time activation stays disabled. Hosted acceptance
-must preserve the twelve existing source review proofs and test cross-document
-source, capture and lifecycle races before enabling managed time. Synthetic
-offboarding uses a separate assignment, never ending and reopening PL-864.
+All eleven CI jobs passed on Core candidate `6c83324b`, including 25 historical
+MariaDB checks and 214 native permission/session checks. Quanta `12ad639` is now
+installed in the same isolated pilot process; four backend files changed, while
+the frontend and existing business records/indexes were preserved. Independent
+verification checked 54 served frontend files and 66 unchanged collections.
+
+Core's web pilot remains on `26812ae8`. Its current native imports and connection
+were used with the exact candidate contract staged privately to read all twelve
+new provider contexts. Every original review proof matched. No association was
+published; original key identity and read-only time permissions remain intact.
+The deployment and read verification are recorded in
+`deploy/thunderhawk-quanta-legacy-time-20261111.json`.
+
+Operational time activation stays disabled. Next install the accepted Core web
+candidate and validate its native review flow. Cross-document source, capture,
+approval and lifecycle races still need acceptance before enabling managed
+time. Synthetic offboarding uses a separate assignment, never ending and
+reopening PL-864.
