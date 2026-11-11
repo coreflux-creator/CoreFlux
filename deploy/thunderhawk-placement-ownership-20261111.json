@@ -1,0 +1,69 @@
+{
+  "recorded_at": "2026-11-11T21:57:51.964035+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "The previous ownership fix was committed and its exact disposable process completed successfully; this turn independently polled the original handle and saved receipt.",
+  "goal_complete": false,
+  "scope": "Core isolated staging tenant 2002; no provider or production deployment",
+  "runtime_source": "70910ce79cd3a9b5af30a02dfbb199a39002e13b",
+  "ci": {
+    "run": "43106600958",
+    "commit": "70910ce79cd3a9b5af30a02dfbb199a39002e13b",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43106600958",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "Native JobDiva-sourced closure owns status and actual_end_date while retaining other Core overrides",
+    "Canonical JobDiva updates serialize with native edits; automatic contract refresh cannot release lifecycle ownership",
+    "Configured placement mappings respect Core ownership under row locks, including mixed source-owned buckets and case variants",
+    "Ownership metadata cannot be mapped; malformed ownership blocks native ending, source refresh and mapped placement writes"
+  ],
+  "verification": {
+    "before_fix_reproduced": true,
+    "disposable_ownership_checks": 17,
+    "placement_end_checks": 13,
+    "request_checks": 17,
+    "hosted_ownership_checks": 17,
+    "original_containers_preserved": 206,
+    "installed_files": 3,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_regression": 34356,
+    "fixture_rows_rolled_back": true,
+    "temporary_probe_removed": true
+  },
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "browser_acceptance": false,
+    "hosted_test_method": "Existing deployed native PHP functions using synthetic records inside an outer rollback transaction"
+  },
+  "coordination_window_released": true,
+  "remaining_scope": [
+    "Review lifecycle ownership release and other native edit paths for concurrency and paired status/date behavior",
+    "Respect Core-owned active status and dates in the separate JobDiva terminal-census update path",
+    "Complete per-field/destination ownership audit, including other force-source contract fields and custom fields",
+    "Complete worker/manager portal closure and remaining onboarding/document lifecycle acceptance",
+    "Complete financial-result, billing/AP/AR lineage and reconciliation acceptance"
+  ],
+  "evidence": {
+    "placement-ownership-90ee4970-disposable-result.json": {
+      "path": "output/placement-ownership-90ee4970-disposable-result.json",
+      "sha256": "0411203e47f7609f53f4b1fd2a0642cb73a4e1fb3bbbbd38a045692a9c968cab"
+    },
+    "placement-ownership-install-result.json": {
+      "path": "output/placement-ownership-install-result.json",
+      "sha256": "9f353f0e484b3943524d02386768245ce2056e839a53cd3f069b272a3b8be579"
+    },
+    "placement-ownership-hosted-result.json": {
+      "path": "output/placement-ownership-hosted-result.json",
+      "sha256": "921c5ff4d57f5250ffe3d1aa93fb8376851b029c41ebe71b2e805cdf16be4246"
+    },
+    "placement-ownership-ci.json": {
+      "path": "output/placement-ownership-ci.json",
+      "sha256": "ed5f16f737def73d9bd2771e76b3804775fd061d89b9d7285900570ff9c1b7c2"
+    }
+  }
+}
