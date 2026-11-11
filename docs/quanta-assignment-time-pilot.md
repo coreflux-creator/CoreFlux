@@ -72,19 +72,39 @@ Independent hosted verification at 04:32 UTC checked 21 installed files, six
 served frontend files, the migration ledger and all 367 original business
 tables. All three legacy routes remain exact apart from the new empty selector;
 all twelve original Core-to-Quanta time-review proofs still validate unchanged.
-Operational time configuration is disabled in both applications. Core's
-time-setup context currently returns 403 because its dedicated provider key
-lacks the separately selected `read:core_time_access` permission. A read-only
+Operational time configuration is disabled in both applications. The first
+Core time-setup read returned 403 because its dedicated provider key lacked
+the separately selected `read:core_time_access` permission. A read-only
 inspection found 44 completed provider delivery receipts associated with that
 key; replacing it would change the identity used to retrieve those receipts.
-No credential or scope was changed during this deployment.
+No credential or scope was changed during the Core deployment.
+
+Quanta `d8c82eb59389cb85f766dc00f56cbc2671943d7f` then added an administrator
+permission editor, stale-review protection and atomic per-key change history.
+It also corrected the saved-key model, which had rejected the new time-setup
+permissions even though the picker and API scope registry offered them.
+Seventeen native permission cases, 168 integration cases and three interface
+cases passed; the frontend built successfully. The isolated update preserved
+all existing business records and other services. Shutdown appended only 55
+already-buffered usage events. Independent verification checked all 54 served
+frontend files and the unchanged 66 collections before the permission change.
+
+The existing synthetic pilot administrator used the native permission API to
+add only `read:core_time_access` to the original pilot key. Its identity and all
+44 completed delivery receipts remain exact. The key's atomic history and one
+activity event record the change; no other collection changed. At 04:43 UTC,
+Core's independent verifier successfully read the provider's time-setup context,
+identified twelve unbound historical entries, and again confirmed all original
+review proofs and 367 Core tables unchanged. No operational time policy was
+activated. The deployment and permission evidence is retained in
+`deploy/thunderhawk-quanta-key-permissions-20261111.json`.
 
 Core installation and independent evidence are in
 `deploy/thunderhawk-core-assignment-time-20261111.json`, with the exact installer
 and verifier beside it. The frozen full-Core candidate
 `6b7841894cbfc818769de216f2719b0fbb3ab2e8` remains unchanged.
 
-Remaining work includes the reviewed provider permission update, handling of existing
+Remaining work includes reviewed handling of existing
 time, concurrent native mutation checks, remaining time-entry selectors, the
 reviewed PurePay candidate and PurePayroll authority, distinct synthetic
 offboarding, full-Core release acceptance and Thunderhawk reconciliation.
