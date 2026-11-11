@@ -15,6 +15,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/end.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
@@ -338,20 +339,12 @@ if ($method === 'POST') {
         if ($id <= 0) api_error('id required', 400);
         rbac_legacy_require($user, 'placements.terminate');
         $body = api_json_body();
-        $newStatus = in_array(($body['status'] ?? 'ended'), ['ended', 'cancelled'], true)
-                   ? $body['status'] : 'ended';
-        $before = placementAuditRow($id);
-        $rows = scopedUpdate('placements', $id, [
-            'status'           => $newStatus,
-            'actual_end_date'  => $body['actual_end_date'] ?? date('Y-m-d'),
-        ]);
-        if ($rows === 0) api_error('Not found or no change', 404);
-        placementsAudit('placement.ended', ['id' => $id, 'status' => $newStatus, 'reason' => $body['reason'] ?? null], $id, [
-            'before' => $before,
-            'after' => placementAuditRow($id),
-        ]);
-        placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
-        api_ok(['ok' => true, 'placement' => placementGet($id)]);
+        try {
+            $result = placementEnd($id, $body);
+        } catch (InvalidArgumentException | RuntimeException $e) {
+            api_error($e->getMessage(), in_array($e->getCode(), [403,404,422], true) ? $e->getCode() : 422);
+        }
+        api_ok(['ok' => true, 'replayed' => !$result['changed'], 'placement' => placementGet($id)]);
     }
 
     if ($action === 'activate') {

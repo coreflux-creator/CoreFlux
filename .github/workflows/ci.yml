@@ -2,7 +2,7 @@ name: CoreFlux CI
 
 on:
   push:
-    branches: [main, master, develop, codex/coreaccounting-native, codex/quanta-profile-return]
+    branches: [main, master, develop, codex/coreaccounting-native, codex/quanta-profile-return, codex/placement-end-replay]
   pull_request:
     branches: [main, master, develop]
   schedule:
@@ -586,6 +586,9 @@ jobs:
 
       - name: Exercise atomic time approval and weekly artifact reconciliation
         run: php tests/time_approval_projection_db_check.php --confirm-disposable-fixture
+
+      - name: Exercise validated replay-safe placement ending
+        run: php tests/placement_end_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture
