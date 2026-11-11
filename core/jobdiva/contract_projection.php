@@ -13,6 +13,51 @@ require_once __DIR__ . '/../integrations/source_values.php';
 require_once __DIR__ . '/classification.php';
 require_once __DIR__ . '/assignment_contract.php';
 
+/** Translate canonical ownership into the source contract's display field names. */
+function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagement = ''): array
+{
+    $raw = $currentGraph['placement']['coreflux_overridden_fields'] ?? null;
+    $owned = $raw === null || $raw === '' ? [] : json_decode($raw);
+    if (!is_array($owned) || !array_is_list($owned)
+        || array_filter($owned, static fn($field) => !is_string($field) || $field === '')) {
+        throw new RuntimeException('Review the placement field ownership before reconciling its contract.', 422);
+    }
+    if ($sourceEngagement !== '' && in_array('engagement_type',$owned,true)
+        && ($currentGraph['placement']['engagement_type'] ?? '') !== $sourceEngagement) {
+        // Payee and rate semantics from a conflicting employment model need
+        // review together; unrelated source fields can still be refreshed.
+        array_push($owned,'bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency',
+            'bill_discount_pct','invoice_bill_rate','payroll_load_pct','workers_comp_pct','benefits_load_pct',
+            'referral_payout_rate','vendor_pay_cycle','vendor_pay_cycle_anchor','vendor_payment_terms_override','vendor_pwp_enabled');
+    }
+    $aliases = [
+        'end_client_name'=>['end_client_name','end_client_company_id'],
+        'billing_client_name'=>['client_id'],
+        'client_bill_cycle'=>['client_bill_cycle','billing_operating_cycle_id'],
+        'vendor_pay_cycle'=>['vendor_pay_cycle','ap_operating_cycle_id','payroll_operating_cycle_id'],
+        'vendor_payment_terms'=>['vendor_payment_terms_override'],
+        'client_payment_terms'=>['client_payment_terms_override'],
+        'paid_when_paid'=>['vendor_pwp_enabled'],
+    ];
+    foreach ($aliases as $field=>$columns) if (array_intersect($owned,$columns)) $owned[]=$field;
+    foreach ($currentGraph['economic_parties'] ?? [] as $party) {
+        if (empty($party['active'])) continue;
+        $channel = $party['settlement_channel'] ?? '';
+        $labor = in_array($party['role'] ?? '', ['worker','c2c_vendor','individual_vendor'], true)
+            || in_array($party['source_type'] ?? '', ['worker','corp'], true);
+        if (!empty($party['cycle_overridden'])) {
+            if ($channel === 'ar') array_push($owned,'client_bill_cycle','billing_operating_cycle_id');
+            elseif ($labor && in_array($channel,['ap','payroll'],true)) array_push($owned,'vendor_pay_cycle',$channel.'_operating_cycle_id');
+        }
+        if ($channel === 'ar' && !empty($party['payment_terms_overridden'])) array_push($owned,'client_payment_terms_override','client_payment_terms');
+        if ($labor && $channel === 'ap') {
+            if (!empty($party['payment_terms_overridden'])) array_push($owned,'vendor_payment_terms','vendor_payment_terms_override');
+            if (!empty($party['pwp_overridden'])) array_push($owned,'paid_when_paid','vendor_pwp_enabled');
+        }
+    }
+    return array_values(array_unique($owned));
+}
+
 function jobdivaContractProjectionDate(mixed $value): ?string
 {
     if ($value === null || trim((string) $value) === '') return null;
@@ -338,6 +383,7 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Settlement', 'client_bill_cycle', 'Client billing frequency', $currentPlacement['client_bill_cycle'] ?? null, $clientCadence ?: null, $sourceFor('client_bill_cycle', 'Assignment.BILLING.FREQUENCY_LABEL')),
         jobdivaContractProjectionField('Settlement', 'vendor_pay_cycle', 'Labor payment frequency', $currentPlacement['vendor_pay_cycle'] ?? null, $payCadence ?: null, $sourceFor('vendor_pay_cycle', 'Assignment.SALARY.PAYMENT_FREQUENCY')),
         jobdivaContractProjectionField('Settlement', 'vendor_payment_terms', 'Vendor payment terms', $currentPlacement['vendor_payment_terms_override'] ?? null, $vendorTerms ?: null, $sourceFor('vendor_payment_terms', 'Assignment.SALARY.Subcontractor_Payment_terms')),
+        jobdivaContractProjectionField('Settlement', 'client_payment_terms', 'Client payment terms', $currentPlacement['client_payment_terms_override'] ?? null, $clientTerms ?: null, $sourceFor('client_payment_terms', 'Assignment.BILLING payment terms')),
         jobdivaContractProjectionField('Settlement', 'paid_when_paid', 'Paid when paid', isset($currentPlacement['vendor_pwp_enabled']) ? (bool) $currentPlacement['vendor_pwp_enabled'] : null, $pwp, $sourceFor('paid_when_paid', 'Assignment.SALARY payment terms')),
     ];
 

@@ -75,14 +75,13 @@ function jobdivaProjectorSourceContractDrift(
     string $expectedStartId = ''
 ): array {
     $projection = jobdivaContractProjectionBuild($payload, $currentGraph, $expectedStartId);
-    $overrides = json_decode((string) ($currentGraph['placement']['coreflux_overridden_fields'] ?? ''), true);
-    $overrides = is_array($overrides) ? $overrides : [];
+    $overrides = jobdivaContractOwnedFields($currentGraph, (string) ($projection['placement']['engagement_type'] ?? ''));
     $owned = [
         'engagement_type', 'status', 'start_date', 'end_date',
         'end_client_name', 'billing_client_name',
         'bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit', 'currency', 'worksite_country', 'worksite_city',
         'client_bill_cycle', 'vendor_pay_cycle',
-        'vendor_payment_terms', 'paid_when_paid',
+        'vendor_payment_terms', 'client_payment_terms', 'paid_when_paid',
     ];
 
     return array_values(array_filter(
@@ -109,6 +108,15 @@ function jobdivaProjectorSourceContractDriftMessage(array $drift): string
     return implode(', ', $parts);
 }
 
+function jobdivaProjectorCoreOwnershipConflicts(array $payload, array $currentGraph, string $externalId): array
+{
+    $proposal = jobdivaContractProjectionBuild($payload, $currentGraph, $externalId);
+    $owned = jobdivaContractOwnedFields($currentGraph, (string) ($proposal['placement']['engagement_type'] ?? ''));
+    return array_values(array_map(static fn($field) => $field + ['reason'=>'core_owned_field'], array_filter(
+        $proposal['fields'] ?? [], static fn($field) => !empty($field['changes']) && in_array($field['field'] ?? '', $owned, true)
+    )));
+}
+
 function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $userId = null, array $opts = []): array
 {
     $summary = [
@@ -127,6 +135,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         'field_map' => ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'errors' => []],
         'readiness' => ['ok' => false, 'missing' => ['not_projected'], 'warnings' => [], 'facts' => []],
         'errors' => [],
+        'ownership_conflicts' => [],
     ];
     if ($tenantId <= 0) {
         $summary['errors'][] = 'invalid tenant id';
@@ -278,9 +287,8 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
             $drift = jobdivaProjectorSourceContractDrift($writePayload, $currentGraph, $externalId);
             if ($drift !== []) {
-                // One final source-authoritative write runs after tenant field
-                // mappings. This also upgrades hosts that briefly had the new
-                // reconciliation loop without its projector dependencies.
+                // Retry only source-owned drift after enrichment. The writer
+                // and postcondition both preserve explicit Core ownership.
                 $retryPayload = $writePayload;
                 $retryPayload['__cf_existing_placement_id'] = $placementId;
                 $retryPayload['__cf_force_source_contract'] = true;
@@ -304,6 +312,11 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         }
 
         $summary['projected'] = true;
+        if (function_exists('jobdivaPlacementProjectionAuditSnapshot')) {
+            $summary['ownership_conflicts'] = jobdivaProjectorCoreOwnershipConflicts(
+                $writePayload, jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId), $externalId
+            );
+        }
         $summary['placement_id'] = $placementId;
         $summary['identities'] = [
             'person_id' => $personId,

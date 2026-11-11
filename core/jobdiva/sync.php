@@ -4752,7 +4752,7 @@ function jobdivaSyncUpsertPlacementChain(
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
 
-    $endClientName = trim((string) ($endClientName ?: jobdivaAssignmentEndClientEvidence($jd)['name']));
+    $endClientName = trim((string) ($endClientName === null ? jobdivaAssignmentEndClientEvidence($jd)['name'] : $endClientName));
     if ($endClientName !== '') {
         $id = jobdivaSyncUpsertPlacementChainRow(
             $tid,
@@ -6040,6 +6040,7 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
             'fee_basis', 'fee_pct', 'fee_flat', 'payment_terms', 'pwp_enabled',
             'operating_cycle_id', 'effective_from', 'effective_to', 'source_system',
             'source_external_id', 'source_managed',
+            'payment_terms_overridden', 'pwp_overridden', 'cycle_overridden',
             'active',
         ]],
     ];
@@ -6708,13 +6709,12 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
     }
 
     if ($existingId > 0) {
-        $projectionBefore = jobdivaPlacementProjectionAuditSnapshot($tid, $existingId);
         // Slice 2: respect coreflux_overridden_fields — fields the user edited
         // in CoreFlux must not be reverted on the next JobDiva pull. Strip
         // any overridden field from the SET clause and audit what we skipped.
         $overrides = [];
         $overrideStmt = $pdo->prepare(
-            'SELECT coreflux_overridden_fields, accounting_entity_id
+            'SELECT coreflux_overridden_fields, accounting_entity_id, engagement_type
                FROM placements
               WHERE tenant_id = :t AND id = :id
               LIMIT 1 FOR UPDATE'
@@ -6731,34 +6731,15 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
             || array_filter($overrides, static fn($field) => !is_string($field) || $field === '')) {
             throw new RuntimeException('Review the placement field ownership before refreshing JobDiva.', 422);
         }
-        if (!empty($jd['__cf_force_source_contract'])) {
-            $contractOwnedFields = [
-                'engagement_type', 'start_date', 'end_date',
-                'client_id',
-                'client_bill_cycle', 'client_bill_cycle_anchor',
-                'client_payment_terms_override', 'vendor_pay_cycle',
-                'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',
-                'vendor_pwp_enabled',
-            ];
-            // Contract refresh is also used by scheduled reconciliation. It
-            // cannot relinquish a Core-owned lifecycle decision. Status and
-            // actual_end_date are released only by the explicit override API.
-            // Billing authority does not grant authority over the end-client role.
-            if (in_array($endClientEvidence['status'],['resolved','identity_only','name_only'],true)) {
-                $contractOwnedFields[]='end_client_name';$contractOwnedFields[]='end_client_company_id';
-            }
-            $retainedOverrides = array_values(array_diff($overrides, $contractOwnedFields));
-            if ($retainedOverrides !== $overrides) {
-                $pdo->prepare(
-                    'UPDATE placements SET coreflux_overridden_fields = :overrides
-                      WHERE tenant_id = :t AND id = :id'
-                )->execute([
-                    'overrides' => json_encode($retainedOverrides, JSON_UNESCAPED_SLASHES) ?: '[]',
-                    't' => $tid,
-                    'id' => $existingId,
-                ]);
-                $overrides = $retainedOverrides;
-            }
+        $partyLock = $pdo->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? FOR UPDATE');
+        $partyLock->execute([$tid,$existingId]);
+        $overrides = jobdivaContractOwnedFields(['placement'=>$existingPlacement,'economic_parties'=>$partyLock->fetchAll(PDO::FETCH_ASSOC)], $engagement);
+        $projectionBefore = jobdivaPlacementProjectionAuditSnapshot($tid, $existingId);
+        // Contract refresh also runs in background reconciliation. Core
+        // ownership is released only by its explicit reviewed native action.
+        // Treat a company's ID and display name as one owned role.
+        if (array_intersect($overrides, ['end_client_name','end_client_company_id'])) {
+            $overrides = array_values(array_unique([...$overrides, 'end_client_name', 'end_client_company_id']));
         }
 
         $allFields = [
@@ -6898,15 +6879,33 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
             // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare($sql)->execute($bindings);
         }
-        jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
-        jobdivaSyncUpsertPlacementChain($tid, $existingId, $endClientCompanyId, $endClientName ?: null, $jd, $userId);
-        if (!empty($fieldEvidence['engagement_type'])) {
-            jobdivaSyncUpsertPlacementCorpDetails($tid, $existingId, $jd, $userId, $engagement);
+        $currentStmt = $pdo->prepare('SELECT * FROM placements WHERE tenant_id=? AND id=?');
+        $currentStmt->execute([$tid,$existingId]);
+        $canonical = $currentStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$canonical) throw new RuntimeException('Placement disappeared during reconciliation.', 409);
+        $effectiveStart = (string) $canonical['start_date'];
+        $effectiveEnd = $canonical['actual_end_date'] ?: ($canonical['end_date'] ?? null);
+        $modelConflict = in_array('engagement_type', $overrides, true) && $canonical['engagement_type'] !== $engagement;
+        // A different Core employment model cannot receive the source model's
+        // payee, rate, referral or commission writes. Unrelated fields still sync.
+        if (!$modelConflict) {
+            jobdivaSyncUpsertPlacementRates($tid, $existingId, $effectiveStart, $jd);
+            jobdivaSyncUpsertPlacementChain($tid, $existingId,
+                $canonical['end_client_company_id'] ? (int) $canonical['end_client_company_id'] : null,
+                (string) ($canonical['end_client_name'] ?? ''), $jd, $userId);
+            if (!empty($fieldEvidence['engagement_type'])) {
+                jobdivaSyncUpsertPlacementCorpDetails($tid, $existingId, $jd, $userId, (string) $canonical['engagement_type']);
+            }
+            jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $effectiveStart, $jd);
+            jobdivaSyncUpsertPlacementReferral($tid, $existingId, $effectiveStart, $jd, $userId);
+            jobdivaSyncUpsertSourceAllocationParties($tid, $existingId, $effectiveStart, $effectiveEnd, $jd);
         }
-        jobdivaSyncUpsertPlacementCommissions($tid, $existingId, $startDate, $jd);
-        jobdivaSyncUpsertPlacementReferral($tid, $existingId, $startDate, $jd, $userId);
-        jobdivaSyncUpsertSourceAllocationParties($tid, $existingId, $startDate, $endDateNorm, $jd);
-        placementEconomicsReconcile($tid, $existingId, jobdivaSyncPlacementEconomicOptions($jd));
+        $graphOptions = jobdivaSyncPlacementEconomicOptions($jd);
+        foreach (['payment_terms'=>'vendor_payment_terms_override','pwp_enabled'=>'vendor_pwp_enabled','client_payment_terms'=>'client_payment_terms_override'] as $option=>$field) {
+            if (in_array($field,$overrides,true)) unset($graphOptions[$option]);
+        }
+        $graph = placementEconomicsReconcile($tid, $existingId, $graphOptions);
+        if (!$graph['available'] || $graph['errors']) throw new RuntimeException('The source placement commercial graph could not be reconciled.', 422);
         jobdivaAuditPlacementProjection(
             $tid,
             $existingId,

@@ -94,3 +94,14 @@ if (in_array('worksite_city',array_column(jobdivaProjectorSourceContractDrift($c
     throw new RuntimeException('Manual city ownership was mistaken for source projection failure');
 }
 echo "JobDiva projector postcondition smoke: ok\n";
+
+$ownedGraph=$drifted;
+$ownedGraph['placement']['coreflux_overridden_fields']='["client_id","end_client_company_id","vendor_payment_terms_override","vendor_pwp_enabled","client_payment_terms_override"]';
+$ownedFields=jobdivaContractOwnedFields($ownedGraph);
+foreach(['billing_client_name','end_client_name','vendor_payment_terms','paid_when_paid','client_payment_terms'] as $field) {
+    if(!in_array($field,$ownedFields,true))throw new RuntimeException('Missing contract ownership alias: '.$field);
+}
+$ownedGraph['placement']['coreflux_overridden_fields']='{}';
+try{jobdivaContractOwnedFields($ownedGraph);throw new LogicException('Object-shaped ownership accepted');}
+catch(RuntimeException $e){if($e->getCode()!==422)throw $e;}
+echo "Contract ownership aliases and strict metadata: ok\n";

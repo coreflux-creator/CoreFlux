@@ -385,22 +385,8 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
         ? placementEconomicsNormaliseTerms((string) $party['payment_terms'])
         : null;
     $pdo = getDB();
-    if (!empty($party['force_source_fields'])) {
-        $pdo->prepare(
-            'UPDATE placement_economic_parties
-                SET payment_terms_overridden = 0,
-                    pwp_overridden = 0,
-                    cycle_overridden = 0
-              WHERE tenant_id = :t
-                AND placement_id = :p
-                AND source_ref = :source_ref
-                AND source_managed = 1'
-        )->execute([
-            't' => $tenantId,
-            'p' => $placementId,
-            'source_ref' => $sourceRef,
-        ]);
-    }
+    // Source reconciliation is not an ownership-release action. The UPDATE
+    // below retains each explicit payment-term, PWP and cycle override.
     $pdo->prepare(
         'INSERT INTO placement_economic_parties
             (tenant_id, placement_id, source_ref, source_type, source_id, role,
@@ -566,16 +552,11 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 : !empty($placement['vendor_pwp_enabled']))
             || placementEconomicsTermsArePwp($defaultTerms);
 
-        $forceSourceFields = !empty($options['force_source_contract']) && $sourceSystem === 'jobdiva';
         $record = static function (array $party) use (
             &$summary,
             $tenantId,
-            $placementId,
-            $forceSourceFields
+            $placementId
         ): int {
-            if ($forceSourceFields) {
-                $party['force_source_fields'] = true;
-            }
             $id = placementEconomicsUpsertParty($tenantId, $placementId, $party);
             if ($id > 0) {
                 $summary['written']++;

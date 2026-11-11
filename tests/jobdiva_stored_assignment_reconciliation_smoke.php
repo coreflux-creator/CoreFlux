@@ -66,9 +66,10 @@ $assert(
     str_contains($sync, "'person_id' => (int) (\$row['current']['person_id'] ?? 0)")
 );
 $assert(
-    'explicit stored reconciliation replaces stale overrides on JobDiva-owned contract fields',
+    'stored reconciliation retains Core contract ownership',
     substr_count($sync, "'force_source_contract' => true") >= 2
-    && str_contains($sync, "\$contractOwnedFields = [")
+    && !str_contains($sync, '$retainedOverrides = array_values(array_diff($overrides, $contractOwnedFields))')
+    && str_contains($sync, 'jobdivaContractOwnedFields(')
     && str_contains($sync, "'vendor_payment_terms_override'")
     && str_contains($sync, "'vendor_pwp_enabled'")
 );
@@ -84,10 +85,10 @@ $assert(
 );
 $economics = $read("$root/modules/placements/lib/economics.php");
 $assert(
-    'exact reconciliation clears stale field overrides only on source-managed participants',
-    str_contains($economics, "!empty(\$party['force_source_fields'])")
-    && str_contains($economics, 'AND source_managed = 1')
-    && str_contains($economics, "\$party['force_source_fields'] = true;")
+    'exact reconciliation retains participant field overrides',
+    !str_contains($economics, "!empty(\$party['force_source_fields'])")
+    && str_contains($economics, 'IF(payment_terms_overridden = 1, payment_terms, VALUES(payment_terms))')
+    && str_contains($economics, 'IF(cycle_overridden = 1, operating_cycle_id, VALUES(operating_cycle_id))')
 );
 $assert(
     'stored apply is transactional',
