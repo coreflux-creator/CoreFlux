@@ -30,6 +30,7 @@ function placementEconomicsApplyNativePartyEdit(int $tenantId, int $partyId, arr
     // Always lock parent before child, matching native placement and source writes.
     return placementWithLockedRecord($tenantId, $placementId, static function (array $placement, PDO $pdo) use ($tenantId, $partyId, $placementId, $changes): array {
         $owned = placementOwnershipFields($placement['coreflux_overridden_fields'] ?? null);
+        $placementBefore = placementAuditRow($placementId);
         $read = $pdo->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND id=? FOR UPDATE');
         $read->execute([$tenantId, $placementId, $partyId]);
         $before = $read->fetch(PDO::FETCH_ASSOC);
@@ -149,7 +150,7 @@ function placementEconomicsApplyNativePartyEdit(int $tenantId, int $partyId, arr
         if (!$after || placementEconomicsNativeDiffers($after, array_intersect_key($next, $changes + ['active'=>1,'payment_terms_overridden'=>1,'pwp_overridden'=>1,'cycle_overridden'=>1]))) throw new RuntimeException('The contract did not retain the reviewed participant values.', 409);
         placementRequiredAudit('placement.economic_party.updated', [
             'placement_id'=>$placementId, 'economic_party_id'=>$partyId, 'fields'=>array_keys($changes),
-            'before'=>$before, 'after'=>$after, 'placement_before'=>$placement,
+            'before'=>$before, 'after'=>$after, 'placement_before'=>$placementBefore,
             'placement_after'=>placementAuditRow($placementId), 'corp_before'=>$corpBefore,
             'corp_changes'=>$corpChanges,
         ], $placementId);
