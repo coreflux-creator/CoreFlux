@@ -45,15 +45,39 @@ installed in the same isolated pilot process; four backend files changed, while
 the frontend and existing business records/indexes were preserved. Independent
 verification checked 54 served frontend files and 66 unchanged collections.
 
-Core's web pilot remains on `26812ae8`. Its current native imports and connection
-were used with the exact candidate contract staged privately to read all twelve
-new provider contexts. Every original review proof matched. No association was
-published; original key identity and read-only time permissions remain intact.
-The deployment and read verification are recorded in
-`deploy/thunderhawk-quanta-legacy-time-20261111.json`.
+Core runtime `6c83324b` is now installed in the existing isolated web pilot.
+The file-only release changed seven backend files and six dashboard files,
+preserved ownership, and applied no migration. Independent verification checked
+all installed files, six served frontend files, three original routes, the
+migration ledger and all 367 business tables against the pre-install snapshot.
+All twelve historical snapshots retain the original Core review proof hashes.
 
-Operational time activation stays disabled. Next install the accepted Core web
-candidate and validate its native review flow. Cross-document source, capture,
-approval and lifecycle races still need acceptance before enabling managed
-time. Synthetic offboarding uses a separate assignment, never ending and
-reopening PL-864.
+A synthetic reviewer then signed in through the native login handler and used
+the installed HTTP API to review all twelve entries: 80 imported hours for
+October 5–18 and the separate nine synthetic hours on October 19 and 26.
+The twelve encrypted local previews remain unattempted. Repeated review reused
+the same delivery; foreign-company access, missing review permission, altered
+receipt hashes and unconfirmed sending were rejected. Confirmed sending also
+remained blocked by the disabled rollout. The actor was retired, all temporary
+module grants revoked, the session logged out and its private cookie removed.
+This is native HTTP acceptance, not a completed browser walkthrough.
+
+The original HTTP preservation check stopped on the four permission-denial
+audit rows, which its append allowlist omitted. An independent read-only check
+attributed every new row to the reviewer or twelve previews, and verified every
+pre-existing row unchanged. No review or provider delivery was repeated to
+resolve that evidence gap. Quanta's 65 non-key collections remained exact;
+the API-key count, indexes, accepted permissions and scope revision are intact.
+Its whole-key fingerprint changed consistently with native last-use tracking;
+the older whole-record hash does not prove a field-only historical comparison.
+Deployment and both verification outcomes are retained in
+`deploy/thunderhawk-core-legacy-time-20261111.json`. Earlier provider installation
+evidence remains in `deploy/thunderhawk-quanta-legacy-time-20261111.json`.
+
+Operational time activation stays disabled; no historical association has yet
+been published. Cross-document source, capture, approval and lifecycle races
+still need acceptance before enabling managed time. Then complete reviewed
+association delivery, recovery and the managed capture/approval round trip.
+Synthetic offboarding uses a separate assignment, never ending and reopening
+PL-864. PurePay/PurePayroll authority-contract adoption and complete financial
+reconciliation remain open.
