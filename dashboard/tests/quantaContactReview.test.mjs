@@ -15,7 +15,7 @@ const review = { review_token: 'original-review', reference: { number: 'P-9108' 
   comparison: { state: 'change', conflicts: {} }, apply_enabled: true };
 const row = { change_id: 'source-request', person_id: 108, person_number: 'P-9108', person_name: 'Synthetic Worker', changed_fields: ['phone_primary'], state: 'pending_review' };
 const baseline = { profile, delivery_enabled: true, delivery: { id: 8, review_hash: 'baseline-review', state: 'preview' } };
-const result = { decision: 'accepted', changed_fields: ['phone_primary'], quanta_return_state: 'pending' };
+const result = { change_id: row.change_id, decision: 'accepted', changed_fields: ['phone_primary'], quanta_return_state: 'pending' };
 const text = n => typeof n === 'string' ? n : (n.children || []).map(text).join('');
 const button = (f, label) => f.tree.root.findAllByType('button').find(n => text(n) === label);
 async function fixture(respond = async action => action === 'profile_review_list' ? { rows: [row] }
@@ -42,16 +42,22 @@ test('approval needs explicit review and sends one scoped, immutable decision', 
     const call = f.calls.at(-1); assert.equal(call.action, 'profile_review_apply');
     assert.deepEqual(call.body, { review_token: 'original-review', decision: 'accepted', reason: '', confirm_decision: true });
     assert.equal(call.options.headers['X-CoreFlux-Tenant-Id'], '11'); assert.ok(!button(f, 'Accept in Core'));
-    assert.ok(text(f.tree.root).includes('awaiting return to Quanta'));
+    assert.ok(text(f.tree.root).includes('See the saved decision below for its return status.'));
+    assert.ok(!text(f.tree.root).includes('Awaiting review'));
+    assert.equal(button(f, 'Review request').props.disabled, true);
+    assert.ok(text(f.tree.root).includes('Core at review'));
   } finally { f.close(); }
 });
 test('conflicts disable acceptance while allowing a reasoned rejection', async () => {
   const f = await fixture(async action => action === 'profile_review_list' ? { rows: [row] } : action === 'profile_review_preview'
-    ? { ...review, comparison: { state: 'conflict', conflicts: { phone_primary: {} } } } : { decision: 'rejected', changed_fields: [] });
+    ? { ...review, comparison: { state: 'conflict', conflicts: { phone_primary: {} } } } : { change_id: row.change_id, decision: 'rejected', changed_fields: [] });
   try { await f.open(); await f.confirm('against Core'); assert.equal(button(f, 'Accept in Core').props.disabled, true);
     assert.equal(button(f, 'Reject with note').props.disabled, true);
     await act(async () => f.tree.root.findByType('textarea').props.onChange({ target: { value: 'Please review the updated phone.' } }));
     await f.click('Reject with note'); assert.equal(f.calls.at(-1).body.decision, 'rejected');
+    assert.ok(!text(f.tree.root).includes('Awaiting review'));
+    assert.ok(!text(f.tree.root).includes('reject this request with guidance'));
+    assert.equal(button(f, 'Review request').props.disabled, true);
   } finally { f.close(); }
 });
 test('unknown result is recovered by receipt without automatic repost', async () => {
@@ -61,6 +67,8 @@ test('unknown result is recovered by receipt without automatic repost', async ()
     assert.ok(!button(f, 'Accept in Core')); await f.click('Check decision receipt');
     assert.equal(f.calls.filter(c => c.action === 'profile_review_apply').length, 1);
     assert.deepEqual(f.calls.at(-1).body, { review_token: 'original-review' });
+    assert.ok(!text(f.tree.root).includes('Awaiting review'));
+    assert.equal(button(f, 'Review request').props.disabled, true);
   } finally { f.close(); }
 });
 test('sharing a baseline cannot confirm a separate contact approval', async () => {

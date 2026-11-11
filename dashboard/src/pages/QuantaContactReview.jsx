@@ -41,13 +41,18 @@ export default function QuantaContactReview({ workspaceId, people = [] }) {
     setReview(null); setResult(null); setReason(''); setConfirmed(false);
     run('profile_review_preview', { person_id: row.person_id, change_id: row.change_id }, setReview);
   };
+  const savedDecision = data => {
+    setResult(data); setPending(null);
+    setPage(previous => previous && ({ ...previous, rows: previous.rows.map(row =>
+      row.change_id === data.change_id ? { ...row, state: data.decision } : row) }));
+  };
   const decide = (decision, retry) => {
     const request = retry || { review_token: review.review_token, decision, reason: reason.trim(), confirm_decision: true };
     setPending(request); setConfirmed(false);
-    run('profile_review_apply', request, data => { setResult(data); setPending(null); });
+    run('profile_review_apply', request, savedDecision);
   };
   const checkDecision = () => run('profile_review_status', { review_token: pending.review_token }, data => {
-    if (data.state === 'decided') { setResult(data.result); setPending(null); }
+    if (data.state === 'decided') savedDecision(data.result);
     else setError('Core has no saved decision for this request. Retry the same decision. If its details changed, refresh the page and review the request again.');
   });
   const baselineBody = () => ({ delivery_id: Number(baseline.delivery.id), review_hash: baseline.delivery.review_hash });
@@ -94,11 +99,11 @@ export default function QuantaContactReview({ workspaceId, people = [] }) {
     {page?.next_cursor && <button type="button" className="btn btn-secondary" disabled={busy || !!pending} onClick={() => load(page.next_cursor)}>More requests</button>}
     {review && <div style={{ marginTop: 20 }}>
       <h3>Review contact changes · {review.reference.number}</h3>
-      <table className="table" style={{ width: '100%', textAlign: 'left' }}><thead><tr><th>Field</th><th>Originally shared</th><th>Worker requested</th><th>Core now</th></tr></thead>
+      <table className="table" style={{ width: '100%', textAlign: 'left' }}><thead><tr><th>Field</th><th>Originally shared</th><th>Worker requested</th><th>{result ? 'Core at review' : 'Core now'}</th></tr></thead>
         <tbody>{Object.entries(labels).map(([key, label]) => <tr key={key}><th>{label}{review.comparison.conflicts[key] && ' · Conflict'}</th>
           <td>{display(review.proposal.baseline.profile[key])}</td><td>{display(review.proposal.proposed[key])}</td><td>{display(review.current[key])}</td></tr>)}</tbody></table>
-      {review.comparison.state === 'conflict' && <p role="alert">Core and the worker changed the same field. Review the discrepancy and reject this request with guidance for a new request.</p>}
-      {result ? <p role="status">{stateLabel(result.decision)}. {result.changed_fields.length ? 'Core contact details were updated.' : 'No Core contact values changed.'} The decision is awaiting return to Quanta.</p>
+      {!result && review.comparison.state === 'conflict' && <p role="alert">Core and the worker changed the same field. Review the discrepancy and reject this request with guidance for a new request.</p>}
+      {result ? <p role="status">{stateLabel(result.decision)}. {result.changed_fields.length ? 'Core contact details were updated.' : 'No Core contact values changed.'} See the saved decision below for its return status.</p>
         : pending ? <div><p>The decision needs confirmation. Check its saved result before changing it.</p>
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={checkDecision}>Check decision receipt</button>{' '}
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => decide(null, pending)}>Retry same decision</button>

@@ -1,0 +1,212 @@
+{
+  "checked_at": "2026-11-11T00:47:07.272742+00:00",
+  "scope": "Existing isolated Thunderhawk pilot, Core company 2002; no production cutover",
+  "core_installed_behavior_commit": "daebd05f4a3f706b4367037a9eae873cfe997735",
+  "quanta_installed_commit": "ac626f245b4569d4216f8ee9ba835a5fe5b5af76",
+  "core_install": {
+    "checked_at": "2026-11-11T00:27:59+00:00",
+    "source_commit": "daebd05f4a3f706b4367037a9eae873cfe997735",
+    "production_changed": false,
+    "payroll_payments_or_financial_postings": false,
+    "passed": true,
+    "private_backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/contact-before-6055daa4cc91c2de12cfa9d7",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi",
+      "gates": {
+        "2002": true,
+        "2": false,
+        "999": false,
+        "2003": false
+      }
+    },
+    "passed_tables": 364,
+    "existing_records_unchanged": true,
+    "migration_tables_added": [
+      "quanta_profile_baselines",
+      "quanta_profile_decisions",
+      "quanta_profile_returns"
+    ],
+    "migrations_applied": [
+      "185_quanta_profile_baselines.sql",
+      "186_quanta_profile_decisions.sql",
+      "187_quanta_profile_returns.sql"
+    ],
+    "files_verified": 21,
+    "only_tenant_2002_enabled": true,
+    "temporary_web_probe_removed": true,
+    "served_dashboard_verified": true,
+    "provider_write_requested": false
+  },
+  "core_native_password_login": true,
+  "quanta_authentication": "Short-lived native token for existing isolated worker; real password/MFA login not proven",
+  "hosted_browser_acceptance": {
+    "accepted_and_applied": true,
+    "restored_by_second_reviewed_request": true,
+    "same_field_stale_snapshot_conflict": true,
+    "accept_disabled_for_conflict": true,
+    "rejection_note_returned_to_worker": true,
+    "final_shared_snapshot_matches_original": true
+  },
+  "completed_return_replay": {
+    "checked": 2,
+    "same_database_state": true,
+    "additional_attempts": 0
+  },
+  "core_person_restored": true,
+  "quanta_worker_restored": true,
+  "quanta_contact_presence_restored": true,
+  "quanta_complete_identity_fingerprint_unchanged": true,
+  "stable_worker_link": true,
+  "original_tables_unchanged": 356,
+  "changed_tables": [
+    "audit_log",
+    "integration_deliveries",
+    "membership_audit",
+    "people",
+    "rbac_bridge_audit",
+    "tenant_memberships",
+    "user_tenants",
+    "users"
+  ],
+  "financial_assignment_and_time_records_unchanged": true,
+  "decisions": [
+    {
+      "tenant_id": 2002,
+      "person_id": 358,
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "actor_id": 61,
+      "change_id": "cpc_da666e84685a5ec78395095fdd04a7cedf42230a6f2df61aa6a1adc29cbb4481",
+      "decision": "accepted",
+      "proposal_hash": "cd9ac8fe1cc025457511dc95eb37c3de3f432612cddbd9da83044f27ec87980e"
+    },
+    {
+      "tenant_id": 2002,
+      "person_id": 358,
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "actor_id": 61,
+      "change_id": "cpc_48d389cf3606bb7d4668bf1b2243ffa44244f62954fb307f9c0abb4eebc21952",
+      "decision": "accepted",
+      "proposal_hash": "6f05b7b6f64c0b0429ef9eb3c08a397ef62d0e86f75bd62737091cb59b79b279"
+    },
+    {
+      "tenant_id": 2002,
+      "person_id": 358,
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "actor_id": 61,
+      "change_id": "cpc_538052d5df20ff656688eebc5655bbe0df59f9f68f815ed36f01ad5c036e43f2",
+      "decision": "rejected",
+      "proposal_hash": "96fcbd106ccf78073e981ca2c9a15b2b13f0726c3a85438c098c2e52f8440183"
+    }
+  ],
+  "returns": [
+    {
+      "tenant_id": 2002,
+      "change_id": "cpc_da666e84685a5ec78395095fdd04a7cedf42230a6f2df61aa6a1adc29cbb4481",
+      "state": "delivered",
+      "attempt_count": 1,
+      "body_hash": "286e28cbc86409385dc65b324946dc917804e142d4a4b46aa95128ab316e9184",
+      "receipt_hash": "31b2391357405eda243dbfaa06bafcb14103288c4751718043a86842c3cdd547",
+      "error_code": null
+    },
+    {
+      "tenant_id": 2002,
+      "change_id": "cpc_48d389cf3606bb7d4668bf1b2243ffa44244f62954fb307f9c0abb4eebc21952",
+      "state": "delivered",
+      "attempt_count": 1,
+      "body_hash": "be0c6363a030471a8ade84160de2aef0c6d844443dbadba8f4975f5145e81eb5",
+      "receipt_hash": "d770cd01d711478c6054e4618e891e11838cf372b508e13776f459f9c627104a",
+      "error_code": null
+    },
+    {
+      "tenant_id": 2002,
+      "change_id": "cpc_538052d5df20ff656688eebc5655bbe0df59f9f68f815ed36f01ad5c036e43f2",
+      "state": "delivered",
+      "attempt_count": 1,
+      "body_hash": "635e4b3689a90a35b01e7624328bbf3390e33b6b4d8912cdcfa1af36eff1d7ba",
+      "receipt_hash": "1cb9599dc2625a06ac99b90d9dc6f682081c97d0847842ec244b710fed6da2f5",
+      "error_code": null
+    }
+  ],
+  "outcomes": [
+    {
+      "change_id": "cpc_da666e84685a5ec78395095fdd04a7cedf42230a6f2df61aa6a1adc29cbb4481",
+      "outcome": {
+        "id": "cpd_5ef66f52af52fa2b2a7a2d222ae9012b7bfd6576a17cf38db888a75512263d93",
+        "decision_hash": "286e28cbc86409385dc65b324946dc917804e142d4a4b46aa95128ab316e9184",
+        "decision": "accepted",
+        "reason": "",
+        "decided_at": "2026-11-11T00:39:36Z",
+        "received_at": "2026-11-11T00:39:53.737332+00:00",
+        "completed_at": "2026-11-11T00:39:53.745419+00:00",
+        "contact_state": "applied",
+        "native_changed_fields": [
+          "phone"
+        ],
+        "conflict_fields": []
+      }
+    },
+    {
+      "change_id": "cpc_48d389cf3606bb7d4668bf1b2243ffa44244f62954fb307f9c0abb4eebc21952",
+      "outcome": {
+        "id": "cpd_01ba51335ea16d406bf4bf3c20e24badb02f9e6f18cd200fad6486964f65f224",
+        "decision_hash": "be0c6363a030471a8ade84160de2aef0c6d844443dbadba8f4975f5145e81eb5",
+        "decision": "accepted",
+        "reason": "Isolated pilot verification: restore the original contact value.",
+        "decided_at": "2026-11-11T00:42:32Z",
+        "received_at": "2026-11-11T00:42:48.703970+00:00",
+        "completed_at": "2026-11-11T00:42:48.709028+00:00",
+        "contact_state": "applied",
+        "native_changed_fields": [
+          "phone"
+        ],
+        "conflict_fields": []
+      }
+    },
+    {
+      "change_id": "cpc_538052d5df20ff656688eebc5655bbe0df59f9f68f815ed36f01ad5c036e43f2",
+      "outcome": {
+        "id": "cpd_0946f9c31fe3afd81e02cd95bba31d482ad1809b79f87f351e82a49b9d6bfcc1",
+        "decision_hash": "635e4b3689a90a35b01e7624328bbf3390e33b6b4d8912cdcfa1af36eff1d7ba",
+        "decision": "rejected",
+        "reason": "The shared phone snapshot is older than the restored Core record. Refresh the shared details before submitting a new correction.",
+        "decided_at": "2026-11-11T00:45:38Z",
+        "received_at": "2026-11-11T00:45:52.783269+00:00",
+        "completed_at": "2026-11-11T00:45:52.785981+00:00",
+        "contact_state": "rejected",
+        "native_changed_fields": [],
+        "conflict_fields": []
+      }
+    }
+  ],
+  "isolation": {
+    "foreign_core_company_status": 403,
+    "worker_token_on_provider_decision_route_status": 401,
+    "retired_reviewer_existing_cookie_status": 403
+  },
+  "cleanup": {
+    "reviewer_user_id": 61,
+    "reviewer_membership_id": 47,
+    "retired": true,
+    "module_grants_remaining": 0,
+    "password_removed": true,
+    "both_browser_sessions_signed_out": true,
+    "temporary_worker_token_removed": true,
+    "owned_tabs_closed": true,
+    "owned_tunnel_stopped": true
+  },
+  "ui_follow_up": {
+    "reason": "Saved request and review text stayed pending after acceptance/return",
+    "tests_passed": 10,
+    "build_passed": true,
+    "deployed": false
+  },
+  "remaining": [
+    "Hosted interrupted-return recovery, native provider conflict and offboarding",
+    "Full assignment/onboarding/time/approval/financial reconciliation",
+    "Separate full-candidate activation acceptance and release gates"
+  ],
+  "goal_complete": false,
+  "production_changed": false,
+  "real_payroll_payments_or_financial_postings": false
+}
