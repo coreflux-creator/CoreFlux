@@ -173,3 +173,44 @@ index update. Its actual scheduler, process, pool, activation and recovery check
 are unchanged. This is a controlled runner-environment change, not a confirmed
 DNS repair or a waiver of the earlier FPM failure. A passing complete native
 rehearsal is still required.
+
+## Source-read snapshot installation — November 11, 2026
+
+Source `dd5d9d15a8a59d08fb7031c90bf6236d71e7c8d6` passed 297 full-application
+checks and 11 transaction checks in Quanta run `43057613283`. A fresh coordinated
+backup restored all 71 collections and 1,325 records into a temporary unserved
+database with exact records/indexes. The backup restart advanced only the
+existing startup guard from revision 3 to 4.
+
+`install_thunderhawk_source_snapshot.py` then installed three backend files in
+the existing pilot web container. All 79 frontend files, Compose settings,
+storage and other services stayed unchanged. Its boundary tests refuse changed
+business rows, schema/index changes, extra guard rows and later writes before
+any file rollback. The installation advanced the startup guard from 4 to 5,
+added no collections, and preserved all 1,324 original business records and 12
+time entries. Eleven local preservation checks passed. Rollback refusal is
+covered by those checks; this successful installation did not exercise its
+failure recovery branch on the host.
+
+The installed full application was exercised in a new unserved temporary
+database. Five HTTP surfaces (list, detail, approved feed, approved-state and
+Core review context) plus direct source observation and portal review status
+were each paused after an initial read. A separate correction committed while
+the reader remained paused. Each response retained matching old hours/approval
+or old review status, and a fresh read reflected the correction. The seven
+checks made no external calls and removed their temporary database.
+
+Independent verification matched all 182 backend files, all 79 frontend files,
+served assets, records/indexes and guard revision 5. It also matched all 187
+other container identities/states/start times against the refreshed baseline,
+including the partner's separately published holiday-payroll service. The same
+pilot web container started at `2026-11-11T16:32:04.812073194Z`. The service hold
+was released after verification. Evidence is recorded in
+`deploy/thunderhawk-quanta-source-snapshot-20261111.json`.
+
+Operational ownership and historical associations remain disabled. The broader
+reader/lifecycle audit, independent approval and Core/PurePay round trip,
+financial reconciliation and production acceptance remain separate requirements.
+Core run `43057182731` passed ten jobs but its named Ubuntu runner also failed
+resolving package servers before the native writer fixture could execute; that
+release requirement remains open, with no identical rerun started.
