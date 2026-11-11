@@ -1,0 +1,197 @@
+{
+  "checked_at": "2026-11-11T01:04:38.044687+00:00",
+  "scope": "Installed isolated Core company 2002 and Quanta native HTTP/Mongo services; no browser acceptance claim for these injected faults",
+  "core_backend_commit": "daebd05f4a3f706b4367037a9eae873cfe997735",
+  "core_dashboard_commit": "2e3ac3a539a00d5d727d62bb16ac59e3fb586f95",
+  "quanta_commit": "ac626f245b4569d4216f8ee9ba835a5fe5b5af76",
+  "fault_mechanism": "Process-local Core transport seam: interrupt before arrival or forward the exact native HTTPS PUT then discard its successful acknowledgement. No long-running service, route, endpoint or configuration changed.",
+  "missing_delivery": {
+    "change_id": "cpc_da219ddd07e78dac3760bcad2bc52356e96830ae76f355df0f3f6c3e0e4d5957",
+    "original_body_preserved": true,
+    "initial_state": "uncertain",
+    "inspection": "not_found; no resend",
+    "ordinary_send_refused": true,
+    "explicit_resume_attempt_count": 2,
+    "native_outcome": "applied"
+  },
+  "lost_acknowledgement": {
+    "change_id": "cpc_d001c4bea0b48d3875b9728a0f446bf9d1f7837d21d704bbf0a84b673242bf32",
+    "provider_arrivals": 1,
+    "initial_state": "uncertain",
+    "receipt_inspection_completed": true,
+    "attempt_count_after_recovery": 1,
+    "native_outcome": "applied"
+  },
+  "native_conflict": {
+    "change_id": "cpc_954e086f3c7929bc448d0a834e29a299a8af056885b52e46a6c0b92f16bb51b5",
+    "newer_value_preserved": true,
+    "outcome": {
+      "completed_at": "2026-11-11T01:02:08.452769+00:00",
+      "conflict_fields": [
+        "phone"
+      ],
+      "contact_state": "conflict",
+      "decided_at": "2026-11-11T01:02:05Z",
+      "decision": "accepted",
+      "decision_hash": "ad5077125895fbda1e678f5cc2f2c2eec1179567315392fcd4d6eaced7285b83",
+      "id": "cpd_75f7a612d09d4bd0b8bb0963b7b7090c38cc31406af8c61de7bd81c20b9462df",
+      "native_changed_fields": [],
+      "reason": "Isolated contact resilience verification.",
+      "received_at": "2026-11-11T01:02:08.448597+00:00"
+    }
+  },
+  "worker_offboarding": {
+    "change_id": "cpc_aecb800a47b6cf83c766aae4be3a6632c36fcf33722d60244ae0a53ed32fa872",
+    "existing_worker_session_status": 403,
+    "native_update_while_disabled": false,
+    "receipt_while_disabled": "received, no completed outcome",
+    "reactivated_to_original_state": true,
+    "explicit_resume_attempt_count": 2
+  },
+  "cleanup": {
+    "core_contacts_restored": true,
+    "quanta_contacts_and_field_presence_restored": true,
+    "complete_signin_identity_unchanged": true,
+    "roles_and_active_status_restored": true,
+    "stable_links_preserved": true,
+    "reviewer": {
+      "user_id": 62,
+      "membership_id": 48,
+      "tenant_id": 2002,
+      "retired": true,
+      "credential_returned": false,
+      "production_changed": false,
+      "person_id": 358,
+      "worker_id": "cfw_9fe254742aedc66ec5ab66c9baba07e2acb5c1581de10d30e7ecf931133895fa",
+      "checked_at": "2026-11-11T01:04:09.974556+00:00"
+    },
+    "temporary_worker_token_file_removed": true,
+    "temporary_web_endpoints_created": false
+  },
+  "completed_decisions_total": 9,
+  "unfinished_returns": 0,
+  "core_unchanged_tables": 356,
+  "core_changed_tables": [
+    "audit_log",
+    "integration_deliveries",
+    "membership_audit",
+    "people",
+    "rbac_bridge_audit",
+    "tenant_memberships",
+    "user_tenants",
+    "users"
+  ],
+  "quanta_collection_check": {
+    "unchanged_collections": [
+      "api_usage_events",
+      "api_usage_hourly",
+      "auth_sessions",
+      "auto_close_runs",
+      "break_rules",
+      "checklists",
+      "connecteam_call_log",
+      "connecteam_configs",
+      "connecteam_entry_mapping",
+      "connecteam_sync_runs",
+      "connecteam_user_mapping",
+      "connecteam_webhook_events",
+      "connecteam_worksite_mapping",
+      "coreflux_assignments",
+      "coreflux_onboarding",
+      "coreflux_onboarding_files.chunks",
+      "coreflux_onboarding_files.files",
+      "coreflux_onboarding_uploads",
+      "coreflux_person_links",
+      "coreflux_time_reviews",
+      "dimension_values",
+      "dimensions",
+      "export_jobs",
+      "export_profiles",
+      "federation_launch_codes",
+      "identities",
+      "import_jobs",
+      "invites",
+      "kiosk_devices",
+      "kiosk_worker_sessions",
+      "magic_link_tokens",
+      "mail_fallbacks",
+      "oauth_access_tokens",
+      "oauth_authorizations",
+      "oauth_clients",
+      "oauth_refresh_tokens",
+      "overtime_rules",
+      "password_reset_tokens",
+      "pilot_bindings",
+      "pto_balances",
+      "pto_requests",
+      "pto_types",
+      "rate_cards",
+      "reminders",
+      "saml_replay_nonces",
+      "schedule_publications",
+      "scheduled_tasks",
+      "scim_group_role_mappings",
+      "scim_groups",
+      "scim_tokens",
+      "tenants",
+      "time_entries",
+      "timesheets",
+      "webhook_deliveries",
+      "webhook_subscriptions",
+      "worker_geofence_consents",
+      "worksite_assignments",
+      "worksites"
+    ],
+    "changed_collections": {
+      "api_idempotency": {
+        "before_count": 0,
+        "after_count": 4,
+        "indexes_unchanged": true
+      },
+      "api_keys": {
+        "before_count": 5,
+        "after_count": 5,
+        "indexes_unchanged": true
+      },
+      "audit_events": {
+        "before_count": 46,
+        "after_count": 50,
+        "indexes_unchanged": true
+      },
+      "coreflux_deliveries": {
+        "before_count": 51,
+        "after_count": 60,
+        "indexes_unchanged": true
+      },
+      "coreflux_profile_baselines": {
+        "before_count": 0,
+        "after_count": 1,
+        "indexes_unchanged": true
+      },
+      "coreflux_profile_changes": {
+        "before_count": 0,
+        "after_count": 9,
+        "indexes_unchanged": true
+      },
+      "users": {
+        "before_count": 4,
+        "after_count": 4,
+        "indexes_unchanged": true
+      }
+    },
+    "new_collections": [],
+    "original_usage_events_preserved": true
+  },
+  "prior_source_ci": {
+    "commit": "449a1423d683a693faa47020e250c913548ab35a",
+    "run": 42934832901,
+    "jobs_passed": 11
+  },
+  "production_changed": false,
+  "real_payroll_payment_or_financial_posting": false,
+  "goal_complete": false,
+  "remaining": [
+    "Assignment end-date and whole offboarding lifecycle acceptance; disabling worker contact access alone is not that lifecycle",
+    "Full integration/source/financial reconciliation and full Core activation/release gates"
+  ]
+}

@@ -14,7 +14,9 @@ if(!$pdo||$pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'||COREFL
  ||integrationInstanceId()!=='9f4b6dfb-e52e-464c-9a9d-af7766928ddf'||!quantaProfileReturnEnabled(2002)
  ||quantaProfileReturnEnabled(2)||quantaProfileReturnEnabled(999)
  ||(int)$pdo->query('SELECT is_simulation FROM tenants WHERE id=2002')->fetchColumn()!==1)exit(2);
-$file=$private.'/contact-reviewer-20261111.private.json';
+$run=$argv[2]??'20261111';
+if(!preg_match('/^[a-z0-9][a-z0-9-]{7,63}$/D',$run))exit(2);
+$file=$private.'/contact-reviewer-'.$run.'.private.json';
 $record=is_file($file)?json_decode(file_get_contents($file),true,32,JSON_THROW_ON_ERROR):null;
 if($mode==='--prepare'){
  if($record!==null)throw new RuntimeException('A contact reviewer already exists; inspect or retire it');
