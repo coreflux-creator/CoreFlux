@@ -1,0 +1,129 @@
+{
+  "recorded_at": "2026-11-11T23:30:49.311094+00:00",
+  "previous_goal_turn_classification": "no progress",
+  "previous_goal_turn_reason": "The preceding reply answered standalone accounting access; it did not change the integration. The pending implementation was revalidated before this release.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "scope": "Core isolated staging tenant 2002; no provider or production deployment",
+  "runtime_source": "bd9c6817612ea45f23f79b1780e3e01b4de0a35e",
+  "ci": {
+    "run": "43119568597",
+    "commit": "bd9c6817612ea45f23f79b1780e3e01b4de0a35e",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43119568597",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "Stored JobDiva preview exposes current Core values, source proposals and per-field ownership handling",
+    "Malformed ownership blocks the affected row; placement and participant ownership changes invalidate the preview token",
+    "Stored apply returns retained-field counts and values for review and audit",
+    "Failed or uncertain apply requires a successful new preview before another attempt; cancelled confirmation sends no request",
+    "Stored projection respects its caller transaction through a savepoint",
+    "Paired frontend and backend publication shows retained values in preview, confirmation and result"
+  ],
+  "verification": {
+    "disposable_source": "af3efd1118fe99a1ff538ca8d10315da9a30edc1",
+    "disposable_backend_and_db_fixture_equal_to_release": true,
+    "contract_review_checks_disposable": 16,
+    "contract_ownership_checks_disposable": 28,
+    "native_edit_checks_disposable": 27,
+    "lifecycle_checks_disposable": 30,
+    "earlier_ownership_checks_disposable": 17,
+    "ending_checks_disposable": 13,
+    "request_checks_disposable": 17,
+    "react_interaction_tests": 5,
+    "projection_smoke_assertions": 19,
+    "synthetic_actual_component_browser_visual_check": true,
+    "hosted_contract_review_checks": 16,
+    "original_containers_preserved": 206,
+    "installed_files": 10,
+    "dependencies_checked": 34,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_regression": 34356,
+    "fixture_rows_rolled_back": true,
+    "served_screen_assets_verified": true,
+    "temporary_probe_removed": true,
+    "frontend_build_commit": "bd9c6817612ea45f23f79b1780e3e01b4de0a35e",
+    "frontend_base_commit": "b48af8abc895df4d28646c70975d5378834f2e77"
+  },
+  "candidate_history": [
+    {
+      "commit": "3781446baea008b51d4a6fd5f8be758642800798",
+      "outcome": "First database fixture missed required placement title; fixture corrected and rerun"
+    },
+    {
+      "commit": "af3efd1118fe99a1ff538ca8d10315da9a30edc1",
+      "outcome": "All disposable database checks passed; CI found an old static UI heading assertion"
+    },
+    {
+      "commit": "efe5a7b8ecd0d7cd95fae12982981c1e15b9529b",
+      "outcome": "Updated the static check to verify the actual review component and retained-value labels"
+    },
+    {
+      "commit": "bd9c6817612ea45f23f79b1780e3e01b4de0a35e",
+      "outcome": "Corrected confirmation and result wording to say Core values are retained when JobDiva differs; rebuilt frontend"
+    }
+  ],
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "native_http_acceptance": false,
+    "signed_in_browser_workflow_acceptance": false,
+    "browser_scope": "Local synthetic HTML rendered from the actual field-review component; no connected records or native HTTP flow",
+    "hosted_test_method": "Exact deployed PHP preview/apply and commercial graph functions, with synthetic rows enclosed in an outer rollback and all original rows fingerprinted"
+  },
+  "remaining_scope": [
+    "Lock/revalidate reviewed state across the full apply transaction; current stale-token tests do not prove a concurrent write cannot race after validation",
+    "Expose retained decisions for generic automatic/batch reconciliation and complete native HTTP/signed-in operator review acceptance",
+    "Make native economic-party edits atomic with placement/corporation summaries and required audit; fix canonical bill-to role propagation and reviewed ownership release",
+    "Audit cleared end-client chain records, rate-field ownership, cycle anchors and new-placement graph failure handling",
+    "Complete CSV editing, ordinary terminal status/date invariants and activation replay acceptance",
+    "Reconcile stale field-dictionary evidence labels; complete per-field/destination and custom-field alignment and portal/onboarding/document workflows",
+    "Complete financial-result, billing/AP/AR lineage and reconciliation acceptance"
+  ],
+  "installed_file_hashes": {
+    "core/jobdiva/sync.php": "261b73dae819b8cdb217f5c8185f4632dbe5cff388cd035c314b7e1cca6c41bc",
+    "core/jobdiva/contract_projection.php": "b24d52454555684e292a5aeddbf8c8cec74c9376dd80b33ac465693f8bb5cc9a",
+    "modules/placements/ui/JobDivaReconciliation.jsx": "cdccd0dad4eb6eede8ec72453fcae7b0be9e3294e45598c605df6c8aa6c79819",
+    "modules/placements/ui/JobDivaContractReview.jsx": "4cf93022390f7d6e37d99814049384c49198786efa7f560a8712ad751a263d37",
+    "spa-assets/index-C2IsH_i5.js": "5b5afc3a5f4719a4f98ded7f8c1a7a3db1fb76e71c6fc4ae2976e902f736b91e",
+    "spa-assets/index-CbytPBu4.js": "e5dca099507455e8dee24cb0d9bca40852d9fd1868442a71438ed44fae5398e9",
+    "spa-assets/sw.js": "f998bec8357e32fbf6815c8a1961a1d2a637b5c782d84d827bd2306a4092350c",
+    "spa-assets/index.html": "99fc160bd30eea6b0321679e5f257fb8a44f7a7b150b0a4ebe105dbbc19d0454",
+    "dashboard/dist/index.html": "99fc160bd30eea6b0321679e5f257fb8a44f7a7b150b0a4ebe105dbbc19d0454",
+    "index.html": "99fc160bd30eea6b0321679e5f257fb8a44f7a7b150b0a4ebe105dbbc19d0454"
+  },
+  "evidence": {
+    "contract-review-af3efd11-disposable-result.json": {
+      "path": "output/contract-review-af3efd11-disposable-result.json",
+      "sha256": "32cab3174fac4f0b545ccf22d683c395c76b8092291f57d283408008e295bce3"
+    },
+    "contract-review-install-result.json": {
+      "path": "output/contract-review-install-result.json",
+      "sha256": "8def3c8f95b3ad32b1d29d8038e2acb9af980c786d619c0f78e73e233db99e0f"
+    },
+    "contract-review-hosted-result.json": {
+      "path": "output/contract-review-hosted-result.json",
+      "sha256": "65d15b858135083ffd8287348a130c7b8b8c3367ccbbd84c9605a109e504bbf7"
+    },
+    "contract-review-ci.json": {
+      "path": "output/contract-review-ci.json",
+      "sha256": "0c52e2904d25a4201bd7569caef11ac5f48d19eb7808e8519d9f3927cab1dc9a"
+    },
+    "contract-review-release-bd9c6817-preflight.json": {
+      "path": "output/contract-review-release-bd9c6817-preflight.json",
+      "sha256": "ae55db4636397de3442e9db69cafb03ca3679bb803a05792d27494ca5a1aed5d"
+    },
+    "contract-review-build.json": {
+      "path": "output/contract-review-build.json",
+      "sha256": "80b416b71e5966a366cbe5dc2b3eaad07282fdf6ddfa5dee1f0f8bce4b341a51"
+    },
+    "contract-review-visual.html": {
+      "path": "output/contract-review-visual.html",
+      "sha256": "b248ab9ebd86a9f1cc74bc12aece8b71e6ebfe64c094601d182b1234ff68fc1e"
+    }
+  }
+}

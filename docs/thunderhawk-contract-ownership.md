@@ -1,5 +1,9 @@
 # Core commercial ownership during JobDiva reconciliation
 
+The later [stored contract review release](thunderhawk-contract-review.md)
+adds operator preview/result handling and records its separate verification.
+This document retains the scope and evidence of the earlier backend release.
+
 Verified in isolated Core staging on November 11, 2026. Runtime source
 `467c3c8412dceac3fe3924c320593f878f1bf04e` passed all eleven jobs in CI run
 `43115925800`. Four PHP files were installed after exact source preimage,
