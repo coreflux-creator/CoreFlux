@@ -20,7 +20,7 @@ final class ThunderhawkLifecycleNative
 
     public function __construct(string $phase)
     {
-        if(!in_array($phase,['activation','activation_resume','publication','publication_resume'],true)||PHP_SAPI!=='cli'
+        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import'],true)||PHP_SAPI!=='cli'
             ||getenv('COREFLUX_ENV')!=='staging'||realpath(getcwd())!==self::ROOT||posix_geteuid()!==1003
             ||realpath(self::PRIVATE)!==self::PRIVATE||is_link(self::PRIVATE)||(fileperms(self::PRIVATE)&0777)!==0700)exit(2);
         $this->phase=$phase;$this->pdo=getDB();
@@ -92,7 +92,7 @@ final class ThunderhawkLifecycleNative
         if(!in_array($route,$routes,true)||!in_array($method,['GET','POST','PATCH'],true)||!in_array($tenant,[2002,2],true))throw new RuntimeException('Request outside fixture scope');
         if($route==='/api/payroll/cycles'&&isset($query['action']))throw new RuntimeException('Cycle advancement is outside this test');
         if($route==='/api/placements/placements'&&isset($query['action'])&&$query['action']!=='activate')throw new RuntimeException('Unreviewed placement action');
-        if($route==='/api/quanta.php'&&!in_array($query['action']??'', ['publication_preview','publication_send','publication_status','metadata_preview','metadata_send','metadata_receipt'],true))throw new RuntimeException('Unreviewed Quanta action');
+        if($route==='/api/quanta.php'&&!in_array($query['action']??'', ['publication_preview','publication_send','publication_status','metadata_preview','metadata_send','metadata_receipt','time_control_context','time_control_preview','time_control_send','time_control_receipt','save_routes','preview','import','time_review_preview','time_review_send'],true))throw new RuntimeException('Unreviewed Quanta action');
         if($route==='/api/purepay_core.php'&&!in_array($query['action']??'', ['people_input_preview','people_input_send','people_input_status','assignment_input_preview','assignment_input_send','assignment_input_status'],true))throw new RuntimeException('Unreviewed Pure action');
         $ch=curl_init('https://phpstack-1516771-6707602.cloudwaysapps.com'.$path);
         $headers=['Accept: application/json','X-CoreFlux-Tenant-Id: '.$tenant];
@@ -116,9 +116,10 @@ final class ThunderhawkLifecycleNative
                 if($this->phase==='publication_resume'&&(int)($row['tenant_id']??0)===2002
                     &&(($table==='people'&&(int)$row['id']===368)||($table==='people_employees'&&(int)$row['id']===5)))continue;
                 // Only these known synthetic rows may be edited during setup.
-                if((int)($row['tenant_id']??0)===2002&&(($table==='placements'&&(int)$row['id']===874)
+                if(in_array($this->phase,['activation','activation_resume','publication','publication_resume'],true)&&(int)($row['tenant_id']??0)===2002&&(($table==='placements'&&(int)$row['id']===874)
                     ||($table==='placement_rates'&&(int)$row['id']===3)
                     ||($table==='placement_economic_parties'&&(int)$row['placement_id']===874)))continue;
+                if($this->phase==='time_import'&&$table==='quanta_connections'&&(int)$row['tenant_id']===2002&&(int)$row['id']===2){unset($row['last_import_at'],$row['last_import_error'],$row['updated_at']);}
                 $rows[]=hash('sha256',serialize($row));
             }
             sort($rows,SORT_STRING);$result[$table]=$rows;

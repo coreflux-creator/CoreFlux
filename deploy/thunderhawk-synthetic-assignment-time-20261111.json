@@ -1,0 +1,91 @@
+{
+  "recorded_at": "2026-11-11T19:26:18.282811+00:00",
+  "status": "progress",
+  "goal_complete": false,
+  "previous_goal_turn_classification": "no progress",
+  "previous_goal_turn_reason": "Answered standalone accounting access; no integration work claimed.",
+  "scope": "Existing isolated Thunderhawk lifecycle P-368 / PL-874 only",
+  "quanta_source": "dd5d9d15a8a59d08fb7031c90bf6236d71e7c8d6",
+  "core_runtime_source": "ba0e408773f3ee974b3200dfe3d4a0efb6387445",
+  "verified": {
+    "worker_active": true,
+    "independent_test_approver": true,
+    "worker_login_granted": false,
+    "existing_key_identity_preserved": true,
+    "added_key_scope": "write:core_time_access",
+    "key_scope_revision": 2,
+    "exact_tenant_time_access": true,
+    "policy_delivery_id": 88,
+    "policy_version": 1,
+    "source_entry_id": "dcfd06b9-6f30-4ed9-8426-789fc255f194",
+    "source_timesheet_id": "63939bf8-3b68-4188-a097-cf45e9f51016",
+    "synthetic_hours": 1,
+    "source_status": "approved",
+    "core_entry_id": 14,
+    "core_timesheet_id": 7,
+    "core_status": "pending_review",
+    "provider_core_review_status": "pending_review",
+    "return_delivery_id": 89,
+    "capture_replay_and_changed_payload_refusal": true,
+    "import_replay_no_duplicate": true,
+    "review_delivery_replay": true,
+    "source_approval_and_assignment_preserved": true,
+    "provider_collections_checked": 71,
+    "core_tables_checked": 368,
+    "other_provider_services_unchanged": true,
+    "temporary_core_operators_retired": true,
+    "native_sessions_revoked": true
+  },
+  "recovered_verification_findings": [
+    "First configuration check restored its setting after shutdown appended buffered usage events. Refined check permits only append-only usage history; final configuration passed.",
+    "Native create and approval responses omit stored assignment/actor fields. Continued the original capture by its idempotency key and verified durable records; did not create a second hour or approve twice.",
+    "Core preservation checks were corrected to use artifact_objects and account for the connection automatic updated_at. Read-only reconciliation matched the original row fingerprint and all prior business records."
+  ],
+  "boundaries": {
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "browser_acceptance": false
+  },
+  "next_actions": [
+    "Independently approve existing Core entry 14 / TS-7 and return accepted status to Quanta.",
+    "Deliver the same approved source into held PurePayroll input; verify source reservation, result/reconciliation and replay.",
+    "Complete correction, offboarding and onboarding/document lifecycle acceptance before claiming the full integration complete."
+  ],
+  "evidence": {
+    "quanta_worker_preparation": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-quanta-time-preparation-result.json",
+      "sha256": "5bcd4654ca496b7e48db89c8555ac0dd2eb25867f33e001c4b6b6a92f874d709"
+    },
+    "quanta_time_configuration": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-quanta-time-enablement-r2-result.json",
+      "sha256": "0eb38955a5e8e1200d770c6d73c0386150528dc664763ab1ef024397fe0e8997"
+    },
+    "core_time_configuration": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-core-time-enablement-result.json",
+      "sha256": "7c8007ece07cda385804f22c4c1606ca98fa343ea08a063ee1f86984477305d4"
+    },
+    "core_time_policy": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-lifecycle-time_policy-result.json",
+      "sha256": "d3352e38c4ce0488dd1d5635fa099ca6a605c0156a155318b84e0a02d3a0dee8"
+    },
+    "quanta_native_approval": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-quanta-hour-readback-result.json",
+      "sha256": "5a33d843ca4f681c9f01904fb68c15bea0d9b4f4216f7e34ff383fd59cecf235"
+    },
+    "core_import_and_return": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\synthetic-quanta-import-readback-result.json",
+      "sha256": "cae6183db06259b28c871ef637f872e68d262c2e06dfbd5260cd4560c1cae9ce"
+    }
+  },
+  "source_validation": {
+    "prepare_synthetic_quanta_time.py": "syntax passed; native workflow verified by saved receipts",
+    "enable_synthetic_quanta_time.py": "syntax passed; native workflow verified by saved receipts",
+    "capture_synthetic_quanta_hour.py": "syntax passed; native workflow verified by saved receipts",
+    "enable_synthetic_core_time.php": "PHP 8.2 syntax passed; native workflow verified by saved receipts",
+    "publish_synthetic_quanta_time.php": "PHP 8.2 syntax passed; native workflow verified by saved receipts",
+    "import_synthetic_quanta_hour.php": "PHP 8.2 syntax passed; native workflow verified by saved receipts",
+    "verify_synthetic_quanta_import.php": "PHP 8.2 syntax passed; native workflow verified by saved receipts",
+    "thunderhawk_lifecycle_native.php": "PHP 8.2 syntax passed; native workflow verified by saved receipts"
+  }
+}
