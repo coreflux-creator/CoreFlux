@@ -20,7 +20,7 @@ final class ThunderhawkLifecycleNative
 
     public function __construct(string $phase)
     {
-        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import','time_approval','time_accept_return','payroll_input','payroll_result'],true)||PHP_SAPI!=='cli'
+        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import','time_approval','time_accept_return','payroll_input','payroll_result','payroll_cancel'],true)||PHP_SAPI!=='cli'
             ||getenv('COREFLUX_ENV')!=='staging'||realpath(getcwd())!==self::ROOT||posix_geteuid()!==1003
             ||realpath(self::PRIVATE)!==self::PRIVATE||is_link(self::PRIVATE)||(fileperms(self::PRIVATE)&0777)!==0700)exit(2);
         $this->phase=$phase;$this->pdo=getDB();
@@ -105,6 +105,7 @@ final class ThunderhawkLifecycleNative
         $pureActions=['people_input_preview','people_input_send','people_input_status','assignment_input_preview','assignment_input_send','assignment_input_status'];
         if($this->phase==='payroll_input')$pureActions=array_merge($pureActions,['link_preview','link_send','link_reconcile','payroll_input_preview','payroll_input_send','payroll_input_reconcile','payroll_reservation_reserve','payroll_reservation_send','payroll_reservation_reconcile']);
         if($this->phase==='payroll_result')$pureActions=['payroll_result_refresh','payroll_result_history','payroll_reservation_reconcile'];
+        if($this->phase==='payroll_cancel')$pureActions=['payroll_reservation_history','payroll_reservation_release','payroll_reservation_reconcile','payroll_reservation_send','payroll_result_refresh'];
         if($route==='/api/purepay_core.php'&&!in_array($query['action']??'',$pureActions,true))throw new RuntimeException('Unreviewed Pure action');
         $ch=curl_init('https://phpstack-1516771-6707602.cloudwaysapps.com'.$path);
         $headers=['Accept: application/json','X-CoreFlux-Tenant-Id: '.$tenant];
@@ -137,6 +138,14 @@ final class ThunderhawkLifecycleNative
                         foreach(['status','rate_snapshot_id','approved_by_user_id','approved_at','approved_via','updated_at'] as $field)unset($row[$field]);
                     if($table==='staffing_timesheets'&&(int)$row['id']===7)
                         foreach(['status','approved_at','updated_at'] as $field)unset($row[$field]);
+                }
+                if($this->phase==='payroll_cancel'){
+                    $authority='cpa_92285a297913dd5feab0e0a3ed148ba14866619c2a01e790e0394a5c57931954';
+                    // The phase separately verifies the original immutable grant and
+                    // its encrypted cancellation proof. No other reservation changes.
+                    if($table==='payroll_source_authorities'&&(int)$row['tenant_id']===2002&&$row['id']===$authority)
+                        unset($row['state'],$row['released_at'],$row['release_receipt_ct']);
+                    if($table==='payroll_source_claims'&&(int)$row['time_tenant_id']===2002&&(int)$row['time_entry_id']===14&&$row['authority_id']===$authority)continue;
                 }
                 $rows[]=hash('sha256',serialize($row));
             }
