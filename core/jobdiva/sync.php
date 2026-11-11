@@ -6149,6 +6149,33 @@ function jobdivaFindLegacyPlacementAdoptionCandidate(
 
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
+    // Serialize the ownership read and write with native Core lifecycle edits.
+    // Preserve a caller's larger reconciliation transaction on failure.
+    $pdo = getDB();
+    $owns = !$pdo->inTransaction();
+    $savepoint = 'jobdiva_placement_' . bin2hex(random_bytes(8));
+    if ($owns) $pdo->beginTransaction();
+    else $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $id = jobdivaSyncUpsertPlacementInTransaction($tid, $personId, $endClientCompanyId, $jd, $extId, $userId);
+        if ($owns) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        return $id;
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) {
+            if ($owns) $pdo->rollBack();
+            else {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+        throw $e;
+    }
+}
+
+/** Internal writer; jobdivaSyncUpsertPlacement supplies the transaction. */
+function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
+{
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     $resolveDefaultAccountingEntityId = static function () use ($tid): int {
@@ -6361,7 +6388,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $currentStatus = null;
     if ($existingId > 0) {
         $currentStatusStmt = $pdo->prepare(
-            'SELECT status FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+            'SELECT status FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1 FOR UPDATE'
         );
         $currentStatusStmt->execute(['t' => $tid, 'id' => $existingId]);
         $currentStatusValue = $currentStatusStmt->fetchColumn();
@@ -6676,7 +6703,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'SELECT coreflux_overridden_fields, accounting_entity_id
                FROM placements
               WHERE tenant_id = :t AND id = :id
-              LIMIT 1'
+              LIMIT 1 FOR UPDATE'
         );
         $overrideStmt->execute(['t' => $tid, 'id' => $existingId]);
         $existingPlacement = $overrideStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
@@ -6693,13 +6720,16 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         }
         if (!empty($jd['__cf_force_source_contract'])) {
             $contractOwnedFields = [
-                'engagement_type', 'status', 'start_date', 'end_date',
+                'engagement_type', 'start_date', 'end_date',
                 'client_id',
                 'client_bill_cycle', 'client_bill_cycle_anchor',
                 'client_payment_terms_override', 'vendor_pay_cycle',
                 'vendor_pay_cycle_anchor', 'vendor_payment_terms_override',
                 'vendor_pwp_enabled',
             ];
+            // Contract refresh is also used by scheduled reconciliation. It
+            // cannot relinquish a Core-owned lifecycle decision. Status and
+            // actual_end_date are released only by the explicit override API.
             // Billing authority does not grant authority over the end-client role.
             if (in_array($endClientEvidence['status'],['resolved','identity_only','name_only'],true)) {
                 $contractOwnedFields[]='end_client_name';$contractOwnedFields[]='end_client_company_id';

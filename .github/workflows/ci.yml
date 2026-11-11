@@ -589,6 +589,8 @@ jobs:
 
       - name: Exercise validated replay-safe placement ending
         run: php tests/placement_end_db_check.php --confirm-disposable-fixture
+      - name: Preserve Core lifecycle ownership across JobDiva refresh
+        run: php tests/placement_end_jobdiva_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture

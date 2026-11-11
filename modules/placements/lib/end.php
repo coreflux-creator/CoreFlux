@@ -41,7 +41,20 @@ function placementEnd(int $id, array $body): array
         $before = placementAuditRow($id);
         if (!$before) throw new RuntimeException('Placement not found.', 404);
         $changes = placementEndRequest($body, $before, date('Y-m-d'));
+        // A deliberate Core closure owns both lifecycle values until an
+        // operator explicitly releases them through the override review.
+        if (str_starts_with((string) ($before['external_id'] ?? ''), 'jd:')) {
+            $raw = $before['coreflux_overridden_fields'] ?? null;
+            $overrides = $raw === null || $raw === '' ? [] : json_decode($raw, true);
+            if (!is_array($overrides) || !array_is_list($overrides)
+                || array_filter($overrides, static fn($field) => !is_string($field) || $field === '')) {
+                throw new RuntimeException('Review this placement\'s field ownership before ending it.', 422);
+            }
+            $merged = array_values(array_unique([...$overrides, 'status', 'actual_end_date']));
+            if ($merged !== $overrides) $changes['coreflux_overridden_fields'] = json_encode($merged, JSON_THROW_ON_ERROR);
+        }
         $changed = $before['status'] !== $changes['status'] || $before['actual_end_date'] !== $changes['actual_end_date'];
+        $changed = $changed || array_key_exists('coreflux_overridden_fields', $changes);
         if ($changed) {
             scopedUpdate('placements', $id, $changes);
             $graph = placementEconomicsReconcile($tenant, $id);
