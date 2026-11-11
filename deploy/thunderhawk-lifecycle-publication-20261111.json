@@ -1,0 +1,253 @@
+{
+  "checked_at": "2026-11-11T17:32:20.530300+00:00",
+  "goal_turn_classification": "progress",
+  "previous_goal_turn": {
+    "classification": "no_progress",
+    "reason": "Answered standalone accounting access; no integration work claimed. Revalidated saved case and completed native activation and provider publication this turn."
+  },
+  "scope": "Existing isolated Thunderhawk simulation; synthetic metadata lifecycle",
+  "goal_complete": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings": false,
+  "payroll_cycle_repair": {
+    "source_commit": "d231c8b2da92a1e88433311ee9f5672c71047c13",
+    "ci": {
+      "conclusion": "success",
+      "headSha": "d231c8b2da92a1e88433311ee9f5672c71047c13",
+      "status": "completed",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43066110770"
+    },
+    "native_database_checks": 23,
+    "local_payroll_checks": 105,
+    "installed_file_sha256": "a908d57cd1ea89ef3878b3d4bb7c81b95799f168e4f5faaf3964bf4a6f2a57a4",
+    "served_runtime_verified": true,
+    "existing_tables_preserved": 368,
+    "existing_rows_preserved": 34123
+  },
+  "case": {
+    "tenant_id": 2002,
+    "person_id": 368,
+    "person_number": "P-368",
+    "placement_id": 874,
+    "placement_number": "PL-874",
+    "status": "active",
+    "synthetic_email": "thunderhawk-lifecycle-20261111@example.com",
+    "schedule_id": 3,
+    "cycle_id": 1,
+    "profile_id": 3,
+    "rate_id": 3,
+    "time_blockers": [],
+    "reporting_gaps": [
+      "job"
+    ],
+    "payroll_execution_readiness_gaps": [
+      "hire_date",
+      "ssn",
+      "compensation",
+      "tax_federal",
+      "bank_account",
+      "i9_verified"
+    ]
+  },
+  "delivery_receipts": {
+    "quanta_person": {
+      "id": 84,
+      "provider": "quanta",
+      "entity_type": "person",
+      "entity_tenant_id": 2002,
+      "entity_id": 368,
+      "operation": "worker.profile.create",
+      "review_hash": "ae90817659ac6704181c86bd1ddb67c049bb530cd8bf204be0450d785a6e4a22",
+      "state": "delivered",
+      "remote_id": "cfw_14ff9fa0959916e822421f01ba8884b4fc667e774a918af3c5c74d814a422574",
+      "error_code": null,
+      "created_at": "2026-11-11 12:24:42",
+      "expires_at": "2026-11-11 12:54:42",
+      "approved_at": "2026-11-11 12:24:43",
+      "attempted_at": "2026-11-11 12:24:43",
+      "finished_at": "2026-11-11 12:24:44",
+      "remote_receipt_id": "cfd_ce5a17414af26eddeb22d8872111900f41f3a1166a95bf046d6e70a2289366f4"
+    },
+    "quanta_assignment": {
+      "id": 85,
+      "provider": "quanta",
+      "entity_type": "placement",
+      "entity_tenant_id": 2002,
+      "entity_id": 874,
+      "operation": "assignment.create",
+      "review_hash": "1ceabc0d8f7dcb2a7a425f1e9026ea7a8c8b8f772a1d2855a04d02f4979d2c2e",
+      "state": "delivered",
+      "remote_id": "cfa_e134dbe4453e1e563ba7329c42ba5fd6a82d8e6eac02c2a7a58a1f5c6e55d4dc",
+      "error_code": null,
+      "created_at": "2026-11-11 12:24:45",
+      "expires_at": "2026-11-11 12:54:45",
+      "approved_at": "2026-11-11 12:24:47",
+      "attempted_at": "2026-11-11 12:24:47",
+      "finished_at": "2026-11-11 12:24:48",
+      "remote_receipt_id": "cfd_614114cc5b77aaef3c75caf4d1b3558c2370ee3314cec23f6596dc053142cd2e"
+    },
+    "pure_person": {
+      "id": 86,
+      "provider": "purepayroll",
+      "entity_type": "person",
+      "entity_tenant_id": 2002,
+      "entity_id": 368,
+      "operation": "people.inputs",
+      "review_hash": "ffa062e7736d9eddae05a08b1b58be41296d62da9d2ea29b62b92b720d560e41",
+      "state": "delivered",
+      "remote_id": "cpp_35e915068e58c292fe92f97afcefdecd5edc1f698e8160111ffdfcafb533caa4",
+      "error_code": null,
+      "created_at": "2026-11-11 12:24:48",
+      "expires_at": "2026-11-11 12:54:48",
+      "approved_at": "2026-11-11 12:24:49",
+      "attempted_at": "2026-11-11 12:24:49",
+      "finished_at": "2026-11-11 12:24:49",
+      "remote_receipt_id": "cpp_35e915068e58c292fe92f97afcefdecd5edc1f698e8160111ffdfcafb533caa4"
+    },
+    "pure_assignment": {
+      "id": 87,
+      "provider": "purepayroll",
+      "entity_type": "placement",
+      "entity_tenant_id": 2002,
+      "entity_id": 874,
+      "operation": "assignments.inputs",
+      "review_hash": "f9908bacaba6d95cf4dc97ec1c46c36f56b8306d4819aeba76757b67a68fe327",
+      "state": "delivered",
+      "remote_id": "cpa_a09e554d86e41986180b5187311fff6074c3b30f7af4e92a9e1ebb3996485676",
+      "error_code": null,
+      "created_at": "2026-11-11 12:24:50",
+      "expires_at": "2026-11-11 12:54:50",
+      "approved_at": "2026-11-11 12:24:50",
+      "attempted_at": "2026-11-11 12:24:50",
+      "finished_at": "2026-11-11 12:24:50",
+      "remote_receipt_id": "cpa_a09e554d86e41986180b5187311fff6074c3b30f7af4e92a9e1ebb3996485676"
+    }
+  },
+  "replay_checks": 4,
+  "altered_review_checks": 4,
+  "core_preservation": {
+    "original_rows_preserved_during_publication": 34152,
+    "tables_verified": 368,
+    "temporary_operators_retired": true,
+    "private_sessions_removed": true,
+    "rejected_delivery_83_preserved": true
+  },
+  "provider_publication_verification": {
+    "quanta": {
+      "passed": true,
+      "checked_at": "2026-11-11T17:25:04.256993+00:00",
+      "database": "corepilot_quanta_20261029",
+      "original_documents_preserved_except_coordination_counter": 1325,
+      "coordination_counter": {
+        "original_revision": 7,
+        "current_revision": 17
+      },
+      "added_collections": {
+        "coreflux_assignments": 1,
+        "coreflux_deliveries": 2,
+        "coreflux_person_links": 1,
+        "users": 1
+      },
+      "identities": {
+        "worker_id": "cfw_14ff9fa0959916e822421f01ba8884b4fc667e774a918af3c5c74d814a422574",
+        "person_link_id": "cfl_14ff9fa0959916e822421f01ba8884b4fc667e774a918af3c5c74d814a422574",
+        "assignment_id": "cfa_e134dbe4453e1e563ba7329c42ba5fd6a82d8e6eac02c2a7a58a1f5c6e55d4dc",
+        "worker_status": "disabled"
+      },
+      "existing_financial_records_unchanged": true,
+      "native_provider_acceptance_complete": false
+    },
+    "pure": {
+      "passed": true,
+      "checked_at": "2026-11-11T17:25:06.542274+00:00",
+      "database": "corepilot_pure_20261029",
+      "original_documents_preserved_except_coordination_counter": 74,
+      "coordination_counter": null,
+      "added_collections": {
+        "coreflux_assignment_inputs": 1,
+        "coreflux_people_inputs": 1
+      },
+      "identities": {
+        "person_input_id": "cpp_35e915068e58c292fe92f97afcefdecd5edc1f698e8160111ffdfcafb533caa4",
+        "assignment_input_id": "cpa_a09e554d86e41986180b5187311fff6074c3b30f7af4e92a9e1ebb3996485676"
+      },
+      "existing_financial_records_unchanged": true,
+      "native_provider_acceptance_complete": false
+    }
+  },
+  "native_provider_reviews": {
+    "status": 200,
+    "fields": [
+      "token",
+      "user",
+      "organization",
+      "memberships",
+      "features",
+      "must_change_password"
+    ],
+    "user_id": "usr_2d19df3dfa23",
+    "organization_id": "org_0369a63ff2cb",
+    "token_present": true,
+    "code": null,
+    "detail": null,
+    "person": {
+      "status": 200,
+      "state": "ready",
+      "creation_enabled": false,
+      "review_note": "Received Core snapshot. Review its name and contact details and check for an existing employee before creating a profile. Payroll setup and activation are separate.",
+      "candidate_count": 0
+    },
+    "assignment": {
+      "status": 200,
+      "state": "needs_mapping",
+      "creation_enabled": true,
+      "missing_links": [
+        {
+          "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+          "directory_tenant_id": 2002,
+          "entity_type": "person",
+          "number": "P-368"
+        }
+      ],
+      "review_note": "Core owns this placement and its effective terms. Creating or activating it does not change catalog prices, employee base pay, existing bills or invoices.",
+      "candidate_count": 0
+    }
+  },
+  "native_provider_acceptance_complete": false,
+  "synthetic_review_session_cleanup": {
+    "passed": true,
+    "checked_at": "2026-11-11T17:31:28.782257+00:00",
+    "closed_test_sessions": 4,
+    "native_revoke_endpoint_held": true,
+    "changes_limited_to_authentication": {
+      "sessions": {
+        "missing_original_hashes": 0,
+        "additional_hashes": 4
+      },
+      "users": {
+        "missing_original_hashes": 1,
+        "additional_hashes": 1
+      },
+      "login_events": {
+        "missing_original_hashes": 0,
+        "additional_hashes": 4
+      }
+    },
+    "unchanged_other_documents": 63,
+    "native_employee_created": false,
+    "financial_changes": false
+  },
+  "safe_next_actions": [
+    "Coordinate an isolated provider service window; verify current source/configuration and install current Pure assignment-time binding patch with isolated employee-profile creation enabled.",
+    "Reuse the received person/assignment reviews; accept the inactive native employee and draft assignment, verifying existing records and financial holds.",
+    "Enable only the new synthetic Quanta worker/worksite and explicit time authority, then exercise time entry, independent approval, Core intake, PurePayroll held inputs, correction, replay and offboarding."
+  ],
+  "remaining_full_goal": [
+    "Native provider acceptance and operational synthetic lifecycle",
+    "Current Pure binding patch hosted acceptance",
+    "Historical time association and financial reconciliation",
+    "Remaining field/onboarding/capture-path alignment and exception handling",
+    "Production release remains separate and requires explicit authorization"
+  ]
+}
