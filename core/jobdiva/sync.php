@@ -3754,6 +3754,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         'with_economic_participants' => 0,
         'contract_complete' => 0,
         'contract_blocked' => 0,
+        'retained_core_fields' => 0,
     ];
     $rows = [];
     if ($tenantId <= 0) {
@@ -4014,6 +4015,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         $contractProjection = $enriched
             ? jobdivaContractProjectionBuild($enriched, $currentGraph, $startId)
             : jobdivaContractProjectionBuild([], $currentGraph, $startId);
+        $summary['retained_core_fields'] += count($contractProjection['ownership_conflicts'] ?? []);
         foreach ($contractProjection['blocking_issues'] ?? [] as $check) {
             $errors[] = (string) ($check['label'] ?? 'Contract check') . ': '
                 . (string) ($check['detail'] ?? 'blocked');
@@ -4129,7 +4131,7 @@ function jobdivaStoredAssignmentProjectionPlan(
 
         $contractPreview = array_intersect_key($contractProjection, array_fill_keys([
             'complete', 'placement', 'economics', 'fields', 'checks',
-            'participants', 'attributions',
+            'participants', 'attributions', 'ownership_conflicts',
         ], true));
         $currentGraphPreview = [
             'rates_count' => count($currentGraph['rates'] ?? []),
@@ -4299,6 +4301,7 @@ function jobdivaApplyStoredAssignmentProjection(
         'restored' => 0,
         'mapping_writes' => 0,
         'field_map_writes' => 0,
+        'retained_core_fields' => 0,
         'rows' => [],
     ];
     // Resolve source-owned C2C company identities before opening the write
@@ -4311,8 +4314,11 @@ function jobdivaApplyStoredAssignmentProjection(
         }
     }
 
+    $ownsTransaction = !$pdo->inTransaction();
+    $savepoint = 'jobdiva_review_' . bin2hex(random_bytes(8));
     try {
-        $pdo->beginTransaction();
+        if ($ownsTransaction) $pdo->beginTransaction();
+        else $pdo->exec('SAVEPOINT ' . $savepoint);
         foreach (array_keys($selected) as $startId) {
             $row = $rowsByStart[$startId];
             $before = !empty($row['placement_id'])
@@ -4360,6 +4366,7 @@ function jobdivaApplyStoredAssignmentProjection(
                     'mode' => $row['outcome'],
                     'join_stats' => $projection['join_stats'] ?? [],
                     'readiness' => $projection['readiness'] ?? [],
+                    'ownership_conflicts' => $projection['ownership_conflicts'] ?? [],
                     'before' => $before,
                     'after' => $after,
                 ],
@@ -4374,16 +4381,25 @@ function jobdivaApplyStoredAssignmentProjection(
             }
             $result['mapping_writes'] += (int) ($projection['mapping_writes'] ?? 0);
             $result['field_map_writes'] += (int) ($projection['field_map']['written'] ?? 0);
+            $result['retained_core_fields'] += count($projection['ownership_conflicts'] ?? []);
             $result['rows'][] = [
                 'start_id' => $startId,
                 'placement_id' => $placementId,
                 'mode' => $row['outcome'],
                 'readiness' => $projection['readiness'] ?? [],
+                'ownership_conflicts' => $projection['ownership_conflicts'] ?? [],
             ];
         }
-        $pdo->commit();
+        if ($ownsTransaction) $pdo->commit();
+        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($pdo->inTransaction()) {
+            if ($ownsTransaction) $pdo->rollBack();
+            else {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
         throw $e;
     }
     return $result;

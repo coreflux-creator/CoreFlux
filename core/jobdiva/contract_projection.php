@@ -61,6 +61,27 @@ function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagemen
     return array_values(array_unique($owned));
 }
 
+/** Review labels describe ownership without promising that every proposal is writable. */
+function jobdivaContractProjectionOwnershipReview(array $fields, array $currentGraph, string $sourceEngagement): array
+{
+    $error = null;
+    try { $owned = jobdivaContractOwnedFields($currentGraph, $sourceEngagement); }
+    catch (RuntimeException $e) {
+        if ($e->getCode() !== 422) throw $e;
+        $owned = []; $error = $e->getMessage();
+    }
+    foreach ($fields as &$field) {
+        $coreOwned = in_array($field['field'], $owned, true);
+        $field['core_owned'] = $error === null ? $coreOwned : null;
+        $field['handling'] = $error !== null ? 'review_required'
+            : ($coreOwned ? (!empty($field['changes']) ? 'retain_core' : 'core_unchanged')
+                : (!empty($field['changes']) ? 'source_proposal' : 'unchanged'));
+    }
+    unset($field);
+    return ['fields'=>$fields, 'ownership_conflicts'=>array_values(array_filter($fields,
+        static fn(array $field): bool => $field['handling'] === 'retain_core')), 'error'=>$error];
+}
+
 function jobdivaContractProjectionDate(mixed $value): ?string
 {
     if ($value === null || trim((string) $value) === '') return null;
@@ -460,6 +481,10 @@ function jobdivaContractProjectionBuild(
     $checks[] = jobdivaContractProjectionCheck('rate_basis', 'Rate units and currency', !$hasMoney || $basis['errors'] === [], $basis['errors'] === [] ? $basis['currency'] . ' / bill ' . $basis['bill_rate_unit'] . ' / pay ' . $basis['pay_rate_unit'] : implode(' ', $basis['errors']));
     $checks[] = jobdivaContractProjectionCheck('hourly_basis', 'Hourly economics basis', !$hasMoney || $hourlyBasis, $hourlyBasis ? 'Both source rates are hourly.' : 'Automatic JobDiva economics require verified hourly bill/pay rates. Other bases need a reviewed conversion.');
     $checks[] = jobdivaContractProjectionCheck('worksite_country', 'Worksite country', $countryRaw === null || $countryRaw === '' || $country !== null, $country ?? 'Missing or unrecognized source country; no country is inferred.');
+    $ownershipReview = jobdivaContractProjectionOwnershipReview($fields, $currentGraph, (string) $engagement);
+    $fields = $ownershipReview['fields'];
+    $checks[] = jobdivaContractProjectionCheck('field_ownership', 'Core field ownership', $ownershipReview['error'] === null,
+        $ownershipReview['error'] ?? 'Reviewed Core fields are retained during source reconciliation.');
     $blocking = array_values(array_filter($checks, static fn(array $check): bool => $check['status'] === 'blocked'));
     $warnings = array_values(array_filter($checks, static fn(array $check): bool => $check['status'] === 'warning'));
 
@@ -496,6 +521,7 @@ function jobdivaContractProjectionBuild(
         'attributions' => $attributions,
         'overheads' => is_array($contract['overheads'] ?? null) ? $contract['overheads'] : [],
         'fields' => $fields,
+        'ownership_conflicts' => $ownershipReview['ownership_conflicts'],
         'changes' => array_values(array_filter($fields, static fn(array $field): bool => !empty($field['changes']))),
         'checks' => $checks,
         'blocking_issues' => $blocking,

@@ -597,6 +597,8 @@ jobs:
         run: php tests/placement_native_edit_db_check.php --confirm-disposable-fixture
       - name: Preserve Core commercial ownership during contract reconciliation
         run: php tests/jobdiva_contract_ownership_db_check.php --confirm-disposable-fixture
+      - name: Verify stored contract ownership review and stale-review rejection
+        run: php tests/jobdiva_contract_review_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture

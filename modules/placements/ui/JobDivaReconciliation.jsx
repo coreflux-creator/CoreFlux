@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../dashboard/src/lib/api';
 import { displayJobDivaMoney } from './jobdivaMoney.mjs';
+import JobDivaContractReview from './JobDivaContractReview';
 
 const ENDPOINT = '/modules/placements/api/jobdiva_reconciliation.php';
 const outcomeTone = {
@@ -32,6 +33,7 @@ export default function JobDivaReconciliation() {
   const [storedBusy, setStoredBusy] = useState('');
   const [storedError, setStoredError] = useState('');
   const [storedResult, setStoredResult] = useState(null);
+  const [storedNeedsRefresh, setStoredNeedsRefresh] = useState(false);
   const [storedPage, setStoredPage] = useState(1);
   const [csv, setCsv] = useState('');
   const [fileName, setFileName] = useState('');
@@ -50,6 +52,7 @@ export default function JobDivaReconciliation() {
     try {
       const data = await api.post(`${ENDPOINT}?action=stored_preview`, { page: storedPage, per_page: 20 });
       setStoredPreview(data);
+      setStoredNeedsRefresh(false);
       setStoredSelected(new Set());
       setStoredExpanded(new Set());
     } catch (e) {
@@ -92,14 +95,19 @@ export default function JobDivaReconciliation() {
   };
 
   const applyStored = async () => {
-    if (!storedPreview || storedSelected.size === 0) return;
+    if (!storedPreview || storedSelected.size === 0 || storedNeedsRefresh || storedBusy) return;
+    const retained = (storedPreview.rows || []).filter(row => storedSelected.has(row.start_id))
+      .reduce((count, row) => count + (row.contract?.ownership_conflicts?.length || 0), 0);
     const ok = window.confirm(
       `Project ${storedSelected.size} verified JobDiva assignment${storedSelected.size === 1 ? '' : 's'} into CoreFlux?\n\n` +
-      'Each selected Start ID will update one canonical placement and its joined people, job, client, rate, vendor, commission, referral, and economic records. No placement will be deleted or archived.',
+      'Each selected Start ID will refresh its source-owned placement and related records. Reviewed Core ownership is preserved.\n\n' +
+      `${retained} differing source value${retained === 1 ? '' : 's'} will be retained as Core values. No placement will be deleted or archived.`,
     );
     if (!ok) return;
     setStoredBusy('apply');
     setStoredError('');
+    setStoredResult(null);
+    setStoredNeedsRefresh(true);
     try {
       const data = await api.post(`${ENDPOINT}?action=stored_apply`, {
         dry_run_token: storedPreview.dry_run_token,
@@ -111,7 +119,9 @@ export default function JobDivaReconciliation() {
       setStoredResult(data);
       await refreshStored();
     } catch (e) {
-      setStoredError(e.message || 'Stored assignment projection failed. No selected rows were written.');
+      setStoredNeedsRefresh(true);
+      setStoredSelected(new Set());
+      setStoredError(`${e.message || 'The projection result could not be confirmed.'} Refresh the source preview before applying again.`);
     } finally {
       setStoredBusy('');
     }
@@ -260,6 +270,13 @@ export default function JobDivaReconciliation() {
           <strong>Canonical projection complete.</strong>{' '}
           {storedResult.created || 0} created, {storedResult.updated || 0} updated, {storedResult.restored || 0} restored, {storedResult.mapping_writes || 0} identity bindings,
           and {storedResult.field_map_writes} tenant field-map writes. No placements were deleted or archived.
+          <div style={{ marginTop: 6 }}>{storedResult.retained_core_fields || 0} differing source values retained under Core ownership.</div>
+          {(storedResult.rows || []).filter(row => row.ownership_conflicts?.length).map(row => (
+            <details key={row.start_id} style={{ marginTop: 8 }}>
+              <summary>PL-{row.placement_id}: {row.ownership_conflicts.length} Core values retained</summary>
+              <JobDivaContractReview fields={row.ownership_conflicts} testId={`jobdiva-retained-result-${row.start_id}`} />
+            </details>
+          ))}
         </div>
       )}
 
@@ -298,6 +315,7 @@ export default function JobDivaReconciliation() {
                 ['fully_joined', 'Job + candidate joined', '#047857', '#ecfdf5'],
                 ['with_rates', 'Bill + pay evidence', '#166534', '#f0fdf4'],
                 ['contract_complete', 'Complete contracts', '#166534', '#f0fdf4'],
+                ['retained_core_fields', 'Core values retained', '#1d4ed8', '#eff6ff'],
                 ['blocked', 'Blocked', '#b91c1c', '#fef2f2'],
               ].map(([key, label, fg, bg], index) => (
                 <div key={key} style={{
@@ -442,7 +460,7 @@ export default function JobDivaReconciliation() {
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={storedSelected.size === 0 || Boolean(storedBusy)}
+                disabled={storedSelected.size === 0 || Boolean(storedBusy) || storedNeedsRefresh}
                 onClick={applyStored}
                 data-testid="jobdiva-stored-reconciliation-apply"
               >
@@ -758,16 +776,9 @@ function StoredAssignmentDetails({ row }) {
       <KeyValueList title="Economic projection evidence" items={economicsPairs} />
       <KeyValueList title="Current CoreFlux graph" items={currentGraphPairs} />
       <div style={{ gridColumn: '1 / -1' }}>
-        <strong style={{ fontSize: 12 }}>Canonical contract proposal</strong>
-        <table style={{ width: '100%', marginTop: 6, fontSize: 12, borderCollapse: 'collapse' }} data-testid={`jobdiva-contract-fields-${row.start_id}`}>
-          <thead><tr><th style={{ textAlign: 'left' }}>CoreFlux field</th><th style={{ textAlign: 'left' }}>Current</th><th style={{ textAlign: 'left' }}>Proposed</th><th style={{ textAlign: 'left' }}>JobDiva authority</th></tr></thead>
-          <tbody>{(contract.fields || []).map((field) => <tr key={`${field.group}-${field.field}`} style={{ background: field.changes ? '#fff7ed' : 'transparent' }}>
-            <td style={{ padding: 5 }}><span style={{ color: '#64748b' }}>{field.group}</span><br /><strong>{field.label}</strong></td>
-            <td style={{ padding: 5 }}>{displayValue(field.current)}</td>
-            <td style={{ padding: 5 }}>{displayValue(field.proposed)}</td>
-            <td style={{ padding: 5 }}><code>{field.source}</code><br /><span style={{ color: '#64748b' }}>{field.authority?.replace(/_/g, ' ')}</span></td>
-          </tr>)}</tbody>
-        </table>
+        <strong style={{ fontSize: 12 }}>Contract field review</strong>
+        <p style={{ margin: '4px 0', fontSize: 12 }}>Core-managed fields are retained. Source proposals remain subject to contract validation and rate approval.</p>
+        <JobDivaContractReview fields={contract.fields || []} testId={`jobdiva-contract-fields-${row.start_id}`} />
       </div>
       <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
         <div>
