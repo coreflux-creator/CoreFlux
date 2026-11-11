@@ -52,3 +52,8 @@ its terminal-census and explicit ownership-release gaps. Ordinary and bulk
 placement edits still require concurrency review. Other forced-source fields,
 complete custom-field alignment, portal/onboarding/document lifecycle and
 financial reconciliation remain requirements of the full integration goal.
+
+The subsequent release in `thunderhawk-native-placement-edits.md` moves
+ordinary edits, bulk edits and activation into one locked transaction. The
+remaining source-contract authority, CSV, lifecycle/date and native HTTP/browser
+acceptance boundaries are recorded there.

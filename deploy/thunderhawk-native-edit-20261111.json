@@ -1,0 +1,98 @@
+{
+  "recorded_at": "2026-11-11T22:37:04.674336+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "The previous goal turn deployed paired lifecycle ownership source and screen controls to isolated staging, passed all 30 deployed checks and preserved all existing rows.",
+  "goal_complete": false,
+  "scope": "Core isolated staging tenant 2002; no provider or production deployment",
+  "runtime_source": "813671eee5ad2539933dcbe359c2050fda93c751",
+  "ci": {
+    "run": "43112314687",
+    "commit": "813671eee5ad2539933dcbe359c2050fda93c751",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43112314687",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "Ordinary PATCH, bulk status, bulk field and explicit activation routes share a locked native edit transaction",
+    "Placement values, ownership, company resolution, rate promotion, readiness, commercial graph and required audit receipts commit or roll back together",
+    "Malformed ownership and stale source-identity replacement are rejected before mutation",
+    "Selecting the same source-owned field can establish Core ownership; replay of an unchanged already-owned field is a no-op",
+    "Bulk operations report each placement outcome after its transaction finishes",
+    "Draft promotion retains rate-approval permission checks and does not auto-approve rates solely when moving to a terminal status"
+  ],
+  "verification": {
+    "native_edit_checks_disposable": 27,
+    "lifecycle_checks_disposable": 30,
+    "prior_ownership_checks": 17,
+    "placement_end_checks": 13,
+    "request_checks": 17,
+    "hosted_native_edit_checks": 27,
+    "original_containers_preserved": 206,
+    "installed_files": 3,
+    "dependencies_checked": 31,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_regression": 34356,
+    "fixture_rows_rolled_back": true,
+    "temporary_probe_removed": true
+  },
+  "ci_history": {
+    "first_candidate": "b7406ce450e4ffffbb59a35b1c0527b8e1179245",
+    "first_run": "43111875971",
+    "failed_checks": [
+      "process_alignment_smoke.php",
+      "placement_client_save_smoke.php",
+      "staffing_economic_graph_smoke.php"
+    ],
+    "resolution": "Updated assertions to follow company resolution and active readiness through the shared native edit; the runtime and database fixture did not change"
+  },
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "browser_acceptance": false,
+    "native_http_acceptance": false,
+    "hosted_test_method": "Deployed native PHP functions with an outer rollback transaction. The fixture selects the real legacy RBAC mode only within its own PHP process to exercise synthetic admin rate promotion; no roles or hosting configuration change."
+  },
+  "coordination_window_released": true,
+  "remaining_scope": [
+    "Audit source-contract reconciliation: four callers still enable force_source_contract, which can discard ownership for classification, dates, clients, cycles and payment terms",
+    "Complete native HTTP and rendered controls acceptance, including bulk partial-failure presentation and activation replay",
+    "Audit CSV edits and ordinary status transitions for the same lifecycle/date and ownership invariants",
+    "Complete per-field/destination ownership and custom-field alignment",
+    "Complete worker/manager portal closure and onboarding/document lifecycle acceptance",
+    "Complete financial-result, billing/AP/AR lineage and reconciliation acceptance"
+  ],
+  "installed_runtime_hashes": {
+    "modules/placements/lib/edit.php": "7f468d24a6032c6802f1591ef82cf8ebfa5e34ed51be1f42f2cb95f5b0d4ac05",
+    "modules/placements/lib/ownership.php": "37d797f2cf7a045230d03809634ecd262b7e7b53005254dd7c08ac2950ca8a76",
+    "modules/placements/api/placements.php": "23a7a1e203cbde2c72d0cd2a9d16517d0669cdc4d966c2b7db51f599349208ce"
+  },
+  "evidence": {
+    "native-edit-b7406ce4-disposable-result.json": {
+      "path": "output/native-edit-b7406ce4-disposable-result.json",
+      "sha256": "50d873639a3069bfa5e079ca189b1dd88b406e15d0464f2c586be94be12473ee"
+    },
+    "native-edit-install-result.json": {
+      "path": "output/native-edit-install-result.json",
+      "sha256": "867b90aa86290f2e95255d5a8aa2314a04ecda2a9a29e4ba5d141273ffdf952b"
+    },
+    "native-edit-hosted-result.json": {
+      "path": "output/native-edit-hosted-result.json",
+      "sha256": "1abafe8f29206a1532ff3a639a68ee87e3510d2fdbd9d934af1cd7edef15ea72"
+    },
+    "native-edit-ci.json": {
+      "path": "output/native-edit-ci.json",
+      "sha256": "366c097279f91fde9db708f735a1fd1561ccdf78b0ab17ee3bec51014e981bef"
+    },
+    "native-edit-preflight.json": {
+      "path": "output/native-edit-preflight.json",
+      "sha256": "4de5351cc492998dcd9a44866db80265e1627dc037e19cc675586a0953a55ed4"
+    },
+    "native-edit-followup-source-authority.json": {
+      "path": "output/native-edit-followup-source-authority.json",
+      "sha256": "bd364cb7938bb4dd2a56f9465a22d08abc6b1e0cbbaa018fb626d7d035718f63"
+    }
+  }
+}
