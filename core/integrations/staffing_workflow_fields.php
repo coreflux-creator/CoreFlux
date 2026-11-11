@@ -151,6 +151,20 @@ function staffingWorkflowPayloadFields(array $columns): array
         'core/integrations/purepay_customer_inputs.php',$customer,'core_client_directory',
         'reviewed_local_customer_create; preserve_original_attempt_and_provider_id; no_banking_QuickBooks_invoices_or_payments',
         '', 'permissioned_business_contact');
+    $timeControl=[
+        'contract_version'=>['string','Exact assignment time eligibility contract version.'],
+        'worker_id'=>['string','Existing Quanta worker explicitly linked to the canonical Core person.'],
+        'worksite_id'=>['string','Native Quanta worksite with one active worker membership; does not grant sign-in access.'],
+        'expected_version'=>['integer','Reviewed policy version; zero means initial activation.'],
+        'expected_context_hash'=>['sha256','Hash of provider context, current policy, membership, assignments and unbound-time inventory.'],
+        'assignments[].id'=>['string','Stable Quanta assignment derived from provider workspace and typed Core placement. Empty selection holds new time.'],
+        'assignments[].version'=>['integer','Reviewed assignment version; full shared Core metadata must agree first.'],
+        'confirm_core_control'=>['boolean','Literal true from an explicitly confirmed operational setup; metadata permissions alone do not grant this control.'],
+    ];
+    $add('quanta_time_control','integration_deliveries.payload_ct','body.','quanta',
+        '/api/v1/integrations/coreflux/time-access','core_to_quanta','2026-11-11.1',
+        'core/quanta/time_control_contract.php',$timeControl,'reviewed_core_time_setup',
+        'explicit_operational_scopes_and_rollout; original_receipt_only_recovery; no_hours_approvals_rates_or_financial_writes');
     $timeReview=[
         'contract_version'=>['string','Exact time-review observation contract version.'],
         'assignment_id'=>['string','Existing Quanta assignment, derived from the typed Core placement and provider workspace.'],

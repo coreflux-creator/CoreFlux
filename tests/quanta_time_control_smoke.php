@@ -46,4 +46,7 @@ $check($fails(fn()=>quantaTimeControlReceiptOutcome($payload,array_replace($rece
 $GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,$json)use(&$calls,$receipt):array{$calls[]=[$method,$url,$headers,$json];return ['status'=>200,'body'=>json_encode($receipt)];};
 $check(quantaTimeControlRecoverRemote('fixture-key',$key)===$receipt&&str_ends_with(end($calls)[1],'/time-access-deliveries/'.$key.'/reconcile')&&end($calls)[3]==='{}','recovery targets only the original receipt with an empty body');
 $check($fails(fn()=>quantaTimeControlRecoverRemote('fixture-key','../time-access')),'recovery cannot target another route');
+require_once __DIR__.'/fixtures/staffing_dictionary_checks.php';
+staffingDictionaryAssertPayload('quanta_time_control','quanta',$body);
+$check(true,'field dictionary describes each transmitted time setup field without granting sync authority');
 unset($GLOBALS['__quanta_core_write_transport']);echo "$passed time-control contract checks passed\n";
