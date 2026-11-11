@@ -46,11 +46,56 @@ because the new source code can inspect ownership more precisely.
   on stdin. It makes no network or database calls. The paired-source receipt is
   `deploy/quanta-time-assignment-binding-source.json`.
 
+## Reviewed time setup from Core
+
+The paired Quanta source now implements reviewed configuration and native time
+selectors (Quanta `9a62b00546a932a5346a0952aaf559faceeab747`). Core's Quanta
+settings add **Assignment time setup** and an independent **Time setup recovery**
+panel. Select a linked Core person and native Quanta worksite, review the shared
+placements, preview the selection and explicitly confirm it. An empty selection
+holds new time. Existing hours, approvals, rates, sign-in and native membership
+are not edited by this operation.
+
+Core requires integration administration, people/placement/time visibility and
+`time.review` write permission. Sending is default off behind
+`COREFLUX_QUANTA_TIME_ACCESS_DELIVERY` and the integration tenant restriction.
+Quanta separately requires explicit `read:core_time_access` /
+`write:core_time_access`, companion read permissions and an exact workspace in
+`COREFLUX_TIME_ACCESS_TENANTS`. No keys or hosted flags are changed by this source
+implementation.
+
+Only canonical local person and placement IDs are accepted from the browser.
+The service checks the verified company pairing, current directory ownership,
+person link, full assignment metadata, reviewed context and provider versions.
+It rechecks and locks local source and connection rows before claiming the
+encrypted outbox request. Shared metadata must agree before it can be selected.
+These SQL claim checks do not imply an atomic transaction spanning Core and
+Quanta; concurrent native capture/approval and lifecycle work remains required.
+
+An interrupted send cannot be sent again. The independent recovery list retains
+the original request after source records disappear. Receipt recovery checks
+the exact original request hash, selected identities, revisions and delivery
+ID. Quanta can reconstruct a lost receipt from matching committed policy
+history; Core never reapplies the policy during recovery. Unknown outcomes stay
+held. A later current setup must be reviewed separately.
+
+Initial activation (including an initial empty hold) refuses existing unbound
+time. An existing policy can hold new time while legacy history needs review.
+This is a prerequisite for a reviewed adoption workflow, not proof that legacy
+time migration has been implemented.
+
+Verification: `tests/quanta_time_control_smoke.php` exercises the strict wire
+contract; `dashboard/tests/quantaTimeControl.test.mjs` covers confirmation,
+empty holds, rollout/legacy gates, duplicate clicks, tenant/connection changes
+and reload recovery. `tests/quanta_time_control_mariadb.php` exercises the real
+SQL outbox, final source check, isolation and receipt recovery with synthetic
+provider responses; it runs in the existing disposable MariaDB CI job. Hosted
+acceptance and actual provider concurrency are separate requirements.
+
 ## Still required for the integration
 
-The operational policy configuration is not mounted in Quanta and no pilot policy
-has been enabled. Finish its reviewed, explicitly scoped API/UI, assignment selectors,
-and handling of existing unbound time. The Core route editor still rejects overlapping
+No pilot time policy has been enabled. Finish reviewed handling of existing
+unbound time and the remaining kiosk/task/import entry paths. The Core route editor still rejects overlapping
 worker/worksite routes; its reviewed configuration must support assignment-specific
 routes before offering that scenario to users. Finish PurePay/PurePayroll handling,
 concurrent mutation cases and the distinct synthetic hosted offboarding round trip.

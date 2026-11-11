@@ -163,7 +163,7 @@ function quantaContractRecord(string $key,string $workspaceId,array $reference):
     return $row;
 }
 
-/** Validate the complete request again at the IO boundary; only these three routes can write. */
+/** Validate the complete request again at the IO boundary; only the explicit operations below can write. */
 function quantaWriteContract(string $key,string $workspaceId,string $operation,array $body,array $expected,string $idempotencyKey): array
 {
     if ($key==='' || preg_match('/[\r\n]/',$key) || !preg_match('/^[a-f0-9]{64}$/D',$idempotencyKey)) throw new InvalidArgumentException('A scoped key and durable delivery identity are required');
@@ -199,6 +199,10 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
         $body=quantaTimeReviewBody($body);
         if(integrationDeliveryHash($expected)!==integrationDeliveryHash(quantaTimeReviewExpected($workspaceId,$body))) throw new InvalidArgumentException('Time review acknowledgement differs from the request');
         $id=$expected['id'];$path='/time-reviews';$codes=[200,201];
+    } elseif ($operation==='time.access') {
+        require_once __DIR__.'/time_control_contract.php';
+        $body=quantaTimeControlBody($body);quantaTimeControlExpectedValidate($workspaceId,$body,$expected);
+        $id=$expected['id'];$path='/time-access';$codes=[200,201];
     } else { throw new InvalidArgumentException('Unsupported Quanta contract operation'); }
     $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.$path;
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
@@ -225,5 +229,6 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
     foreach ($expected as $field=>$value) {
         if (!array_key_exists($field,$record) || integrationDeliveryHash([$record[$field]])!==integrationDeliveryHash([$value])) throw new QuantaContractWriteException('response_mismatch',true);
     }
+    if($operation==='time.access'&&($record['last_delivery_id']??null)!==$record['delivery_id'])throw new QuantaContractWriteException('setup_receipt_mismatch',true);
     return $record;
 }

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../core/quanta/workspace.php';
 require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
+require_once __DIR__ . '/../core/quanta/time_control_delivery.php';
 require_once __DIR__ . '/../core/quanta/profile_review.php';
 require_once __DIR__ . '/../core/quanta/profile_return_delivery.php';
 require_once __DIR__ . '/../modules/people/lib/people.php';
@@ -179,6 +180,24 @@ try {
             throw new InvalidArgumentException('Confirm your contact decision and its reason.');
         }
         api_ok(quantaProfileReviewApply($tenantId, $actorId, $body['review_token'], $body['decision'], $body['reason']));
+    }
+
+    if (in_array($action,['time_control_context','time_control_preview','time_control_pending','time_control_send','time_control_receipt'],true)) {
+        foreach(['people.view','placements.view','time.view','time.review'] as $permission)rbac_legacy_require($user,$permission);
+        if($action==='time_control_pending') {
+            if(isset($body['before'])&&(!is_int($body['before'])||$body['before']<=0))throw new InvalidArgumentException('Invalid delivery page');
+            api_ok(quantaTimeControlPending($tenantId,$body['before']??null));
+        }
+        if(in_array($action,['time_control_context','time_control_preview'],true)) {
+            if(!is_int($body['person_id']??null)||$body['person_id']<=0||!is_string($body['worksite_id']??null))throw new InvalidArgumentException('Choose a Core person and Quanta worksite');
+            if($action==='time_control_context')api_ok(quantaTimeControlContext($tenantId,$body['person_id'],$body['worksite_id'])['view']);
+            if(!is_array($body['placement_ids']??null)||!is_string($body['context_hash']??null))throw new InvalidArgumentException('Review the assignment choices first');
+            api_ok(quantaTimeControlPreview($tenantId,$actorId,$body['person_id'],$body['worksite_id'],$body['placement_ids'],$body['context_hash']));
+        }
+        if(!is_int($body['delivery_id']??null)||$body['delivery_id']<=0||!is_string($body['review_hash']??null))throw new InvalidArgumentException('Choose the original time setup');
+        if($action==='time_control_receipt')api_ok(quantaTimeControlReceipt($tenantId,$body['delivery_id'],$body['review_hash']));
+        if(($body['confirm_time_control']??null)!==true)throw new InvalidArgumentException('Confirm the reviewed assignment time setup');
+        api_ok(quantaTimeControlSend($tenantId,$actorId,$body['delivery_id'],$body['review_hash']));
     }
 
     if (in_array($action,['time_review_pending','time_review_preview','time_review_send','time_review_receipt'],true)) {

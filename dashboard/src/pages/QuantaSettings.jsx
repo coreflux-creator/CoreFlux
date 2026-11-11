@@ -7,6 +7,7 @@ import QuantaPublicationPanel from './QuantaPublicationPanel';
 import QuantaContactReview from './QuantaContactReview';
 import QuantaWorkspacePanel from './QuantaWorkspacePanel';
 import QuantaMetadataPanel, { QuantaMetadataRecovery } from './QuantaMetadataPanel';
+import QuantaTimeControl, { QuantaTimeControlRecovery } from './QuantaTimeControl';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
 import QuantaTimeReview, { QuantaTimeReviewRecovery } from './QuantaTimeReview';
 
@@ -310,6 +311,7 @@ export default function QuantaSettings() {
           run('refresh-identities', async () => { await loadCatalog(); setNotice(`Recorded in Core: ${result.people.map(person => person.person_number).join(', ')}. Review placement routing next.`); });
         }} />}
       {catalog && <QuantaMetadataPanel key={`metadata-${status.data?.workspace?.id}-${status.data?.connection_revision}`} people={people} placements={catalog.metadata_placements || placements} worksites={catalog.worksites || []} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
+      {catalog && <QuantaTimeControl people={people} worksites={catalog.worksites || []} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
       <div style={section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'start' }}>
           <div><h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Worker identities</h2>
@@ -443,5 +445,6 @@ export default function QuantaSettings() {
     </>}
     <QuantaMetadataRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaTimeReviewRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
+    <QuantaTimeControlRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
   </div>;
 }

@@ -9,7 +9,7 @@ function valueLabel(value, field) {
   return value && typeof value === 'object' ? value.number : (value ?? '—');
 }
 
-function useWorkspaceRequest(tenantId, connectionRevision, reset) {
+export function useWorkspaceRequest(tenantId, connectionRevision, reset) {
   const generation = useRef(0);
   const request = useRef(null);
   const resetRef = useRef(reset);

@@ -12,37 +12,44 @@ function quantaMetadataDeliveryEnabled(?int $tenant=null): bool
     return integrationDeliveryFlagEnabled('COREFLUX_QUANTA_METADATA_DELIVERY') && integrationDeliveryTenantAllowed($tenant);
 }
 
-function quantaMetadataReference(PDO $pdo,string $instance,int $owner,string $kind,int $id): array
+function quantaMetadataReference(PDO $pdo,string $instance,int $owner,string $kind,int $id,bool $lock=false): array
 {
     $definition=coreRecordNumberDefinition($kind);
     $deleted=in_array($kind,['person','placement','company'],true)?' AND deleted_at IS NULL':'';
-    $stmt=$pdo->prepare('SELECT id FROM '.$definition['table'].' WHERE tenant_id=:t AND id=:id'.$deleted);
+    if($lock&&!$pdo->inTransaction())throw new LogicException('Identity locks require a transaction');
+    $stmt=$pdo->prepare('SELECT id FROM '.$definition['table'].' WHERE tenant_id=:t AND id=:id'.$deleted.($lock?' FOR UPDATE':''));
     $stmt->execute(['t'=>$owner,'id'=>$id]); $row=$stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) throw new RuntimeException('A related '.$kind.' is unavailable in its authorized directory');
+    if($lock){
+        $numbers=$pdo->prepare('SELECT record_number FROM core_record_numbers WHERE tenant_id=:t AND entity_type=:k AND record_id=:id FOR UPDATE');
+        $numbers->execute(['t'=>$owner,'k'=>$kind,'id'=>$id]);$found=$numbers->fetchAll(PDO::FETCH_COLUMN);
+        if(count($found)!==1)throw new RuntimeException('Canonical record number needs review');
+        return integrationRecordReference($instance,$owner,$kind,$found[0]);
+    }
     $numbered=coreRecordNumbersAttach($pdo,$owner,$kind,[$row])[0];
     return integrationRecordReference($instance,$owner,$kind,$numbered[$definition['field']]);
 }
 
 /** Caller resolves each directory owner through Core's module scope. */
-function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $kind,int $id): array
+function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $kind,int $id,bool $lock=false): array
 {
     if ($id<=0 || !in_array($kind,['person','placement'],true)) throw new InvalidArgumentException('Choose a person or placement');
     foreach (['people','placements','companies','ap'] as $module) if (!is_int($owners[$module]??null) || $owners[$module]<=0) throw new InvalidArgumentException('Authorized directory owners required');
     $owner=$owners[$kind==='person'?'people':'placements'];
-    $ref=quantaMetadataReference($pdo,$instance,$owner,$kind,$id);
+    $ref=quantaMetadataReference($pdo,$instance,$owner,$kind,$id,$lock);
     $placement=null;
     if ($kind==='placement') {
         $stmt=$pdo->prepare('SELECT p.id,p.person_id,p.title,p.engagement_type,p.status,p.start_date,
             COALESCE(p.actual_end_date,p.end_date) AS end_date,p.client_id,p.end_client_company_id,c.ap_vendor_id,
             p.worksite_city,p.worksite_state,p.worksite_country
             FROM placements p LEFT JOIN placement_corp_details c ON c.tenant_id=p.tenant_id AND c.placement_id=p.id
-            WHERE p.tenant_id=:t AND p.id=:id AND p.deleted_at IS NULL');
+            WHERE p.tenant_id=:t AND p.id=:id AND p.deleted_at IS NULL'.($lock?' FOR UPDATE':''));
         $stmt->execute(['t'=>$owner,'id'=>$id]); $placement=$stmt->fetch(PDO::FETCH_ASSOC);
         if (!$placement) throw new RuntimeException('Placement is unavailable');
         $personId=(int)$placement['person_id'];
     } else { $personId=$id; }
-    $personRef=quantaMetadataReference($pdo,$instance,$owners['people'],'person',$personId);
-    $stmt=$pdo->prepare('SELECT id,first_name,last_name,email_primary,status FROM people WHERE tenant_id=:t AND id=:id AND deleted_at IS NULL');
+    $personRef=quantaMetadataReference($pdo,$instance,$owners['people'],'person',$personId,$lock);
+    $stmt=$pdo->prepare('SELECT id,first_name,last_name,email_primary,status FROM people WHERE tenant_id=:t AND id=:id AND deleted_at IS NULL'.($lock?' FOR UPDATE':''));
     $stmt->execute(['t'=>$owners['people'],'id'=>$personId]); $person=$stmt->fetch(PDO::FETCH_ASSOC);
     if (!$person) throw new RuntimeException('Person is unavailable');
     $result=['entity_type'=>$kind,'entity_tenant_id'=>$owner,'entity_id'=>$id,'reference'=>$ref,'person'=>$personRef,'person_record'=>$person];
@@ -50,7 +57,7 @@ function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $ki
         $references=[];
         foreach (['client'=>['client_id','client',$owners['placements']], 'vendor'=>['ap_vendor_id','vendor',$owners['ap']],
                   'end_client'=>['end_client_company_id','company',$owners['companies']]] as $field=>[$column,$type,$directory]) {
-            $references[$field]=empty($placement[$column])?null:quantaMetadataReference($pdo,$instance,$directory,$type,(int)$placement[$column]);
+            $references[$field]=empty($placement[$column])?null:quantaMetadataReference($pdo,$instance,$directory,$type,(int)$placement[$column],$lock);
         }
         $result['assignment']=['placement'=>$ref,'person'=>$personRef,'title'=>$placement['title'],
             'engagement_type'=>$placement['engagement_type'],'start_date'=>$placement['start_date'],'end_date'=>$placement['end_date'],
