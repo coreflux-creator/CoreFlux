@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/end.php';
 require_once __DIR__ . '/../lib/ownership.php';
+require_once __DIR__ . '/../lib/edit.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
@@ -144,82 +145,22 @@ if ($method === 'POST') {
         if (!in_array($newStatus, ALLOWED_STATUS, true)) {
             api_error('Invalid status', 422, ['allowed' => ALLOWED_STATUS]);
         }
-        $updated = 0; $skipped = 0; $results = [];
+        $updated = 0; $skipped = 0; $failed = 0; $results = [];
         $totalAutoApproved = 0;
         foreach ($ids as $pid) {
-            // Capture pre-update status/start date for activation readiness
-            // and draft-to-non-active rate catch-up.
-            $prior = scopedFind(
-                'SELECT status, external_id, coreflux_overridden_fields FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-                ['id' => $pid]
-            );
-            if (!$prior) {
-                $skipped++;
-                $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found'];
-                continue;
-            }
-            $priorReady = scopedFind(
-                'SELECT id, start_date FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-                ['id' => $pid]
-            ) ?: ['id' => $pid, 'start_date' => null];
-            $autoApproved = 0;
-            $shouldAutoApproveRates = $prior
-                && (
-                    ((string) $prior['status'] === 'draft' && !in_array($newStatus, ['draft', 'cancelled'], true))
-                    || $newStatus === 'active'
-                );
-            if ($shouldAutoApproveRates) {
-                $autoApproved = placementsAutoApproveDraftRates($pid, $user);
-            }
-            if ($newStatus === 'active') {
-                _placementsRequireActiveReady($pid, (string) ($priorReady['start_date'] ?? ''), 'bulk_status');
-            }
-            $before = placementAuditRow($pid) ?? array_merge($priorReady, $prior);
-            $rows = scopedUpdate('placements', $pid, ['status' => $newStatus]);
-            if ($rows > 0) {
-                if (str_starts_with((string) ($prior['external_id'] ?? ''), 'jd:')) {
-                    $currentOverrides = [];
-                    if (!empty($prior['coreflux_overridden_fields'])) {
-                        $decoded = json_decode((string) $prior['coreflux_overridden_fields'], true);
-                        if (is_array($decoded)) $currentOverrides = array_values(array_filter(array_map('strval', $decoded)));
-                    }
-                    if (!in_array('status', $currentOverrides, true)) {
-                        $currentOverrides[] = 'status';
-                        scopedUpdate('placements', $pid, ['coreflux_overridden_fields' => json_encode($currentOverrides)]);
-                    }
-                }
-                $updated++;
-                $totalAutoApproved += $autoApproved;
-                placementsAudit('placement.status_changed', [
-                    'id'     => $pid,
-                    'status' => $newStatus,
-                    'via'    => 'bulk_status',
-                ], $pid, [
-                    'before' => $before,
-                    'after' => placementAuditRow($pid),
-                ]);
-                if ($autoApproved > 0) {
-                    placementsAudit('placement.rates.auto_approved_on_promotion', [
-                        'placement_id'    => $pid,
-                        'rate_count'      => $autoApproved,
-                        'promoted_status' => $newStatus,
-                        'via'             => 'bulk_status',
-                    ], $pid);
-                }
-                placementEconomicsReconcile((int) $ctx['tenant_id'], $pid);
-                $results[] = ['id' => $pid, 'ok' => true, 'rates_auto_approved' => $autoApproved];
-            } else {
-                $skipped++;
-                $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found_or_no_change'];
+            try {
+                $result = placementApplyNativeEdit($pid, ['status'=>$newStatus], $user, 'bulk_status');
+                $totalAutoApproved += $result['rates_auto_approved'];
+                if ($result['changed']) $updated++; else $skipped++;
+                $results[] = ['id'=>$pid, 'ok'=>true, 'changed'=>$result['changed'], 'rates_auto_approved'=>$result['rates_auto_approved']];
+            } catch (\Throwable $e) {
+                if ($e->getCode() === 404) $skipped++; else $failed++;
+                $results[] = ['id'=>$pid, 'ok'=>false, 'reason'=>$e->getCode() === 404 ? 'not_found' : $e->getMessage()];
             }
         }
         api_ok([
-            'ok'                   => true,
-            'updated'              => $updated,
-            'skipped'              => $skipped,
-            'status'               => $newStatus,
-            'rates_auto_approved'  => $totalAutoApproved,
-            'results'              => $results,
+            'ok' => $failed === 0, 'updated' => $updated, 'skipped' => $skipped, 'failed' => $failed,
+            'status' => $newStatus, 'rates_auto_approved' => $totalAutoApproved, 'results' => $results,
         ]);
     }
 
@@ -268,50 +209,12 @@ if ($method === 'POST') {
         $updated = 0; $skipped = 0; $failed = 0; $results = [];
         foreach ($ids as $pid) {
             try {
-                $existing = placementGet($pid);
-                if (!$existing) {
-                    $skipped++;
-                    $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found'];
-                    continue;
-                }
-                $patch = [$field => $value];
-                if ($field === 'end_client_company_id') {
-                    $patch = placementsResolveCompanyRoles((int) placementsGraphTenantId(currentTenantId()), $patch, $existing, $user['id'] ?? null, currentTenantId());
-                }
-
-                $before = placementAuditRow($pid) ?? $existing;
-                $changed = scopedUpdate('placements', $pid, $patch);
-                $isJobDivaSourced = str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:');
-                if ($isJobDivaSourced) {
-                    $current = [];
-                    if (!empty($existing['coreflux_overridden_fields'])) {
-                        $decoded = json_decode((string) $existing['coreflux_overridden_fields'], true);
-                        if (is_array($decoded)) $current = array_values(array_filter(array_map('strval', $decoded)));
-                    }
-                    $merged = array_values(array_unique(array_merge($current, array_keys($patch))));
-                    if ($merged !== $current) {
-                        scopedUpdate('placements', $pid, ['coreflux_overridden_fields' => json_encode($merged)]);
-                    }
-                }
-                if ($changed > 0) {
-                    $updated++;
-                    placementsAudit('placement.updated', [
-                        'id' => $pid,
-                        'fields' => array_keys($patch),
-                        'via' => 'bulk_update',
-                    ], $pid, [
-                        'before' => $before,
-                        'after' => placementAuditRow($pid),
-                    ]);
-                    placementEconomicsReconcile((int) $ctx['tenant_id'], $pid);
-                    $results[] = ['id' => $pid, 'ok' => true];
-                } else {
-                    $skipped++;
-                    $results[] = ['id' => $pid, 'ok' => true, 'reason' => 'no_change'];
-                }
+                $result = placementApplyNativeEdit($pid, [$field=>$value], $user, 'bulk_update');
+                if ($result['changed']) $updated++; else $skipped++;
+                $results[] = ['id'=>$pid, 'ok'=>true, 'changed'=>$result['changed']];
             } catch (\Throwable $e) {
-                $failed++;
-                $results[] = ['id' => $pid, 'ok' => false, 'reason' => $e->getMessage()];
+                if ($e->getCode() === 404) $skipped++; else $failed++;
+                $results[] = ['id'=>$pid, 'ok'=>false, 'reason'=>$e->getCode() === 404 ? 'not_found' : $e->getMessage()];
             }
         }
         api_ok([
@@ -341,29 +244,11 @@ if ($method === 'POST') {
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);
         rbac_legacy_require($user, 'placements.manage');
-        $placement = placementGet($id);
-        if (!$placement) api_error('Not found', 404);
-        if ((string) ($placement['status'] ?? '') === 'active') {
-            api_ok(['ok' => true, 'placement' => $placement, 'rates_auto_approved' => 0]);
+        try { $result = placementApplyNativeEdit($id, ['status'=>'active'], $user, 'activate_action'); }
+        catch (InvalidArgumentException | RuntimeException $e) {
+            api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
         }
-        $before = placementAuditRow($id) ?? $placement;
-        $autoApproved = placementsAutoApproveDraftRates($id, $user);
-        _placementsRequireActiveReady($id, (string) ($placement['start_date'] ?? date('Y-m-d')), 'activate_action');
-        $rows = scopedUpdate('placements', $id, ['status' => 'active']);
-        if ($rows === 0) api_error('Not found or no change', 404);
-        placementsAudit('placement.status_changed', ['id' => $id, 'status' => 'active', 'via' => 'activate_action'], $id, [
-            'before' => $before,
-            'after' => placementAuditRow($id),
-        ]);
-        if ($autoApproved > 0) {
-            placementsAudit('placement.rates.auto_approved_on_promotion', [
-                'placement_id'    => $id,
-                'rate_count'      => $autoApproved,
-                'promoted_status' => 'active',
-                'via'             => 'activate_action',
-            ], $id);
-        }
-        api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
+        api_ok(['ok'=>true, 'placement'=>placementGet($id), 'rates_auto_approved'=>$result['rates_auto_approved']]);
     }
 
     // Default POST = create
@@ -622,105 +507,14 @@ if ($method === 'PATCH') {
     }
     if (!$body) api_error('No fields to update', 422);
 
-    // Slice 2: for JobDiva-sourced placements, every field touched by a
-    // user PATCH becomes a "coreflux_overridden" field — the JobDiva sync
-    // writer respects this list and won't revert the edit on the next
-    // pull. Placements created directly in CoreFlux (no `jd:` external_id
-    // prefix) are unaffected; their fields don't need protection.
-    $existing = placementGet($id);
-    if (!$existing) api_error('Not found', 404);
-    $before = placementAuditRow($id) ?? $existing;
-    if (!empty($body['staffing_job_id'])) {
-        $job = scopedFind(
-            'SELECT id FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
-            ['id' => (int) $body['staffing_job_id']]
-        );
-        if (!$job) api_error('staffing_job_id not found in this tenant', 422);
+    try { $result = placementApplyNativeEdit($id, $body, $user, 'patch_status'); }
+    catch (InvalidArgumentException | RuntimeException $e) {
+        api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
     }
-    $autoApproved = 0;
-    $promotingFromDraft = isset($body['status'])
-        && (string) $existing['status'] === 'draft'
-        && !in_array((string) $body['status'], ['draft', 'cancelled'], true);
-    if ($promotingFromDraft) {
-        $autoApproved = placementsAutoApproveDraftRates($id, $user);
-    }
-    if (($body['status'] ?? null) === 'active') {
-        if (!$promotingFromDraft) {
-            $autoApproved = placementsAutoApproveDraftRates($id, $user);
-        }
-        _placementsRequireActiveReady(
-            $id,
-            (string) ($body['start_date'] ?? $existing['start_date']),
-            'patch_status'
-        );
-    }
-    try {
-        $body = array_replace($body, placementsResolveCompanyRoles($placementTenantId, $body, $existing, $user['id'] ?? null, currentTenantId()));
-    } catch (InvalidArgumentException $e) {
-        api_error($e->getMessage(), 422);
-    }
-    $isJobDivaSourced = is_string($existing['external_id'] ?? null)
-        && strpos((string) $existing['external_id'], 'jd:') === 0;
-
-    $rows = scopedUpdate('placements', $id, $body);
-    if ($rows === 0) api_error('Not found or no change', 404);
-
-    if ($isJobDivaSourced) {
-        $current = [];
-        if (!empty($existing['coreflux_overridden_fields'])) {
-            $decoded = json_decode((string) $existing['coreflux_overridden_fields'], true);
-            if (is_array($decoded)) $current = array_values(array_filter(array_map('strval', $decoded)));
-        }
-        $merged = array_values(array_unique(array_merge($current, array_map('strval', array_keys($body)))));
-        if ($merged !== $current) {
-            scopedUpdate('placements', $id, ['coreflux_overridden_fields' => json_encode($merged)]);
-        }
-    }
-
-    if (isset($body['status'])) {
-        placementsAudit('placement.status_changed', ['id' => $id, 'status' => $body['status']], $id, [
-            'before' => $before,
-            'after' => placementAuditRow($id),
-        ]);
-    } else {
-        placementsAudit('placement.updated', ['id' => $id, 'fields' => array_keys($body)], $id, [
-            'before' => $before,
-            'after' => placementAuditRow($id),
-        ]);
-    }
-
-    // Auto-approve side effect: when a placement leaves `draft` for any
-    // non-terminal state, approve every draft rate row attached to it.
-    // Matches the operator mental model — "approving the placement"
-    // is one action that includes the rates, not two separate clicks
-    // in two separate tabs. Soft-gated by rbac inside the helper so
-    // a recruiter without financials.approve doesn't get a free
-    // privilege escalation.
-    if (isset($body['status']) && $autoApproved > 0) {
-        placementsAudit('placement.rates.auto_approved_on_promotion', [
-            'placement_id'    => $id,
-            'rate_count'      => $autoApproved,
-            'promoted_status' => (string) $body['status'],
-            'via'             => 'patch_status',
-        ], $id);
-    }
-    placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
-    api_ok(['placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
+    api_ok(['placement'=>placementGet($id), 'rates_auto_approved'=>$result['rates_auto_approved']]);
 }
 
 api_error('Method not allowed', 405);
-
-function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $via): void
-{
-    try {
-        placementsRequireActiveReady($placementId, $asOf, $via);
-    } catch (\RuntimeException $e) {
-        api_error($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 422, [
-            'placement_id' => $placementId,
-            'as_of' => $asOf,
-        ]);
-    }
-}
 
 /**
  * Keep People classification aligned with the placement's engagement model.

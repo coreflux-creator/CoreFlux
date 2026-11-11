@@ -74,15 +74,17 @@ $assert('sync runs UPDATE only when assignments non-empty',
 
 echo "\nAPI — PATCH /api/placements/placements auto-flags JobDiva-sourced edits\n";
 $apiSrc = (string) file_get_contents('/app/modules/placements/api/placements.php');
-$assert('PATCH detects JobDiva-sourced placement via external_id prefix',
-    preg_match("/jd:.*===\s*0|strpos\(\(string\)\s*\\\$existing\['external_id'\],\s*'jd:'\)\s*===\s*0/", $apiSrc) === 1);
-$assert('PATCH skips override flagging for non-JobDiva placements',
-    preg_match('/if\s*\(\s*\$isJobDivaSourced\s*\)/', $apiSrc) === 1);
-$assert('PATCH merges body keys into existing override list',
-    str_contains($apiSrc, 'array_keys($body)') &&
-    str_contains($apiSrc, 'array_unique'));
-$assert('PATCH writes coreflux_overridden_fields back via scopedUpdate',
-    preg_match("/scopedUpdate\(\s*'placements'\s*,\s*\\\$id\s*,\s*\[\s*'coreflux_overridden_fields'/", $apiSrc) === 1);
+$editSrc = (string) file_get_contents('/app/modules/placements/lib/edit.php');
+$assert('PATCH uses the same atomic edit as bulk operations',
+    str_contains($apiSrc, "placementApplyNativeEdit(\$id, \$body, \$user, 'patch_status')"));
+$assert('native edit preserves JobDiva identity and merges current ownership',
+    str_contains($editSrc, "str_starts_with((string) (\$existing['external_id'] ?? ''), 'jd:')")
+    && str_contains($editSrc, 'array_merge($current, $fields)'));
+$assert('native values and ownership share one locked update',
+    str_contains($editSrc, 'placementWithLockedRecord(')
+    && str_contains($editSrc, "scopedUpdate('placements', \$id, \$patch)"));
+$assert('native-only placements retain their existing ownership',
+    str_contains($editSrc, 'if ($isJobDivaSourced)'));
 $assert('PATCH blocks client-supplied coreflux_overridden_fields',
     str_contains($apiSrc, "'coreflux_overridden_fields'"));
 

@@ -77,14 +77,23 @@ function placementClearOverrides(int $id, array $fields, ?array $review = null):
         }
         $released = array_values(array_diff($current, $remaining));
         scopedUpdate('placements', $id, ['coreflux_overridden_fields' => $remaining === [] ? null : json_encode($remaining, JSON_THROW_ON_ERROR)]);
-        $changeId = bin2hex(random_bytes(16));
-        placementsAudit('placement.override_cleared', ['id' => $id, 'fields' => $released,
-            'ownership_change_id' => $changeId, 'before' => ['coreflux_overridden_fields' => $current],
+        placementRequiredAudit('placement.override_cleared', ['id' => $id, 'fields' => $released,
+            'before' => ['coreflux_overridden_fields' => $current],
             'after' => ['coreflux_overridden_fields' => $remaining],
         ], $id);
-        $audit = $pdo->prepare("SELECT id FROM audit_log WHERE tenant_id=? AND event='placement.override_cleared' AND target_id=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.ownership_change_id'))=? LIMIT 1");
-        $audit->execute([currentTenantId(), $id, $changeId]);
-        if (!$audit->fetchColumn()) throw new RuntimeException('The ownership change could not be recorded. Please try again.', 503);
         return ['changed' => true, 'released_fields' => $released];
     });
+}
+
+/** A successful native write must have its audit receipt in the same transaction. */
+function placementRequiredAudit(string $event, array $meta, int $id): void
+{
+    $pdo = getDB();
+    if (!$pdo || !$pdo->inTransaction()) throw new RuntimeException('Placement audit requires the edit transaction.', 503);
+    $changeId = bin2hex(random_bytes(16));
+    $meta['ownership_change_id'] = $changeId;
+    placementsAudit($event, $meta, $id);
+    $audit = $pdo->prepare("SELECT id FROM audit_log WHERE tenant_id=? AND event=? AND target_id=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.ownership_change_id'))=? LIMIT 1");
+    $audit->execute([currentTenantId(), $event, $id, $changeId]);
+    if (!$audit->fetchColumn()) throw new RuntimeException('The placement change could not be recorded. Please try again.', 503);
 }

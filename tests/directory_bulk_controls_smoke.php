@@ -61,14 +61,16 @@ $assert('placement summary totals use the complete filtered result set',
 $assert('client drill-through filter is accepted by list API',
     str_contains($placementApi, "'end_client_company_id' => \$_GET['end_client_company_id']")
     && str_contains($placementLib, 'p.end_client_company_id = :end_client_company_id'));
+$placementEdit = (string) file_get_contents($root . '/modules/placements/lib/edit.php');
 $assert('bulk_update is permissioned, capped, audited, and reconciles economics',
     (bool) preg_match("/action === 'bulk_update'.*?placements\.manage/s", $placementApi)
     && str_contains($placementApi, 'Too many ids (max 500 per call)')
-    && str_contains($placementApi, "'via' => 'bulk_update'")
-    && str_contains($placementApi, 'placementEconomicsReconcile'));
+    && str_contains($placementApi, "placementApplyNativeEdit(\$pid, [\$field=>\$value], \$user, 'bulk_update')")
+    && str_contains($placementEdit, 'placementRequiredAudit(')
+    && str_contains($placementEdit, 'placementEconomicsReconcile('));
 $assert('bulk edits preserve explicit CoreFlux overrides for JobDiva rows',
-    str_contains($placementApi, 'coreflux_overridden_fields')
-    && str_contains($placementApi, "str_starts_with((string) (\$existing['external_id'] ?? ''), 'jd:')"));
+    str_contains($placementEdit, 'placementWithLockedRecord(')
+    && str_contains($placementEdit, 'placementOwnershipFields('));
 
 echo "\n3. Client directory\n";
 $assert('supports whole-row search and source filtering',

@@ -57,15 +57,18 @@ $a('auto-approve remains financial-approval gated',
     && strpos($rateApprove, "if (!\$canApprove)") < $repairPos);
 
 echo "\n3. Every activation path gets the same repair/approve pass\n";
-$activateAuto = strpos($placements, '$autoApproved = placementsAutoApproveDraftRates($id, $user);');
-$activateGate = strpos($placements, "_placementsRequireActiveReady(\$id, (string) (\$placement['start_date'] ?? date('Y-m-d')), 'activate_action')");
-$a('POST action=activate auto-approves/repairs before readiness gate',
-    $activateAuto !== false && $activateGate !== false && $activateAuto < $activateGate);
-$a('PATCH active from non-draft also calls auto-approve/repair',
-    str_contains($placements, "if (!\$promotingFromDraft) {\n            \$autoApproved = placementsAutoApproveDraftRates(\$id, \$user);\n        }"));
-$a('bulk active transitions call auto-approve/repair even if prior status is not draft',
-    str_contains($placements, '$shouldAutoApproveRates = $prior')
-    && str_contains($placements, "|| \$newStatus === 'active'"));
+$nativeEdit = (string) file_get_contents(__DIR__ . '/../modules/placements/lib/edit.php');
+$activateAuto = strpos($nativeEdit, 'placementsAutoApproveDraftRates($id, $user)');
+$activateGate = strpos($nativeEdit, 'placementsRequireActiveReady($id,');
+$a('native status edits auto-approve before readiness inside the locked transaction',
+    $activateAuto !== false && $activateGate !== false && $activateAuto < $activateGate
+    && str_contains($nativeEdit, 'placementWithLockedRecord('));
+foreach (['activate_action','patch_status','bulk_status'] as $via) {
+    $a($via . ' uses the same native rate and readiness path',
+        (bool) preg_match('/placementApplyNativeEdit\([^;]+\x27' . $via . '\x27\)/', $placements));
+}
+$a('active edits from non-draft states also run the auto-approve pass',
+    str_contains($nativeEdit, "\$shouldAutoApproveRates = \$newStatus === 'active'"));
 
 echo "\n4. JobDiva writer preserves approved snapshots\n";
 $a('writer selects approved_at and prioritizes unapproved open rows',

@@ -113,31 +113,27 @@ $a('UI approve handler POSTs an empty body',
    (bool) preg_match('/api\\.post\\(`\\/modules\\/placements\\/api\\/rates\\.php\\?action=approve&id=\\$\\{rateId\\}`, \\{\\}\\)/', $detail));
 
 echo "\n5. Placement activation auto-approves/repairs rates\n";
-$a('PATCH calls placementsAutoApproveDraftRates when leaving draft',
-   str_contains($placements, '$autoApproved = placementsAutoApproveDraftRates($id, $user);'));
-$a('PATCH preserves draft -> non-terminal promotion detection',
-   (bool) preg_match("/\\(string\\) \\\$existing\\['status'\\] === 'draft'\\s*\\&\\&\\s*!in_array\\(\\(string\\) \\\$body\\['status'\\], \\['draft', 'cancelled'\\], true\\)/", $placements));
-$a('PATCH active from non-draft calls auto-approve/repair before readiness gate',
-   str_contains($placements, "if (!\$promotingFromDraft) {\n            \$autoApproved = placementsAutoApproveDraftRates(\$id, \$user);\n        }"));
-$a('POST activate action calls auto-approve/repair before readiness gate',
-   strpos($placements, '$autoApproved = placementsAutoApproveDraftRates($id, $user);') !== false
-   && strpos($placements, "_placementsRequireActiveReady(\$id, (string) (\$placement['start_date'] ?? date('Y-m-d')), 'activate_action')") !== false
-   && strpos($placements, '$autoApproved = placementsAutoApproveDraftRates($id, $user);') < strpos($placements, "_placementsRequireActiveReady(\$id, (string) (\$placement['start_date'] ?? date('Y-m-d')), 'activate_action')"));
-$a('promotion audit and response include rates_auto_approved',
-   str_contains($placements, "placementsAudit('placement.rates.auto_approved_on_promotion'")
-   && str_contains($placements, "'rates_auto_approved' => \$autoApproved"));
+$nativeEdit = (string) file_get_contents($ROOT . '/modules/placements/lib/edit.php');
+$ownership = (string) file_get_contents($ROOT . '/modules/placements/lib/ownership.php');
+$a('native edit auto-approves rates before active readiness',
+   strpos($nativeEdit, 'placementsAutoApproveDraftRates($id, $user)') < strpos($nativeEdit, 'placementsRequireActiveReady($id,'));
+$a('draft promotions include pending_start and on_hold; active always checks rates',
+   str_contains($nativeEdit, "\$shouldAutoApproveRates = \$newStatus === 'active'")
+   && str_contains($nativeEdit, "\$existing['status'] === 'draft' && in_array(\$newStatus, ['pending_start','on_hold'], true)"));
+foreach (['patch_status','activate_action','bulk_status'] as $via) {
+    $a($via . ' routes to the same transaction and readiness checks',
+       (bool) preg_match('/placementApplyNativeEdit\([^;]+\x27' . $via . '\x27\)/', $placements));
+}
+$a('promotion audit includes the rate count and calling operation',
+   str_contains($nativeEdit, "placementRequiredAudit('placement.rates.auto_approved_on_promotion'")
+   && str_contains($nativeEdit, "'rate_count'=>\$autoApproved") && str_contains($nativeEdit, "'via'=>\$via"));
 
-echo "\n6. bulk_status also fires the auto-approve side effect\n";
-$a('bulk_status captures pre-update status per row',
-   str_contains($placements, "'SELECT status, external_id, coreflux_overridden_fields FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'"));
-$a('bulk_status calls auto-approve for draft promotions and any active promotion',
-   str_contains($placements, '$shouldAutoApproveRates = $prior')
-   && str_contains($placements, "|| \$newStatus === 'active'"));
-$a('bulk_status emits per-row auto_approved audit with via=bulk_status',
-   str_contains($placements, "'via'             => 'bulk_status'"));
-$a('bulk_status response includes per-row rates_auto_approved + total',
-   str_contains($placements, "'rates_auto_approved' => \$autoApproved")
-   && str_contains($placements, "'rates_auto_approved'  => \$totalAutoApproved"));
+echo "\n6. Bulk status shares ownership, audit and rate transaction\n";
+$a('native edit acquires the current placement under a row lock',
+   str_contains($nativeEdit, 'placementWithLockedRecord(') && str_contains($ownership, 'FOR UPDATE'));
+$a('bulk_status returns per-row auto-approval counts and their total',
+   str_contains($placements, "'rates_auto_approved'=>\$result['rates_auto_approved']")
+   && str_contains($placements, "'rates_auto_approved' => \$totalAutoApproved"));
 
 echo "\n7. PHP syntax\n";
 foreach ([

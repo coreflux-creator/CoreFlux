@@ -50,7 +50,10 @@ $a('caps at 500 ids',                       str_contains($placements, "api_error
 $a('validates status against ALLOWED_STATUS', str_contains($placements, "in_array(\$newStatus, ALLOWED_STATUS, true)"));
 $a('coerces ids to positive ints',          str_contains($placements, 'array_map(\'intval\', $body[\'ids\'])')
                                             && str_contains($placements, 'array_filter($ids, static fn ($n) => $n > 0)'));
-$a('audits each row with via=bulk_status',  str_contains($placements, "'via'    => 'bulk_status'"));
+$edit = (string) file_get_contents($root . '/modules/placements/lib/edit.php');
+$a('audits each row with via=bulk_status',
+    str_contains($placements, "placementApplyNativeEdit(\$pid, ['status'=>\$newStatus], \$user, 'bulk_status')")
+    && str_contains($edit, "'via'=>\$via") && str_contains($edit, 'placementRequiredAudit('));
 $a('returns updated + skipped + results',   (bool) preg_match("/'updated'\\s*=>\\s*\\\$updated/", $placements)
                                             && (bool) preg_match("/'skipped'\\s*=>\\s*\\\$skipped/", $placements)
                                             && (bool) preg_match("/'results'\\s*=>\\s*\\\$results/", $placements));

@@ -593,6 +593,8 @@ jobs:
         run: php tests/placement_end_jobdiva_db_check.php --confirm-disposable-fixture
       - name: Verify terminal census and atomic ownership release
         run: php tests/placement_lifecycle_ownership_db_check.php --confirm-disposable-fixture
+      - name: Verify native placement edits and source ownership
+        run: php tests/placement_native_edit_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture
