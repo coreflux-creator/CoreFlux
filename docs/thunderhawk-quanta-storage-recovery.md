@@ -61,8 +61,26 @@ must preserve newer writes and the application's coordination requirement; the
 pre-conversion dump must never be blindly restored over changed business data.
 The one-time converter intentionally refuses the now-upgraded host on replay.
 
-Storage and source preservation have passed. The accepted coordinator runtime
-still needs installation and testing on the hosted pilot. Historical associations,
+## Accepted application installed, activation held
+
+The complete application from Quanta commit `22b8170c` passed native CI run
+`42982131790`: 224 application/startup checks plus 11 storage checks, with real
+MongoDB and zero external network attempts. All 181 runtime hashes were verified
+against the accepted source and the disposable CI containers were removed.
+
+`install_thunderhawk_quanta_commit_runtime.py` subsequently installed its 30
+changed files into the existing isolated web container. The original files and
+manifest are retained privately. All 66 existing collections, 1,324 records and
+their indexes remained identical. Startup added only three empty Pace schema
+collections. An independent check verified all 181 served runtime files, unchanged
+sign-in page, original records, healthy held service and unchanged other services.
+The receipt is `deploy/thunderhawk-quanta-commit-runtime-20261111.json`.
+
+This installs the coordinator code but does not enable it: `COREFLUX_TIME_COMMITS`
+remains off and the operational time tenant allowlist remains empty. The next
+step must enable coordination only in the isolated pilot, verify the startup guard
+and hosted commit behavior, and preserve newer records during any rollback.
+Historical associations,
 explicit time permissions, synthetic lifecycle and full financial-result
 reconciliation remain separate release requirements. No real payroll, payment,
 financial posting or production cutover is authorized by this evidence.
