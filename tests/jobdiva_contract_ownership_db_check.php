@@ -64,7 +64,9 @@ try{
     $check($worker->fetch(PDO::FETCH_ASSOC)===$stableParty&&jobdivaPlacementProjectionAuditSnapshot($tenant,$placement)===$stableSnapshot,'Contract replay preserves participant identities and reviewed state');
     // Conflicting classification must not leak its rate/payee model into Core.
     scopedUpdate('placements',$placement,['engagement_type'=>'1099','coreflux_overridden_fields'=>'["engagement_type"]']);
-    $model=$payload;$model['_jd_contract']['engagement_type']='w2';$model['_jd_contract']['bill_rate']=200;$model['_jd_contract']['pay_rate']=100;$model['title']='Source title with model conflict';
+    $model=$payload;$model['_jd_contract']['engagement_type']='w2';$model['_jd_contract']['bill_rate']=200;$model['_jd_contract']['pay_rate']=100;
+    $model['_jd_contract']['bill_rate_unit']='hour';$model['_jd_contract']['pay_rate_unit']='hour';$model['_jd_contract']['currency']='USD';
+    $model['title']='Source title with model conflict';
     $rateBefore=$read('placement_rates');$corpBefore=$read('placement_corp_details');
     jobdivaSyncUpsertPlacement($tenant,$person,$sourceEnd,$model,'99140001');$row=placementAuditRow($placement);
     $check($row['engagement_type']==='1099'&&$row['title']==='Source title with model conflict'&&$read('placement_rates')===$rateBefore&&$read('placement_corp_details')===$corpBefore,'A Core employment-model conflict holds dependent rates and payees while unrelated fields refresh');
