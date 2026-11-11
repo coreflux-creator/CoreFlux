@@ -95,7 +95,7 @@ $assert('clear_override requires fields[] in body',
     preg_match("/clear_override.*fields\\[\\] required/s", $apiSrc) === 1);
 $ownershipSrc = (string) file_get_contents('/app/modules/placements/lib/ownership.php');
 $assert('clear_override uses the locked ownership release',
-    str_contains($apiSrc, 'placementClearOverrides($id, $fields)') && str_contains($ownershipSrc, 'FOR UPDATE'));
+    str_contains($apiSrc, 'placementClearOverrides($id, $fields, $body[\'review\'])') && str_contains($ownershipSrc, 'FOR UPDATE'));
 $assert('clear_override retains its audit operation',
     str_contains($ownershipSrc, "placement.override_cleared"));
 

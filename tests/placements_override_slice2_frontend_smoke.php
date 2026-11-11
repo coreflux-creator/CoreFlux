@@ -50,7 +50,7 @@ $assert('banner explains the "edit → overridden" flow',  str_contains($src, 's
 $assert('OverviewEdit keeps a local override state',     str_contains($src, 'const [overrides, setOverrides] = useState'));
 $assert('revert() POSTs to clear_override action',
     str_contains($src, '?id=${placement.id}&action=clear_override') &&
-    str_contains($src, '{ fields }'));
+    str_contains($src, '{ fields, review: { owned_fields: [...overrides], values:'));
 $assert('closed placement returns paired lifecycle fields after explicit review',
     str_contains($src, "pairedClosure ? ['status', 'actual_end_date'] : [field]") &&
     str_contains($src, 'Return both the status and actual end date to JobDiva?'));

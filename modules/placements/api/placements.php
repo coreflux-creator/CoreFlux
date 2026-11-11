@@ -114,7 +114,8 @@ if ($method === 'POST') {
         $body = api_json_body();
         $fields = is_array($body['fields'] ?? null) ? $body['fields'] : [];
         if (empty($fields)) api_error('fields[] required', 422);
-        try { $release = placementClearOverrides($id, $fields); }
+        if (!is_array($body['review'] ?? null)) api_error('Refresh the placement before returning fields to JobDiva.', 422);
+        try { $release = placementClearOverrides($id, $fields, $body['review']); }
         catch (RuntimeException|InvalidArgumentException $e) {
             api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
         }

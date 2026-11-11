@@ -43,23 +43,38 @@ function placementWithLockedRecord(int $tenantId, int $id, callable $write): mix
     }
 }
 
-function placementClearOverrides(int $id, array $fields): array
+function placementClearOverrides(int $id, array $fields, ?array $review = null): array
 {
     if (!$fields || !array_is_list($fields)
         || array_filter($fields, static fn($field) => !is_string($field) || !preg_match('/^[a-z][a-z0-9_]*$/D', $field))) {
         throw new InvalidArgumentException('Choose the fields to return to JobDiva.', 422);
     }
     $fields = array_values(array_unique($fields));
-    return placementWithLockedRecord((int) effectiveTenantIdForRequest(), $id, static function (array $row, PDO $pdo) use ($id, $fields): array {
+    return placementWithLockedRecord((int) effectiveTenantIdForRequest(), $id, static function (array $row, PDO $pdo) use ($id, $fields, $review): array {
         $current = placementOwnershipFields($row['coreflux_overridden_fields'] ?? null);
+        $remaining = array_values(array_diff($current, $fields));
+        if ($remaining === $current) return ['changed' => false, 'released_fields' => []];
+        if ($review !== null) {
+            $seen = $review['owned_fields'] ?? null;
+            $values = $review['values'] ?? null;
+            if (!is_array($seen) || !array_is_list($seen) || !is_array($values)
+                || array_filter($seen, static fn($field) => !is_string($field))) {
+                throw new InvalidArgumentException('Refresh the placement before returning fields to JobDiva.', 422);
+            }
+            $expected = $current; sort($expected); sort($seen);
+            if ($seen !== $expected) throw new RuntimeException('Field ownership changed. Refresh the placement and review it again.', 409);
+            foreach ($fields as $field) {
+                if (!array_key_exists($field, $values) || ($row[$field] ?? null) !== $values[$field]) {
+                    throw new RuntimeException('A reviewed field changed. Refresh the placement and review it again.', 409);
+                }
+            }
+        }
         $pair = ['status', 'actual_end_date'];
         if (in_array($row['status'], ['ended', 'cancelled'], true)
             && count(array_intersect($pair, $current)) === 2
             && count(array_intersect($pair, $fields)) === 1) {
             throw new InvalidArgumentException('Return the status and actual end date to JobDiva together for this closed placement.', 422);
         }
-        $remaining = array_values(array_diff($current, $fields));
-        if ($remaining === $current) return ['changed' => false, 'released_fields' => []];
         $released = array_values(array_diff($current, $remaining));
         scopedUpdate('placements', $id, ['coreflux_overridden_fields' => $remaining === [] ? null : json_encode($remaining, JSON_THROW_ON_ERROR)]);
         $changeId = bin2hex(random_bytes(16));

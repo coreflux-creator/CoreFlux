@@ -419,7 +419,7 @@ function OverviewEdit({ placement, onClose }) {
     try {
       const resp = await api.post(
         `/modules/placements/api/placements.php?id=${placement.id}&action=clear_override`,
-        { fields }
+        { fields, review: { owned_fields: [...overrides], values: Object.fromEntries(fields.map(key => [key, placement[key] ?? null])) } }
       );
       // Server returns the updated placement; re-parse the new override list.
       setOverrides(parseOverrides(resp?.placement ?? {}));

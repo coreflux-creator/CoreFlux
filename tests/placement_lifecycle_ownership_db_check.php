@@ -83,6 +83,13 @@ try{
     $check($refused(fn()=>placementClearOverrides($placement,['notes']),404),'Cross-tenant ownership release is refused');
     setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
     scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>'["notes"]']);$before=placementAuditRow($placement);
+    $check($refused(fn()=>placementClearOverrides($placement,['notes'],['owned_fields'=>['notes'],'values'=>['notes'=>'Stale value']]),409)
+        &&placementAuditRow($placement)===$before,'A changed reviewed value cannot release newer Core ownership');
+    $check($refused(fn()=>placementClearOverrides($placement,['notes'],['owned_fields'=>[],'values'=>['notes'=>$before['notes']]]),409)
+        &&placementAuditRow($placement)===$before,'A stale ownership review cannot release current Core fields');
+    $accepted=placementClearOverrides($placement,['notes'],['owned_fields'=>['notes'],'values'=>['notes'=>$before['notes']]]);
+    $check($accepted['changed']&&placementAuditRow($placement)['coreflux_overridden_fields']===null,'An unchanged reviewed value permits ownership release');
+    scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>'["notes"]']);$before=placementAuditRow($placement);
     // Temporary DDL does not commit the fixture transaction. This deliberately
     // incomplete table simulates unavailable audit storage without altering it.
     $pdo->exec('CREATE TEMPORARY TABLE audit_log (id BIGINT,tenant_id BIGINT,target_id BIGINT,event VARCHAR(100),meta_json JSON)');
