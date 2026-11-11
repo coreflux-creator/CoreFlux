@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-11-10T19:18:53.522318-05:00",
+  "scope": "Existing isolated Thunderhawk Quanta pilot",
+  "source_commit": "ac626f245b4569d4216f8ee9ba835a5fe5b5af76",
+  "source_differences": {},
+  "all_installed_backend_files_match_source": false,
+  "install_passed": true,
+  "existing_business_records_and_indexes_unchanged": true,
+  "original_usage_records_unchanged": true,
+  "retry_appended_usage_events": 0,
+  "first_attempt_restored_all_previous_files": true,
+  "first_attempt_only_appended_prior_buffered_usage_events": 196,
+  "same_origin_browser_policy_preserved": true,
+  "background_work_held": true,
+  "other_services_unchanged": true,
+  "native_unauthenticated_access_denied": true,
+  "target": {
+    "id": "f4988aa4a83d4b6106c205ecf9c1e8f63d0a975a9da846f3269450f2ed8a7d11",
+    "running": true,
+    "started_at": "2026-11-11T00:17:06.120889122Z"
+  },
+  "core_native_http_checks_passed": 89,
+  "core_ci": "https://github.com/coreflux-creator/CoreFlux/actions/runs/42929314419",
+  "core_ci_jobs_passed": 11,
+  "core_installed": false,
+  "authenticated_browser_round_trip_passed": false,
+  "production_changed": false,
+  "payroll_payments_or_financial_postings": false,
+  "goal_complete": false
+}

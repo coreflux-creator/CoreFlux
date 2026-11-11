@@ -1,6 +1,6 @@
 # Reviewed contact changes between Core and Quanta
 
-Status: integration branch only, 2026-11-10. Core review, the saved-decision return queue and Quanta's native receiver are implemented, with worker and reviewer controls. Neither branch is a published Thunderhawk workflow.
+Status: 2026-11-11 UTC. Core review, the saved-decision return queue and Quanta's native receiver are implemented, with worker and reviewer controls. The Quanta candidate is installed in the existing isolated Thunderhawk pilot; Core's matching candidate and three migrations are not installed there yet. This is not a published production workflow.
 
 ## Field ownership
 
@@ -46,4 +46,8 @@ The return fixture covers an immutable queued body, company and directory isolat
 
 The return path passed 95 real MariaDB checks, in addition to the existing 46 publication and 38 Core review checks. Quanta passed 177 backend checks and 22 receiver checks against a new isolated MongoDB 8.0.34 process. The real database covered concurrent returns, lost native-outcome writes, conditional updates, preserved identities and offboarding; its synthetic databases were removed and its owned process stopped. Core's ten review/return UI tests and Quanta's seven worker UI tests passed. The shared dictionary now describes all validated baseline, proposal, decision and outcome leaves and their contact-only ownership.
 
-Remaining: test the Core HTTP permission boundary with real sessions; complete the authenticated hosted worker-to-Core-to-worker browser round trip; and merge/deploy only after complete acceptance. These fixtures do not establish production readiness, actual Thunderhawk staff approval or a completed live synchronization.
+The native Core HTTP fixture passed 89 checks on the disposable canonical CI database using the actual password login, session cookies, tenant selection, dual RBAC and API routes. Only provider transport is synthetic. It covers anonymous access, missing/insufficient grants, authorized queue reads, foreign pinned companies, explicit confirmations, the disabled delivery gate, grant downgrade/revocation in the same session, logout, no business-record creation and verified retirement of its test account/connection. All 11 CI jobs passed on commit 215199763c5a9560fbf55b93ed99ead447d57dff.
+
+Quanta commit ac626f245b4569d4216f8ee9ba835a5fe5b5af76 is installed only at the existing private pilot on port 19181. An independent post-install read found no backend differences from that commit. Existing business records and indexes, PurePay and other services are unchanged; background work remains held and the private same-origin browser policy is preserved. Native contact routes reject unauthenticated access. The first installation restored its prior files after detecting an API usage-log change. Inspection proved all original log entries remained intact: Quanta's existing shutdown handler had flushed 196 earlier buffered events. The corrected installer permits only append-only usage logs while requiring every business collection and existing index to remain exact; the successful retry appended zero events.
+
+Remaining: install the matching Core candidate and migrations 185–187 in the isolated pilot; complete the authenticated hosted worker-to-Core-to-worker browser round trip; and merge/publish only after complete acceptance. These fixtures do not establish production readiness, actual Thunderhawk staff approval or a completed live synchronization.
