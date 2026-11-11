@@ -1,0 +1,168 @@
+{
+  "source_commit": "a6def184ea7657b077b163f4cf048a35db2b524c",
+  "native_ci": {
+    "run": 43051032619,
+    "conclusion": "success",
+    "application_checks": 242,
+    "transaction_checks": 11,
+    "external_network_attempts": 0
+  },
+  "react_checks": 27,
+  "frontend_build": "Completed with pre-existing repository lint warnings",
+  "archive_sha256": "49836e929d53a0f616e165d7a6d91d3c51cd7c88bcfdc0c2507873dce0b1a138",
+  "installer_sha256": "67422147eb40908a40a93405d5f8a88e6e4b19f4aa1cb0d607bcd2acbd88cd23",
+  "backup": {
+    "checked_at": "2026-11-11T15:50:53.423993+00:00",
+    "passed": true,
+    "database": "corepilot_quanta_20261029",
+    "original_database_restored_over": false,
+    "application_code_changed": false,
+    "settings_changed": false,
+    "new_container_created": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "storage_mode": "replica_set",
+    "private_backup": "/srv/core-integration-pilot/20261029/private/quanta-storage-backup-20261111T155058Z-a5f5f97c",
+    "temporary_restore_database": "corepilot_restorecheck_f0060d18d4c542a291b7c69a",
+    "web_before": {
+      "id": "4c3db6bfc0c7523ff51537a362c731bad8a2521f33ec150c8d0ec139a50a579a",
+      "running": true,
+      "started_at": "2026-11-11T08:27:05.122047533Z"
+    },
+    "mongo_container_id": "9d92241f2fd5c1aeac60c055226280ed6e47f1aec328f0fd3b1d07a3608c3f86",
+    "stage": "verified",
+    "archive_sha256": "b6ad697559c3ce568df508aaca5348be3d20eacddbb198951975577ea281302a",
+    "archive_bytes": 90567,
+    "consistent_source_snapshot": true,
+    "coordinator_guard": {
+      "before": {
+        "_id": "core-time-writers-v1",
+        "revision": 1
+      },
+      "after": {
+        "_id": "core-time-writers-v1",
+        "revision": 2
+      },
+      "startup_only": true
+    },
+    "restore_verified": true,
+    "restored_collections": 70,
+    "restored_records": 1325,
+    "original_records_and_indexes_preserved": false,
+    "original_business_records_and_indexes_preserved": true,
+    "application_files_preserved": true,
+    "other_services_unchanged": true,
+    "coordination_enabled": true,
+    "appended_usage_events": 0,
+    "temporary_restore_database_removed": true,
+    "web_after": {
+      "id": "4c3db6bfc0c7523ff51537a362c731bad8a2521f33ec150c8d0ec139a50a579a",
+      "running": true,
+      "started_at": "2026-11-11T15:51:04.91403801Z"
+    },
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    },
+    "completed_at": "2026-11-11T15:51:27.331550+00:00"
+  },
+  "installation": {
+    "source_commit": "a6def184ea7657b077b163f4cf048a35db2b524c",
+    "passed": true,
+    "started_at": "2026-11-11T15:57:57.885695+00:00",
+    "coordination_enabled": true,
+    "operational_time_enabled": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "settings_changed": false,
+    "database_restored_over": false,
+    "private_receipt_directory": "/srv/core-integration-pilot/20261029/private/quanta-manual-recovery-before-ffdd6a329e8f424a9c2397748b40e736",
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    },
+    "hosted_probe": {
+      "passed": true,
+      "actual_application_routes": true,
+      "native_database": true,
+      "worker_duration_replay": true,
+      "admin_punch_replay": true,
+      "conflict_refused": true,
+      "late_request_cancelled": true,
+      "saved_entry_recovered": true,
+      "revoked_identity_refused": true,
+      "time_entries": 2,
+      "creation_audits": 2,
+      "receipts": 3,
+      "external_network_attempts": 0,
+      "temporary_database_removed": true
+    },
+    "runtime_files_verified": 182,
+    "frontend_files_verified": 79,
+    "installed_file_count": 11,
+    "original_business_records_preserved": 1324,
+    "original_time_entries": 12,
+    "new_empty_collections": [
+      "manual_time_receipts"
+    ],
+    "coordinator_guard": {
+      "before": {
+        "_id": "core-time-writers-v1",
+        "revision": 2
+      },
+      "after": {
+        "_id": "core-time-writers-v1",
+        "revision": 3
+      }
+    },
+    "other_services_unchanged": true,
+    "frontend_shell_preserved": true,
+    "served_assets_verified": true,
+    "target_container_id": "4c3db6bfc0c7523ff51537a362c731bad8a2521f33ec150c8d0ec139a50a579a",
+    "target_started_at": "2026-11-11T15:58:07.260187309Z",
+    "completed_at": "2026-11-11T15:58:36.222550+00:00"
+  },
+  "independent_verification": {
+    "verified": true,
+    "runtime_files": 182,
+    "frontend_files": 79,
+    "served_assets_verified": true,
+    "original_business_records": 1324,
+    "original_time_entries": 12,
+    "receipt_records_in_pilot": 0,
+    "guard_revision": 3,
+    "other_services_unchanged": true,
+    "protected_other_services": 185,
+    "temporary_databases_absent": true,
+    "coordination_enabled": true,
+    "operational_time_enabled": false,
+    "background_jobs_held": true,
+    "web_healthy": true
+  },
+  "local_backup_guard_checks": 7,
+  "local_install_guard_checks": 11,
+  "browser_lifecycle_acceptance": false,
+  "full_goal_complete": false,
+  "operational_time_enabled": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings": false
+}

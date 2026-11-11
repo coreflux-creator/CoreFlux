@@ -51,6 +51,8 @@ jobs:
           python3 tests/quanta_storage_upgrade_guard_test.py
           python3 tests/quanta_commit_runtime_guard_test.py
           python3 tests/quanta_commit_activation_guard_test.py
+          python3 tests/quanta_coordinated_backup_guard_test.py
+          python3 tests/quanta_manual_capture_install_guard_test.py
 
   native-writer-upgrade:
     name: Full-Core actual native writer observation

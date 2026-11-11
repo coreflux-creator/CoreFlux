@@ -14,8 +14,11 @@ PRIVATE=ROOT/'private'
 WEB='core-provider-pilot-20261029-quanta-pilot-web-1'
 MONGO='core-provider-pilot-20261029-quanta-pilot-mongo-1'
 DATABASE='corepilot_quanta_20261029'
-if len(sys.argv)!=3 or sys.argv[1]!='--backup-isolated-quanta' or not re.fullmatch('[a-f0-9]{64}',sys.argv[2]):
+GUARD='coreflux_commit_fences'
+GUARD_ID='core-time-writers-v1'
+if len(sys.argv)!=3 or sys.argv[1] not in {'--backup-isolated-quanta','--backup-isolated-coordinated-quanta'} or not re.fullmatch('[a-f0-9]{64}',sys.argv[2]):
  raise SystemExit('Explicit isolated backup and expected web-container identity required')
+coordinated=sys.argv[1]=='--backup-isolated-coordinated-quanta'
 if ROOT.resolve()!=ROOT or PRIVATE.resolve()!=PRIVATE or PRIVATE.stat().st_mode & 0o077:
  raise SystemExit('Private isolated target differs')
 os.umask(0o077)
@@ -41,7 +44,7 @@ def state():
  assert env['DB_NAME']==DATABASE and env['MONGO_URL']=='mongodb://quanta-pilot-mongo:27017'
  assert env['QUANTA_STARTUP_MODE']=='web' and env['MAIL_DRIVER']=='devoutbox'
  assert env['DISABLE_BACKGROUND_WORKERS']=='1' and env['DISABLE_SCHEDULER']=='1'
- assert not env.get('COREFLUX_TIME_ACCESS_TENANTS','').strip() and env.get('COREFLUX_TIME_COMMITS','0')=='0'
+ assert not env.get('COREFLUX_TIME_ACCESS_TENANTS','').strip() and env.get('COREFLUX_TIME_COMMITS','0')==str(int(coordinated))
  assert row['Config']['Labels']['com.docker.compose.project']=='core-provider-pilot-20261029'
  return {'id':row['Id'],'running':row['State']['Running'],'started_at':row['State']['StartedAt']}
 
@@ -71,6 +74,17 @@ print(JSON.stringify(out));
 def snapshot(name):
  assert name==DATABASE or re.fullmatch('corepilot_restorecheck_[a-f0-9]{24}',name)
  return json.loads(js(SNAPSHOT.replace('DBNAME',json.dumps(name))))
+
+def guard_row():
+ return json.loads(js('print(JSON.stringify(db.getSiblingDB('+json.dumps(DATABASE)+').getCollection('+json.dumps(GUARD)+').findOne({})))'))
+
+def verify_startup_guard(before,after,old,new):
+ assert old is not None and set(old)=={'_id','revision'} and old['_id']==GUARD_ID
+ assert type(old['revision']) is int and old['revision']>=1
+ assert new=={'_id':GUARD_ID,'revision':old['revision']+1},'Unexpected coordinated write during backup'
+ assert before[GUARD]['count']==after[GUARD]['count']==1
+ assert before[GUARD]['indexes']==after[GUARD]['indexes'] and before[GUARD]['options']==after[GUARD]['options']
+ assert len(before[GUARD]['indexes'])==1 and before[GUARD]['indexes'][0]['name']=='_id_'
 
 def health():
  for attempt in range(30):
@@ -125,6 +139,7 @@ try:
  assert not state()['running']
  report['stage']='snapshot_held_source'
  before=snapshot(DATABASE)
+ prior_guard=guard_row() if coordinated else None
  assert before.get('time_entries',{}).get('count')==12
  assert not before.get('coreflux_legacy_time',{}).get('count',0) and not before.get('coreflux_time_access',{}).get('count',0)
  report['stage']='dump_held_source'
@@ -135,7 +150,7 @@ try:
  assert archive.stat().st_size>0
  after_dump=snapshot(DATABASE)
  assert before==after_dump,'Source changed during held backup'
- (backup/'before.json').write_text(json.dumps({'database':before,'runtime_hashes':runtime,'other_services':protected},indent=2))
+ (backup/'before.json').write_text(json.dumps({'database':before,'runtime_hashes':runtime,'other_services':protected,'coordinator_guard':prior_guard},indent=2))
  report.update(archive_sha256=file_hash(archive),archive_bytes=archive.stat().st_size,consistent_source_snapshot=True)
  report['stage']='resume_web'
  run('docker','start',WEB);health();stopped=False
@@ -153,10 +168,15 @@ try:
  assert restored==before,'Restored records or indexes differ from the consistent snapshot'
  assert runtime_hashes()==runtime,'Application files changed during backup'
  after=snapshot(DATABASE)
+ if coordinated:
+  next_guard=guard_row();verify_startup_guard(before,after,prior_guard,next_guard)
+  report['coordinator_guard']={'before':prior_guard,'after':next_guard,'startup_only':True}
+ (backup/'after.json').write_text(json.dumps(after,indent=2))
  for name,prior in before.items():
-  if name!='api_usage_events':assert after.get(name)==prior,'Original collection changed during restore rehearsal: '+name
+  if name!='api_usage_events' and not (coordinated and name==GUARD):assert after.get(name)==prior,'Original collection changed during restore rehearsal: '+name
  prior_usage=before.get('api_usage_events');after_usage=after.get('api_usage_events')
  if prior_usage:
+  if coordinated:assert prior_usage==after_usage,'Usage must remain held during coordinated backup'
   assert prior_usage['indexes']==after_usage['indexes'] and prior_usage['options']==after_usage['options']
   assert set(prior_usage['row_hashes']).issubset(after_usage['row_hashes'])
   assert len(set(after_usage['row_hashes'])-set(prior_usage['row_hashes']))==after_usage['count']-prior_usage['count']
@@ -164,7 +184,8 @@ try:
  assert others()==protected,'Other service state changed during backup'
  report['stage']='verified'
  report.update(restore_verified=True,restored_collections=len(restored),restored_records=sum(v['count'] for v in restored.values()),
-  original_records_and_indexes_preserved=True,application_files_preserved=True,other_services_unchanged=True,
+  original_records_and_indexes_preserved=not coordinated,original_business_records_and_indexes_preserved=True,
+  application_files_preserved=True,other_services_unchanged=True,coordination_enabled=coordinated,
   appended_usage_events=(after_usage['count']-prior_usage['count']) if prior_usage else 0)
 except Exception as exc:
  report.update(failure_class=type(exc).__name__,failure_message=str(exc))

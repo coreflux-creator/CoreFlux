@@ -86,8 +86,8 @@ Before activation, a fresh backup and independent restore check verified all
 69 current collections, 1,324 records, 12 time entries and 181 runtime files on
 the upgraded replica set. The backup helper now accepts either the original
 standalone or this exact single-member pilot replica set, and still requires
-coordination and operational time to be off. It is not a general backup tool for
-an already active coordinator.
+coordination and operational time to be off in its original invocation. The
+later explicit coordinated-backup mode is described below.
 
 `activate_thunderhawk_quanta_commits.py` changed only the isolated web service's
 `COREFLUX_TIME_COMMITS` setting to `1`. The existing web service was recreated
@@ -116,3 +116,51 @@ Operational time exchange is still disabled. Historical associations,
 explicit time permissions, synthetic lifecycle and full financial-result
 reconciliation remain separate release requirements. No real payroll, payment,
 financial posting or production cutover is authorized by this evidence.
+
+## Manual save recovery installed in the pilot
+
+Quanta source `a6def184ea7657b077b163f4cf048a35db2b524c` passed
+[native CI 43051032619](https://github.com/coreflux-creator/Quanta/actions/runs/43051032619):
+242 full-application/startup checks and 11 transaction checks. The actual shared
+manual-entry form passed 27 React checks. A production frontend build completed
+with pre-existing repository lint warnings; strict warning-as-error mode is not
+claimed to pass.
+
+A fresh backup used `--backup-isolated-coordinated-quanta` with the exact web
+container ID. It restored all 70 collections and 1,325 rows in an unserved
+namespace, then removed that namespace. All 1,324 business records and indexes
+were unchanged. The one operational coordinator row advanced from revision 1
+to 2 only because the existing web process restarted. Seven boundary checks
+verify that this exception cannot hide another guard write or shape change.
+
+`install_thunderhawk_manual_capture.py` installed five backend files and six
+frontend files into the same containers. It retained the existing HTML shell,
+branding and unrelated static assets, changing only its application bundle/style
+references. A private code rollback copy and the verified database archive are
+retained. No database dump was restored over the pilot. Startup added only an
+empty `manual_time_receipts` collection and advanced the guard from 2 to 3.
+Eleven boundary checks refuse changed business data, later coordinator writes,
+unreviewed schema, expiring receipts or newly created receipt records.
+
+The installed application's worker duration and admin punch routes were then
+exercised with synthetic accounts in a fresh **unserved database**. Repeating a
+save returned its original entry; changing the same request conflicted;
+cancellation before a delayed request prevented creation; cancellation after
+a save recovered its receipt; disabling the identity denied recovery. Exactly
+two fixture entries, two creation audits and three receipts were observed.
+There were no external network attempts, and the temporary database was removed.
+This is installed-route evidence, not a completed browser-to-Core payroll round trip.
+
+An independent read verified all 182 backend files, 79 frontend files, served
+bundle/style/page hashes, 1,324 original business records and 12 original time
+entries. The pilot receipt collection remains empty. The same web container
+now started at `2026-11-11T15:58:07.260187309Z`; Mongo is unchanged. All 185 other
+container identities, states and start times matched the fresh baseline, which
+included the separately coordinated PurePay public release. The receipt is
+`deploy/thunderhawk-quanta-manual-capture-20261111.json`.
+
+The older Core delivery `78c85f45` did not complete all release checks: its first
+native writer fixture crashed in FPM, and attempts 2/3 failed resolving Ubuntu
+package mirrors before the fixture could run. This pilot's specific evidence
+does not clear that separate Core release requirement. Operational time exchange,
+historical associations and full lifecycle/financial-result acceptance remain open.
