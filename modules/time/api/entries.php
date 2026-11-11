@@ -251,7 +251,7 @@ function timeApiSyncTimesheetTotals(
 {
     foreach (array_values(array_unique(array_map('intval', $timesheetIds))) as $timesheetId) {
         if ($timesheetId <= 0) continue;
-        timeReconcileTimesheetHeader($timesheetId);
+        timeReconcileTimesheetHeader($timesheetId, $actorUserId);
         staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.entries_saved', $actorUserId, [
             'source' => $source,
         ]);
@@ -611,8 +611,21 @@ if ($method === 'PATCH') {
         $update['status'] = 'draft';
         $update['rejected_reason'] = null;
     }
-    scopedUpdate('time_entries', $id, $update);
-    timeReconcileTimesheetHeader((int) ($entry['timesheet_id'] ?? 0));
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        $current = scopedFind(
+            'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
+            ['id' => $id]
+        );
+        if ($current !== $entry) throw new \RuntimeException('The time entry changed. Refresh and review it again.', 409);
+        scopedUpdate('time_entries', $id, $update);
+        timeReconcileTimesheetHeader((int) ($entry['timesheet_id'] ?? 0), $user['id'] ?? null);
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        api_error('Entry was not saved: ' . $e->getMessage(), $e->getCode() === 409 ? 409 : 422);
+    }
     timeAudit('time.entry.updated', ['entry_id' => $id, 'fields' => array_keys($update)], $id);
     api_ok(['entry' => timeEntryGet($id)]);
 }

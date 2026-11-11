@@ -307,7 +307,7 @@ function timeCsvEnsurePeriod(string $workDate, array $bounds): int
 
 function timeCsvRefreshTimesheet(int $timesheetId, int $userId): array
 {
-    timeReconcileTimesheetHeader($timesheetId);
+    timeReconcileTimesheetHeader($timesheetId, $userId);
     return staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.entries_imported', $userId, [
         'source' => 'bulk_upload',
     ]);

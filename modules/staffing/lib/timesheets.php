@@ -206,6 +206,8 @@ function staffingTimesheetArtifactPayload(array $header): array
         'period_end'    => (string) $header['period_end'],
         'status'        => (string) ($header['status'] ?? 'draft'),
         'total_hours'   => (float) ($header['total_hours'] ?? 0),
+        'approved_by_user_id' => !empty($header['approved_by_user_id']) ? (int) $header['approved_by_user_id'] : null,
+        'approved_at'   => $header['approved_at'] ?? null,
         'origin_source' => (string) ($header['origin_source'] ?? 'manual_entry'),
         'origin_system' => $header['origin_system'] ?? null,
     ];

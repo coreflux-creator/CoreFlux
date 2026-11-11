@@ -156,60 +156,100 @@ function timeEntryGet(int $id): ?array
  * fully submitted week is submitted, and only an all-approved week is
  * approved. Downstream-ready/locked headers are never moved backwards.
  */
-function timeReconcileTimesheetHeader(?int $timesheetId): void
+function timeReconcileTimesheetHeader(?int $timesheetId, ?int $actorUserId = null): void
 {
     $timesheetId = (int) $timesheetId;
     if ($timesheetId <= 0) return;
 
-    $header = scopedFind(
-        'SELECT id, status FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
-        ['id' => $timesheetId]
-    );
-    if (!$header) return;
-
-    $summary = scopedFind(
-        "SELECT COUNT(*) AS row_count,
-                COALESCE(SUM(hours), 0) AS total_hours,
-                SUM(status = 'draft') AS draft_count,
-                SUM(status = 'pending_review') AS pending_count,
-                SUM(status = 'approved') AS approved_count,
-                SUM(status = 'rejected') AS rejected_count,
-                MAX(approved_at) AS latest_approved_at
-           FROM time_entries
-          WHERE tenant_id = :tenant_id AND timesheet_id = :timesheet_id
-            AND status != 'superseded'",
-        ['timesheet_id' => $timesheetId]
-    ) ?? [];
-
-    $update = ['total_hours' => (float) ($summary['total_hours'] ?? 0)];
-    $currentStatus = (string) ($header['status'] ?? 'draft');
-    if (!in_array($currentStatus, ['payroll_ready', 'billing_ready', 'locked'], true)) {
-        $rowCount = (int) ($summary['row_count'] ?? 0);
-        $drafts = (int) ($summary['draft_count'] ?? 0);
-        $pending = (int) ($summary['pending_count'] ?? 0);
-        $approved = (int) ($summary['approved_count'] ?? 0);
-        $rejected = (int) ($summary['rejected_count'] ?? 0);
-
-        if ($rowCount === 0 || $drafts > 0) {
-            $nextStatus = 'draft';
-        } elseif ($rejected > 0) {
-            $nextStatus = 'rejected';
-        } elseif ($pending > 0) {
-            $nextStatus = 'submitted';
-        } elseif ($approved === $rowCount) {
-            $nextStatus = 'approved';
-        } else {
-            $nextStatus = 'draft';
+    require_once __DIR__ . '/../../staffing/lib/timesheets.php';
+    $pdo = getDB();
+    $tenantId = (int) effectiveTenantIdForRequest();
+    $ownsTxn = cf_tx_begin($pdo);
+    $savepoint = 'time_reconcile_' . bin2hex(random_bytes(6));
+    if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $header = staffingTimesheetRow($tenantId, $timesheetId, true);
+        if (!$header) {
+            if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            cf_tx_commit($pdo, $ownsTxn);
+            return;
         }
-        $update['status'] = $nextStatus;
-        if ($nextStatus === 'submitted' && $currentStatus !== 'submitted') {
-            $update['submitted_at'] = date('Y-m-d H:i:s');
+
+        // Locking reads see current rows even inside a caller's repeatable-read transaction.
+        $stmt = $pdo->prepare(
+            "SELECT status, hours, approved_by_user_id, approved_at FROM time_entries
+              WHERE tenant_id = :tenant_id AND timesheet_id = :timesheet_id
+                AND status != 'superseded' ORDER BY id FOR UPDATE"
+        );
+        $stmt->execute(['tenant_id' => $tenantId, 'timesheet_id' => $timesheetId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $counts = array_count_values(array_column($rows, 'status'));
+        $reviewers = [];
+        $missingReviewerCount = 0;
+        $latestApproval = null;
+        foreach ($rows as $row) {
+            if ($row['status'] !== 'approved') continue;
+            $reviewer = (int) ($row['approved_by_user_id'] ?? 0);
+            if ($reviewer > 0) $reviewers[$reviewer] = $reviewer;
+            else $missingReviewerCount++;
+            if (!empty($row['approved_at']) && ($latestApproval === null || $row['approved_at'] > $latestApproval)) {
+                $latestApproval = $row['approved_at'];
+            }
         }
-        if ($nextStatus === 'approved') {
-            $update['approved_at'] = $summary['latest_approved_at'] ?: date('Y-m-d H:i:s');
+        sort($reviewers, SORT_NUMERIC);
+        $update = ['total_hours' => round(array_sum(array_column($rows, 'hours')), 2)];
+        $currentStatus = (string) $header['status'];
+        if (!in_array($currentStatus, ['payroll_ready', 'billing_ready', 'locked'], true)) {
+            if (!$rows || !empty($counts['draft'])) $nextStatus = 'draft';
+            elseif (!empty($counts['rejected'])) $nextStatus = 'rejected';
+            elseif (!empty($counts['pending_review'])) $nextStatus = 'submitted';
+            elseif (($counts['approved'] ?? 0) === count($rows)) $nextStatus = 'approved';
+            else $nextStatus = 'draft';
+            $update['status'] = $nextStatus;
+            if ($nextStatus === 'submitted' && $currentStatus !== 'submitted') {
+                $update['submitted_at'] = date('Y-m-d H:i:s');
+            }
+            // A week approved by several reviewers has no single approving user.
+            // Preserve each row's evidence; never invent an approver or approval date.
+            $update['approved_by_user_id'] = $nextStatus === 'approved'
+                && count($reviewers) === 1 && $missingReviewerCount === 0 ? $reviewers[0] : null;
+            $update['approved_at'] = $nextStatus === 'approved' ? $latestApproval : null;
         }
+
+        $changed = [];
+        foreach ($update as $field => $value) {
+            $prior = $header[$field] ?? null;
+            if ($value === null ? $prior !== null : ($prior === null || (string) $prior !== (string) $value)) {
+                if ($field === 'total_hours' && (float) $prior === $value) continue;
+                $changed[$field] = $value;
+            }
+        }
+        if ($changed) scopedUpdate('staffing_timesheets', $timesheetId, $changed);
+        $header = array_replace($header, $update);
+        $artifact = empty($header['artifact_id']) ? null : artifactGet($tenantId, (string) $header['artifact_id']);
+        if ($changed || !$artifact
+            || $artifact['status'] !== staffingTimesheetArtifactStatus($header['status'])
+            || $artifact['title'] !== staffingTimesheetDisplayId($timesheetId) . ' - week of ' . $header['period_start']
+            || artifactComparableJson($artifact['payload']) !== artifactComparableJson(staffingTimesheetArtifactPayload($header))) {
+            staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.entries_reconciled', $actorUserId, [
+                'prior_status' => $currentStatus,
+                'status' => $header['status'],
+                'changed_fields' => array_keys($changed),
+                'approver_user_ids' => $reviewers,
+                'approved_entries_without_user' => $missingReviewerCount,
+                'source' => 'atomic_time_entries',
+            ], $tenantId);
+        }
+        if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        if (!$ownsTxn && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
     }
-    scopedUpdate('staffing_timesheets', $timesheetId, $update);
 }
 
 /** Resolve the talent-pool person linked to an authenticated user. */
@@ -332,7 +372,7 @@ function timeSubmitEntries(array $entryIds, array $user, bool $canManageOthers =
             static fn(array $row): int => (int) ($row['timesheet_id'] ?? 0),
             $rows
         ))) as $timesheetId) {
-            timeReconcileTimesheetHeader($timesheetId);
+            timeReconcileTimesheetHeader($timesheetId, $user['id'] ?? null);
         }
         $pdo->commit();
     } catch (\Throwable $e) {
@@ -372,6 +412,8 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
     require_once __DIR__.'/../../../core/quanta/time_current.php';
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
+    $savepoint = 'time_approve_' . bin2hex(random_bytes(6));
+    if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
     try {
         $sourceCheck = quantaTimeAssertCurrent($pdo, (int)currentTenantId(), [$id]);
         $current = timeEntryGet($id);
@@ -386,9 +428,14 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
             'approved_via'        => $approvedVia,
         ]);
         $approvedEntry = timeEntryGet($id) ?? $entry;
-        timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0));
+        timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0), $user['id'] ?? null);
+        if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
+        if (!$ownsTxn && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
         cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
@@ -408,11 +455,32 @@ function timeRejectEntry(int $id, array $user, string $reason): array
     if ($entry['status'] !== 'pending_review') {
         throw new \RuntimeException("Only pending_review entries can be rejected; entry {$id} is {$entry['status']}", 409);
     }
-    scopedUpdate('time_entries', $id, [
-        'status' => 'rejected',
-        'rejected_reason' => $reason,
-    ]);
-    timeReconcileTimesheetHeader((int) ($entry['timesheet_id'] ?? 0));
+    require_once __DIR__ . '/../../../core/tx_helpers.php';
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    $savepoint = 'time_reject_' . bin2hex(random_bytes(6));
+    if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
+    try {
+        $current = scopedFind(
+            'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
+            ['id' => $id]
+        );
+        if ($current !== $entry) throw new \RuntimeException('The time entry changed during rejection. Refresh and review it again.', 409);
+        scopedUpdate('time_entries', $id, [
+            'status' => 'rejected',
+            'rejected_reason' => $reason,
+        ]);
+        timeReconcileTimesheetHeader((int) ($entry['timesheet_id'] ?? 0), $user['id'] ?? null);
+        if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        if (!$ownsTxn && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
     timeAudit('time.entry.rejected', [
         'entry_id' => $id,
         'reason' => $reason,
