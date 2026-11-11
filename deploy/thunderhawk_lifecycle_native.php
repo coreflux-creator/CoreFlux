@@ -20,7 +20,7 @@ final class ThunderhawkLifecycleNative
 
     public function __construct(string $phase)
     {
-        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import','time_approval','time_accept_return','payroll_input','payroll_result','payroll_cancel'],true)||PHP_SAPI!=='cli'
+        if(!in_array($phase,['activation','activation_resume','publication','publication_resume','time_policy','time_import','time_approval','time_accept_return','payroll_input','payroll_result','payroll_cancel','offboarding','offboarding_resume'],true)||PHP_SAPI!=='cli'
             ||getenv('COREFLUX_ENV')!=='staging'||realpath(getcwd())!==self::ROOT||posix_geteuid()!==1003
             ||realpath(self::PRIVATE)!==self::PRIVATE||is_link(self::PRIVATE)||(fileperms(self::PRIVATE)&0777)!==0700)exit(2);
         $this->phase=$phase;$this->pdo=getDB();
@@ -100,7 +100,11 @@ final class ThunderhawkLifecycleNative
         if($route==='/api/time/entries'&&($this->phase!=='time_approval'||(int)($query['id']??0)!==14
             ||($method==='POST'&&($query['action']??'')!=='approve')||!in_array($method,['GET','POST'],true)))throw new RuntimeException('Time request outside original synthetic entry');
         if($route==='/api/payroll/cycles'&&isset($query['action']))throw new RuntimeException('Cycle advancement is outside this test');
-        if($route==='/api/placements/placements'&&isset($query['action'])&&$query['action']!=='activate')throw new RuntimeException('Unreviewed placement action');
+        if(in_array($this->phase,['offboarding','offboarding_resume'],true)&&$route==='/api/placements/placements'&&$method!=='GET'
+            &&($method!=='POST'||($query['action']??'')!=='end'||(int)($query['id']??0)!==874))throw new RuntimeException('Only the original synthetic placement may end');
+        if($route==='/api/placements/placements'&&isset($query['action'])
+            && !(in_array($this->phase,['offboarding','offboarding_resume'],true) && $query['action']==='end' && (int)($query['id']??0)===874)
+            && $query['action']!=='activate')throw new RuntimeException('Unreviewed placement action');
         if($route==='/api/quanta.php'&&!in_array($query['action']??'', ['publication_preview','publication_send','publication_status','metadata_preview','metadata_send','metadata_receipt','time_control_context','time_control_preview','time_control_send','time_control_receipt','save_routes','preview','import','time_review_preview','time_review_send'],true))throw new RuntimeException('Unreviewed Quanta action');
         $pureActions=['people_input_preview','people_input_send','people_input_status','assignment_input_preview','assignment_input_send','assignment_input_status'];
         if($this->phase==='payroll_input')$pureActions=array_merge($pureActions,['link_preview','link_send','link_reconcile','payroll_input_preview','payroll_input_send','payroll_input_reconcile','payroll_reservation_reserve','payroll_reservation_send','payroll_reservation_reconcile']);
@@ -133,6 +137,13 @@ final class ThunderhawkLifecycleNative
                     ||($table==='placement_rates'&&(int)$row['id']===3)
                     ||($table==='placement_economic_parties'&&(int)$row['placement_id']===874)))continue;
                 if($this->phase==='time_import'&&$table==='quanta_connections'&&(int)$row['tenant_id']===2002&&(int)$row['id']===2){unset($row['last_import_at'],$row['last_import_error'],$row['updated_at']);}
+                if(in_array($this->phase,['offboarding','offboarding_resume'],true)&&(int)($row['tenant_id']??0)===2002){
+                    if($table==='placements'&&(int)$row['id']===874)unset($row['status'],$row['actual_end_date'],$row['updated_at']);
+                    if($table==='placement_economic_parties'&&(int)$row['placement_id']===874){
+                        unset($row['updated_at']);
+                        if($row['source_ref']==='worker:368')unset($row['effective_to']);
+                    }
+                }
                 if($this->phase==='time_approval'&&(int)($row['tenant_id']??0)===2002){
                     if($table==='time_entries'&&(int)$row['id']===14)
                         foreach(['status','rate_snapshot_id','approved_by_user_id','approved_at','approved_via','updated_at'] as $field)unset($row[$field]);

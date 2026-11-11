@@ -1,0 +1,112 @@
+{
+  "recorded_at": "2026-11-11T21:31:21.208509+00:00",
+  "status": "progress",
+  "goal_complete": false,
+  "this_goal_turn_progress": [
+    "Installed the tested placement-ending fix in Core staging",
+    "Ended the original synthetic placement through the native Core API and published its terminal revision",
+    "Accepted the same ended revision through Pure native review",
+    "Verified stable identities, preserved approved time and void payroll history, and deployed historical/live time eligibility",
+    "Retired both temporary review sessions and released the coordinated operation window"
+  ],
+  "runtime_source_commit": "4d1611b13ed4f06b5ca2a39dd38e84f81819f4e3",
+  "runtime_ci": {
+    "run_id": "43100142596",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43100142596",
+    "jobs_passed": 11
+  },
+  "installation": {
+    "passed": true,
+    "tables_verified": 368,
+    "rows_preserved": 34335,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/placement-end-before-ece4c6a6299a8b738893"
+  },
+  "synthetic_case": {
+    "tenant": 2002,
+    "person_number": "P-368",
+    "placement_number": "PL-874",
+    "core_status": "ended",
+    "quanta_status": "ended",
+    "pure_status": "ended",
+    "actual_end_date": "2026-11-10",
+    "planned_core_end_date": "2026-11-30",
+    "quanta_version": 2,
+    "pure_accepted_revision": "3acaaba0f14d5bd534289711e20751dd3c325d806620482a8c825ecfcdc61b83",
+    "quanta_delivery_id": 94,
+    "pure_delivery_id": 95,
+    "stable_provider_ids": true
+  },
+  "checks": {
+    "core_end_replay_retains_date_graph_and_audit": true,
+    "stale_provider_reviews_refused": true,
+    "delivery_replays_identical": true,
+    "pure_revision_replay_identical": true,
+    "pure_refreshed_end_replay_identical": true,
+    "approved_hour_and_original_review_preserved": true,
+    "historical_dates_allowed": [
+      "2026-11-09",
+      "2026-11-10"
+    ],
+    "later_dates_and_new_live_shifts_refused": true,
+    "quanta_collections_verified": 71,
+    "pure_collections_verified": 26,
+    "employee_and_void_payroll_unchanged": true,
+    "core_operator_76_retired": true,
+    "pure_added_session_retired": true
+  },
+  "recovered_fixture_issues": [
+    {
+      "step": "Core preflight",
+      "cause": "The first harness selected the record-link delivery rather than the assignment-input delivery. It stopped before native requests, actor creation or row changes. The bounded resume reads the original successful publication receipt.",
+      "original_receipt": "synthetic-lifecycle-offboarding-result.json"
+    },
+    {
+      "step": "Pure session cleanup",
+      "cause": "Closure and all preservation checks passed; the cleanup used session_ids instead of the API field session_id. The exact one added synthetic session was identified against the saved baseline and retired separately.",
+      "original_receipt": "synthetic-lifecycle-pure-offboarding-result.json",
+      "recovery_receipt": "synthetic-lifecycle-pure-offboarding-cleanup-result.json"
+    }
+  ],
+  "boundaries": {
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "browser_acceptance": false,
+    "access_check_scope": "Deployed database-backed eligibility and portal readers, not browser login acceptance"
+  },
+  "coordination_window_released": true,
+  "evidence": {
+    "installation": {
+      "path": "output/placement-end-install-result.json",
+      "sha256": "099c5b6858d2b86b830d358b9b2c36d8304a48c0160c62feb98f26157bec32a4"
+    },
+    "core_native": {
+      "path": "output/synthetic-lifecycle-offboarding_resume-result.json",
+      "sha256": "c3e1b3be946e33a5069c87e227ce651779bcf7eeb3b31b0a9724d3135d01eacf"
+    },
+    "provider_native": {
+      "path": "output/synthetic-lifecycle-pure-offboarding-result.json",
+      "sha256": "7f39ed4ce4769d23b0866e1f87ef6ce1d1e714718d3265f8bdaa384e7e2429fd"
+    },
+    "session_cleanup": {
+      "path": "output/synthetic-lifecycle-pure-offboarding-cleanup-result.json",
+      "sha256": "515bfaf37e7b1083ba634b1bb1278df8683c737713fa1880b793e3213d166d93"
+    },
+    "independent_provider_verification": {
+      "path": "output/synthetic-offboarding-provider-verification.json",
+      "sha256": "78052b0ba7b6cf3831652ce07fe7bb4b9a2c5d6074e8c27c8cbc5e093ed368cb"
+    },
+    "deployed_access_verification": {
+      "path": "output/synthetic-offboarding-access-verification.json",
+      "sha256": "49a00a92f9fddb260696e6f4cc5c522107e227312a39a292c3d9ef9f5bed0ad2"
+    }
+  },
+  "next_actions": [
+    "Complete worker/manager portal offboarding acceptance and onboarding/document lifecycle with preserved task history",
+    "Audit the field and ownership matrix against current implementations, including JobDiva refresh after a Core-owned terminal placement change",
+    "Complete remaining financial-result, billing/AP/AR linkage and reconciliation acceptance",
+    "Keep the full integration goal active; production cutover and real financial execution remain outside current authorization"
+  ]
+}
