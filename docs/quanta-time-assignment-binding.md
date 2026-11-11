@@ -122,6 +122,11 @@ established by the exact committed CI run before staging acceptance.
 
 ## Still required for the integration
 
+The [isolated Quanta update](quanta-assignment-time-pilot.md) now includes the
+tested capture and setup runtime with operational configuration disabled.
+Core's paired changes remain source-only; exact Core CI run 42955201527 passed
+all eleven jobs, including the route migration and concurrent writer checks.
+
 No pilot time policy has been enabled. Finish reviewed handling of existing
 unbound time and the remaining kiosk/task/import entry paths. Deploy and validate
 the new explicit assignment routes in the isolated pilot. Finish PurePay/PurePayroll handling,

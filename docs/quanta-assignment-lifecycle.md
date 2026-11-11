@@ -2,6 +2,11 @@
 
 ## Installed November 11 pilot correction
 
+The later [assignment-time pilot update](quanta-assignment-time-pilot.md)
+supersedes the runtime/start time below while preserving this lifecycle fix.
+Its operational time configuration remains disabled. The evidence below records
+the earlier lifecycle installation rather than the current complete runtime.
+
 Quanta source `e47e1693824be67a7fb3e65e126b813e33f89bdb` is installed only in the
 existing isolated provider pilot. Closing or revising one assignment now leaves
 its onboarding history readable while disabling submissions for that case.

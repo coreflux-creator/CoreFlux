@@ -1,0 +1,73 @@
+# Isolated Quanta assignment-time update
+
+On November 11, 2026 (UTC), Quanta source
+`4354556f72d9e034f1b4207809b04c592fbe9f5f` replaced the earlier `e47e169`
+runtime in the existing isolated provider pilot. It includes assignment-bound
+time capture, approval/export guards, native assignment choices and the
+administrator time-eligibility review. Its operational configuration remains
+disabled: no company was added to `COREFLUX_TIME_ACCESS_TENANTS`, no policy was
+created and no existing entry was adopted or rewritten.
+
+The full application's 540 checks and the later 168 focused checks both match
+all 178 current backend source hashes, with no attempted provider connections.
+The frontend was rebuilt from the same tested source without public source maps.
+The installer package contained 24 changed backend files and 54 frontend files.
+It preserved the private browser policy, checked the entire existing backend
+against the reviewed baseline, and required the exact container and start time.
+
+The actual installer was also rehearsed against temporary files and simulated
+services. Nine cases cover success, stale container identity, already-enabled
+policy, changed backend, incorrect archive digest, unexpected business-record
+change, unexpected policy activation, startup failure and incorrect served HTML.
+Failure after replacement restores the old bytes, ownership and timestamps;
+new files are removed. Successful installation uses fresh Python-file timestamps
+so a same-length change cannot accidentally reuse an old bytecode cache.
+
+Only the existing isolated Quanta web process restarted. Its container ID stayed
+`f4988aa4a83d4b6106c205ecf9c1e8f63d0a975a9da846f3269450f2ed8a7d11`;
+the new start time is `2026-11-11T04:00:28.628576052Z`. No new container or
+background worker was started. A private rollback copy remains available.
+All existing collections and indexes stayed exact; startup created only the
+empty `coreflux_time_access` collection. No usage-log rows were appended.
+Other services retained their identities, states and start times.
+
+Independent verification fetched and hashed all 54 served frontend files,
+checked installed runtime bytes and called native APIs with ephemeral tokens
+for existing isolated worker and administrator identities. It established:
+
+- The original three approved onboarding tasks and twelve current time-review
+  receipts for P-358 / PL-864 remain readable.
+- Worker access to workspace reports, administrator time setup and another
+  worker's choices is denied.
+- Without a policy, the worker's assignment selector remains unmanaged and does
+  not invent an assignment or grant access.
+- The administrator can read the review context, which identifies twelve
+  existing unbound entries and reports configuration disabled.
+- A valid configuration request is refused by the disabled rollout guard,
+  without creating a policy or delivery record.
+- All 66 collections remain unchanged after these verification requests;
+  no token was saved, and other services remain unchanged.
+
+This is hosted runtime/API acceptance with configuration held. It is not a
+browser login/MFA test or a completed time-activation/offboarding round trip.
+The first hosted negative request used the wrong context field name and was
+rejected by schema validation; the corrected contract then reached and proved
+the disabled configuration guard. Neither request changed business records.
+
+Evidence is retained in `deploy/thunderhawk-assignment-time-20261111.json`,
+`deploy/install_thunderhawk_assignment_time.py` and
+`tests/quanta_time_pilot_installer_rehearsal.py`.
+
+Core source `26812ae869d07c0319fb1b18e4efc48221552ff9` separately passed all
+eleven jobs in CI run 42955201527, including its assignment-specific route
+migration, independent database writer contention, source conflict, batch
+rollback and native permissions tests. Those Core changes and migration 188
+have not yet been installed in the isolated Core pilot. The frozen full-Core
+candidate `6b7841894cbfc818769de216f2719b0fbb3ab2e8` remains unchanged.
+
+Remaining work includes the paired Core update, reviewed handling of existing
+time, concurrent native mutation checks, remaining time-entry selectors, the
+reviewed PurePay candidate and PurePayroll authority, distinct synthetic
+offboarding, full-Core release acceptance and Thunderhawk reconciliation.
+No production cutover, real payroll, payments, financial postings or Arabella
+pilot changes were performed.
