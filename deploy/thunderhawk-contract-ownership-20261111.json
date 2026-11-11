@@ -1,0 +1,110 @@
+{
+  "recorded_at": "2026-11-11T23:04:31.793326+00:00",
+  "previous_goal_turn_classification": "no progress",
+  "previous_goal_turn_reason": "The immediately preceding assistant reply supplied the standalone accounting URL; it did not change integration state. The last implementation turn had deployed native placement editing.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "scope": "Core isolated staging tenant 2002; no provider or production deployment",
+  "runtime_source": "467c3c8412dceac3fe3924c320593f878f1bf04e",
+  "ci": {
+    "run": "43115925800",
+    "commit": "467c3c8412dceac3fe3924c320593f878f1bf04e",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43115925800",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "Source-contract reconciliation retains placement ownership of employment model, dates, client identities, terms and cycles",
+    "Source-managed commercial participants retain explicitly reviewed payment terms, paid-when-paid and operating cycle flags",
+    "Active bill-to ownership protects the canonical billing summary; unrelated receivable participants and inactive parties do not claim it",
+    "Existing placements pass retained canonical dates and identities into commercial child writes",
+    "A conflicting Core employment model holds source rate/payee/referral/commission updates while unrelated source fields refresh",
+    "Projector postconditions translate canonical and participant ownership into display-field names, and return retained differences as ownership_conflicts",
+    "Existing-placement commercial reconciliation errors roll back the enclosing source transaction"
+  ],
+  "verification": {
+    "baseline_commit": "669de4fc010ffc00a7613c0e10c6d1c470ec844b",
+    "baseline_gap_reproduced": true,
+    "contract_ownership_checks_disposable": 28,
+    "native_edit_checks_disposable": 27,
+    "lifecycle_checks_disposable": 30,
+    "prior_ownership_checks": 17,
+    "placement_end_checks": 13,
+    "request_checks": 17,
+    "postcondition_bill_to_scope_smoke": true,
+    "rate_smoke_checks": 36,
+    "hosted_contract_checks": 28,
+    "original_containers_preserved": 206,
+    "installed_files": 4,
+    "dependencies_checked": 30,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_regression": 34356,
+    "fixture_rows_rolled_back": true,
+    "temporary_probe_removed": true
+  },
+  "candidate_history": [
+    {
+      "commit": "1a3bec4cb0da1e5ebbac07aea34c1191bce3530a",
+      "outcome": "Fixture used id instead of client_id and id instead of placement_id; corrected fixture keys"
+    },
+    {
+      "commit": "3b831f5c06c8281b6e0a532bf566a8f6dbd407b3",
+      "outcome": "Disposable baseline reproduced; candidate retained terms and replay but rejected synthetic rates missing explicit unit and currency; corrected input"
+    },
+    {
+      "commit": "d23a32e507d7e28b7fb4737b47bde0f57c562849",
+      "outcome": "All disposable database checks passed; core smoke retained an old source-variable assertion, which was updated to verify canonical dates and the model-conflict guard"
+    },
+    {
+      "commit": "3b7a2154fe27d7d71e092979463a1d3cd316db20",
+      "outcome": "Narrowed inherited billing ownership to the active bill-to participant and added pure regression coverage"
+    }
+  ],
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "browser_acceptance": false,
+    "native_http_acceptance": false,
+    "hosted_test_method": "Exact deployed PHP writer and commercial graph functions under a synthetic outer rollback transaction. Existing business rows independently fingerprinted before and after."
+  },
+  "coordination_window_released": true,
+  "remaining_scope": [
+    "Carry retained-ownership differences through reconciliation API summaries and rendered operator review; projector metadata alone is not UI acceptance",
+    "Make native economic participant edits atomic with placement/corporation summaries and audit, correct canonical bill-to role propagation, and provide reviewed ownership release",
+    "Audit explicitly cleared end-client chain records, source-owned rate fields, cycle-anchor ownership and new-placement graph failure handling",
+    "Complete native HTTP/rendered controls, CSV editing, ordinary terminal status/date invariants and activation replay acceptance",
+    "Complete per-field/destination and custom-field alignment, worker/manager portal and onboarding/document lifecycle acceptance",
+    "Complete financial-result, billing/AP/AR lineage and reconciliation acceptance"
+  ],
+  "installed_runtime_hashes": {
+    "core/jobdiva/sync.php": "ab0faee59bcce539c6a35a30434a44978cba4303a09d531efde1e2d42a675527",
+    "core/jobdiva/projector.php": "7e755642fe01d3758a44d41858b84d28aa78362864445456f0625196668ded1e",
+    "core/jobdiva/contract_projection.php": "b60eaf948a77e2e3a03d0720a333d1e32d8f66296e9fa1e4e2096fe145eaa3f9",
+    "modules/placements/lib/economics.php": "ee01bae8602dcf22bac4c35b551cbc54ac4e436c8276000e3f839ae09b845d76"
+  },
+  "evidence": {
+    "contract-ownership-467c3c84-disposable-result.json": {
+      "path": "output/contract-ownership-467c3c84-disposable-result.json",
+      "sha256": "d6922a6e7038f45d0abe32f1476f4fc9099087f0a6789eb658fa9d86b9ec0596"
+    },
+    "contract-ownership-install-result.json": {
+      "path": "output/contract-ownership-install-result.json",
+      "sha256": "4fd3ce77bc396d39922e7b5fbe319b9b7d30b2dab019a8c85a47a087ae75a6ba"
+    },
+    "contract-ownership-hosted-result.json": {
+      "path": "output/contract-ownership-hosted-result.json",
+      "sha256": "9a2bf22a9449ed8020c523dbde0715005f06544cd27051bfad950e68a862de8f"
+    },
+    "contract-ownership-ci.json": {
+      "path": "output/contract-ownership-ci.json",
+      "sha256": "5dca55f457ecebe19f966c9f5f60ae050459b30e4ff77230ac7528b80acc4baa"
+    },
+    "contract-ownership-preflight.json": {
+      "path": "output/contract-ownership-preflight.json",
+      "sha256": "5b6de7ed6a767a9bd3e39e1f9f99ef19c4f0e5568ecfcd1f451ddf0096d83657"
+    }
+  }
+}
