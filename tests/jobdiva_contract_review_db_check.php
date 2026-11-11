@@ -19,7 +19,7 @@ try{
     $billCompany=companiesUpsertByName($tenant,'CI Review Billing',[],['client']);
     $client=staffingClientEnsureForCompany($tenant,$billCompany,'CI Review Billing')['client_id'];
     $owned=['start_date','end_date','client_bill_cycle','client_payment_terms_override'];
-    $placement=scopedInsert('placements',['person_id'=>$person,'status'=>'on_hold','start_date'=>'2026-10-01','end_date'=>'2026-12-31','engagement_type'=>'w2','external_id'=>'jd:99150001','coreflux_overridden_fields'=>json_encode($owned),
+    $placement=scopedInsert('placements',['person_id'=>$person,'title'=>'CI Core review title','status'=>'on_hold','start_date'=>'2026-10-01','end_date'=>'2026-12-31','engagement_type'=>'w2','external_id'=>'jd:99150001','coreflux_overridden_fields'=>json_encode($owned),
         'client_id'=>$client,'end_client_company_id'=>$billCompany,'end_client_name'=>'CI Review Billing','client_bill_cycle'=>'monthly','client_payment_terms_override'=>'NET10','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>'NET30','vendor_pwp_enabled'=>0,'worksite_city'=>'Newark','worksite_country'=>'US']);
     scopedInsert('placement_rates',['placement_id'=>$placement,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-10-01 12:00:00']);
     placementEconomicsReconcile($tenant,$placement);
