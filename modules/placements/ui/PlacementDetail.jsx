@@ -407,15 +407,19 @@ function OverviewEdit({ placement, onClose }) {
     } catch (e) { setError(e); setSaving(false); }
   };
   /**
-   * Drop one field from the placement's coreflux_overridden_fields list.
-   * The next JobDiva sync will then refresh that column from upstream.
+   * Return a field, or a paired closure, to JobDiva on its next refresh.
    */
   const revert = async (field) => {
+    const pairedClosure = ['ended', 'cancelled'].includes(placement.status)
+      && ['status', 'actual_end_date'].includes(field)
+      && overrides.has('status') && overrides.has('actual_end_date');
+    const fields = pairedClosure ? ['status', 'actual_end_date'] : [field];
+    if (pairedClosure && !window.confirm('Return both the status and actual end date to JobDiva? Its next refresh can change this closure.')) return;
     setReverting(field); setError(null);
     try {
       const resp = await api.post(
         `/modules/placements/api/placements.php?id=${placement.id}&action=clear_override`,
-        { fields: [field] }
+        { fields }
       );
       // Server returns the updated placement; re-parse the new override list.
       setOverrides(parseOverrides(resp?.placement ?? {}));
@@ -428,14 +432,17 @@ function OverviewEdit({ placement, onClose }) {
   /** Renders a "Revert to JobDiva" pill under a field when it's overridden. */
   const RevertControl = ({ field }) => {
     if (!fromJD || !overrides.has(field)) return null;
+    const pairedClosure = ['ended', 'cancelled'].includes(placement.status)
+      && ['status', 'actual_end_date'].includes(field)
+      && overrides.has('status') && overrides.has('actual_end_date');
     const isBusy = reverting === field;
     return (
       <button
         type="button"
         onClick={() => revert(field)}
-        disabled={isBusy}
+        disabled={reverting !== null}
         data-testid={`revert-${field.replace(/_/g, '-')}`}
-        title="Drop the CoreFlux override on this field — next JobDiva sync will refresh it from upstream."
+        title={pairedClosure ? 'Return the status and actual end date together to JobDiva on its next refresh.' : 'The next JobDiva sync will refresh this field from its source.'}
         style={{
           marginTop:    '4px',
           alignSelf:    'flex-start',
@@ -450,7 +457,7 @@ function OverviewEdit({ placement, onClose }) {
           opacity:      isBusy ? 0.6 : 1,
         }}
       >
-        {isBusy ? 'Reverting…' : '↻ Revert to JobDiva'}
+        {isBusy ? 'Reverting…' : pairedClosure ? '↻ Return closure to JobDiva' : '↻ Revert to JobDiva'}
       </button>
     );
   };

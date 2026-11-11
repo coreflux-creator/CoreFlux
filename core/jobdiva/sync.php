@@ -1419,8 +1419,10 @@ function jobdivaSyncApplyTerminalAssignmentLifecycle(
         'skipped' => 0,
         'failed' => 0,
         'errors' => [],
+        'skipped_reasons' => [],
     ];
     if ($tenantId <= 0 || $rows === []) return $summary;
+    require_once __DIR__ . '/../../modules/placements/lib/ownership.php';
     $pdo = getDB();
 
     foreach ($rows as $row) {
@@ -1462,27 +1464,29 @@ function jobdivaSyncApplyTerminalAssignmentLifecycle(
             }
             $summary['matched']++;
 
-            $endDate = jobdivaNormaliseDate(jobdivaAssignmentIdentityPluck($row, [
+            $rawEndDate = jobdivaAssignmentIdentityPluck($row, [
                 'end date', 'endDate', 'end_date', 'assignment end date',
-            ]));
-            $update = $pdo->prepare(
-                "UPDATE placements
-                    SET status = :status,
-                        end_date = COALESCE(:end_date, end_date),
-                        updated_at = NOW()
-                  WHERE tenant_id = :t
-                    AND id = :id
-                    AND status IN ('draft', 'pending_start', 'active', 'on_hold')"
-            );
-            $update->execute([
-                'status' => $desired,
-                'end_date' => $endDate,
-                't' => $tenantId,
-                'id' => $placementId,
             ]);
-            if ($update->rowCount() > 0) {
-                $summary['updated']++;
-                $summary[$desired]++;
+            $endDate = jobdivaNormaliseDate($rawEndDate);
+            if ($rawEndDate !== '' && $endDate === null) throw new RuntimeException('Review the JobDiva assignment end date.', 422);
+            $result = placementWithLockedRecord($tenantId, $placementId, static function (array $placement, PDO $pdo) use ($tenantId, $placementId, $startId, $desired, $endDate, $row, $userId): array {
+                if (!in_array((string) ($placement['external_id'] ?? ''), ['jd:' . $startId, $startId], true)) {
+                    throw new RuntimeException('The JobDiva Start binding changed. Review the placement identity.', 409);
+                }
+                $overrides = placementOwnershipFields($placement['coreflux_overridden_fields'] ?? null);
+                if (array_intersect(['status', 'actual_end_date', 'end_date'], $overrides)) {
+                    return ['changed' => false, 'reason' => 'core_owned_lifecycle'];
+                }
+                if (!in_array($placement['status'], ['draft', 'pending_start', 'active', 'on_hold'], true)) {
+                    return ['changed' => false, 'reason' => 'already_terminal'];
+                }
+                if ($desired === 'ended' && $endDate !== null && !empty($placement['start_date']) && $endDate < $placement['start_date']) {
+                    throw new RuntimeException('The JobDiva end date precedes the placement start date.', 422);
+                }
+                $update = $pdo->prepare('UPDATE placements SET status=:status, end_date=COALESCE(:end_date,end_date), updated_at=NOW() WHERE tenant_id=:t AND id=:id');
+                $update->execute(['status'=>$desired, 'end_date'=>$endDate, 't'=>$tenantId, 'id'=>$placementId]);
+                $graph = placementEconomicsReconcile($tenantId, $placementId);
+                if (!$graph['available'] || $graph['errors']) throw new RuntimeException('The source lifecycle could not update the placement commercial graph.', 422);
                 jobdivaAudit($tenantId, 'assignment_census_lifecycle', [
                     'entity_type' => 'placement',
                     'direction' => 'pull',
@@ -1493,13 +1497,23 @@ function jobdivaSyncApplyTerminalAssignmentLifecycle(
                         'start_id' => $startId,
                         'placement_id' => $placementId,
                         'status' => $desired,
+                        'prior_status' => $placement['status'],
+                        'prior_end_date' => $placement['end_date'],
+                        'source_end_date' => $endDate,
                         'source_status' => jobdivaAssignmentIdentityPluck($row, [
                             'startStatus', 'start_status', 'start status', 'status',
                         ]),
                     ],
                 ]);
+                return ['changed' => true];
+            });
+            if ($result['changed']) {
+                $summary['updated']++;
+                $summary[$desired]++;
             } else {
                 $summary['skipped']++;
+                $reason = $result['reason'];
+                $summary['skipped_reasons'][$reason] = ($summary['skipped_reasons'][$reason] ?? 0) + 1;
             }
         } catch (\Throwable $e) {
             $summary['failed']++;

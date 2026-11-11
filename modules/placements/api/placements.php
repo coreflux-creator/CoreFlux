@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/end.php';
+require_once __DIR__ . '/../lib/ownership.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
@@ -113,23 +114,11 @@ if ($method === 'POST') {
         $body = api_json_body();
         $fields = is_array($body['fields'] ?? null) ? $body['fields'] : [];
         if (empty($fields)) api_error('fields[] required', 422);
-        $row = placementGet($id);
-        if (!$row) api_error('Not found', 404);
-        $before = placementAuditRow($id) ?? $row;
-        $current = [];
-        if (!empty($row['coreflux_overridden_fields'])) {
-            $decoded = json_decode((string) $row['coreflux_overridden_fields'], true);
-            if (is_array($decoded)) $current = array_values(array_filter(array_map('strval', $decoded)));
+        try { $release = placementClearOverrides($id, $fields); }
+        catch (RuntimeException|InvalidArgumentException $e) {
+            api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
         }
-        $remaining = array_values(array_diff($current, array_map('strval', $fields)));
-        scopedUpdate('placements', $id, [
-            'coreflux_overridden_fields' => $remaining === [] ? null : json_encode($remaining),
-        ]);
-        placementsAudit('placement.override_cleared', ['id' => $id, 'fields' => array_values($fields)], $id, [
-            'before' => $before,
-            'after' => placementAuditRow($id),
-        ]);
-        api_ok(['placement' => placementGet($id)]);
+        api_ok(['placement' => placementGet($id)] + $release);
     }
 
     // Bulk status update — flips many placements at once. Built for the

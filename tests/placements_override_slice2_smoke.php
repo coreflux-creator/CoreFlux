@@ -93,10 +93,11 @@ $assert('clear_override requires placements.manage RBAC',
     preg_match("/clear_override.*rbac_legacy_require\(\\\$user,\s*'placements\.manage'\)/s", $apiSrc) === 1);
 $assert('clear_override requires fields[] in body',
     preg_match("/clear_override.*fields\\[\\] required/s", $apiSrc) === 1);
-$assert('clear_override array_diffs the requested fields',
-    preg_match("/clear_override.*array_diff\(\\\$current,/s", $apiSrc) === 1);
-$assert('clear_override writes audit',
-    str_contains($apiSrc, "placement.override_cleared"));
+$ownershipSrc = (string) file_get_contents('/app/modules/placements/lib/ownership.php');
+$assert('clear_override uses the locked ownership release',
+    str_contains($apiSrc, 'placementClearOverrides($id, $fields)') && str_contains($ownershipSrc, 'FOR UPDATE'));
+$assert('clear_override retains its audit operation',
+    str_contains($ownershipSrc, "placement.override_cleared"));
 
 echo "\n=== Summary ===\n";
 echo "Passed: {$pass}\n";

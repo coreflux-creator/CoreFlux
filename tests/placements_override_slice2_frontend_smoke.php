@@ -50,7 +50,10 @@ $assert('banner explains the "edit → overridden" flow',  str_contains($src, 's
 $assert('OverviewEdit keeps a local override state',     str_contains($src, 'const [overrides, setOverrides] = useState'));
 $assert('revert() POSTs to clear_override action',
     str_contains($src, '?id=${placement.id}&action=clear_override') &&
-    str_contains($src, '{ fields: [field] }'));
+    str_contains($src, '{ fields }'));
+$assert('closed placement returns paired lifecycle fields after explicit review',
+    str_contains($src, "pairedClosure ? ['status', 'actual_end_date'] : [field]") &&
+    str_contains($src, 'Return both the status and actual end date to JobDiva?'));
 $assert('revert updates local override state from server response',
     str_contains($src, 'setOverrides(parseOverrides(resp?.placement ?? {}))'));
 $assert('RevertControl renders nothing for non-JD or non-overridden fields',
