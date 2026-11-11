@@ -13,7 +13,7 @@ $checks=0;$failures=[];
 $check=static function(bool $ok,string $message)use(&$checks,&$failures):void{
     if($ok){$checks++;echo "PASS $message\n";}else{$failures[]=$message;echo "FAIL $message\n";}
 };
-$read=static fn(string $table):array=>getDB()->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$read=static fn(string $table):array=>getDB()->query('SELECT * FROM '.$table.' ORDER BY '.($table==='placement_corp_details'?'placement_id':'id'))->fetchAll(PDO::FETCH_ASSOC);
 $financial=[$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('accounting_events')];
 $pdo->beginTransaction();
 try{
@@ -21,7 +21,7 @@ try{
     $coreEnd=companiesUpsertByName($tenant,'CI Core End Client',[],['client']);
     $sourceEnd=companiesUpsertByName($tenant,'CI Source End Client',[],['client']);
     $billCompany=companiesUpsertByName($tenant,'CI Core Billing',[],['client']);
-    $billClient=staffingClientEnsureForCompany($tenant,$billCompany,'CI Core Billing')['id'];
+    $billClient=staffingClientEnsureForCompany($tenant,$billCompany,'CI Core Billing')['client_id'];
     $owned=['engagement_type','start_date','end_date','client_id','end_client_name','end_client_company_id','client_bill_cycle','client_bill_cycle_anchor','client_payment_terms_override','vendor_pay_cycle','vendor_pay_cycle_anchor','vendor_payment_terms_override','vendor_pwp_enabled'];
     $placement=scopedInsert('placements',['person_id'=>$person,'status'=>'on_hold','start_date'=>'2026-10-01','end_date'=>'2026-12-31','engagement_type'=>'1099','title'=>'Core initial title','external_id'=>'jd:99140001','coreflux_overridden_fields'=>json_encode($owned),
         'client_id'=>$billClient,'end_client_company_id'=>$coreEnd,'end_client_name'=>'CI Core End Client','client_bill_cycle'=>'monthly','client_bill_cycle_anchor'=>'2026-10-01','client_payment_terms_override'=>'NET10','vendor_pay_cycle'=>'biweekly','vendor_pay_cycle_anchor'=>'2026-10-05','vendor_payment_terms_override'=>'NET15','vendor_pwp_enabled'=>0]);
