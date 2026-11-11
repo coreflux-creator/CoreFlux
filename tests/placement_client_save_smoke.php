@@ -116,8 +116,11 @@ foreach ([1 => 1, 2 => 1, 3 => 3] as $activeTenant => $catalogTenant) {
     $assert("tenant $activeTenant request context is unchanged", currentTenantId() === $activeTenant);
 }
 $api = file_get_contents(__DIR__ . '/../modules/placements/api/placements.php');
+$edit = file_get_contents(__DIR__ . '/../modules/placements/lib/edit.php');
 $assert('placement create and edit use the resolved catalog for company identity',
     str_contains($api, '$placementTenantId = (int) placementsGraphTenantId((int) $ctx[\'tenant_id\']);')
     && str_contains($api, 'placementsResolveCompanyRoles($placementTenantId,')
-    && substr_count($api, 'placementsResolveCompanyRoles($placementTenantId,') === 2);
+    && str_contains($api, 'placementApplyNativeEdit(')
+    && str_contains($edit, 'placementWithLockedRecord(')
+    && str_contains($edit, 'placementsResolveCompanyRoles((int) $existing[\'tenant_id\'],'));
 exit($failures ? 1 : 0);

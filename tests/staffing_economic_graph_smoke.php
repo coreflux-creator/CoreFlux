@@ -212,7 +212,8 @@ $assert('economics screen exposes readiness blockers and manual participant remo
     && str_contains($ui, 'multiple_labor_payees')
     && str_contains($ui, 'removeParty(party)'));
 $assert('placement activation is gated by complete economic readiness',
-    str_contains($placementsApi, 'placementsRequireActiveReady')
+    str_contains($placementsApi, 'placementApplyNativeEdit(')
+    && str_contains(file_get_contents(__DIR__ . '/../modules/placements/lib/edit.php'), 'placementsRequireActiveReady(')
     && str_contains($rateApprove, 'placement.activation_blocked_economic_setup')
     && str_contains($rateApprove, 'Placement economic setup incomplete'));
 $assert('legacy fragmented URLs redirect to Economics',

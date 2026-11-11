@@ -30,7 +30,11 @@ $a('placement list exposes display client name', str_contains($placementLib, 'en
 
 $placementApi = $c('modules/placements/api/placements.php');
 $a('placement API loads staffing client bridge', str_contains($placementApi, "/../../staffing/lib/clients.php"));
-$a('placement create/update resolves company roles separately', substr_count($placementApi, 'placementsResolveCompanyRoles(') >= 2);
+$placementEdit = $c('modules/placements/lib/edit.php');
+$a('placement create/update resolves company roles separately',
+    str_contains($placementApi, 'placementsResolveCompanyRoles(')
+    && str_contains($placementApi, 'placementApplyNativeEdit(')
+    && str_contains($placementEdit, 'placementsResolveCompanyRoles('));
 $a('placement create applies explicitly selected company roles', str_contains($placementApi, 'array_replace($insert, placementsResolveCompanyRoles'));
 
 $staffingLib = $c('modules/staffing/lib/clients.php');
