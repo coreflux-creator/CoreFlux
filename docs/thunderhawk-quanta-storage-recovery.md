@@ -164,3 +164,12 @@ native writer fixture crashed in FPM, and attempts 2/3 failed resolving Ubuntu
 package mirrors before the fixture could run. This pilot's specific evidence
 does not clear that separate Core release requirement. Operational time exchange,
 historical associations and full lifecycle/financial-result acceptance remain open.
+
+The delivery at `79f4068d` also passed ten of eleven jobs, but native writer run
+`43054334643` stopped before fixture execution: the rolling runner could not
+resolve the Ubuntu package servers for `systemd-container`. The native job now
+uses the explicitly named Ubuntu 24.04 image and refuses an incomplete package
+index update. Its actual scheduler, process, pool, activation and recovery checks
+are unchanged. This is a controlled runner-environment change, not a confirmed
+DNS repair or a waiver of the earlier FPM failure. A passing complete native
+rehearsal is still required.

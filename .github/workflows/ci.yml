@@ -56,12 +56,16 @@ jobs:
 
   native-writer-upgrade:
     name: Full-Core actual native writer observation
-    runs-on: ubuntu-latest
+    # Keep the privileged systemd-nspawn rehearsal on a named OS release.
+    # The rolling image changed its host package set independently of the fixture.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install native isolated-container manager
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends systemd-container
+        run: |
+          sudo apt-get -o APT::Update::Error-Mode=any update -qq
+          sudo apt-get install -y --no-install-recommends systemd-container
       - name: Rehearse actual scheduler process and pool witnesses through activation and paired recovery
         run: bash tests/full_core_production_upgrade_linux.sh --native-writers activate recover
 
