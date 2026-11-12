@@ -27,6 +27,25 @@ $desired=['placement'=>$placement,'person'=>$person,'client'=>$ref('client','CL-
     'end_client'=>$ref('company','CO-13'),'worksite_id'=>'site-1','title'=>'Synthetic assignment','engagement_type'=>'c2c',
     'start_date'=>'2026-10-01','end_date'=>null,'status'=>'draft'];
 $plan=quantaAssignmentPlan('a',$desired,null);
+$context=['branch'=>'Montréal','department'=>'Engineering','service_line'=>'Staffing','cost_center'=>'001','workers_comp_class'=>null,'remote_policy'=>'hybrid'];
+$contextual=$desired+['assignment_context'=>$context];
+$check(quantaAssignmentPlan('a',$contextual,null)['body']['assignment_context']===$context,'reporting context preserves codes, Unicode and missing source values');
+foreach ([null,[],array_diff_key($context,['branch'=>true]),$context+['roles'=>['admin']],array_replace($context,['branch'=>true]),array_replace($context,['branch'=>str_repeat('a',161)]),array_replace($context,['department'=>"A\nB"]),array_replace($context,['remote_policy'=>'unknown'])] as $bad) {
+    $check($fails(fn()=>quantaAssignmentPayloadValidate($desired+['assignment_context'=>$bad])),'incomplete, excessive or permission-bearing reporting fields cannot be published');
+}
+$check(quantaAssignmentContextValidate(array_replace($context,['department'=>' ']))['department']===null,'empty reporting text clears explicitly rather than inventing a label');
+$contextRemote=$contextual+['id'=>quantaCoreRemoteId('a',$placement),'tenant_id'=>'a','version'=>3];
+$check(quantaAssignmentPlan('a',$contextual,$contextRemote)['status']==='unchanged','unchanged context creates no new assignment revision');
+$check(quantaAssignmentPlan('a',$desired,$contextRemote)['status']==='unchanged','legacy source omission preserves existing reporting context');
+$newContext=array_replace($context,['department'=>null]);
+$check(quantaAssignmentPlan('a',array_replace($contextual,['assignment_context'=>$newContext]),$contextRemote)['body']===['expected_version'=>3,'assignment_context'=>$newContext],'clearing a reporting value is a versioned update of the same assignment');
+$siteContext['assignment_context_contract_version']=QUANTA_ASSIGNMENT_CONTEXT_VERSION;
+$GLOBALS['__quanta_transport']=static function()use(&$siteContext){return ['status'=>200,'body'=>json_encode($siteContext)];};
+quantaAssignmentContextRequire('fixture-key','a');$check(true,'provider advertises the assignment reporting capability');
+$check($fails(fn()=>quantaAssignmentContextRequire('fixture-key','b')),'reporting capability cannot come from another workspace');
+unset($siteContext['assignment_context_contract_version']);
+$check($fails(fn()=>quantaAssignmentContextRequire('fixture-key','a')),'older provider cannot silently lose reporting context');
+unset($GLOBALS['__quanta_transport']);
 $located=$desired+['work_location'=>['city'=>'Montréal','state'=>'QC','country'=>'CA']];
 $check(quantaAssignmentPlan('a',$located,null)['body']['work_location']===$located['work_location'],'assignment metadata retains Unicode location');
 foreach ([['city'=>'A','country'=>'US'],['city'=>"A\nB",'state'=>'NJ','country'=>'US'],['city'=>'A','state'=>'NJ','country'=>'USA']] as $bad) {

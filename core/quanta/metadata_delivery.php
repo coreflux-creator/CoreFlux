@@ -41,7 +41,8 @@ function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $ki
     if ($kind==='placement') {
         $stmt=$pdo->prepare('SELECT p.id,p.person_id,p.title,p.engagement_type,p.status,p.start_date,
             COALESCE(p.actual_end_date,p.end_date) AS end_date,p.client_id,p.end_client_company_id,c.ap_vendor_id,
-            p.worksite_city,p.worksite_state,p.worksite_country
+            p.worksite_city,p.worksite_state,p.worksite_country,
+            p.branch,p.department,p.service_line,p.cost_center,p.workers_comp_class,p.remote_policy
             FROM placements p LEFT JOIN placement_corp_details c ON c.tenant_id=p.tenant_id AND c.placement_id=p.id
             WHERE p.tenant_id=:t AND p.id=:id AND p.deleted_at IS NULL'.($lock?' FOR UPDATE':''));
         $stmt->execute(['t'=>$owner,'id'=>$id]); $placement=$stmt->fetch(PDO::FETCH_ASSOC);
@@ -62,6 +63,8 @@ function quantaMetadataSource(PDO $pdo,string $instance,array $owners,string $ki
         $result['assignment']=['placement'=>$ref,'person'=>$personRef,'title'=>$placement['title'],
             'engagement_type'=>$placement['engagement_type'],'start_date'=>$placement['start_date'],'end_date'=>$placement['end_date'],
             'status'=>$placement['status']==='pending_start'?'draft':$placement['status'],
+            'assignment_context'=>quantaAssignmentContextValidate(array_intersect_key($placement,array_flip([
+                'branch','department','service_line','cost_center','workers_comp_class','remote_policy']))),
             'work_location'=>quantaAssignmentLocationValidate(['city'=>$placement['worksite_city'],
                 'state'=>$placement['worksite_state'],'country'=>$placement['worksite_country']])]+$references;
         $result['placement_record']=$placement;
@@ -78,7 +81,10 @@ function quantaMetadataSnapshot(int $tenantId,string $kind,int $id,?string $work
     $owners=[];
     foreach (['people','placements','companies','ap'] as $module) $owners[$module]=effectiveTenantIdForModule($module,$tenantId)??$tenantId;
     $source=quantaMetadataSource(getDB(),$verified['instance_id'],$owners,$kind,$id);
-    if ($kind==='placement') quantaAssignmentLocationRequire($key,$workspace);
+    if ($kind==='placement') {
+        quantaAssignmentLocationRequire($key,$workspace);
+        quantaAssignmentContextRequire($key,$workspace);
+    }
     $matches=array_values(array_filter(quantaWorkerLinks($tenantId),static fn($link)=>(int)$link['person_id']===(int)$source['person_record']['id']));
     if (count($matches)!==1) throw new RuntimeException('Link this Core person to one Quanta worker before publishing shared identities');
     $workerId=(string)$matches[0]['worker_id'];

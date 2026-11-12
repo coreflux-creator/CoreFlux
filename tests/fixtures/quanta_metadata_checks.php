@@ -11,6 +11,8 @@ $pdo->exec('CREATE TABLE placements (id BIGINT,tenant_id BIGINT,person_id BIGINT
 $pdo->exec("INSERT INTO placements VALUES (201,10,101,'Synthetic assignment','c2c','active','2026-10-01',NULL,NULL,301,401,NULL)");
 $pdo->exec('ALTER TABLE placements ADD worksite_city VARCHAR(255),ADD worksite_state VARCHAR(100),ADD worksite_country CHAR(2)');
 $pdo->exec("UPDATE placements SET worksite_city='Hamilton',worksite_state='NJ',worksite_country='US'");
+$pdo->exec('ALTER TABLE placements ADD branch VARCHAR(160),ADD department VARCHAR(120),ADD service_line VARCHAR(120),ADD cost_center VARCHAR(120),ADD workers_comp_class VARCHAR(64),ADD remote_policy VARCHAR(6)');
+$pdo->exec("UPDATE placements SET branch='Montréal',department='Engineering',service_line='Staffing',cost_center='001',workers_comp_class=NULL,remote_policy='hybrid'");
 $pdo->exec('CREATE TABLE placement_corp_details (placement_id BIGINT,tenant_id BIGINT,ap_vendor_id BIGINT)');
 $pdo->exec('INSERT INTO placement_corp_details VALUES (201,10,501)');
 $pdo->exec('CREATE TABLE staffing_clients (id BIGINT,tenant_id BIGINT)');$pdo->exec('INSERT INTO staffing_clients VALUES (301,10)');
@@ -24,6 +26,7 @@ $pdo->exec('CREATE TABLE audit_log (id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_
 $fixtureKey='synthetic-metadata-key'; $workspace='workspace-pilot';
 $context['workspace']=['id'=>$workspace,'name'=>'Synthetic pilot'];
 $context['assignment_location_contract_version']=QUANTA_ASSIGNMENT_LOCATION_VERSION;
+$context['assignment_context_contract_version']=QUANTA_ASSIGNMENT_CONTEXT_VERSION;
 $context['metadata_receipt_contract_version']=QUANTA_METADATA_RECEIPT_VERSION;
 $pdo->prepare('INSERT INTO quanta_connections(id,tenant_id,status,api_key_ct,binding_revision) VALUES(11,11,"active",?,1)')->execute([encryptField($fixtureKey)]);
 $bindingHash=quantaWorkspaceBindingHash(11,11,$fixtureKey,$instance,$context);
@@ -69,6 +72,7 @@ $GLOBALS['__quanta_core_write_transport']=static function($method,$url,$headers,
 $source=quantaMetadataSource($pdo,$instance,['people'=>10,'placements'=>10,'companies'=>11,'ap'=>11],'placement',201);
 $check($source['reference']['number']==='PL-9002' && $source['person']['number']==='P-9001','source uses registry numbers rather than database primary keys');
 $check($source['assignment']['work_location']===['city'=>'Hamilton','state'=>'NJ','country'=>'US'],'source retains the assignment city, state and country independently of the Quanta worksite');
+$check($source['assignment']['assignment_context']===['branch'=>'Montréal','department'=>'Engineering','service_line'=>'Staffing','cost_center'=>'001','workers_comp_class'=>null,'remote_policy'=>'hybrid'],'source publishes the owning placement dimensions without guessing a missing compensation class');
 $check($source['assignment']['vendor']['directory_tenant_id']===11 && $source['assignment']['client']['directory_tenant_id']===10,'shared staffing and isolated vendor directories stay distinct');
 $check($source['assignment']['end_client']['directory_tenant_id']===11&&$source['person']['directory_tenant_id']===10,
     'end-client company uses its separate Companies directory while the worker uses People');
@@ -110,8 +114,14 @@ $check($sent['remote_receipt_id']===$providerRows[$sent['remote_id']]['delivery_
 $check(quantaMetadataSend(11,7,$pid,$p['delivery']['review_hash'])['state']==='delivered' && count($writes)===1,'successful repeat returns existing delivery without resending');
 $check(quantaMetadataPreview(11,7,'person',101,null)['status']==='unchanged','provider readback confirms shared person identity');
 $check($worker['external_id']==='purepay-employee-88' && $worker['employee_id']==='provider-worker-99' && $worker['roles']===['worker'],'identity exchange preserves PurePayroll identifiers and portal access');
+unset($context['assignment_context_contract_version']);
+$check($fails(fn()=>quantaMetadataPreview(11,7,'placement',201,'site-1'))&&count($writes)===1,'provider without reporting capability blocks a new assignment preview before any write');
+$context['assignment_context_contract_version']=QUANTA_ASSIGNMENT_CONTEXT_VERSION;
 $p=quantaMetadataPreview(11,7,'placement',201,'site-1');$aid=(int)$p['delivery']['id'];
 $check($p['proposed']['client']['number']==='CL-9003' && $p['proposed']['vendor']['number']==='V-9005' && $p['proposed']['end_client']['number']==='CO-9004','assignment preview aligns all commercial-party identifiers');
+$pdo->exec("UPDATE placements SET department='Changed department' WHERE id=201");
+$check($fails(fn()=>quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash']))&&count($writes)===1,'reporting-only source changes invalidate a prepared assignment before provider IO');
+$pdo->exec("UPDATE placements SET department='Engineering' WHERE id=201");
 $pdo->exec("UPDATE tenant_module_scope SET scope_mode='shared' WHERE tenant_id=11 AND module_key='companies'");
 $check($fails(fn()=>quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash']))&&count($writes)===1,
     'company-scope change after preview blocks publication before provider IO');

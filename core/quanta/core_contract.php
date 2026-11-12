@@ -6,6 +6,7 @@ require_once __DIR__.'/../integrations/source_values.php';
 
 const QUANTA_ASSIGNMENT_LOCATION_VERSION = '2026-10-25.1';
 const QUANTA_ASSIGNMENT_WORKSITE_VERSION = '2026-10-30.1';
+const QUANTA_ASSIGNMENT_CONTEXT_VERSION = '2026-11-12.1';
 const QUANTA_METADATA_RECEIPT_VERSION = '2026-10-25.1';
 
 function quantaMetadataReceiptRequire(string $apiKey,string $workspace): void
@@ -44,7 +45,39 @@ function quantaAssignmentLocationValidate(mixed $location): array
     return $location;
 }
 
-/** Check this additive capability without changing the existing organization binding. */
+/** Complete reporting snapshot; omitted snapshots remain a legacy preservation case. */
+function quantaAssignmentContextValidate(mixed $context): array
+{
+    $limits=['branch'=>160,'department'=>120,'service_line'=>120,'cost_center'=>120,'workers_comp_class'=>64,'remote_policy'=>6];
+    if (!is_array($context) || array_diff(array_keys($limits),array_keys($context)) || array_diff(array_keys($context),array_keys($limits))) {
+        throw new InvalidArgumentException('Complete assignment reporting fields required.');
+    }
+    $normalized=[];
+    foreach ($limits as $field=>$max) {
+        $value=$context[$field];
+        if ($value!==null) {
+            if (!is_string($value) || ($length=preg_match_all('/./us',$value))===false || $length>$max
+                || preg_match('/[\x00-\x1f\x7f]/',$value)) throw new InvalidArgumentException('Invalid assignment '.$field.'.');
+            $value=trim($value);if($value==='')$value=null;
+        }
+        if ($field==='remote_policy' && $value!==null && !in_array($value,['onsite','hybrid','remote'],true)) {
+            throw new InvalidArgumentException('Use the reviewed assignment work arrangement.');
+        }
+        $normalized[$field]=$value;
+    }
+    return $normalized;
+}
+
+/** Reporting context never grants roles, worksite access or payroll authority. */
+function quantaAssignmentContextRequire(string $apiKey,string $workspace): void
+{
+    $raw=quantaGet($apiKey,QUANTA_CORE_CONTRACT_PATH.'/context');
+    $base=quantaContractContextValidate($raw);
+    if ($base['workspace']['id']!==$workspace || ($raw['assignment_context_contract_version']??null)!==QUANTA_ASSIGNMENT_CONTEXT_VERSION) {
+        throw new RuntimeException('This Quanta environment needs the assignment reporting update before publishing this placement.');
+    }
+}
+
 function quantaAssignmentLocationRequire(string $apiKey, string $workspace): void
 {
     $raw = quantaGet($apiKey,QUANTA_CORE_CONTRACT_PATH.'/context');
@@ -104,8 +137,9 @@ function quantaContractDate(mixed $date): string
 function quantaAssignmentPayloadValidate(array $body, bool $creating=true): array
 {
     $required=['placement','person','title','engagement_type','start_date','end_date','status','worksite_id','client','vendor','end_client'];
-    if (array_diff($required,array_keys($body)) || array_diff(array_keys($body),[...$required,'work_location'])) throw new InvalidArgumentException('Complete assignment metadata required');
+    if (array_diff($required,array_keys($body)) || array_diff(array_keys($body),[...$required,'work_location','assignment_context'])) throw new InvalidArgumentException('Complete assignment metadata required');
     if (array_key_exists('work_location',$body)) $body['work_location']=quantaAssignmentLocationValidate($body['work_location']);
+    if (array_key_exists('assignment_context',$body)) $body['assignment_context']=quantaAssignmentContextValidate($body['assignment_context']);
     foreach (['placement'=>'placement','person'=>'person','client'=>'client','vendor'=>'vendor','end_client'=>'company'] as $field=>$kind) {
         if (in_array($field,['client','vendor','end_client'],true) && $body[$field]===null) continue;
         if (!is_array($body[$field])) throw new InvalidArgumentException('Invalid assignment reference');
@@ -143,6 +177,10 @@ function quantaAssignmentPlan(string $workspaceId, array $desired, ?array $remot
         && integrationDeliveryHash([$desired['work_location']])!==integrationDeliveryHash([$remote['work_location']??null])) {
         $changes['work_location']=$desired['work_location'];
     }
+    if (array_key_exists('assignment_context',$desired)
+        && integrationDeliveryHash([$desired['assignment_context']])!==integrationDeliveryHash([$remote['assignment_context']??null])) {
+        $changes['assignment_context']=$desired['assignment_context'];
+    }
     $transitions=['draft'=>['draft','active','cancelled'],'active'=>['active','ended','cancelled']];
     if ($changes && !in_array($desired['status'],$transitions[$remote['status']??'']??[],true)) throw new RuntimeException('Closed or incompatible assignments need a lifecycle review');
     return ['operation'=>'assignment.update','remote_id'=>$id,'body'=>['expected_version'=>$remote['version']]+$changes,
@@ -179,7 +217,7 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
         if (integrationDeliveryHash($body)!==integrationDeliveryHash($expected)) throw new InvalidArgumentException('Assignment confirmation differs from the request');
         $id=quantaCoreRemoteId($workspaceId,$body['placement']); $path='/assignments'; $codes=[201]; $expected['version']=1;
     } elseif ($operation==='assignment.update') {
-        if (array_diff(array_keys($body),['expected_version','title','end_date','status','work_location','worksite_id']) || count($body)<2
+        if (array_diff(array_keys($body),['expected_version','title','end_date','status','work_location','worksite_id','assignment_context']) || count($body)<2
             || !is_int($body['expected_version']??null) || $body['expected_version']<1
             || ($expected['version']??null)!==$body['expected_version']+1) throw new InvalidArgumentException('A conditional assignment revision is required');
         $version=$expected['version']; unset($expected['version']);

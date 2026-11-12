@@ -67,6 +67,50 @@ test('lost response retains the original receipt and does not claim the current 
   } finally { f.close(); }
 });
 
+test('assignment review presents all six reporting fields and distinguishes clearing from missing values', async () => {
+  const context = { branch: 'Jen/Saurabh', department: null, service_line: 'Staffing', cost_center: '001', workers_comp_class: null, remote_policy: 'hybrid' };
+  const f = await fixture('default', async () => ({ ...structuredClone(review),
+    proposed: { ...review.proposed, assignment_context: { ...context, private_note: 'Do not expose' } },
+    current: { ...review.current, assignment_context: { ...context, branch: 'Prior division', department: 'Engineering', remote_policy: 'onsite' } } }));
+  try {
+    await f.choose(); await f.click('Preview shared record');
+    const rows = f.tree.root.findAllByType('tr').slice(1).map(row => row.children.map(text));
+    assert.deepEqual(rows.slice(-6), [
+      ['Branch / business unit', 'Prior division', 'Jen/Saurabh'],
+      ['Department', 'Engineering', 'Clear value'],
+      ['Service line', 'Staffing', 'Staffing'],
+      ['Cost center', '001', '001'],
+      ['Workers’ compensation class', 'Not provided', 'Not provided'],
+      ['Work arrangement', 'On-site', 'Hybrid'],
+    ]);
+    assert.ok(!text(f.tree.root).includes('Do not expose'));
+    assert.equal(button(f, 'Send reviewed metadata').props.disabled, true);
+  } finally { f.close(); }
+});
+
+test('assignment context absent from an older shared record is shown as not shared', async () => {
+  const f = await fixture('default', async () => ({ ...structuredClone(review),
+    proposed: { assignment_context: { branch: 'Jen/Saurabh', department: null, service_line: null, cost_center: null, workers_comp_class: null, remote_policy: null } } }));
+  try {
+    await f.choose(); await f.click('Preview shared record');
+    const rows = f.tree.root.findAllByType('tr').slice(1).map(row => row.children.map(text));
+    assert.equal(rows.length, 6);
+    assert.ok(rows.every(row => row[1] === 'Not shared'));
+    assert.deepEqual(rows[0], ['Branch / business unit', 'Not shared', 'Jen/Saurabh']);
+    assert.deepEqual(rows[4], ['Workers’ compensation class', 'Not shared', 'Not provided']);
+  } finally { f.close(); }
+});
+
+test('an older review without assignment context proposes no context changes', async () => {
+  const f = await fixture('default', async () => ({ ...structuredClone(review), current: { assignment_context: { branch: 'Retained branch' } } }));
+  try {
+    await f.choose(); await f.click('Preview shared record');
+    assert.equal(f.tree.root.findAllByType('tr').length, 3);
+    assert.ok(!text(f.tree.root).includes('Branch / business unit'));
+    assert.ok(!text(f.tree.root).includes('Clear value'));
+  } finally { f.close(); }
+});
+
 test('preview can return only the original envelope when a record is held', async () => {
   const f = await fixture('default', async () => ({ receipt_only: true, status: 'reconciliation_required', delivery: pending.rows[0].delivery }));
   try {

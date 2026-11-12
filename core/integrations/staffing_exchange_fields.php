@@ -50,6 +50,13 @@ function staffingExchangeFieldMappings(): array
             'explicit_assignment_location; nullable; never_infer_residence_or_grant_worksite_access',
             'conditional_versioned_update; provider_location_capability_required', '2026-10-25.1', $quantaEvidence);
     }
+    foreach (['branch','department','service_line','cost_center','workers_comp_class','remote_policy'] as $column) {
+        $add('placements.'.$column,'quanta','/api/v1/integrations/coreflux/assignments','assignment_context.'.$column,
+            $column==='remote_policy' ? 'onsite_hybrid_remote_or_explicit_null; no_location_or_access_inference'
+                : 'bounded_printable_text; trimmed_empty_to_null; preserve_source_code_or_label_without_identity_guess',
+            'reviewed_conditional_versioned_update; complete_context; explicit_null_clears; absent_context_preserves; reporting_only',
+            '2026-11-12.1',$quantaEvidence);
+    }
     $add('people.person_number', 'quanta', '/api/v1/integrations/coreflux/person-links', 'person',
         'resolve_authorized_directory; typed_reference:person; reviewed_existing_worker_required',
         'immutable_link', '2026-10-20.1', $quantaEvidence);

@@ -4,9 +4,26 @@ import { api, getPinnedTenantId } from '../lib/api';
 const endpoint = '/api/quanta.php?action=';
 const style = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', maxWidth: '100%' };
 const labels = { person: 'Person number', placement: 'Placement number', worker_id: 'Quanta worker', client: 'Client number', vendor: 'Vendor number', end_client: 'Company number', worksite_id: 'Quanta worksite', work_location: 'Work location', title: 'Title', engagement_type: 'Engagement type', start_date: 'Start date', end_date: 'End date', status: 'Status' };
+const contextLabels = { branch: 'Branch / business unit', department: 'Department', service_line: 'Service line', cost_center: 'Cost center', workers_comp_class: 'Workers’ compensation class', remote_policy: 'Work arrangement' };
+const workArrangements = { onsite: 'On-site', hybrid: 'Hybrid', remote: 'Remote' };
 function valueLabel(value, field) {
   if (field === 'work_location' && value) return ['city', 'state', 'country'].map(key => value[key] || '—').join(' · ');
   return value && typeof value === 'object' ? value.number : (value ?? '—');
+}
+function reviewRows(review) {
+  return Object.entries(review.proposed).flatMap(([field, value]) => {
+    if (field === 'assignment_context' && value) {
+      const current = review.current?.assignment_context;
+      return Object.entries(contextLabels).filter(([key]) => Object.hasOwn(value, key)).map(([key, label]) => {
+        const before = current?.[key];
+        const format = item => key === 'remote_policy' ? (workArrangements[item] || item) : item;
+        return { key: `assignment_context.${key}`, label,
+          current: before != null ? format(before) : (current && Object.hasOwn(current, key) ? 'Not provided' : 'Not shared'),
+          proposed: value[key] != null ? format(value[key]) : (before != null ? 'Clear value' : 'Not provided') };
+      });
+    }
+    return labels[field] ? [{ key: field, label: labels[field], current: valueLabel(review.current?.[field], field), proposed: valueLabel(value, field) }] : [];
+  });
 }
 
 export function useWorkspaceRequest(tenantId, connectionRevision, reset) {
@@ -89,8 +106,8 @@ export default function QuantaMetadataPanel({ people, placements, worksites, ten
       {!review.receipt_only && <><p><strong>{review.reference.number}</strong> → Quanta <strong>{review.workspace.name}</strong></p>
       <table style={{ width: '100%', maxWidth: 820, borderCollapse: 'collapse', fontSize: 13 }}>
         <thead><tr><th style={{ textAlign: 'left' }}>Field</th><th style={{ textAlign: 'left' }}>Currently in Quanta</th><th style={{ textAlign: 'left' }}>Proposed</th></tr></thead>
-        <tbody>{Object.entries(review.proposed).filter(([key]) => labels[key]).map(([key, value]) => <tr key={key}>
-          <th style={{ textAlign: 'left', padding: '6px 0' }}>{labels[key]}</th><td>{valueLabel(review.current?.[key], key)}</td><td>{valueLabel(value, key)}</td>
+        <tbody>{reviewRows(review).map(row => <tr key={row.key}>
+          <th style={{ textAlign: 'left', padding: '6px 0' }}>{row.label}</th><td>{row.current}</td><td>{row.proposed}</td>
         </tr>)}</tbody>
       </table></>}
       {review.status === 'unchanged' && <p role="status">The shared record already agrees.</p>}
