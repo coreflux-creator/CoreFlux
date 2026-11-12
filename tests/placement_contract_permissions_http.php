@@ -37,7 +37,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     }
     return $out;
 };
-$graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details','placement_economic_items','placement_economic_obligations',
+$graphTables=['people','placements','placement_rates','placement_client_chain','placement_referrals','placement_commissions','placement_economic_parties','placement_corp_details','placement_economic_items','placement_economic_obligations',
     'staffing_operating_cycles','payroll_pay_schedules','payroll_pay_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings','placement_documents','storage_objects'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
@@ -150,6 +150,10 @@ try {
     $operations[]=['GET',$documentPath,null];$operations[]=['GET',$documentUploadPath,null];
     $operations[]=['POST',$documentPath,['doc_type'=>'other','storage_key'=>'not-owned','filename'=>'synthetic.pdf']];
     $operations[]=['DELETE',$documents.'?id=999999',null];
+    foreach(['chain','referral','commission'] as $kind){
+        $sourceRulePath='/modules/placements/api/source_rules.php?kind='.$kind.'&placement_id='.$own['placement'];
+        $operations[]=['GET',$sourceRulePath,null];$operations[]=['POST',$sourceRulePath,[]];
+    }
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -388,6 +392,7 @@ try {
     require __DIR__.'/fixtures/placement_document_http_checks.php';
     require __DIR__.'/fixtures/document_merge_http_checks.php';
     require __DIR__.'/fixtures/person_document_audit_http_checks.php';
+    require __DIR__.'/fixtures/source_rule_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
