@@ -89,7 +89,10 @@ function placementCycleSharedEdit(int $tenant, int $id, array $body, bool $canMa
         $active=array_key_exists('active',$changes)?$changes['active']:$before['active'];
         if (!in_array($active,[0,1,'0','1',false,true],true)) throw new InvalidArgumentException('Choose a valid schedule status.',422);
         $values['active']=(int)$active;
-        if (!placementCycleDiffers($before,$values)) return ['changed'=>false]+placementCycleSharedPublic($plan);
+        if (!placementCycleDiffers($before,$values)) {
+            if ($bridge&&(int)$before['active']) placementCycleRequireActive($pdo,$tenant,$id,$before['purpose']);
+            return ['changed'=>false]+placementCycleSharedPublic($plan);
+        }
         if ($before['source_system']!=='coreflux') throw new RuntimeException('This schedule is managed by its source or a standard frequency. Create and assign a separate Core schedule to customize it.',409);
         if (($body['confirm']??'')!=='UPDATE_SHARED_SCHEDULE') throw new InvalidArgumentException('Confirm the change to this shared schedule and its linked placements.',422);
         $token=(string)($body['review_token']??'');
