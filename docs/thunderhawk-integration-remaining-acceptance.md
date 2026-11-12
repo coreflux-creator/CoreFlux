@@ -27,6 +27,16 @@ The immediate priority is the field-disposition inventory and the remaining port
 
 The full integration goal remains active and incomplete.
 
+## November 12 company and placement custom-field editor candidate
+
+The preceding reply answered the standalone accounting access question and did not advance the integration. This continuation revalidated runtime `5fbdd197`, the clean implementation worktree, the remaining acceptance list and successful eleven-job CI run `43181480260` before changing the next incomplete operator workflow.
+
+The candidate adds custom-field editing to the placement detail tab and the client/vendor company profile. All three record types share the same editor and use the existing central service, including company definitions whose entity is not a standalone API-router module. Their definition-management pages support stable keys, typed choices and archive with retained values. Server-returned permissions control ordinary and sensitive editing and definition management. Switching record, entity or active company remounts the draft; definition/value directory mismatches and read errors refuse editing.
+
+Operator saves from these screens include original values and the original directory. The native writer checks those values under the record lock, rejects competing different edits and rolls back the entire batch with its audit. An identical retry returns unchanged success. Existing callers remain compatible; this is not a claim that every legacy caller now supplies an original-value review. No source conflict policy or provider identifier is changed.
+
+Twenty component checks, 36 typed-domain checks and 51 route/merge smoke checks pass locally; the frontend build and hook lint pass. Expanded native database and authenticated HTTP checks are pending CI. Installation and full-app rendered acceptance are still pending. The 573 unresolved field dispositions, custom provider destinations, financial allocations and remaining portal/lifecycle/correction journeys remain open. This candidate does not establish completion of field alignment or the integration goal.
+
 ## November 12 custom-field implementation candidate
 
 The previous reply supplied the standalone accounting location and made no integration change. This continuation revalidated the unfinished custom-field implementation and found that its smoke test was reading another checkout. The test now reads its own source tree. Local checks pass: 36 typed-value checks, 60 mapper checks, 40 module-registry checks, 332 stable-number checks and six rendered component checks. The frontend build and hook lint pass. Native database tests are added to CI; passing local checks alone do not establish database or hosted acceptance.

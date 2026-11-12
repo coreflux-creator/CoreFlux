@@ -12,6 +12,7 @@ import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import BillToClientPicker from './BillToClientPicker';
 import CommercialOwnershipReview from './CommercialOwnershipReview';
 import OneTimeItems from './OneTimeItems';
+import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -41,6 +42,7 @@ export default function PlacementDetail({ session }) {
     { slug: 'timesheets',  label: 'Timesheets' },
     { slug: 'documents',   label: 'Documents' },
     { slug: 'approval',    label: 'Approval setup' },
+    { slug: 'custom',      label: 'Custom fields' },
   ];
 
   return (
@@ -116,6 +118,7 @@ export default function PlacementDetail({ session }) {
         <Route path="timesheets" element={<PlacementTimesheetsTab pid={placement.id} placement={placement} />} />
         <Route path="documents"  element={<DocumentsTab   pid={placement.id} rows={documents} reload={reload} />} />
         <Route path="approval"   element={<ApprovalTab    pid={placement.id} placement={placement} reload={reload} />} />
+        <Route path="custom" element={<RecordCustomFields entityType="placements" recordId={placement.id} definitionsUrl="/modules/placements/custom_fields" />} />
         <Route path="margin"     element={<Navigate to="../economics" replace />} />
       </Routes>
     </section>

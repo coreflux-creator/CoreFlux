@@ -7,6 +7,8 @@ import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSo
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
+import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
+import CustomFields from './CustomFields';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -59,6 +61,7 @@ export default function DirectoryModule({ mode = 'clients' }) {
       <Routes>
         <Route index           element={<DirectoryList   cfg={cfg} mode={mode} />} />
         <Route path="new"      element={<DirectoryCreate cfg={cfg} mode={mode} />} />
+        <Route path="custom_fields" element={<CustomFields entityType="companies" />} />
         <Route path=":id/*"    element={<DirectoryDetail cfg={cfg} mode={mode} />} />
       </Routes>
     </section>
@@ -464,6 +467,8 @@ function DirectoryDetail({ cfg, mode }) {
         <Box label="MSA signed"      v={c.msa_signed_at || '—'} />
         <Box label="Tags"            v={(c.tags || []).length ? (c.tags || []).map(t => <span key={t} className="badge" style={{ marginRight: 4 }}>{t}</span>) : '—'} />
       </div>
+
+      <div style={{ marginTop: 24 }}><RecordCustomFields entityType="companies" recordId={c.id} definitionsUrl={`/modules/${mode}/custom_fields`} /></div>
 
       <h3 style={{ marginTop: 24, fontSize: 14 }}>Addresses</h3>
       <table className="data-table" data-testid={`${mode}-detail-addresses`}>

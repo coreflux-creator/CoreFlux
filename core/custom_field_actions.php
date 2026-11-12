@@ -92,12 +92,16 @@ function customFieldDefinitionAction(int $tenant, string $entity, string $action
 }
 
 /** All requested fields save together; unknown or restricted fields reject the entire request. */
-function customFieldValuesAction(int $tenant, string $entity, int $record, array $values, array $user, bool $canPii): array
+function customFieldValuesAction(int $tenant, string $entity, int $record, array $values, array $user, bool $canPii, ?array $expectedValues = null, ?int $expectedOwner = null): array
 {
     if (!$values || count($values)>200 || array_is_list($values)) throw new InvalidArgumentException('A values map with stable field keys is required.');
+    if ($expectedValues !== null && (array_diff_key($values,$expectedValues) || array_diff_key($expectedValues,$values))) {
+        throw new InvalidArgumentException('Include the original value for every changed field.');
+    }
     $owner = customFieldDirectoryOwner($tenant,$entity);
+    if ($expectedOwner !== null && $expectedOwner !== $owner) throw new CustomFieldConflictException('This record now belongs to a different directory. Reload before editing.');
     $pdo = getDB();
-    return customFieldActionTransaction($pdo,static function() use($pdo,$tenant,$owner,$entity,$record,$values,$user,$canPii): array {
+    return customFieldActionTransaction($pdo,static function() use($pdo,$tenant,$owner,$entity,$record,$values,$user,$canPii,$expectedValues): array {
         customFieldStorageRecord($pdo,$owner,$entity,$record,true);
         $changed = [];
         ksort($values,SORT_STRING);
@@ -105,6 +109,15 @@ function customFieldValuesAction(int $tenant, string $entity, int $record, array
             $def = customFieldStorageDefinition($pdo,$owner,$entity,$record,(string)$key,true);
             if ((!empty($def['pii']) && !$canPii) || !customFieldUserCanViewDefinition($user,$def) || !customFieldUserCanEditDefinition($user,$def)) {
                 throw new CustomFieldAccessException('Permission to edit every requested custom field is required.');
+            }
+            if ($expectedValues !== null) {
+                $current = customFieldStorageCurrent($pdo,$owner,$entity,$record,$def,true);
+                $expected = customFieldTypedValue(array_replace($def,['required'=>0]),$expectedValues[$key]);
+                $desired = customFieldTypedValue($def,$value);
+                // An identical retry is safe. A competing different edit must be reviewed, never overwritten.
+                if ($current['value'] !== $expected && $current['value'] !== $desired) {
+                    throw new CustomFieldConflictException('Custom fields changed since you opened this record. Reload and review your changes.');
+                }
             }
             $audit = static function(array $metadata) use($pdo,$tenant,$owner,$entity,$user): void {
                 if (customFieldDirectoryOwner($tenant,$entity)!==$owner) throw new RuntimeException('The custom field directory changed.');

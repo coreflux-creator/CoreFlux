@@ -7,6 +7,7 @@ import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSo
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import OnboardingTab from './OnboardingTab';
+import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
 
 const CLASSIFICATION_LABELS = {
   w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
@@ -590,128 +591,8 @@ function PIITab({ person }) {
 // Tab 7 — Custom fields (per-tenant defs, per-person values)
 // ─────────────────────────────────────────────────────────────────────────
 function CustomFieldsTab({ personId }) {
-  const defsApi  = useApi('/api/v1/people/custom-field-definitions');
-  const valsApi  = useApi(`/api/v1/people/custom-field-values/${personId}`);
-  const layoutApi = useApi('/api/v1/people/custom-field-layouts/detail');
-  const defs     = (defsApi.data?.definitions ?? []).filter(d => !d.sensitive_hidden && d.field_access?.visible !== false);
-  const valsRaw  = valsApi.data?.values ?? [];
-  const layout    = layoutApi.data?.layout?.layout ?? {};
-  const fieldOrder = Array.isArray(layout.field_order) ? layout.field_order : [];
-  const orderedDefs = [...defs].sort((a, b) => {
-    const ai = fieldOrder.indexOf(a.field_key);
-    const bi = fieldOrder.indexOf(b.field_key);
-    if (ai !== -1 || bi !== -1) return (ai === -1 ? 99999 : ai) - (bi === -1 ? 99999 : bi);
-    return (a.order_index ?? 0) - (b.order_index ?? 0);
-  });
-  // Normalise values by field_key.
-  const valByKey = {};
-  for (const v of valsRaw) {
-    if (!v.field_key) continue;
-    valByKey[v.field_key] = v.value;
-  }
-  const [draft, setDraft]     = useState({});
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState(null);
-  const [savedAt, setSavedAt] = useState(null);
-
-  const loading = defsApi.loading || valsApi.loading || layoutApi.loading;
-  if (loading) return <p data-testid="tab-custom-loading">Loading…</p>;
-  if (defsApi.error) return <p className="error" data-testid="tab-custom-error">Error: {defsApi.error.message}</p>;
-  if (valsApi.error) return <p className="error" data-testid="tab-custom-error">Error: {valsApi.error.message}</p>;
-
-  const get = (k) => (k in draft ? draft[k] : (valByKey[k] ?? null));
-  const setV = (k) => (e) => {
-    const field = defs.find((d) => d.field_key === k);
-    let v = e.target.value;
-    if (field?.field_type === 'boolean') v = v === '' ? null : v === 'true';
-    if (field?.field_type === 'multiselect') v = Array.from(e.target.selectedOptions, option => option.value);
-    setDraft({ ...draft, [k]: v });
-  };
-
-  const save = async () => {
-    setSaving(true); setError(null);
-    try {
-      const payload = {};
-      for (const k of Object.keys(draft)) payload[k] = draft[k] === '' ? null : draft[k];
-      if (Object.keys(payload).length === 0) { setSaving(false); return; }
-      await api.post(`/api/v1/people/custom-field-values/${personId}`, { values: payload });
-      setDraft({});
-      setSavedAt(Date.now());
-      valsApi.reload();
-    } catch (e) { setError(e); }
-    finally     { setSaving(false); }
-  };
-
-  return (
-    <div data-testid="tab-custom">
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem', gap: 16 }}>
-        <div>
-          <h3 style={{ margin: 0 }}>Custom fields</h3>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
-            Tenant-defined fields. Manage definitions under People &gt; <a href="/modules/people/custom_fields">Custom Fields</a>.
-          </p>
-        </div>
-        <button
-          className="btn btn--primary"
-          data-testid="custom-values-save"
-          onClick={save}
-          disabled={saving || Object.keys(draft).length === 0}
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </header>
-
-      {defs.length === 0 && (
-        <p data-testid="custom-values-empty" style={{ color: '#555' }}>
-          No custom fields defined yet for this tenant.
-        </p>
-      )}
-      {error && <p className="error" data-testid="custom-values-error">Error: {error.message}</p>}
-      {savedAt && !saving && <p data-testid="custom-values-saved" style={{ color: '#065f46', fontSize: 13 }}>Saved.</p>}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
-        {orderedDefs.map((d) => (
-          <label key={d.id} data-testid={`custom-values-field-${d.field_key}`} style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '0.85em', color: '#555', marginBottom: 4 }}>
-              {d.field_label}
-              {d.required ? ' *' : ''}
-              {d.pii ? ' 🔒' : ''}
-            </span>
-            <CustomFieldInput def={d} value={get(d.field_key)} onChange={setV(d.field_key)} />
-          </label>
-        ))}
-      </div>
-    </div>
-  );
+  return <RecordCustomFields entityType="people" recordId={personId} definitionsUrl="/modules/people/custom_fields" />;
 }
-
-function CustomFieldInput({ def, value, onChange }) {
-  const testId = `custom-values-input-${def.field_key}`;
-  const disabled = def.field_access?.editable === false;
-  if (def.field_type === 'boolean') {
-    return <select className="input" data-testid={testId} disabled={disabled} value={value == null || value === '' ? '' : String(value)} onChange={onChange}>
-      <option value="">— Unset —</option><option value="true">Yes</option><option value="false">No</option>
-    </select>;
-  }
-  if (def.field_type === 'date') {
-    return <input type="date" className="input" data-testid={testId} disabled={disabled} value={value || ''} onChange={onChange} />;
-  }
-  if (def.field_type === 'number') {
-    return <input type="number" step="any" className="input" data-testid={testId} disabled={disabled} value={value ?? ''} onChange={onChange} />;
-  }
-  if (def.field_type === 'select' || def.field_type === 'multiselect') {
-    const opts = (() => { try { return JSON.parse(def.options_json || '[]'); } catch { return []; } })();
-    const multiple = def.field_type === 'multiselect';
-    return (
-      <select className="input" data-testid={testId} disabled={disabled} multiple={multiple} value={multiple ? (Array.isArray(value) ? value : []) : (value || '')} onChange={onChange}>
-        {!multiple && <option value="">—</option>}
-        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    );
-  }
-  return <input className="input" data-testid={testId} disabled={disabled} value={value ?? ''} onChange={onChange} />;
-}
-
 
 const Item = ({ k, v, testId }) => (
   <div>

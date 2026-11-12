@@ -64,6 +64,15 @@ try {
         customFieldValuesAction(20,$entity,1,['exact_decimal'=>'99999999999999.999999'],$user,false);
         $check($read($entity,1,'exact_decimal')['value']==='99999999999999.999999','exact six-place decimal retained for '.$entity);
         $check($fails(fn()=>customFieldValuesAction(20,$entity,1,['exact_decimal'=>'3 hours'],$user,false)),'malformed numeric update refused for '.$entity);
+        $owner=customFieldDirectoryOwner(20,$entity);
+        $expected=['exact_decimal'=>'99999999999999.999999'];
+        $check(customFieldValuesAction(20,$entity,1,['exact_decimal'=>'12.5'],$user,false,$expected,$owner)===['exact_decimal'],'reviewed operator update retains original directory '.$entity);
+        $audits=$pdo->query('SELECT * FROM audit_log ORDER BY id')->fetchAll();
+        $check(customFieldValuesAction(20,$entity,1,['exact_decimal'=>'12.500'],$user,false,$expected,$owner)===[]&&$pdo->query('SELECT * FROM audit_log ORDER BY id')->fetchAll()===$audits,'exact response-loss replay does not duplicate audits '.$entity);
+        $check($fails(fn()=>customFieldValuesAction(20,$entity,1,['exact_decimal'=>'13'],$user,false,$expected,$owner),'changed since')&&$read($entity,1,'exact_decimal')['value']==='12.5','stale operator cannot overwrite a competing value '.$entity);
+        $check($fails(fn()=>customFieldValuesAction(20,$entity,1,['exact_decimal'=>'13'],$user,false,['exact_decimal'=>'12.5'],30),'different directory'),'directory change requires a fresh review '.$entity);
+        $check($fails(fn()=>customFieldValuesAction(20,$entity,1,['exact_decimal'=>'13'],$user,false,[],$owner),'original value'),'partial expected-value map is refused '.$entity);
+        customFieldValuesAction(20,$entity,1,['exact_decimal'=>'99999999999999.999999'],$user,false);
     }
     $create('placements','choice_list','multiselect',['options'=>['A','B']]);
     $map('placements','choice_list','choices');

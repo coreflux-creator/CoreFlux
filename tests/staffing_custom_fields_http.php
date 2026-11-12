@@ -25,6 +25,12 @@ try{
     $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Synthetic","Custom field worker",?)')->execute([$tenant,$email]);
     $person=(int)$pdo->lastInsertId();
     $personBefore=$pdo->query('SELECT * FROM people WHERE id='.$person)->fetch();
+    $pdo->prepare('INSERT INTO companies(tenant_id,name) VALUES(?,"Synthetic custom company")')->execute([$tenant]);
+    $company=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,start_date) VALUES(?,?,"Synthetic custom placement","2026-11-12")')->execute([$tenant,$person]);
+    $placement=(int)$pdo->lastInsertId();
+    $companyBefore=$pdo->query('SELECT * FROM companies WHERE id='.$company)->fetch();
+    $placementBefore=$pdo->query('SELECT * FROM placements WHERE id='.$placement)->fetch();
     $pii=customFieldDefinitionAction($tenant,'people','create',0,['field_key'=>'private_note','field_label'=>'Private note','field_type'=>'text','pii'=>true],$actor,true);
     customFieldValuesAction($tenant,'people',$person,['private_note'=>'private synthetic value'],['id'=>$actor,'role'=>'admin'],true);
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error);if(!$socket)throw new RuntimeException('Loopback port unavailable');
@@ -76,13 +82,42 @@ try{
     $check((int)$pdo->query('SELECT COUNT(*) FROM people_custom_field_values WHERE field_def_id='.$flag)->fetchColumn()===1,'Archive preserves the existing value row');
     RBACResolver::grantModule($membership,'people','read',[$tenant],$actor);
     $check($request($values,'POST',['values'=>['private_note'=>'changed']])[0]===403,'Permission downgrade applies to the existing signed-in session');
+    foreach(['companies'=>$company,'placements'=>$placement] as $entity=>$record){
+        $module=$entity==='companies'?'people':'placements';
+        RBACResolver::grantModule($membership,$module,'read',[$tenant],$actor);
+        $entityDefs='/api/custom_field_definitions.php?entity_type='.$entity;
+        $entityValues='/api/custom_field_values.php?entity_type='.$entity.'&record_id='.$record;
+        [$status,$body]=$request($entityValues);
+        $check($status===200&&$body['owner_tenant_id']===$tenant&&$body['can_manage_values']===false,'Reader gets exact directory and read-only capability '.$entity);
+        $check($request($entityValues,'POST',['values'=>['z_flag'=>false]])[0]===403,'Reader cannot bypass disabled controls '.$entity);
+        RBACResolver::grantModule($membership,$module,'write',[$tenant],$actor);
+        foreach(['a_number'=>'number','z_flag'=>'boolean']as$key=>$type)$check($request($entityDefs,'POST',['field_key'=>$key,'field_label'=>$key,'field_type'=>$type])[0]===201,'Native definition creation '.$entity.'.'.$key);
+        [$status,$body]=$request($entityDefs);
+        $check($status===200&&$body['can_manage_definitions']===true&&$body['definitions'][0]['field_access']['editable']===true,'Definition capabilities reflect module and field permissions '.$entity);
+        $body=['values'=>['z_flag'=>false],'expected_values'=>['z_flag'=>null],'expected_owner_tenant_id'=>$tenant];
+        $check($request($entityValues,'POST',$body)[0]===200,'First reviewed value saves '.$entity);
+        $body=['values'=>['z_flag'=>true],'expected_values'=>['z_flag'=>false],'expected_owner_tenant_id'=>$tenant];
+        $check($request($entityValues,'POST',$body)[0]===200,'Matching original value allows edit '.$entity);
+        $auditCount=(int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE tenant_id=$tenant")->fetchColumn();
+        $check($request($entityValues,'POST',$body)[0]===200&&(int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE tenant_id=$tenant")->fetchColumn()===$auditCount,'Response-loss retry is an unchanged success '.$entity);
+        $body['values']=['a_number'=>'12.5','z_flag'=>null];$body['expected_values']=['a_number'=>null,'z_flag'=>false];
+        $check($request($entityValues,'POST',$body)[0]===409,'Stale second field produces a conflict '.$entity);
+        [$status,$readback]=$request($entityValues);$byKey=array_column($readback['values'],'value','field_key');
+        $check($status===200&&$byKey===['a_number'=>null,'z_flag'=>true]&&(int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE tenant_id=$tenant")->fetchColumn()===$auditCount,'Conflict rolls back all values and audit rows '.$entity);
+        $body=['values'=>['z_flag'=>false],'expected_values'=>['z_flag'=>true],'expected_owner_tenant_id'=>999];
+        $check($request($entityValues,'POST',$body)[0]===409,'Different original directory refused '.$entity);
+        $body['expected_owner_tenant_id']=$tenant;$body['expected_values']=[];
+        $check($request($entityValues,'POST',$body)[0]===422,'Incomplete original-value map refused '.$entity);
+        $check($request($entityValues,'GET',null,true,999)[0]===403,'Foreign company pin is refused '.$entity);
+    }
     $check($pdo->query('SELECT * FROM people WHERE id='.$person)->fetch()===$personBefore,'All custom operations preserve the canonical person and its identity');
+    $check($pdo->query('SELECT * FROM companies WHERE id='.$company)->fetch()===$companyBefore&&$pdo->query('SELECT * FROM placements WHERE id='.$placement)->fetch()===$placementBefore,'Company and placement identities and business fields remain unchanged');
     $request('/logout.php');$check($request($values)[0]===401,'Native logout invalidates custom-field access');
     $passed=true;
 }catch(Throwable $e){echo json_encode(['failure'=>$e->getMessage(),'line'=>$e->getLine(),'checks'=>$checks],JSON_THROW_ON_ERROR)."\n";}
 finally{
     if(is_resource($server)){proc_terminate($server);proc_close($server);}
-    if($actor!==null){if($membership!==null){RBACResolver::revokeModule($membership,'people',$actor);deactivateMembership($actor,$tenant);}
+    if($actor!==null){if($membership!==null){RBACResolver::revokeModule($membership,'people',$actor);RBACResolver::revokeModule($membership,'placements',$actor);deactivateMembership($actor,$tenant);}
         $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE id=? AND tenant_id=?')->execute([$actor,$tenant]);
         $pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$tenant]);}
     if(realpath($directory)===$directory)foreach(glob($directory.'/*')?:[]as$file)if(is_file($file)&&!is_link($file)&&realpath(dirname($file))===$directory)unlink($file);

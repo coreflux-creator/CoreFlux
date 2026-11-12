@@ -7,6 +7,7 @@ import PlacementCreate from './PlacementCreate';
 import PlacementDetail from './PlacementDetail';
 import PlacementDetailGraphql from './PlacementDetailGraphql';
 import Reports from './Reports';
+import CustomFields from '../../people/ui/CustomFields';
 import CsvImport from './CsvImport';
 import DraftRatesQueue from './DraftRatesQueue';
 import JobDivaReconciliation from './JobDivaReconciliation';
@@ -30,6 +31,7 @@ export default function PlacementsModule({ session }) {
         <Route path="csv_import" element={<CsvImport />} />
         <Route path="jobdiva-reconciliation" element={<JobDivaReconciliation />} />
         <Route path="draft-rates" element={<DraftRatesQueue />} />
+        <Route path="custom_fields" element={<CustomFields entityType="placements" />} />
         <Route path="reports"    element={<Reports />} />
         <Route path="commissions"element={<List session={session} commissionsView />} />
         <Route path="referrals"  element={<List session={session} referralsView />} />
