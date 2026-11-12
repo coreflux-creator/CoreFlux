@@ -83,7 +83,9 @@ try{
     // Two actual PHP workers overlap at the locked company row, then reconcile one receipt.
     $overlap=array_replace($row,['id'=>'time-overlap','date'=>'2026-11-10']);$children=[];$pdo->beginTransaction();
     $pdo->query('SELECT id FROM tenants WHERE id=11 FOR UPDATE')->fetchAll();
-    $counts=static fn()=>array_map(fn($table)=>(int)$pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn(),['time_entries','jobdiva_time_intake','entity_sync_history','audit_log']);$before=$counts();
+    $counts=static fn()=>array_merge(array_map(fn($table)=>(int)$pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn(),['time_entries','jobdiva_time_intake','entity_sync_history','audit_log']),[
+        (int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='jobdiva.time.intake'")->fetchColumn(),
+        (int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='timesheet.entries_imported'")->fetchColumn()]);$before=$counts();
     try{
         foreach([1,2]as$i){$pipes=[];$process=proc_open([PHP_BINARY,__FILE__,'--overlap-child',base64_encode(json_encode($overlap,JSON_THROW_ON_ERROR))],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);if(!is_resource($process))throw new RuntimeException('Could not start time overlap fixture');fclose($pipes[0]);$children[]=[$process,$pipes];}
         $waiting=0;$deadline=microtime(true)+8;
@@ -91,7 +93,8 @@ try{
         $check($waiting>=2,'Two time intake requests overlap at the company authority lock');$pdo->commit();$results=[];
         foreach($children as[$process,$pipes]){$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($process);if($exit!==0)throw new RuntimeException('Overlapping time intake failed: '.$err);$results[]=json_decode($out,true,32,JSON_THROW_ON_ERROR);}$children=[];
         $check($results[0]['id']===$results[1]['id']&&$results[0]['receipt_id']===$results[1]['receipt_id']&&$results[0]['replayed']!==$results[1]['replayed'],'Simultaneous imports return one stable entry and one original receipt');
-        $check($counts()===array_map(fn($n)=>$n+1,$before),'Simultaneous imports create exactly one time entry, receipt, history and audit');
+        $after=$counts();$expected=array_map(fn($n,$delta)=>$n+$delta,$before,[1,1,1,2,1,1]);
+        $check($after===$expected,'Simultaneous imports create one time entry, receipt, history, intake audit and weekly audit: '.json_encode(['expected'=>$expected,'actual'=>$after]));
     }finally{if($pdo->inTransaction())$pdo->rollBack();foreach($children as[$process,$pipes]){if(is_resource($process))proc_terminate($process);foreach([1,2]as$i)if(is_resource($pipes[$i]))fclose($pipes[$i]);if(is_resource($process))proc_close($process);}}
     $before=$snapshot();$pdo->exec('DELETE FROM jobdiva_time_intake');$reject(fn()=>$apply($changed),'Unreviewed legacy mapping','legacy time link');
     echo "PASS {$passed} native JobDiva time intake checks\n";
