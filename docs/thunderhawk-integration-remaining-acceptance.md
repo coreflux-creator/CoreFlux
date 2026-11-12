@@ -27,6 +27,14 @@ The immediate priority is the field-disposition inventory and the remaining port
 
 The full integration goal remains active and incomplete.
 
+## November 12 field ownership candidate
+
+The fresh, read-only tenant-2002 inventory including visible custom definitions contains 2,036 entries and 684 default `review_required` dispositions. Of those, 111 already have concrete adapter routes, directions, payload paths, write policies and source evidence. The ownership candidate assigns those accepted records to the existing Core directory or contract/review workflow, and retains Quanta import evidence under its source owner. Each decision includes the individual adapter evidence. Unknown fields stay unreviewed; protected, system and connector-reference rules retain precedence; approval fields keep their specialized workflow restriction. The inventory never enables delivery or establishes acceptance in another deployment or tenant.
+
+Applying this candidate to the captured inventory leaves 573 fields requiring disposition. Semantic definitions and provider acceptance are separate from ownership and remain explicitly unverified where appropriate. This is not complete field alignment. Local validation passed 40 ownership checks and 332 record-number checks; full CI and isolated installation are separate release steps.
+
+Custom coverage is explicitly `partial`: the dedicated people definition registry is readable and has no visible definitions for this pilot; placement and company definitions cannot be loaded because the shared `custom_fields` registry is absent. No custom values or business records were read or changed by this inventory. The generic custom-field service also references missing registry methods, so table creation alone would not establish an operational custom-field workflow. That remains a functional gap rather than an accepted empty inventory.
+
 ## November 12 assignment reporting acceptance
 
 The isolated Core pilot installed `89c2dab4` after all eleven jobs in CI run `43159114951` passed. Twelve installed files, ninety dependencies, the served assets and the FPM probe were verified; all 368 tables and 34,455 rows were retained. Quanta installed `651941e7` after native Mongo CI `43158705552` passed eleven transaction checks and 360 full-app checks. Its private frontend security shell was preserved. The final hosted contract probe passed thirteen checks and removed its disposable database; the original business records and thirteen time entries were retained. These are installation and contract results, not a completed operator round trip.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../record_numbers.php';
 require_once __DIR__ . '/staffing_exchange_fields.php';
 require_once __DIR__ . '/staffing_workflow_fields.php';
+require_once __DIR__ . '/staffing_field_ownership.php';
 
 function staffingFieldContractTables(): array
 {
@@ -80,7 +81,7 @@ function staffingFieldContractRules(string $table, string $field): array
             'write_scope' => 'write:workers', 'sync_enabled_by_dictionary' => false];
     }
     if (!$restricted) $remoteContracts = staffingExchangeRemoteContracts($key, $remoteContracts);
-    return [
+    $rules = [
         'definition' => $definition,
         'definition_status' => $definition !== null ? 'reviewed_core_definition' : 'review_required',
         'unit' => $unit,
@@ -94,6 +95,16 @@ function staffingFieldContractRules(string $table, string $field): array
             ? 'preserve_effective_dates_and_approved_history' : 'review_required',
         'remote_contracts' => $remoteContracts,
     ];
+    // A real adapter establishes ownership, not proof of deployment or permission to copy every field.
+    // New/unmapped fields and restricted, system and provider-reference fields retain their prior rules.
+    if (!$restricted && !$workflow && !$system && !$source) {
+        $ownership = staffingFieldExchangeOwnership($table, $remoteContracts);
+        if ($ownership !== null) {
+            $rules = array_replace($rules, $ownership);
+            if ($approval) $rules['write_policy'] = 'specialized_workflow_only';
+        }
+    }
+    return $rules;
 }
 
 /** All columns of the allowlisted tables, including newly added fields, are accounted for. No record values. */
@@ -136,7 +147,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-10.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-12.1', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
