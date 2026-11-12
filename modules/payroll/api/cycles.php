@@ -22,7 +22,7 @@ require_once __DIR__ . '/../lib/staffing_cycle_guard.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
-$tenantId = (int) $ctx['tenant_id'];
+$tenantId = (int) (effectiveTenantIdForModule('payroll',(int)$ctx['tenant_id']) ?? $ctx['tenant_id']);
 $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
 
 switch (api_method()) {

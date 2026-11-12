@@ -13,7 +13,7 @@ require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/staffing_cycle_guard.php';
 
 $ctx = api_require_auth();
-$user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
+$user=$ctx['user'];$tenantId=(int)(effectiveTenantIdForModule('payroll',(int)$ctx['tenant_id'])??$ctx['tenant_id']);
 if(api_method()==='GET'){
     if(!rbac_legacy_can($user,'payroll.view')&&!rbac_legacy_can($user,'placements.view')&&!rbac_legacy_can($user,'billing.view')&&!rbac_legacy_can($user,'ap.view'))rbac_legacy_require($user,'payroll.view');
 }else rbac_legacy_require($user,'payroll.cycles.manage');

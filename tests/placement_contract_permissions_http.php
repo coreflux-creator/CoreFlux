@@ -12,11 +12,11 @@ require_once __DIR__ . '/../core/memberships.php';
 require_once __DIR__ . '/../core/rbac/permissions.php';
 $pdo = getDB();
 if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') exit(2);
-$tenant = 900012; $foreignTenant = 900013;
-if ($pdo->query('SELECT id FROM tenants WHERE id IN (900012,900013)')->fetchColumn()) throw new RuntimeException('Fixture tenants already exist');
+$tenant = 900012; $foreignTenant = 900013; $childTenant=900014;
+if ($pdo->query('SELECT id FROM tenants WHERE id IN (900012,900013,900014)')->fetchColumn()) throw new RuntimeException('Fixture tenants already exist');
 $root = dirname(__DIR__); $directory = sys_get_temp_dir() . '/coreflux-contract-http-' . bin2hex(random_bytes(12));
 if (!mkdir($directory, 0700)) throw new RuntimeException('Private fixture directory unavailable');
-$actor = null; $membership = null; $server = null; $cookie = $directory . '/cookie.private';
+$actor = null; $membership = null; $childMembership=null; $server = null; $cookie = $directory . '/cookie.private';
 $report = ['scope'=>'Native login, dual RBAC, tenant isolation and stored contract HTTP round trip',
     'checks'=>[], 'requests'=>[], 'production_changed'=>false, 'live_provider_contacted'=>false, 'passed'=>false];
 $expect = static function(bool $ok, string $label) use (&$report): void {
@@ -350,6 +350,20 @@ try {
     }
     $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event IN ('placement.cycles.shared_updated','staffing.operating_cycle.updated')");$q->execute([$tenant,$actor]);
     $expect((int)$q->fetchColumn()===2,'The successful shared save audits the authenticated actor at the placement and shared definition exactly once');
+    $pdo->prepare('INSERT INTO tenants(id,name,parent_id,tenant_type,is_active,is_simulation) VALUES(?,?,?,"sub",1,1)')->execute([$childTenant,'Synthetic shared schedule child',$tenant]);
+    $childMembership=(int)provisionMembership($actor,$childTenant,'admin',['is_primary'=>true,'persona_label'=>'Synthetic shared schedule child','status'=>'active'])['membership_id'];
+    RBACResolver::grantModule($childMembership,'placements','admin',[$childTenant],$actor);RBACResolver::grantModule($childMembership,'payroll','admin',[$childTenant],$actor);
+    [$status,$childReview]=$request('GET',$sharedReviewPath,null,true,$childTenant);$unchanged=$snapshot($graphTables);
+    $expect($status===200&&$childReview['permissions']['manage']===true&&$childReview['permissions']['payroll_scope_matches']===false&&$childReview['permissions']['payroll_manage']===false,'A child workspace with private payroll cannot acquire management of its shared placement payroll calendar');
+    $childBody=['name'=>'Synthetic shared child reviewed payroll','review_token'=>$childReview['review_token'],'confirm'=>'UPDATE_SHARED_SCHEDULE'];
+    $expect($request('PATCH',$sharedPath,$childBody,true,$childTenant)[0]===403&&$snapshot($graphTables)===$unchanged,'Child payroll permission does not authorize editing a different payroll data owner');
+    $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"payroll","shared")')->execute([$childTenant]);
+    [$status,$childReview]=$request('GET',$sharedReviewPath,null,true,$childTenant);$childBody['review_token']=$childReview['review_token'];
+    $expect($status===200&&$childReview['permissions']['payroll_scope_matches']===true&&$childReview['permissions']['payroll_manage']===true,'Explicitly shared payroll scope aligns the authorized data owner');
+    [$status,$childSave]=$request('PATCH',$sharedPath,$childBody,true,$childTenant);
+    $expect($status===200&&$childSave['changed']&&$childSave['cycle']['name']==='Synthetic shared child reviewed payroll','Aligned child scope can edit the reviewed parent-owned staffing calendar');
+    $unchanged=$snapshot($graphTables);
+    $expect($request('PATCH',$payCyclePath,['active'=>0],true,$childTenant)[0]===409&&$request('PATCH',$paySchedulePath,['active'=>0],true,$childTenant)[0]===409&&$snapshot($graphTables)===$unchanged,'Native payroll guards resolve the shared owner before refusing a child-workspace bypass');
     RBACResolver::revokeModule($membership,'payroll',$actor);
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
@@ -372,13 +386,14 @@ try {
         try {
             $pdo->beginTransaction();
             if ($membership!==null) { RBACResolver::revokeModule($membership,'placements',$actor); RBACResolver::revokeModule($membership,'payroll',$actor); deactivateMembership($actor,$tenant); }
+            if ($childMembership!==null) { RBACResolver::revokeModule($childMembership,'placements',$actor); RBACResolver::revokeModule($childMembership,'payroll',$actor); deactivateMembership($actor,$childTenant); }
             $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE id=? AND tenant_id=?')->execute([$actor,$tenant]);
-            $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN (900012,900013)'); $pdo->commit();
+            $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN (900012,900013,900014)'); $pdo->commit();
             $q=$pdo->prepare("SELECT COUNT(*) FROM users u JOIN tenant_memberships tm ON tm.user_id=u.id AND tm.tenant_id=u.tenant_id
                 JOIN user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=u.tenant_id WHERE u.id=? AND u.tenant_id=? AND u.is_active=0
                 AND u.password IS NULL AND u.password_hash IS NULL AND tm.id=? AND tm.status='revoked' AND ut.status='inactive'");
             $q->execute([$actor,$tenant,$membership]); $retired=(int)$q->fetchColumn()===1;
-            $q=$pdo->prepare('SELECT COUNT(*) FROM membership_module_access WHERE membership_id=?'); $q->execute([$membership]);
+            $q=$pdo->prepare('SELECT COUNT(*) FROM membership_module_access a JOIN tenant_memberships m ON m.id=a.membership_id WHERE m.user_id=?'); $q->execute([$actor]);
             $report['synthetic_actor_retired']=$retired&&(int)$q->fetchColumn()===0;
             if (!$report['synthetic_actor_retired']) $report['passed']=false;
         } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $report['passed']=false; $report['retirement_failed']=true; }

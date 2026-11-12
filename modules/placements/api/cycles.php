@@ -13,6 +13,7 @@ require_once __DIR__ . '/../lib/cycle_edits.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $tenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
+$payrollScopeMatches=(int)(effectiveTenantIdForModule('payroll',(int)$ctx['tenant_id'])??$ctx['tenant_id'])===$tenantId;
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
@@ -21,7 +22,8 @@ if (in_array($method,['GET','POST','PATCH'],true)) {
     try {
         if ($method === 'GET') {
             if ($action==='edit_review') api_ok(placementCycleSharedReview($tenantId,(int)($_GET['id']??0))+['permissions'=>[
-                'manage'=>rbac_legacy_can($user,'placements.manage'),'payroll_manage'=>rbac_legacy_can($user,'payroll.cycles.manage')]]);
+                'manage'=>rbac_legacy_can($user,'placements.manage'),'payroll_scope_matches'=>$payrollScopeMatches,
+                'payroll_manage'=>$payrollScopeMatches&&rbac_legacy_can($user,'payroll.cycles.manage')]]);
             if ($action!=='') api_error('Unknown schedule action',400);
             $purpose=(string)($_GET['purpose']??'');
             if ($purpose!==''&&!in_array($purpose,['billing','ap','payroll'],true)) api_error('Invalid purpose',422);
@@ -37,7 +39,7 @@ if (in_array($method,['GET','POST','PATCH'],true)) {
         $body=api_json_body();
         if ($method==='PATCH') {
             if ($action!=='') api_error('Unknown schedule action',400);
-            api_ok(placementCycleSharedEdit($tenantId,(int)($_GET['id']??0),$body,rbac_legacy_can($user,'payroll.cycles.manage')));
+            api_ok(placementCycleSharedEdit($tenantId,(int)($_GET['id']??0),$body,$payrollScopeMatches&&rbac_legacy_can($user,'payroll.cycles.manage')));
         }
         if ($action === 'assign') {
             $placementId=$body['placement_id']??null;
