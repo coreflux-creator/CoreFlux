@@ -1,0 +1,102 @@
+{
+  "recorded_at": "2026-11-12T00:10:02.566885+00:00",
+  "previous_goal_turn_classification": "no_progress",
+  "previous_goal_turn_reason": "The preceding reply answered standalone accounting access and did not change integration state. This continuation revalidated the pending source, completed tests, and deployed the reviewed ownership release.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "scope": "Isolated Core staging, simulation tenant 2002; no production cutover",
+  "runtime_source": "e0c1fdae81e91c79cf326fff80cb10dd6f642cce",
+  "ci": {
+    "run": "43124234773",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43124234773",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "Contract review displays current values and groups linked placement and participant commercial ownership",
+    "Release validates the current-state review under placement and child locks, clears metadata and writes the required audit atomically",
+    "Current business values and unrelated Core ownership remain unchanged until a later source refresh",
+    "Manual, duplicate, mismatched and noncanonical participant links block release pending reconciliation",
+    "The old placement-only API refuses commercial ownership release",
+    "Consumed reviews require refresh; late responses for an earlier placement are discarded"
+  ],
+  "verification": {
+    "commercial_release_checks_disposable": 30,
+    "commercial_release_checks_hosted": 30,
+    "new_component_tests": 7,
+    "existing_contract_component_tests": 5,
+    "native_commercial_edit_checks": 33,
+    "stored_contract_review_checks": 16,
+    "contract_ownership_checks": 28,
+    "native_placement_edit_checks": 27,
+    "lifecycle_checks": 30,
+    "prior_ownership_checks": 17,
+    "ending_checks": 13,
+    "request_checks": 17,
+    "original_containers_preserved": 206,
+    "installed_files": 11,
+    "dependencies_checked": 36,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_check": 34356,
+    "served_screen_assets_verified": true,
+    "temporary_probe_removed": true,
+    "synthetic_rows_rolled_back": true
+  },
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "native_http_acceptance": false,
+    "synthetic_browser_component_dom_acceptance": true,
+    "screenshot_inspected": false,
+    "screenshot_limitation": "BrowserOS Page.captureScreenshot timed out; DOM content, disabled controls, selection and overflow were observed instead.",
+    "review_token_scope": "Current values and identities; not an historical revision counter or future source-value preview",
+    "hosted_test_method": "Exact installed functions inside an outer rollback transaction with all existing database rows compared before and after"
+  },
+  "coordination_window_released": true,
+  "remaining_scope": [
+    "Native HTTP authorization and signed-in workflow acceptance",
+    "Additional participant ownership/source-link reconciliation and native participant POST/DELETE/cycle-assignment atomicity",
+    "Lock and revalidate stored JobDiva review through complete apply; show retained decisions in generic batches",
+    "Cleared end-client chains, rate ownership, new-placement graph failures, CSV and lifecycle invariants, activation replay",
+    "Complete field/destination/custom-field alignment and portal/onboarding/document workflows",
+    "Financial-result and billing/AP/AR lineage and reconciliation acceptance; reconcile dictionary verification labels"
+  ],
+  "installed_runtime_hashes": {
+    "modules/placements/lib/commercial_ownership.php": "02de61ccc582b1a34ac3544dae1c4e2232caa13a55b46d3b02c9f9abddb5210f",
+    "modules/placements/api/economics.php": "1ccdd318b8616495c098f7267ae4246bfcf9664b9499bc15c30b51faed13d6eb",
+    "modules/placements/api/placements.php": "95bff6902ceb15bdc8a137dede0d89f729b68f4097d4c2b268fed0a3fa73829c",
+    "modules/placements/ui/PlacementDetail.jsx": "d454e985e7ee70649e6f3b4985d4939af661a2dd72746725cc46e12f8aa652c1",
+    "modules/placements/ui/CommercialOwnershipReview.jsx": "6f4a4653d2117d1ce3d7da5d07f5595b778451538cc8693290f28d8ee848b6d4",
+    "spa-assets/index-DQaWULuI.js": "f123b23e303d621450dfe30fe3aa22a7d2ef0046f03ade66f8632dadcfcabb1e",
+    "spa-assets/index-pmyjFb1P.js": "e613179fd827c6c0988d2fa69e1af55e34e7001a28389d14b8e68f72ee8216ff",
+    "spa-assets/sw.js": "1fa2088ea09e3c31ead3e2d64cb03d9ea9ee9566809ae5373f662bbd5e95e0b2",
+    "spa-assets/index.html": "a092c3460bb7d1ab377ea9059f07129180e1b6c8c1738456b17c3d1cb3c4d0c7",
+    "dashboard/dist/index.html": "a092c3460bb7d1ab377ea9059f07129180e1b6c8c1738456b17c3d1cb3c4d0c7",
+    "index.html": "a092c3460bb7d1ab377ea9059f07129180e1b6c8c1738456b17c3d1cb3c4d0c7"
+  },
+  "evidence": {
+    "commercial-release-e0c1fdae-disposable-result.json": {
+      "path": "output/commercial-release-e0c1fdae-disposable-result.json",
+      "sha256": "51dc811ed749655ed0a967493674c19686f8a31d197cedb3e570222537bfdab7"
+    },
+    "commercial-release-e0c1fdae-preflight.json": {
+      "path": "output/commercial-release-e0c1fdae-preflight.json",
+      "sha256": "fcc6d7c3e1e91ac63bada2d5e5e662327883c6e75a4b7d1840bc4dfb41f57799"
+    },
+    "commercial-release-install-result.json": {
+      "path": "output/commercial-release-install-result.json",
+      "sha256": "67048a6716aea34f293053fd2e08e3978c42adb58edd7338568d9c419a8dc60f"
+    },
+    "commercial-release-hosted-result.json": {
+      "path": "output/commercial-release-hosted-result.json",
+      "sha256": "ad62031e080a86ea057cd9d3aa9a5da8d8bc19898c7bdf8f72d2a6da6823248d"
+    },
+    "commercial-release-ci.json": {
+      "path": "output/commercial-release-ci.json",
+      "sha256": "b196bfbe712405bda429d489fa516712e888a7eefaad2ca308f3897315644965"
+    }
+  }
+}
