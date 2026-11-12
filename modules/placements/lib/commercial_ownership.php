@@ -112,7 +112,9 @@ function placementCommercialOwnershipPlan(PDO $pdo, array $placement): array
     }
     // Current values and identities are part of the seal. This is permission
     // for a later source refresh, not a preview of a particular source value.
-    $token = hash('sha256', json_encode(['version'=>1,'placement'=>$placement,'parties'=>$parties,'client'=>$client,'corp'=>$corp,'cycles'=>$cycles,'groups'=>$groups], JSON_THROW_ON_ERROR));
+    // Corporate ciphertext contains arbitrary bytes. Seal it without JSON's
+    // UTF-8 conversion; the public review remains limited to the fields above.
+    $token = hash('sha256', serialize(['version'=>2,'placement'=>$placement,'parties'=>$parties,'client'=>$client,'corp'=>$corp,'cycles'=>$cycles,'groups'=>$groups]));
     return ['placement_id'=>$id,'source_external_id'=>$placement['external_id'],'review_token'=>$token,'groups'=>$groups];
 }
 

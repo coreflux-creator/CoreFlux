@@ -16,7 +16,7 @@ $refused=static function(callable $fn,int $code):bool{try{$fn();return false;}ca
 $failure=static function(callable $fn):string{try{$fn();return '';}catch(Throwable $e){return $e->getMessage();}};
 $read=static function(string $table):array{
     $rows=getDB()->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC);
-    usort($rows,static fn($a,$b)=>strcmp(json_encode($a,JSON_THROW_ON_ERROR),json_encode($b,JSON_THROW_ON_ERROR)));return $rows;
+    usort($rows,static fn($a,$b)=>strcmp(serialize($a),serialize($b)));return $rows;
 };
 $tables=['placements','placement_rates','placement_corp_details','placement_economic_parties','companies','company_roles','external_entity_mappings','ap_vendors_index','staffing_operating_cycles','audit_log'];
 $snapshot=static fn():array=>array_map($read,$tables);
@@ -91,8 +91,24 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$re
     finally{$pdo->exec('DROP TEMPORARY TABLE audit_log');}
     $check($refused(fn()=>placementCommercialOwnershipReview($tenant+1000000,$placement),404),'Another tenant cannot review the corporate identity');
     $private=$pdo->prepare('UPDATE placement_corp_details SET corp_ein_ct=? WHERE tenant_id=? AND placement_id=?');
-    $private->execute(['synthetic-presence-only',$tenant,$placement]);$stable=$snapshot();$ownership=$review();$groups=array_column($ownership['groups'],null,'key');
+    // Deterministic non-UTF-8 bytes model the VARBINARY ciphertext storage.
+    $privateBytes="\x00\xff\x80synthetic-presence-only";
+    $private->execute([$privateBytes,$tenant,$placement]);$stable=$snapshot();$ownership=$review();$groups=array_column($ownership['groups'],null,'key');
+    $public=json_encode($ownership,JSON_THROW_ON_ERROR);
+    $check($ownership===$review()&&!str_contains($public,'corp_ein')&&!str_contains($public,'synthetic-presence-only')&&$corp()['corp_ein_ct']===$privateBytes,'Binary private records permit a stable JSON review without exposing or changing their bytes');
     $check(!$groups['corp_identity']['selectable']&&$refused(fn()=>$release(['corp_identity'],$ownership['review_token']),409)&&$snapshot()===$stable,'Tax records block identity release without exposing or detaching them');
+    $private->execute([$privateBytes."\x81",$tenant,$placement]);$changed=$snapshot();$changedReview=$review();
+    $check($changedReview['review_token']!==$ownership['review_token']&&$refused(fn()=>$release(['corp_identity'],$ownership['review_token']),409)&&$snapshot()===$changed,'A change confined to encrypted bytes invalidates the earlier review');
+    $private->execute([$privateBytes,$tenant,$placement]);
+    $row=placementAuditRow($placement);$owned=placementOwnershipFields($row['coreflux_overridden_fields']);
+    scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>json_encode(array_values(array_unique([...$owned,'client_payment_terms_override'])),JSON_THROW_ON_ERROR)]);
+    $pdo->prepare('UPDATE placement_economic_parties SET payment_terms_overridden=1 WHERE tenant_id=? AND placement_id=? AND source_ref="placement:bill_to"')->execute([$tenant,$placement]);
+    $clientReview=$review();$clientGroups=array_column($clientReview['groups'],null,'key');$privateCorp=$corp();
+    $released=$release(['client_terms'],$clientReview['review_token']);
+    $check($clientGroups['client_terms']['selectable']&&$released['released_groups']===['client_terms']&&$corp()===$privateCorp,'Unrelated client term ownership can be released while private corporate identity remains protected');
+    $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="placement.commercial_ownership.released" ORDER BY id DESC LIMIT 1');$q->execute([$tenant,$placement]);$privateAudit=$q->fetchColumn();
+    $check(is_array(json_decode($privateAudit,true,64,JSON_THROW_ON_ERROR))&&!str_contains($privateAudit,'corp_ein')&&!str_contains($privateAudit,'synthetic-presence-only'),'The successful ownership audit contains the safe review without corporate ciphertext');
+    $stable=$snapshot();
     $check($refused(fn()=>placementEconomicsRemoveNativeParty($tenant,$partyId),409)&&$snapshot()===$stable,'Native removal preserves attached corporate tax records');
     $check($refused(fn()=>placementEconomicsCreateNativeParty($tenant,$placement,array_replace($nativeBody,['company_id'=>$sourceCompany]),[]),409)&&$snapshot()===$stable,'A native company change cannot reassign existing private records');
     $private->execute([null,$tenant,$placement]);$ownership=$review();$beforeCorp=$corp();$release(['corp_identity'],$ownership['review_token']);

@@ -275,6 +275,16 @@ try {
     $expect($status===200&&!$sameCorp['changed']&&$snapshot($graphTables)===$unchanged,'Fresh identical corporate save is an unchanged HTTP success');
     $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.corp.updated'");
     $q->execute([$tenant,$corpPlacement,$actor]);$expect((int)$q->fetchColumn()===2,'Corporate saves audit the authenticated actor once per actual change');
+    $privateCipher="\x00\xff\x80http-private-record";
+    $setPrivate=$pdo->prepare('UPDATE placement_corp_details SET corp_ein_ct=? WHERE tenant_id=? AND placement_id=?');
+    $setPrivate->execute([$privateCipher,$tenant,$corpPlacement]);
+    [$status,$privateOwnership]=$request('GET',$economics.'?action=ownership_review&placement_id='.$corpPlacement);
+    $publicOwnership=json_encode($privateOwnership,JSON_THROW_ON_ERROR);
+    $expect($status===200&&strlen($privateOwnership['review_token']??'')===64&&!str_contains($publicOwnership,'corp_ein')&&!str_contains($publicOwnership,'http-private-record'),'Ownership HTTP review accepts binary corporate ciphertext without disclosing it');
+    $setPrivate->execute([$privateCipher."\x81",$tenant,$corpPlacement]);
+    [$status,$changedOwnership]=$request('GET',$economics.'?action=ownership_review&placement_id='.$corpPlacement);
+    $expect($status===200&&$changedOwnership['review_token']!==$privateOwnership['review_token'],'Native ownership HTTP review detects a change confined to private encrypted bytes');
+    $setPrivate->execute([null,$tenant,$corpPlacement]);
     $unchanged=$snapshot($graphTables);
     $expect($request('POST',$economics.'?action=item&placement_id='.$foreign['placement'],$itemBody)[0]===404
         &&$snapshot($graphTables)===$unchanged,'A native item cannot be created against a foreign placement');
