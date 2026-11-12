@@ -770,7 +770,7 @@ function _settleTimeIntoPayroll(
             // Stamp the entries we just settled.
             $ids = array_map(fn($e) => (int) $e['id'], $bucket['entries']);
             $stampPlace = implode(',', array_fill(0, count($ids), '?'));
-            $stampRef   = "payroll:run#$runId";
+            $stampRef   = $runId;
             $stamp = $pdo->prepare(
                 "UPDATE time_entries
                  SET {$cols['at']} = NOW(),

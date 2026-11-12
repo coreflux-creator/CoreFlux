@@ -31,7 +31,7 @@ try {
     $pdo->exec("INSERT INTO payroll_pay_schedules(id,tenant_id,name,frequency,period_start_anchor) VALUES(1,10,'Native test','biweekly','2026-11-02'),(2,11,'Shared test','biweekly','2026-11-02'),(3,12,'Foreign test','biweekly','2026-11-02')");
     $pdo->exec('INSERT INTO payroll_profiles(id,tenant_id,employee_id,schedule_id,cycle_id) VALUES(1,10,20,1,NULL),(2,10,21,1,NULL),(3,11,20,2,NULL),(4,12,22,3,NULL)');
     $pdo->exec("INSERT INTO payroll_pay_periods(id,tenant_id,schedule_id,period_number,period_start,period_end,pay_date,status) VALUES(1,10,1,1,'2026-11-02','2026-11-15','2026-11-20','open'),(2,11,2,1,'2026-11-02','2026-11-15','2026-11-20','open')");
-    $pdo->exec("CREATE TABLE time_entries(id BIGINT PRIMARY KEY,tenant_id BIGINT,person_id BIGINT,placement_id BIGINT,work_date DATE,category VARCHAR(40),hours DECIMAL(8,2),description VARCHAR(255),status VARCHAR(20),rate_snapshot_id BIGINT,payroll_extracted_at DATETIME NULL,payroll_extracted_ref VARCHAR(100) NULL,payroll_extracted_by_user_id BIGINT NULL)");
+    $pdo->exec("CREATE TABLE time_entries(id BIGINT PRIMARY KEY,tenant_id BIGINT,person_id BIGINT,placement_id BIGINT,work_date DATE,category VARCHAR(40),hours DECIMAL(8,2),description VARCHAR(255),status VARCHAR(20),rate_snapshot_id BIGINT,payroll_extracted_at DATETIME NULL,payroll_extracted_ref BIGINT UNSIGNED NULL,payroll_extracted_by_user_id BIGINT NULL)");
     $pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,payroll_cycle_id BIGINT NULL,payroll_operating_cycle_id BIGINT NULL)');
     $pdo->exec('CREATE TABLE staffing_operating_cycles(id BIGINT PRIMARY KEY,tenant_id BIGINT,payroll_pay_cycle_id BIGINT,active INT)');
     $pdo->exec('INSERT INTO placements VALUES(100,10,NULL,NULL),(101,11,NULL,NULL)');
@@ -45,7 +45,7 @@ try {
     $pdo->exec('CREATE TABLE ap_vendors_index(id BIGINT,tenant_id BIGINT,vendor_name VARCHAR(100),vendor_type VARCHAR(20),default_terms VARCHAR(30),default_pwp INT)');
     $apply('core/migrations/138_placement_one_time_items.sql');
     $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT NULL,actor_user_id BIGINT NULL,event VARCHAR(100),target_id BIGINT NULL,meta_json LONGTEXT,ip_address VARCHAR(50),created_at DATETIME)');
-    $pdo->exec("INSERT INTO time_entries VALUES(1,10,1,100,'2026-11-09','regular_billable',2,'Synthetic','approved',1,NOW(),'payroll:run#7',7),(2,10,1,100,'2026-11-10','OT_billable',1,'Synthetic','approved',1,NOW(),'payroll:run#7',7),(3,11,1,101,'2026-11-09','regular_billable',3,'Shared','approved',2,NOW(),'payroll:run#7',7),(4,10,2,100,'2026-11-09','regular_billable',4,'Unlinked','approved',1,NULL,NULL,NULL)");
+    $pdo->exec("INSERT INTO time_entries VALUES(1,10,1,100,'2026-11-09','regular_billable',2,'Synthetic','approved',1,NOW(),7,7),(2,10,1,100,'2026-11-10','OT_billable',1,'Synthetic','approved',1,NOW(),7,7),(3,11,1,101,'2026-11-09','regular_billable',3,'Shared','approved',2,NOW(),7,7),(4,10,2,100,'2026-11-09','regular_billable',4,'Unlinked','approved',1,NULL,NULL,NULL)");
     $pdo->exec("INSERT INTO placement_economic_obligations(id,tenant_id,placement_id,economic_party_id,payroll_ref_id,amount,currency,status,source_type,source_ref_id) VALUES(1,10,100,1,7,12.34,'USD','payroll','manual',1),(2,10,100,1,7,0.01,'USD','payroll','manual',2),(3,11,101,2,7,99.99,'USD','payroll','manual',3)");
     $hours=payrollRunExtractedHours(7);$earnings=payrollRunEconomicEarnings(7);
     $check($hours===[20=>['hours_regular'=>2.0,'hours_overtime'=>1.0]],'reviewed employee receives regular and overtime exactly once despite reused email');
@@ -53,7 +53,7 @@ try {
     $pdo->exec("UPDATE people SET email_primary='changed@example.invalid' WHERE id=1");
     $check(payrollRunExtractedHours(7)===$hours&&payrollRunEconomicEarnings(7)===$earnings,'contact changes never redirect saved payroll sources');
     $check(payrollRunExtractedHours(12345)===[]&&payrollRunEconomicEarnings(12345)===[],'empty run sources remain empty');
-    $pdo->exec("UPDATE time_entries SET payroll_extracted_ref='payroll:run#7' WHERE id=4");
+    $pdo->exec("UPDATE time_entries SET payroll_extracted_ref=7 WHERE id=4");
     $check($fails(fn()=>payrollRunExtractedHours(7),'reviewed person/employment link'),'unlinked extracted source raises a review error instead of disappearing or using email');
     $pdo->exec('UPDATE time_entries SET payroll_extracted_ref=NULL WHERE id=4');
     foreach(['INR','CAD','']as$currency){$pdo->prepare('UPDATE placement_rates SET currency=? WHERE id=1')->execute([$currency]);$check($fails(fn()=>payrollRunExtractedHours(7),'explicit USD currency'),'non-USD or missing source rate is not relabelled: '.$currency);}
@@ -119,6 +119,24 @@ try {
     $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
     $check($fails(fn()=>$settle([1,2]),'already extracted')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===1&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'extraction replay cannot create duplicate runs or change source stamps');
     $check($pdo->query('SELECT status FROM payroll_runs')->fetchColumn()==='draft'&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_line_items')->fetchColumn()===0,'fixture never computes, approves, posts or pays payroll');
+    $check((string)$pdo->query('SELECT payroll_extracted_ref FROM time_entries WHERE id=1')->fetchColumn()===(string)$run,'actual BIGINT extraction column retains the numeric native run identity');
+    require_once __DIR__.'/../modules/payroll/lib/accounting_posting.php';
+    $pdo->exec("ALTER TABLE placements ADD engagement_type VARCHAR(20) DEFAULT 'w2'");
+    $pdo->exec("ALTER TABLE time_entries ADD dimension_snapshot_json LONGTEXT NULL,ADD dimension_snapshot_hash CHAR(64) NULL,ADD timesheet_id BIGINT DEFAULT 77,ADD payable INT DEFAULT 1,ADD hour_type VARCHAR(20) DEFAULT 'regular'");
+    $pdo->exec("UPDATE time_entries SET hour_type='overtime' WHERE id=2");
+    $pdo->exec('ALTER TABLE placement_rates ADD adder_pct DECIMAL(6,4) DEFAULT 0,ADD workers_comp_pct DECIMAL(6,4) DEFAULT 0,ADD benefits_load_pct DECIMAL(6,4) DEFAULT 0,ADD other_cost_per_hour DECIMAL(12,2) DEFAULT 0');
+    $pdo->exec('CREATE TABLE accounting_events(id BIGINT PRIMARY KEY,tenant_id BIGINT,entity_id BIGINT,event_type VARCHAR(100),status VARCHAR(20),source_record_id VARCHAR(200),payload LONGTEXT)');
+    $pdo->prepare("INSERT INTO accounting_events VALUES(1,10,1,'staffing.worker_hours.approved','posted','77:w2',?)")->execute([json_encode(['dimensions'=>['placement'=>['id'=>100],'worker'=>['id'=>1]]])]);
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'legacy aggregate staffing accrual'),'numeric native run still detects legacy accrual coverage before any posting');
+    $pdo->exec("UPDATE accounting_events SET source_record_id='timesheet:77:placement:100:w2'");
+    $coverage=payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]);
+    $check(count($coverage)===1&&$coverage[0]['accrued_wage_cents']===17500,'numeric run reference retains assignment accrual coverage without posting again');
+    // Older installations used text references: preserve those reads without rewriting them.
+    $pdo->exec('ALTER TABLE time_entries MODIFY payroll_extracted_ref VARCHAR(100) NULL');
+    $pdo->prepare("UPDATE time_entries SET payroll_extracted_ref=? WHERE tenant_id=10 AND payroll_extracted_ref=?")->execute(['payroll:run#'.$run,(string)$run]);
+    $check(payrollRunExtractedHours($run)===$hours&&payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]])===$coverage,'legacy text run references retain hours and accrual coverage');
+    $pdo->exec("UPDATE time_entries SET payroll_extracted_ref='payroll:run#12345' WHERE id=1");
+    $check(payrollRunExtractedHours($run)===[20=>['hours_regular'=>0.0,'hours_overtime'=>1.0]],'legacy reference matching is exact and never coerces text to zero');
     if(!is_dir(__DIR__.'/../artifacts'))mkdir(__DIR__.'/../artifacts');
     file_put_contents(__DIR__.'/../artifacts/payroll-source-identity.json',json_encode(['passed'=>$passed,'checks'=>$checks,'provider_requests'=>0,'real_financial_execution'=>false],JSON_PRETTY_PRINT)."\n");
     echo "$passed payroll source identity checks passed.\n";

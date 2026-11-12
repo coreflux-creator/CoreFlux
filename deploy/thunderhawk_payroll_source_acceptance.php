@@ -6,6 +6,7 @@ const PS_PRIVATE='/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunde
 if(PHP_SAPI!=='cli'||getcwd()!==PS_ROOT||posix_geteuid()!==1003||getenv('COREFLUX_ENV')!=='staging'
  ||!preg_match('/^[a-f0-9]{64}$/D',$argv[1]??'')||!hash_equals($argv[1],hash_file('sha256',__DIR__.'/payroll-source-pins.json')))exit(2);
 require_once PS_ROOT.'/modules/payroll/lib/payroll.php';
+require_once PS_ROOT.'/modules/people/lib/employment_links.php';
 require_once PS_ROOT.'/core/integrations/identity.php';
 $pdo=getDB();
 if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'||!COREFLUX_STAGING
@@ -29,13 +30,17 @@ file_put_contents(PS_PRIVATE.'/payroll-source-before.private.json',json_encode($
 try{
  setRequestTenantId(2002);setRequestModuleScope('payroll');
  if(effectiveTenantIdForModule('people',2002)!==2002||effectiveTenantIdForModule('placements',2002)!==2002)throw new RuntimeException('Unexpected fixture directory ownership');
- foreach($tables as$table){$pdo->exec('CREATE TEMPORARY TABLE `'.$table.'` LIKE `'.$table.'`');$created[]=$table;}
- $pdo->exec("INSERT INTO people(id,tenant_id,first_name,last_name,email_primary,classification,status) VALUES(1,2002,'Synthetic','Source','reused@example.invalid','w2','active'),(2,2002,'Unlinked','Source','reused@example.invalid','w2','active')");
+ foreach($tables as$table){
+  $definition=$pdo->query('SHOW CREATE TABLE `'.$table.'`')->fetch(PDO::FETCH_NUM)[1];
+  if(!str_starts_with($definition,'CREATE TABLE `'.$table.'` (')||str_contains($definition,'FOREIGN KEY'))throw new RuntimeException('Temporary fixture schema requires review');
+  $pdo->exec(preg_replace('/^CREATE TABLE /','CREATE TEMPORARY TABLE ',$definition,1));$created[]=$table;
+ }
+ $pdo->exec("INSERT INTO people(id,tenant_id,first_name,last_name,email_primary,classification,status) VALUES(1,2002,'Synthetic','Source','reused@example.invalid','w2','active'),(2,2002,'Unlinked','Source','unlinked@example.invalid','w2','active')");
  $pdo->exec("INSERT INTO people_employees(id,tenant_id,employee_number,legal_first_name,legal_last_name,work_email,status) VALUES(20,2002,'TEST-20','Synthetic','Source','old@example.invalid','active'),(21,2002,'TEST-21','Different','Source','reused@example.invalid','active')");
  $pdo->prepare('INSERT INTO people_employment_links(tenant_id,person_id,employee_id,review_id,actor_user_id,origin,reason,review_ct) VALUES(2002,1,20,?,1,"reviewed","Temporary native-reader fixture",?)')->execute([str_repeat('a',64),encryptField('{"synthetic":true}')]);
  $pdo->exec('INSERT INTO payroll_profiles(id,tenant_id,employee_id,enabled) VALUES(1,2002,20,1),(2,2002,21,1)');
  $pdo->exec("INSERT INTO placement_rates(id,tenant_id,placement_id,effective_from,pay_rate,bill_rate,currency,approved_at) VALUES(1,2002,1,'2026-11-01',50,100,'USD',NOW())");
- $pdo->exec("INSERT INTO time_entries(id,tenant_id,placement_id,person_id,period_id,work_date,category,hours,status,rate_snapshot_id,payroll_extracted_ref,payroll_extracted_at) VALUES(1,2002,1,1,1,'2026-11-09','regular_billable',2,'approved',1,'payroll:run#999991',NOW()),(2,2002,1,1,1,'2026-11-10','OT_billable',1,'approved',1,'payroll:run#999991',NOW())");
+ $pdo->exec("INSERT INTO time_entries(id,tenant_id,placement_id,person_id,period_id,work_date,category,hours,status,rate_snapshot_id,payroll_extracted_ref,payroll_extracted_at) VALUES(1,2002,1,1,1,'2026-11-09','regular_billable',2,'approved',1,999991,NOW()),(2,2002,1,1,1,'2026-11-10','OT_billable',1,'approved',1,999991,NOW())");
  $pdo->exec("INSERT INTO placement_economic_parties(id,tenant_id,placement_id,source_ref,source_type,role,display_name,person_id,money_flow,settlement_channel) VALUES(1,2002,1,'manual:test','manual','recruiter','Synthetic source',1,'payable','payroll')");
  $pdo->exec("INSERT INTO placement_economic_obligations(tenant_id,placement_id,economic_party_id,source_type,source_ref_id,amount,currency,status,payroll_ref_id) VALUES(2002,1,1,'manual',1,12.34,'USD','payroll',999991),(2002,1,1,'manual',2,0.01,'USD','payroll',999991)");
  $hours=[20=>['hours_regular'=>2.0,'hours_overtime'=>1.0]];
@@ -43,6 +48,7 @@ try{
  $check(payrollRunEconomicEarnings(999991)===[20=>1235],'native earnings sum exact USD cents once');
  $pdo->exec("UPDATE people SET email_primary='changed@example.invalid' WHERE id=1");
  $check(payrollRunExtractedHours(999991)===$hours&&payrollRunEconomicEarnings(999991)===[20=>1235],'contact edits cannot redirect sources');
+ $pdo->exec("UPDATE people SET email_primary='reused@example.invalid' WHERE id=2");
  $pdo->exec('UPDATE time_entries SET person_id=2 WHERE id=1');
  $check($fails(fn()=>payrollRunExtractedHours(999991),'reviewed person/employment link'),'unlinked time cannot disappear or use email');
  $pdo->exec('UPDATE time_entries SET person_id=1 WHERE id=1');

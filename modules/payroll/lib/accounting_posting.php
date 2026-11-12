@@ -296,7 +296,7 @@ function payrollAccountingStaffingAccrualGroups(
     if (!$employeeRows) return [];
     $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
     $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
-    $ref = 'payroll:run#' . $runId;
+    $ref = (string)$runId;
     $groups = [];
     $engagementExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(te.dimension_snapshot_json, '$.engagement_type')), pl.engagement_type)";
 
@@ -321,7 +321,7 @@ function payrollAccountingStaffingAccrualGroups(
             )
           WHERE te.tenant_id = :time_tenant_id
             AND te.person_id = :person_id
-            AND te.payroll_extracted_ref = :payroll_ref
+            AND CAST(te.payroll_extracted_ref AS CHAR) IN (:payroll_ref,:legacy_payroll_ref)
             AND te.payable = 1
             AND te.status = 'approved'
             AND assignment_event.id IS NULL"
@@ -369,7 +369,7 @@ function payrollAccountingStaffingAccrualGroups(
             )
           WHERE te.tenant_id = :time_tenant_id
             AND te.person_id = :person_id
-            AND te.payroll_extracted_ref = :payroll_ref
+            AND CAST(te.payroll_extracted_ref AS CHAR) IN (:payroll_ref,:legacy_payroll_ref)
             AND te.payable = 1
             AND te.status = 'approved'
             AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
@@ -385,6 +385,7 @@ function payrollAccountingStaffingAccrualGroups(
             'time_tenant_id' => $tenantId,
             'person_id' => (int) $employee['person_id'],
             'payroll_ref' => $ref,
+            'legacy_payroll_ref' => 'payroll:run#'.$runId,
         ];
         $legacyCheck->execute($params);
         if ((int) $legacyCheck->fetchColumn() > 0) {
@@ -401,6 +402,7 @@ function payrollAccountingStaffingAccrualGroups(
             'time_tenant_id' => $tenantId,
             'person_id' => (int) $employee['person_id'],
             'payroll_ref' => $ref,
+            'legacy_payroll_ref' => 'payroll:run#'.$runId,
         ]);
         foreach ($coverage->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $group) {
             $payload = json_decode((string) ($group['event_payload'] ?? ''), true);

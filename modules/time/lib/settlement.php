@@ -349,7 +349,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
                     );
                 }
             }
-            $storedTargetRef = 'payroll:run#' . $targetRef;
+            $storedTargetRef = $targetRef;
         }
 
         // Stamp the batch.

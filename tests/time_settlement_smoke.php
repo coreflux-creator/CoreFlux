@@ -281,7 +281,7 @@ $a('manual payroll extract validates draft run',  $c($lib, 'time can only be lin
 $a('manual payroll extract validates work-date window',
                                                   $c($lib, 'is outside payroll run'));
 $a('manual payroll extract writes canonical run reference',
-                                                  $c($lib, "'payroll:run#' . \$targetRef"));
+                                                  $c($lib, '$storedTargetRef = $targetRef;'));
 $a('manual billing/AP extract validates target exists',
                                                   $c($lib, 'Billing invoice #{$targetRef}')
                                                   && $c($lib, 'AP bill #{$targetRef}'));

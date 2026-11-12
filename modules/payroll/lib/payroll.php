@@ -109,7 +109,7 @@ function payrollReadPeople(callable $read): mixed {
 /** Hours explicitly extracted from Time. Unresolved sources cannot silently disappear. */
 function payrollRunExtractedHours(int $runId): array {
     require_once __DIR__ . '/../../placements/lib/economics.php';
-    $ref = 'payroll:run#' . $runId;
+    $ref = (string)$runId;
     $tenantId = currentTenantId();
     if (!$tenantId) return [];
     $placementOwner = effectiveTenantIdForModule('placements', $tenantId);
@@ -118,13 +118,14 @@ function payrollRunExtractedHours(int $runId): array {
            FROM time_entries te
       LEFT JOIN placement_rates r ON r.tenant_id=:placement_owner
             AND r.id=te.rate_snapshot_id AND r.placement_id=te.placement_id
-          WHERE te.tenant_id = :time_tenant_id AND te.payroll_extracted_ref = :ref
+          WHERE te.tenant_id = :time_tenant_id AND CAST(te.payroll_extracted_ref AS CHAR) IN (:ref,:legacy_ref)
           ORDER BY te.id'
     );
     $stmt->execute([
         'placement_owner' => $placementOwner,
         'time_tenant_id' => $tenantId,
         'ref' => $ref,
+        'legacy_ref' => 'payroll:run#'.$runId,
     ]);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $result = []; $recipients = [];
