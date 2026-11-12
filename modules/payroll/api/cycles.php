@@ -18,6 +18,7 @@
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/cycles.php';
+require_once __DIR__ . '/../lib/staffing_cycle_guard.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -126,7 +127,6 @@ switch (api_method()) {
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
-        $before = payrollCycleAuditRow($tenantId, $id);
         $allowed = ['name','cohort_filter_json','anchor_date_override',
                     'pay_date_offset_days_override','active','notes'];
         $data = [];
@@ -136,13 +136,17 @@ switch (api_method()) {
             if ($f === 'cohort_filter_json' && is_array($v)) $v = json_encode($v, JSON_UNESCAPED_SLASHES);
             $data[$f] = $v;
         }
+        try { payrollWithUnlinkedSchedule($tenantId,$id,'cycle',static function()use($id,$data,$tenantId,$actorUserId):array {
+        $before=payrollCycleAuditRow($tenantId,$id);
         scopedUpdate('payroll_pay_cycles', $id, $data);
         payrollAuditLight('payroll.cycle.updated', ['cycle_id' => $id, 'fields' => array_keys($data)], $id, [
             'tenant_id' => $tenantId,
             'actor_user_id' => $actorUserId,
             'before' => $before,
             'after' => payrollCycleAuditRow($tenantId, $id),
-        ]);
+        ]);return ['ok'=>true];
+        }); } catch (PDOException $e) { api_error('Payroll schedule change could not be saved.',503); }
+        catch (RuntimeException $e) { api_error($e->getMessage(),in_array($e->getCode(),[404,409],true)?$e->getCode():422); }
         api_ok(['ok' => true]);
     }
 
@@ -150,14 +154,17 @@ switch (api_method()) {
         rbac_legacy_require($user, 'payroll.cycles.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
-        $before = payrollCycleAuditRow($tenantId, $id);
+        try { payrollWithUnlinkedSchedule($tenantId,$id,'cycle',static function()use($id,$tenantId,$actorUserId):array {
+        $before=payrollCycleAuditRow($tenantId,$id);
         scopedUpdate('payroll_pay_cycles', $id, ['active' => 0]);
         payrollAuditLight('payroll.cycle.deactivated', ['cycle_id' => $id], $id, [
             'tenant_id' => $tenantId,
             'actor_user_id' => $actorUserId,
             'before' => $before,
             'after' => payrollCycleAuditRow($tenantId, $id),
-        ]);
+        ]);return ['ok'=>true];
+        }); } catch (PDOException $e) { api_error('Payroll schedule change could not be saved.',503); }
+        catch (RuntimeException $e) { api_error($e->getMessage(),in_array($e->getCode(),[404,409],true)?$e->getCode():422); }
         api_ok(['ok' => true]);
     }
 }

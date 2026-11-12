@@ -10,8 +10,13 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/payroll.php';
+require_once __DIR__ . '/../lib/staffing_cycle_guard.php';
 
 $ctx = api_require_auth();
+$user=$ctx['user'];$tenantId=(int)$ctx['tenant_id'];
+if(api_method()==='GET'){
+    if(!rbac_legacy_can($user,'payroll.view')&&!rbac_legacy_can($user,'placements.view')&&!rbac_legacy_can($user,'billing.view')&&!rbac_legacy_can($user,'ap.view'))rbac_legacy_require($user,'payroll.view');
+}else rbac_legacy_require($user,'payroll.cycles.manage');
 
 switch (api_method()) {
     case 'GET': {
@@ -57,14 +62,18 @@ switch (api_method()) {
         $allowed = ['name','frequency','period_start_anchor','pay_date_offset_days','timezone','active','notes'];
         $data = [];
         foreach ($allowed as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];
-        scopedUpdate('payroll_pay_schedules', $id, $data);
+        try { payrollWithUnlinkedSchedule($tenantId,$id,'schedule',static function()use($id,$data):array {scopedUpdate('payroll_pay_schedules',$id,$data);return ['ok'=>true];}); }
+        catch(PDOException $e){api_error('Payroll schedule change could not be saved.',503);}
+        catch(RuntimeException $e){api_error($e->getMessage(),in_array($e->getCode(),[404,409],true)?$e->getCode():422);}
         api_ok(['ok' => true]);
     }
 
     case 'DELETE': {
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
-        scopedUpdate('payroll_pay_schedules', $id, ['active' => 0]);
+        try { payrollWithUnlinkedSchedule($tenantId,$id,'schedule',static function()use($id):array {scopedUpdate('payroll_pay_schedules',$id,['active'=>0]);return ['ok'=>true];}); }
+        catch(PDOException $e){api_error('Payroll schedule change could not be saved.',503);}
+        catch(RuntimeException $e){api_error($e->getMessage(),in_array($e->getCode(),[404,409],true)?$e->getCode():422);}
         api_ok(['ok' => true]);
     }
 }

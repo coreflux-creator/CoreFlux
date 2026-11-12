@@ -138,6 +138,9 @@ try {
     $cycleBody=['name'=>'Synthetic HTTP Payroll','purpose'=>'payroll','cadence'=>'biweekly','anchor_date'=>'2026-10-05','settlement_offset_days'=>5,'placement_id'=>$payrollPlacement,'review_token'=>str_repeat('0',64)];
     $cycleAssign=['placement_id'=>$payrollPlacement,'payroll_operating_cycle_id'=>1,'review_token'=>str_repeat('0',64)];
     $operations[]=['GET',$cycleReviewPath,null];$operations[]=['POST',$cycles,$cycleBody];$operations[]=['POST',$cycles.'?action=assign',$cycleAssign];
+    $sharedId=(int)placementAuditRow($own['placement'])['billing_operating_cycle_id'];
+    $operations[]=['GET',$cycles.'?action=edit_review&id='.$sharedId,null];
+    $operations[]=['PATCH',$cycles.'?id='.$sharedId,['name'=>'Synthetic unauthorized schedule edit']];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -320,6 +323,35 @@ try {
     $expect($request('POST',$cycles,array_replace($cycleBody,['name'=>'Synthetic Stale HTTP Payroll']))[0]===409&&$snapshot($graphTables)===$unchanged,'A stale review rolls back a newly named schedule and both payroll records');
     $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event IN ('placement.cycles.assigned','staffing.operating_cycle.created')");
     $q->execute([$tenant,$actor]);$expect((int)$q->fetchColumn()===2,'Successful schedule creation and assignment each record the authenticated actor once');
+    $sharedPath=$cycles.'?id='.$scheduleSaved['id'];$sharedReviewPath=$cycles.'?action=edit_review&id='.$scheduleSaved['id'];
+    [$status,$sharedReview]=$request('GET',$sharedReviewPath);
+    $expect($status===200&&count($sharedReview['placements'])===1&&$sharedReview['payroll']['generated_period_count']===0
+        &&$sharedReview['permissions']['manage']===true&&$sharedReview['permissions']['payroll_manage']===false,'Shared impact review identifies its consumers and the missing payroll-management permission');
+    $sharedBody=['anchor_date'=>'2026-10-12','settlement_offset_days'=>7,'review_token'=>$sharedReview['review_token'],'confirm'=>'UPDATE_SHARED_SCHEDULE'];
+    $unchanged=$snapshot($graphTables);
+    $expect($request('PATCH',$sharedPath,$sharedBody)[0]===403&&$snapshot($graphTables)===$unchanged,'Placement management cannot change an existing payroll calendar without its payroll grant');
+    $payCyclePath='/modules/payroll/api/cycles.php?id='.$scheduleSaved['payroll_pay_cycle_id'];
+    $paySchedulePath='/modules/payroll/api/pay_schedules.php?id='.$sharedReview['payroll']['schedule_id'];
+    $expect($request('PATCH',$payCyclePath,['anchor_date_override'=>'2026-10-12'])[0]===403
+        &&$request('PATCH',$paySchedulePath,['period_start_anchor'=>'2026-10-12'])[0]===403&&$snapshot($graphTables)===$unchanged,'Both native payroll editor paths require payroll-management permission');
+    RBACResolver::grantModule($membership,'payroll','admin',[$tenant],$actor);
+    $pdo->exec("CREATE TRIGGER cf_contract_http_shared_cycle_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='staffing.operating_cycle.updated' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic shared schedule audit failure'; END IF; END");
+    try{$expect($request('PATCH',$sharedPath,$sharedBody)[0]===503,'Failure of the final shared audit rejects the entire multi-record save');}
+    finally{$pdo->exec('DROP TRIGGER cf_contract_http_shared_cycle_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'Shared audit failure restores payroll bridge placement and participant values');
+    [$status,$sharedSaved]=$request('PATCH',$sharedPath,$sharedBody);
+    $expect($status===200&&$sharedSaved['changed']&&$sharedSaved['affected_placement_ids']===[$payrollPlacement]
+        &&placementAuditRow($payrollPlacement)['vendor_pay_cycle_anchor']==='2026-10-12','The fully authorized shared save changes the reviewed placement calendar');
+    $unchanged=$snapshot($graphTables);[$status,$sharedAgain]=$request('PATCH',$sharedPath,$sharedBody);
+    $expect($status===200&&!$sharedAgain['changed']&&$snapshot($graphTables)===$unchanged,'An exact shared HTTP retry does not create another edit or audit');
+    $expect($request('PATCH',$sharedPath,array_replace($sharedBody,['anchor_date'=>'2026-10-19']))[0]===409&&$snapshot($graphTables)===$unchanged,'A stale shared review cannot apply a second calendar change');
+    foreach([['PATCH',$payCyclePath,['anchor_date_override'=>'2026-10-19']],['DELETE',$payCyclePath,null],['PATCH',$paySchedulePath,['period_start_anchor'=>'2026-10-19']],['DELETE',$paySchedulePath,null]] as [$method,$path,$payload]){
+        $expect($request($method,$path,$payload)[0]===409&&$snapshot($graphTables)===$unchanged,'A linked payroll editor cannot bypass the shared staffing impact review: '.$method.' '.$path);
+    }
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event IN ('placement.cycles.shared_updated','staffing.operating_cycle.updated')");$q->execute([$tenant,$actor]);
+    $expect((int)$q->fetchColumn()===2,'The successful shared save audits the authenticated actor at the placement and shared definition exactly once');
+    RBACResolver::revokeModule($membership,'payroll',$actor);
+    $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
     [$status,$context]=$request('GET',$contextPath);
@@ -339,7 +371,7 @@ try {
     if ($actor!==null) {
         try {
             $pdo->beginTransaction();
-            if ($membership!==null) { RBACResolver::revokeModule($membership,'placements',$actor); deactivateMembership($actor,$tenant); }
+            if ($membership!==null) { RBACResolver::revokeModule($membership,'placements',$actor); RBACResolver::revokeModule($membership,'payroll',$actor); deactivateMembership($actor,$tenant); }
             $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE id=? AND tenant_id=?')->execute([$actor,$tenant]);
             $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN (900012,900013)'); $pdo->commit();
             $q=$pdo->prepare("SELECT COUNT(*) FROM users u JOIN tenant_memberships tm ON tm.user_id=u.id AND tm.tenant_id=u.tenant_id

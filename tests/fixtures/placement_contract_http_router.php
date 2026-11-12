@@ -10,7 +10,7 @@ if (PHP_SAPI !== 'cli-server' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('
 }
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
-if (!in_array($path, ['/login.php', '/logout.php', '/modules/placements/api/economics.php', '/modules/placements/api/corp.php', '/modules/placements/api/cycles.php',
+if (!in_array($path, ['/login.php', '/logout.php', '/modules/placements/api/economics.php', '/modules/placements/api/corp.php', '/modules/placements/api/cycles.php', '/modules/payroll/api/cycles.php', '/modules/payroll/api/pay_schedules.php',
     '/modules/placements/api/jobdiva_reconciliation.php'], true)) { http_response_code(404); exit; }
 $script = dirname(__DIR__, 2) . $path;
 $_SERVER['SCRIPT_FILENAME'] = $script;

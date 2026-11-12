@@ -620,6 +620,8 @@ jobs:
         run: php tests/placement_native_items_db_check.php --confirm-disposable-fixture
       - name: Verify reviewed schedule assignment and atomic payroll bridge creation
         run: php tests/placement_cycle_assignment_db_check.php --confirm-disposable-fixture
+      - name: Verify shared schedule editing and retained payroll history
+        run: php tests/placement_shared_cycles_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture

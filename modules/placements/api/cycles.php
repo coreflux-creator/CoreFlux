@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/cycle_assignments.php';
+require_once __DIR__ . '/../lib/cycle_edits.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -15,10 +16,13 @@ $tenantId = (int) placementsGraphTenantId((int) $ctx['tenant_id']);
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
-if ($method === 'GET' || $method === 'POST') {
+if (in_array($method,['GET','POST','PATCH'],true)) {
     rbac_legacy_require($user, $method === 'GET' ? 'placements.view' : 'placements.manage');
     try {
         if ($method === 'GET') {
+            if ($action==='edit_review') api_ok(placementCycleSharedReview($tenantId,(int)($_GET['id']??0))+['permissions'=>[
+                'manage'=>rbac_legacy_can($user,'placements.manage'),'payroll_manage'=>rbac_legacy_can($user,'payroll.cycles.manage')]]);
+            if ($action!=='') api_error('Unknown schedule action',400);
             $purpose=(string)($_GET['purpose']??'');
             if ($purpose!==''&&!in_array($purpose,['billing','ap','payroll'],true)) api_error('Invalid purpose',422);
             if (!empty($_GET['placement_id'])) {
@@ -31,6 +35,10 @@ if ($method === 'GET' || $method === 'POST') {
             api_ok(['cycles'=>array_values(array_filter($q->fetchAll(PDO::FETCH_ASSOC),static fn($cycle)=>($purpose===''||$cycle['purpose']===$purpose)&&(!empty($_GET['include_inactive'])||(int)$cycle['active']===1))),'placement'=>null]);
         }
         $body=api_json_body();
+        if ($method==='PATCH') {
+            if ($action!=='') api_error('Unknown schedule action',400);
+            api_ok(placementCycleSharedEdit($tenantId,(int)($_GET['id']??0),$body,rbac_legacy_can($user,'payroll.cycles.manage')));
+        }
         if ($action === 'assign') {
             $placementId=$body['placement_id']??null;
             if (is_bool($placementId)||!preg_match('/^[1-9][0-9]*$/D',(string)$placementId)) api_error('placement_id required',422);
@@ -46,29 +54,6 @@ if ($method === 'GET' || $method === 'POST') {
     } catch (InvalidArgumentException|RuntimeException $e) {
         api_error($e->getMessage(),in_array($e->getCode(),[403,404,409,422,503],true)?$e->getCode():422);
     }
-}
-
-if ($method === 'PATCH') {
-    rbac_legacy_require($user, 'placements.manage');
-    $id = (int) ($_GET['id'] ?? 0);
-    if ($id <= 0) api_error('id required', 400);
-    $body = api_json_body();
-    $allowed = ['name','cadence','anchor_date','settlement_offset_days','default_payment_terms','active'];
-    $updates = [];
-    foreach ($allowed as $field) if (array_key_exists($field, $body)) $updates[$field] = $body[$field];
-    if (!$updates) api_error('No fields to update', 422);
-    if (isset($updates['cadence']) && !in_array($updates['cadence'], ['weekly','biweekly','semimonthly','monthly','adhoc'], true)) {
-        api_error('Invalid cadence', 422);
-    }
-    if (isset($updates['anchor_date']) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $updates['anchor_date'])) {
-        api_error('anchor_date must be YYYY-MM-DD', 422);
-    }
-    if (array_key_exists('default_payment_terms', $updates) && $updates['default_payment_terms'] !== null) {
-        $updates['default_payment_terms'] = placementEconomicsNormaliseTerms((string) $updates['default_payment_terms']);
-    }
-    scopedUpdate('staffing_operating_cycles', $id, $updates);
-    placementsAudit('staffing.operating_cycle.updated', ['cycle_id' => $id, 'fields' => array_keys($updates)], $id);
-    api_ok(['ok' => true]);
 }
 
 api_error('Method not allowed', 405);
