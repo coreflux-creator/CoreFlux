@@ -433,5 +433,9 @@ try {
     setRequestTenantId(null);
 }
 $report['checks_passed']=count($report['checks']);
-echo json_encode($report,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)."\n";
+$evidence=dirname(__DIR__).'/artifacts/placement-contract-http.json';
+if(!is_dir(dirname($evidence))&&!mkdir(dirname($evidence),0700,true))throw new RuntimeException('Cannot create HTTP test evidence directory');
+$bytes=json_encode($report,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT)."\n";
+if(file_put_contents($evidence,$bytes)!==strlen($bytes))throw new RuntimeException('HTTP completion evidence was not saved');
+echo json_encode(array_intersect_key($report,array_flip(['passed','checks_passed','failure_class','failure_message','synthetic_actor_retired','owned_server_stopped','private_session_files_removed'])),JSON_THROW_ON_ERROR)."\n";
 exit($report['passed']?0:1);

@@ -218,7 +218,17 @@ jobs:
           php tests/quanta_profile_permissions_http.php
 
       - name: Verify native contract permissions and reviewed source HTTP round trip
-        run: php tests/placement_contract_permissions_http.php
+        run: |
+          php tests/placement_contract_permissions_http.php
+          php -r '$r=json_decode(file_get_contents("artifacts/placement-contract-http.json"),true,512,JSON_THROW_ON_ERROR); if(($r["passed"]??false)!==true || ($r["checks_passed"]??0)<272 || !($r["synthetic_actor_retired"]??false) || !($r["owned_server_stopped"]??false) || !($r["private_session_files_removed"]??false)) exit(1); echo "PASS ".$r["checks_passed"]." native HTTP checks and fixture cleanup\n";'
+
+      - name: Retain native HTTP completion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: placement-contract-http-evidence
+          path: artifacts/placement-contract-http.json
+          if-no-files-found: error
 
       - name: Verify reviewed Quanta worker intake
         run: php tests/quanta_worker_intake_mariadb.php
