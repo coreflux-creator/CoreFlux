@@ -96,8 +96,10 @@ try {
         $options[CURLOPT_HTTPHEADER]=$headers; curl_setopt_array($ch,$options);
         $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $location=(string)curl_getinfo($ch,CURLINFO_REDIRECT_URL); curl_close($ch);
         if ($raw===false && $path!=='/fixture-ready') throw new RuntimeException('Loopback request failed');
-        if ($path!=='/fixture-ready') $report['requests'][]=['method'=>$method,'path'=>$path,'status'=>$status,'pinned_tenant'=>$pin];
-        return [$status,is_string($raw)?json_decode($raw,true):null,$location];
+        $data=is_string($raw)?json_decode($raw,true):null;
+        if ($path!=='/fixture-ready') $report['requests'][]=['method'=>$method,'path'=>$path,'status'=>$status,'pinned_tenant'=>$pin,
+            'error'=>is_array($data)?($data['error']??null):null];
+        return [$status,$data,$location];
     };
     $ready=false;
     for ($i=0;$i<40;$i++) { if ($request('GET','/fixture-ready',null,false)[0]===200) { $ready=true; break; } if (!proc_get_status($server)['running']) throw new RuntimeException('Native HTTP server stopped'); usleep(100000); }
