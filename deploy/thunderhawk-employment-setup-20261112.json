@@ -1,0 +1,262 @@
+{
+  "scope": "Thunderhawk isolated integration pilot, tenant 2002",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Current source, installed runtime and prior CI revalidated before implementation.",
+  "runtime_commit": "58eb9bc97878cd10bea1b7c6bf4756c6c6e92c0d",
+  "ci": {
+    "run": 43209469352,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43209469352",
+    "jobs_passed": 11,
+    "employment_database_checks": 89,
+    "native_http": {
+      "passed": true,
+      "checks": 295,
+      "provider_writes": 0
+    },
+    "relevant_rendered_component_checks": 20
+  },
+  "installation": {
+    "checked_at": "2026-11-12T11:34:27+00:00",
+    "source_commit": "58eb9bc97878cd10bea1b7c6bf4756c6c6e92c0d",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "created_tables": [
+      "people_employment_reviews"
+    ],
+    "schema_statements_completed": 1,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-setup-before-0f0962ae2964e9a0dfa8",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "served_screen_assets_verified": true,
+    "tables_verified": 375,
+    "rows_preserved": 34704,
+    "files_verified": 16,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "existing_employment_values_preserved": true,
+    "migration_applied": "193_people_employment_reviews.sql",
+    "preexisting_tables_preserved": 374,
+    "preexisting_rows_preserved": 34703,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-setup-f0dd148f248f289cdf16",
+      "hashes": {
+        "install_thunderhawk_employment_setup.php": "63cdc50c136867adb3b4a5b34ae66c8cfec4575daef53c1abd84c38c9937bb63",
+        "employment-setup-package.json": "0f0962ae2964e9a0dfa8a19cb66515a63fc149f37ec2f7a2706a7afa420844c0"
+      },
+      "ci_run": "43209469352",
+      "tested_commit": "58eb9bc97878cd10bea1b7c6bf4756c6c6e92c0d",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-setup-install-result.json"
+    }
+  },
+  "browser_acceptance": {
+    "checked_at": "2026-11-12T11:34:39+00:00",
+    "status": "complete",
+    "passed": true,
+    "tenant_id": 2002,
+    "checks": [
+      "Synthetic operator can manage only the pilot People workflow",
+      "No placements access granted",
+      "No time access granted",
+      "No payroll access granted",
+      "No billing access granted",
+      "No ap access granted",
+      "No accounting access granted",
+      "No treasury access granted",
+      "No integrations access granted",
+      "Browser created exactly one identified synthetic person",
+      "New person has its own permanent employment identity",
+      "Browser activation saved the explicit employment classifications",
+      "Person and employment agree on the reviewed dates and type",
+      "Partial setup and activation each have a saved review",
+      "Saved history retains the original pending facts",
+      "Exactly one hire event records the activation",
+      "Temporary grants removed",
+      "Synthetic operator retired",
+      "One-time browser credential removed",
+      "Schema unchanged during browser acceptance",
+      "Only intended synthetic records added to core_record_numbers",
+      "Only intended synthetic records added to membership_audit",
+      "Only intended synthetic records added to people",
+      "Only intended synthetic records added to people_change_log",
+      "Only intended synthetic records added to people_employees",
+      "Only intended synthetic records added to people_employment_history",
+      "Only intended synthetic records added to people_employment_links",
+      "Only intended synthetic records added to people_employment_reviews",
+      "Only intended synthetic records added to rbac_bridge_audit",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Permission comparison audit belongs to the synthetic operator",
+      "Only intended synthetic records added to tenant_memberships",
+      "Only intended synthetic records added to user_tenants",
+      "Only intended synthetic records added to users",
+      "Operational switches unchanged"
+    ],
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "feature_sha256": "c9280a52189cc64e9c3d7baf69e230b9ce31fc51d000d29fd16549d5f699cade",
+    "actor_id": 93,
+    "membership_id": 79,
+    "person_id": 388,
+    "person_number": "P-388",
+    "employee_id": 7,
+    "employment_number": "E-2002-P388",
+    "review_ids": [
+      2,
+      1
+    ],
+    "browser_workflow_verified": true,
+    "tables_verified": 375,
+    "original_rows_preserved": 34704,
+    "added_rows": {
+      "core_record_numbers": 1,
+      "membership_audit": 3,
+      "people": 1,
+      "people_change_log": 2,
+      "people_employees": 1,
+      "people_employment_history": 1,
+      "people_employment_links": 1,
+      "people_employment_reviews": 2,
+      "rbac_bridge_audit": 9,
+      "tenant_memberships": 1,
+      "user_tenants": 1,
+      "users": 1
+    },
+    "operator_retired": true,
+    "finished_at": "2026-11-12T11:40:18+00:00",
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-setup-browser-fc9c21c602f99f36",
+      "hashes": {
+        "thunderhawk_employment_setup_browser.php": "c7a562e8987089b8e4a269da9ebc73e644dfb6c143de7c09a3c628b1f02f228e",
+        "employment-setup-runtime-pins.json": "82beb99d2c033cb2ba551e0a1b230d608b99b19c5962fdfb655c39fd920f46cd"
+      },
+      "source_commit": "58eb9bc97878cd10bea1b7c6bf4756c6c6e92c0d",
+      "action": "finish",
+      "state": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-setup-browser-20261112.json"
+    }
+  },
+  "final_readback": {
+    "checked_at": "2026-11-12T11:41:37+00:00",
+    "passed": true,
+    "read_only": true,
+    "tables_unchanged": 375,
+    "rows_unchanged": 34728,
+    "links": [
+      {
+        "person_id": 358,
+        "employee_id": 4
+      },
+      {
+        "person_id": 368,
+        "employee_id": 5
+      },
+      {
+        "person_id": 387,
+        "employee_id": 6
+      },
+      {
+        "person_id": 388,
+        "employee_id": 7
+      }
+    ],
+    "field_contract_version": "2026-11-12.4",
+    "inventory_fields": 2079,
+    "remaining_field_decisions": 477,
+    "setup_fields_reviewed": 21,
+    "operator_retired": true,
+    "anonymous": {
+      "GET": 401,
+      "POST": 401
+    },
+    "files_and_dependencies_verified": 236
+  },
+  "evidence": {
+    "output/employment-setup-preflight.json": {
+      "sha256": "eb57d58b510af2b013c06f30d5becdbc7acf1fa4dede4e6cfc520ed370afb2ef"
+    },
+    "output/employment-setup-inspect-result.json": {
+      "sha256": "7d94e13791ad74732e7473ff191d54e9ac798aad2ad3b8ece105367d07761941"
+    },
+    "output/employment-setup-install-result.json": {
+      "sha256": "0f67a82e185117063dd6f82738ca54e4fba0ba57cfbb4f29070656f961fd9b53"
+    },
+    "output/employment-setup-browser-prepare-result.json": {
+      "sha256": "3607c1d041ac2f09094761f3d4def6cf30c7e3264f2c8fa6e03b33c0895f2143"
+    },
+    "output/employment-setup-browser-finish-result.json": {
+      "sha256": "bde402129defbbb5ea51496b4ff8fcb733f4bedaeb874760240968993c763169"
+    },
+    "output/employment-setup-browser-observations.json": {
+      "sha256": "2d391b31ddf78b3c6253c20c253e9c77f14ca5ee66ccde45fb7db61bdab9af81"
+    },
+    "output/employment-setup-browser-delta.json": {
+      "sha256": "7c846bc100bf11a3e05931cbd5d3e544d059ddc30479cbde8263a3b2b3438ccf"
+    },
+    "output/employment-setup-final-readback.json": {
+      "sha256": "b3a83a87f303a0a25a5d84c128dd71aa19f278360725576a3b197eef7be64ee4"
+    },
+    "output/employment-setup-final-native-ci.log": {
+      "sha256": "f463a6832add87aab514c51527bf75eb9b8287ee4742d552044d720dcbc1a26e"
+    }
+  },
+  "helpers": {
+    "deploy/install_thunderhawk_employment_setup.php": "63cdc50c136867adb3b4a5b34ae66c8cfec4575daef53c1abd84c38c9937bb63",
+    "deploy/thunderhawk_employment_setup_browser.php": "c7a562e8987089b8e4a269da9ebc73e644dfb6c143de7c09a3c628b1f02f228e",
+    "output/prepare_employment_setup.py": "74343cd4f70412fadd14b91439e408252bfcf08fc236d2ef0d170f2f2e49c450",
+    "output/run_employment_setup_install.py": "02de06d53e7fe1aed3cfd9f25466f4a912d65d31189b704e8e953477ffbc8b6b",
+    "output/run_employment_setup_browser.py": "42ed17e8dbd3c2b7f32cc3ef710857e3042cedf8add4fb7ab80abd67035f3a52",
+    "output/verify_employment_setup.py": "e2300add43977471cb10c8eea746bb0977673704c6cd393462329774cedcd155"
+  },
+  "limitations": [
+    "Full integration goal remains incomplete",
+    "477 remaining field dispositions",
+    "Legacy identity-selection and remaining portal/document/financial journeys pending",
+    "Screenshot capture timed out; no pixel-level acceptance claimed",
+    "No production, provider, Arabella or real financial execution change"
+  ],
+  "current_revalidation": {
+    "checked_at": "2026-11-12T11:46:16+00:00",
+    "passed": true,
+    "read_only": true,
+    "tables_unchanged": 375,
+    "rows_unchanged": 34728,
+    "links": [
+      {
+        "person_id": 358,
+        "employee_id": 4
+      },
+      {
+        "person_id": 368,
+        "employee_id": 5
+      },
+      {
+        "person_id": 387,
+        "employee_id": 6
+      },
+      {
+        "person_id": 388,
+        "employee_id": 7
+      }
+    ],
+    "field_contract_version": "2026-11-12.4",
+    "inventory_fields": 2079,
+    "remaining_field_decisions": 477,
+    "setup_fields_reviewed": 21,
+    "operator_retired": true,
+    "anonymous": {
+      "GET": 401,
+      "POST": 401
+    },
+    "files_and_dependencies_verified": 236
+  }
+}
