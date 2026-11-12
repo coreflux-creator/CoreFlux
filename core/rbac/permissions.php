@@ -75,6 +75,9 @@ final class RBACResolver
 
         $membership = self::activeMembership($userId, $tenantId, $personaId);
         if (!$membership) {
+            // A selected persona must resolve in this company. A missing or
+            // revoked persona must not regain its older role-based privileges.
+            if ($personaId !== null) return false;
             // Fall back to legacy role-based check while the sweep is in progress.
             return self::legacyCan($userId, $tenantId, $module, $action);
         }
@@ -122,6 +125,7 @@ final class RBACResolver
         if (self::isGlobalAdmin($userId)) return 'master_admin';
         $m = self::activeMembership($userId, $tenantId, $personaId);
         if ($m && isset($m['persona_type'])) return (string) $m['persona_type'];
+        if ($personaId !== null) return '';
         return self::legacyRole($userId, $tenantId);
     }
 
@@ -296,19 +300,37 @@ final class RBACResolver
 
     public static function legacyRole(int $userId, int $tenantId): string
     {
+        if ($userId <= 0 || $tenantId <= 0) return '';
         try {
-            $st = getDB()->prepare('SELECT role FROM user_tenants WHERE user_id = :u AND tenant_id = :t AND status = "active" LIMIT 1');
-            $st->execute(['u' => $userId, 't' => $tenantId]);
-            $r = $st->fetchColumn();
-            if ($r) return (string) $r;
-        } catch (\Throwable $_) {}
-        try {
-            $st = getDB()->prepare('SELECT role FROM users WHERE id = :u LIMIT 1');
+            $st = getDB()->prepare('SELECT tenant_id, role, is_active FROM users WHERE id = :u LIMIT 1');
             $st->execute(['u' => $userId]);
-            $r = $st->fetchColumn();
-            if ($r) return (string) $r;
-        } catch (\Throwable $_) {}
-        return 'employee';
+            $user = $st->fetch(\PDO::FETCH_ASSOC);
+            if (!$user || (int) $user['is_active'] !== 1) return '';
+        } catch (\Throwable $_) { return ''; }
+
+        // Any modern membership must be resolved by the modern access grid.
+        // A revoked/pending row or an unavailable active-membership query must
+        // not fall through to older grants. Only a missing table is compatible
+        // with an installation predating the membership model.
+        try {
+            $st = getDB()->prepare('SELECT status FROM tenant_memberships WHERE user_id = :u AND tenant_id = :t ORDER BY CASE WHEN status = "active" THEN 0 ELSE 1 END LIMIT 1');
+            $st->execute(['u' => $userId, 't' => $tenantId]);
+            $status = $st->fetchColumn();
+            if ($status !== false) return '';
+        } catch (\PDOException $e) {
+            if ($e->getCode() !== '42S02') return '';
+        } catch (\Throwable $_) { return ''; }
+        try {
+            $st = getDB()->prepare('SELECT role, status FROM user_tenants WHERE user_id = :u AND tenant_id = :t LIMIT 1');
+            $st->execute(['u' => $userId, 't' => $tenantId]);
+            $row = $st->fetch(\PDO::FETCH_ASSOC);
+            if ($row) return $row['status'] === 'active' ? (string) $row['role'] : '';
+        } catch (\PDOException $e) {
+            if ($e->getCode() !== '42S02') return '';
+        } catch (\Throwable $_) { return ''; }
+        // users.role describes the home company only, never an implicit grant
+        // to another company. No identity/role evidence means no permission.
+        return (int) $user['tenant_id'] === $tenantId ? (string) $user['role'] : '';
     }
 
     private static function legacyCan(int $userId, int $tenantId, string $module, string $action): bool
@@ -319,6 +341,7 @@ final class RBACResolver
         // manager                     → write where modules grant it.
         // employee/contractor         → read only.
         $role = self::legacyRole($userId, $tenantId);
+        if ($role === '') return false;
         $level = match ($role) {
             'master_admin', 'tenant_admin' => 'admin',
             'admin', 'manager'             => 'write',

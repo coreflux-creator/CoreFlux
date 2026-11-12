@@ -56,7 +56,7 @@ $GLOBALS['pdo'] = new \PDO('sqlite::memory:');
 $GLOBALS['pdo']->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 $pdo = $GLOBALS['pdo'];
 
-$pdo->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, is_global_admin INT DEFAULT 0, role TEXT)");
+$pdo->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, is_global_admin INT DEFAULT 0, role TEXT, tenant_id INT DEFAULT 101, is_active INT DEFAULT 1)");
 $pdo->exec("CREATE TABLE user_tenants (user_id INT, tenant_id INT, role TEXT, status TEXT DEFAULT 'active')");
 $pdo->exec("CREATE TABLE tenant_memberships (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, tenant_id INT,
@@ -123,15 +123,13 @@ check('employee with staffing grant cannot access engagements',
 check('employee with no grants denied staffing.read',  !RBACResolver::can(4, 101, 'staffing', 'read'));
 check('employee with no grants denied accounting',     !RBACResolver::can(4, 101, 'accounting', 'read'));
 
-// Cross-tenant safety: the legacy fallback in legacyRole() reads
-// users.role as a last resort, which can grant a user.role='master_admin'
-// access to a tenant they have no membership in. That's preserved
-// legacy behaviour (matches how the system has always worked); not
-// affected by our fix. So we ASSERT it (not deny it) — it documents
-// the boundary clearly for future readers.
+// A company membership labelled master_admin is not a global-admin identity.
+// Its wildcard applies only to its own company.
 RBACResolver::resetCache();
-check('master_admin in OTHER tenant falls through to users.role fallback (preserved legacy)',
-    RBACResolver::can(1, 102, 'staffing', 'write'));
+check('company master_admin cannot write another tenant without a grant',
+    !RBACResolver::can(1, 102, 'staffing', 'write'));
+check('company master_admin cannot read another tenant without a grant',
+    !RBACResolver::can(1, 102, 'staffing', 'read'));
 
 echo "\nrbac_persona_wildcard smoke: {$passes} ✓ / " . count($failures) . " ✗\n";
 foreach ($failures as $msg) echo "  FAIL: {$msg}\n";

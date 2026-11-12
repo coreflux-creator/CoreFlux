@@ -84,7 +84,7 @@ echo "\nDB-absent fall-throughs\n";
 // throw and must return safe defaults.
 try {
     $role = RBACResolver::legacyRole(1, 1);
-    $a('legacyRole() returns "employee" when DB unreachable', $role === 'employee');
+    $a('legacyRole() grants no role when DB unreachable', $role === '');
 } catch (\Throwable $e) { $a('legacyRole() does not throw on DB error: ' . $e->getMessage(), false); }
 
 try {
@@ -102,12 +102,11 @@ try {
     $a('memberships() returns [] when DB unreachable',        $ms === []);
 } catch (\Throwable $e) { $a('memberships() does not throw: ' . $e->getMessage(), false); }
 
-// can() with no membership + no DB hits legacyCan(), which falls to
-// legacyRole() = 'employee' → grants 'read' on any module.
+// Without readable identity and company evidence, both reads and writes fail closed.
 try {
     $rd = RBACResolver::can(1, 1, 'people', 'read');
     $wr = RBACResolver::can(1, 1, 'people', 'write');
-    $a('can(employee fall-through, read)  → true',           $rd === true);
+    $a('can(unavailable role, read) → false',               $rd === false);
     $a('can(employee fall-through, write) → false',          $wr === false);
 } catch (\Throwable $e) { $a('can() fall-through does not throw: ' . $e->getMessage(), false); }
 

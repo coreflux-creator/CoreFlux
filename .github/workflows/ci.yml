@@ -287,6 +287,7 @@ jobs:
           php tests/quanta_legacy_time_mariadb.php
           php tests/quanta_assignment_routes_mariadb.php
           php tests/synthetic_time_reviewer_mariadb.php
+          php tests/rbac_legacy_tenant_scope_mariadb.php
           php tests/synthetic_time_approval_guard_smoke.php
           php tests/synthetic_payroll_input_guard_smoke.php
           php -l deploy/install_thunderhawk_time_projection.php
