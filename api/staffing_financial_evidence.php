@@ -6,11 +6,13 @@ require_once __DIR__.'/../core/sub_tenants.php';
 require_once __DIR__.'/../core/integrations/staffing_financial_evidence.php';
 $ctx=api_require_auth();$tenant=(int)$ctx['tenant_id'];$user=$ctx['user'];
 if(getenv('COREFLUX_ENV')==='coreaccounting')api_error('Not found',404);
-foreach(['accounting.bank.manage','ap.view','billing.view','placements.view','placements.financials.view','people.view']as$permission)rbac_legacy_require($user,$permission);
+foreach(['accounting.view','ap.view','billing.view','placements.view','placements.financials.view','people.view']as$permission)rbac_legacy_require($user,$permission);
+$action=(string)($_GET['action']??'');
+if(in_array($action,['preview','save'],true))rbac_legacy_require($user,'accounting.bank.manage');
 if(api_method()!=='POST')api_error('Method not allowed',405);
 header('Cache-Control: no-store, private');header('X-Content-Type-Options: nosniff');
 if((int)($_SERVER['CONTENT_LENGTH']??0)>3000000)api_error('Choose a workbook no larger than 2 MB.',413);
-$body=api_json_body();$action=(string)($_GET['action']??'');
+$body=api_json_body();
 $allowed=match($action){
     'preview'=>['association_id','decision','file_name','file_base64','selection','reason'],
     'save'=>['association_id','decision','file_name','file_base64','selection','reason','request_id','review_hash','confirmed'],

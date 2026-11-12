@@ -34,7 +34,7 @@ async function encodeWorkbook(file) {
   return btoa(binary);
 }
 
-export default function StaffingFinancialEvidence({ tenantId, associationId, onSaved }) {
+export default function StaffingFinancialEvidence({ tenantId, associationId, canManage = false, onSaved }) {
   const [file, setFile] = useState(null), [selection, setSelection] = useState(empty), [decision, setDecision] = useState('record'), [reason, setReason] = useState('');
   const [review, setReview] = useState(null), [confirmed, setConfirmed] = useState(false), [receipt, setReceipt] = useState(null), [history, setHistory] = useState(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [uncertain, setUncertain] = useState(false);
@@ -44,12 +44,13 @@ export default function StaffingFinancialEvidence({ tenantId, associationId, onS
     setFile(null); setSelection(empty); setDecision('record'); setReason(''); setReview(null); setConfirmed(false); setReceipt(null); setHistory(null); setBusy(false); setError(''); setUncertain(false);
     if (fileInput.current) fileInput.current.value = '';
     return () => { generation.current++; active.current?.abort(); pending.current = false; };
-  }, [tenantId, associationId]);
+  }, [tenantId, associationId, canManage]);
   const current = () => !!tenantId && (!getPinnedTenantId() || String(getPinnedTenantId()) === String(tenantId));
   const clear = () => { setReview(null); setConfirmed(false); setReceipt(null); setHistory(null); setError(''); requestId.current = null; frozen.current = null; };
   const update = fn => e => { clear(); fn(e.target.value); };
   const run = async (action, before = null) => {
     if (pending.current) return;
+    if (action !== 'history' && !canManage) return;
     if (!current()) { clear(); setError('Workspace changed. Refresh the company connection.'); return; }
     const sequence = ++generation.current, controller = new AbortController(); active.current?.abort(); active.current = controller;
     pending.current = true; setBusy(true); setError('');
@@ -101,16 +102,19 @@ export default function StaffingFinancialEvidence({ tenantId, associationId, onS
   };
   const locked = busy || uncertain;
   const ready = decision === 'withdraw' ? !!reason.trim() : file && Object.entries(selection).every(([key, value]) => key === 'currency_cell' || value.trim());
-  return <details><summary>Review supporting workbook</summary>
-    <p>Retain the original spreadsheet and the selected row as supplemental evidence for this invoice line. Saving this review does not change provider dates, approve time or post accounting.</p>
+  return <details><summary>{canManage ? 'Review supporting workbook' : 'Supporting workbook'}</summary>
+    <p>{canManage ? 'Retain the original spreadsheet and the selected row as supplemental evidence for this invoice line. Saving this review does not change provider dates, approve time or post accounting.' : 'Read the saved source reviews and download their retained original workbook. Source evidence does not establish client approval or payment allocation.'}</p>
+    {canManage && <>
     <label>Review action<select className="input" value={decision} disabled={locked} onChange={update(setDecision)}><option value="record">Record workbook evidence</option><option value="withdraw">Withdraw current workbook evidence</option></select></label>
     {decision === 'record' && <><label>Original workbook<input ref={fileInput} type="file" accept=".xlsx" disabled={locked} onChange={e => { clear(); setFile(e.target.files?.[0] || null); }} /></label>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>{Object.entries(fields).map(([key, title]) => <label key={key}>{title}<input className="input" value={selection[key]} disabled={locked} onChange={e => { clear(); setSelection(old => ({ ...old, [key]: e.target.value })); }} /></label>)}</div></>}
     <label>Explanation<textarea className="input" value={reason} disabled={locked} maxLength={2000} onChange={update(setReason)} /></label>
-    <p><button className="btn" disabled={locked || !ready} onClick={() => run('preview')}>Review workbook evidence</button>{' '}<button className="btn" disabled={busy} onClick={() => run('history')}>Workbook review history</button></p>
+    <p><button className="btn" disabled={locked || !ready} onClick={() => run('preview')}>Review workbook evidence</button></p>
+    </>}
+    <p><button className="btn" disabled={busy} onClick={() => run('history')}>Workbook review history</button></p>
     {error && <p className="error" role="alert">{error}</p>}
-    {uncertain && <p role="status">The save result is unconfirmed. Retrying sends the same request and will return its original receipt if it already succeeded. <button className="btn" disabled={busy} onClick={() => run('save')}>Retry this saved review</button></p>}
-    {current() && review && <><p>{review.association.target.placement.number} · {review.association.target.person.number} · {review.association.target.person_name}</p>
+    {canManage && uncertain && <p role="status">The save result is unconfirmed. Retrying sends the same request and will return its original receipt if it already succeeded. <button className="btn" disabled={busy} onClick={() => run('save')}>Retry this saved review</button></p>}
+    {canManage && current() && review && <><p>{review.association.target.placement.number} · {review.association.target.person.number} · {review.association.target.person_name}</p>
       <p>Core placement dates: {show(review.association.target.start_date)} to {review.association.target.end_date || 'Open-ended'}.</p>
       {review.workbook ? <WorkbookEvidenceDetails workbook={review.workbook} /> : <p>The current workbook support will be withdrawn. Its original file and review history will remain.</p>}
       <label><input type="checkbox" checked={confirmed} disabled={locked} onChange={e => setConfirmed(e.target.checked)} /> I reviewed the source row and its relationship to this invoice line.</label>

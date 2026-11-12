@@ -17,7 +17,7 @@ async function fixture(respond = async url => url.endsWith('preview') ? structur
   const f = { calls: [], pinned: '11', saved: 0 }, module = { exports: {} };
   const mock = { getPinnedTenantId: () => f.pinned, api: { post(url, body, options) { f.calls.push({ url, body, options }); return respond(url, body); } } };
   new Function('require', 'module', 'exports', compiled.outputFiles[0].text)(id => id === 'fixture-api' ? mock : require(id), module, module.exports);
-  f.Component = module.exports.default; f.props = { tenantId: 11, associationId: 9, onSaved: () => f.saved++ };
+  f.Component = module.exports.default; f.props = { tenantId: 11, associationId: 9, canManage: true, onSaved: () => f.saved++ };
   await act(async () => { f.tree = create(React.createElement(f.Component, f.props)); });
   f.click = async label => { const b = button(f, label); assert.ok(b && !b.props.disabled, label); await act(async () => { await b.props.onClick(); }); };
   f.ready = async () => {
@@ -100,4 +100,31 @@ test('original download checks exact bytes before making the retained file avail
     assert.equal(request.options.headers['X-CoreFlux-Tenant-Id'], '11');
     assert.deepEqual(JSON.parse(request.options.body), { association_id: 9, evidence_id: 3 });
   } finally { f.close(); globalThis.fetch = originalFetch; globalThis.document = originalDocument; URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; }
+});
+
+test('read-only evidence exposes history and retained downloads without alteration controls', async () => {
+  const f = await fixture(async () => ({ tenant_id: 11, current_id: 3, items: [item], next_before: null }));
+  try {
+    await act(async () => f.tree.update(React.createElement(f.Component, { ...f.props, canManage: false })));
+    assert.equal(f.tree.root.findAllByType('input').length, 0);
+    assert.equal(f.tree.root.findAllByType('select').length, 0);
+    assert.equal(button(f, 'Review workbook evidence'), undefined);
+    await f.click('Workbook review history');
+    assert.ok(button(f, 'Download original workbook'));
+    assert.equal(button(f, 'Save workbook review'), undefined);
+    assert.equal(f.calls.length, 1); assert.ok(f.calls[0].url.endsWith('history'));
+  } finally { f.close(); }
+});
+
+test('permission downgrade discards an outstanding source preview and prevents save', async () => {
+  let finish; const f = await fixture(() => new Promise(resolve => { finish = resolve; }));
+  try {
+    await f.ready(); let pending;
+    await act(async () => { pending = button(f, 'Review workbook evidence').props.onClick(); });
+    await act(async () => f.tree.update(React.createElement(f.Component, { ...f.props, canManage: false })));
+    assert.ok(f.calls[0].options.fetch.signal.aborted);
+    await act(async () => { finish(review); await pending; });
+    assert.equal(button(f, 'Save workbook review'), undefined);
+    assert.ok(!text(f.tree.root).includes('Synthetic worker'));
+  } finally { f.close(); }
 });

@@ -150,6 +150,7 @@ function getModuleDefinitions(): array {
                 ['name' => 'Client Profitability',  'route' => 'client_profitability', 'permission' => 'reports.view'],
                 ['name' => 'Rate & Spread',         'route' => 'rate_spread',          'permission' => 'reports.view'],
                 ['name' => 'Overtime Watch',        'route' => 'overtime_watch',       'permission' => 'reports.view'],
+                ['name' => 'Placement financial review', 'route' => 'staffing_reconciliation', 'permission' => 'reports.view'],
             ]
         ],
     ];

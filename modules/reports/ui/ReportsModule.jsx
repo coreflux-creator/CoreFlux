@@ -5,6 +5,7 @@ import ExecutiveSnapshot from './ExecutiveSnapshot';
 import ClientProfitability from './ClientProfitability';
 import RateSpreadMonitor from './RateSpreadMonitor';
 import OvertimeWatch from './OvertimeWatch';
+import StaffingFinancialReview from './StaffingFinancialReview';
 
 /**
  * Reports Module — Phase 1.
@@ -35,6 +36,7 @@ export default function ReportsModule({ session }) {
         <Route path="client_profitability" element={<ClientProfitability session={session} />} />
         <Route path="rate_spread"          element={<RateSpreadMonitor   session={session} />} />
         <Route path="overtime_watch"       element={<OvertimeWatch       session={session} />} />
+        <Route path="staffing_reconciliation" element={<StaffingFinancialReview />} />
         {/* legacy redirects from prior /exec /finance /staffing routes */}
         <Route path="exec"     element={<Navigate to="../executive_snapshot" replace />} />
         <Route path="finance"  element={<Navigate to="../overview" replace />} />

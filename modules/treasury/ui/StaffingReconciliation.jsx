@@ -54,7 +54,7 @@ export function StaffingReconciliationView({ report }) {
         <p>This is a comparison of reviewed source values. It does not establish original client approval or allocate the document to Core time entries.</p>
       </section>}
       {line.workbook_evidence?.saved.action === 'withdraw' && <p>The previous workbook support was withdrawn in review #{line.workbook_evidence.id}.</p>}
-      {line.kind === 'invoice' && report.workbook_evidence_available && <StaffingFinancialEvidence tenantId={report.tenant_id} associationId={line.association_id} onSaved={() => setEvidenceChanged(true)} />}
+      {line.kind === 'invoice' && report.workbook_evidence_available && <StaffingFinancialEvidence tenantId={report.tenant_id} associationId={line.association_id} canManage={report.permissions?.workbook_manage === true} onSaved={() => setEvidenceChanged(true)} />}
       <details><summary>Document payments, fees, returns and allocations</summary>
         <p>These records belong to the whole document. They are not automatically allocated to this placement line. Stored paid statuses do not prove bank delivery. Amounts labelled cents retain that unit.</p>
         <Facts value={Object.fromEntries(Object.entries(line.document_payment_evidence).filter(([key]) => key !== 'scope'))} />
