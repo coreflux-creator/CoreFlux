@@ -1,0 +1,21 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/../core/jobdiva/time_contract.php';
+$passed=0;$check=static function(bool $ok,string $label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;};
+$reject=static function(callable $run,string $label)use($check){try{$run();}catch(InvalidArgumentException|JsonException $e){$check(true,$label);return;}throw new RuntimeException('Accepted '.$label);};
+$row=['id'=>'time-1','placementId'=>'start-1','workDate'=>'2026-11-09','hours'=>'8.00','category'=>'regular','description'=>'Synthetic source'];
+$valid=jobdivaTimeSource($row);
+$check($valid['hours']==='8.00'&&$valid['category']==='regular_billable'&&$valid['work_date']==='2026-11-09','Explicit row normalizes without losing units');
+foreach([null,true,[],0,-1,25,'eight','8 hours','1e1','7.555','0.001',' 8']as$value)$reject(fn()=>jobdivaTimeSource(array_replace($row,['hours'=>$value])),'invalid hours');
+foreach(['','mystery','doubletime',false,[]]as$value)$reject(fn()=>jobdivaTimeSource(array_replace($row,['category'=>$value])),'missing or unmapped category');
+foreach(['2026-02-30','02/30/2026','2026-13-01','tomorrow','2026-11-09oops','2026-11-09T25:00:00Z','']as$value)$reject(fn()=>jobdivaTimeSource(array_replace($row,['workDate'=>$value])),'invalid date');
+$check(jobdivaTimeDate('11/9/2026')==='2026-11-09'&&jobdivaTimeDate('2026-11-09T23:59:00-0500')==='2026-11-09','Calendar aliases preserve source business date');
+$check(jobdivaTimeHours(8.5)==='8.50'&&jobdivaTimeHours('24')==='24.00','Explicit supported decimal hours retain scale');
+foreach(['id'=>false,'placementId'=>[],'description'=>str_repeat('a',501)]as$field=>$value)$reject(fn()=>jobdivaTimeSource(array_replace($row,[$field=>$value])),'invalid source field');
+foreach(['totalHours'=>'9','hourType'=>'overtime','date'=>'2026-11-10','timesheetId'=>'other']as$field=>$value)$reject(fn()=>jobdivaTimeSource($row+[$field=>$value]),'conflicting aliases');
+$check(jobdivaTimeSource($row+['totalHours'=>8,'date'=>'11/9/2026','hourType'=>'REGULAR'])===$valid,'Equivalent explicit aliases are accepted');
+$reject(fn()=>jobdivaTimeSource($row+['overtimeHours'=>2]),'mixed source components');
+foreach([['deleted'=>true],['isDeleted'=>'unknown'],['status'=>'Cancelled']]as$patch)$reject(fn()=>jobdivaTimeSource($row+$patch),'withdrawn or ambiguous source');
+$reject(fn()=>jobdivaTimeSource($row+['privateNotes'=>str_repeat('x',262144)]),'oversized source');
+$check(jobdivaTimeSource($row+['approved'=>true,'approvedBy'=>'source-person'])===$valid,'Provider approval assertions do not become Core approval fields');
+echo "PASS {$passed} strict JobDiva time input checks\n";

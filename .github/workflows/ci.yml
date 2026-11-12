@@ -350,6 +350,11 @@ jobs:
           php tests/document_ownership_mariadb.php
           php tests/staffing_onboarding_mariadb.php
 
+      - name: Verify atomic JobDiva time intake and protected source history
+        run: |
+          php tests/jobdiva_time_contract_smoke.php
+          php tests/jobdiva_time_intake_mariadb.php
+
       - name: PurePayroll approved input delivery fixture
         run: php tests/purepay_payroll_inputs_mariadb.php
       - name: Verify scoped person intake and inactive employee receipt recovery

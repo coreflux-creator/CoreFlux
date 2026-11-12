@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 function staffingTimeEvidenceTables(): array
 {
-    return ['quanta_time_approval_evidence', 'quanta_time_revisions'];
+    return ['quanta_time_approval_evidence', 'quanta_time_revisions', 'jobdiva_time_intake'];
 }
 
 function staffingTimeFieldDefinitions(): array
@@ -131,6 +131,21 @@ function staffingTimeFieldDefinitions(): array
             'observed_by_user_id' => ['Core account capturing this observation; distinct from either system approver.', 'reference:user'],
             'observed_at' => ['Core observation time, separate from the embedded source approval time.', 'timestamp'],
         ],
+        'jobdiva_time_intake' => [
+            'connection_id'=>['Original Core JobDiva connection identity; reconnecting does not silently adopt existing time.', 'reference:connection'],
+            'connection_identity_hash'=>['Hash of the source client and account identity; not a credential or proof of source approval.', 'sha256'],
+            'external_id'=>['Exact original JobDiva time-row identity; never replaced by a Core SQL ID.', 'provider-reference'],
+            'mapping_id'=>['Exact stable source-to-Core time mapping used by this committed intake.', 'reference:external_mapping'],
+            'time_entry_id'=>['Original Core time entry kept across mutable draft source revisions; protected revisions require separate review.', 'reference:time_entry'],
+            'people_tenant_id'=>['Verified owning People directory, distinct from the operating tenant.', 'reference:tenant'],
+            'placements_tenant_id'=>['Verified owning placement directory, distinct from the operating tenant.', 'reference:tenant'],
+            'previous_id'=>['Previous retained intake receipt for this source identity; source history is not overwritten.', 'reference:jobdiva_time_intake|null'],
+            'source_hash'=>['Canonical fingerprint of the exact retained source payload, advanced only with an accepted atomic intake.', 'sha256'],
+            'source_ct'=>['Encrypted original source payload, including any provider approval assertions; those assertions remain unverified.', 'encrypted-evidence'],
+            'entry_ct'=>['Encrypted resulting Core row; owned values must still match before a later source revision can apply.', 'encrypted-evidence'],
+            'source_approval_state'=>['Unverified source assertion state; receipt storage does not establish source approval or grant Core approval.', 'enum'],
+            'actor_user_id'=>['Core intake operator, or null for a system job; never the provider approving person.', 'reference:user|null'],
+        ],
         'quanta_time_revisions' => [
             'source_entry_id' => ['Original Quanta entry ID; full workspace and canonical identity context remains in encrypted snapshots.', 'provider-reference'],
             'review_hash' => ['Fingerprint binding the reviewer, current source, route, original entries, weeks, periods and capacity. A stale review cannot apply.', 'sha256'],
@@ -158,6 +173,7 @@ function staffingTimeFieldRules(string $table, string $field, array $rules): arr
     $definition = $definitions[$table][$field] ?? $common[$field] ?? null;
     if ($definition === null) return $rules; // New columns still require an explicit decision.
     $evidence = match ($table) {
+        'jobdiva_time_intake' => 'core/jobdiva/time_intake.php',
         'quanta_time_revisions' => 'core/quanta/time_revisions.php',
         'quanta_time_approval_evidence' => 'core/quanta/time_approval.php',
         'quanta_time_imports' => 'core/quanta/sync.php',
@@ -169,7 +185,7 @@ function staffingTimeFieldRules(string $table, string $field, array $rules): arr
     $rules['definition'] = $definition[0];
     $rules['unit'] = $definition[1];
     $rules['definition_status'] = 'reviewed_core_definition';
-    $rules['owner'] = str_starts_with($table, 'quanta_') ? 'quanta_source_evidence' : 'core_time_review';
+    $rules['owner'] = str_starts_with($table, 'quanta_') ? 'quanta_source_evidence' : ($table==='jobdiva_time_intake'?'jobdiva_source_evidence':'core_time_review');
     $rules['owner_directory_module'] = 'time';
     $rules['ownership_status'] = 'source_backed_native_workflow';
     $rules['ownership_evidence'][] = ['source'=>$evidence,'direction'=>'native_core_workflow','write_policy'=>'specialized_workflow_only'];
@@ -232,21 +248,21 @@ function staffingTimeExchangeMappings(callable $add): void
     }
     foreach([
         'placement_id'=>['placementId|placement_id|startId','resolve_existing_JobDiva_placement_mapping; raw_SQL_ID_not_copied'],
-        'work_date'=>['date|workDate|work_date|entryDate','normalize_source_date; existing_entry_update_does_not_change_date'],
-        'hours'=>['hours|totalHours|total_hours|regularHours','legacy_float_cast; validation_hardening_required'],
-        'category'=>['category|hourType|hour_type|type','legacy_regular_overtime_holiday_vacation_sick_pto_map; unknown_defaults_regular_billable'],
-        'hour_type'=>['category|hourType|hour_type|type','derive_from_legacy_category; unknown_defaults_regular'],
-        'billable'=>['category|hourType|hour_type|type','derive_from_legacy_category; default_billable'],
-        'payable'=>['category|hourType|hour_type|type','derive_from_legacy_category; default_payable'],
+        'work_date'=>['date|workDate|work_date|entryDate','explicit_calendar_date; conflicting_aliases_rejected; changed_date_requires_review'],
+        'hours'=>['hours|totalHours|total_hours|regularHours','positive_decimal_hours_max_24_and_two_places; mixed_components_and_alias_conflicts_rejected'],
+        'category'=>['category|hourType|hour_type|type','explicit_regular_overtime_holiday_vacation_sick_pto_map; unknown_rejected; internal_placement_nonbillable'],
+        'hour_type'=>['category|hourType|hour_type|type','derive_from_explicit_category; unknown_rejected'],
+        'billable'=>['category|hourType|hour_type|type','derive_from_explicit_category_and_placement_classification'],
+        'payable'=>['category|hourType|hour_type|type','derive_from_explicit_supported_category'],
         'description'=>['description','source_description_or_null'],
     ]as$column=>[$path,$transform]){
         $add('time_entries.'.$column,'jobdiva','/apiv2/bi/NewUpdatedTimesheetRecords',$path,$transform,
-            'legacy_draft_or_pending_update; approved_rows_not_overwritten; mapping_revision_conflict_gap_requires_hardening',
+            'atomic_owned_draft_only; required_source_receipt_history_audit; exact_replay; protected_changes_and_legacy_adoption_require_review; provider_approval_unverified',
             'existing_adapter',['core'=>'core/jobdiva/sync_time.php'],'jobdiva_to_core');
     }
     foreach(['placement_id'=>['placement_id','resolve_existing_provider_placement_mapping'],
         'work_date'=>['date','preserve_work_date'],'hours'=>['hours','legacy_float_cast'],
-        'category'=>['category','legacy_category_map; unmapped_defaults_regular; review_required'],
+        'category'=>['category','legacy_category_map; unmapped_rejected; review_required'],
         'description'=>['description','preserve_description']]as$column=>[$path,$transform]){
         $add('time_entries.'.$column,'jobdiva','/apiv2/jobdiva/uploadTimesheet',$path,$transform,
             'approved_entries_only; existing_mapping_skips_even_changed_payload; no_body_update_by_ID',

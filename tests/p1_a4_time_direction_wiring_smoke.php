@@ -46,39 +46,9 @@ $assert('exports jobdivaSyncUpsertTimeEntry',      strpos($src, 'function jobdiv
 $assert('exports jobdivaMapTimeCategory',          strpos($src, 'function jobdivaMapTimeCategory(') !== false);
 $assert('exports jobdivaUnmapTimeCategory',        strpos($src, 'function jobdivaUnmapTimeCategory(') !== false);
 
-echo "\nPull driver behaviour\n";
-$assert('hits V2 BI NewUpdatedTimesheetRecords path',
-    strpos($src, "JOBDIVA_PATH_TIMESHEETS_DELTA") !== false);
-$assert('falls back across id key spellings',
-    strpos($src, "jobdivaPluckField(\$jd, [") !== false
-    && strpos($src, "'timesheetId', 'timesheet_id', 'timesheet id', 'timecardId', 'timecard_id'") !== false);
-$assert('resolves placement via existing mapping (NO auto-create)',
-    strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'placement', \$placementExtId)") !== false
-    && strpos($src, "\$skipReasons['placement_unmapped']++") !== false);
-$assert('ensures time_period cycle for work_date',
-    strpos($src, 'function jobdivaEnsureTimePeriod(') !== false
-    && strpos($src, 'INSERT INTO time_periods') !== false
-    && strpos($src, 'jobdivaTimeWeekBounds($tid, $workDate)') !== false);
-$assert('reads tenant staffing week-start setting',
-    strpos($src, 'tenant_staffing_settings') !== false
-    && strpos($src, 'week_starts_on') !== false);
-$assert('ensures staffing_timesheets header for imported rows',
-    strpos($src, 'function jobdivaEnsureStaffingTimesheet(') !== false
-    && strpos($src, 'staffingTimesheetUpsert($personId, $periodStart, $periodEnd') !== false
-    && strpos($src, "'source_system' => 'jobdiva'") !== false
-    && strpos($src, "'timesheet_id' => \$timesheetId") !== false);
-$assert('refreshes staffing_timesheets total after entry upsert',
-    strpos($src, 'function jobdivaRefreshStaffingTimesheetTotal(') !== false
-    && strpos($src, 'jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId, $userId)') !== false
-    && strpos($src, "staffingTimesheetRecordArtifactEvent(\$timesheetId, 'timesheet.entries_imported'") !== false);
-$assert('binds mapping (time_entry)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'time_entry', \$extId, \$internalId, \$jd, 'pull')") !== false);
-$assert('emits audit row entity_type=time direction=pull',
-    strpos($src, "'entity_type'     => 'time'") !== false
-    && strpos($src, "'direction'       => 'pull'") !== false);
-$assert("source tagged 'bulk_upload' (no enum migration needed)",
-    strpos($src, "'source'       => 'bulk_upload'") !== false);
-
+// Pull behavior now has real input and MariaDB transaction tests:
+// jobdiva_time_contract_smoke.php and jobdiva_time_intake_mariadb.php.
+// Keep this older suite focused on the public wiring and existing push path.
 echo "\nPush driver behaviour\n";
 $assert('only ships approved + non-superseded entries',
     strpos($src, "AND te.status    = 'approved'") !== false
@@ -100,22 +70,14 @@ $assert('binds mapping (time_entry, push direction)',
 $assert('emits audit row entity_type=time direction=push',
     preg_match("/'entity_type'\\s*=>\\s*'time'.*?'direction'\\s*=>\\s*'push'/s", $src) === 1);
 
-echo "\nUpsert helper\n";
-$assert('respects approval lock — only updates draft/pending_review',
-    strpos($src, 'WHERE id = :id AND tenant_id = :t AND status IN ("draft","pending_review")') !== false);
-$assert('INSERT links period + staffing header + hour metadata',
-    strpos($src, '(tenant_id, placement_id, person_id, period_id, timesheet_id, work_date, category,') !== false
-    && strpos($src, 'hour_type, billable, payable, hours, description, source, status, created_by_user_id)') !== false);
-$assert("INSERT defaults status='draft'",
-    strpos($src, ':s, "draft", :u)') !== false);
-
 echo "\nCategory mapping (runtime)\n";
 require_once $path;
 $assert("'regular' → 'regular_billable'",  jobdivaMapTimeCategory('regular')  === 'regular_billable');
 $assert("'overtime' → 'OT_billable'",      jobdivaMapTimeCategory('overtime') === 'OT_billable');
 $assert("'OT' (case-insensitive) → 'OT_billable'", jobdivaMapTimeCategory('OT') === 'OT_billable');
 $assert("'PTO' → 'vacation'",              jobdivaMapTimeCategory('PTO')      === 'vacation');
-$assert("unknown → 'regular_billable' default", jobdivaMapTimeCategory('zzz')  === 'regular_billable');
+try { jobdivaMapTimeCategory('zzz'); $unknownRejected=false; } catch (InvalidArgumentException $e) { $unknownRejected=true; }
+$assert('unknown category requires review', $unknownRejected);
 $assert("reverse 'OT_billable' → 'overtime'", jobdivaUnmapTimeCategory('OT_billable') === 'overtime');
 $assert("reverse 'sick' → 'sick'",           jobdivaUnmapTimeCategory('sick')         === 'sick');
 

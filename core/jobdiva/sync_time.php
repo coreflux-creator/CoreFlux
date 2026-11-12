@@ -21,19 +21,18 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/sync.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php';
+require_once __DIR__ . '/time_intake.php';
 
 function jobdivaTimeWeekBounds(int $tid, string $workDate): array
 {
     $pdo = getDB();
     $weekStartsOn = 1;
-    try {
-        $st = $pdo->prepare('SELECT week_starts_on FROM tenant_staffing_settings WHERE tenant_id = :t LIMIT 1');
-        $st->execute(['t' => $tid]);
-        $raw = $st->fetchColumn();
-        if ($raw !== false) $weekStartsOn = (int) $raw;
-    } catch (\Throwable $_) {
-        $weekStartsOn = 1;
-    }
+    $st = $pdo->prepare('SELECT week_starts_on FROM tenant_staffing_settings WHERE tenant_id = :t LIMIT 1');
+    $st->execute(['t' => $tid]);
+    $raw = $st->fetchColumn();
+    if ($raw !== false) $weekStartsOn = (int) $raw;
+    if($weekStartsOn<0||$weekStartsOn>6)throw new JobdivaTimeConflict('The staffing week-start setting requires review.');
+    $workDate=jobdivaTimeDate($workDate);
     $ts = strtotime($workDate . ' 12:00:00 UTC');
     if ($ts === false) throw new \InvalidArgumentException('invalid work_date');
     $day = (int) gmdate('w', $ts); // 0=Sun..6=Sat
@@ -46,13 +45,15 @@ function jobdivaTimeWeekBounds(int $tid, string $workDate): array
 function jobdivaEnsureTimePeriod(int $tid, string $workDate): array
 {
     $pdo = getDB();
+    if(!$pdo->inTransaction())throw new LogicException('Time period creation requires an intake transaction.');
+    jobdivaTimePeriodOpen($pdo,$tid,$workDate);
     $st = $pdo->prepare(
         "SELECT id, start_date, end_date
            FROM time_periods
           WHERE tenant_id = :t
             AND start_date <= :wd1
             AND end_date >= :wd2
-            AND status != 'closed'
+            AND status = 'open'
           ORDER BY start_date DESC
           LIMIT 1"
     );
@@ -66,7 +67,7 @@ function jobdivaEnsureTimePeriod(int $tid, string $workDate): array
     $pdo->prepare(
         'INSERT INTO time_periods (tenant_id, period_type, start_date, end_date, label, status)
          VALUES (:t, "weekly", :ps, :pe, :label, "open")
-         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), status = IF(status = "closed", status, "open")'
+         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)'
     )->execute([
         't' => $tid,
         'ps' => $periodStart,
@@ -124,113 +125,34 @@ function jobdivaHourTypeFromCategory(string $category): array
         'bereavement' => ['hour_type' => 'bereavement', 'billable' => 0, 'payable' => 1],
         'unpaid_leave' => ['hour_type' => 'unpaid', 'billable' => 0, 'payable' => 0],
         'regular_nonbillable' => ['hour_type' => 'nonbillable', 'billable' => 0, 'payable' => 1],
-        default => ['hour_type' => 'regular', 'billable' => 1, 'payable' => 1],
+        'regular_billable' => ['hour_type' => 'regular', 'billable' => 1, 'payable' => 1],
+        default => throw new InvalidArgumentException('Unmapped Core time category.'),
     };
 }
 
 function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = isset($opts['items_override']) && is_array($opts['items_override'])
-        ? $opts['items_override']
-        : jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_TIMESHEETS_DELTA, $opts);
-    $processed = 0; $skipped = 0; $failed = 0; $errors = [];
-    $skipReasons = ['missing_fields' => 0, 'placement_unmapped' => 0, 'placement_missing_person' => 0];
-    $itemsFetched = count($items);
-
-    $pdo = getDB();
-    foreach ($items as $jd) {
-        try {
-            $extId = jobdivaPluckField($jd, [
-                'id', 'timesheetId', 'timesheet_id', 'timesheet id', 'timecardId', 'timecard_id',
-            ]);
-            $placementExtId = jobdivaPluckField($jd, [
-                'placementId', 'placement_id', 'placement id', 'startId', 'start_id', 'start id',
-            ]);
-            $workDate = jobdivaNormaliseDate(jobdivaPluckField($jd, [
-                'date', 'workDate', 'work_date', 'work date', 'entryDate', 'entry_date',
-            ])) ?? '';
-            $hoursVal = jobdivaPluckField($jd, ['hours', 'totalHours', 'total_hours', 'regularHours', 'regular_hours']);
-            $hoursRaw = $hoursVal !== '' ? $hoursVal : null;
-            if ($extId === '' || $placementExtId === '' || $workDate === '' || $hoursRaw === null) {
-                $skipped++; $skipReasons['missing_fields']++; continue;
-            }
-
-            $placementMapping = mappingFindInternal($tid, 'jobdiva', 'placement', $placementExtId);
-            if (!$placementMapping) { $skipped++; $skipReasons['placement_unmapped']++; continue; }
-            $placementId = (int) $placementMapping['internal_entity_id'];
-
-            $period = jobdivaEnsureTimePeriod($tid, $workDate);
-
-            $row = $pdo->prepare(
-                'SELECT p.person_id
-                   FROM placements p
-                  WHERE p.id = :pid AND p.tenant_id = :t
-                  LIMIT 1'
-            );
-            $row->execute(['pid' => $placementId, 't' => $tid]);
-            $meta = $row->fetch(\PDO::FETCH_ASSOC);
-            if (!$meta || (int) ($meta['person_id'] ?? 0) <= 0) {
-                $skipped++; $skipReasons['placement_missing_person']++; continue;
-            }
-            $personId = (int) $meta['person_id'];
-            $timesheetId = jobdivaEnsureStaffingTimesheet(
-                $tid,
-                $personId,
-                $period['start_date'],
-                $period['end_date'],
-                $userId
-            );
-            $category = jobdivaMapTimeCategory((string) jobdivaPluckField($jd, ['category', 'hourType', 'hour_type', 'type']));
-            $hourMeta = jobdivaHourTypeFromCategory($category);
-
-            $internalId = jobdivaSyncUpsertTimeEntry($tid, [
-                'placement_id' => $placementId,
-                'person_id'    => $personId,
-                'period_id'    => (int) $period['id'],
-                'timesheet_id' => $timesheetId,
-                'work_date'    => $workDate,
-                'hours'        => (float) $hoursRaw,
-                'category'     => $category,
-                'hour_type'    => $hourMeta['hour_type'],
-                'billable'     => $hourMeta['billable'],
-                'payable'      => $hourMeta['payable'],
-                'description'  => $jd['description'] ?? null,
-                'source'       => 'bulk_upload', // tagged so the source enum stays unchanged
-                'created_by_user_id' => $userId,
-            ], $extId);
-            jobdivaRefreshStaffingTimesheetTotal($tid, $timesheetId, $userId);
-
-            mappingUpsert($tid, 'jobdiva', 'time_entry', $extId, $internalId, $jd, 'pull');
-            $processed++;
-        } catch (\Throwable $e) {
-            $failed++;
-            $errors[] = ['entity' => 'time_entry', 'external_id' => $extId ?? '?', 'error' => $e->getMessage()];
-            if (count($errors) >= 50) break;
+    $pdo=getDB();
+    jobdivaTimeIntakeConnection($pdo,$tid); // Refuse disabled or differently owned intake before provider IO.
+    $items=isset($opts['items_override'])&&is_array($opts['items_override'])?$opts['items_override']:jobdivaSyncFetchWithRetry($tid,JOBDIVA_PATH_TIMESHEETS_DELTA,$opts);
+    $processed=0;$skipped=0;$failed=0;$replayed=0;$errors=[];$skipReasons=['placement_unmapped'=>0,'placement_missing_person'=>0];
+    foreach($items as$jd){
+        $external='?';
+        try{
+            if(!is_array($jd))throw new InvalidArgumentException('Source time record must be an object.');
+            $external=jobdivaTimeSource($jd)['external_id'];
+            $result=jobdivaTimeApplyRecord($tid,$userId,$jd);
+            if($result['replayed']){$skipped++;$replayed++;}else$processed++;
+        }catch(Throwable $e){
+            if($e instanceof JobdivaTimeConflict&&array_key_exists($e->getMessage(),$skipReasons)){$skipped++;$skipReasons[$e->getMessage()]++;}
+            else{$failed++;$errors[]=['entity'=>'time_entry','external_id'=>$external,'error'=>$e->getMessage(),'review_required'=>$e instanceof JobdivaTimeConflict];}
+            if(count($errors)>=50)break;
         }
     }
-
-    jobdivaAudit($tid, 'sync', [
-        'entity_type'     => 'time',
-        'direction'       => 'pull',
-        'ok'              => $failed === 0,
-        'items_processed' => $processed,
-        'items_skipped'   => $skipped,
-        'items_failed'    => $failed,
-        'actor_user_id'   => $userId,
-        'detail'          => [
-            'items_fetched' => $itemsFetched,
-            'skip_reasons'  => $skipReasons,
-            'errors'        => array_slice($errors, 0, 5),
-        ],
-    ]);
-    return [
-        'processed'     => $processed,
-        'skipped'       => $skipped,
-        'failed'        => $failed,
-        'errors'        => $errors,
-        'items_fetched' => $itemsFetched,
-        'skip_reasons'  => $skipReasons,
-    ];
+    jobdivaAudit($tid,'sync',['entity_type'=>'time','direction'=>'pull','ok'=>$failed===0,'items_processed'=>$processed,
+        'items_skipped'=>$skipped,'items_failed'=>$failed,'actor_user_id'=>$userId,
+        'detail'=>['items_fetched'=>count($items),'replayed'=>$replayed,'skip_reasons'=>$skipReasons,'errors'=>array_slice($errors,0,5)]]);
+    return ['processed'=>$processed,'skipped'=>$skipped,'failed'=>$failed,'replayed'=>$replayed,'errors'=>$errors,'items_fetched'=>count($items),'skip_reasons'=>$skipReasons];
 }
 
 /**
@@ -317,69 +239,27 @@ function jobdivaSyncTimePush(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncUpsertTimeEntry(int $tid, array $entry, string $extId): int
 {
-    $pdo = getDB();
-    // Look up by mapping first.
-    $existingMapping = mappingFindInternal($tid, 'jobdiva', 'time_entry', $extId);
-    if ($existingMapping) {
-        $existingId = (int) $existingMapping['internal_entity_id'];
-        $pdo->prepare(
-            'UPDATE time_entries
-                SET period_id = :prd, timesheet_id = :ts, hours = :h,
-                    category = :c, hour_type = :ht, billable = :b, payable = :pay,
-                    description = :d
-              WHERE id = :id AND tenant_id = :t AND status IN ("draft","pending_review")'
-        )->execute([
-            'prd' => $entry['period_id'],
-            'ts' => $entry['timesheet_id'],
-            'h'  => $entry['hours'],
-            'c'  => $entry['category'],
-            'ht' => $entry['hour_type'],
-            'b' => $entry['billable'],
-            'pay' => $entry['payable'],
-            'd'  => $entry['description'],
-            'id' => $existingId,
-            't'  => $tid,
-        ]);
-        return $existingId;
+    $pdo=getDB();if(!$pdo->inTransaction())throw new LogicException('Time row writes require the enclosing intake transaction.');
+    $existing=mappingFindInternal($tid,'jobdiva','time_entry',$extId);
+    $values=jobdivaTimeOwnedValues($entry);
+    if($existing){
+        $id=(int)$existing['internal_entity_id'];
+        $set=implode(',',array_map(static fn($field)=>$field.'=:'.$field,array_keys($values)));
+        $q=$pdo->prepare('UPDATE time_entries SET '.$set.' WHERE tenant_id=:_t AND id=:_id AND status="draft" AND approved_at IS NULL AND approved_by_user_id IS NULL AND rate_snapshot_id IS NULL AND superseded_by_id IS NULL');
+        $q->execute($values+['_t'=>$tid,'_id'=>$id]);
+        $q=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$tid,$id]);$after=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$after||$after['status']!=='draft'||jobdivaTimeOwnedValues($after)!==$values)throw new JobdivaTimeConflict('The original time entry changed during intake.');
+        return $id;
     }
-    $pdo->prepare(
-        'INSERT INTO time_entries
-            (tenant_id, placement_id, person_id, period_id, timesheet_id, work_date, category,
-             hour_type, billable, payable, hours, description, source, status, created_by_user_id)
-         VALUES
-            (:t, :pl, :p, :prd, :ts, :wd, :c, :ht, :b, :pay, :h, :d, :s, "draft", :u)'
-    )->execute([
-        't'   => $tid,
-        'pl'  => $entry['placement_id'],
-        'p'   => $entry['person_id'],
-        'prd' => $entry['period_id'],
-        'ts'  => $entry['timesheet_id'],
-        'wd'  => $entry['work_date'],
-        'c'   => $entry['category'],
-        'ht'  => $entry['hour_type'],
-        'b'   => $entry['billable'],
-        'pay' => $entry['payable'],
-        'h'   => $entry['hours'],
-        'd'   => $entry['description'],
-        's'   => $entry['source'],
-        'u'   => $entry['created_by_user_id'],
-    ]);
-    return (int) $pdo->lastInsertId();
+    $fields=array_keys($values);
+    $q=$pdo->prepare('INSERT INTO time_entries(tenant_id,'.implode(',',$fields).',status,created_by_user_id) VALUES(:_t,'.implode(',',array_map(static fn($field)=>':'.$field,$fields)).',"draft",:_actor)');
+    $q->execute($values+['_t'=>$tid,'_actor'=>$entry['created_by_user_id']??null]);
+    return (int)$pdo->lastInsertId();
 }
 
 function jobdivaMapTimeCategory(string $jd): string
 {
-    $map = [
-        'regular'    => 'regular_billable',
-        'overtime'   => 'OT_billable',
-        'ot'         => 'OT_billable',
-        'holiday'    => 'holiday',
-        'vacation'   => 'vacation',
-        'sick'       => 'sick',
-        'pto'        => 'vacation',
-    ];
-    $k = strtolower(trim($jd));
-    return $map[$k] ?? 'regular_billable';
+    return jobdivaTimeCategory($jd);
 }
 
 function jobdivaUnmapTimeCategory(string $cf): string
@@ -393,5 +273,5 @@ function jobdivaUnmapTimeCategory(string $cf): string
         'vacation'            => 'vacation',
         'sick'                => 'sick',
     ];
-    return $map[$cf] ?? 'regular';
+    return $map[$cf] ?? throw new InvalidArgumentException('Unmapped Core hour type cannot be sent to JobDiva.');
 }

@@ -5,7 +5,7 @@ require_once __DIR__.'/../core/integrations/staffing_field_contract.php';
 $passed=0;
 $check=static function(bool $ok,string $label)use(&$passed):void{if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS {$label}\n";};
 $rules=static fn(string $key)=>staffingFieldContractRules(...explode('.',$key,2));
-$check(count(array_intersect(staffingTimeEvidenceTables(),staffingFieldContractTables()))===2,'Original approval observations and immutable correction receipts are inventoried');
+$check(count(array_intersect(staffingTimeEvidenceTables(),staffingFieldContractTables()))===3,'Original approval observations, JobDiva intake and immutable correction receipts are inventoried');
 foreach(staffingTimeFieldDefinitions()as$table=>$fields){
     foreach($fields as$field=>$_){
         $r=$rules($table.'.'.$field);
