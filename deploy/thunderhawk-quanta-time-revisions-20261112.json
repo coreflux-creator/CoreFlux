@@ -151,7 +151,7 @@
     }
   },
   "browser": {
-    "checked_at": "2026-11-12T09:30:00Z",
+    "checked_on": "2026-11-12",
     "observed": "Pilot sign-in page; no saved account for this origin",
     "accepted": false,
     "group": "codex/pilot-time-corrections",
