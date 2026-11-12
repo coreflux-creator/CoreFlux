@@ -46,7 +46,7 @@ function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagemen
         'end_client_name'=>['end_client_name','end_client_company_id'],
         'billing_client_name'=>['client_id'],
         'client_bill_cycle'=>['client_bill_cycle','billing_operating_cycle_id'],
-        'vendor_pay_cycle'=>['vendor_pay_cycle','ap_operating_cycle_id','payroll_operating_cycle_id'],
+        'vendor_pay_cycle'=>['vendor_pay_cycle', in_array($currentGraph['placement']['engagement_type'] ?? '', ['w2','temp_to_perm','internal'], true) ? 'payroll_operating_cycle_id' : 'ap_operating_cycle_id'],
         'vendor_payment_terms'=>['vendor_payment_terms_override'],
         'client_payment_terms'=>['client_payment_terms_override'],
         'paid_when_paid'=>['vendor_pwp_enabled'],

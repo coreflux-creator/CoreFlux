@@ -34,7 +34,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     return $out;
 };
 $graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details','placement_economic_items','placement_economic_obligations',
-    'staffing_operating_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings'];
+    'staffing_operating_cycles','payroll_pay_schedules','payroll_pay_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
 $seed = static function(int $tid, string $start) use ($pdo): array {
@@ -79,6 +79,8 @@ try {
         'end_client_company_id'=>$own['company'],'worksite_country'=>'US']);
     $corpPlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic corporate editor','status'=>'on_hold',
         'engagement_type'=>'c2c','start_date'=>'2026-10-01','end_date'=>'2026-12-31','external_id'=>'jd:99190021','worksite_country'=>'US']);
+    $payrollPlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic payroll schedule','status'=>'on_hold',
+        'engagement_type'=>'w2','start_date'=>'2026-10-01','client_id'=>$own['client'],'worksite_country'=>'US']);
     $foreignBefore=jobdivaPlacementProjectionAuditSnapshot($foreignTenant,$foreign['placement']);
     $email='contract-http-'.bin2hex(random_bytes(10)).'@example.invalid';
     $password=bin2hex(random_bytes(32)); $hash=password_hash($password,PASSWORD_DEFAULT);
@@ -132,6 +134,10 @@ try {
     $itemBody=['description'=>'Synthetic HTTP one-time charge','settlement_channel'=>'ar','economic_party_id'=>$own['ar'],
         'direction'=>'charge','amount'=>'25.00','currency'=>'USD','apply_on'=>'2026-10-15','request_id'=>'99190001-0000-4000-8000-000000000001'];
     $operations[]=['POST',$itemPath,$itemBody];$operations[]=['DELETE',$economics.'?action=item&id=999999',null];
+    $cycles='/modules/placements/api/cycles.php';$cycleReviewPath=$cycles.'?placement_id='.$payrollPlacement;
+    $cycleBody=['name'=>'Synthetic HTTP Payroll','purpose'=>'payroll','cadence'=>'biweekly','anchor_date'=>'2026-10-05','settlement_offset_days'=>5,'placement_id'=>$payrollPlacement,'review_token'=>str_repeat('0',64)];
+    $cycleAssign=['placement_id'=>$payrollPlacement,'payroll_operating_cycle_id'=>1,'review_token'=>str_repeat('0',64)];
+    $operations[]=['GET',$cycleReviewPath,null];$operations[]=['POST',$cycles,$cycleBody];$operations[]=['POST',$cycles.'?action=assign',$cycleAssign];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -289,6 +295,31 @@ try {
     $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event IN ('placement.economic_item.added','placement.economic_item.removed')");
     $q->execute([$tenant,$own['placement'],$actor]);$expect((int)$q->fetchColumn()===2,'Creation and removal record the authenticated actor exactly once each');
     $operations[]=['DELETE',$economics.'?action=item&id='.$itemId,null];
+    $unchanged=$snapshot($graphTables);
+    $expect($request('GET',$cycles.'?placement_id='.$foreign['placement'])[0]===404
+        &&$request('POST',$cycles,array_replace($cycleBody,['placement_id'=>$foreign['placement']]))[0]===404
+        &&$request('POST',$cycles.'?action=assign',array_replace($cycleAssign,['placement_id'=>$foreign['placement']]))[0]===404
+        &&$snapshot($graphTables)===$unchanged,'Schedule APIs reject foreign placements before reading or creating schedules');
+    [$status,$scheduleReview]=$request('GET',$cycleReviewPath);
+    $expect($status===200&&strlen($scheduleReview['review_token'])===64&&$snapshot($graphTables)===$unchanged,'Native schedule review is read-only even for an unbuilt payroll placement');
+    $cycleBody['review_token']=$scheduleReview['review_token'];
+    $pdo->exec("CREATE TRIGGER cf_contract_http_cycle_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.cycles.assigned' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic schedule assignment audit failure'; END IF; END");
+    try{$expect($request('POST',$cycles,$cycleBody)[0]===503,'A failed assignment audit rejects the combined create-and-assign request');}
+    finally{$pdo->exec('DROP TRIGGER cf_contract_http_cycle_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'Assignment audit failure rolls back new payroll schedule bridge graph and ownership');
+    [$status,$scheduleSaved]=$request('POST',$cycles,$cycleBody);
+    $expect($status===201&&$scheduleSaved['created']&&$scheduleSaved['assignment']['changed']&&$scheduleSaved['payroll_pay_cycle_id']>0,'Native HTTP creates the payroll bridge and assigns its operating schedule atomically');
+    $p=placementAuditRow($payrollPlacement);
+    $expect((int)$p['payroll_operating_cycle_id']===(int)$scheduleSaved['id']&&(int)$p['payroll_cycle_id']===(int)$scheduleSaved['payroll_pay_cycle_id']&&$p['vendor_pay_cycle']==='biweekly'&&$p['vendor_pay_cycle_anchor']==='2026-10-05','HTTP schedule selection aligns placement cadence anchor and payroll compatibility ID');
+    $unchanged=$snapshot($graphTables);[$status,$sameSchedule]=$request('POST',$cycles,$cycleBody);
+    $expect($status===200&&!$sameSchedule['changed']&&$sameSchedule['id']===$scheduleSaved['id']&&$snapshot($graphTables)===$unchanged,'Exact native HTTP creation retry keeps the original schedule and assignment');
+    $cycleAssign['payroll_operating_cycle_id']=$scheduleSaved['id'];
+    [$status,$sameAssignment]=$request('POST',$cycles.'?action=assign',$cycleAssign);
+    $expect($status===200&&!$sameAssignment['changed']&&$snapshot($graphTables)===$unchanged,'An already-applied HTTP assignment is an unchanged success');
+    $expect($request('POST',$cycles,array_replace($cycleBody,['anchor_date'=>'2026-10-12']))[0]===409&&$snapshot($graphTables)===$unchanged,'A conflicting named payroll schedule cannot change the existing bridge');
+    $expect($request('POST',$cycles,array_replace($cycleBody,['name'=>'Synthetic Stale HTTP Payroll']))[0]===409&&$snapshot($graphTables)===$unchanged,'A stale review rolls back a newly named schedule and both payroll records');
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event IN ('placement.cycles.assigned','staffing.operating_cycle.created')");
+    $q->execute([$tenant,$actor]);$expect((int)$q->fetchColumn()===2,'Successful schedule creation and assignment each record the authenticated actor once');
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
     [$status,$context]=$request('GET',$contextPath);

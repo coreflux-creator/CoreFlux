@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/ownership.php';
 require_once __DIR__ . '/economics.php';
+require_once __DIR__ . '/cycle_assignments.php';
 
 function placementEconomicsNativeDiffers(array $row, array $changes): bool
 {
@@ -70,17 +71,17 @@ function placementEconomicsApplyNativePartyEdit(int $tenantId, int $partyId, arr
             if (array_key_exists('cadence', $changes)) {
                 $cadence = strtolower(trim((string) $changes['cadence']));
                 if (!in_array($cadence, ['weekly','biweekly','semimonthly','monthly','adhoc'], true)) throw new InvalidArgumentException('Choose a valid payment frequency.', 422);
-                $resolved = placementEconomicsEnsureStandardCycle($tenantId, $purpose, $cadence);
+                $current = $pdo->prepare('SELECT id,cadence FROM staffing_operating_cycles WHERE tenant_id=? AND id=? AND purpose=? AND active=1 FOR UPDATE');
+                $current->execute([$tenantId,(int)($changes['operating_cycle_id'] ?? $before['operating_cycle_id']),$purpose]);
+                $selected = $current->fetch(PDO::FETCH_ASSOC);
+                $resolved = $selected && $selected['cadence'] === $cadence ? (int)$selected['id'] : placementEconomicsEnsureStandardCycle($tenantId, $purpose, $cadence);
                 if (!$resolved) throw new RuntimeException('Could not resolve the requested payment frequency.', 422);
                 if (array_key_exists('operating_cycle_id', $changes) && (string) $changes['operating_cycle_id'] !== (string) $resolved) throw new InvalidArgumentException('Frequency and cycle must identify the same schedule.', 422);
                 $changes['operating_cycle_id'] = $resolved;
                 unset($changes['cadence']);
             }
             if (!preg_match('/^[1-9][0-9]*$/D', (string) $changes['operating_cycle_id'])) throw new InvalidArgumentException('Choose an active cycle; returning ownership requires a separate review.', 422);
-            $lookup = $pdo->prepare('SELECT * FROM staffing_operating_cycles WHERE tenant_id=? AND id=? AND active=1 FOR UPDATE');
-            $lookup->execute([$tenantId, (int) $changes['operating_cycle_id']]);
-            $cycle = $lookup->fetch(PDO::FETCH_ASSOC);
-            if (!$cycle || $cycle['purpose'] !== $purpose) throw new InvalidArgumentException('Cycle must be an active ' . $purpose . ' cycle in this workspace.', 422);
+            $cycle = placementCycleRequireActive($pdo,$tenantId,(int)$changes['operating_cycle_id'],$purpose);
             $changes['operating_cycle_id'] = (int) $cycle['id'];
         }
         if (array_key_exists('fee_basis', $changes) && !in_array($changes['fee_basis'], ['none','pay_rate','portal_fee_pct','portal_fee_flat','per_hour','per_invoice','one_time','pct_bill','pct_margin','net_margin','gross_margin','bill_rate','flat'], true)) throw new InvalidArgumentException('Invalid calculation basis.', 422);
@@ -110,10 +111,7 @@ function placementEconomicsApplyNativePartyEdit(int $tenantId, int $partyId, arr
         $labor = ($corp && $placement['engagement_type'] === 'c2c') || ($worker && (($payrollModel && $channel === 'payroll') || ($placement['engagement_type'] === '1099' && $channel === 'ap')));
         if ($billTo || $labor) {
             if ($cycle) {
-                $prefix = $billTo ? 'client_bill_cycle' : 'vendor_pay_cycle';
-                $summary[$prefix] = $cycle['cadence'];
-                $summary[$prefix . '_anchor'] = $cycle['anchor_date'];
-                $summary[$purpose . '_operating_cycle_id'] = (int) $cycle['id'];
+                $summary = array_replace($summary,placementCycleSummary($placement,$cycle));
             }
             if (array_key_exists('payment_terms', $changes)) $summary[$billTo ? 'client_payment_terms_override' : 'vendor_payment_terms_override'] = $changes['payment_terms'];
             if ($labor && array_key_exists('pwp_enabled', $changes)) $summary['vendor_pwp_enabled'] = $changes['pwp_enabled'];
@@ -129,7 +127,7 @@ function placementEconomicsApplyNativePartyEdit(int $tenantId, int $partyId, arr
             if (array_key_exists('pwp_enabled', $changes)) $corpChanges['pwp_enabled'] = $changes['pwp_enabled'];
         }
         if ($summary && str_starts_with((string) $placement['external_id'], 'jd:')) {
-            $summary['coreflux_overridden_fields'] = json_encode(array_values(array_unique(array_merge($owned, array_keys($summary)))), JSON_THROW_ON_ERROR);
+            $summary['coreflux_overridden_fields'] = json_encode(array_values(array_unique(array_merge($owned, array_diff(array_keys($summary), ['billing_cycle_id','ap_cycle_id','payroll_cycle_id'])))), JSON_THROW_ON_ERROR);
         }
         $summaryChanged = placementEconomicsNativeDiffers($placement, $summary);
         $corpChanged = $corpBefore && placementEconomicsNativeDiffers($corpBefore, $corpChanges);

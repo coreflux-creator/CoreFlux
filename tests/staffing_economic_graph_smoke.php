@@ -16,6 +16,7 @@ $economicsApi = $read('modules/placements/api/economics.php');
 $economicsEdit = $read('modules/placements/lib/economics_edit.php');
 $economicsParticipants = $read('modules/placements/lib/economics_participants.php');
 $cyclesApi = $read('modules/placements/api/cycles.php');
+$cycleAssignments = $read('modules/placements/lib/cycle_assignments.php');
 $placementsApi = $read('modules/placements/api/placements.php');
 $rateApprove = $read('modules/placements/lib/rate_approve.php');
 $ap = $read('modules/ap/lib/ap.php');
@@ -107,10 +108,10 @@ $assert('payroll recipient lookup accepts either employee email field',
 $assert('unclassified non-employee labor defaults to the vendor/AP graph',
     str_contains($economics, ": 'ap';")
     && !str_contains($economics, "(\$engagement === '1099' ? 'ap' : 'none')"));
-$assert('AP cycle defaults feed relationship terms and exclusions clear legacy fallbacks',
+$assert('AP cycle defaults feed relationship terms and schedule selections derive legacy pointers',
     str_contains($economics, '$apCycleTerms')
-    && str_contains($cyclesApi, '$legacyMap')
-    && str_contains($cyclesApi, '$updates[$legacyMap[$purpose]] = null'));
+    && str_contains($cyclesApi, 'placementCycleAssign(')
+    && str_contains($cycleAssignments, "empty(\$cycle['payroll_pay_cycle_id']) ? null"));
 
 $assert('AP builds bills from all graph charges',
     str_contains($ap, 'placementEconomicsApCharges')

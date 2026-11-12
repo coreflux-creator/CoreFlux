@@ -240,16 +240,17 @@ function placementEconomicsEnsureStandardCycle(int $tenantId, string $purpose, s
     $existing = getDB()->prepare(
         'SELECT id FROM staffing_operating_cycles
           WHERE tenant_id = :t AND purpose = :purpose AND cadence = :cadence AND active = 1
-          ORDER BY (source_system = "standard_cadence") DESC, id
+            AND source_system = "standard_cadence" AND external_id = :external_id
+          ORDER BY id
           LIMIT 1'
     );
-    $existing->execute(['t' => $tenantId, 'purpose' => $purpose, 'cadence' => $cadence]);
+    $existing->execute(['t' => $tenantId, 'purpose' => $purpose, 'cadence' => $cadence, 'external_id' => $cadence]);
     $existingId = (int) $existing->fetchColumn();
     if ($existingId > 0) return $existingId;
 
     $anchor = in_array($cadence, ['weekly','biweekly'], true) ? '1970-01-05'
         : (in_array($cadence, ['semimonthly','monthly'], true) ? '1970-01-01' : null);
-    return placementEconomicsEnsureCycle(
+    $resolved = placementEconomicsEnsureCycle(
         $tenantId,
         $purpose,
         $cadence,
@@ -258,12 +259,19 @@ function placementEconomicsEnsureStandardCycle(int $tenantId, string $purpose, s
         $cadence,
         ucfirst($cadence) . ' ' . ($labels[$purpose] ?? $purpose)
     );
+    if (!$resolved) return null;
+    $check = getDB()->prepare('SELECT 1 FROM staffing_operating_cycles WHERE tenant_id=? AND id=? AND purpose=? AND cadence=? AND source_system="standard_cadence" AND external_id=? AND active=1');
+    $check->execute([$tenantId,$resolved,$purpose,$cadence,$cadence]);
+    if (!$check->fetchColumn()) throw new RuntimeException('The standard frequency conflicts with a custom schedule. Review the schedule before changing frequency.',409);
+    return $resolved;
 }
 
 function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement): void
 {
     $pdo = getDB();
     $updates = [];
+    require_once __DIR__ . '/ownership.php';
+    $owned = placementOwnershipFields($placement['coreflux_overridden_fields'] ?? null);
     $allowedCadences = ['weekly','biweekly','semimonthly','monthly','adhoc'];
     $cycleMatches = static function (mixed $cycleId, string $purpose, string $cadence) use ($pdo, $tenantId): bool {
         $cycleId = (int) $cycleId;
@@ -287,6 +295,7 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
         $updates['client_bill_cycle'] = $billingCadence;
     }
     if (!$cycleMatches($placement['billing_operating_cycle_id'] ?? null, 'billing', $billingCadence)) {
+        if (in_array('billing_operating_cycle_id',$owned,true)) throw new RuntimeException('The Core billing schedule changed or is unavailable. Review it before refreshing this placement.',409);
         $updates['billing_operating_cycle_id'] = placementEconomicsEnsureStandardCycle($tenantId, 'billing', $billingCadence);
     }
     $payCadence = strtolower(trim((string) ($placement['vendor_pay_cycle'] ?? '')));
@@ -301,9 +310,20 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
     }
     $payField = $payPurpose . '_operating_cycle_id';
     if (!$cycleMatches($placement[$payField] ?? null, $payPurpose, $payCadence)) {
+        if (in_array($payField,$owned,true)) throw new RuntimeException('The Core payment schedule changed or is unavailable. Review it before refreshing this placement.',409);
         $updates[$payField] = placementEconomicsEnsureStandardCycle($tenantId, $payPurpose, $payCadence);
     }
     $updates = array_filter($updates, static fn($value): bool => !empty($value));
+    foreach (['billing','ap','payroll'] as $purpose) {
+        $cycleId=(int)($updates[$purpose.'_operating_cycle_id'] ?? $placement[$purpose.'_operating_cycle_id'] ?? 0);
+        if (!$cycleId) continue;
+        $bridge=$pdo->prepare('SELECT payroll_pay_cycle_id FROM staffing_operating_cycles WHERE tenant_id=? AND id=? AND purpose=? AND active=1');
+        $bridge->execute([$tenantId,$cycleId,$purpose]);$row=$bridge->fetch(PDO::FETCH_ASSOC);
+        if (!$row) continue;
+        $legacy=empty($row['payroll_pay_cycle_id']) ? null : (int)$row['payroll_pay_cycle_id'];
+        $current=$placement[$purpose.'_cycle_id'] ?? null;
+        if (($current===null)!==($legacy===null)||($current!==null&&(int)$current!==$legacy)) $updates[$purpose.'_cycle_id']=$legacy;
+    }
     if (!$updates) return;
     $sets = [];
     $params = ['t' => $tenantId, 'p' => (int) $placement['id']];
