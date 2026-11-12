@@ -137,5 +137,6 @@ try {
     $check($fails(fn()=>purepayFinancialLineSaved($damaged,$preview['context'],$owners)),'saved association cannot acquire posting authority');
     $check((int)$pdo->query('SELECT COUNT(*) FROM purepay_payment_links')->fetchColumn()===0,'capture creates no payment links');
     $check(!in_array('accounting_journal_entries',$pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN),true),'capture needs no posting or payroll tables');
+    require __DIR__.'/fixtures/staffing_reconciliation_checks.php';
     echo "Financial observations MariaDB: $passed passed\n";
 }finally{unset($GLOBALS['__purepay_transport']);if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP DATABASE '.$database);}

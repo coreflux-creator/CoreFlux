@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import PurePayCoreConnection from './PurePayCoreConnection';
 import PurePayFinancialObservations from './PurePayFinancialObservations';
+import StaffingReconciliation from './StaffingReconciliation';
 
 export default function PurePaySettings() {
   const status = useApi('/api/purepay_connection.php?action=status');
@@ -88,6 +89,7 @@ export default function PurePaySettings() {
       </div>
 
       {data.connected && <PurePayFinancialObservations tenantId={data.core_company?.id} connectionVersion={`${data.financial_company?.reviewed_at}:${data.api_key_last4}:${data.status}`} />}
+      {data.connected && <StaffingReconciliation tenantId={data.core_company?.id} connectionVersion={`${data.financial_company?.reviewed_at}:${data.api_key_last4}:${data.status}`} />}
 
       <div style={card}>
         <strong>Signed webhooks</strong>
