@@ -32,11 +32,16 @@ $check($read([],['approved_at'=>null])['pay_amount']===null,'unapproved rate can
 $check($read([],['placement_id'=>9])['pay_amount']===null,'rate from another placement is unavailable');
 $check($read([],['currency'=>null])['pay_amount']===null,'currency absence has no default');
 $check($read([],['adjusted_bill_rate'=>'100.0000'])['bill_amount']==='800.00','billing uses approved adjusted rate when present');
-$check($read(['hour_type'=>'overtime'],['ot_multiplier'=>null])['bill_amount']===null,'missing overtime multiplier is not defaulted');
-$check($read(['hour_type'=>'overtime'])['pay_amount']==='780.00','explicit overtime multiplier is retained');
-$check($read(['hour_type'=>'custom'])['pay_amount']===null,'unknown earnings need a rule instead of a regular-rate default');
-$check(staffingReconciliationCharge('100.00','0.1234','1.23')==='15.18'
-    &&staffingReconciliationCharge('100.00','0.1234','1.23',false)==='15.18','billing and payroll rounding support fractional source rates');
+$check($read(['category'=>'OT_billable','hour_type'=>'overtime'],['ot_multiplier'=>null])['bill_amount']===null,'missing overtime multiplier is not defaulted');
+$check($read(['category'=>'OT_billable','hour_type'=>'overtime'])['pay_amount']==='780.00','explicit overtime multiplier is retained');
+$check($read(['category'=>'custom','hour_type'=>'nonbillable'])['pay_amount']===null,'unknown earnings need a rule instead of a regular-rate default');
+$conflict=$read(['hour_type'=>'overtime']);
+$check($conflict['pay_amount']===null&&$conflict['bill_amount']===null&&in_array('earning_category_conflict',$conflict['entries'][0]['issues'],true),'contradictory payroll category and billing hour type require review');
+$check($read(['category'=>'vacation','hour_type'=>'pto','billable'=>0])['pay_amount']==='520.00','canonical paid leave remains supported');
+$check($read(['category'=>'regular_nonbillable','hour_type'=>'nonbillable','billable'=>0])['pay_amount']==='520.00','canonical nonbillable work retains its payable amount');
+$check($read(['category'=>'OT_billable','hour_type'=>null])['pay_amount']==='780.00','absent legacy hour type uses the explicit atomic overtime category');
+$check(staffingReconciliationCharge('1000.00','0.1234','1.23')==='151.80'
+    &&staffingReconciliationCharge('1000.00','0.1234','1.23',false)==='151.78','billing and payroll preserve their different fractional-rate rounding rules');
 $check($fails(fn()=>staffingReconciliationScaled('1.234',2,4)),'unrepresented source precision is refused');
 $check(staffingReconciliationScaled('0.00000000',2,4)===0,'explicit numeric zero is retained');
 $unknown=staffingReconciliationDifference('520.00','520.00',null,'USD',true);

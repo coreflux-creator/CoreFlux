@@ -71,14 +71,22 @@ function staffingReconciliationTime(array $entries,array $rates,array $period): 
             if(!$rate||empty($rate['approved_at'])||(int)$rate['placement_id']!==(int)$entry['placement_id'])$issues[]='approved_rate_missing';
             elseif(!is_string($rate['currency'])||!preg_match('/^[A-Z]{3}$/D',$rate['currency']))$issues[]='currency_missing';
             else{$currency=$rate['currency'];$currencies[$currency]=true;}
-            $category=$entry['hour_type']?:$entry['category'];
-            $multiplier=match($category){
-                'regular','REG','regular_billable','regular_nonbillable','holiday','vacation','sick','bereavement'=>'1.00',
-                'OT','overtime','OT_billable','OT_nonbillable'=>$rate['ot_multiplier']??null,
-                'DT','doubletime','DT_billable','DT_nonbillable'=>$rate['dt_multiplier']??null,
-                default=>null,
+            // Payroll uses the atomic category; billing uses its projected hour type.
+            // Retain only their agreed supported mapping, rather than choosing a side
+            // when older records contain contradictory classifications.
+            $category=$entry['category'];
+            $hourTypes=match($category){
+                'regular_billable'=>['regular','REG'],
+                'regular_nonbillable'=>['nonbillable','regular','REG'],
+                'OT_billable','OT_nonbillable'=>['overtime','OT'],
+                'vacation'=>['pto','vacation'],
+                'holiday','sick','bereavement'=>[$category],
+                default=>[],
             };
-            if($multiplier===null)$issues[]='earning_category_unmapped';
+            $multiplier=in_array($category,['OT_billable','OT_nonbillable'],true)?($rate['ot_multiplier']??null):'1.00';
+            if(!$hourTypes)$issues[]='earning_category_unmapped';
+            elseif(!empty($entry['hour_type'])&&!in_array($entry['hour_type'],$hourTypes,true))$issues[]='earning_category_conflict';
+            if($multiplier===null)$issues[]='earning_multiplier_missing';
             $pricingIssues=$issues;
             foreach(['pay','bill']as$side){
                 $enabled=$entry[$side==='pay'?'payable':'billable']??null;
@@ -96,7 +104,7 @@ function staffingReconciliationTime(array $entries,array $rates,array $period): 
                 if(${$side.'Amount'}===null)${$side.'Complete'}=false;
             }
         }
-        $rows[]=['id'=>(int)$entry['id'],'date'=>$entry['work_date'],'category'=>$entry['category'],
+        $rows[]=['id'=>(int)$entry['id'],'date'=>$entry['work_date'],'category'=>$entry['category'],'hour_type'=>$entry['hour_type']??null,
             'hours'=>$hours===null?null:staffingReconciliationHours($hours),'status'=>$entry['status'],
             'approved'=>$accepted,'approved_at'=>$entry['approved_at'],'approved_by'=>$entry['approved_by_user_id']===null?null:(int)$entry['approved_by_user_id'],
             'superseded_by'=>$entry['superseded_by_id']===null?null:(int)$entry['superseded_by_id'],
