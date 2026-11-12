@@ -74,7 +74,7 @@ try{
     $stable=$snapshot();$pdo->exec('CREATE TEMPORARY TABLE audit_log (id BIGINT,tenant_id BIGINT,target_id BIGINT,event VARCHAR(100),meta_json JSON)');
     try{$check($refused(fn()=>$fresh(['corp_city'=>'Rollback city','corp_ein'=>'98-7654321']),503)&&$snapshot()===$stable&&$pdo->inTransaction(),'A failed required audit rolls back encrypted data, metadata, graph and directory changes');}
     finally{$pdo->exec('DROP TEMPORARY TABLE audit_log');}
-    $payload=['startId'=>'99184001','candidateId'=>'99184002','jobId'=>'99184003','startDate'=>'2026-10-01','title'=>'Fresh unrelated title','__cf_force_source_contract'=>true,
+    $payload=['startId'=>'99184001','candidateId'=>'99184002','jobId'=>'99184003','startDate'=>'2026-10-01','status'=>'on_hold','title'=>'Fresh unrelated title','__cf_force_source_contract'=>true,
         '_jd_contract'=>['start_id'=>'99184001','engagement_type'=>'c2c','placement_status'=>'on_hold','start_date'=>'2026-10-01','end_date'=>'2026-12-31','corporation_id'=>'99184101','corporation_name'=>'CI Original Editor Corporation',
             'vendor_payment_terms'=>'NET60','vendor_pay_cycle'=>'monthly','paid_when_paid'=>true]];
     $before=$corp();jobdivaSyncUpsertPlacement($tenant,$person,null,$payload,'99184001');

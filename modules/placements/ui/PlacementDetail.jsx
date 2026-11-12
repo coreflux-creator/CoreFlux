@@ -1591,7 +1591,10 @@ function ReferralsTab({ pid, rows, reload, canManage = false }) {
 // ── Corp (C2C only) ────────────────────────────────────────
 function CorpTab({ pid, canManage = false }) {
   const path = `/modules/placements/api/corp.php?placement_id=${pid}`;
-  const { data, loading, error, reload } = useApi(path);
+  const { data: initialData, loading, error: loadError } = useApi(path);
+  const [reviewed, setReviewed] = useState(null);
+  const data = reviewed ?? initialData;
+  const error = reviewed ? null : loadError;
   const corp = data?.corp;
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState(null);
@@ -1602,17 +1605,20 @@ function CorpTab({ pid, canManage = false }) {
     if (!canManage || saving || loading || error || !data?.review_token || needsReload) return;
     setSaving(true); setSaveError(null); setNotice('');
     try {
-      await api.put(path, { ...form, corp_legal_name: form.corp_legal_name ?? corp?.corp_legal_name ?? '', review_token: data?.review_token });
-      setForm({}); setNeedsReload(true); setNotice('Corporate details saved.');
-      try { await reload(); setNeedsReload(false); }
-      catch { setNotice('Corporate details saved. Reload them to see the saved result.'); }
-    } catch (e) { setSaveError(e); setNeedsReload(true); }
+      const saved = await api.put(path, { ...form, corp_legal_name: form.corp_legal_name ?? corp?.corp_legal_name ?? '', review_token: data?.review_token });
+      if (!saved?.corp || !saved?.review_token) throw new Error('Reload corporate details to confirm the save before trying again.');
+      setReviewed(saved); setForm({}); setNeedsReload(false); setNotice('Corporate details saved.');
+    } catch (e) { setSaveError(e); setNeedsReload(e.status !== 422); }
     finally     { setSaving(false); }
   };
   const refresh = async () => {
     if (saving) return;
     setSaving(true); setSaveError(null);
-    try { await reload(); setForm({}); setNeedsReload(false); setNotice('Corporate details reloaded.'); }
+    try {
+      const fresh = await api.get(path);
+      if (!fresh?.review_token) throw new Error('Corporate details could not be reviewed. Please reload them again.');
+      setReviewed(fresh); setForm({}); setNeedsReload(false); setNotice('Corporate details reloaded.');
+    }
     catch (e) { setSaveError(e); setNeedsReload(true); }
     finally { setSaving(false); }
   };
