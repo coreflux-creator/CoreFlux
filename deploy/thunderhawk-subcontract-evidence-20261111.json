@@ -1,0 +1,85 @@
+{
+  "recorded_at": "2026-11-12T01:34:57.053937+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "Implemented matching saved-company review and apply lookup, added regression coverage, pushed the corrected fixture, and started the CI run now verified complete.",
+  "intervening_access_question": "Standalone accounting login was verified; it did not change integration implementation.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "source_commit": "7ed2af6e4ecde92a373f18626487bdeb8599ee84",
+  "scope": "Saved subcontract-company evidence is checked before selection and bound to the reviewed apply token in isolated Core staging.",
+  "ci": {
+    "run": "43134689287",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43134689287",
+    "jobs_passed": 11
+  },
+  "checks": {
+    "native_database": 26,
+    "hosted_database": 26,
+    "installed_files": 1,
+    "dependencies_matched": 38,
+    "tables_preserved": 368,
+    "rows_preserved": 34455,
+    "synthetic_rows_rolled_back": true,
+    "stale_review_refused_before_writes": true,
+    "foreign_company_unchanged": true,
+    "identity_and_replay_preserved": true
+  },
+  "installed_hashes": {
+    "core/jobdiva/sync.php": "ee497c86645101a14048598851b110eafdfe6ee23203bfa58d79013764c33ae2"
+  },
+  "install_receipt": {
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/subcontract-evidence-af6cb7dda216423dec8c",
+    "hashes": {
+      "install_thunderhawk_subcontract_evidence.php": "5accc91ff2d52a34bb550152fde28bae640fe9a31944baeb488a6318d663b1a7",
+      "subcontract-evidence-package.json": "1d8a122f014066480365edf26e05d2f18aa00068b00f9ca5177d8a7f96f4e0a9"
+    },
+    "ci_run": "43134689287",
+    "tested_commit": "7ed2af6e4ecde92a373f18626487bdeb8599ee84",
+    "action": "install",
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/subcontract-evidence-install-result.json"
+  },
+  "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/subcontract-evidence-before-1d8a122f014066480365",
+  "hosted_receipt": {
+    "source_commit": "7ed2af6e4ecde92a373f18626487bdeb8599ee84",
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/subcontract-evidence-verification-ee06ef478ec667dcea6b",
+    "hashes": {
+      "subcontract-evidence-fixture.php": "faec08d371a1858e450d380ae217266d0a387be08b800d2711cfe8273671f088",
+      "verify_thunderhawk_subcontract_evidence.php": "709512b3829213f4f9346c5325a3a0d29100d4902a2a81824eb1a0eb9e3aae28"
+    },
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/subcontract-evidence-hosted-result.json"
+  },
+  "boundaries": {
+    "production_changed": false,
+    "provider_apps_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "signed_in_operator_workflow_verified": false
+  },
+  "remaining": [
+    "Complete atomic participant creation/removal and source ownership reconciliation; generic automatic batch retention, end-client chain clearing, rate ownership and new-placement failure handling.",
+    "Complete operator workflow acceptance, CSV/lifecycle/activation replay and field/destination/custom-field alignment.",
+    "Complete portal/onboarding/document workflow acceptance and financial-result, billing/AP/AR lineage and reconciliation."
+  ],
+  "evidence": {
+    "subcontract-evidence-ci-7ed2af6e.json": {
+      "path": "output/subcontract-evidence-ci-7ed2af6e.json",
+      "sha256": "9121edcb6e096f2f6552695a37a474423d8044da69a5c907f2eaccc8ecc941a5"
+    },
+    "subcontract-evidence-ci-7ed2af6e.log": {
+      "path": "output/subcontract-evidence-ci-7ed2af6e.log",
+      "sha256": "28a0cbf2980c912d1d448b2379fcea9f19db990769adadebdf3de7827341a8a1"
+    },
+    "subcontract-evidence-7ed2af6e-preflight.json": {
+      "path": "output/subcontract-evidence-7ed2af6e-preflight.json",
+      "sha256": "52bc2390b5d2764ece3141ce95c0c94e42891482fd51c8977fdb1fe5a3bd2260"
+    },
+    "subcontract-evidence-install-result.json": {
+      "path": "output/subcontract-evidence-install-result.json",
+      "sha256": "56656b466c84369a20b5076a9b8dadca917487910284d6d93d938c582efebf37"
+    },
+    "subcontract-evidence-hosted-result.json": {
+      "path": "output/subcontract-evidence-hosted-result.json",
+      "sha256": "ece2d4224c3da0e8e6761e6e0214c26a64ea8be758d560187a7c74c89db40142"
+    }
+  }
+}
