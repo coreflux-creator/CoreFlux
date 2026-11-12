@@ -51,7 +51,7 @@ function staffingCommercialFieldDefinitions(): array
             'user_id'=>['Reviewed active recipient in the operating workspace and placement directory. Recruiter names and provider IDs cannot supply this identity.','reference:user'],
             'split_pct'=>['Fraction of the reviewed calculation basis. Source allocation of a commission pool remains informational until the payable rule is reviewed.','fraction:0..1; scale-4'],
             'basis'=>['Calculation selector. Flat does not mean one time; current native payroll calculates net_margin and gross_margin as billed amount less worker pay, without other modeled costs.','net_margin|gross_margin|bill_rate|flat'],
-            'flat_amount'=>['Fixed amount with separately reviewed currency and payment frequency; consumed rules cannot rewrite this amount.','amount; scale-2; explicit-currency'],
+            'flat_amount'=>['Fixed amount with at most two decimal places and separately reviewed currency and payment frequency; consumed rules cannot rewrite this amount.','amount; explicit-currency'],
             'currency'=>['Explicit commission denomination independent of placement currency. Null is unknown; foreign currency is retained without inventing conversion or USD eligibility.','USD|CAD|GBP|EUR|INR|AUD'],
             'payment_frequency'=>['One time per commission or once per recipient payroll run for a fixed amount; null requires review. Percentage rules accrue from their earned basis.','one_time|per_pay_period'],
             'due_month'=>['Due month of a one-time commission, retaining month precision without inventing a payment day.','nullable-YYYY-MM'],
@@ -98,6 +98,11 @@ function staffingCommercialFieldRules(string $table,string $field,array $rules):
     $definitions=staffingCommercialFieldDefinitions();
     if (!isset($definitions[$table][$field])) return $rules;
     [$definition,$unit]=$definitions[$table][$field];
+    // Ownership review must not rewrite an existing reviewed field definition
+    // or its established unit identifier merely to add destination decisions.
+    if (($rules['definition_status']??null)==='reviewed_core_definition') {
+        $definition=$rules['definition'];$unit=$rules['unit'];
+    }
     $kind=['placement_client_chain'=>'chain','placement_referrals'=>'referral','placement_commissions'=>'commission'][$table]??null;
     $restricted=str_starts_with($unit,'restricted-')||str_starts_with($unit,'encrypted-')||$unit==='private-text'||$rules['disposition']==='restricted';
     $internal=$restricted||in_array($field,['id','tenant_id','placement_id','created_at','updated_at','vendor_portal_id','plan_id','corp_name','source_managed','source_id','source_external_id'],true);
