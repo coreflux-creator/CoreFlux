@@ -41,6 +41,8 @@ $seed = static function(int $tid, string $start) use ($pdo): array {
     setRequestTenantId($tid); $_SESSION['tenant_id']=$tid;
     $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(?,?,1,1,"master")')
         ->execute([$tid,'Synthetic contract HTTP ' . $tid]);
+    $pdo->prepare('INSERT INTO accounting_entities(tenant_id,code,legal_name,country,base_currency,active)
+        VALUES(?,"HTTP","Synthetic contract HTTP LLC","US","USD",1)')->execute([$tid]);
     $person=scopedInsert('people',['first_name'=>'Synthetic HTTP','last_name'=>(string)$tid,'classification'=>'1099',
         'email_primary'=>'contract-'.$tid.'@example.invalid','external_id'=>'jd:'.$start.'2']);
     $company=companiesUpsertByName($tid,'Synthetic HTTP Billing '.$tid,[],['client']);

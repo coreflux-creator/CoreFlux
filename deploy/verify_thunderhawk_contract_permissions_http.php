@@ -67,6 +67,8 @@ try {
     $expect($placement&&(int)$placement['person_id']===368&&$placement['status']==='ended','Existing retired synthetic placement is identified');
     $party=(int)$pdo->query("SELECT id FROM placement_economic_parties WHERE tenant_id=2002 AND placement_id=874 AND source_ref='placement:bill_to' ORDER BY id LIMIT 1")->fetchColumn();
     $expect($party>0,'Existing synthetic commercial participant is identified');
+    $foreignPlacement=(int)$pdo->query('SELECT id FROM placements WHERE tenant_id=999 ORDER BY id LIMIT 1')->fetchColumn();
+    $expect($foreignPlacement>0,'Foreign placement is identified from its authoritative tenant owner');
     $economics='/modules/placements/api/economics.php'; $stored='/modules/placements/api/jobdiva_reconciliation.php';
     $review=$economics.'?action=ownership_review&placement_id=874'; $release=$economics.'?action=release_ownership&placement_id=874';
     $patch=$economics.'?id='.$party; $preview=$stored.'?action=stored_preview'; $apply=$stored.'?action=stored_apply';
@@ -93,7 +95,7 @@ try {
     $expect($status===200&&($data['placement_id']??null)===874&&is_array($data['groups']??null),'Hosted reader receives only the requested synthetic ownership review');
     foreach (array_slice($operations,1) as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Read grant denies writes and stored reconciliation: '.$method.' '.$path);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,true,999)[0]===403,'Foreign tenant pin denied: '.$method.' '.$path);
-    $expect($request('GET',$economics.'?action=ownership_review&placement_id=864')[0]===404,'Foreign placement is not disclosed under the simulation pin');
+    $expect($request('GET',$economics.'?action=ownership_review&placement_id='.$foreignPlacement)[0]===404,'Foreign placement is not disclosed under the simulation pin');
     RBACResolver::grantModule($membership,'placements','write',[2002],$actor);
     [$status,$data]=$request('POST',$preview,['per_page'=>1]);
     $expect($status===200&&is_array($data['rows']??null),'Hosted editor can preview saved assignment evidence');
