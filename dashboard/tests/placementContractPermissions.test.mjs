@@ -18,21 +18,50 @@ async function fixture(permissions={},options={}){
   const f={calls:[],reads:[],reloads:0,parentReloads:0,context:{data:{placement,permissions,parties:[party],readiness:{ready:false}},loading:false,error:null}},module={exports:{}};
   f.corp={corp:{corp_legal_name:'Synthetic vendor',company_id:71,ap_vendor_id:82,corp_contact_phone:'555-0100',corp_ein_last4:'6789'},review_token:'a'.repeat(64)};
   f.corpReloads=0;
-  const api={useApi(path){f.reads.push(path);return path?.includes('/economics.php')?{...f.context,reload:async()=>{f.reloads++;if(options.failReload)throw new Error('Reload unavailable');}}:{data:path?.includes('/corp.php')?f.corp:{users:[{id:2,name:'Synthetic recruiter'}]},reload:async()=>{throw new Error('Corporate review must use a confirmed response');}};},api:Object.fromEntries(['get','post','put','patch','delete'].map(method=>[method,async(url,body)=>{
+  const api={useApi(path){f.reads.push(path);if(path?.includes('/placements.php'))return {...f.parent,reload:async()=>{f.parentReloads++;}};return path?.includes('/economics.php')?{...f.context,reload:async()=>{f.reloads++;if(options.failReload)throw new Error('Reload unavailable');}}:{data:path?.includes('/corp.php')?f.corp:{users:[{id:2,name:'Synthetic recruiter'}]},reload:async()=>{throw new Error('Corporate review must use a confirmed response');}};},api:Object.fromEntries(['get','post','put','patch','delete'].map(method=>[method,async(url,body)=>{
     f.calls.push({method,url,body});
     if(method==='get'&&url.includes('/corp.php')){f.corpReloads++;if(options.failCorpReload)throw new Error('Corporate reload unavailable');return structuredClone(f.corp);}
     if(options.respond)return options.respond(method,url,body);
     if(method==='put'&&url.includes('/corp.php')){const {review_token,...fields}=body;return {ok:true,changed:true,corp:{...f.corp.corp,...fields},review_token:'b'.repeat(64)};}
     return {};
   }]))};
-  new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='fixture-api'?api:id==='fixture-picker'?()=>null:id==='fixture-router'?{Link:({children,to})=>React.createElement('a',{href:to},children)}:require(id),module,module.exports);
+  const router=options.fullDetail?require('react-router-dom'):{Link:({children,to})=>React.createElement('a',{href:to},children)};
+  new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='fixture-api'?api:id==='fixture-picker'?()=>null:id==='fixture-router'?router:require(id),module,module.exports);
   const props={placement,chain:[{id:5,position:0,party_role:'end_client',party_name:'Synthetic client'}],rates:[{id:3,bill_rate:100,pay_rate:50,currency:'USD',effective_from:'2026-10-01'}],commissions:[{id:7,user_id:2,recipient_name:'Synthetic recruiter',role:'recruiter',basis:'flat',flat_amount:25}],referrals:[],reload:async()=>{f.parentReloads++;}};
-  f.render=()=>React.createElement(module.exports.EconomicsTab,props);
+  f.parent={data:props,loading:false,error:null};
+  function NavigationProbe(){f.navigate=router.useNavigate();return null;}
+  f.render=()=>options.fullDetail?React.createElement(router.MemoryRouter,{initialEntries:['/placements/15/economics']},
+    React.createElement(NavigationProbe),React.createElement(router.Routes,null,React.createElement(router.Route,{path:'/placements/:pid/*',element:React.createElement(module.exports.default)})))
+    :React.createElement(module.exports.EconomicsTab,props);
   await act(async()=>{f.tree=create(f.render());});
   f.update=async()=>act(async()=>f.tree.update(f.render()));
   f.click=async label=>{const b=button(f,label);assert.ok(b,label);assert.equal(!!b.props.disabled,false);await act(async()=>b.props.onClick());};
   f.close=()=>act(()=>f.tree.unmount());return f;
 }
+
+test('same-placement refresh retains the saved source-rule receipt and clears write permissions while loading',async()=>{
+  global.window={confirm:()=>true};
+  const review={label:'Vendor chain',source_start_id:'123',review_token:'a'.repeat(64),selectable:true,can_apply:true,issues:[],references:{},
+    current:[{id:5,identity:'company:71',values:{party_name:'Synthetic client'}}],proposed:[{key:'proposal-1',identity:'company:71',values:{party_name:'Synthetic client'}}]};
+  const f=await fixture({manage:true},{fullDetail:true,respond:async method=>method==='get'?structuredClone(review):{source_control_released:true}});
+  try{
+    await f.click('Review JobDiva replacement');
+    await act(async()=>f.tree.root.findByProps({'aria-label':'Match proposal-1'}).props.onChange({target:{value:'5'}}));
+    await f.click('Apply reviewed rules and return to JobDiva');
+    assert.ok(text(f.tree.root).includes('Reviewed rules saved.'));
+    f.context.loading=true;f.parent.loading=true;await f.update();
+    assert.ok(text(f.tree.root).includes('Reviewed rules saved.'));
+    assert.equal(button(f,'Refresh contract participants'),undefined);
+    f.context.loading=false;f.parent.loading=false;await f.update();
+    assert.ok(text(f.tree.root).includes('Reviewed rules saved.'));
+    assert.equal(f.calls.filter(c=>c.method==='post').length,1);
+    assert.equal(button(f,'Apply reviewed rules and return to JobDiva'),undefined);
+    await act(async()=>f.navigate('/placements/16/economics'));
+    assert.equal(byId(f,'placement-detail-loading').length,1);
+    assert.equal(byId(f,'placement-detail').length,0);
+    assert.ok(!text(f.tree.root).includes('Reviewed rules saved.'));
+  }finally{f.close();delete global.window;}
+});
 
 test('contract readers retain evidence and recipient names without write or upload controls',async()=>{
   const f=await fixture();try{

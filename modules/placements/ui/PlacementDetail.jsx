@@ -33,8 +33,12 @@ export default function PlacementDetail({ session }) {
   const referrals   = data?.referrals ?? [];
   const dimensionReadiness = data?.dimension_readiness ?? null;
 
-  if (loading) return <p data-testid="placement-detail-loading">Loading…</p>;
+  // A same-record refresh must retain the active review and its save receipt.
+  // A route change must never render the previous placement's controls.
+  const currentPlacement = placement && String(placement.id) === String(pid);
+  if (loading && !currentPlacement) return <p data-testid="placement-detail-loading">Loading…</p>;
   if (error)   return <p className="error" data-testid="placement-detail-error">Error: {error.message}</p>;
+  if (placement && !currentPlacement) return <p data-testid="placement-detail-loading">Loading…</p>;
   if (!placement) return <p data-testid="placement-detail-empty">Placement not found.</p>;
 
   const TABS = [
@@ -760,7 +764,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
     readiness.missing_c2c_overhead_cost && 'C2C overhead rate',
     readiness.unresolved_parties > 0 && `Resolve ${readiness.unresolved_parties} settlement ${Number(readiness.unresolved_parties) === 1 ? 'recipient' : 'recipients'}`,
   ].filter(Boolean);
-  if (loading) return <p>Loading placement economics...</p>;
+  if (loading && Number(data?.placement?.id) !== Number(placement.id)) return <p>Loading placement economics...</p>;
   if (error) return <p className="error">Error: {error.message}</p>;
 
   return (
