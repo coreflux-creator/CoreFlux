@@ -13,6 +13,29 @@ if sys.platform=='win32':sys.modules.setdefault('fcntl',SimpleNamespace(LOCK_EX=
 release=importlib.util.module_from_spec(spec);spec.loader.exec_module(release)
 
 class ReleaseTest(unittest.TestCase):
+    def service(self,entries):
+        return {'Config':{'Image':'reviewed:fixed','Env':entries},'Image':'sha256:fixed','Mounts':[{'Destination':'/app/backend','RW':False}]}
+
+    def test_recreated_service_allows_environment_order_only(self):
+        release.verify_service_configuration(self.service(['MODE=isolated_pilot','SECRET=opaque=a']),self.service(['SECRET=opaque=a','MODE=isolated_pilot']))
+
+    def test_environment_value_or_name_changes_are_rejected(self):
+        original=self.service(['MODE=isolated_pilot','SECRET=opaque=a'])
+        for values in (['MODE=production','SECRET=opaque=a'],['MODE=isolated_pilot'],['MODE=isolated_pilot','SECRET=opaque=a','EXTRA=x']):
+            with self.subTest(values=values),self.assertRaisesRegex(AssertionError,'environment values changed'):
+                release.verify_service_configuration(original,self.service(values))
+
+    def test_duplicate_or_malformed_environment_is_rejected(self):
+        for values in (['MODE=x','MODE=x'],['MODE=x','MODE=y'],['NO_SEPARATOR'],['=empty_name']):
+            with self.subTest(values=values),self.assertRaisesRegex(AssertionError,'Malformed or duplicate'):
+                release.environment_values(self.service(values))
+
+    def test_changed_image_digest_or_mount_is_rejected(self):
+        old=self.service(['MODE=isolated_pilot'])
+        for field in ('Image','Mounts'):
+            new=self.service(['MODE=isolated_pilot']);new[field]='sha256:other' if field=='Image' else []
+            with self.subTest(field=field),self.assertRaises(AssertionError):release.verify_service_configuration(old,new)
+
     def test_relative_paths_reject_escape(self):
         self.assertEqual(str(release.validate_relative('static/js/main.js')),'static/js/main.js')
         for name in ('../escape','/absolute','x/../../escape','C:/outside','a\\b','a//b','a/./b',''):

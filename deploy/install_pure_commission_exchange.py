@@ -1,5 +1,5 @@
 """Exact code/UI update in the isolated provider. No database or configuration writes."""
-import ast,fcntl,hashlib,importlib.util,json,os,shutil,subprocess,sys,time
+import ast,fcntl,hashlib,importlib.util,json,os,shutil,subprocess,sys,time,traceback
 from datetime import datetime,timezone
 from pathlib import Path,PurePosixPath
 from uuid import UUID
@@ -8,8 +8,8 @@ ROOT=Path('/srv/core-integration-pilot/20261029');PRIVATE=ROOT/'private'
 BACKEND=ROOT/'pure/backend';FRONTEND=ROOT/'pure/frontend'
 WEB='core-provider-pilot-20261029-pure-pilot-web-1';SITE='core-provider-pilot-20261029-pure-pilot-site-1'
 FILES=('coreflux_commercial.py','coreflux_assignments.py','coreflux_exchange.py')
-STATE=PRIVATE/'commission-exchange-release-20261112.json'
-CHECKPOINT=PRIVATE/'commission-exchange-before-20261112.private.json'
+STATE=PRIVATE/'commission-exchange-release-r2-20261112.json'
+CHECKPOINT=PRIVATE/'commission-exchange-before-r2-20261112.private.json'
 sha=lambda raw:hashlib.sha256(raw).hexdigest()
 
 def load_helpers():
@@ -116,12 +116,26 @@ def verify_installed_files(base,plan):
     assert base.source_hashes()==expected and hashes(FRONTEND)==plan['new_frontend']
     return expected
 
+def environment_values(container):
+    entries=container['Config']['Env'];values={}
+    for entry in entries:
+        name,separator,value=entry.partition('=')
+        assert separator and name and name not in values,'Malformed or duplicate environment name'
+        values[name]=value
+    return values
+
+def verify_service_configuration(old,new):
+    # Docker Compose can reorder Env while recreating the same service.
+    # Compare every name/value, reject duplicates, and never log secret values.
+    assert old['Config']['Image']==new['Config']['Image'] and old['Image']==new['Image'],'Service image changed'
+    assert environment_values(old)==environment_values(new),'Service environment values changed'
+    assert sorted(old['Mounts'],key=lambda m:m['Destination'])==sorted(new['Mounts'],key=lambda m:m['Destination']),'Service mounts changed'
+
 def finish(base,plan,report,saved):
     report['health']=ready(base)
     fresh_web,fresh_site=current_scope(base,plan)
     for old,new in [(saved['web'],fresh_web),(saved['site'],fresh_site)]:
-        assert old['Config']['Image']==new['Config']['Image'] and old['Config']['Env']==new['Config']['Env']
-        assert sorted(old['Mounts'],key=lambda m:m['Destination'])==sorted(new['Mounts'],key=lambda m:m['Destination'])
+        verify_service_configuration(old,new)
     report['contract_probe']=contract_probe(base,plan)
     checks=[]
     for path in ['/api/payroll/runs/synthetic/pay','/api/payroll/runs/synthetic/approve','/api/payments','/api/admin/release-handover/activate','/api/cron/pwp-auto-batch']:
@@ -208,13 +222,14 @@ def main():
     except base.HealthPending as error:
         report.update(phase='waiting_for_health',observation=str(error));write_private(STATE,report);print(json.dumps(report));return 3
     except Exception as error:
-        report.update(phase='rolling_back',failure=type(error).__name__,failure_detail=str(error)[:400]);write_private(STATE,report)
+        frame=traceback.extract_tb(error.__traceback__)[-1]
+        report.update(phase='rolling_back',failure=type(error).__name__,failure_detail=str(error)[:400],failure_location={'file':Path(frame.filename).name,'line':frame.lineno,'function':frame.name});write_private(STATE,report)
         try:
             logs={}
             for name in (WEB,SITE):
                 result=subprocess.run(['docker','logs','--tail','100',name],capture_output=True,text=True,timeout=15)
                 logs[name]={'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr}
-            write_private(PRIVATE/'commission-exchange-failure-20261112.private.json',logs)
+            write_private(PRIVATE/'commission-exchange-failure-r2-20261112.private.json',logs)
         except Exception as capture_error:report['failure_capture_error']=type(capture_error).__name__
         try:rollback(base,plan,report,saved)
         except Exception as recovery_error:report.update(phase='recovery_needs_review',recovery_failure=type(recovery_error).__name__)
