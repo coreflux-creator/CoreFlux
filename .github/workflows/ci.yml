@@ -608,6 +608,8 @@ jobs:
         run: php tests/placement_commercial_ownership_db_check.php --confirm-disposable-fixture
       - name: Verify stored-review transaction isolation
         run: php tests/jobdiva_stored_review_transaction_db_check.php --confirm-disposable-fixture
+      - name: Verify saved subcontract company preview and apply evidence
+        run: php tests/jobdiva_subcontract_review_evidence_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture

@@ -3752,6 +3752,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         'missing_candidate' => 0,
         'missing_contact' => 0,
         'missing_company' => 0,
+        'missing_subcontract_company' => 0,
         'with_rates' => 0,
         'with_economic_participants' => 0,
         'contract_complete' => 0,
@@ -4018,6 +4019,21 @@ function jobdivaStoredAssignmentProjectionPlan(
         $contractProjection = $enriched
             ? jobdivaContractProjectionBuild($enriched, $currentGraph, $startId)
             : jobdivaContractProjectionBuild([], $currentGraph, $startId);
+        $subcontractEvidence = null;
+        $subcontractId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contractProjection['source_contract'] ?? []]);
+        if ($subcontractId !== '') {
+            $subcontractEvidence = jobdivaStoredSubcontractCompanyEvidence($tenantId, $subcontractId, $contractProjection['source_contract'] ?? []);
+            unset($subcontractEvidence['payload']);
+            $contractProjection['subcontract_company'] = $subcontractEvidence;
+            $companyCheck = jobdivaContractProjectionCheck('stored_subcontract_company', 'Saved subcontract company',
+                $subcontractEvidence['available'], $subcontractEvidence['detail']);
+            $contractProjection['checks'][] = $companyCheck;
+            if (!$subcontractEvidence['available']) {
+                $summary['missing_subcontract_company']++;
+                $contractProjection['blocking_issues'][] = $companyCheck;
+                $contractProjection['complete'] = false;
+            }
+        }
         $summary['retained_core_fields'] += count($contractProjection['ownership_conflicts'] ?? []);
         foreach ($contractProjection['blocking_issues'] ?? [] as $check) {
             $errors[] = (string) ($check['label'] ?? 'Contract check') . ': '
@@ -4134,7 +4150,7 @@ function jobdivaStoredAssignmentProjectionPlan(
 
         $contractPreview = array_intersect_key($contractProjection, array_fill_keys([
             'complete', 'placement', 'economics', 'fields', 'checks',
-            'participants', 'attributions', 'ownership_conflicts',
+            'participants', 'attributions', 'ownership_conflicts', 'subcontract_company',
         ], true));
         $currentGraphPreview = [
             'rates_count' => count($currentGraph['rates'] ?? []),
@@ -4179,6 +4195,7 @@ function jobdivaStoredAssignmentProjectionPlan(
             'financial_updated_at' => $financialUpdatedAt,
             'source_evidence_sha256' => hash('sha256', is_string($sourceEvidenceJson) ? $sourceEvidenceJson : ''),
             'current_evidence_sha256' => hash('sha256', is_string($currentEvidenceJson) ? $currentEvidenceJson : ''),
+            'subcontract_company_evidence' => $subcontractEvidence,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '');
         unset($sourceEvidenceJson, $currentEvidenceJson);
 
@@ -4963,6 +4980,55 @@ function jobdivaSyncCorpPluck(int $tid, array $jd, string $targetColumn, array $
  *
  * @return array{id:int,name:string,external_id:string}|null
  */
+/** Read-only identity evidence shared by stored preview and apply. Never fetches or upserts. */
+function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, array $storedContract = []): array
+{
+    $externalId = jobdivaAssignmentCompanyId($externalId);
+    $result = ['external_id'=>$externalId, 'available'=>false, 'company_id'=>null, 'name'=>null,
+        'source'=>'missing', 'evidence_hash'=>null, 'payload'=>null,
+        'detail'=>'Refresh the saved JobDiva company evidence for subcontract company ' . $externalId
+            . ' in JobDiva settings, then refresh this preview.'];
+    if ($tid <= 0 || $externalId === '') return $result;
+    $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $externalId);
+    if ((int) ($mapped['internal_entity_id'] ?? 0) > 0) {
+        $q = getDB()->prepare('SELECT id,name FROM companies WHERE tenant_id=? AND id=? AND deleted_at IS NULL LIMIT 1');
+        $q->execute([$tid, (int) $mapped['internal_entity_id']]);
+        $company = $q->fetch(PDO::FETCH_ASSOC);
+        if ($company && !jobdivaCompanyNameIsPlaceholder((string) $company['name'], $externalId)) {
+            return array_replace($result, ['available'=>true, 'company_id'=>(int)$company['id'],
+                'name'=>trim((string)$company['name']), 'source'=>'existing_company',
+                'evidence_hash'=>mappingHash(['mapping_id'=>$mapped['id'],'company'=>$company]),
+                'detail'=>'Existing Core company ' . $company['id'] . ': ' . trim((string)$company['name'])
+                    . ' (JobDiva ' . $externalId . ').']);
+        }
+    }
+    $q = getDB()->prepare('SELECT id,internal_entity_type,sync_status,payload_snapshot FROM external_entity_mappings
+        WHERE tenant_id=? AND source_system="jobdiva" AND external_id=?
+          AND internal_entity_type IN ("jobdiva_company","jobdiva_customer") AND payload_snapshot IS NOT NULL
+        ORDER BY updated_at DESC,id DESC LIMIT 1');
+    $q->execute([$tid,$externalId]);
+    $mirror = $q->fetch(PDO::FETCH_ASSOC);
+    $payload = $mirror ? json_decode((string)$mirror['payload_snapshot'],true) : null;
+    if (($mirror['sync_status'] ?? '') === 'ok' && is_array($payload)) {
+        $payloadId = jobdivaPluckField($payload, ['id','companyId','company_id','company id','companyID','COMPANYID']);
+        $name = trim(jobdivaPluckField($payload, ['name','companyName','company_name','company name','COMPANY NAME','legalName','legal_name','legal name']));
+        if (($payloadId === '' || jobdivaAssignmentCompanyId($payloadId) === $externalId)
+            && !jobdivaCompanyNameIsPlaceholder($name,$externalId,$payload)) {
+            return array_replace($result, ['available'=>true,'name'=>$name,'source'=>'saved_company','payload'=>$payload,
+                'evidence_hash'=>mappingHash(['mirror_id'=>$mirror['id'],'type'=>$mirror['internal_entity_type'],'payload'=>$payload]),
+                'detail'=>'Saved JobDiva company ' . $externalId . ': ' . $name . '.']);
+        }
+    }
+    $sourceId = jobdivaAssignmentCompanyId($storedContract['corporation_id'] ?? null);
+    $name = trim((string) ($storedContract['corporation_name'] ?? ''));
+    if ($sourceId === $externalId && $name !== '' && !jobdivaCompanyNameIsPlaceholder($name,$externalId)) {
+        $payload = ['id'=>$externalId,'name'=>$name];
+        return array_replace($result, ['available'=>true,'name'=>$name,'source'=>'assignment_contract','payload'=>$payload,
+            'evidence_hash'=>mappingHash($payload), 'detail'=>'Exact assignment identifies JobDiva company ' . $externalId . ': ' . $name . '.']);
+    }
+    return $result;
+}
+
 function jobdivaSyncResolveSubcontractCompany(
     int $tid,
     string $externalId,
@@ -4971,6 +5037,16 @@ function jobdivaSyncResolveSubcontractCompany(
 ): ?array {
     $externalId = jobdivaAssignmentCompanyId($externalId);
     if ($tid <= 0 || $externalId === '') return null;
+
+    if (JobdivaStoredReviewTransaction::inScope()) {
+        $evidence = jobdivaStoredSubcontractCompanyEvidence($tid,$externalId,$storedContract);
+        if (!$evidence['available']) throw new RuntimeException($evidence['detail'],409);
+        $companyId = $evidence['company_id'];
+        if ($companyId !== null) companiesAddRole($companyId,'vendor');
+        else $companyId = jobdivaUpsertCompanyMapped($tid,$externalId,$evidence['name'],
+            ['created_by_user_id'=>$userId],$evidence['payload'],$userId,['vendor']);
+        return ['id'=>$companyId,'name'=>$evidence['name'],'external_id'=>$externalId];
+    }
 
     $placeholder = null;
 
@@ -5037,17 +5113,6 @@ function jobdivaSyncResolveSubcontractCompany(
         }
     } catch (\Throwable $e) {
         error_log('[jobdiva subcontract company] mirror lookup failed for ' . $externalId . ': ' . $e->getMessage());
-    }
-
-    if (JobdivaStoredReviewTransaction::inScope()) {
-        $sourceId = jobdivaAssignmentCompanyId($storedContract['corporation_id'] ?? null);
-        $name = trim((string) ($storedContract['corporation_name'] ?? ''));
-        if ($sourceId === $externalId && $name !== '' && !jobdivaCompanyNameIsPlaceholder($name, $externalId)) {
-            $payload = ['id'=>$externalId, 'name'=>$name];
-            $companyId = jobdivaUpsertCompanyMapped($tid, $externalId, $name, ['created_by_user_id'=>$userId], $payload, $userId, ['vendor']);
-            return ['id'=>$companyId, 'name'=>$name, 'external_id'=>$externalId];
-        }
-        throw new RuntimeException('Refresh the saved JobDiva company evidence for subcontract company ' . $externalId . ' before applying this review.', 409);
     }
 
     try {
