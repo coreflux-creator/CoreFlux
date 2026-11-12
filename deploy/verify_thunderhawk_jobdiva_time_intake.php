@@ -53,9 +53,10 @@ try{
     foreach(['locked','closed']as$status){$pdo->prepare('INSERT INTO time_periods(tenant_id,start_date,end_date,label,status) VALUES(11,"2026-11-01","2026-11-30","Synthetic protected period",?)')->execute([$status]);$reject(fn()=>$apply($row),'Protected period '.$status,'locked or closed');$pdo->exec('DELETE FROM time_periods');}
     $pdo->exec('INSERT INTO time_periods(tenant_id,period_type,start_date,end_date,label,status) VALUES(11,"monthly","2026-11-01","2026-11-30","Synthetic open month","open")');
     $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=101');$reject(fn()=>$apply($row),'Retired canonical person identity','unavailable');$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=100');
-    $failure=static function(string $table,callable $run)use($pdo,$reject){
-        $max=(int)$pdo->query('SELECT COALESCE(MAX(id),0) FROM '.$table)->fetchColumn();
-        $pdo->exec('ALTER TABLE '.$table.' ADD CONSTRAINT cf_jd_time_fixture_fail CHECK(id<='.$max.')');
+    $failure=static function(string $table,callable $run,?string $forbiddenHash=null)use($pdo,$reject,$row){
+        $field=match($table){'jobdiva_time_intake'=>'source_hash','entity_sync_history'=>'content_hash_after','audit_log'=>'event'};
+        $value=$table==='audit_log'?'jobdiva.time.intake':($forbiddenHash??mappingHash($row));
+        $pdo->exec('ALTER TABLE '.$table.' ADD CONSTRAINT cf_jd_time_fixture_fail CHECK('.$field.'<>'.$pdo->quote($value).')');
         try{$reject($run,'Required '.$table.' write failure','cf_jd_time_fixture_fail');}
         finally{$pdo->exec('ALTER TABLE '.$table.' DROP CONSTRAINT cf_jd_time_fixture_fail');}
     };
@@ -99,7 +100,7 @@ try{
     $pdo->exec("UPDATE tenant_module_scope SET scope_mode='isolated' WHERE tenant_id=11 AND module_key='people'");$reject(fn()=>$apply($changed),'Changed People directory','unavailable');$pdo->exec("UPDATE tenant_module_scope SET scope_mode='shared' WHERE tenant_id=11 AND module_key='people'");
     $reject(fn()=>jobdivaTimeApplyRecord(12,90,$row,$fetchedConnection),'Foreign company','does not currently own');
     $reject(fn()=>$apply(array_replace($row,['id'=>'time-2','hours'=>'17'])),'Daily capacity','exceed 24');
-    $failure('jobdiva_time_intake',fn()=>$apply(array_replace($changed,['hours'=>'6'])));
+    $failure('jobdiva_time_intake',fn()=>$apply(array_replace($changed,['hours'=>'6'])),mappingHash(array_replace($changed,['hours'=>'6'])));
     $before=$snapshot();$pdo->exec('DELETE FROM jobdiva_time_intake');$reject(fn()=>$apply($changed),'Unreviewed legacy mapping','legacy time link');
 }catch(Throwable $e){$report['failure']=$e->getMessage();}
 finally{if($pdo->inTransaction())$pdo->rollBack();foreach(array_reverse($temporary)as$table)$pdo->exec('DROP TEMPORARY TABLE `'.$table.'`');}
