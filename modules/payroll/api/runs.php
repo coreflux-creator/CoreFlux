@@ -799,19 +799,9 @@ function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorU
     );
     $settledHours = payrollRunExtractedHours($runId);
     $economicEarnings = payrollRunEconomicEarnings($runId);
-    $economicOnly = [];
-    $scheduledEmployeeIds = array_fill_keys(array_map(static fn(array $row): int => (int) $row['employee_id'], $emps), true);
-    foreach (array_keys($economicEarnings) as $economicEmployeeId) {
-        if (isset($scheduledEmployeeIds[$economicEmployeeId])) continue;
-        $employee = peopleGetEmployee((int) $economicEmployeeId);
-        $profile = payrollGetProfile((int) $economicEmployeeId);
-        if (!$employee || !$profile || empty($profile['enabled'])) continue;
-        $emps[] = $employee + $profile + [
-            'employee_id' => (int) $economicEmployeeId,
-            'payment_method' => $profile['payment_method'] ?? 'direct_deposit',
-        ];
-        $economicOnly[(int) $economicEmployeeId] = true;
-    }
+    $sourceRoster = payrollRunSourceEmployees($emps,$settledHours,$economicEarnings);
+    $emps = $sourceRoster['employees'];
+    $economicOnly = $sourceRoster['economic_only'];
     if (!$emps) {
         throw new RuntimeException('No enabled payroll profiles are assigned to this pay cycle');
     }

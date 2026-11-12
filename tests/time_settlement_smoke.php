@@ -157,11 +157,10 @@ $a('payroll: groups entries by employee and selected placement route',
                                                   $c($cr, '$byEmployee[$key][\'entries\'][] = $e')
                                                   && $c($cr, 'placement_payroll_cycle_id')
                                                   && $c($cr, 'operating_payroll_cycle_id'));
-$a('payroll: resolves person_id → employee via user_id',
-                                                  $c($cr, 'WHERE e.tenant_id = ? AND e.user_id = ?'));
-$a('payroll: resolves person_id → employee via work/personal email fallback',
-                                                  $c($cr, 'LOWER(e.work_email) = LOWER(?)')
-                                                  && $c($cr, 'LOWER(e.personal_email) = LOWER(?)'));
+$a('payroll: routes workers through permanent reviewed employment identity',
+    $c($cr, "placementEconomicsPayrollEmployee(\$tenantId, ['person_id'=>\$pid])"));
+$a('payroll: never guesses worker identity from email or account',
+    !$c($cr, 'LOWER(e.work_email)') && !$c($cr, 'e.user_id = ?'));
 $a('payroll: employee lookup only selects real profile columns',
                                                   !$c($cr, 'pp.pay_type')
                                                   && !$c($cr, 'pp.pay_rate_cents')
@@ -187,8 +186,8 @@ $a('payroll: groups a cross-period selection by employee and run',
 $a('payroll: compute reads settled source time instead of additive line-item writes',
                                                   $c($payrollLib, 'function payrollRunExtractedHours')
                                                   && !$c($cr, 'hours_regular  + VALUES(hours_regular)'));
-$a('payroll: splits OT vs regular by category',   $c($cr, "str_contains(\$cat, 'overtime')"));
-$a('payroll: skipped[] for unmatched employees',  $c($cr, "'no_matching_employee'"));
+$a('payroll: splits OT vs regular by category',   $c($cr, 'payrollSourceIsOvertime'));
+$a('payroll: skipped[] for unmatched employees',  $c($cr, "'reviewed_employment_link_or_payroll_profile_required'"));
 $a('payroll: skipped[] for missing payroll_profile/schedule',
                                                   $c($cr, "'no_payroll_profile_or_schedule'"));
 $a('payroll: leaves out-of-period time visible with an actionable reason',

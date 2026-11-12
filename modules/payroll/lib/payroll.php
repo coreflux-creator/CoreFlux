@@ -19,10 +19,9 @@ require_once __DIR__ . '/../../people/lib/employees.php';
  * Get the payroll profile for an employee (or null).
  */
 function payrollGetProfile(int $employeeId): ?array {
-    return scopedFind(
-        'SELECT * FROM payroll_profiles WHERE tenant_id = :tenant_id AND employee_id = :emp',
-        ['emp' => $employeeId]
-    );
+    $stmt = getDB()->prepare('SELECT * FROM payroll_profiles WHERE tenant_id = ? AND employee_id = ?');
+    $stmt->execute([(int)currentTenantId(),$employeeId]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 }
 
 /**
@@ -32,8 +31,12 @@ function payrollGetProfile(int $employeeId): ?array {
  * included only when the schedule has a single active cycle.
  */
 function payrollEmployeesForSchedule(int $scheduleId, ?int $cycleId = null): array {
+    $tenantId = (int) currentTenantId();
+    if ($tenantId <= 0) return [];
+    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId);
+    if (!$peopleTenantId) throw new RuntimeException('Payroll People directory is unavailable.');
     $cycleWhere = '';
-    $params = ['sched' => $scheduleId];
+    $params = ['sched' => $scheduleId, 'people_owner' => $peopleTenantId, 'payroll_owner' => $tenantId];
     if ($cycleId !== null && $cycleId > 0) {
         $cycleWhere = ' AND (
             p.cycle_id = :cycle
@@ -52,7 +55,7 @@ function payrollEmployeesForSchedule(int $scheduleId, ?int $cycleId = null): arr
         $params['legacy_sched'] = $scheduleId;
         $params['cycle_count_sched'] = $scheduleId;
     }
-    return scopedQuery(
+    $stmt = getDB()->prepare(
         "SELECT e.id           AS employee_id,
                 e.employee_number,
                 e.legal_first_name, e.legal_last_name, e.preferred_name,
@@ -67,89 +70,132 @@ function payrollEmployeesForSchedule(int $scheduleId, ?int $cycleId = null): arr
                 p.enabled
          FROM people_employees e
          JOIN payroll_profiles p
-           ON p.tenant_id = e.tenant_id AND p.employee_id = e.id
-         WHERE e.tenant_id = :tenant_id
+           ON p.tenant_id = :payroll_owner AND p.employee_id = e.id
+         WHERE e.tenant_id = :people_owner
            AND p.schedule_id = :sched
            AND p.enabled = 1
            AND e.status IN ('active','on_leave')
          {$cycleWhere}
-         ORDER BY e.legal_last_name, e.legal_first_name",
-        $params
+         ORDER BY e.legal_last_name, e.legal_first_name"
     );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-/** Hours explicitly extracted from Time into this payroll run. */
+/** This native US payroll engine has no FX or foreign payroll calculation. */
+function payrollAssertSourceCurrency(?string $currency, string $source): void {
+    if (strtoupper(trim((string) $currency)) !== 'USD') {
+        throw new RuntimeException($source . ' must have explicit USD currency for native payroll. Keep the original currency and review its payment route.');
+    }
+}
+
+/** Native Time uses OT_billable/OT_nonbillable; older entries may use OT/overtime. */
+function payrollSourceIsOvertime(string $category): bool {
+    $category = strtolower($category);
+    return str_starts_with($category,'ot_') || $category === 'ot' || str_contains($category,'overtime');
+}
+
+/** People reads use the directory owner; payroll profiles remain company-owned. */
+function payrollReadPeople(callable $read): mixed {
+    $prior = $GLOBALS['__cf_request_module_scope'] ?? null;
+    setRequestModuleScope('people');
+    try { return $read(); }
+    finally {
+        if ($prior === null) clearRequestModuleScope();
+        else setRequestModuleScope($prior);
+    }
+}
+
+/** Hours explicitly extracted from Time. Unresolved sources cannot silently disappear. */
 function payrollRunExtractedHours(int $runId): array {
+    require_once __DIR__ . '/../../placements/lib/economics.php';
     $ref = 'payroll:run#' . $runId;
     $tenantId = currentTenantId();
     if (!$tenantId) return [];
-    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
+    $placementOwner = effectiveTenantIdForModule('placements', $tenantId);
     $stmt = getDB()->prepare(
-        'SELECT e.id AS employee_id,
-                SUM(CASE WHEN LOWER(te.category) LIKE "%overtime%" OR LOWER(te.category) = "ot" THEN 0 ELSE te.hours END) AS hours_regular,
-                SUM(CASE WHEN LOWER(te.category) LIKE "%overtime%" OR LOWER(te.category) = "ot" THEN te.hours ELSE 0 END) AS hours_overtime
+        'SELECT te.id,te.person_id,te.category,te.hours,te.status,r.currency,r.approved_at
            FROM time_entries te
-           JOIN people p ON p.tenant_id = :people_tenant_id AND p.id = te.person_id
-           JOIN people_employees e ON e.tenant_id = :employee_tenant_id
-            AND ((p.user_id IS NOT NULL AND e.user_id = p.user_id)
-              OR (p.email_primary IS NOT NULL AND (
-                   LOWER(e.work_email) = LOWER(p.email_primary)
-                   OR LOWER(e.personal_email) = LOWER(p.email_primary)
-              )))
+      LEFT JOIN placement_rates r ON r.tenant_id=:placement_owner
+            AND r.id=te.rate_snapshot_id AND r.placement_id=te.placement_id
           WHERE te.tenant_id = :time_tenant_id AND te.payroll_extracted_ref = :ref
-          GROUP BY e.id'
+          ORDER BY te.id'
     );
     $stmt->execute([
-        'people_tenant_id' => $peopleTenantId,
-        'employee_tenant_id' => $tenantId,
+        'placement_owner' => $placementOwner,
         'time_tenant_id' => $tenantId,
         'ref' => $ref,
     ]);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-    $result = [];
+    $result = []; $recipients = [];
     foreach ($rows as $row) {
-        $result[(int) $row['employee_id']] = [
-            'hours_regular' => (float) $row['hours_regular'],
-            'hours_overtime' => (float) $row['hours_overtime'],
-        ];
+        $label = 'Extracted time #' . $row['id'];
+        if ($row['status'] !== 'approved' || empty($row['approved_at'])) throw new RuntimeException($label . ' no longer has approved time and rate evidence.');
+        payrollAssertSourceCurrency($row['currency'], $label);
+        $person = (int) $row['person_id'];
+        if (!array_key_exists($person, $recipients)) $recipients[$person] = placementEconomicsPayrollEmployee($tenantId, ['person_id'=>$person]);
+        $employee = $recipients[$person];
+        if (!$employee) throw new RuntimeException($label . ' requires a reviewed person/employment link and an enabled payroll profile.');
+        $id = (int) $employee['employee_id'];
+        $result[$id] ??= ['hours_regular'=>0.0,'hours_overtime'=>0.0];
+        $key = payrollSourceIsOvertime((string)$row['category']) ? 'hours_overtime' : 'hours_regular';
+        $result[$id][$key] += (float) $row['hours'];
     }
     return $result;
 }
 
 /** Commission/referral obligations routed to employee earnings for this run. */
 function payrollRunEconomicEarnings(int $runId): array {
+    require_once __DIR__ . '/../../placements/lib/economics.php';
     $tenantId = currentTenantId();
     if (!$tenantId) return [];
-    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
     $stmt = getDB()->prepare(
-        'SELECT e.id AS employee_id, ROUND(SUM(o.amount) * 100) AS commission_cents
+        'SELECT o.id,o.currency,CAST(ROUND(o.amount * 100) AS SIGNED) AS commission_cents,
+                ep.person_id,ep.user_id,ep.settlement_channel
            FROM placement_economic_obligations o
-           JOIN placement_economic_parties ep
-             ON ep.tenant_id = o.tenant_id AND ep.id = o.economic_party_id
-      LEFT JOIN people p ON p.tenant_id = :people_tenant_id AND p.id = ep.person_id
-           JOIN people_employees e ON e.tenant_id = :employee_tenant_id
-            AND ((ep.user_id IS NOT NULL AND e.user_id = ep.user_id)
-              OR (ep.person_id IS NOT NULL AND (
-                   (p.user_id IS NOT NULL AND e.user_id = p.user_id)
-                   OR (p.email_primary IS NOT NULL AND (
-                        LOWER(e.work_email) = LOWER(p.email_primary)
-                        OR LOWER(e.personal_email) = LOWER(p.email_primary)
-                   ))
-              )))
+      LEFT JOIN placement_economic_parties ep
+             ON ep.tenant_id = o.tenant_id AND ep.id = o.economic_party_id AND ep.placement_id=o.placement_id
           WHERE o.tenant_id = :obligation_tenant_id AND o.payroll_ref_id = :run_id
-            AND o.status IN ("payroll","paid") AND ep.settlement_channel = "payroll"
-          GROUP BY e.id'
+            AND o.status IN ("payroll","paid") ORDER BY o.id'
     );
     $stmt->execute([
-        'people_tenant_id' => $peopleTenantId,
-        'employee_tenant_id' => $tenantId,
         'obligation_tenant_id' => $tenantId,
         'run_id' => $runId,
     ]);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
     $result = [];
-    foreach ($rows as $row) $result[(int) $row['employee_id']] = (int) $row['commission_cents'];
+    foreach ($rows as $row) {
+        $label = 'Payroll obligation #' . $row['id'];
+        payrollAssertSourceCurrency($row['currency'], $label);
+        $employee = $row['settlement_channel'] === 'payroll' ? placementEconomicsPayrollEmployee($tenantId, $row) : null;
+        if (!$employee) throw new RuntimeException($label . ' requires an unambiguous payroll recipient and enabled profile.');
+        $id = (int) $employee['employee_id'];
+        $result[$id] = ($result[$id] ?? 0) + (int) $row['commission_cents'];
+    }
     return $result;
+}
+
+/** Include every explicitly routed source, even if the default cycle differs. */
+function payrollRunSourceEmployees(array $emps, array $settledHours, array $economicEarnings): array {
+    $economicOnly = [];
+    $scheduledEmployeeIds = array_fill_keys(array_map(static fn(array $row): int => (int) $row['employee_id'], $emps), true);
+    // A placement can route hours to a specific cycle. Those explicitly extracted
+    // sources must be included even when the employee's default profile differs.
+    $sourceEmployeeIds = array_unique(array_merge(array_keys($settledHours),array_keys($economicEarnings)));
+    foreach ($sourceEmployeeIds as $sourceEmployeeId) {
+        if (isset($scheduledEmployeeIds[$sourceEmployeeId])) continue;
+        $employee = payrollReadPeople(static fn() => peopleGetEmployee((int)$sourceEmployeeId));
+        $profile = payrollGetProfile((int)$sourceEmployeeId);
+        if (!$employee || !in_array($employee['status'],['active','on_leave'],true) || !$profile || empty($profile['enabled'])) {
+            throw new RuntimeException('An extracted payroll source no longer has an enabled employment/profile record. Review it before computing.');
+        }
+        $emps[] = $employee + $profile + [
+            'employee_id' => (int)$sourceEmployeeId,
+            'payment_method' => $profile['payment_method'] ?? 'direct_deposit',
+        ];
+        if (!isset($settledHours[$sourceEmployeeId])) $economicOnly[(int)$sourceEmployeeId] = true;
+    }
+    return ['employees'=>$emps,'economic_only'=>$economicOnly];
 }
 
 /**
@@ -191,11 +237,13 @@ function payrollYTDWages(int $employeeId, string $asOfDate): array {
  * Returns null if the employee isn't payroll-ready.
  */
 function payrollBuildComputeContext(int $employeeId, array $period, array $tenantSettings, array $extras = []): ?array {
-    $emp = peopleGetEmployee($employeeId);
+    [$emp,$comp,$fed] = payrollReadPeople(static fn() => [
+        peopleGetEmployee($employeeId),
+        peopleActiveCompensation($employeeId, (string) $period['period_end']),
+        peopleActiveFederalTax($employeeId, (string) $period['period_end']),
+    ]);
     if (!$emp) return null;
-    $comp = peopleActiveCompensation($employeeId, (string) $period['period_end']);
     if (!$comp) return null;
-    $fed = peopleActiveFederalTax($employeeId, (string) $period['period_end']);
     if (!$fed) return null;
     $profile = payrollGetProfile($employeeId);
     if (!$profile) return null;

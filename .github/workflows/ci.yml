@@ -238,6 +238,7 @@ jobs:
           php tests/jobdiva_person_source_smoke.php
           php tests/jobdiva_person_review_mariadb.php
           php tests/people_employment_links_mariadb.php
+          php tests/payroll_source_identity_mariadb.php
 
       - name: Verify source classification, countries and rate bases before JobDiva writes
         run: |

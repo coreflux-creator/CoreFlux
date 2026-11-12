@@ -103,7 +103,6 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
         // 2) Group by placement_id.
         $byPlacement = [];
         foreach ($entries as $e) $byPlacement[(int) $e['placement_id']][] = $e;
-        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
 
         // 3) Per placement: price each row from its locked rate snapshot.
         $created = [];
@@ -359,12 +358,9 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
  *
  * Person → employee crosswalk: time_entries.person_id references the
  * `people` talent-pool table, but payroll lines key off `people_employees`.
- * We resolve via two paths (in order):
- *   1. people_employees.user_id == people.user_id (same auth identity)
- *   2. people_employees.work_email/personal_email == people.email_primary
- * Entries that resolve to no employee are returned in `skipped[]` so the
- * caller can surface them to the user — the rest of the batch still
- * settles atomically.
+ * A reviewed permanent employment link establishes the worker identity.
+ * Entries lacking a link or enabled payroll profile remain unextracted and
+ * are returned in skipped[]. Contacts and names never select a recipient.
  *
  * Run/period selection: the placement's payroll operating cycle wins;
  * the employee payroll profile is the fallback for legacy placements.
@@ -526,9 +522,7 @@ function _settleTimeIntoPayroll(
 
     $ownsTxn = cf_tx_begin($pdo);
     try {
-        // 1. Pull entries + employee resolution in a single trip. We can't
-        //    use a hard JOIN because the email/user_id crosswalk is fuzzy,
-        //    so we do the resolution in PHP after fetching.
+        // Lock selected source rows before validating their saved rate and employment identity.
         $stmt = $pdo->prepare(
             "SELECT te.id, te.person_id, te.placement_id, te.work_date,
                     te.category, te.hours, te.description, te.status, te.rate_snapshot_id,
@@ -567,43 +561,21 @@ function _settleTimeIntoPayroll(
         require_once __DIR__.'/../../../core/quanta/time_current.php';
         $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, $entryIds);
 
-        // 2. Resolve person → employee for the unique person set.
+        // Rate currency is checked before creating any draft run or source stamp.
+        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $placementsTenantId);
+        foreach ($entries as $entry) {
+            $rate = $ratesById[(int)$entry['rate_snapshot_id']] ?? null;
+            if (!$rate || (int)$rate['placement_id'] !== (int)$entry['placement_id'] || empty($rate['approved_at'])) {
+                throw new TimeSettlementException("Entry #{$entry['id']} has no approved rate for its placement");
+            }
+            payrollAssertSourceCurrency($rate['currency'] ?? null, 'Time entry #'.$entry['id']);
+        }
+
+        // Only a saved person/employment link may route worker hours.
         $personIds = array_values(array_unique(array_map(fn($r) => (int) $r['person_id'], $entries)));
-        $personById = [];
-        foreach ($entries as $e) $personById[(int) $e['person_id']] = $e;
-        $employeeByPerson = []; // person_id => employee row
+        $employeeByPerson = [];
         foreach ($personIds as $pid) {
-            $p = $personById[$pid];
-            $row = null;
-            if (!empty($p['person_user_id'])) {
-                $q = $pdo->prepare(
-                    "SELECT e.id AS employee_id, e.employee_number, e.legal_first_name, e.legal_last_name,
-                            e.flsa_class, pp.id AS profile_id, pp.cycle_id, pp.schedule_id,
-                            pp.work_state, pp.payment_method
-                     FROM people_employees e
-                     LEFT JOIN payroll_profiles pp ON pp.tenant_id = e.tenant_id
-                        AND pp.employee_id = e.id AND pp.enabled = 1
-                     WHERE e.tenant_id = ? AND e.user_id = ?
-                       AND e.status IN ('active','on_leave') LIMIT 1"
-                );
-                $q->execute([$tenantId, $p['person_user_id']]);
-                $row = $q->fetch(\PDO::FETCH_ASSOC) ?: null;
-            }
-            if (!$row && !empty($p['person_email'])) {
-                $q = $pdo->prepare(
-                    "SELECT e.id AS employee_id, e.employee_number, e.legal_first_name, e.legal_last_name,
-                            e.flsa_class, pp.id AS profile_id, pp.cycle_id, pp.schedule_id,
-                            pp.work_state, pp.payment_method
-                     FROM people_employees e
-                     LEFT JOIN payroll_profiles pp ON pp.tenant_id = e.tenant_id
-                        AND pp.employee_id = e.id AND pp.enabled = 1
-                     WHERE e.tenant_id = ?
-                       AND (LOWER(e.work_email) = LOWER(?) OR LOWER(e.personal_email) = LOWER(?))
-                       AND e.status IN ('active','on_leave') LIMIT 1"
-                );
-                $q->execute([$tenantId, $p['person_email'], $p['person_email']]);
-                $row = $q->fetch(\PDO::FETCH_ASSOC) ?: null;
-            }
+            $row = placementEconomicsPayrollEmployee($tenantId, ['person_id'=>$pid]);
             if ($row) $employeeByPerson[$pid] = $row;
         }
 
@@ -615,7 +587,7 @@ function _settleTimeIntoPayroll(
             $pid = (int) $e['person_id'];
             $emp = $employeeByPerson[$pid] ?? null;
             if (!$emp) {
-                $skipped[] = ['entry_id' => (int) $e['id'], 'reason' => 'no_matching_employee',
+                $skipped[] = ['entry_id' => (int) $e['id'], 'reason' => 'reviewed_employment_link_or_payroll_profile_required',
                               'person_id' => $pid, 'email' => $e['person_email']];
                 continue;
             }
@@ -681,7 +653,6 @@ function _settleTimeIntoPayroll(
 
         // 4. Build a settlement summary for each employee/run target.
         $created = [];
-        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
         foreach ($byRun as $bucket) {
             $emp = $bucket['employee'];
             $employeeId = (int) $emp['employee_id'];
@@ -692,8 +663,7 @@ function _settleTimeIntoPayroll(
             // Aggregate hours_regular vs hours_overtime by category.
             $hoursReg = 0.0; $hoursOt = 0.0;
             foreach ($bucket['entries'] as $e) {
-                $cat = strtolower((string) $e['category']);
-                if (str_contains($cat, 'overtime') || $cat === 'ot') {
+                if (payrollSourceIsOvertime((string)$e['category'])) {
                     $hoursOt += (float) $e['hours'];
                 } else {
                     $hoursReg += (float) $e['hours'];
@@ -752,6 +722,8 @@ function _settleTimeIntoPayroll(
                         $economicItemId = (int) ($charge['economic_item_id'] ?? 0);
                         if ($economicItemId > 0 && isset($seenPayrollItems[$economicItemId])) continue;
                         if ($economicItemId > 0) $seenPayrollItems[$economicItemId] = true;
+                        $chargeCurrency = $charge['currency'] ?? ($ratesById[$rateSnapshotId]['currency'] ?? null);
+                        payrollAssertSourceCurrency($chargeCurrency, 'Commission or referral for placement #'.$placementId);
                         $recipient = placementEconomicsPayrollEmployee($tenantId, $charge);
                         if (!$recipient) {
                             throw new TimeSettlementException("Payroll recipient {$charge['display_name']} is not linked to a payroll-ready employee");
@@ -784,7 +756,7 @@ function _settleTimeIntoPayroll(
                                 'quantity' => $charge['calculation_quantity'],
                                 'basis_amount' => $charge['calculation_basis_amount'],
                                 'amount' => $charge['calculated_amount'],
-                                'currency' => 'USD',
+                                'currency' => strtoupper(trim($chargeCurrency)),
                                 'status' => 'payroll',
                                 'payroll_ref_id' => (int) $recipientRun['run_id'],
                             ]
