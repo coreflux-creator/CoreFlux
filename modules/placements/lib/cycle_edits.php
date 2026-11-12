@@ -130,7 +130,8 @@ function placementCycleSharedEdit(int $tenant, int $id, array $body, bool $canMa
         }
         $sets=array_map(static fn($field)=>$field.'=:'.$field,array_keys($values));
         $pdo->prepare('UPDATE staffing_operating_cycles SET '.implode(',',$sets).' WHERE tenant_id=:tenant AND id=:id')->execute($values+['tenant'=>$tenant,'id'=>$id]);
-        $cycle=array_replace($before,$values);
+        $q=$pdo->prepare('SELECT * FROM staffing_operating_cycles WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$tenant,$id]);$cycle=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$cycle||placementCycleDiffers($cycle,$values)) throw new RuntimeException('The shared definition did not retain its reviewed values.',409);
         $parentChanges=[];
         foreach ($plan['placements'] as $parent) {
             $pid=(int)$parent['id'];$updates=[];

@@ -26,6 +26,7 @@ try{
     $first=$seed('1099','99187001');$second=$seed('1099','99187011');$employee=$seed('w2','99187021');
     $party=static function(int $id)use($tenant,$person):array{$q=getDB()->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND source_ref=?');$q->execute([$tenant,$id,'worker:'.$person]);return $q->fetch(PDO::FETCH_ASSOC);};
     $cycle=placementCycleCreate($tenant,['name'=>'CI Shared AP','purpose'=>'ap','cadence'=>'biweekly','anchor_date'=>'2026-10-05','default_payment_terms'=>'NET30']);$id=$cycle['id'];
+    $pdo->prepare('UPDATE staffing_operating_cycles SET updated_at="2020-01-01 00:00:00" WHERE tenant_id=? AND id=?')->execute([$tenant,$id]);
     placementCycleAssign($tenant,$first,['ap_operating_cycle_id'=>$id],placementCycleReview($tenant,$first)['review_token']);
     $review=placementCycleSharedReview($tenant,$id);$stable=$snapshot();
     $check(count($review['placements'])===1&&count($review['participants'])===1&&strlen($review['review_token'])===64&&$snapshot()===$stable,'Shared review identifies the actual consumers without changing business or audit rows');
@@ -51,6 +52,9 @@ try{
     $check((int)$p1['ap_operating_cycle_id']===$id&&(int)$p2['ap_operating_cycle_id']===$id&&(int)$party($first)['operating_cycle_id']===$id&&(int)$party($second)['operating_cycle_id']===$id,'Shared editing retains every selected operating schedule and participant identity');
     $check($party($first)['payment_terms']==='NET45'&&$party($second)['payment_terms']==='NET15','New AP defaults reach inheriting payees while explicit participant terms stay owned');
     $check($read('placement_rates')===$rates,'Approved economic snapshots keep their historical schedule and terms unchanged');
+    $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="staffing.operating_cycle.updated" ORDER BY id DESC LIMIT 1');$q->execute([$tenant,$id]);$receipt=json_decode($q->fetchColumn(),true);
+    $q=$pdo->prepare('SELECT * FROM staffing_operating_cycles WHERE tenant_id=? AND id=?');$q->execute([$tenant,$id]);$persisted=$q->fetch(PDO::FETCH_ASSOC);
+    $check($saved['cycle']===$persisted&&$receipt['after']===$persisted&&$persisted['updated_at']!=='2020-01-01 00:00:00','The shared response and audit preserve the actual saved row including its database timestamp');
     $export=purepayAssignmentCycle($saved['cycle'],true);
     $check($export['id']===$id&&$export['cadence']==='weekly'&&$export['anchor_date']==='2026-11-02'&&$export['source_system']==='coreflux','PurePay current commercial schedule serialization carries the changed definition with its original Core identity');
     $stable=$snapshot();$again=$edit($body);
