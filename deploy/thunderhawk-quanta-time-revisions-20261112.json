@@ -1,0 +1,173 @@
+{
+  "recorded_at": "2026-11-12T09:32:56.522495+00:00",
+  "status": "progress",
+  "goal_complete": false,
+  "previous_goal_turn_classification": "no_progress_for_integration: standalone accounting access answer; source, CI and hosted preflight revalidated before the next safe action",
+  "scope": "Isolated Core pilot database muzqvdvqbx; operating tenant 2002; additive schema also preserves existing simulation tenants",
+  "runtime": "1642d42c4a8b90cc6b80b1ffc4009f7dbdac7d4d",
+  "ci": {
+    "run_id": 43191347133,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43191347133",
+    "all_11_jobs_passed": true,
+    "native_correction_checks": 38,
+    "authenticated_http_checks": 258
+  },
+  "installation": {
+    "checked_at": "2026-11-12T09:31:32+00:00",
+    "source_commit": "1642d42c4a8b90cc6b80b1ffc4009f7dbdac7d4d",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "created_tables": [
+      "quanta_time_revisions"
+    ],
+    "schema_statements_completed": 6,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/quanta-time-revisions-before-aad607ee20c0ed8c11ad",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "served_screen_assets_verified": true,
+    "tables_verified": 373,
+    "rows_preserved": 34474,
+    "files_verified": 14,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "existing_import_values_preserved": true,
+    "existing_imports_current": true,
+    "migration_applied": "191_quanta_time_revisions.sql",
+    "preexisting_tables_preserved": 372,
+    "preexisting_rows_preserved": 34473,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/quanta-time-revisions-d640227aa4ae98c9f508",
+      "hashes": {
+        "install_thunderhawk_quanta_time_revisions.php": "fd7a7ef28975577a7f46c8e787422e4583433e600b517e48b76f286b82438915",
+        "quanta-time-revisions-package.json": "aad607ee20c0ed8c11ad541a982f37907cc4590ab4e3dd82ee4e3a05714f0ab8"
+      },
+      "ci_run": "43191347133",
+      "tested_commit": "1642d42c4a8b90cc6b80b1ffc4009f7dbdac7d4d",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/quanta-time-revisions-install-result.json"
+    }
+  },
+  "hosted_acceptance": {
+    "checked_at": "2026-11-12T09:31:46+00:00",
+    "source_commit": "1642d42c4a8b90cc6b80b1ffc4009f7dbdac7d4d",
+    "passed": true,
+    "mode": "read_only_hosted_guards",
+    "provider_requests": 0,
+    "financial_postings": false,
+    "production_changed": false,
+    "record_mutations_committed": false,
+    "synthetic_round_trip_proven": false,
+    "checks": [
+      "Every preexisting import remains current",
+      "New company correction history is empty and readable",
+      "Source-specific correction history is empty and readable",
+      "Foreign company cannot borrow the current history scope",
+      "Malformed source identity cannot query history",
+      "Invalid pagination is refused",
+      "Historical paid period retains ten entries and eighty hours",
+      "Frozen historical approval retained for entry 4",
+      "Manual correction cannot discard Quanta provenance for entry 4",
+      "Durable import blocks source-label bypass for entry 4",
+      "Existing payroll evidence blocks historical correction for entry 4",
+      "Frozen historical approval retained for entry 5",
+      "Manual correction cannot discard Quanta provenance for entry 5",
+      "Durable import blocks source-label bypass for entry 5",
+      "Existing payroll evidence blocks historical correction for entry 5",
+      "Frozen historical approval retained for entry 6",
+      "Manual correction cannot discard Quanta provenance for entry 6",
+      "Durable import blocks source-label bypass for entry 6",
+      "Existing payroll evidence blocks historical correction for entry 6",
+      "Frozen historical approval retained for entry 7",
+      "Manual correction cannot discard Quanta provenance for entry 7",
+      "Durable import blocks source-label bypass for entry 7",
+      "Existing payroll evidence blocks historical correction for entry 7",
+      "Frozen historical approval retained for entry 8",
+      "Manual correction cannot discard Quanta provenance for entry 8",
+      "Durable import blocks source-label bypass for entry 8",
+      "Existing payroll evidence blocks historical correction for entry 8",
+      "Frozen historical approval retained for entry 9",
+      "Manual correction cannot discard Quanta provenance for entry 9",
+      "Durable import blocks source-label bypass for entry 9",
+      "Existing payroll evidence blocks historical correction for entry 9",
+      "Frozen historical approval retained for entry 10",
+      "Manual correction cannot discard Quanta provenance for entry 10",
+      "Durable import blocks source-label bypass for entry 10",
+      "Existing payroll evidence blocks historical correction for entry 10",
+      "Frozen historical approval retained for entry 11",
+      "Manual correction cannot discard Quanta provenance for entry 11",
+      "Durable import blocks source-label bypass for entry 11",
+      "Existing payroll evidence blocks historical correction for entry 11",
+      "Frozen historical approval retained for entry 12",
+      "Manual correction cannot discard Quanta provenance for entry 12",
+      "Durable import blocks source-label bypass for entry 12",
+      "Existing payroll evidence blocks historical correction for entry 12",
+      "Frozen historical approval retained for entry 13",
+      "Manual correction cannot discard Quanta provenance for entry 13",
+      "Durable import blocks source-label bypass for entry 13",
+      "Existing payroll evidence blocks historical correction for entry 13",
+      "Native guard and history reads preserve every table and record",
+      "Anonymous correction API is denied: time_revision_preview",
+      "Anonymous correction API is denied: time_revision_apply",
+      "Anonymous correction API is denied: time_revision_history",
+      "Anonymous correction API is denied: time_revision_recent",
+      "Anonymous requests preserve all records"
+    ],
+    "checks_passed": 53,
+    "database_unchanged": true,
+    "tables_preserved": 373,
+    "rows_preserved": 34474,
+    "helper_sha256": "58a11cbda2a05c9876f26bd8133ea1bb52702d7bb69aba02838554b198489e19"
+  },
+  "preserved_dependency_variants": {
+    "core/quanta/worker_profile_contract.php": {
+      "sha256": "564e214f839a1c6ca9f286418edd1c5853704c635bc3bda8e44a2d446d62e6b6",
+      "reason": "Previously installed worker-profile validator omits the newer placeholder-email restriction; source corrections do not call worker-profile publication. Preserve this existing pilot variant."
+    }
+  },
+  "evidence": {
+    "quanta-time-revisions-preflight.json": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\quanta-time-revisions-preflight.json",
+      "sha256": "9ff3be0ffdd62a712b6098f820cbd2627bfbc335f5a69d98889dfc7938b7aa74"
+    },
+    "quanta-time-revisions-install-result.json": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\quanta-time-revisions-install-result.json",
+      "sha256": "99fe48e17798e9fd4c40b09b80b8914417cc78fbf24e552ca8637ab9c1098069"
+    },
+    "quanta-time-revisions-acceptance-result.json": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\quanta-time-revisions-acceptance-result.json",
+      "sha256": "4f277aa311ab29958fdfcd455ff9c5c327dcf8adda1198e0f85e1a633d0b6c72"
+    },
+    "accept_quanta_time_revisions.php": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\accept_quanta_time_revisions.php",
+      "sha256": "58a11cbda2a05c9876f26bd8133ea1bb52702d7bb69aba02838554b198489e19"
+    },
+    "quanta-time-revisions-release-ci.log": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\CoreFlux-profile-return\\output\\quanta-time-revisions-release-ci.log",
+      "sha256": "43bf8b1e14b19846efeff03131e67870b5540d596f31d3d0892d4f4e0999261b"
+    }
+  },
+  "browser": {
+    "checked_at": "2026-11-12T09:30:00Z",
+    "observed": "Pilot sign-in page; no saved account for this origin",
+    "accepted": false,
+    "group": "codex/pilot-time-corrections",
+    "group_id": "7D40B552057E59BCAE4328A7BDF31612",
+    "url": "https://phpstack-1516771-6707602.cloudwaysapps.com/login.html?next=%2F"
+  },
+  "remaining": [
+    "Fresh synthetic source correction, independent Core reapproval and accepted status return with exact replay; do not reactivate closed P-368/PL-874 or correct the historical paid period",
+    "Signed-in visual correction/history acceptance and other pending custom-field/workbook operator journeys",
+    "573 previously unresolved field dispositions plus explicit coverage of new correction metadata",
+    "Remaining portal/document lifecycle and financial allocations/reconciliation exceptions"
+  ],
+  "boundaries": {
+    "production_changed": false,
+    "arabella_changed": false,
+    "provider_business_records_changed": false,
+    "real_payroll_payments_postings": false
+  }
+}
