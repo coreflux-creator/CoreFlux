@@ -162,7 +162,7 @@ function staffingExchangeFieldMappings(): array
     $commercial=static function(string $key,string $path,string $transform)use($add):void {
         $add($key,'purepayroll','/api/v1/integrations/coreflux/assignments/inputs',$path,$transform,
             'immutable_commercial_review_packet; separate_native_create_revise_activate; no_automatic_billing_or_payroll',
-            '2026-10-25.1',['core'=>'core/integrations/purepay_assignment_contract.php','provider'=>'PurePay:backend/coreflux_assignments.py']);
+            '2026-11-12.1',['core'=>'core/integrations/purepay_assignment_contract.php','provider'=>'PurePay:backend/coreflux_assignments.py']);
     };
     foreach(['placements.placement_number'=>'placement','people.person_number'=>'person','placements.person_id'=>'person',
         'placements.client_id'=>'client','staffing_clients.client_number'=>'client'] as $key=>$path)$commercial($key,$path,'resolve_canonical_number_in_authorized_module_directory; preserve_instance_and_owner');
@@ -195,7 +195,8 @@ function staffingExchangeFieldMappings(): array
         'extract_frozen_contract_parties_resolved_overheads_and_modeled_totals; preserve_JSON_decimal_lexemes; historic_cycle_anchor_and_override_intent_not_retained; no_recalculation_from_current_defaults');
     foreach(['id'=>'id','source_ref'=>'source_ref','source_type'=>'source_type','role'=>'role','display_name'=>'display_name',
         'user_id'=>'source_user_id','money_flow'=>'money_flow','settlement_channel'=>'settlement_channel','fee_basis'=>'fee_basis',
-        'fee_pct'=>'fee_fraction','fee_flat'=>'fee_amount','payment_terms'=>'payment_terms','pwp_enabled'=>'pwp_enabled',
+        'fee_pct'=>'fee_fraction','fee_flat'=>'fee_amount','currency'=>'currency','payment_frequency'=>'payment_frequency','due_month'=>'due_month',
+        'payment_terms'=>'payment_terms','pwp_enabled'=>'pwp_enabled',
         'payment_terms_overridden'=>'payment_terms_overridden','pwp_overridden'=>'pwp_overridden','cycle_overridden'=>'cycle_overridden',
         'effective_from'=>'effective_from','effective_to'=>'effective_to','active'=>'active'] as $source=>$target)
         $commercial('placement_economic_parties.'.$source,'current_commercial_context.parties[].'.$target,

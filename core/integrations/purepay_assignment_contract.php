@@ -3,7 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/delivery.php';
 
-const PUREPAY_ASSIGNMENT_INPUT_VERSION = '2026-10-25.1';
+const PUREPAY_ASSIGNMENT_INPUT_VERSION = '2026-11-12.1';
 
 function purepayAssignmentRequired(array $row,string $key): mixed
 {
@@ -45,6 +45,22 @@ function purepayAssignmentChoice(mixed $value,array $choices): string
 {
     if(!is_string($value) || !in_array($value,$choices,true))throw new RuntimeException('A source commercial value has no supported field mapping.');
     return $value;
+}
+
+/** Unknown historical terms stay unknown; never infer currency or cadence from placement rates. */
+function purepayAssignmentCommissionTerms(array $row): array
+{
+    $currency=$row['currency']??null;$frequency=$row['payment_frequency']??null;$month=$row['due_month']??null;
+    if($currency!==null)$currency=purepayAssignmentChoice($currency,['USD','CAD','GBP','EUR','INR','AUD']);
+    if($frequency!==null)$frequency=purepayAssignmentChoice($frequency,['one_time','per_pay_period']);
+    if($month!==null && (!is_string($month)||!preg_match('/^[1-9][0-9]{3}-(?:0[1-9]|1[0-2])$/D',$month)))
+        throw new RuntimeException('A commission due month must retain YYYY-MM precision.');
+    if(($row['source_type']??null)==='commission') {
+        if(($row['fee_basis']??null)!=='flat' && ($currency!==null||$month!==null||($frequency!==null&&$frequency!=='per_pay_period')))
+            throw new RuntimeException('Percentage commission terms must follow the calculation currency and earned period.');
+        if($frequency==='per_pay_period'&&$month!==null)throw new RuntimeException('A recurring commission cannot carry a one-time due month.');
+    }
+    return ['currency'=>$currency,'payment_frequency'=>$frequency,'due_month'=>$month];
 }
 
 /** Preserve JSON numeric lexemes before decoding; quoted text, booleans and null retain their types. */
@@ -158,7 +174,7 @@ function purepayAssignmentParty(array $row,array $placement,callable $resolve,ar
         'pwp_enabled'=>$approved?null:purepayAssignmentBool($row['pwp_enabled']),
         'pwp_overridden'=>$approved?null:purepayAssignmentBool($row['pwp_overridden']),
         'cycle_overridden'=>$approved?null:purepayAssignmentBool($row['cycle_overridden']),
-        'active'=>$approved?null:purepayAssignmentBool($row['active'])];
+        'active'=>$approved?null:purepayAssignmentBool($row['active'])]+purepayAssignmentCommissionTerms($row);
     $purpose=['ar'=>'billing','ap'=>'ap','payroll'=>'payroll'][$channel]??null;
     if(($channel==='ar' && ($result['money_flow']!=='receivable' || !$roots['client']))
         || ($channel==='ap' && ($result['money_flow']!=='payable' || !$roots['vendor']))

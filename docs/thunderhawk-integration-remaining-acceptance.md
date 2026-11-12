@@ -2,6 +2,12 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 commission exchange — development checkpoint
+
+The paired candidate now retains independent commission currency, frequency and due month in approved and current assignment graphs and displays them in PurePay. New packet version `2026-11-12.1` preserves old schemas, hashes and receipts. The provider candidate is `579245c03bfa254dc2d01cee446f165af762b3bb`; 102 provider checks, five rendering checks and the actual Core projection checks pass. Browser DOM acceptance passed locally; screenshot capture timed out. [Detailed evidence and remaining release work](thunderhawk-commission-exchange.md).
+
+This commission change is not installed. The installed Core field-alignment checkpoint below remains authoritative. Paired staging release, current-version connection review and hosted native acceptance remain next; the full field/source/lifecycle/document/financial requirements are not complete. No production, provider-host, Arabella or real financial changes occurred in this development step.
+
 ## November 12 commercial field alignment — installed checkpoint
 
 Runtime `54e93415` passed all eleven CI jobs and is installed in the isolated Core pilot. The source-backed native field rules resolve 71 undecided dispositions and 73 owners across 87 existing fields while preserving existing adapters and private-field restrictions. The installed inventory contains 2,125 entries and **372 remaining undecided dispositions**; all custom registries are inspected. Installation preserved all 35,087 current rows across 378 tables, and independent verification checked 343 runtime fingerprints and all 35,040 original rows. Production, providers, Arabella and financial execution were unchanged. [Details](thunderhawk-commercial-field-decisions.md) and [manifest](../deploy/thunderhawk-commercial-fields-20261112.json).

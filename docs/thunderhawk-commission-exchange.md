@@ -1,0 +1,19 @@
+# Independent commission terms in assignment exchange
+
+The prior Core assignment exporter omitted economic-party currency, payment frequency and due month. Its receiver rejected those fields when supplied. A synthetic INR 7,500 one-time commission due August 2026 therefore produced the same exported party as a USD 7,500 recurring commission. The reproduction is retained in the installed [field-alignment manifest](../deploy/thunderhawk-commercial-fields-20261112.json); it made no record changes.
+
+The paired candidate adds assignment version `2026-11-12.1`. Core projects the three fields from each approved economic snapshot and separately from current configuration. PurePay/PurePayroll retains them in the complete intake and native assignment record, and the review component displays currency, frequency and month precision. Amounts are not converted and due months are not expanded into invented dates. Core continues to require the receiver's exact version and reviewed connection before new delivery.
+
+Older provider schemas are unchanged, so accepted packets serialize exactly as before and retain their receipt hashes. New-version packets require all three keys, allowing explicit nulls for unknown historical values. Missing legacy terms are not guessed from the placement's USD rates or current commission terms. Unsupported currencies, malformed months and contradictory percentage/recurring terms are rejected. Incomplete legacy flat terms remain visible for review; the assignment exchange itself never executes a commission, changes employee base pay or enables billing.
+
+Paired provider source is commit `579245c03bfa254dc2d01cee446f165af762b3bb` in the isolated `PurePay-payment-display` worktree. It changes three provider modules, the commercial review component and tests, with no public release or provider-host change. The Core candidate changes its exporter and field inventory; the raw commission-rule endpoint remains an unsupported receiver, distinct from this implemented economic-party projection.
+
+Validation:
+
+- 102 provider HTTP/schema/replay/revision/isolation checks pass using actual Core PHP output and the real provider routes with isolated in-memory data. They cover W-2 and C2C, captured pre-change packets, unchanged native assignment identity, old receipt recovery and revisions that preserve approved history.
+- After adding a stronger unchanged-business-record assertion, the focused round-trip check passed again: employee, vendor, customer, payroll-run, payable, invoice, item and journal records stayed exactly unchanged. No real provider request was made.
+- Core's 20 commission projection checks, 28 existing commercial checks, 643 field-decision checks and 111 ownership checks pass. The new projection fixture is included in CI.
+- Five React rendering checks pass, including independent currencies, one-time versus recurring terms, unknown legacy terms, month precision and escaped names.
+- BrowserOS loaded the actual candidate components with the synthetic PHP packet and existing application styles on a loopback-only page. The rendered DOM showed GBP / per pay period / no due month separately from approved INR / one time / 2026-08, with no horizontal overflow. Screenshot capture timed out; visual screenshot acceptance is not claimed. The owned test tab and temporary local server were closed.
+
+This is a development checkpoint, not installed commission exchange acceptance. The installed Core pilot is still the field-alignment release `54e93415`; the provider remains the verified payment-display release. Paired release preparation, frontend build, updated connection-version review, hosted read/replay preservation and an isolated native commission-metadata round trip remain to complete before calling this exchange deployed. No real Puneet commission was created; his full recipient identity remains unresolved. The overall integration goal remains active.

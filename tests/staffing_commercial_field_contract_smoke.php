@@ -38,7 +38,12 @@ $check(!empty($r['remote_contracts']['jobdiva']['mappings'])&&!empty($r['remote_
 foreach(['currency','payment_frequency','due_month'] as $field){
     foreach(['placement_commissions','placement_economic_parties'] as $table){
         $r=staffingFieldContractRules($table,$field);
-        $check($r['remote_contracts']['purepayroll']['status']==='unsupported_with_gap','Raw commission rules do not masquerade as provider payroll support');
+        if($table==='placement_commissions')$check($r['remote_contracts']['purepayroll']['status']==='unsupported_with_gap','Raw commission rules do not masquerade as provider payroll support');
+        else {
+            $remote=$r['remote_contracts']['purepayroll'];
+            $check($remote['status']==='source_verified_hosted_acceptance_pending'&&!empty($remote['mappings']),'Economic party projection has a real versioned receiver');
+            $check($remote['mappings'][0]['path']==='current_commercial_context.parties[].'.$field&&$remote['sync_enabled_by_dictionary']===false,'Commission terms map without enabling settlement');
+        }
     }
 }
 $input=placementSourceRuleInput('commission',['basis'=>'flat','flat_amount'=>'7500','currency'=>'INR','payment_frequency'=>'one_time','due_month'=>'2026-08']);

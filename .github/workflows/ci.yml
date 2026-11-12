@@ -373,6 +373,7 @@ jobs:
       - name: Verify complete commercial projection and scoped placement receipt recovery
         run: |
           php tests/purepay_assignment_fixture.php
+          php tests/purepay_assignment_commission_fixture.php
           php tests/purepay_assignment_inputs_mariadb.php
 
       - name: Core payroll source reservation and database fences
