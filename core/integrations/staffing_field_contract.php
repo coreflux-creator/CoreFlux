@@ -10,6 +10,7 @@ require_once __DIR__ . '/staffing_time_field_contract.php';
 require_once __DIR__ . '/staffing_employment_field_contract.php';
 require_once __DIR__ . '/staffing_document_field_contract.php';
 require_once __DIR__ . '/staffing_payroll_recipient_field_contract.php';
+require_once __DIR__ . '/staffing_commercial_field_contract.php';
 
 function staffingFieldContractTables(): array
 {
@@ -114,6 +115,7 @@ function staffingFieldContractRules(string $table, string $field): array
         }
     }
     $rules = staffingPlacementControlFieldRules($table, $field, $rules);
+    $rules = staffingCommercialFieldRules($table, $field, $rules);
     return staffingPayrollRecipientFieldRules($table,$field,staffingDocumentFieldRules($table,$field,staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules))));
 }
 
@@ -157,7 +159,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-12.8', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-12.9', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
