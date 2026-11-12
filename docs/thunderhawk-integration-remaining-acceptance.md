@@ -2,6 +2,12 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 Quanta staff correction - source browser checkpoint
+
+Quanta revision `abd1d827` passed both jobs in CI `43255407085` and is installed in the isolated pilot. Staff now have a scoped worker-week review, duration correction and explicitly acknowledged submission screen. The native browser journey unlocked synthetic P-387 / PL-902, corrected its existing source entry from 90 to 120 minutes, submitted it and approved it using a separate test approver. Original source identity, approval and rate history were preserved. Both native sessions were signed out; all other original records and all PurePay records remained unchanged. The source verifier passed at 16:24:46 UTC. See [worker-week acceptance](thunderhawk-quanta-worker-week-acceptance.md) and `deploy/thunderhawk-quanta-worker-week-20261112.json`.
+
+Core still holds its approved 90-minute revision. Its rendered correction review, independent reapproval, history and current return-status delivery remain the next acceptance steps. This source-only success does not close the whole round trip. The initial backup's verified queued-usage flush and the earlier unchanged browser checkpoint remain recorded separately. No production or financial execution occurred; the provider-host coordination window is released. The full integration objective remains active and incomplete.
+
 ## November 12 JobDiva draft time intake - installed pilot checkpoint
 
 Runtime `88ccbc4b` passed all eleven CI jobs and was installed in the isolated pilot at 15:47 UTC. Strict source validation, canonical worker/account/directory ownership, atomic mapping/time/source history, retained encrypted receipts and exact replay now protect the draft intake route. Concurrent native workers resolve one source to one entry/receipt. Changed approved, consumed, conflicting or legacy-linked time requires explicit review; provider approval assertions remain unverified. No JobDiva connection was enabled, and existing provider identities were preserved.

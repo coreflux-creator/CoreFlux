@@ -1,0 +1,285 @@
+{
+  "scope": "isolated Thunderhawk simulation; source correction acceptance only",
+  "quanta_source_commit": "abd1d8277bb8566ad95f539cf1334241cda34d8a",
+  "ci": {
+    "run": 43255407085,
+    "url": "https://github.com/coreflux-creator/Quanta/actions/runs/43255407085",
+    "conclusion": "success",
+    "jobs": [
+      "worker-portal",
+      "native-mongo"
+    ]
+  },
+  "local_validation": {
+    "frontend_tests_passed": 98,
+    "frontend_suites": 10,
+    "application_passed": 353,
+    "application_skipped": 10,
+    "local_application_database": "fake MongoDB; native CI is separate"
+  },
+  "native_validation": {
+    "test_files": [
+      "test_core_commit_application.py",
+      "test_core_compound_writers.py",
+      "test_core_correction_writers.py",
+      "test_core_legacy_time.py",
+      "test_core_onboarding.py",
+      "test_core_portal.py",
+      "test_core_read_snapshots.py",
+      "test_core_time_access.py",
+      "test_core_time_binding.py",
+      "test_core_time_reviews.py",
+      "test_core_week_consistency.py",
+      "test_coreflux.py",
+      "test_coreflux_assignment_context.py",
+      "test_coreflux_location.py",
+      "test_coreflux_metadata_receipts.py",
+      "test_coreflux_worksites.py",
+      "test_manual_capture_receipts.py",
+      "test_startup_access.py"
+    ],
+    "source_test_files": [],
+    "pytest_exit": 0,
+    "network_attempts": 0,
+    "full_application": true,
+    "lifespan_started": true,
+    "candidate_hashes": {},
+    "fixture_hashes": {},
+    "real_database_used": true,
+    "mongo_connections": 1021,
+    "live_workspace_acceptance": false,
+    "report_directory": "/tmp/quanta-core-full-app-2adw354w"
+  },
+  "installation": {
+    "source_commit": "abd1d8277bb8566ad95f539cf1334241cda34d8a",
+    "passed": true,
+    "started_at": "2026-11-12T16:16:13.943874+00:00",
+    "coordination_enabled": true,
+    "operational_time_enabled": true,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "settings_changed": false,
+    "database_restored_over": false,
+    "private_receipt_directory": "/srv/core-integration-pilot/20261029/private/quanta-worker-week-before-7da7a70cc3034f1ab8d9162c38dd0292",
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    },
+    "hosted_probe": {
+      "passed": true,
+      "checks": [
+        "displayed_version_field",
+        "strict_duration",
+        "provenance_refusal",
+        "nonempty_version"
+      ],
+      "database_writes": false,
+      "temporary_database_created": false,
+      "external_network_attempts": 0
+    },
+    "runtime_files_verified": 182,
+    "frontend_files_verified": 82,
+    "installed_file_count": 4,
+    "original_business_records_preserved": 1788,
+    "original_time_entries": 14,
+    "new_empty_collections": [],
+    "coordinator_guard": {
+      "before": {
+        "_id": "core-time-writers-v1",
+        "revision": 223
+      },
+      "after": {
+        "_id": "core-time-writers-v1",
+        "revision": 224
+      }
+    },
+    "other_services_unchanged": true,
+    "frontend_shell_preserved": false,
+    "served_assets_verified": true,
+    "target_container_id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+    "target_started_at": "2026-11-12T16:16:23.572183951Z",
+    "completed_at": "2026-11-12T16:16:43.984550+00:00"
+  },
+  "successful_backup": {
+    "checked_at": "2026-11-12T16:14:50.431940+00:00",
+    "passed": true,
+    "database": "corepilot_quanta_20261029",
+    "original_database_restored_over": false,
+    "application_code_changed": false,
+    "settings_changed": false,
+    "new_container_created": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "storage_mode": "replica_set",
+    "restore_descriptor_preflight": {
+      "used": 274,
+      "soft_limit": 1024,
+      "estimated_additional": 281,
+      "reserve": 128
+    },
+    "private_backup": "/srv/core-integration-pilot/20261029/private/quanta-storage-backup-20261112T161454Z-dc88f369",
+    "temporary_restore_database": "corepilot_restorecheck_43fcc81a79884489b503a673",
+    "web_before": {
+      "id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+      "running": true,
+      "started_at": "2026-11-12T16:12:44.873365054Z"
+    },
+    "mongo_container_id": "9d92241f2fd5c1aeac60c055226280ed6e47f1aec328f0fd3b1d07a3608c3f86",
+    "stage": "verified",
+    "archive_sha256": "cca77eaf1ff0ab147bf35843aaa86103e3c6ed68582c1b0f4c95b5042f570c44",
+    "archive_bytes": 120468,
+    "consistent_source_snapshot": true,
+    "coordinator_guard": {
+      "before": {
+        "_id": "core-time-writers-v1",
+        "revision": 222
+      },
+      "after": {
+        "_id": "core-time-writers-v1",
+        "revision": 223
+      },
+      "startup_only": true
+    },
+    "restore_verified": true,
+    "restored_collections": 71,
+    "restored_records": 1789,
+    "original_records_and_indexes_preserved": false,
+    "original_business_records_and_indexes_preserved": true,
+    "application_files_preserved": true,
+    "other_services_unchanged": true,
+    "coordination_enabled": true,
+    "appended_usage_events": 0,
+    "temporary_restore_database_removed": true,
+    "web_after": {
+      "id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+      "running": true,
+      "started_at": "2026-11-12T16:15:00.863131662Z"
+    },
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    },
+    "completed_at": "2026-11-12T16:15:24.829185+00:00"
+  },
+  "initial_backup_failure": {
+    "receipt": {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\Quanta-profile-return\\output\\worker-week-backup-result.json",
+      "sha256": "152e20d993ddb791e75ab03ac8b0f25aa9a597b6739573f3d10c735430c10522"
+    },
+    "verified_reason": {
+      "passed": true,
+      "original_usage_rows_preserved": true,
+      "appended_usage_rows": 237,
+      "business_collections_preserved": 69,
+      "runtime_preserved": true,
+      "frontend_preserved": true,
+      "reason": "Existing shutdown flush persists its pending API-usage queue, followed by the startup coordinator increment."
+    }
+  },
+  "source_browser_acceptance": {
+    "checked_at": "2026-11-12T16:24:46.172162+00:00",
+    "phase": "source_complete",
+    "passed": true,
+    "source_entry_id": "3a18a0f9-6761-4a6e-be8f-0a5bcaa552c2",
+    "timesheet_id": "c1ebacce-1523-4f1f-b991-6c3b90bed1a5",
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "old_minutes": 90,
+    "target_minutes": 120,
+    "production_changed": false,
+    "real_payroll_payments_postings": false,
+    "source_identity_preserved": true,
+    "original_approval_preserved": true,
+    "independent_test_approver": true,
+    "other_original_records_preserved": true,
+    "purepay_unchanged": true,
+    "native_sessions_revoked": 2,
+    "changes": {
+      "audit_events": 9,
+      "auth_sessions": 2,
+      "magic_link_tokens": 1
+    }
+  },
+  "core_current_revision": {
+    "entry_id": 16,
+    "hours": 1.5,
+    "status": "approved",
+    "source_correction_not_yet_applied": true
+  },
+  "helpers": [
+    {
+      "path": "deploy\\backup_thunderhawk_worker_week.py",
+      "sha256": "106e39ea581ebb38fb608599a50339d3f44b0c0ba0c3c27ff326ece8e9ae3065"
+    },
+    {
+      "path": "deploy\\backup_thunderhawk_worker_week_r2.py",
+      "sha256": "d561e78ed0d0a454ccc0bc4a0003cb03c7cce95ee0c60a896fc994ca352a9a16"
+    },
+    {
+      "path": "deploy\\install_thunderhawk_quanta_worker_week.py",
+      "sha256": "5f46dfec0f03619e28aae0dd62845c507a6c194fc62432b01f267ae7c02b730b"
+    },
+    {
+      "path": "deploy\\quanta_rendered_time_review.py",
+      "sha256": "3b47bc80be37c4253e3766b55caeaed9c82c4e1f8a471b228b6eb414cc4a813a"
+    },
+    {
+      "path": "deploy\\quanta_rendered_time_review_r2.py",
+      "sha256": "8a1df6c827e48b3cc7eca9372e9fd0a8c60f6d6b35698f3e63f651325410be47"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\Quanta-profile-return\\output\\worker-week-install-result.json",
+      "sha256": "a00a78b935afeb2e41505964690089dbb1725342894162295ea498aafbb0755f"
+    },
+    {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\Quanta-profile-return\\output\\worker-week-native-acceptance.json",
+      "sha256": "ed90c29a6fd2ee38a668386004cb1a883679eb241a1cb1faa5ac6478664755c7"
+    },
+    {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\Quanta-profile-return\\output\\worker-week-r2-backup-result.json",
+      "sha256": "8bc4db2e0bdd8189b7280ee29e6fccc9a91ec825f98058e697930484016201fe"
+    },
+    {
+      "path": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\Quanta-profile-return\\output\\worker-week-drain-verification.json",
+      "sha256": "bc285cdf64a2b9142bc169fbf66c5ac6c730fbc722d47b984ebb1402354e4b6f"
+    },
+    {
+      "path": "output\\rendered-time-quanta-r2-finish-source.json",
+      "sha256": "8d827a548cf996d958cedd0fa99fe32945cfdc90ec542c99655f6f411a05dd5a"
+    },
+    {
+      "path": "output\\worker-week-browser-observations.json",
+      "sha256": "868f180734d8b22207ebb17cbc36d385191f6da65e43bf8ba6d8e6c8dbd88c13"
+    }
+  ],
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_financial_execution": false,
+  "coordination_window": "released after source completion",
+  "remaining": [
+    "Core rendered correction review and independent reapproval",
+    "Core correction history and current return-status delivery",
+    "Wider field, portal, lifecycle, merge, JobDiva, upload and financial acceptance"
+  ],
+  "overall_integration_complete": false
+}
