@@ -1,0 +1,625 @@
+{
+  "recorded_at": "2026-11-12T10:18:09.756819+00:00",
+  "status": "native_correction_round_trip_verified",
+  "goal_complete": false,
+  "previous_goal_turn_classification": "The standalone-accounting-link reply answered the user but made no integration progress. This continuation revalidated the current pilot and performed the next synthetic acceptance journey.",
+  "scope": {
+    "core_tenant": 2002,
+    "person": "P-387",
+    "placement": "PL-902",
+    "quanta_workspace": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false
+  },
+  "runtime": {
+    "core": "4be527e4c0fb309b993778cafae925cf16639d3b",
+    "quanta": "651941e7",
+    "application_files_changed": false,
+    "configuration_or_key_scope_changed": false
+  },
+  "result": {
+    "source_entry": "3a18a0f9-6761-4a6e-be8f-0a5bcaa552c2",
+    "source_timesheet": "c1ebacce-1523-4f1f-b991-6c3b90bed1a5",
+    "source_minutes_before": 60,
+    "source_minutes_after": 90,
+    "original_core_entry": 15,
+    "original_core_approver": 86,
+    "replacement_core_entry": 16,
+    "corrector": 88,
+    "replacement_core_approver": 90,
+    "core_timesheet": 8,
+    "correction_receipt": 1,
+    "quanta_review_version": 4,
+    "quanta_review_status": "accepted",
+    "current_portal_minutes": 90,
+    "native_authenticated_portal_api_verified": true,
+    "rendered_browser_acceptance": false
+  },
+  "final_core": {
+    "checked_at": "2026-11-12T10:14:48+00:00",
+    "passed": true,
+    "read_only": true,
+    "tables_verified": 373,
+    "original_rows_checked": 34474,
+    "final_rows": 34693,
+    "changed_tables": {
+      "artifact_events": {
+        "before": 51,
+        "after": 67,
+        "original_rows_changed": 0
+      },
+      "artifact_objects": {
+        "before": 9,
+        "after": 10,
+        "original_rows_changed": 0
+      },
+      "artifact_relationships": {
+        "before": 9,
+        "after": 10,
+        "original_rows_changed": 0
+      },
+      "audit_log": {
+        "before": 8111,
+        "after": 8139,
+        "original_rows_changed": 0
+      },
+      "core_record_numbers": {
+        "before": 955,
+        "after": 957,
+        "original_rows_changed": 0
+      },
+      "integration_deliveries": {
+        "before": 93,
+        "after": 100,
+        "original_rows_changed": 0
+      },
+      "integration_delivery_subjects": {
+        "before": 21,
+        "after": 23,
+        "original_rows_changed": 0
+      },
+      "membership_audit": {
+        "before": 237,
+        "after": 337,
+        "original_rows_changed": 0
+      },
+      "payroll_pay_cycles": {
+        "before": 1,
+        "after": 2,
+        "original_rows_changed": 0
+      },
+      "payroll_pay_periods": {
+        "before": 8,
+        "after": 14,
+        "original_rows_changed": 0
+      },
+      "payroll_pay_schedules": {
+        "before": 3,
+        "after": 4,
+        "original_rows_changed": 0
+      },
+      "payroll_profiles": {
+        "before": 3,
+        "after": 4,
+        "original_rows_changed": 0
+      },
+      "people": {
+        "before": 68,
+        "after": 69,
+        "original_rows_changed": 0
+      },
+      "people_change_log": {
+        "before": 1,
+        "after": 2,
+        "original_rows_changed": 0
+      },
+      "people_employees": {
+        "before": 5,
+        "after": 6,
+        "original_rows_changed": 0
+      },
+      "placement_economic_parties": {
+        "before": 74,
+        "after": 77,
+        "original_rows_changed": 0
+      },
+      "placement_rates": {
+        "before": 3,
+        "after": 4,
+        "original_rows_changed": 0
+      },
+      "placements": {
+        "before": 66,
+        "after": 67,
+        "original_rows_changed": 0
+      },
+      "quanta_connections": {
+        "before": 2,
+        "after": 2,
+        "original_rows_changed": 1
+      },
+      "quanta_time_approval_evidence": {
+        "before": 14,
+        "after": 16,
+        "original_rows_changed": 0
+      },
+      "quanta_time_imports": {
+        "before": 14,
+        "after": 15,
+        "original_rows_changed": 0
+      },
+      "quanta_time_revisions": {
+        "before": 0,
+        "after": 1,
+        "original_rows_changed": 0
+      },
+      "quanta_time_routes": {
+        "before": 4,
+        "after": 5,
+        "original_rows_changed": 0
+      },
+      "quanta_worker_links": {
+        "before": 3,
+        "after": 4,
+        "original_rows_changed": 0
+      },
+      "staffing_timesheets": {
+        "before": 6,
+        "after": 7,
+        "original_rows_changed": 0
+      },
+      "tenant_memberships": {
+        "before": 65,
+        "after": 77,
+        "original_rows_changed": 0
+      },
+      "time_entries": {
+        "before": 14,
+        "after": 16,
+        "original_rows_changed": 0
+      },
+      "user_tenants": {
+        "before": 71,
+        "after": 83,
+        "original_rows_changed": 0
+      },
+      "users": {
+        "before": 67,
+        "after": 79,
+        "original_rows_changed": 0
+      }
+    },
+    "all_original_business_rows_preserved": true,
+    "only_original_metadata_change": "Isolated Quanta connection import timestamp/error fields, verified separately by the import phase.",
+    "protected_paid_entries": 10,
+    "protected_paid_hours": 80,
+    "closed_PL874_preserved": true,
+    "original_entry_id": 15,
+    "replacement_entry_id": 16,
+    "revision_id": 1,
+    "initial_approver": 86,
+    "corrector": 88,
+    "replacement_approver": 90,
+    "current_hours": 1.5,
+    "weekly_artifact_matches": true,
+    "temporary_operators_retired": 12,
+    "financial_execution": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "synthetic_case_left_active_for_portal_walkthrough": true
+  },
+  "final_providers": {
+    "passed": true,
+    "providers": {
+      "quanta": {
+        "checked_at": "2026-11-12T10:15:53.710051+00:00",
+        "passed": true,
+        "collections_verified": 71,
+        "before_rows": 1491,
+        "after_rows": 1538,
+        "changes": {
+          "audit_events": {
+            "before": 68,
+            "after": 91,
+            "old_metadata_rows_replaced": 0
+          },
+          "auth_sessions": {
+            "before": 43,
+            "after": 49,
+            "old_metadata_rows_replaced": 0
+          },
+          "coreflux_assignments": {
+            "before": 3,
+            "after": 4,
+            "old_metadata_rows_replaced": 0
+          },
+          "coreflux_commit_fences": {
+            "before": 1,
+            "after": 1,
+            "old_metadata_rows_replaced": 1
+          },
+          "coreflux_deliveries": {
+            "before": 68,
+            "after": 75,
+            "old_metadata_rows_replaced": 0
+          },
+          "coreflux_person_links": {
+            "before": 3,
+            "after": 4,
+            "old_metadata_rows_replaced": 0
+          },
+          "coreflux_time_access": {
+            "before": 1,
+            "after": 2,
+            "old_metadata_rows_replaced": 0
+          },
+          "coreflux_time_reviews": {
+            "before": 13,
+            "after": 14,
+            "old_metadata_rows_replaced": 0
+          },
+          "identities": {
+            "before": 3,
+            "after": 3,
+            "old_metadata_rows_replaced": 2
+          },
+          "magic_link_tokens": {
+            "before": 5,
+            "after": 7,
+            "old_metadata_rows_replaced": 0
+          },
+          "manual_time_receipts": {
+            "before": 1,
+            "after": 2,
+            "old_metadata_rows_replaced": 0
+          },
+          "time_entries": {
+            "before": 13,
+            "after": 14,
+            "old_metadata_rows_replaced": 0
+          },
+          "timesheets": {
+            "before": 5,
+            "after": 6,
+            "old_metadata_rows_replaced": 0
+          },
+          "users": {
+            "before": 5,
+            "after": 6,
+            "old_metadata_rows_replaced": 2
+          },
+          "worksite_assignments": {
+            "before": 2,
+            "after": 3,
+            "old_metadata_rows_replaced": 0
+          }
+        },
+        "evidence": {
+          "source_entry_id": "3a18a0f9-6761-4a6e-be8f-0a5bcaa552c2",
+          "minutes": 90,
+          "source_approved": true,
+          "review_version": 4,
+          "review_state": "accepted",
+          "review_history_states": [
+            "pending_review",
+            "accepted",
+            "pending_review"
+          ],
+          "worker_login_granted": false,
+          "old_assignment_closed": true
+        },
+        "no_original_business_record_removed": true
+      },
+      "pure": {
+        "checked_at": "2026-11-12T10:15:56.444113+00:00",
+        "passed": true,
+        "collections_verified": 26,
+        "before_rows": 104,
+        "after_rows": 104,
+        "changes": {},
+        "evidence": {},
+        "no_original_business_record_removed": true
+      }
+    },
+    "purepay_unchanged": true,
+    "production_changed": false,
+    "financial_execution": false
+  },
+  "evidence": {
+    "synthetic-correction-core-result.json": {
+      "sha256": "a639ba11b0510751fe95470d704b385fbf524ba57f6a21297ba01ad1afccecab",
+      "passed": false
+    },
+    "synthetic-correction-employee_setup-result.json": {
+      "sha256": "f4d622a0d57d54804acde9844b00a0d8dbc7d1b63f48abce2b0d382c660922ec",
+      "passed": true
+    },
+    "synthetic-correction-activation-result.json": {
+      "sha256": "4dd647ede9b0ad9b9f69651545810716541cd1ba58c76441752329b60028242c",
+      "passed": true
+    },
+    "synthetic-correction-publication-result.json": {
+      "sha256": "d300690ab8bedb7f8ee72b0503831254fe76c182efb8dbdc23c8c6cc6f327827",
+      "passed": true
+    },
+    "correction-quanta-prepare-result.json": {
+      "sha256": "feb7fa3f2b6129d92d1ec771b24603961768e7ebfc1d77cf5244fab61b0130b1",
+      "passed": true
+    },
+    "synthetic-correction-time_policy-result.json": {
+      "sha256": "edd42ec40bf1e913ad5f84c4fadee9619619e05ee6a5e896e52846d9195cb424",
+      "passed": true
+    },
+    "correction-quanta-capture-result.json": {
+      "sha256": "00f77232cf3a5817780c738cd23d51fe0f7f17f3b5a654fddd2d1b99f48bb124",
+      "passed": true
+    },
+    "synthetic-correction-time_import-result.json": {
+      "sha256": "85881a05251afa5a21a1456caff3400f9be16e744bea07b0073a718562dfce53",
+      "passed": true
+    },
+    "synthetic-correction-time_approval-result.json": {
+      "sha256": "bdba543ccbeea45c27f6810b9d2f5dc178efe33adaa53d8d7f0e2690df193b75",
+      "passed": false
+    },
+    "synthetic-correction-initial-approval-verification.json": {
+      "sha256": "a148d8de4c1f9ceedd9b211db25c78df3ebfad48c1c9266df3d0e2099795f1d2",
+      "passed": true
+    },
+    "synthetic-correction-time_accept_return-result.json": {
+      "sha256": "62c6d9e0873c24868d40c50fae3e56ac445ae4cbd4ebad42dcb7c39e3fcc6783",
+      "passed": true
+    },
+    "correction-quanta-correct-result.json": {
+      "sha256": "1f08e34e2661b515ce99ddd81efe5e6465b2811cd454daba7b49179963c37850",
+      "passed": true
+    },
+    "synthetic-correction-revision-result.json": {
+      "sha256": "38f641d27d156ef3490fed8c2eb4e79d9731e357a3b6fc5da00c929996bd5d4e",
+      "passed": false
+    },
+    "synthetic-correction-revision-verification.json": {
+      "sha256": "3bafcd2b885ce28585ddbe70f08ae41163bb782deb29c3fd15b7a4373e246d26",
+      "passed": true
+    },
+    "synthetic-correction-revision_pending_return-result.json": {
+      "sha256": "dee8683b7e82cf5486751409346211e661611474343b9359e9b65592a21e0550",
+      "passed": true
+    },
+    "synthetic-correction-reapproval-result.json": {
+      "sha256": "a07179ee0a10faa43544c029517a9d28ad998bd10e0fa21251290785fd19d40d",
+      "passed": true
+    },
+    "synthetic-correction-revision_return-result.json": {
+      "sha256": "0edb73bb89c15e4ddffd7ac28aa2a5d6a4b65683f302d5274bc06cff77d71555",
+      "passed": true
+    },
+    "correction-quanta-portal-result.json": {
+      "sha256": "c95f32c3158847a84d17bbc3736eca75e858fb3f1633530635310ebd414d914b",
+      "passed": true
+    },
+    "synthetic-correction-final-core.json": {
+      "sha256": "ca14584e34cfb40c8994d213bd2551e077ea1c5bb62ae793eea6b6fa1f3eec94",
+      "passed": true
+    },
+    "synthetic-correction-final-providers.json": {
+      "sha256": "5d3bc6acfd28b1ef9dba01e07e06ae50378bbef9ba0f174b7cc60238514a5ea0",
+      "passed": true
+    }
+  },
+  "executed_core_packages": {
+    "synthetic-correction-employee_setup-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-employee_setup-c4f0c2bdc9a75996",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-employee_setup-20261112-correction.json",
+      "hashes": {
+        "correction_employee_setup.php": "4b829d716b9f222a4a74e6a9067868f3d9c9013a1a1b674a3e4633917c4ea4eb",
+        "thunderhawk_correction_native.php": "e6d6fd92b6074867fab5964439a3ebd43b026f7181c3682225dedd2b541f9cd7",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-activation-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-activation-d200134e7f74bbf2",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-activation-20261112-correction.json",
+      "hashes": {
+        "correction_activation.php": "94c38be5994474dd124a60c17d851b0015b895013d8998646c30fadd693e1e36",
+        "thunderhawk_correction_native.php": "e6d6fd92b6074867fab5964439a3ebd43b026f7181c3682225dedd2b541f9cd7",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-publication-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-publication-6297638e5fbfa3eb",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-publication-20261112-correction.json",
+      "hashes": {
+        "correction_publication.php": "293fb0e61f2ffb0d6c2e5ce06c0e365d09b9b518d00d1acae1b17e312380d35b",
+        "thunderhawk_correction_native.php": "e6d6fd92b6074867fab5964439a3ebd43b026f7181c3682225dedd2b541f9cd7",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-time_policy-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-time_policy-0ef34cc28e75a83e",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-time_policy-20261112-correction.json",
+      "hashes": {
+        "correction_time_policy.php": "21c8aade072b9eadfc0872c119cab6700f30b5f15701615aa923802bc4c6c23f",
+        "thunderhawk_correction_native.php": "e6d6fd92b6074867fab5964439a3ebd43b026f7181c3682225dedd2b541f9cd7",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-time_import-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-time_import-9fb0a1d96b5ac29d",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-time_import-20261112-correction.json",
+      "hashes": {
+        "correction_time_import.php": "523f1e08e07debfb76f3e4fb1933b3ef7849dab426d760c9d410d0b3f2a43607",
+        "thunderhawk_correction_native.php": "e6d6fd92b6074867fab5964439a3ebd43b026f7181c3682225dedd2b541f9cd7",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-time_approval-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-time_approval-4c034c783f236424",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-time_approval-20261112-correction.json",
+      "hashes": {
+        "correction_time_approval.php": "e798b03f0c33c8a1c96c536c86ad9a326f7e9539579957896985a934fa00b015",
+        "thunderhawk_correction_native.php": "e9d31319bb127434f8888fdf7d1750cccc9c0c491d95650567e698e213a58ad8",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-time_accept_return-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-time_accept_return-c9a274310702bdbd",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-time_accept_return-20261112-correction.json",
+      "hashes": {
+        "correction_time_accept_return.php": "1b12facfe4d71890c64a201419cb060e620a3d8806417f0f56d16f498c9daae1",
+        "thunderhawk_correction_native.php": "e9d31319bb127434f8888fdf7d1750cccc9c0c491d95650567e698e213a58ad8",
+        "lifecycle-runtime-pins.json": "f573aebeed1b555a875522501f8a4c6cf3202562ba74316d7cdb84e3d82ac610"
+      }
+    },
+    "synthetic-correction-revision-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-revision-29cf177a2719209d",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-revision-20261112-correction.json",
+      "hashes": {
+        "correction_revision.php": "dc5e2245787fc2aa7ced8342d88408667bcf963d0c11e0c8f30b08d7b67601c7",
+        "thunderhawk_correction_native.php": "1efd089db708d9e008efb496fa3e823357008d3203b1d0b4f1e39c2e43f1a780",
+        "lifecycle-runtime-pins.json": "4b48c7dc6e78d4ef845c57368de734ee39fcf4d4fd3043e22ed943ed23d1f13e"
+      }
+    },
+    "synthetic-correction-revision_pending_return-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-revision_pending_return-66ec1461195088dd",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-revision_pending_return-20261112-correction.json",
+      "hashes": {
+        "correction_revision_pending_return.php": "599387de4742cf9ab5d8a4bccc3f0bda4ed19cd9b669e7fe9c32af5305145a63",
+        "thunderhawk_correction_native.php": "2ceee8a5da80aa660d27d0a796ac1185f973fa37ec90bd988bf047c821e1e4a5",
+        "lifecycle-runtime-pins.json": "4b48c7dc6e78d4ef845c57368de734ee39fcf4d4fd3043e22ed943ed23d1f13e"
+      }
+    },
+    "synthetic-correction-reapproval-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-reapproval-28ed988ad9bc06e1",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-reapproval-20261112-correction.json",
+      "hashes": {
+        "correction_reapproval.php": "468dd55ba1abc6e7bb236f496b68071642a62360fef0c8ab15b9994112e46d47",
+        "thunderhawk_correction_native.php": "2ceee8a5da80aa660d27d0a796ac1185f973fa37ec90bd988bf047c821e1e4a5",
+        "lifecycle-runtime-pins.json": "4b48c7dc6e78d4ef845c57368de734ee39fcf4d4fd3043e22ed943ed23d1f13e"
+      }
+    },
+    "synthetic-correction-revision_return-result.json": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/lifecycle-revision_return-e2857cdd262d3be2",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-lifecycle-revision_return-20261112-correction.json",
+      "hashes": {
+        "correction_revision_return.php": "652fdc9d54388b2246c982d95ec4c7f1ec65a38b0c2649ca6d9d06079a2a1020",
+        "thunderhawk_correction_native.php": "2ceee8a5da80aa660d27d0a796ac1185f973fa37ec90bd988bf047c821e1e4a5",
+        "lifecycle-runtime-pins.json": "4b48c7dc6e78d4ef845c57368de734ee39fcf4d4fd3043e22ed943ed23d1f13e"
+      }
+    }
+  },
+  "provider_handles": {
+    "correction-quanta-capture-handle.json": {
+      "state": "/srv/core-integration-pilot/20261029/private/synthetic-quanta-hour-20261112-correction.json",
+      "plan": {
+        "expires_at": "2026-11-12T10:33:18.491747+00:00",
+        "container_id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+        "runtime": {
+          "app/routers/admin_time_create.py": "bcb75e72a26ab46d3f4a35c4ac86db0f4493ff4afef7cf592557f571023dc3be",
+          "app/manual_time_capture.py": "27243504efe49434702613d617c524eab5a54d51073edf553f734abebe1e88d0",
+          "app/routers/admin_worker_week.py": "ccdf52604c69e9c7edf310cfc600178291fa730d7f6f862b9249ad769321c325",
+          "app/services/timesheet_submission.py": "e1cdc259849085d5052f0fac7daa63d9e3673115ec1626267846a883d3a1f5fc",
+          "app/routers/approvals.py": "d3909a00bd6c2f5a47586d922aa0516db60823ccb3f4413f99cdd2eca229887a",
+          "app/coreflux_time_access.py": "c9231ed358753668b1d42268cf5da8ea93851b4381f9e608ff0696fe59a93593"
+        }
+      },
+      "helper_sha256": "198619fad136a33e391e96b68989a3c38bf011a9dde2709ad09f45c1b55edb17"
+    },
+    "correction-quanta-correct-handle.json": {
+      "state": "/srv/core-integration-pilot/20261029/private/synthetic-quanta-correction-20261112-correction.json",
+      "plan": {
+        "expires_at": "2026-11-12T10:37:31.196414+00:00",
+        "container_id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+        "runtime": {
+          "app/routers/admin_time_create.py": "bcb75e72a26ab46d3f4a35c4ac86db0f4493ff4afef7cf592557f571023dc3be",
+          "app/manual_time_capture.py": "27243504efe49434702613d617c524eab5a54d51073edf553f734abebe1e88d0",
+          "app/routers/admin_worker_week.py": "ccdf52604c69e9c7edf310cfc600178291fa730d7f6f862b9249ad769321c325",
+          "app/services/timesheet_submission.py": "e1cdc259849085d5052f0fac7daa63d9e3673115ec1626267846a883d3a1f5fc",
+          "app/routers/approvals.py": "d3909a00bd6c2f5a47586d922aa0516db60823ccb3f4413f99cdd2eca229887a",
+          "app/coreflux_time_access.py": "c9231ed358753668b1d42268cf5da8ea93851b4381f9e608ff0696fe59a93593",
+          "app/routers/tenant.py": "fe895dda92a7ba767ca94eee5b997ee9e2ba1f541c487d716a241ed6dcc71f82",
+          "app/routers/time.py": "de93ffeaf6b6fb2437c465a5c9a9d16bf1a6eff0d59e6cd6afe9b7d77e171ba9"
+        }
+      },
+      "helper_sha256": "51bf5d9e95f99ef16597efd46da8bf38845a8a27e91a61eecbf46359c966c137"
+    },
+    "correction-quanta-portal-handle.json": {
+      "state": "/srv/core-integration-pilot/20261029/private/synthetic-correction-portal-verification-20261112.json",
+      "plan": {
+        "expires_at": "2026-11-12T10:43:16.296506+00:00",
+        "container_id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+        "runtime": {
+          "app/routers/admin_time_create.py": "bcb75e72a26ab46d3f4a35c4ac86db0f4493ff4afef7cf592557f571023dc3be",
+          "app/manual_time_capture.py": "27243504efe49434702613d617c524eab5a54d51073edf553f734abebe1e88d0",
+          "app/routers/admin_worker_week.py": "ccdf52604c69e9c7edf310cfc600178291fa730d7f6f862b9249ad769321c325",
+          "app/services/timesheet_submission.py": "e1cdc259849085d5052f0fac7daa63d9e3673115ec1626267846a883d3a1f5fc",
+          "app/routers/approvals.py": "d3909a00bd6c2f5a47586d922aa0516db60823ccb3f4413f99cdd2eca229887a",
+          "app/coreflux_time_access.py": "c9231ed358753668b1d42268cf5da8ea93851b4381f9e608ff0696fe59a93593"
+        }
+      },
+      "helper_sha256": "b5046f6e986d048aba9aef0baa2689ef7afa3d8d9720d420cced6a52f0f0521f"
+    },
+    "correction-quanta-prepare-handle.json": {
+      "state": "/srv/core-integration-pilot/20261029/private/synthetic-quanta-time-preparation-20261112-correction.json",
+      "plan": {
+        "expires_at": "2026-11-12T10:32:48.264086+00:00",
+        "container_id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+        "runtime": {
+          "app/routers/tenant.py": "fe895dda92a7ba767ca94eee5b997ee9e2ba1f541c487d716a241ed6dcc71f82",
+          "app/routers/worksites.py": "49b2bc9adb4c2cd5aa2eba4e7a89fde4b0620ccff8ae22b9d5a79948bfc8d790",
+          "app/routers/api_keys.py": "c018cce212c10958927b4ac92ec647490e57560a0b59bdffd53ee189023f9af0",
+          "app/routers/auth.py": "f8676f92255087ee45bc829d6320ea92cd401397e966a0ffeabf29778cd46e7c",
+          "app/coreflux_commit.py": "c244a83e47b77f329e8df2cffd156084f00d4399ac5687274b475a735d1c9839"
+        }
+      },
+      "helper_sha256": "63b370438e57c056967b9a757158cd5fdb5d62e8b3416e1e456cb9e04125511d"
+    }
+  },
+  "current_helper_sources": {
+    "deploy/capture_correction_quanta_hour.py": "5aa8c5837a6700d1d2f5393a8c9fc5e0ec0c72d1aa1ed453baeafc4abf02dd1c",
+    "deploy/correction_activation.php": "7277916a0b7f65829b3cb4a19d79843528a851e31ba5af3f7711770337920954",
+    "deploy/correction_employee_setup.php": "4b829d716b9f222a4a74e6a9067868f3d9c9013a1a1b674a3e4633917c4ea4eb",
+    "deploy/correction_publication.php": "987fee2a51ff5069419471f720a7c0ad8732c261ddbd21ca6030553885fea135",
+    "deploy/correction_reapproval.php": "470afbb9cc3d1dc4f67b027c756249e34894334d2ed63d3b3b7e68b5beade3c3",
+    "deploy/correction_revision.php": "4a1cc27485045829e2e89df35848d4a4555d7f2f2dcaa8e34fdb8b4b09fa6d04",
+    "deploy/correction_revision_pending_return.php": "16617af0ef1a7f9818620915b84035f97d0741b67f655a4dfdb79dfd0fdfbed7",
+    "deploy/correction_revision_return.php": "ac05b92f7ad9db45ea9861670b6aa751c2097e19f769aee93a13f84269d60804",
+    "deploy/correction_time_accept_return.php": "ed35c67f3c3dcf54bb260bc33d8e90385ecced99d4b9fd96df527d8715226386",
+    "deploy/correction_time_approval.php": "146ef77ad3a348e793c2fff81b35bddc2d5cee79a5da0af43505b97b4d81aff4",
+    "deploy/correction_time_import.php": "6e234eef193d33e379efa2dd2b01c8eb9bdcb1917b1435ac0a72d30aa210addc",
+    "deploy/correction_time_policy.php": "5bca4694c27d630669577497f508e06fcc1651dc5b3b4cf284a414874ef9702d",
+    "deploy/correct_correction_quanta_hour.py": "741ebd7e74346016badda89b036b2eada0677ae34681fc075f1db57b92c4234c",
+    "deploy/prepare_correction_quanta_time.py": "c6c042e062ca5aa7138d04f29c4370cc367f9f6f1db6cdf8655c2d43b0d82240",
+    "deploy/provision_thunderhawk_correction_case.php": "dd9e142ea087189021c590294771257b069ee6251f05b484475a489163e50425",
+    "deploy/run_correction_quanta_phase.py": "5fd89b68f5f7e56564adc0182e2f4d599284153e527608cc7b2f318ac3855352",
+    "deploy/run_synthetic_correction_core.py": "e3461a9cda3f76b9d3b24a5ccc146ec539b4e3a3b36b8617aa68e24236f694ee",
+    "deploy/run_thunderhawk_correction_phase.py": "418a3b353e6c0be404de47d37d89eb14d7c5206a07f1385e3f40b9b53ac0a40c",
+    "deploy/thunderhawk_correction_native.php": "0cfc4acd9c890d780bb1cc4aa6f4c9a086081e3ef6b4ecdea7a16aca41a11a3a",
+    "deploy/verify_correction_final_core.py": "651945b14fa063c13685e066c75d264f7c2eab72e1b4b6c6d50ffd85ddd08423",
+    "deploy/verify_correction_final_providers.py": "be8acc2243c185d6be84a3d3b99cf9c355615bd6c53a0d77a4f802995befb6cd",
+    "deploy/verify_correction_initial_approval.py": "86af8f16f8feb3db780814b97220cbcd4292e6633b5298f1530e436704aeb5b8",
+    "deploy/verify_correction_quanta_portal.py": "b5046f6e986d048aba9aef0baa2689ef7afa3d8d9720d420cced6a52f0f0521f",
+    "deploy/verify_correction_revision.py": "3bc8c3fd207148b31f3e375e11d77119ac28ae8a41ab10b73623aced21f4098f"
+  },
+  "helper_limitations": [
+    "Initial native creation committed P-387/PL-902 and rate 23, but detected a legacy same-name employee bridge collision. No creation was repeated; a separate employee record 6 was created through the existing native API. Automatic employee matching remains an implementation gap.",
+    "Initial approval committed successfully and passed its business/replay checks; the older harness omitted artifact and weekly approval metadata reconciliation. A read-only verification proved target-only changes without repeating approval.",
+    "Correction receipt 1 committed and passed replay, conflict, provenance and self-approval checks. Its helper then compared key-sorted encrypted JSON using PHP array order, and omitted submitted_at from the expected header changes. Separate read-only verification established preserved source evidence and bounded changes. No correction request was repeated. Current helper comparison and header projection are corrected; executed private package hashes remain above.",
+    "Final read-only checks first referenced an incorrect artifact include, then an absent import-hours column, then a wrong provider component field name. They stopped without business mutations; corrected checks use the installed schema and contract."
+  ],
+  "remaining": [
+    "Remove name-only employment backfill matching and establish canonical employee identity without relinking existing provider IDs.",
+    "Complete rendered source-correction and portal/document/lifecycle walkthroughs; the new synthetic case remains active for inspection.",
+    "Complete 487 remaining field dispositions and provider destination acceptance.",
+    "Complete same-period financial allocations, fees/returns and source exceptions.",
+    "Requirement-by-requirement final completion audit."
+  ],
+  "validation": {
+    "php_lint_and_python_parse_helpers": 24,
+    "new_application_tests_required": false,
+    "native_api_round_trip_verified": true,
+    "helper_cleanup": "12 Core operators retired; six provider sessions revoked; no worker login granted; coordination window released."
+  },
+  "current_helper_hash_format": "SHA-256 of UTF-8 source with LF line endings; executed packages retain their exact byte hashes separately."
+}
