@@ -39,7 +39,7 @@ function quantaTimeRevisionRows(PDO $pdo, int $tenant, string $id): array
 }
 
 /** A correction cannot revoke a downstream commitment. Claims also have DB trigger protection. */
-function quantaTimeRevisionUnconsumed(PDO $pdo, int $tenant, array $entry): void
+function quantaTimeRevisionUnconsumed(PDO $pdo, int $tenant, array $entry, array $personReference): void
 {
     foreach (['bill','ap','payroll'] as $target) {
         foreach (['at','ref','by_user_id'] as $suffix) {
@@ -55,6 +55,47 @@ function quantaTimeRevisionUnconsumed(PDO $pdo, int $tenant, array $entry): void
         $ids=json_decode((string)$bundle['entries_json'],true,64,JSON_THROW_ON_ERROR)['entry_ids']??null;
         if (!is_array($ids) || in_array((int)$entry['id'],array_map('intval',$ids),true)) {
             throw new RuntimeException('This time belongs to a downstream bundle. Resolve that bundle before correcting it.');
+        }
+    }
+    // Native document lineage is independent of the convenience extraction flags.
+    foreach ([['billing','billing_invoice_lines','billing_invoices','invoice_id'],['ap','ap_bill_lines','ap_bills','bill_id']] as [$module,$lines,$headers,$fk]) {
+        $owner=effectiveTenantIdForModule($module,$tenant)??$tenant;
+        $s=$pdo->prepare("SELECT l.id FROM {$lines} l JOIN {$headers} h ON h.id=l.{$fk}
+            WHERE h.tenant_id=? AND l.source_type IN ('time','time_entry') AND l.source_ref_id=? LIMIT 1 FOR UPDATE");
+        $s->execute([$owner,(string)$entry['id']]);
+        if ($s->fetchColumn()) throw new RuntimeException('This time has a linked financial document. Review and resolve that document before correcting the source.');
+    }
+    $owner=effectiveTenantIdForModule('accounting',$tenant)??$tenant; $sheet=(int)$entry['timesheet_id'];
+    $s=$pdo->prepare("SELECT id FROM accounting_events WHERE tenant_id=? AND source_module='staffing'
+        AND (source_record_id=? OR source_record_id LIKE ? OR source_record_id LIKE ?) LIMIT 1 FOR UPDATE");
+    $s->execute([$owner,(string)$sheet,$sheet.':%','timesheet:'.$sheet.':placement:%']);
+    if ($s->fetchColumn()) throw new RuntimeException('This week has an accounting event. Resolve its accounting history before correcting the source.');
+    // Historical provider payroll has no source claims. Preserve reviewed overlapping
+    // person evidence without pretending it proves a particular placement allocation.
+    $s=$pdo->prepare('SELECT o.id FROM payroll_native_observations o JOIN
+        (SELECT MAX(id) id FROM payroll_native_observations WHERE tenant_id=? GROUP BY connection_id,run_id) latest ON latest.id=o.id
+        WHERE o.tenant_id=? ORDER BY o.id LIMIT 1001 FOR UPDATE');
+    $s->execute([$tenant,$tenant]); $observationIds=$s->fetchAll(PDO::FETCH_COLUMN);
+    if (count($observationIds)>1000) throw new RuntimeException('Review the historical payroll scope before correcting source time.');
+    foreach ($observationIds as $observationId) {
+        $s=$pdo->prepare('SELECT payload_ct FROM payroll_native_observations WHERE tenant_id=? AND id=? FOR UPDATE');
+        $s->execute([$tenant,$observationId]);
+        $saved=json_decode(decryptField($s->fetchColumn()),true,64,JSON_THROW_ON_ERROR);
+        if (!is_array($saved) || !is_array($saved['observation']??null) || !is_array($saved['comparison']['people']??null)) {
+            throw new RuntimeException('Saved payroll evidence is incomplete. Review it before correcting time.');
+        }
+        $observation=$saved['observation'];
+        foreach ($saved['comparison']['people'] as $person) {
+            if (($person['link_status']??null)!=='linked') continue;
+            if (!is_array($person['person']??null)) throw new RuntimeException('Saved payroll person identity needs review.');
+            if (integrationDeliveryHash($person['person'])!==integrationDeliveryHash($personReference)) continue;
+            $from=$observation['period_start']??null; $to=$observation['period_end']??null;
+            foreach ([$from,$to] as $date) if ($date!==null && (!is_string($date) || !preg_match('/^\d{4}-\d{2}-\d{2}$/D',$date))) {
+                throw new RuntimeException('Saved payroll dates need review before correcting time.');
+            }
+            if (($from===null || $from<=$entry['work_date']) && ($to===null || $to>=$entry['work_date'])) {
+                throw new RuntimeException('Saved provider payroll evidence overlaps this person and work date. Reconcile that payroll before correcting time; its placement allocation is not inferred.');
+            }
         }
     }
 }
@@ -111,7 +152,7 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
                 && $row['hour_type']===$type && $row['category']===$category && (int)$row['billable']===$billable) $matches=true;
         }
         if (!$matches) throw new RuntimeException('Core time no longer matches its recorded source revision. Review the discrepancy first.');
-        quantaTimeRevisionUnconsumed($pdo,$tenant,$row);
+        quantaTimeRevisionUnconsumed($pdo,$tenant,$row,integrationRecordReference($access['instance_id'],$personOwner,'person',$route['person_number']));
         $active[$component]=$row;
         $headers[(int)$row['timesheet_id']]=null; $periods[(int)$row['period_id']]=null;
     }

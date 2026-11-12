@@ -34,11 +34,12 @@ $reviews = array_slice($actions, 3);
 $timeControls=['time_control_context','time_control_preview','time_control_pending','time_control_send','time_control_receipt'];
 $timeControls=array_merge($timeControls,['save_routes','delete_route']);
 $timeControls=array_merge($timeControls,['legacy_time_inventory','legacy_time_preview','legacy_time_pending','legacy_time_send','legacy_time_receipt']);
+$timeControls=array_merge($timeControls,['time_revision_preview','time_revision_apply','time_revision_history','time_revision_recent']);
 $actions=array_merge($actions,$timeControls);
 $counts = static function() use ($pdo): array {
     $out = [];
     foreach (['people','placements','quanta_profile_baselines','quanta_profile_decisions','quanta_profile_returns',
-        'payroll_runs','ap_payments','billing_payments','accounting_journal_entries'] as $table) {
+        'time_entries','quanta_time_revisions','payroll_runs','ap_payments','billing_payments','accounting_journal_entries'] as $table) {
         $out[$table] = (int)$pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
     return $out;
@@ -149,6 +150,15 @@ try {
     $expect($call('legacy_time_preview',['source_entry_id'=>'invalid/path'])[0]===422,'Historical review rejects malformed source identity');
     foreach([false,1,'true',null] as $confirmation)$expect($call('legacy_time_send',$envelope+['confirm_existing_time'=>$confirmation])[0]===422,'Historical linking requires literal confirmation');
     $expect($call('legacy_time_send',$envelope+['confirm_existing_time'=>true])[0]===409,'Historical linking stays disabled until rollout');
+    foreach(['time_revision_preview','time_revision_history']as$action)$expect($call($action,['source_entry_id'=>'invalid/path'])[0]===422,'Correction route validates source identity: '.$action);
+    $revision=['source_entry_id'=>'missing-source','review_hash'=>str_repeat('a',64),'reason'=>'Synthetic correction'];
+    foreach([false,1,'true',null]as$confirmation)$expect($call('time_revision_apply',$revision+['confirm_revision'=>$confirmation])[0]===422,'Correction requires literal confirmation before source access');
+    $pdo->exec('UPDATE quanta_connections SET status="revoked" WHERE tenant_id='.$tenant);
+    foreach(['time_revision_history','time_revision_recent']as$action){
+        [$status,$data]=$call($action,['source_entry_id'=>'missing-source']);
+        $expect($status===200&&($data['items']??null)===[],'Authorized correction history remains readable with provider disconnected: '.$action);
+    }
+    $pdo->exec('UPDATE quanta_connections SET status="active" WHERE tenant_id='.$tenant);
     foreach($timeControls as $action)$expect($call($action,[],true,999)[0]===403,'Foreign company cannot manage time setup: '.$action);
     RBACResolver::grantModule($membership,'time','read',[$tenant],$actor);
     foreach($timeControls as $action)$expect($call($action)[0]===403,'Same session loses time setup rights on downgrade: '.$action);

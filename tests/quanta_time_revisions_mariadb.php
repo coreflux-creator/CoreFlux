@@ -31,6 +31,12 @@ foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrat
 }
 $pdo->exec('CREATE TABLE payroll_source_claims(time_tenant_id BIGINT,time_entry_id BIGINT,authority_id VARCHAR(80),PRIMARY KEY(time_tenant_id,time_entry_id))');
 $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT,actor_user_id BIGINT,event VARCHAR(128),target_id BIGINT,meta_json LONGTEXT,created_at DATETIME)');
+$applyFile('modules/accounting/migrations/015_accounting_events.sql');
+foreach([['billing_invoices','billing_invoice_lines','invoice_id'],['ap_bills','ap_bill_lines','bill_id']]as[$headers,$lines,$fk]) {
+    $pdo->exec('CREATE TABLE '.$headers.'(id BIGINT PRIMARY KEY,tenant_id BIGINT)');
+    $pdo->exec('CREATE TABLE '.$lines.'(id BIGINT PRIMARY KEY,'.$fk.' BIGINT,source_type VARCHAR(40),source_ref_id VARCHAR(128))');
+}
+$pdo->exec('CREATE TABLE payroll_native_observations(id BIGINT PRIMARY KEY,tenant_id BIGINT,connection_id BIGINT,run_id VARCHAR(128),payload_ct MEDIUMBLOB)');
 $pdo->exec('CREATE TABLE accounting_entities(id BIGINT PRIMARY KEY,tenant_id BIGINT,active BOOLEAN)');
 $pdo->exec('INSERT INTO accounting_entities VALUES(1,1,1)');
 $pdo->exec('ALTER TABLE people ADD entity_id BIGINT NULL');
@@ -101,6 +107,19 @@ $pdo->exec('UPDATE time_entries SET bill_extracted_ref="invoice-1" WHERE id=1');
 $check($fails($preview,'downstream'),'reference-only downstream extraction blocks revision');$pdo->exec('UPDATE time_entries SET bill_extracted_ref=NULL WHERE id=1');
 $pdo->exec('INSERT INTO time_downstream_feed(tenant_id,period_id,placement_id,bundle_type,entries_json) VALUES(1,1,42,"ar",\'{"entry_ids":[1,2]}\')');
 $check($fails($preview,'bundle'),'even an unconsumed prepared bundle must be resolved first');$pdo->exec('DELETE FROM time_downstream_feed');
+foreach([['billing_invoices','billing_invoice_lines','invoice_id'],['ap_bills','ap_bill_lines','bill_id']]as[$headers,$lines,$fk]) {
+    $pdo->exec('INSERT INTO '.$headers.' VALUES(1,1)');$pdo->exec('INSERT INTO '.$lines.' VALUES(1,1,"time_entry","1")');
+    $check($fails($preview,'linked financial document'),'actual '.$headers.' lineage blocks correction without extraction flags');
+    $pdo->exec('DELETE FROM '.$lines);$pdo->exec('DELETE FROM '.$headers);
+}
+$pdo->prepare('INSERT INTO accounting_events(tenant_id,entity_id,event_type,source_module,source_record_id,event_date,payload) VALUES(1,1,"staffing.worker_hours.approved","staffing",?,"2026-10-03","{}")')->execute(['timesheet:'.$sheet['id'].':placement:42:w2']);
+$check($fails($preview,'accounting event'),'pending or posted accounting history cannot be overwritten by a source revision');$pdo->exec('DELETE FROM accounting_events');
+$observation=['observation'=>['status'=>'paid','period_start'=>'2026-10-01','period_end'=>'2026-10-15'],
+    'comparison'=>['people'=>[['link_status'=>'linked','person'=>integrationRecordReference($instance,1,'person','P-19')]]]];
+$pdo->prepare('INSERT INTO payroll_native_observations VALUES(1,1,1,"historical-run",?)')->execute([encryptField(integrationDeliveryJson($observation))]);
+$check($fails($preview,'payroll evidence'),'historical payroll evidence blocks overlapping person/date without inventing placement allocation');
+$pdo->exec('UPDATE payroll_native_observations SET tenant_id=2 WHERE id=1');
+$check(is_array($preview()),'another company payroll evidence does not block this source');$pdo->exec('DELETE FROM payroll_native_observations');
 $mode='unavailable';$check($fails($preview,'approve'),'withdrawn source cannot be reimported as a correction');$mode='approved';
 $pdo->exec('UPDATE time_entries SET source="manual_entry" WHERE id=1');
 $check($fails(fn()=>quantaTimeAssertManualCorrection($pdo,1,timeEntryGet(1)),'Quanta'),'changed label cannot bypass original source lineage');
