@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 native payroll recipient receipts - installed checkpoint
+
+The previous goal turn made progress by recovering, installing and verifying independent commission terms. This continuation inspected current source and hosted state, then closed the mutable-recipient lookup in native economic earnings. Runtime `414f1ed9` passed all eleven jobs in [CI 43297528081](https://github.com/coreflux-creator/CoreFlux/actions/runs/43297528081), including 50 native payroll-source checks. New earnings retain their exact employment and company payroll-profile identities atomically; recalculation uses that receipt, and conflicting retries cannot rewrite it. Historical earnings without original recipient evidence are not silently adopted. None existed in the isolated pilot at installation.
+
+The nine-file isolated upgrade and all 18 hosted temporary-table checks passed. Final verification checked 342 runtime fingerprints and preserved all 34,985 preexisting rows across 377 tables. One empty receipt table and one migration ledger row were added. No permanent synthetic earning or payroll run remains. See [recipient evidence acceptance](thunderhawk-payroll-recipient-evidence.md) and the [manifest](../deploy/thunderhawk-payroll-recipients-20261112.json).
+
+The refreshed inventory has **2,125 entries and 443 remaining native decisions**; all custom-field entities were inspected. The six new commission columns still need ownership/mapping dispositions. The full goal is incomplete: provider/cohort acceptance, foreign commission payout, any required legacy earning adoption, JobDiva time, portal/onboarding/document/lifecycle/merge journeys, AWS browser upload, financial reconciliation and the requirements audit remain open. Production, providers, Arabella and real financial execution were unchanged.
+
 ## November 12 independent commission terms - installed checkpoint
 
 Runtime `9549c9f5` passed all eleven jobs in [CI 43293355681](https://github.com/coreflux-creator/CoreFlux/actions/runs/43293355681) and is installed in the isolated pilot. Native/source/CSV workflows and future rate snapshots now retain commission currency, frequency and due month. The placement editor and creation screen expose these terms; totals stay separate by currency. Final native claims protect one-time amounts from duplicate runs and recurring amounts from duplicate rate batches. Consumed rules retain their economic terms and recipient identity. INR remains ineligible for the USD payroll route. No real Puneet rule or payment was created; his full recipient identity is still unresolved.
