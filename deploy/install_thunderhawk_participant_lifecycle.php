@@ -23,6 +23,11 @@ if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'muzqvdvqbx' ||
     || integrationInstanceId() !== '9f4b6dfb-e52e-464c-9a9d-af7766928ddf'
     || COREFLUX_INTEGRATION_DELIVERY_TENANTS !== '2002'
     || (int) $pdo->query('SELECT is_simulation FROM tenants WHERE id=2002')->fetchColumn() !== 1) exit(2);
+$recovery = json_decode(file_get_contents(PL_PRIVATE . '/participant-lifecycle-recovery-result.json'), true, 64, JSON_THROW_ON_ERROR);
+if (($recovery['passed'] ?? false) !== true || ($recovery['status'] ?? '') !== 'complete'
+    || ($recovery['source_commit'] ?? '') !== $package['source_commit']
+    || empty($recovery['runtime_files_restored']) || empty($recovery['cache_refreshed'])
+    || empty($recovery['temporary_probes_removed'])) exit(2);
 
 function plSnapshot(PDO $pdo): array {
     $result = [];
@@ -87,7 +92,7 @@ PHP;
             curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_FOLLOWLOCATION => false,
                 CURLOPT_TIMEOUT => 25, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
                 CURLOPT_HTTPHEADER => $key === null ? [] : ['X-Participant-Lifecycle-Probe: ' . $key]]);
-            $response = curl_exec($curl); $status = (int) curl_getinfo($curl, CURLINFO_RESPONPL_CODE); curl_close($curl);
+            $response = curl_exec($curl); $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE); curl_close($curl);
             if ($key === null && ($status !== 404 || $response !== '')) throw new RuntimeException('Anonymous probe access');
             if ($key !== null) {
                 $result = is_string($response) ? json_decode($response, true) : null;
@@ -98,8 +103,8 @@ PHP;
     } finally { if (!unlink($path) || file_exists($path)) throw new RuntimeException('Probe cleanup failed'); }
 }
 
-$backup = PL_PRIVATE . '/participant-lifecycle-before-' . substr($argv[2], 0, 20);
-$state = PL_PRIVATE . '/participant-lifecycle-install-result.json';
+$backup = PL_PRIVATE . '/participant-lifecycle-v2-before-' . substr($argv[2], 0, 20);
+$state = PL_PRIVATE . '/participant-lifecycle-v2-install-result.json';
 if ($argv[1] === '--install-participant-lifecycle' && (file_exists($state) || file_exists($backup))) {
     fwrite(STDERR, "Inspect the existing install receipt before continuing.\n"); exit(2);
 }

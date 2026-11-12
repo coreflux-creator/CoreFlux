@@ -15,7 +15,7 @@ if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'muzqvdvqbx' ||
     || (int) $pdo->query('SELECT is_simulation FROM tenants WHERE id=2002')->fetchColumn() !== 1) exit(2);
 $fixture = __DIR__ . '/participant-lifecycle-fixture.php';
 if (is_link($fixture) || !hash_equals($argv[2], hash_file('sha256', $fixture))) exit(2);
-$install = json_decode(file_get_contents(PARTICIPANT_LIFECYCLE_PRIVATE . '/participant-lifecycle-install-result.json'), true, 64, JSON_THROW_ON_ERROR);
+$install = json_decode(file_get_contents(PARTICIPANT_LIFECYCLE_PRIVATE . '/participant-lifecycle-v2-install-result.json'), true, 64, JSON_THROW_ON_ERROR);
 if (($install['passed'] ?? false) !== true) exit(2);
 foreach (json_decode('{"modules/placements/lib/ownership.php":"37d797f2cf7a045230d03809634ecd262b7e7b53005254dd7c08ac2950ca8a76","modules/placements/lib/economics.php":"1b713f5a3d3805ff63b6f243033455e990217fc65e84ab0af8e6c376741458ae","modules/placements/lib/economics_participants.php":"ebbf0600431e55325ad7ebc08dbb16d95569b9bc40dfa5bf95e4a06efb7082b7","modules/placements/api/economics.php":"10195ad21b30f8a7fcb566750f34e6d59011d9039201055934de7e823e345fa3"}',true) as $file=>$expected) {
     if (is_link(PARTICIPANT_LIFECYCLE_ROOT.'/'.$file) || hash_file('sha256',PARTICIPANT_LIFECYCLE_ROOT.'/'.$file)!==$expected) exit(2);
@@ -23,7 +23,7 @@ foreach (json_decode('{"modules/placements/lib/ownership.php":"37d797f2cf7a04523
 $lock = fopen(PARTICIPANT_LIFECYCLE_PRIVATE . '/contact-install.lock', 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit(2);
 if ((int) $pdo->query("SELECT COUNT(*) FROM placements WHERE tenant_id=2002 AND external_id IN ('99182001','jd:99182001')")->fetchColumn() !== 0) exit(2);
-$receipt = PARTICIPANT_LIFECYCLE_PRIVATE . '/participant-lifecycle-hosted-result.json';
+$receipt = PARTICIPANT_LIFECYCLE_PRIVATE . '/participant-lifecycle-v2-hosted-result.json';
 if (file_exists($receipt)) exit(2);
 function participantLifecycleSnapshot(PDO $pdo): array {
     $result = [];
