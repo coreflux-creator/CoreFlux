@@ -91,6 +91,16 @@ function peopleDocumentPublic(array $row): array {
     return array_intersect_key($row,array_flip(['id','person_id','doc_type','storage_object_id','file_name','signed','signed_at','expires_at','uploaded_by_user_id','created_at']));
 }
 
+/** Log the actual person and directory; never invent an employee ID for a legacy audit table. */
+function peopleDocumentAccessAudit(PDO $pdo,array $scope,array $document): void {
+    if((int)($scope['actor_user_id']??0)<=0)throw new LogicException('Authenticated document access required.');
+    $meta=['people_tenant_id'=>(int)$scope['people_tenant_id'],'person_id'=>(int)$document['person_id'],
+        'document_id'=>(int)$document['id'],'storage_object_id'=>(int)$document['storage_object_id'],'doc_type'=>$document['doc_type']];
+    $q=$pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(?,?,?,?,?,?,NOW())');
+    $q->execute([(int)$scope['tenant_id'],(int)$scope['actor_user_id'],'people.document.download_authorized',
+        (int)$document['person_id'],json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null]);
+}
+
 /** Existing HTTP uploads own their transaction; composed commands use the helper below. */
 function peopleDocumentRegister(PDO $pdo, array $scope, int $person, array $body, callable $head): array {
     if ($pdo->inTransaction()) throw new LogicException('Document registration owns its transaction.');

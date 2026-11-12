@@ -72,13 +72,8 @@ if ($method === 'GET') {
         $row = $findDocument($id);
         $obj = peopleDocumentObject($pdo, $tid, (int)$row['person_id'], (int)$row['storage_object_id']);
         peopleDocumentHead($head, $obj['s3_key'], null);
+        peopleDocumentAccessAudit($pdo,$scope,$row);
         $signed = StorageService::getInstance()->get_signed_url($obj['s3_key']);
-        peopleLogPIIAccess(
-            (int) ($user['id'] ?? 0),
-            (int) $row['person_id'],
-            'document.downloaded',
-            ['document_id' => $id, 'doc_type' => $row['doc_type'], 'people_tenant_id'=>$tid]
-        );
         api_ok(['document' => peopleDocumentPublic($row), 'signed_url' => $signed]);
     }
 

@@ -13,8 +13,7 @@
  *   - Both persons must belong to the SAME tenant (no cross-tenant merge — SPEC §10).
  *   - Re-points FKs from duplicate → primary in:
  *       people_emergency_contacts, people_skills, people_documents,
- *       people_pipeline_stages, people_custom_field_values,
- *       people_pii_access_log.target_person_id
+ *       people_pipeline_stages, non-conflicting people_custom_field_values
  *     (placement FKs handled by placements module separately when wired.)
  *   - For each field in field_resolutions === 'duplicate', copies that
  *     duplicate's value onto primary BEFORE soft-deleting the duplicate.
@@ -95,6 +94,14 @@ try {
         'people_pipeline_stages',
     ];
     foreach ($tablesToRepoint as $table) {
+        $columns=$pdo->prepare('SELECT column_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=?');
+        $columns->execute([$table]);$columns=$columns->fetchAll(PDO::FETCH_COLUMN);
+        if(!$columns)throw new RuntimeException('A merge dependency is unavailable.');
+        if(!in_array('person_id',$columns,true)){
+            // The original emergency-contact schema belongs to employment, not People.
+            if($table!=='people_emergency_contacts'||!in_array('employee_id',$columns,true))throw new RuntimeException('Unrecognized merge relationship.');
+            $counts['legacy_employment_contacts_preserved']=true;continue;
+        }
         $stmt = $pdo->prepare(
             "UPDATE `{$table}` SET person_id = :primary
              WHERE tenant_id = :tenant_id AND person_id = :duplicate"
@@ -107,44 +114,21 @@ try {
         $counts[$table] = $stmt->rowCount();
     }
 
-    // Custom field values: handle UNIQUE(person_id, field_def_id) collisions.
-    $stmt = $pdo->prepare(
-        "DELETE dv FROM people_custom_field_values dv
-         JOIN people_custom_field_values pv
-           ON pv.tenant_id = dv.tenant_id
-          AND pv.field_def_id = dv.field_def_id
-          AND pv.person_id = :primary
-         WHERE dv.tenant_id = :tenant_id AND dv.person_id = :duplicate"
-    );
-    $stmt->execute([
-        'primary'   => $primaryId,
-        'tenant_id' => $owner,
-        'duplicate' => $duplicateId,
-    ]);
-    $counts['people_custom_field_values_collision_dropped'] = $stmt->rowCount();
-
-    $stmt = $pdo->prepare(
-        "UPDATE people_custom_field_values SET person_id = :primary
-         WHERE tenant_id = :tenant_id AND person_id = :duplicate"
-    );
-    $stmt->execute([
-        'primary'   => $primaryId,
-        'tenant_id' => $owner,
-        'duplicate' => $duplicateId,
-    ]);
-    $counts['people_custom_field_values'] = $stmt->rowCount();
-
-    // PII access log target re-point (history preserved on primary)
-    $stmt = $pdo->prepare(
-        "UPDATE people_pii_access_log SET target_person_id = :primary
-         WHERE tenant_id = :tenant_id AND target_person_id = :duplicate"
-    );
-    $stmt->execute([
-        'primary'   => $primaryId,
-        'tenant_id' => $owner,
-        'duplicate' => $duplicateId,
-    ]);
-    $counts['people_pii_access_log'] = $stmt->rowCount();
+    // Preserve colliding legacy custom values on the retired record for review.
+    // An alias identifies that source; merging never deletes historical values.
+    $stmt=$pdo->prepare('SELECT COUNT(*) FROM people_custom_field_values dv
+        JOIN people_custom_field_values pv ON pv.tenant_id=dv.tenant_id AND pv.field_def_id=dv.field_def_id AND pv.person_id=?
+        WHERE dv.tenant_id=? AND dv.person_id=?');
+    $stmt->execute([$primaryId,$owner,$duplicateId]);
+    $counts['people_custom_field_values_collisions_retained']=(int)$stmt->fetchColumn();
+    $stmt=$pdo->prepare('UPDATE people_custom_field_values dv
+        LEFT JOIN people_custom_field_values pv ON pv.tenant_id=dv.tenant_id AND pv.field_def_id=dv.field_def_id AND pv.person_id=?
+        SET dv.person_id=? WHERE dv.tenant_id=? AND dv.person_id=? AND pv.id IS NULL');
+    $stmt->execute([$primaryId,$primaryId,$owner,$duplicateId]);
+    $counts['people_custom_field_values']=$stmt->rowCount();
+    // Access history keeps the original subject. Do not rewrite employment IDs
+    // or make old access appear to have happened against the surviving person.
+    $counts['pii_access_history_preserved']=true;
 
     coreRecordNumbersMerge($pdo, $owner, 'person', $primaryId, $duplicateId, (int) ($user['id'] ?? 0));
     // Soft-delete duplicate

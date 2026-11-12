@@ -10,28 +10,40 @@ foreach(['primary','duplicate','third','foreign']as$label){
     $q->execute([$owner,'Merge '.$label,'http-merge-'.$label.'@example.invalid','preserved-provider-'.$label]);$mergePeople[$label]=(int)$pdo->lastInsertId();
 }
 $primary=$mergePeople['primary'];$duplicate=$mergePeople['duplicate'];$third=$mergePeople['third'];
+$pdo->prepare('INSERT INTO people_emergency_contacts(tenant_id,employee_id,name) VALUES(?,?,?)')->execute([$tenant,$duplicate,'Synthetic legacy employment contact']);
+$legacyContact=(int)$pdo->lastInsertId();
+$pdo->prepare("INSERT INTO people_custom_field_defs(tenant_id,field_key,field_label,field_type) VALUES(?,'synthetic_merge','Synthetic merge','text')")->execute([$tenant]);$fieldId=(int)$pdo->lastInsertId();
+$pdo->prepare('INSERT INTO people_custom_field_values(tenant_id,person_id,field_def_id,value_text) VALUES(?,?,?,?),(?,?,?,?)')->execute([$tenant,$primary,$fieldId,'Surviving value',$tenant,$duplicate,$fieldId,'Retained source value']);
+$legacyBefore=$snapshot(['people_emergency_contacts','people_pii_access_log','people_custom_field_values']);
+
 $key='people/'.$tenant.'/document/'.$duplicate.'/synthetic-http-merge.txt';
 $documentDriver->put($key,'Original synthetic HTTP merge bytes',['mime'=>'text/plain']);
 [$status,$saved]=$request('POST',$peopleDocs.'?person_id='.$duplicate,['doc_type'=>'other','filename'=>'synthetic-http-merge.txt','storage_key'=>$key]);
 $expect($status===201,'Native person vault creates the synthetic merge document');$mergeDoc=(int)$saved['id'];$mergeObject=(int)$saved['storage_object_id'];
-$mergeTables=['people','people_documents','storage_objects','document_ownership_transfers','core_record_numbers'];
+$mergeTables=['people','people_documents','storage_objects','document_ownership_transfers','core_record_numbers','people_emergency_contacts','people_custom_field_values','people_pii_access_log'];
 $body=['primary_person_id'=>$primary,'duplicate_person_id'=>$duplicate,'field_resolutions'=>['external_id'=>'duplicate']];
 $before=$snapshot($mergeTables);
 $expect($request('POST',$mergePath,array_replace($body,['primary_person_id'=>$mergePeople['foreign']]))[0]===404,'Native person merge refuses a foreign survivor');
-// Prime persisted public numbers before testing a later transaction failure.
+// Verify trigger-assigned public numbers before testing a later transaction failure.
 require_once __DIR__.'/../../core/record_numbers.php';
 coreRecordNumbersAttach($pdo,$tenant,'person',[['id'=>$primary],['id'=>$duplicate],['id'=>$third]]);
 $before=$snapshot($mergeTables);
 $pdo->exec("CREATE TRIGGER cf_http_merge_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='people.merged' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic merge audit failure'; END IF; END");
-try{$expect($request('POST',$mergePath,$body)[0]===500&&$snapshot($mergeTables)===$before,'Native merge audit failure restores person, document, alias and transfer history together');}
+try{$expect($request('POST',$mergePath,$body)[0]===500&&str_contains((string)file_get_contents($directory.'/http.log'),'Synthetic merge audit failure')&&$snapshot($mergeTables)===$before,'Native merge audit failure restores person, document, alias and transfer history together');}
 finally{$pdo->exec('DROP TRIGGER cf_http_merge_audit_failure');}
 RBACResolver::grantModule($membership,'people','read',[$tenant],$actor);
 $expect($request('POST',$mergePath,$body)[0]===403&&$snapshot($mergeTables)===$before,'Read-only native member cannot merge or transfer documents');
 RBACResolver::grantModule($membership,'people','admin',[$tenant],$actor);
 [$status,$merged]=$request('POST',$mergePath,$body,true,$childTenant);
 $expect($status===200&&(int)$merged['merged_counts']['people_documents']===1,'Authorized child workspace merges parent-owned documents in the resolved directory');
+$expect($snapshot(['people_emergency_contacts','people_pii_access_log','people_custom_field_values'])===$legacyBefore&&(int)$merged['merged_counts']['people_custom_field_values_collisions_retained']===1,'Merge retains employment contacts, original access history and both colliding custom values');
+$pdo->exec("CREATE TRIGGER cf_http_download_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='people.document.download_authorized' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic document access audit failure'; END IF; END");
+try{$expect($request('GET',$peopleDocs.'?id='.$mergeDoc,null,true,$childTenant)[0]===503,'Native download refuses to release a URL when access audit cannot be saved');}
+finally{$pdo->exec('DROP TRIGGER cf_http_download_audit_failure');}
 [$status,$opened]=$request('GET',$peopleDocs.'?id='.$mergeDoc,null,true,$childTenant);
 $expect($status===200&&(int)$opened['document']['person_id']===$primary&&(int)$opened['document']['storage_object_id']===$mergeObject,'Native merged document download retains original document and storage identities');
+$q=$pdo->prepare("SELECT meta_json FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event='people.document.download_authorized' AND target_id=? ORDER BY id DESC LIMIT 1");$q->execute([$childTenant,$actor,$primary]);$access=json_decode($q->fetchColumn()?:'{}',true);
+$expect(($access['people_tenant_id']??null)===$tenant&&($access['document_id']??null)===$mergeDoc,'Access audit retains the operating child, owning directory, current person and original document');
 $q=$pdo->prepare('SELECT external_id FROM people WHERE tenant_id=? AND id=?');$q->execute([$tenant,$primary]);
 $expect($q->fetchColumn()==='preserved-provider-primary','Merge cannot overwrite the surviving provider ID through field resolution');
 $before=$snapshot($mergeTables);
