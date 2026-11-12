@@ -4348,7 +4348,8 @@ function jobdivaApplyStoredAssignmentProjection(
     foreach (array_keys($selected) as $startId) {
         $contract = $rowsByStart[$startId]['contract']['source_contract'] ?? [];
         $companyExternalId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contract]);
-        if ($companyExternalId !== '') {
+        $retainsCorePayee = ($rowsByStart[$startId]['contract']['subcontract_company']['source'] ?? '') === 'core_owned';
+        if ($companyExternalId !== '' && !$retainsCorePayee) {
             jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId, $contract);
         }
     }
