@@ -377,15 +377,34 @@ function integrationFieldMapWritePlacementCorpDetails(int $tenantId, int $placem
     }
 
     try {
-        $pdo = getDB();
+        require_once __DIR__ . '/../../modules/placements/lib/ownership.php';
+        return placementWithLockedRecord($tenantId,$placementId,static function(array $placement,PDO $pdo)use($tenantId,$placementId,$clean):array{
+        $owned=placementOwnershipFields($placement['coreflux_overridden_fields']??null);
+        $partyRead=$pdo->prepare('SELECT source_managed,payment_terms_overridden,pwp_overridden FROM placement_economic_parties
+            WHERE tenant_id=? AND placement_id=? AND source_type="corp" AND source_ref=? FOR UPDATE');
+        $partyRead->execute([$tenantId,$placementId,'corp:'.$placementId]);$party=$partyRead->fetch(PDO::FETCH_ASSOC);
+        if(in_array('corp_identity',$owned,true)||($party&&!(int)$party['source_managed'])) {
+            return ['ok'=>true,'written'=>0,'skipped'=>count($clean),'retained_core_fields'=>array_keys($clean),'error'=>''];
+        }
+        if($placement['engagement_type']!=='c2c')throw new RuntimeException('Corporate mappings require a C2C placement.');
+        $skipped=0;
+        foreach(['payment_terms_override'=>['vendor_payment_terms_override','payment_terms_overridden'],
+            'pwp_enabled'=>['vendor_pwp_enabled','pwp_overridden']] as $field=>[$parent,$flag]) {
+            if(array_key_exists($field,$clean)&&(in_array($parent,$owned,true)||!empty($party[$flag]))) {unset($clean[$field]);$skipped++;}
+        }
+        if(!$clean)return ['ok'=>true,'written'=>0,'skipped'=>$skipped,'error'=>''];
         $exists = $pdo->prepare(
-            'SELECT placement_id
+            'SELECT *
                FROM placement_corp_details
               WHERE tenant_id = :t AND placement_id = :p
-              LIMIT 1'
+              LIMIT 1 FOR UPDATE'
         );
         $exists->execute(['t' => $tenantId, 'p' => $placementId]);
-        $hasRow = (bool) $exists->fetchColumn();
+        $current = $exists->fetch(PDO::FETCH_ASSOC);
+        $hasRow = (bool) $current;
+        if($hasRow&&isset($clean['corp_legal_name'])&&$clean['corp_legal_name']!==$current['corp_legal_name']) {
+            throw new RuntimeException('Review the canonical corporate company identity before changing its legal name through a field mapping.');
+        }
 
         if (!$hasRow && trim((string) ($clean['corp_legal_name'] ?? '')) === '') {
             return [
@@ -408,7 +427,7 @@ function integrationFieldMapWritePlacementCorpDetails(int $tenantId, int $placem
                     SET ' . implode(', ', $sets) . '
                   WHERE tenant_id = :t AND placement_id = :p'
             )->execute($params);
-            return ['ok' => true, 'written' => count($clean), 'error' => ''];
+            return ['ok' => true, 'written' => count($clean), 'skipped'=>$skipped, 'error' => ''];
         }
 
         $cols = ['placement_id', 'tenant_id'];
@@ -430,7 +449,8 @@ function integrationFieldMapWritePlacementCorpDetails(int $tenantId, int $placem
                 (' . implode(', ', $placeholders) . ')
              ON DUPLICATE KEY UPDATE ' . implode(', ', $updates)
         )->execute($params);
-        return ['ok' => true, 'written' => count($clean), 'error' => ''];
+        return ['ok' => true, 'written' => count($clean), 'skipped'=>$skipped, 'error' => ''];
+        });
     } catch (\Throwable $e) {
         return ['ok' => false, 'written' => 0, 'error' => $e->getMessage()];
     }
@@ -1407,6 +1427,7 @@ function integrationFieldMapApplyAll(
                     $corpWrite = integrationFieldMapWritePlacementCorpDetails($tid, (int) $b['id'], $b['set']);
                     if (!empty($corpWrite['ok'])) {
                         $summary['written'] += (int) ($corpWrite['written'] ?? 0);
+                        $summary['skipped'] += (int) ($corpWrite['skipped'] ?? 0);
                     } else {
                         $summary['errors'][] = "write_fail {$b['table']}#{$b['id']}: " . (string) ($corpWrite['error'] ?? 'unknown error');
                     }

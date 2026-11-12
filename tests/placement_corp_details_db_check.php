@@ -6,6 +6,7 @@ if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'
     ||!in_array('--confirm-disposable-fixture',$argv,true))exit(2);
 require_once __DIR__.'/../modules/placements/lib/corp_details.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
+require_once __DIR__.'/../core/integrations/field_map_apply.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 $tenant=(int)$pdo->query('SELECT MIN(id) FROM tenants')->fetchColumn();if($tenant<=0)exit(2);
 setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
@@ -34,7 +35,12 @@ try{
     $fresh=static function(array $body)use($save,$review):array{$r=$review();return $save($body+['corp_legal_name'=>$r['corp']['corp_legal_name'],'review_token'=>$r['review_token']]);};
     $corp=static function()use($pdo,$tenant,$placement):array{$q=$pdo->prepare('SELECT * FROM placement_corp_details WHERE tenant_id=? AND placement_id=?');$q->execute([$tenant,$placement]);return $q->fetch(PDO::FETCH_ASSOC);};
     $party=static function()use($pdo,$tenant,$placement):array{$q=$pdo->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND source_ref=?');$q->execute([$tenant,$placement,'corp:'.$placement]);return $q->fetch(PDO::FETCH_ASSOC);};
-    $originalParty=$party();$stable=$snapshot();$r=$review();
+    $originalParty=$party();$stable=$snapshot();
+    $mapped=integrationFieldMapWritePlacementCorpDetails($tenant,$placement,['corp_legal_name'=>'CI Unreviewed Mapping Corporation']);
+    $check(!$mapped['ok']&&$snapshot()===$stable,'A field mapping cannot rename a bound corporation without canonical identity review');
+    $mapped=integrationFieldMapWritePlacementCorpDetails($tenant,$placement,['corp_city'=>'Source city']);
+    $check($mapped['ok']&&$mapped['written']===1&&$corp()['corp_city']==='Source city','Source-owned descriptive corporate fields remain writable through mappings');
+    $stable=$snapshot();$r=$review();
     $check($snapshot()===$stable&&strlen($r['review_token'])===64&&!array_key_exists('corp_ein_ct',$r['corp']),'Review is read-only and exposes metadata without tax ciphertext');
     $check($refused(fn()=>placementCorpReview($tenant+1000000,$placement),404)&&$refused(fn()=>placementCorpSave($tenant+1000000,$placement,['corp_legal_name'=>'CI Foreign Attempt']),404)&&$snapshot()===$stable,'Another tenant cannot read or change corporate records');
     $check($refused(fn()=>$save(['corp_legal_name'=>'CI Original Editor Corporation']),409)&&$snapshot()===$stable,'Existing corporate edits require a current review token');
@@ -44,6 +50,8 @@ try{
     $check((int)$p['id']===(int)$originalParty['id']&&(int)$p['company_id']===$company&&(int)$p['ap_vendor_id']===(int)$after['ap_vendor_id']&&!(int)$p['source_managed'],'Corporate edits align the stable participant and payee identity under Core ownership');
     $check((int)$p['operating_cycle_id']===$cycle&&(int)$row['ap_operating_cycle_id']===$cycle&&$row['vendor_pay_cycle_anchor']==='2026-10-05'&&(int)$p['cycle_overridden']===1,'Saving metadata preserves and owns the existing custom payment schedule');
     $check($p['payment_terms']==='NET15'&&$row['vendor_payment_terms_override']==='NET15'&&(int)$p['payment_terms_overridden']===1&&in_array('corp_identity',placementOwnershipFields($row['coreflux_overridden_fields']),true),'Payment setup and corporate identity are owned consistently');
+    $stable=$snapshot();$mapped=integrationFieldMapWritePlacementCorpDetails($tenant,$placement,['corp_legal_name'=>'CI Mapping Bypass','corp_city'=>'Mapping city','payment_terms_override'=>'NET60']);
+    $check($mapped['ok']&&$mapped['written']===0&&$mapped['skipped']===3&&$snapshot()===$stable,'Custom field mappings cannot bypass Core corporate identity or payment ownership');
     $stable=$snapshot();$audits=$read('audit_log');$same=$fresh(['corp_contact_email'=>'corp-editor@example.invalid']);
     $check(!$same['changed']&&$snapshot()===$stable&&$read('audit_log')===$audits,'Fresh unchanged save creates no directory usage, graph or audit changes');
     $check($refused(fn()=>$save(['corp_legal_name'=>'CI Original Editor Corporation','review_token'=>$r['review_token'],'corp_city'=>'Stale city']),409)&&$snapshot()===$stable,'An older review cannot overwrite a newer native edit');
