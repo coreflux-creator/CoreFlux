@@ -2,7 +2,13 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 12 Quanta staff correction - source browser checkpoint
+## November 12 rendered correction round trip - completed checkpoint
+
+The synthetic source correction is now accepted in Core. Native browser corrector 97 reviewed Quanta's approved 120 minutes against Core entry 16's approved 90 minutes, saved correction 2 and replacement entry 17, and returned pending status. Core refused its self-approval; separate browser approver 98 approved the two hours. The corrector then returned accepted status, confirmed as Quanta review version 6. Both original Core revisions, source approvals, assignment identity and prior return history remain preserved. Core verified 377 tables, the provider check verified 71 Quanta and 26 unchanged PurePay collections, and both temporary users/grants/passwords were retired. The protected paid 80-hour period and closed PL-874 remain unchanged. See [rendered correction acceptance](thunderhawk-rendered-time-correction.md) and `deploy/thunderhawk-rendered-time-correction-20261112.json`.
+
+The rendered correction/reapproval/return journey is complete for this cohort. Automatic refresh of the source preview after correction and consistent review access between the Time queue and Staffing weekly list are remaining usability/access-policy work. Wider field alignment, onboarding/document/lifecycle and merge acceptance, JobDiva source/cohort/correction acceptance, normal browser upload after the AWS origin correction, and financial allocation/provenance gaps remain open. No production or real financial execution occurred; the provider-host write window is released. The overall goal remains active and incomplete.
+
+## November 12 Quanta staff correction - preceding source browser checkpoint
 
 Quanta revision `abd1d827` passed both jobs in CI `43255407085` and is installed in the isolated pilot. Staff now have a scoped worker-week review, duration correction and explicitly acknowledged submission screen. The native browser journey unlocked synthetic P-387 / PL-902, corrected its existing source entry from 90 to 120 minutes, submitted it and approved it using a separate test approver. Original source identity, approval and rate history were preserved. Both native sessions were signed out; all other original records and all PurePay records remained unchanged. The source verifier passed at 16:24:46 UTC. See [worker-week acceptance](thunderhawk-quanta-worker-week-acceptance.md) and `deploy/thunderhawk-quanta-worker-week-20261112.json`.
 

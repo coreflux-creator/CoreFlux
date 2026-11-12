@@ -23,7 +23,11 @@ The native browser workflow used synthetic person **P-387**, placement **PL-902*
 
 The verifier confirmed unchanged source/assignment identity, retained original approval and rate-freeze history, the separate administrator and approver identities, and all other original records and indexes. The only appended records were nine audit events, two authentication sessions and one magic-link token; both new sessions were revoked. PurePay's records remained identical. Browser evidence is retained privately in `output/worker-week-browser-observations.json`; the public acceptance manifest records its fingerprint. An ordinary browser reload was needed to replace the cached prior frontend after deployment.
 
-## Remaining acceptance
+## Subsequent Core acceptance
+
+The later [rendered Core correction walkthrough](thunderhawk-rendered-time-correction.md) completed the next leg: correction 2 replaced the 90-minute entry 16 with independently approved two-hour entry 17, preserved the earlier approvals and returned accepted review version 6 to Quanta. The paragraph below describes the boundary at the earlier source-only checkpoint, not the final state of that later walkthrough.
+
+## Remaining acceptance at the source-only checkpoint
 
 This closes the Quanta side of the rendered correction journey. Core still holds its previously approved **90-minute** revision, entry 16. Core's rendered correction review, independent reapproval, saved history and current return-status delivery remain next. Do not treat the 120-minute source approval as acceptance in Core or as payroll authorization.
 

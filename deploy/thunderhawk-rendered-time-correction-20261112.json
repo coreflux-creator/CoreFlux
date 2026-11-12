@@ -1,0 +1,162 @@
+{
+  "scope": "Isolated synthetic P-387 / PL-902 rendered time correction and return",
+  "core_runtime": "88ccbc4b9626da23ebd94d73a523137da983c003",
+  "quanta_runtime": "abd1d8277bb8566ad95f539cf1334241cda34d8a",
+  "core": {
+    "started_at": "2026-11-12T16:30:57+00:00",
+    "phase": "complete",
+    "passed": true,
+    "actors": {
+      "corrector": {
+        "id": 97,
+        "membership_id": 83,
+        "email": "core-time-browser-corrector-20261112@example.invalid",
+        "grants": {
+          "people": "read",
+          "placements": "read",
+          "time": "admin",
+          "integrations": "admin"
+        }
+      },
+      "approver": {
+        "id": 98,
+        "membership_id": 84,
+        "email": "core-time-browser-approver-20261112@example.invalid",
+        "grants": {
+          "people": "read",
+          "placements": "read",
+          "time": "admin",
+          "staffing": "read"
+        }
+      }
+    },
+    "feature_sha256": "c9280a52189cc64e9c3d7baf69e230b9ce31fc51d000d29fd16549d5f699cade",
+    "tenant_id": 2002,
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "original_entry_id": 16,
+    "source_entry_id": "3a18a0f9-6761-4a6e-be8f-0a5bcaa552c2",
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "new_entry_id": 17,
+    "revision_id": 2,
+    "current_hours": 2,
+    "independent_test_approver": true,
+    "original_approval_preserved": true,
+    "browser_workflow_verified": true,
+    "actors_retired": true,
+    "tables_verified": 377,
+    "original_rows_checked": 34830,
+    "added_rows": {
+      "artifact_events": 7,
+      "audit_log": 6,
+      "integration_deliveries": 2,
+      "membership_audit": 18,
+      "quanta_time_approval_evidence": 1,
+      "quanta_time_revisions": 1,
+      "rbac_bridge_audit": 9,
+      "tenant_memberships": 2,
+      "time_entries": 1,
+      "user_tenants": 2,
+      "users": 2
+    },
+    "finished_at": "2026-11-12T16:38:23+00:00"
+  },
+  "providers": {
+    "checked_at": "2026-11-12T16:39:29.311911+00:00",
+    "passed": true,
+    "source_unchanged": true,
+    "source_minutes": 120,
+    "review_version": 6,
+    "review_state": "accepted",
+    "core_components": [
+      {
+        "entry_id": 17,
+        "component": "regular",
+        "status": "approved"
+      }
+    ],
+    "prior_return_history_preserved": true,
+    "completed_return_receipts": [
+      "cfd_016017e2624387958f5dfed79d9f073319536ff3b6b7ce4e2e40ece4270cf98e",
+      "cfd_f4faff75bcb6c5a8c022628b8210b042c823f7ec7739c1f252d3a9d5c6ba0adc"
+    ],
+    "quanta_changes": {
+      "coreflux_deliveries": 2
+    },
+    "quanta_collections_verified": 71,
+    "purepay_unchanged": true,
+    "purepay_collections_verified": 26,
+    "production_changed": false,
+    "financial_execution": false
+  },
+  "cleanup": {
+    "checked_at": "2026-11-12T16:42:47+00:00",
+    "passed": true,
+    "read_only": true,
+    "retired_actors": [
+      97,
+      98
+    ],
+    "temporary_grants_removed": true,
+    "passwords_removed": true,
+    "memberships_revoked": true,
+    "one_time_credential_removed": true,
+    "protected_paid_hours": 80,
+    "protected_paid_entries": 10,
+    "closed_PL874_preserved": true
+  },
+  "helpers": [
+    {
+      "path": "deploy/thunderhawk_time_correction_browser.php",
+      "sha256": "50fe7735c9053657dc0cd4fe165b75747c367c350493b9afe46011ed7ddc0b8c"
+    },
+    {
+      "path": "deploy/verify_time_correction_browser_providers.py",
+      "sha256": "55ac5f7b25ce7e8f7346323088e2ba180b7557300d1017d71c661411dcc71747"
+    },
+    {
+      "path": "deploy/verify_time_browser_cleanup.py",
+      "sha256": "27ea28b93e5103d987b74b582c7dffa3b821d3fd7806c4fd7a131361e5110fc1"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "output/time-correction-browser-finish-result.json",
+      "sha256": "51d601bfd99b650db33b34da1cb9fe51a451768ce60017ee79630aaeb09d9e7c"
+    },
+    {
+      "path": "output/time-browser-providers-finish.json",
+      "sha256": "8166532a46d7aaf31c767b3832fcb33d7d563b504c0059547554f4c4ac244a32"
+    },
+    {
+      "path": "output/time-browser-cleanup-verification.json",
+      "sha256": "08db1c5debe2ea2be9a544a22f50e3778a352afdc1ea77eeee0ba56000fd31f6"
+    },
+    {
+      "path": "output/core-time-browser-observations.json",
+      "sha256": "88419f806860eaea24fedcccf2dc44b4967329107bc546e3b6efbf2406703736"
+    }
+  ],
+  "workflow_actions": "Native browser controls; helpers only provisioned test identities and verified state",
+  "self_approval_refused_in_browser": true,
+  "coordination_window_released": true,
+  "current_hours": 2,
+  "current_core_entry_id": 17,
+  "current_revision_id": 2,
+  "current_quanta_review_version": 6,
+  "production_changed": false,
+  "arabella_changed": false,
+  "financial_execution": false,
+  "overall_goal_complete": false,
+  "remaining": [
+    "Source preview refresh after correction",
+    "Time queue / Staffing weekly reviewer access policy",
+    "Remaining field alignment and source receiving contracts",
+    "Broader onboarding/document/lifecycle/merge journeys",
+    "JobDiva cohort, original approval, legacy adoption and protected corrections",
+    "AWS origin and normal browser upload",
+    "Financial allocation, currency and original provenance reconciliation"
+  ]
+}
