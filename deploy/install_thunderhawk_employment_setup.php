@@ -4,7 +4,7 @@ declare(strict_types=1);
 const CI_ROOT = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html';
 const CI_PRIVATE = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030';
 const CI_FEATURE = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux.thunderhawk-pilot.php';
-const CI_FILES = ['modules/people/api/employees.php', 'modules/people/api/people.php', 'modules/people/api/employment_setup.php', 'modules/people/lib/employment_setup.php', 'core/migrations/193_people_employment_reviews.sql', 'core/integrations/staffing_field_contract.php', 'core/integrations/staffing_employment_field_contract.php', 'modules/people/ui/EmployeeDetail.jsx', 'modules/people/ui/EmploymentSetupPanel.jsx', 'spa-assets/index-B0GwbDM9.js', 'spa-assets/index-Bl8dxOb2.js', 'spa-assets/sw.js', 'spa-assets/index.html', 'dashboard/dist/index.html', 'index.html'];
+const CI_FILES = ['modules/people/api/employees.php', 'modules/people/api/people.php', 'modules/people/api/employment_setup.php', 'modules/people/lib/employment_setup.php', 'core/migrations/193_people_employment_reviews.sql', 'core/integrations/staffing_field_contract.php', 'core/integrations/staffing_employment_field_contract.php', 'modules/people/ui/EmployeeDetail.jsx', 'modules/people/ui/EmploymentSetupPanel.jsx', 'modules/people/ui/PersonCreate.jsx', 'spa-assets/index-AiC7jJzY.js', 'spa-assets/index-2ipt54GU.js', 'spa-assets/sw.js', 'spa-assets/index.html', 'dashboard/dist/index.html', 'index.html'];
 if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging' || getcwd() !== CI_ROOT
     || posix_geteuid() !== 1003 || realpath(CI_PRIVATE) !== CI_PRIVATE
     || !in_array($argv[1] ?? '', ['--inspect-employment-setup', '--install-employment-setup'], true)
@@ -122,7 +122,7 @@ try {
     if($pdo->query('SELECT * FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC)!==$package['migration_ledger'])throw new RuntimeException('Migration ledger changed');
     if($pdo->query("SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='people_employment_reviews'")->fetchColumn())throw new RuntimeException('Employment identity schema already exists; inspect the prior operation');
     if ($argv[1] === '--inspect-employment-setup') {
-        echo json_encode(['ready' => true, 'files' => 15, 'hosted_changes' => false]); exit;
+        echo json_encode(['ready' => true, 'files' => 16, 'hosted_changes' => false]); exit;
     }
     if (!mkdir($backup, 0700)) throw new RuntimeException('Private backup unavailable');
     foreach ($prior as $file => $bytes) if ($bytes !== null) file_put_contents($backup . '/' . str_replace('/', '_', $file), $bytes);
@@ -170,7 +170,7 @@ try {
     if (ciSnapshot($pdo) !== $before || hash_file('sha256', CI_FEATURE) !== $package['feature_sha256']) throw new RuntimeException('Database or configuration changed');
     foreach (CI_FILES as $file) if (hash_file('sha256', CI_ROOT . '/' . $file) !== $package['files'][$file]['sha256']) throw new RuntimeException('Installed hash differs');
     $report += ['tables_verified' => count($before), 'rows_preserved' => array_sum(array_column($before, 'rows')),
-        'files_verified' => 15, 'configuration_preserved' => true, 'temporary_probe_removed' => true];
+        'files_verified' => 16, 'configuration_preserved' => true, 'temporary_probe_removed' => true];
     $report['existing_employment_values_preserved']=true;
     $report['migration_applied']=basename($migration);$report['preexisting_tables_preserved']=count($baseline);
     $report['preexisting_rows_preserved']=array_sum(array_column($baseline,'rows'));

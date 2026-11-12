@@ -73,10 +73,10 @@ export default function PersonCreate() {
     work_auth_status: 'unknown', work_auth_expiry: '', requires_sponsorship: false,
     dob: '', ssn_last4: '', gender: '', marital_status: '',
     home_address_line1: '', home_address_line2: '',
-    home_city: '', home_state: '', home_postal_code: '', home_country: 'US',
+    home_city: '', home_state: '', home_postal_code: '', home_country: '',
     mailing_same_as_home: true,
     mailing_address_line1: '', mailing_address_line2: '',
-    mailing_city: '', mailing_state: '', mailing_postal_code: '', mailing_country: 'US',
+    mailing_city: '', mailing_state: '', mailing_postal_code: '', mailing_country: '',
     // Multi-entity: which entity does this employee belong to?
     entity_id: null,
   });
@@ -109,7 +109,7 @@ export default function PersonCreate() {
       out.mailing_city          = out.home_city          || '';
       out.mailing_state         = out.home_state         || '';
       out.mailing_postal_code   = out.home_postal_code   || '';
-      out.mailing_country       = out.home_country       || 'US';
+      out.mailing_country       = out.home_country       || '';
     }
     delete out.mailing_same_as_home;
     // Strip empty-string date/enum fields so PHP stores NULL not ''.
@@ -311,7 +311,7 @@ function Step1({ form, set }) {
         </Field>
         <EntityPicker
           value={form.entity_id}
-          onChange={(v) => setForm({ ...form, entity_id: v })}
+          onChange={(v) => set('entity_id')({ target: { value: v } })}
           testId="person-create-entity"
           label="Home entity"
         />
