@@ -210,6 +210,9 @@ jobs:
           php tests/quanta_profile_return_mariadb.php
           php tests/quanta_profile_permissions_http.php
 
+      - name: Verify native contract permissions and reviewed source HTTP round trip
+        run: php tests/placement_contract_permissions_http.php
+
       - name: Verify reviewed Quanta worker intake
         run: php tests/quanta_worker_intake_mariadb.php
 
