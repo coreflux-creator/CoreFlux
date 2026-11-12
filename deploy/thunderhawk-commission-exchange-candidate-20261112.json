@@ -1,0 +1,83 @@
+{
+  "core_commit": "32f313a3da6ca556b5a072c51fa79b35412034ff",
+  "provider_commit": "579245c03bfa254dc2d01cee446f165af762b3bb",
+  "assignment_version": "2026-11-12.1",
+  "archive_sha256": "46998f462e69291220ff9bc94d3eca619113739187771621716ca0575220efe9",
+  "archive_bytes": 27884471,
+  "expected_core_preimages": {
+    "core/integrations/purepay_assignment_contract.php": "837549856661ab0b084546f780f6fa655ed6e8f85f52f65cafbc26fcbca734d0",
+    "core/integrations/staffing_exchange_fields.php": "84c0f14bed2cc3fa4cf1719b72c645d50bb59ee7cd233f08fc3cb9028727e2c3",
+    "core/integrations/staffing_field_contract.php": "e15933cada6f1e9dcd1dbde974327e0e5f5db3aa689098b305cfc6b52781fd2a"
+  },
+  "expected_provider_preimages": {
+    "coreflux_commercial.py": "196672a9b90acee6c74b1beb637222cb65813f3415376397556f8037c5c9ccad",
+    "coreflux_assignments.py": "dde3f33a74a2804326a74f29a47ef6edac35946995a4306dc9dfbab555787710",
+    "coreflux_exchange.py": "6ea07695e37bc8ac1fcef2a430cb4d86aa841acd073ceeec1aba1cfda2e1af74"
+  },
+  "frontend_build": {
+    "passed": true,
+    "steps": [
+      {
+        "step": "node_modules/@craco/craco/dist/bin/craco.js",
+        "exit_code": 0
+      },
+      {
+        "step": "scripts/prerender-marketing.cjs",
+        "exit_code": 0
+      }
+    ],
+    "same_origin_api": true,
+    "secrets_inherited": false,
+    "published": false,
+    "source_commit": "579245c03bfa254dc2d01cee446f165af762b3bb",
+    "dependency_tree": "C:\\Users\\kunal\\.codex\\worktrees\\accounting-core-integration\\PurePay-pilot-lifecycle\\frontend\\node_modules",
+    "package_sha256": "9c2f9e0370e76f8d0c72c5326b0df972b8db392512b4646f6b58370cb4c15ac0",
+    "shared_lock_sha256": "5fe4177c55ca8add01e9f67e23ecaaed1e93a58446ff0cb98a0cff41dec5b56e",
+    "candidate_lock_sha256": "704665ec428812cf4acb4dd4f62f1f55817665d4b88145e45755f763a44afc2e"
+  },
+  "local_checks": {
+    "provider_api": 102,
+    "provider_protected_records": true,
+    "core_projection": 20,
+    "existing_core_projection": 28,
+    "react": 5,
+    "local_browser_dom": true,
+    "screenshot": "capture_timed_out"
+  },
+  "requires": [
+    "fresh isolated pilot runtime/configuration and document fingerprints",
+    "new matching release-handover source digest",
+    "owner-preserving Core installer",
+    "provider rollback and held-execution probes",
+    "paired connection version review",
+    "installed receipt/replay preservation and native acceptance"
+  ],
+  "installed": false,
+  "production_changed": false,
+  "financial_execution": false,
+  "scope": "isolated Thunderhawk staging candidate only",
+  "ci": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43327538171",
+    "head_sha": "32f313a3da6ca556b5a072c51fa79b35412034ff",
+    "successful_jobs": 11
+  },
+  "candidate_runtime_files": {
+    "core/core/integrations/purepay_assignment_contract.php": "390b4329b16468e360866c8b6d34ae918189914f20f9638abf414f0226ab9677",
+    "core/core/integrations/staffing_exchange_fields.php": "374a928847697ebfe29b0e692beab968bc89c7d2fb41ecb7c9b306e3b17b6c1b",
+    "core/core/integrations/staffing_field_contract.php": "bd1f3a7cc299e9892d1b7ab60b47013c029ffd28bf9e59c7a76583c28b314c90",
+    "provider/backend/coreflux_assignments.py": "bdad56f49092ec07263b4a6fa7793455c472ab649b8e16d5a0c63bc66aed3bb8",
+    "provider/backend/coreflux_commercial.py": "75c9b93865af2091ff37067c77bc1f53c86658d9a99f2c789029fdd088f93a04",
+    "provider/backend/coreflux_exchange.py": "608aaf1e425d8c21f91e7ec3f91a69e59fe2ee8965eed579c61ba561d639c18e"
+  },
+  "compiled_frontend_file_count": 64,
+  "retained_core_dependencies": 340,
+  "retained_provider_dependencies": 307,
+  "test_log_sha256": {
+    "commission-provider-tests.log": "5aa83feeb0cfc7a21728a09373adaa395a3d00fb6642645aa9f39d7015d14175",
+    "commission-provider-preservation-test.log": "001a2f789095e319ab20b8d263dc64be0c872b69a2ba427109e377062928ff5d",
+    "commission-frontend-build.log": "47685d9e3a4f3e9a7b28d15e35fdd37309e1ce03be440c5c70cf571d4abdfaa1"
+  },
+  "archive_location": "output/commission-exchange-candidate.tgz",
+  "full_candidate_inventory": "output/commission-exchange-candidate.json",
+  "goal_complete": false
+}

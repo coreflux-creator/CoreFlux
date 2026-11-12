@@ -4,7 +4,7 @@ This checkpoint separates the requested integration outcome from optional future
 
 ## November 12 commission exchange — development checkpoint
 
-The paired candidate now retains independent commission currency, frequency and due month in approved and current assignment graphs and displays them in PurePay. New packet version `2026-11-12.1` preserves old schemas, hashes and receipts. The provider candidate is `579245c03bfa254dc2d01cee446f165af762b3bb`; 102 provider checks, five rendering checks and the actual Core projection checks pass. Browser DOM acceptance passed locally; screenshot capture timed out. [Detailed evidence and remaining release work](thunderhawk-commission-exchange.md).
+The paired candidate now retains independent commission currency, frequency and due month in approved and current assignment graphs and displays them in PurePay. New packet version `2026-11-12.1` preserves old schemas, hashes and receipts. The provider candidate is `579245c03bfa254dc2d01cee446f165af762b3bb`; 102 provider checks, five rendering checks and the actual Core projection checks pass. Browser DOM acceptance passed locally; screenshot capture timed out. The full frontend build and all eleven Core CI jobs passed; the paired archive is prepared locally and remains uninstalled. [Detailed evidence and remaining release work](thunderhawk-commission-exchange.md).
 
 This commission change is not installed. The installed Core field-alignment checkpoint below remains authoritative. Paired staging release, current-version connection review and hosted native acceptance remain next; the full field/source/lifecycle/document/financial requirements are not complete. No production, provider-host, Arabella or real financial changes occurred in this development step.
 
