@@ -4793,7 +4793,7 @@ function jobdivaSyncUpsertPlacementChain(
     array $jd,
     ?int $userId = null
 ): array {
-    if ($tid<=0 || $placementId<=0) return ['written'=>0,'rows'=>[],'held_by_core'=>true];
+    if ($tid<=0 || $placementId<=0) return ['written'=>0,'rows'=>[]];
     return placementWithSourceRuleWrite($tid,$placementId,'chain',static function() use ($tid,$placementId,$endClientCompanyId,$endClientName,$jd,$userId) {
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
@@ -5601,7 +5601,7 @@ function jobdivaSyncUpsertPlacementCommissionRow(
 
 function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, string $startDate, array $jd): array
 {
-    if ($tid<=0 || $placementId<=0) return ['written'=>0,'rows'=>[],'held_by_core'=>true];
+    if ($tid<=0 || $placementId<=0) return ['written'=>0,'rows'=>[]];
     return placementWithSourceRuleWrite($tid,$placementId,'commission',static function() use ($tid,$placementId,$startDate,$jd) {
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;

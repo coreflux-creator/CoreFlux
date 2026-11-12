@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/source_rule_ownership.php';
 require_once __DIR__ . '/economics.php';
 require_once __DIR__ . '/source_rule_input.php';
+require_once __DIR__ . '/../../../core/memberships.php';
 
 function placementSourceRuleMember(PDO $pdo, int $workspace, int $owner, mixed $id): void
 {

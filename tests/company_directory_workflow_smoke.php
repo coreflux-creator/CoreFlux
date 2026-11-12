@@ -40,16 +40,22 @@ $checks = [
 
 foreach (['chain', 'referrals', 'economics', 'csv_import', 'placements'] as $endpoint) {
     $source = (string) file_get_contents($root . '/modules/placements/api/' . $endpoint . '.php');
+    if (in_array($endpoint,['chain','referrals'],true)) {
+        $checks["$endpoint uses the atomic native rule writer"] = str_contains($source,'placementSourceRuleEdit');
+        $source .= (string) file_get_contents($root . '/modules/placements/lib/source_rule_edit.php');
+    }
     if ($endpoint === 'economics') {
         $checks['economics delegates authorized creation to the native participant writer'] =
             str_contains($source, 'placementEconomicsCreateNativeParty($tenantId, $placementId, api_json_body(), $user)');
         $source .= (string) file_get_contents($root . '/modules/placements/lib/economics_participants.php');
     }
     $checks["$endpoint validates selected companies against the Companies directory"] =
-        preg_match('/companiesGet\([^;]+placementsCompanyDirectoryTenantId\(\)\)/', $source) === 1;
+        preg_match('/companiesGet\([^;]+placementsCompanyDirectoryTenantId\(\)\)/', $source) === 1
+        || (str_contains($source,'$owner=placementsCompanyDirectoryTenantId();') && str_contains($source,'companiesGet((int)$values[$companyField],$owner)'));
     if ($endpoint !== 'placements') {
         $checks["$endpoint creates companies in the Companies directory"] =
-            str_contains($source, 'companiesUpsertByName(placementsCompanyDirectoryTenantId(),');
+            str_contains($source, 'companiesUpsertByName(placementsCompanyDirectoryTenantId(),')
+            || (str_contains($source,'$owner=placementsCompanyDirectoryTenantId();') && str_contains($source,'companiesUpsertByName($owner,$values[$nameField]'));
     }
 }
 

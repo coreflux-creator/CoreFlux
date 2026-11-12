@@ -39,10 +39,15 @@ $a('set requires placements.manage',                 strpos($api, "rbac_legacy_r
 $a('set audit lists field NAMES only (no plaintext)', strpos($api, "'fields'       => array_keys(\$clean)") !== false);
 $a('POST clear_portal route',                        strpos($api, "POST' && \$action === 'clear_portal'") !== false);
 $a('clear audits placement.chain.portal.cleared',    strpos($api, "'placement.chain.portal.cleared'") !== false);
-$a('chain POST persists submittal_id',               strpos($api, "'submittal_id'    => \$body['submittal_id']") !== false);
-$a('chain POST persists vms_job_id',                 strpos($api, "'vms_job_id'      => \$body['vms_job_id']") !== false);
-$a('PATCH strips portal_credentials_ct',             strpos($api, "unset(\$body[\$k])") !== false
-                                                      && strpos($api, "'portal_credentials_ct','kms_key_version','has_portal_credentials'") !== false);
+require_once __DIR__.'/../modules/placements/lib/source_rule_input.php';
+$a('chain API uses the atomic native writer',str_contains($api,'placementSourceRuleEdit'));
+$clean=placementSourceRuleInput('chain',['submittal_id'=>'SUB-12','vms_job_id'=>'VMS-34']);
+$a('chain input preserves submittal_id',$clean['submittal_id']==='SUB-12');
+$a('chain input preserves vms_job_id',$clean['vms_job_id']==='VMS-34');
+foreach(['portal_credentials_ct','kms_key_version','has_portal_credentials'] as $private) {
+    $refused=false;try{placementSourceRuleInput('chain',[$private=>'private']);}catch(InvalidArgumentException $e){$refused=$e->getCode()===422;}
+    $a('native rule input refuses '.$private,$refused);
+}
 
 echo "\nManifest registration\n";
 $man = (string) file_get_contents(__DIR__ . '/../modules/placements/manifest.php');

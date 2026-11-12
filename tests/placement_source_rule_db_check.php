@@ -29,7 +29,13 @@ try {
     $referral=jobdivaSyncUpsertPlacementReferral($tenant,$pid,'2026-11-01',['employmentType'=>'W2','referralVendor'=>'CI Source Referral','referralFeeAmount'=>10,'referralFeeBasis'=>'one_time']);
     $check($chain>0&&$commission>0&&$referral>0,'Unowned JobDiva rule sets still import normally');
     placementEconomicsReconcile($tenant,$pid);
-    $edit('chain','update',$chain,['position'=>4,'portal_fee_pct'=>'0.03']);
+    $pdo->prepare('UPDATE placement_client_chain SET portal_credentials_ct=?,kms_key_version="ci-v1" WHERE tenant_id=? AND id=?')->execute(['CI-NOT-A-REAL-CREDENTIAL',$tenant,$chain]);
+    $edit('chain','update',$chain,['position'=>4,'portal_fee_pct'=>'0.03','submittal_id'=>'SUB-12','vms_job_id'=>'VMS-34']);
+    $chainRow=$readRow('placement_client_chain',$chain);
+    $check($chainRow['submittal_id']==='SUB-12'&&$chainRow['vms_job_id']==='VMS-34'&&$chainRow['portal_credentials_ct']==='CI-NOT-A-REAL-CREDENTIAL','Native chain edit preserves source references and unrelated encrypted credentials');
+    $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="placement.chain.updated" ORDER BY id DESC LIMIT 1');$q->execute([$tenant,$pid]);
+    $check(!str_contains((string)$q->fetchColumn(),'CI-NOT-A-REAL-CREDENTIAL'),'Commercial audit excludes encrypted portal credential content');
+    $check($refused(fn()=>$edit('chain','update',$chain,['company_id'=>999999991]),422)&&$readRow('placement_client_chain',$chain)===$chainRow,'Chain company selection rejects an unavailable directory identity');
     $edit('commission','update',$commission,['role'=>'other','effective_from'=>'2026-11-02','notes'=>'Reviewed core note','split_pct'=>0.2]);
     $edit('referral','update',$referral,['referrer_type'=>'person','referrer_person_id'=>$person,'fee_flat'=>12,'notes'=>'Reviewed referral']);
     $snap=[$read('placement_client_chain'),$read('placement_commissions'),$read('placement_referrals')];$companies=$read('companies');$audit=$read('audit_log');
