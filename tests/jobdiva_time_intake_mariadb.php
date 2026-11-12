@@ -85,7 +85,7 @@ try{
     $pdo->query('SELECT id FROM tenants WHERE id=11 FOR UPDATE')->fetchAll();
     $counts=static fn()=>array_merge(array_map(fn($table)=>(int)$pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn(),['time_entries','jobdiva_time_intake','entity_sync_history','audit_log']),[
         (int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='jobdiva.time.intake'")->fetchColumn(),
-        (int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='timesheet.entries_imported'")->fetchColumn()]);$before=$counts();
+        (int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='staffing.timesheet.entries_imported'")->fetchColumn()]);$before=$counts();
     try{
         foreach([1,2]as$i){$pipes=[];$process=proc_open([PHP_BINARY,__FILE__,'--overlap-child',base64_encode(json_encode($overlap,JSON_THROW_ON_ERROR))],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);if(!is_resource($process))throw new RuntimeException('Could not start time overlap fixture');fclose($pipes[0]);$children[]=[$process,$pipes];}
         $waiting=0;$deadline=microtime(true)+8;
