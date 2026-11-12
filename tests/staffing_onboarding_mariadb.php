@@ -36,6 +36,7 @@ $passed=0;
 $check=static function(bool $ok,string $label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
 $fails=static function(callable $call,string $label)use($check){try{$call();}catch(InvalidArgumentException|OnboardingConflict $e){$check(true,$label);return;}throw new RuntimeException('Did not reject: '.$label);};
 try{
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/194_document_ownership_transfers.sql'))as$sql)$pdo->exec($sql);
     foreach([1,2]as$pass)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/171_staffing_onboarding.sql'))as$sql)$pdo->exec($sql);
     $check(true,'migration replays on populated-compatible schema');
     $pdo->exec('CREATE TABLE people(id BIGINT PRIMARY KEY,tenant_id BIGINT,status VARCHAR(30),deleted_at DATETIME NULL)');

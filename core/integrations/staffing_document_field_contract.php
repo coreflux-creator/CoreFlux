@@ -3,6 +3,35 @@
 declare(strict_types=1);
 function staffingDocumentFieldRules(string $table,string $field,array $rules):array
 {
+    if ($table==='document_ownership_transfers') {
+        $definitions=[
+            'id'=>'Immutable local transfer receipt ID.',
+            'tenant_id'=>'Owning document directory, unchanged by the merge.',
+            'operating_tenant_id'=>'Company from which the authorized merge was performed.',
+            'module'=>'People or Placements directory; never interchangeable.',
+            'document_id'=>'Original document row, retained across transfers.',
+            'storage_object_id'=>'Original physical-object registry identity, never rewritten by the transfer.',
+            'sequence_no'=>'Per-document transfer order; gaps or repeats invalidate the history.',
+            'from_record_id'=>'Reviewed previous person or placement in this directory.',
+            'to_record_id'=>'Reviewed surviving person or placement in this directory.',
+            'object_sha256'=>'Fingerprint of the unchanged object identity, key and recorded physical metadata.',
+            'previous_sha256'=>'Prior transfer receipt fingerprint; null only for the first transfer.',
+            'receipt_sha256'=>'Integrity fingerprint covering this transfer and its predecessor; not a digital signature.',
+            'actor_user_id'=>'Authenticated merge operator, nullable for an existing JobDiva system consolidation.',
+            'source'=>'Specific authorized merge workflow; does not grant transfer authority.',
+            'created_at'=>'UTC recording time of this transfer, separate from original upload time.',
+        ];
+        if (!isset($definitions[$field])) return $rules;
+        foreach($rules['remote_contracts']as&$remote)$remote=['path'=>null,'direction'=>null,'status'=>'core_internal_only','sync_enabled_by_dictionary'=>false];unset($remote);
+        return array_replace($rules,[
+            'definition'=>$definitions[$field],'unit'=>'native-transfer-evidence','definition_status'=>'reviewed_core_definition',
+            'owner'=>'core_document_ownership_history','owner_directory_module'=>'record.module',
+            'ownership_status'=>'source_backed_native_workflow','ownership_evidence'=>[['source'=>'core/storage/document_ownership.php']],
+            'disposition'=>'system_owned','write_policy'=>'append_only_authorized_merge; original_storage_identity_and_bytes_unchanged',
+            'effective_date_policy'=>'retain_original_document_dates_and_all_previous_transfer_receipts',
+            'exchange_boundary'=>'Internal ownership evidence only; no provider identity, onboarding approval or document-publication change.',
+        ]);
+    }
     $common=[
         'id'=>['Immutable local document identity; separate from storage and provider document IDs.','reference:document'],
         'tenant_id'=>['Owning module directory, which can differ from the operating child company.','reference:directory'],

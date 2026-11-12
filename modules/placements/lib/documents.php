@@ -1,6 +1,7 @@
 <?php
 /** Placement-private documents. Authorization is enforced by the calling route. */
 declare(strict_types=1);
+require_once __DIR__.'/../../../core/storage/document_ownership.php';
 
 class PlacementDocumentConflict extends RuntimeException {}
 const PLACEMENT_DOCUMENT_TYPES = ['msa','sow','work_order','rate_sheet','timesheet_template','poc','noc','other'];
@@ -54,10 +55,12 @@ function placementDocumentObject(PDO $pdo, int $owner, int $placement, int $obje
 {
     $q=$pdo->prepare('SELECT * FROM storage_objects WHERE tenant_id=? AND id=? AND soft_deleted_at IS NULL'.($lock?' FOR UPDATE':''));
     $q->execute([$owner,$objectId]); $object=$q->fetch(PDO::FETCH_ASSOC);
-    if (!$object || $object['module']!=='placements' || $object['entity_type']!=='document' || (string)$object['entity_id']!==(string)$placement) {
+    if (!$object || $object['module']!=='placements' || $object['entity_type']!=='document') {
         throw new PlacementDocumentConflict('Stored file is unavailable for this placement.');
     }
-    placementDocumentKey($owner,$placement,$object['s3_key']);
+    placementDocumentKey($owner,(int)$object['entity_id'],$object['s3_key']);
+    try { documentOwnershipBinding($pdo,'placements',$owner,$placement,$object,$lock); }
+    catch (DocumentOwnershipConflict $e) { throw new PlacementDocumentConflict($e->getMessage(),0,$e); }
     return $object;
 }
 

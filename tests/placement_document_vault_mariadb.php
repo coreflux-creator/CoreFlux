@@ -12,7 +12,7 @@ $driver=new \Core\Storage\LocalDriver($root,'synthetic-only');$storage=new \Core
 $check=static function(bool $ok,string $label)use(&$checks){if(!$ok)throw new RuntimeException($label);$checks++;echo "PASS $label\n";};
 $reject=static function(callable $run,string $label)use($check){try{$run();}catch(InvalidArgumentException|PlacementDocumentConflict $e){$check(true,$label);return;}throw new RuntimeException('Not rejected: '.$label);};
 try {
-    foreach(['tenants','tenant_module_scope','placements','storage_objects','placement_documents','audit_log']as$table)$pdo->exec('CREATE TABLE '.$table.' LIKE coreaccounting_ci.'.$table);
+    foreach(['tenants','tenant_module_scope','placements','storage_objects','placement_documents','document_ownership_transfers','audit_log']as$table)$pdo->exec('CREATE TABLE '.$table.' LIKE coreaccounting_ci.'.$table);
     $pdo->exec("INSERT INTO tenants(id,name,parent_id,tenant_type,is_active) VALUES(10,'Synthetic owner',NULL,'master',1),(11,'Synthetic child',10,'sub',1),(12,'Synthetic foreign',NULL,'master',1)");
     $pdo->exec("INSERT INTO placements(id,tenant_id,person_id,title,status,engagement_type,start_date) VALUES(100,10,100,'Synthetic contract','draft','w2','2026-11-01'),(101,10,100,'Other contract','draft','w2','2026-11-01'),(102,12,102,'Foreign contract','draft','w2','2026-11-01'),(103,11,103,'Isolated child contract','draft','w2','2026-11-01')");
     $scope=['tenant_id'=>11,'placements_tenant_id'=>10,'actor_user_id'=>90];

@@ -64,10 +64,13 @@ function onboardingDocument(PDO $pdo,array $case,int $documentId,callable $head,
         JOIN storage_objects s ON s.tenant_id=d.tenant_id AND s.id=d.storage_object_id
         WHERE d.tenant_id=:t AND d.person_id=:p AND d.id=:id AND d.deleted_at IS NULL AND s.soft_deleted_at IS NULL'.($lock?' FOR UPDATE':''));
     $st->execute(['t'=>$case['people_tenant_id'],'p'=>$case['person_id'],'id'=>$documentId]);$doc=$st->fetch(PDO::FETCH_ASSOC);
-    if(!$doc||$doc['module']!=='people'||$doc['entity_type']!=='document'||(string)$doc['entity_id']!==(string)$case['person_id']
-        ||!str_starts_with($doc['s3_key'],'people/'.$case['people_tenant_id'].'/document/'.$case['person_id'].'/'))throw new OnboardingConflict('Document is unavailable or belongs to another person.');
-    try { peopleDocumentKey((int)$case['people_tenant_id'],(int)$case['person_id'],$doc['s3_key']); }
-    catch (PeopleDocumentConflict $e) { throw new OnboardingConflict('Document storage is not valid for this person.'); }
+    if(!$doc)throw new OnboardingConflict('Document is unavailable or belongs to another person.');
+    try {
+        $object=peopleDocumentObject($pdo,(int)$case['people_tenant_id'],(int)$case['person_id'],(int)$doc['storage_object_id'],$lock);
+        $binding=documentOwnershipBinding($pdo,'people',(int)$case['people_tenant_id'],(int)$case['person_id'],$object,$lock);
+        // Existing unmerged evidence hashes remain stable. A merge requires fresh evidence review.
+        if($binding['history'])$doc['ownership_receipts']=array_column($binding['history'],'receipt_sha256');
+    } catch (PeopleDocumentConflict|DocumentOwnershipConflict $e) { throw new OnboardingConflict('Document storage is not valid for this person.'); }
     $blob=$head($doc['s3_key']);
     if(!is_array($blob)||!is_string($blob['etag']??null)||$blob['etag']===''||!isset($blob['size_bytes'])||(int)$blob['size_bytes']<0)throw new OnboardingConflict('The stored document could not be verified.');
     $stamp=['etag'=>$blob['etag'],'version_id'=>$blob['version_id']??null,'size_bytes'=>(int)$blob['size_bytes'],'last_modified'=>$blob['last_modified']??null];

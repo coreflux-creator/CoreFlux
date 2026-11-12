@@ -28,6 +28,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/people.php';
 require_once __DIR__ . '/../lib/audit.php';
+require_once __DIR__ . '/../lib/documents.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -61,25 +62,36 @@ try {
     $owner=peopleEmploymentOwner((int)$ctx['tenant_id'],true);
     $lock=$pdo->prepare('SELECT id FROM tenants WHERE id=? FOR UPDATE');$lock->execute([$owner]);$lock->fetchColumn();
     if(peopleEmploymentLink($pdo,$owner,$duplicateId))throw new RuntimeException('The duplicate has a saved employment link. Reconcile its employment identity before merging.');
+    // The earlier display read is not write authority: re-read both records under lock.
+    $fresh=$pdo->prepare('SELECT '.peopleSafeFields().' FROM people WHERE tenant_id=? AND id IN (?,?) AND deleted_at IS NULL ORDER BY id FOR UPDATE');
+    $fresh->execute([$owner,$primaryId,$duplicateId]);$locked=[];
+    foreach($fresh->fetchAll(PDO::FETCH_ASSOC) as $row)$locked[(int)$row['id']]=$row;
+    if(count($locked)!==2)throw new DocumentOwnershipConflict('Merge records changed. Reload and review them.');
+    $primary=$locked[$primaryId];$duplicate=$locked[$duplicateId];
+    $counts['people_documents']=documentOwnershipTransfer($pdo,
+        ['tenant_id'=>(int)$ctx['tenant_id'],'people_tenant_id'=>$owner,'actor_user_id'=>(int)$user['id']],
+        'people',$duplicateId,$primaryId,'people.merge');
     // Apply field resolutions onto primary
     $update = [];
     foreach ($resolutions as $field => $choice) {
         if ($choice !== 'duplicate') continue;
         if (!array_key_exists($field, $duplicate)) continue;
-        if (in_array($field, array_merge(['id', 'tenant_id', 'created_at', 'created_by_user_id', 'deleted_at'], coreRecordNumberFields()), true)) continue;
+        if (in_array($field, array_merge(['id', 'tenant_id', 'external_id', 'updated_at', 'created_at', 'created_by_user_id', 'deleted_at'], coreRecordNumberFields()), true)) continue;
         $diff[$field] = ['from' => $primary[$field] ?? null, 'to' => $duplicate[$field] ?? null];
         $update[$field] = $duplicate[$field];
     }
     if ($update) {
-        $count = scopedUpdate('people', $primaryId, $update);
-        $counts['primary_fields_updated'] = (int) $count;
+        $columns=array_keys($update);
+        $sets=implode(',',array_map(static fn($field)=>'`'.$field.'`=?',$columns));
+        $write=$pdo->prepare('UPDATE people SET '.$sets.',updated_at=NOW() WHERE tenant_id=? AND id=?');
+        $write->execute(array_merge(array_values($update),[$owner,$primaryId]));
+        $counts['primary_fields_updated']=$write->rowCount();
     }
 
     // Re-point all dependent rows from duplicate → primary.
     $tablesToRepoint = [
         'people_emergency_contacts',
         'people_skills',
-        'people_documents',
         'people_pipeline_stages',
     ];
     foreach ($tablesToRepoint as $table) {
@@ -89,7 +101,7 @@ try {
         );
         $stmt->execute([
             'primary'   => $primaryId,
-            'tenant_id' => currentTenantId(),
+            'tenant_id' => $owner,
             'duplicate' => $duplicateId,
         ]);
         $counts[$table] = $stmt->rowCount();
@@ -106,7 +118,7 @@ try {
     );
     $stmt->execute([
         'primary'   => $primaryId,
-        'tenant_id' => currentTenantId(),
+        'tenant_id' => $owner,
         'duplicate' => $duplicateId,
     ]);
     $counts['people_custom_field_values_collision_dropped'] = $stmt->rowCount();
@@ -117,7 +129,7 @@ try {
     );
     $stmt->execute([
         'primary'   => $primaryId,
-        'tenant_id' => currentTenantId(),
+        'tenant_id' => $owner,
         'duplicate' => $duplicateId,
     ]);
     $counts['people_custom_field_values'] = $stmt->rowCount();
@@ -129,32 +141,30 @@ try {
     );
     $stmt->execute([
         'primary'   => $primaryId,
-        'tenant_id' => currentTenantId(),
+        'tenant_id' => $owner,
         'duplicate' => $duplicateId,
     ]);
     $counts['people_pii_access_log'] = $stmt->rowCount();
 
-    coreRecordNumbersMerge($pdo, (int) currentTenantId(), 'person', $primaryId, $duplicateId, (int) ($user['id'] ?? 0));
+    coreRecordNumbersMerge($pdo, $owner, 'person', $primaryId, $duplicateId, (int) ($user['id'] ?? 0));
     // Soft-delete duplicate
     $stmt = $pdo->prepare(
         'UPDATE people SET deleted_at = NOW(), email_primary = CONCAT("merged_", id, "_", email_primary)
          WHERE tenant_id = :tenant_id AND id = :id'
     );
-    $stmt->execute(['tenant_id' => currentTenantId(), 'id' => $duplicateId]);
+    $stmt->execute(['tenant_id' => $owner, 'id' => $duplicateId]);
 
+    $mergeMeta=['primary_id'=>$primaryId,'duplicate_id'=>$duplicateId,'people_tenant_id'=>$owner,
+        'field_resolutions'=>$resolutions,'diff'=>$diff,'re_pointed_counts'=>$counts];
+    $audit=$pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,created_at) VALUES(?,?,?,?,?,NOW())');
+    $audit->execute([(int)$ctx['tenant_id'],(int)$user['id'],'people.merged',$primaryId,json_encode($mergeMeta,JSON_THROW_ON_ERROR)]);
     $pdo->commit();
 } catch (\Throwable $e) {
-    $pdo->rollBack();
-    api_error('Merge failed: ' . $e->getMessage(), 500);
+    if($pdo->inTransaction())$pdo->rollBack();
+    if($e instanceof DocumentOwnershipConflict || $e instanceof PeopleDocumentConflict)api_error($e->getMessage(),409);
+    error_log('People merge failed: '.$e->getMessage());
+    api_error('Merge could not be completed. Review the records and retry.',500);
 }
-
-peopleAudit('people.merged', [
-    'primary_id'        => $primaryId,
-    'duplicate_id'      => $duplicateId,
-    'field_resolutions' => $resolutions,
-    'diff'              => $diff,
-    're_pointed_counts' => $counts,
-], $primaryId);
 
 api_ok([
     'ok'            => true,

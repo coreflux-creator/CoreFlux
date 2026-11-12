@@ -1447,7 +1447,8 @@ function jobdivaMappingRepairDuplicatePlacements(int $tenantId, ?int $userId = n
                     $tenantId,
                     $group,
                     $keepId,
-                    $duplicateIds
+                    $duplicateIds,
+                    $userId
                 );
             }
             [$inSql, $params] = _jobdivaMappingInClause('id', $duplicateIds);
@@ -1530,7 +1531,8 @@ function _jobdivaMappingConsolidateLegacyPlacementPair(
     int $tenantId,
     array $group,
     int $keepId,
-    array $duplicateIds
+    array $duplicateIds,
+    ?int $actorUserId = null
 ): array {
     $summary = [
         'source_fields_merged' => 0,
@@ -1559,7 +1561,8 @@ function _jobdivaMappingConsolidateLegacyPlacementPair(
         $tenantId,
         $keepId,
         $legacyId,
-        $duplicateIds
+        $duplicateIds,
+        $actorUserId
     );
     return $summary;
 }
@@ -1799,10 +1802,19 @@ function _jobdivaMappingMergePlacementConfiguration(
     int $tenantId,
     int $keepId,
     int $legacyId,
-    array $duplicateIds
+    array $duplicateIds,
+    ?int $actorUserId = null
 ): int {
     $moved = 0;
-    foreach (['placement_commissions', 'placement_referrals', 'placement_documents'] as $table) {
+    // Existing downstream-activity guards still govern merge eligibility.
+    // Preserve exact document lineage rather than rewriting a storage-bound FK.
+    require_once __DIR__.'/../../modules/placements/lib/documents.php';
+    foreach ($duplicateIds as $duplicateId) {
+        $moved += documentOwnershipTransfer($pdo,
+            ['tenant_id'=>$tenantId,'placements_tenant_id'=>$tenantId,'actor_user_id'=>$actorUserId],
+            'placements',(int)$duplicateId,$keepId,'jobdiva.placement_consolidation');
+    }
+    foreach (['placement_commissions', 'placement_referrals'] as $table) {
         if (!_jobdivaMappingTableExists($pdo, $table) || !_jobdivaMappingColumnExists($pdo, $table, 'placement_id')) continue;
         [$inSql, $params] = _jobdivaMappingInClause('placement_id', $duplicateIds);
         $params['t'] = $tenantId;

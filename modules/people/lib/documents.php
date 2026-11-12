@@ -1,6 +1,7 @@
 <?php
 /** Person-vault ownership and verified storage registration. No worker or approval authority. */
 declare(strict_types=1);
+require_once __DIR__.'/../../../core/storage/document_ownership.php';
 
 class PeopleDocumentConflict extends RuntimeException {}
 const PEOPLE_DOCUMENT_TYPES = ['resume','offer','i9','w4','w9','nda','contract','passport','visa','license','other'];
@@ -44,10 +45,12 @@ function peopleDocumentKey(int $owner, int $person, $key): string {
 function peopleDocumentObject(PDO $pdo, int $owner, int $person, int $objectId, bool $lock=false): array {
     $s=$pdo->prepare('SELECT * FROM storage_objects WHERE tenant_id=:t AND id=:id AND soft_deleted_at IS NULL'.($lock?' FOR UPDATE':''));
     $s->execute(['t'=>$owner,'id'=>$objectId]); $object=$s->fetch(PDO::FETCH_ASSOC);
-    if (!$object || $object['module']!=='people' || $object['entity_type']!=='document' || (string)$object['entity_id']!==(string)$person) {
+    if (!$object || $object['module']!=='people' || $object['entity_type']!=='document') {
         throw new PeopleDocumentConflict('Storage does not belong to this person.');
     }
-    peopleDocumentKey($owner,$person,$object['s3_key']);
+    peopleDocumentKey($owner,(int)$object['entity_id'],$object['s3_key']);
+    try { documentOwnershipBinding($pdo,'people',$owner,$person,$object,$lock); }
+    catch (DocumentOwnershipConflict $e) { throw new PeopleDocumentConflict($e->getMessage(),0,$e); }
     return $object;
 }
 

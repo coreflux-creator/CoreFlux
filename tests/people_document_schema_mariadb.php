@@ -14,6 +14,7 @@ $check=static function(bool $ok,string $label){if(!$ok)throw new RuntimeExceptio
 $create=static function(string $file)use($pdo){foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/people/migrations/'.$file))as$sql)if(preg_match('/^CREATE TABLE IF NOT EXISTS people_documents\s*\(/i',trim($sql))){$pdo->exec($sql);return;}throw new RuntimeException('Document definition not found');};
 $repair=static function()use($pdo){for($i=0;$i<2;$i++)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/people/migrations/009_document_vault_alignment.sql'))as$sql)$pdo->exec($sql);};
 try{
+    $pdo->exec('CREATE TABLE document_ownership_transfers LIKE coreaccounting_ci.document_ownership_transfers');
     $storageSql=coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/172_storage_registry.sql'));
     foreach($storageSql as$sql)$pdo->exec($sql);
     $pdo->exec("INSERT INTO storage_objects(tenant_id,module,entity_type,entity_id,s3_key,filename,created_at) VALUES(999,'people','document','77','people/999/document/77/synthetic.pdf','synthetic.pdf',NOW())");
