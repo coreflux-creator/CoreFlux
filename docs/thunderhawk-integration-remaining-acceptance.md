@@ -2,6 +2,12 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 document-merge ownership - installed pilot checkpoint
+
+Runtime `d2c4bb0c` is installed with migration 194 and 260 verified pins. Exact document transfer chains preserve the original object and require fresh onboarding evidence review. The native person merge preserves legacy employment contacts, original access history, surviving provider ID and colliding custom values; its final audit is transactional. Downloads require saved access authorization. Validation passed all eleven release jobs, 41 native transfer checks, 289 authenticated HTTP checks and nineteen hosted checks. The hosted merge fixtures used temporary tables; no real record was merged. All 34,830 preexisting rows were preserved. See `docs/thunderhawk-document-merge-ownership.md` and `deploy/thunderhawk-document-merge-20261112.json`.
+
+The current metadata inventory is **2,094 fields with 441 remaining decisions**. Merge acceptance still needs placement/provider relationships, prior onboarding cases, employment identity reconciliation, collision review and rendered operator acceptance. Legacy person-upload audit hardening also remains. The AWS sign-in tab is no longer present; the storage-origin correction has not been applied. The wider integration remains active and incomplete.
+
 ## Current evidence and the next acceptance work
 
 | Original requirement | Evidence available | Remaining acceptance work |
