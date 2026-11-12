@@ -45,3 +45,6 @@ test('reopening the form after a page reload resumes the original uncertain save
   await first.submit();const original=first.calls[0].body;first.close();
   const reopened=await fixture({storage});try{assert.equal(reopened.tree.root.findByType('fieldset').props.disabled,true);assert.ok(text(reopened.tree.root).includes('Retry same save'));await reopened.submit();assert.deepEqual(reopened.calls[0].body,original);assert.equal(storage.size,0);}finally{reopened.close();}
 });
+test('two immediate submit events send one save before the screen rerenders',async()=>{
+  const f=await fixture();try{const submit=f.tree.root.findByType('form').props.onSubmit;await act(async()=>{await Promise.all([submit({preventDefault(){}}),submit({preventDefault(){}})]);});assert.equal(f.calls.length,1);assert.equal(f.tree.root.findAllByProps({'data-testid':'economic-item-91'}).length,1);}finally{f.close();}
+});

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
 const destinations = { ar: 'Client invoice', ap: 'Vendor bill', payroll: 'Payroll earning', none: 'Margin-only cost' };
@@ -12,6 +12,8 @@ export default function OneTimeItems({ placementId, startDate, currency, items =
   };
   const emptyForm = () => ({ description: '', settlement_channel: 'ar', economic_party_id: '', direction: 'charge', amount: '', currency, apply_on: startDate || new Date().toISOString().slice(0, 10), taxable: false });
   const [pending, setPending] = useState(readPending);
+  const pendingRef = useRef(pending);
+  const busyRef = useRef(false);
   const [form, setForm] = useState(() => pending || emptyForm());
   const [receipts, setReceipts] = useState({});
   const [busy, setBusy] = useState(false);
@@ -22,28 +24,30 @@ export default function OneTimeItems({ placementId, startDate, currency, items =
   const update = (name, value) => setForm(current => ({ ...current, [name]: value }));
   const save = async event => {
     event.preventDefault();
-    if (!canManage || busy) return;
-    const body = pending || { ...form, currency, amount: form.amount, economic_party_id: form.economic_party_id ? Number(form.economic_party_id) : null, request_id: crypto.randomUUID() };
+    if (!canManage || busyRef.current) return;
+    const body = pendingRef.current || { ...form, currency, amount: form.amount, economic_party_id: form.economic_party_id ? Number(form.economic_party_id) : null, request_id: crypto.randomUUID() };
     // Keep the exact request through a page reload after an uncertain response.
     try { window.sessionStorage.setItem(storageKey, JSON.stringify(body)); }
     catch { setMessage('Your browser could not preserve this save. Allow session storage and retry.'); return; }
+    pendingRef.current = body; busyRef.current = true;
     setPending(body); setBusy(true); setMessage('');
     try {
       const result = await api.post(`/modules/placements/api/economics.php?placement_id=${placementId}&action=item`, body);
       if (!result?.item || Number(result.item.placement_id) !== Number(placementId) || result.item.source_external_id !== `native-item:${body.request_id}`) throw new Error('The save result could not be confirmed.');
       setReceipts(current => ({ ...current, [result.item.id]: result.item }));
       window.sessionStorage.removeItem(storageKey);
-      setPending(null); setForm(emptyForm());
+      pendingRef.current = null; setPending(null); setForm(emptyForm());
       setMessage(result.item.status === 'void' ? 'This item was already saved and later removed.' : result.changed ? 'One-time item added to the placement contract.' : 'The previous save is confirmed. No duplicate item was added.');
       // The receipt confirms the save even if a subsequent refresh is unavailable.
       Promise.resolve().then(() => refresh?.()).catch(() => {});
     } catch (error) {
-      if (error.status === 422) { setPending(null); window.sessionStorage.removeItem(storageKey); }
+      if (error.status === 422) { pendingRef.current = null; setPending(null); window.sessionStorage.removeItem(storageKey); }
       setMessage(error.status === 422 ? error.message : `${error.message} Retry this save to confirm its result before entering another item.`);
-    } finally { setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); }
   };
   const remove = async item => {
-    if (!canManage || busy || pending || !window.confirm(`Remove "${item.description}"?`)) return;
+    if (!canManage || busyRef.current || pendingRef.current || !window.confirm(`Remove "${item.description}"?`)) return;
+    busyRef.current = true;
     setBusy(true); setMessage('');
     try {
       const result = await api.delete(`/modules/placements/api/economics.php?action=item&id=${item.id}`);
@@ -52,7 +56,7 @@ export default function OneTimeItems({ placementId, startDate, currency, items =
       setMessage('One-time item removed.');
       Promise.resolve().then(() => refresh?.()).catch(() => {});
     } catch (error) { setMessage(`Remove failed: ${error.message}`); }
-    finally { setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); }
   };
   return <section style={{ marginTop: 24 }} data-testid="economics-one-time-items">
     <h4 style={{ marginBottom: 4 }}>One-time items</h4>
