@@ -380,7 +380,7 @@ function jobdivaCall(
     array $nonDegradingStatuses = []
 ): array
 {
-    if (class_exists('JobdivaStoredReviewTransaction', false) && JobdivaStoredReviewTransaction::active()) {
+    if (class_exists('JobdivaStoredReviewTransaction', false) && JobdivaStoredReviewTransaction::inScope()) {
         throw new RuntimeException('Refresh JobDiva source evidence before applying this stored review.', 409);
     }
     $token = jobdivaSessionToken($tenantId);

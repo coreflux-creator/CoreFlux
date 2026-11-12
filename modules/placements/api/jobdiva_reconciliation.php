@@ -88,6 +88,9 @@ if ($action === 'stored_apply') {
         ]);
     } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
+    } catch (\PDOException $e) {
+        error_log('[stored JobDiva reconciliation] ' . $e->getMessage());
+        api_error('The reviewed records are busy or changed. Refresh the preview and try again.', 409);
     } catch (\RuntimeException $e) {
         api_error($e->getMessage(), 409);
     } catch (\Throwable $e) {

@@ -5039,7 +5039,7 @@ function jobdivaSyncResolveSubcontractCompany(
         error_log('[jobdiva subcontract company] mirror lookup failed for ' . $externalId . ': ' . $e->getMessage());
     }
 
-    if (JobdivaStoredReviewTransaction::active()) {
+    if (JobdivaStoredReviewTransaction::inScope()) {
         $sourceId = jobdivaAssignmentCompanyId($storedContract['corporation_id'] ?? null);
         $name = trim((string) ($storedContract['corporation_name'] ?? ''));
         if ($sourceId === $externalId && $name !== '' && !jobdivaCompanyNameIsPlaceholder($name, $externalId)) {

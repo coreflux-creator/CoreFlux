@@ -14,6 +14,7 @@ $failure=static function(callable $fn):string{try{$fn();return '';}catch(Throwab
 $read=static fn(string $table):array=>getDB()->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
 $financial=[$read('accounting_events'),$read('accounting_journal_entries'),$read('accounting_journal_entry_lines')];
 $defaultIsolation=$pdo->query('SELECT @@tx_isolation')->fetchColumn();
+$defaultAutoCommit=$pdo->query('SELECT @@autocommit')->fetchColumn();
 $pdo->beginTransaction();
 try{
     $check(str_contains($failure(fn()=>JobdivaStoredReviewTransaction::run(fn()=>true)),'own protected transaction')&&$pdo->inTransaction(),'An unprotected caller transaction is rejected without committing or rolling it back');
@@ -74,5 +75,16 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,&$checks,$
     $check(!$pdo->inTransaction()&&!JobdivaStoredReviewTransaction::active(),'Rollback-only scope releases its transaction and request context');
     $check($pdo->query('SELECT @@tx_isolation')->fetchColumn()===$defaultIsolation,'Review isolation leaves the connection session default unchanged');
     $check(JobdivaStoredReviewTransaction::run(static fn()=>17)===17&&!$pdo->inTransaction(),'A fresh top-level review commits and closes its empty transaction');
+    $peopleBefore=$read('people');
+    $message=$failure(static function()use($pdo):void{
+        JobdivaStoredReviewTransaction::run(static function()use($pdo):void{
+            // Simulate a helper swallowing a transaction-ending database error.
+            $pdo->rollBack();
+            scopedInsert('people',['first_name'=>'CI Lost','last_name'=>'Transaction','email_primary'=>'ci-lost-review@example.invalid','classification'=>'w2']);
+        });
+    });
+    $check($message!==''&&$read('people')===$peopleBefore&&!$pdo->inTransaction(),'Losing the original transaction rolls back subsequent implicit writes instead of committing them');
+    $check(!$pdo->inTransaction()&&!JobdivaStoredReviewTransaction::inScope()&&$pdo->query('SELECT @@autocommit')->fetchColumn()===$defaultAutoCommit,'Failure clears the review scope and restores autocommit');
+    $check($pdo->query('SELECT @@tx_isolation')->fetchColumn()===$defaultIsolation,'Failure also preserves the session isolation default');
 }finally{if($pdo->inTransaction())$pdo->rollBack();setRequestTenantId(null);}
 echo "$checks stored review transaction checks passed.\n";
