@@ -240,6 +240,13 @@ jobs:
           php tests/people_employment_links_mariadb.php
           php tests/payroll_source_identity_mariadb.php
 
+      - name: Retain native payroll source evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: payroll-source-identity-evidence
+          path: artifacts/payroll-source-identity.json
+          if-no-files-found: error
+
       - name: Verify source classification, countries and rate bases before JobDiva writes
         run: |
           php tests/jobdiva_pilot_source_inspection_smoke.php

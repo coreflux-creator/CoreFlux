@@ -20,6 +20,7 @@ try {
     $pdo->exec('CREATE TABLE tenants(id BIGINT PRIMARY KEY,parent_id BIGINT NULL,tenant_type VARCHAR(20),name VARCHAR(80),is_active INT)');
     $pdo->exec("INSERT INTO tenants VALUES(10,NULL,'master','Synthetic payroll',1),(11,10,'sub','Shared directory',1),(12,NULL,'master','Separate company',1)");
     $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(40),scope_mode VARCHAR(20),PRIMARY KEY(tenant_id,module_key))');
+    $pdo->exec("INSERT INTO tenant_module_scope VALUES(11,'placements','isolated')");
     $pdo->exec('CREATE TABLE people(id BIGINT UNSIGNED PRIMARY KEY,tenant_id BIGINT,user_id BIGINT NULL,first_name VARCHAR(100),last_name VARCHAR(100),email_primary VARCHAR(255),classification VARCHAR(20),status VARCHAR(20),deleted_at DATETIME NULL)');
     foreach(['modules/people/migrations/001_init.sql','modules/payroll/migrations/001_init.sql','modules/payroll/migrations/003_pay_cycles.sql','core/migrations/156_record_numbers.sql','core/migrations/192_people_employment_links.sql']as$file)$apply($file);
     $pdo->exec("INSERT INTO people VALUES(1,10,NULL,'Synthetic','Worker','reused@example.invalid','w2','active',NULL),(2,10,NULL,'Unlinked','Worker','reused@example.invalid','w2','active',NULL),(3,12,NULL,'Other','Worker','reused@example.invalid','w2','active',NULL)");
