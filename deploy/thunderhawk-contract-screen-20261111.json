@@ -1,0 +1,172 @@
+{
+  "recorded_at": "2026-11-12T01:16:39.841353+00:00",
+  "previous_goal_turn_classification": "no progress",
+  "previous_goal_turn_reason": "The intervening standalone-accounting access answer made no integration implementation change; the earlier implementation work was revalidated in the current checkout.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "source_commit": "1e95bf08b9724d57ca3706a2afa921ceb08ce4ee",
+  "scope": "Permission-aware contract screens, side-effect-free contract GET and explicit atomic participant refresh in isolated Core staging",
+  "ci": {
+    "run": "43132449997",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43132449997",
+    "jobs_passed": 11
+  },
+  "checks": {
+    "component_tests": 25,
+    "native_http_checks": 87,
+    "hosted_http_checks": 61,
+    "hosted_runtime_files": 20,
+    "install_files": 12,
+    "install_tables_preserved": 368,
+    "install_rows_preserved": 34400,
+    "hosted_business_tables_preserved": 23,
+    "hosted_business_rows_preserved": 8537,
+    "synthetic_actor_retired": 79,
+    "synthetic_membership_retired": 65,
+    "required_audit_failure_rolls_back_refresh": true,
+    "unbuilt_contract_get_creates_nothing": true,
+    "same_session_permission_downgrade": true,
+    "independent_screen_permissions": true,
+    "readers_keep_recipient_names": true,
+    "csv_uncertain_response_requires_new_preview": true,
+    "foreign_tenant_refusal": true,
+    "fresh_review_replay": true
+  },
+  "frontend": {
+    "frontend_base_commit": "e0c1fdae81e91c79cf326fff80cb10dd6f642cce",
+    "frontend_build_commit": "ad29b32d36a418efcff8273e16bb6bef4eaa48f8",
+    "frontend_changed_inputs": [
+      "modules/placements/ui/PlacementDetail.jsx",
+      "modules/placements/ui/CommercialOwnershipReview.jsx",
+      "modules/placements/ui/JobDivaReconciliation.jsx"
+    ]
+  },
+  "installed_hashes": {
+    "modules/placements/lib/economics.php": "1b713f5a3d3805ff63b6f243033455e990217fc65e84ab0af8e6c376741458ae",
+    "modules/placements/api/economics.php": "4769a028aa7639c60ee82912476e88151653a8b29d26408a2e6207a2aad53e00",
+    "modules/placements/api/jobdiva_reconciliation.php": "44a4698c475248099ef7c964a625900979bae798c1effb4905069197d513b630",
+    "modules/placements/ui/PlacementDetail.jsx": "cae22f732513d7b85e431a3a1d693dc11d81272fbc8d066c798ed46a71224f99",
+    "modules/placements/ui/CommercialOwnershipReview.jsx": "48ad5d66fe7b30ab360f18598ce1d3a99bf30b643599a7b2e51829f16418bfe5",
+    "modules/placements/ui/JobDivaReconciliation.jsx": "8b6ce38816258a829b68737559e87680af73a3df23366d529fe4879db60927b4",
+    "spa-assets/index-BrSy97xA.js": "ea4e60bca5b6ce7ba1f55cbcf78a1adce3bf5c694923b278e5e4bbf1e1f1a78a",
+    "spa-assets/index-C4Eb0a2A.js": "2188d36ce50faf88ba9983dbfc65e4b0a21346a46e6491be74d8a5d959aaf588",
+    "spa-assets/sw.js": "982715e9c4e84f2afe5b339293cb9876aff32d2198ee2d524cfc153a38ae3377",
+    "spa-assets/index.html": "c4ff4e1296e90c6b7f2a97c4f438a108d8ced5858cac25234bb6c466e3a2d39e",
+    "dashboard/dist/index.html": "c4ff4e1296e90c6b7f2a97c4f438a108d8ced5858cac25234bb6c466e3a2d39e",
+    "index.html": "c4ff4e1296e90c6b7f2a97c4f438a108d8ced5858cac25234bb6c466e3a2d39e"
+  },
+  "dependency_hashes": {
+    "modules/placements/lib/end.php": "ac4ea08bafdc616808e0d95c4ad3c04ba203a2a57013ea66d7d688cb83b1d93f",
+    "core/integrations/field_map_apply.php": "8aa2acf72b65a18b393ac789f374fcf3bbc05ceeb15a410e895c6627eb6d2435",
+    "modules/placements/lib/placements.php": "f7e2574c4afb3c40dacaa3305247099d0d2b9c052e93451eea7fb4f3e9f554bc",
+    "core/staffing_economics.php": "3e0da7dcd16056153ae10b0fbcfb5ce44a31598d00ef0fdd125cba7291505795",
+    "core/tenant_scope.php": "93f970e3e27a67694350f932fc51bc937b6d6837839cc50ca4d486a5073ac143",
+    "core/audit.php": "e1a4acf587ce7a21a7cfffb8a1c19095f1c22ea1f42727b28c75a4941d83ab42",
+    "modules/people/lib/companies.php": "86dbdcf8422b429d54b8791a255da2bfc19627e34e2b917f14f70b42ba65be3e",
+    "core/record_numbers.php": "a1a48d8e705ab1d7ef15649e740078166911fdac81df3e297fbdc4710797fe15",
+    "core/sub_tenants.php": "93708814436bbd06c7a560db1c65972cf0f706978aea4a64ea234bb652971658",
+    "core/api_bootstrap.php": "f2ca7d9e2558a374159c10f9d10d3da407874620e8ad211544ead6c187df0579",
+    "core/RBAC.php": "fea568b164d652dde0cc1f5684d1924202e174167325d1830cce9de958457cad",
+    "core/jobdiva/client.php": "7a67fe2d44118cb6451a69fdc657bdcdc997e4b61c9f92f235743e916875f30c",
+    "core/jobdiva/dates.php": "ef0a8db601d73700aacf8df190f1c7ed0bf7158460e6bfcc0f16c1f37b5e8a58",
+    "core/jobdiva/assignment_identity.php": "090748f8504155ccb2f157a3d21018114b17bc0156fad19971cb1fc000292685",
+    "core/jobdiva/assignment_contract.php": "02b174f84356e42f3f2eb53a2cb0ba2d9468bd5798884390fd5902e254252910",
+    "core/jobdiva/contract_projection.php": "b24d52454555684e292a5aeddbf8c8cec74c9376dd80b33ac465693f8bb5cc9a",
+    "core/jobdiva/classification_mapping.php": "17085fd7efba296ed90eec7b6ba1717697f3e24a6dda6203519c5a7976c25b97",
+    "core/jobdiva/canonical_graph.php": "ec888ecda374a76a2338f15b9d8b0657b214d5f719db288b2ddf27b416b54dfe",
+    "core/jobdiva/projector.php": "7e755642fe01d3758a44d41858b84d28aa78362864445456f0625196668ded1e",
+    "core/integrations/field_map.php": "1cbcfd439c3f9ab0e3f44e55a039328925c434333d118ae6dd0d9cfb5cb5d521",
+    "core/integrations/source_values.php": "e0c31f420ef53dad84c65493637b6a2219256362b35b12ca8d97cc058a4848a9",
+    "core/integrations/entity_mappings.php": "f4074fd4aa9529fdeb00e8c2f200f49577850d5d6977eba60fd203b3307bf455",
+    "core/integrations/payload_field_index.php": "b50f094f128fffe17046fa110c7ec3fbb1b14397a669a203b29241e5a1760f14",
+    "modules/staffing/lib/clients.php": "ab2e3023efdc4ae441c681172ec4ba0dcab7b0dd701ca3ba0369c12971178a2c",
+    "modules/staffing/lib/jobs.php": "4fa53c75b86bf59207a8b2ec441988dc8d7461e92b7be27f93c011972222587d",
+    "modules/accounting/lib/accounting.php": "7803cd2912d2cd4cf5893750d34090d2a6922741ad7c6158b218a74bb7ec201b",
+    "core/jobdiva/sync.php": "fe11e09348b40f1cbd6868b54b0a05a8f36e8d8ee036cca7cb9238a83a1353ca",
+    "modules/placements/lib/ownership.php": "37d797f2cf7a045230d03809634ecd262b7e7b53005254dd7c08ac2950ca8a76",
+    "modules/placements/lib/edit.php": "7f468d24a6032c6802f1591ef82cf8ebfa5e34ed51be1f42f2cb95f5b0d4ac05",
+    "modules/placements/lib/economics_edit.php": "596eddd9abe285dce11a9192d9d81e05cccd8dfcdfc26259a8c25bc033255484",
+    "modules/placements/lib/commercial_ownership.php": "02de61ccc582b1a34ac3544dae1c4e2232caa13a55b46d3b02c9f9abddb5210f",
+    "core/jobdiva/stored_review.php": "4bca4f875bc7aceeaf8bdd55738ae7c6f7b898a56c6da8d5920c7056c80ca5e8",
+    "core/rbac/permissions.php": "1343e49a42c4d1039ea722e601015f666086ae2694629dc048d4267f8d3d3f59",
+    "core/rbac/legacy_map.php": "b9da416fcc63b87ab9cd9a8aaecc9226bbcc43dc1a1b97121bd71b91954dac35",
+    "spa-assets/index-CYcM0MSD.css": "34076d40e2e528e51f4313b79dc1942a93b9c629e9f426fadd5f8b795d28d9fc",
+    "spa-assets/index-SRkxIh9x.css": "e4a8bde4c3c6f480a044435c9c2ff93c61eaef47fad8471d791d3df9fb5976e8",
+    ".deploy-version": "3dd2feef4b0f6d43333cd0d1b253612bfb44ca74a398779ce8aae481d50d5015"
+  },
+  "install_receipt": {
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/contract-screen-6ecf6013b469972984ac",
+    "hashes": {
+      "install_thunderhawk_contract_screen.php": "8de7a1a363ca3beb9db8041b3090c412bbba9b1acbb994a570423f2775a78ed1",
+      "contract-screen-package.json": "09edeeced7fb272f4a1bdf1971ed6a7188346b5b6a5365a94166c94d43ea337b"
+    },
+    "ci_run": "43132449997",
+    "tested_commit": "1e95bf08b9724d57ca3706a2afa921ceb08ce4ee",
+    "action": "install",
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/contract-screen-install-result.json"
+  },
+  "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/contract-screen-before-09edeeced7fb272f4a1b",
+  "hosted_receipt": {
+    "source_commit": "1e95bf08b9724d57ca3706a2afa921ceb08ce4ee",
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/contract-screen-http-3d06bd1bb56d8da1ce14",
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/contract-screen-http-3d06bd1bb56d8da1ce14/result.json",
+    "hashes": {
+      "verify.php": "87b79c99659a50cdf028e1e95ca94dcaf9a4feb3b5b18726db4069d2d5690cc4",
+      "manifest.json": "ee79d5ef9cdeb78517f7476a5698f25c16b413f03719fd0b8e79edec474ee7b0"
+    }
+  },
+  "browser": {
+    "actual_components": true,
+    "synthetic_data_only": true,
+    "roles": [
+      "reader",
+      "placement editor",
+      "financial editor and approver"
+    ],
+    "dom_and_visible_text_verified": true,
+    "pixel_verification": false,
+    "screenshot_limitation": "CDP Page.captureScreenshot timed out",
+    "signed_in_operator_workflow": false,
+    "local_tab_and_server_closed": true
+  },
+  "boundaries": {
+    "production_changed": false,
+    "provider_apps_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "hosted_successful_business_writes": false,
+    "hosted_method": "Native temporary session; reads, permission denials and deliberately invalid business changes on existing simulation records. Successful refresh and its audit failure were tested in disposable CI."
+  },
+  "remaining": [
+    "Expose missing saved subcontract-company evidence in the JobDiva preview before apply, with source refresh guidance.",
+    "Complete operator workflow acceptance, participant/source ownership, generic automatic batch retention, end-client chain clearing, rate ownership, new-placement failure handling and CSV/lifecycle/activation replay.",
+    "Complete field/destination/custom-field alignment and portal/onboarding/document workflow acceptance.",
+    "Complete financial-result and billing/AP/AR lineage and reconciliation acceptance; verify dictionary labels against evidence."
+  ],
+  "evidence": {
+    "contract-screen-native-1e95bf08.json": {
+      "path": "output/contract-screen-native-1e95bf08.json",
+      "sha256": "53dc224152f18bd911eb3e407caf477976db5d1afe0f76b2be54b5db469d32bb"
+    },
+    "contract-screen-http-hosted-result.json": {
+      "path": "output/contract-screen-http-hosted-result.json",
+      "sha256": "6fc9c846f3e480f8d66afac7e86f8fdf2bdcef24aa5191ca3ef1a74473154d25"
+    },
+    "contract-screen-http-runtime-preflight.json": {
+      "path": "output/contract-screen-http-runtime-preflight.json",
+      "sha256": "5bc99a54c9ad734f953cef91feb3764bbcda30d37f8281789fdba7ad31c9b8b0"
+    },
+    "contract-screen-install-result.json": {
+      "path": "output/contract-screen-install-result.json",
+      "sha256": "208dfeaa3f1f3b187c13dd3e3b8e73c647f6a7d3f75d80572dbdcb000da667ea"
+    },
+    "contract-screen-ci-1e95bf08.json": {
+      "path": "output/contract-screen-ci-1e95bf08.json",
+      "sha256": "879227a5db469133691d6cb3ceb30d259b3739f8eca0602f57078969e93669a1"
+    },
+    "contract-screen-browser-evidence.json": {
+      "path": "output/contract-screen-browser-evidence.json",
+      "sha256": "fec5d6d0c1ee37c241b2cbd69f645f62760abb02629f2aa3a429195f24b6240f"
+    }
+  }
+}
