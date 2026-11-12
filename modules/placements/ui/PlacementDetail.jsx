@@ -987,7 +987,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
         <div style={{ marginTop: 20 }}><ChainTab canManage={canManage} canReveal={permissions.portal_credentials_view === true} pid={placement.id} chain={chain} reload={refreshAll} /></div>
         <div style={{ marginTop: 28 }}><ReferralsTab canManage={permissions.referrals_manage === true} pid={placement.id} rows={referrals} reload={refreshAll} /></div>
         <div style={{ marginTop: 28 }}><CommissionsTab canManage={permissions.commissions_manage === true} pid={placement.id} rows={commissions} reload={refreshAll} /></div>
-        {placement.engagement_type === 'c2c' && <div style={{ marginTop: 28 }}><CorpTab canManage={permissions.corp_manage === true} pid={placement.id} /></div>}
+        {placement.engagement_type === 'c2c' && <div style={{ marginTop: 28 }}><CorpTab key={placement.id} canManage={permissions.corp_manage === true} pid={placement.id} /></div>}
       </details>
     </div>
   );
@@ -1595,19 +1595,31 @@ function CorpTab({ pid, canManage = false }) {
   const corp = data?.corp;
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [needsReload, setNeedsReload] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const save = async () => {
-    if (!canManage) return;
-    setSaving(true); setSaveError(null);
+    if (!canManage || saving || loading || error || !data?.review_token || needsReload) return;
+    setSaving(true); setSaveError(null); setNotice('');
     try {
-      await api.put(path, { ...corp, ...form });
-      setForm({}); reload();
-    } catch (e) { setSaveError(e); }
+      await api.put(path, { ...form, corp_legal_name: form.corp_legal_name ?? corp?.corp_legal_name ?? '', review_token: data?.review_token });
+      setForm({}); setNeedsReload(true); setNotice('Corporate details saved.');
+      try { await reload(); setNeedsReload(false); }
+      catch { setNotice('Corporate details saved. Reload them to see the saved result.'); }
+    } catch (e) { setSaveError(e); setNeedsReload(true); }
     finally     { setSaving(false); }
+  };
+  const refresh = async () => {
+    if (saving) return;
+    setSaving(true); setSaveError(null);
+    try { await reload(); setForm({}); setNeedsReload(false); setNotice('Corporate details reloaded.'); }
+    catch (e) { setSaveError(e); setNeedsReload(true); }
+    finally { setSaving(false); }
   };
   return (
     <div data-testid="tab-corp">
       <h3>C2C corp details (encrypted EIN)</h3>
+      {canManage && <p>Core keeps this payee and its payment setup during JobDiva refreshes. You can review returning ownership in the contract.</p>}
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="corp-error">Error: {error.message}</p>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
@@ -1617,14 +1629,16 @@ function CorpTab({ pid, canManage = false }) {
           ['corp_contact_name','Contact name'],['corp_contact_email','Contact email'],['corp_contact_phone','Contact phone']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>{l}{k === 'corp_ein' && corp?.corp_ein_last4 ? ` (current: •••${corp.corp_ein_last4})` : ''}</span>
-            <input className="input" readOnly={!canManage} value={form[k] ?? (k === 'corp_ein' ? '' : (corp?.[k] ?? ''))} onChange={set(k)} data-testid={`corp-${k.replace(/_/g, '-')}`} />
+            <input className="input" readOnly={!canManage} disabled={saving} value={form[k] ?? (k === 'corp_ein' ? '' : (corp?.[k] ?? ''))} onChange={set(k)} data-testid={`corp-${k.replace(/_/g, '-')}`} />
           </label>
         ))}
       </div>
       {saveError && <p className="error" data-testid="corp-save-error">Error: {saveError.message}</p>}
-      {canManage && <button className="btn btn--primary" style={{ marginTop: 'var(--cf-space-3)' }} onClick={save} disabled={saving} data-testid="corp-save">
+      {notice && <p role="status">{notice}</p>}
+      {canManage && <button className="btn btn--primary" style={{ marginTop: 'var(--cf-space-3)' }} onClick={save} disabled={saving || loading || !!error || !data?.review_token || needsReload} data-testid="corp-save">
         {saving ? 'Saving…' : 'Save'}
       </button>}
+      {canManage && <button className="btn" onClick={refresh} disabled={saving} data-testid="corp-reload">Reload corporate details</button>}
     </div>
   );
 }

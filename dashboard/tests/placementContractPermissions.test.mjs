@@ -16,7 +16,9 @@ const button=(f,label)=>f.tree.root.findAllByType('button').find(n=>text(n)===la
 const byId=(f,id)=>f.tree.root.findAllByProps({'data-testid':id});
 async function fixture(permissions={},options={}){
   const f={calls:[],reads:[],reloads:0,parentReloads:0,context:{data:{placement,permissions,parties:[party],readiness:{ready:false}},loading:false,error:null}},module={exports:{}};
-  const api={useApi(path){f.reads.push(path);return path?.includes('/economics.php')?{...f.context,reload:async()=>{f.reloads++;if(options.failReload)throw new Error('Reload unavailable');}}:{data:path?.includes('/corp.php')?{corp:{corp_legal_name:'Synthetic vendor'}}:{users:[{id:2,name:'Synthetic recruiter'}]},reload:async()=>{}};},api:Object.fromEntries(['get','post','put','patch','delete'].map(method=>[method,async(url,body)=>{f.calls.push({method,url,body});return {};}]))};
+  f.corp={corp:{corp_legal_name:'Synthetic vendor',company_id:71,ap_vendor_id:82,corp_contact_phone:'555-0100',corp_ein_last4:'6789'},review_token:'a'.repeat(64)};
+  f.corpReloads=0;
+  const api={useApi(path){f.reads.push(path);return path?.includes('/economics.php')?{...f.context,reload:async()=>{f.reloads++;if(options.failReload)throw new Error('Reload unavailable');}}:{data:path?.includes('/corp.php')?f.corp:{users:[{id:2,name:'Synthetic recruiter'}]},reload:async()=>{if(path?.includes('/corp.php')){f.corpReloads++;if(options.failCorpReload)throw new Error('Corporate reload unavailable');}}};},api:Object.fromEntries(['get','post','put','patch','delete'].map(method=>[method,async(url,body)=>{f.calls.push({method,url,body});return options.respond?options.respond(method,url,body):{};}]))};
   new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='fixture-api'?api:id==='fixture-picker'?()=>null:id==='fixture-router'?{Link:({children,to})=>React.createElement('a',{href:to},children)}:require(id),module,module.exports);
   const props={placement,chain:[{id:5,position:0,party_role:'end_client',party_name:'Synthetic client'}],rates:[{id:3,bill_rate:100,pay_rate:50,currency:'USD',effective_from:'2026-10-01'}],commissions:[{id:7,user_id:2,recipient_name:'Synthetic recruiter',role:'recruiter',basis:'flat',flat_amount:25}],referrals:[],reload:async()=>{f.parentReloads++;}};
   f.render=()=>React.createElement(module.exports.EconomicsTab,props);
@@ -83,5 +85,43 @@ test('a successful participant refresh is not reported as failed when reloading 
   const f=await fixture({manage:true},{failReload:true});try{
     await f.click('Refresh contract participants');assert.ok(text(f.tree.root).includes('Reload the Contract tab to see the saved result.'));
     assert.ok(!text(f.tree.root).includes('Refresh failed:'));assert.equal(f.calls.length,1);
+  }finally{f.close();}
+});
+
+test('corporate save submits only edited values and the reviewed identity token',async()=>{
+  const f=await fixture({corp_manage:true});try{
+    await act(async()=>f.tree.root.findByProps({'data-testid':'corp-corp-contact-phone'}).props.onChange({target:{value:'555-0111'}}));
+    await f.click('Save');
+    assert.deepEqual(f.calls,[{method:'put',url:'/modules/placements/api/corp.php?placement_id=15',body:{corp_contact_phone:'555-0111',corp_legal_name:'Synthetic vendor',review_token:'a'.repeat(64)}}]);
+    assert.equal(f.corpReloads,1);assert.ok(text(f.tree.root).includes('Corporate details saved.'));
+    assert.equal(f.tree.root.findByProps({'data-testid':'corp-corp-ein'}).props.value,'');
+  }finally{f.close();}
+});
+
+test('an uncertain corporate save cannot be retried until a successful reload',async()=>{
+  const options={respond:async()=>{throw new Error('Connection lost');}};
+  const f=await fixture({corp_manage:true},options);try{
+    await act(async()=>f.tree.root.findByProps({'data-testid':'corp-corp-city'}).props.onChange({target:{value:'Hamilton'}}));
+    await f.click('Save');assert.equal(button(f,'Save').props.disabled,true);
+    assert.equal(f.tree.root.findByProps({'data-testid':'corp-corp-city'}).props.value,'Hamilton');
+    options.failCorpReload=true;await f.click('Reload corporate details');assert.equal(button(f,'Save').props.disabled,true);
+    options.failCorpReload=false;await f.click('Reload corporate details');
+    assert.equal(button(f,'Save').props.disabled,false);assert.equal(f.tree.root.findByProps({'data-testid':'corp-corp-city'}).props.value,'');
+    assert.equal(f.calls.length,1);
+  }finally{f.close();}
+});
+
+test('a failed corporate reload preserves known save success and blocks another save',async()=>{
+  const f=await fixture({corp_manage:true},{failCorpReload:true});try{
+    await f.click('Save');assert.ok(text(f.tree.root).includes('Corporate details saved. Reload them to see the saved result.'));
+    assert.equal(button(f,'Save').props.disabled,true);assert.equal(byId(f,'corp-save-error').length,0);assert.equal(f.calls.length,1);
+  }finally{f.close();}
+});
+
+test('corporate save is unavailable without reviewed data or after a permission downgrade',async()=>{
+  const f=await fixture({corp_manage:true});try{
+    f.corp={corp:f.corp.corp};await f.update();assert.equal(button(f,'Save').props.disabled,true);
+    f.context.data.permissions={};await f.update();assert.equal(button(f,'Save'),undefined);
+    assert.equal(button(f,'Reload corporate details'),undefined);assert.equal(f.calls.length,0);
   }finally{f.close();}
 });

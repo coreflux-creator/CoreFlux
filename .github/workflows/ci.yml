@@ -614,6 +614,8 @@ jobs:
         run: php tests/placement_participant_lifecycle_db_check.php --confirm-disposable-fixture
       - name: Verify corporate identity retention and reviewed source handoff
         run: php tests/jobdiva_corporate_identity_ownership_db_check.php --confirm-disposable-fixture
+      - name: Verify atomic corporate details editing and private record retention
+        run: php tests/placement_corp_details_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture

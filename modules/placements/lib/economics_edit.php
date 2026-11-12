@@ -151,7 +151,10 @@ function placementEconomicsApplyNativePartyEdit(int $tenantId, int $partyId, arr
         placementRequiredAudit('placement.economic_party.updated', [
             'placement_id'=>$placementId, 'economic_party_id'=>$partyId, 'fields'=>array_keys($changes),
             'before'=>$before, 'after'=>$after, 'placement_before'=>$placementBefore,
-            'placement_after'=>placementAuditRow($placementId), 'corp_before'=>$corpBefore,
+            'placement_after'=>placementAuditRow($placementId),
+            'corp_before'=>$corpBefore === null ? null : array_intersect_key($corpBefore,array_flip([
+                'placement_id','tenant_id','company_id','ap_vendor_id','corp_legal_name','payment_terms_override','pwp_enabled',
+            ])),
             'corp_changes'=>$corpChanges,
         ], $placementId);
         return ['changed'=>true, 'party'=>$after];

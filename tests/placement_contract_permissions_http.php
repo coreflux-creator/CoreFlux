@@ -77,6 +77,8 @@ try {
     $bare=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unbuilt contract','status'=>'on_hold',
         'engagement_type'=>'1099','start_date'=>'2026-10-01','client_id'=>$own['client'],
         'end_client_company_id'=>$own['company'],'worksite_country'=>'US']);
+    $corpPlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic corporate editor','status'=>'on_hold',
+        'engagement_type'=>'c2c','start_date'=>'2026-10-01','end_date'=>'2026-12-31','external_id'=>'jd:99190021','worksite_country'=>'US']);
     $foreignBefore=jobdivaPlacementProjectionAuditSnapshot($foreignTenant,$foreign['placement']);
     $email='contract-http-'.bin2hex(random_bytes(10)).'@example.invalid';
     $password=bin2hex(random_bytes(32)); $hash=password_hash($password,PASSWORD_DEFAULT);
@@ -123,6 +125,9 @@ try {
     $createPartyPath=$economics.'?action=party&placement_id='.$own['placement'];
     $manualParty=['role'=>'msp','display_name'=>'Synthetic HTTP Manual Participant','settlement_channel'=>'ap','cadence'=>'monthly','payment_terms'=>'NET30','fee_basis'=>'per_invoice','fee_flat'=>5];
     $operations=[['GET',$reviewPath,null],['POST',$releasePath,$release],['PATCH',$patchPath,['payment_terms'=>'NET15']],['POST',$previewPath,[]],['POST',$applyPath,$apply],['GET',$contextPath,null],['POST',$refreshPath,[]],['POST',$createPartyPath,$manualParty],['DELETE',$patchPath,null]];
+    $corpPath='/modules/placements/api/corp.php?placement_id='.$corpPlacement;
+    $corpBody=['corp_legal_name'=>'Synthetic HTTP Corporate Payee','corp_contact_phone'=>'555-0100'];
+    $operations[]=['GET',$corpPath,null];$operations[]=['PUT',$corpPath,$corpBody];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -232,6 +237,31 @@ try {
     $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.economic_party.removed'");
     $q->execute([$tenant,$own['placement'],$actor]);
     $expect((int)$q->fetchColumn()===1,'Removal retry does not duplicate the authenticated audit receipt');
+    $unchanged=$snapshot($graphTables);
+    $expect($request('GET','/modules/placements/api/corp.php?placement_id='.$foreign['placement'])[0]===404
+        &&$request('PUT','/modules/placements/api/corp.php?placement_id='.$foreign['placement'],$corpBody)[0]===404
+        &&$snapshot($graphTables)===$unchanged,'Corporate endpoints enforce placement tenant ownership before reads or writes');
+    [$status,$corpReview]=$request('GET',$corpPath);
+    $expect($status===200&&$corpReview['corp']===null&&strlen($corpReview['review_token'])===64,'Corporate review supplies a token without creating a payee');
+    $corpBody['review_token']=$corpReview['review_token'];
+    $pdo->exec("CREATE TRIGGER cf_contract_http_corp_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.corp.updated' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic corporate audit failure'; END IF; END");
+    try{$expect($request('PUT',$corpPath,$corpBody)[0]===503,'Corporate audit failure is returned as a retryable HTTP error');}
+    finally{$pdo->exec('DROP TRIGGER cf_contract_http_corp_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'A failed native corporate save rolls back company, vendor, cycle and participant creation');
+    [$status,$corpSaved]=$request('PUT',$corpPath,$corpBody);
+    $expect($status===200&&$corpSaved['changed']&&$corpSaved['corp']['corp_contact_phone']==='555-0100'
+        &&!array_key_exists('corp_ein_ct',$corpSaved['corp']),'Authorized corporate save returns aligned metadata without ciphertext');
+    $unchanged=$snapshot($graphTables);
+    $expect($request('PUT',$corpPath,array_replace($corpBody,['corp_contact_phone'=>'555-0111']))[0]===409
+        &&$snapshot($graphTables)===$unchanged,'A consumed corporate review cannot overwrite the saved details');
+    [$status,$corpReview]=$request('GET',$corpPath);
+    [$status,$corpSaved]=$request('PUT',$corpPath,['corp_legal_name'=>$corpReview['corp']['corp_legal_name'],'review_token'=>$corpReview['review_token'],'corp_city'=>'Hamilton']);
+    $expect($status===200&&$corpSaved['changed']&&$corpSaved['corp']['corp_city']==='Hamilton'&&$corpSaved['corp']['corp_contact_phone']==='555-0100','Partial native HTTP save preserves unsubmitted corporate metadata');
+    $unchanged=$snapshot($graphTables);
+    [$status,$sameCorp]=$request('PUT',$corpPath,['corp_legal_name'=>$corpSaved['corp']['corp_legal_name'],'review_token'=>$corpSaved['review_token'],'corp_city'=>'Hamilton']);
+    $expect($status===200&&!$sameCorp['changed']&&$snapshot($graphTables)===$unchanged,'Fresh identical corporate save is an unchanged HTTP success');
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.corp.updated'");
+    $q->execute([$tenant,$corpPlacement,$actor]);$expect((int)$q->fetchColumn()===2,'Corporate saves audit the authenticated actor once per actual change');
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
     [$status,$context]=$request('GET',$contextPath);
