@@ -41,6 +41,7 @@ putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);setRequestTenantId(1);
 $pdo->exec('ALTER TABLE core_record_numbers ADD canonical_record_id BIGINT');$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=record_id');
 $pdo->exec('ALTER TABLE people ADD status VARCHAR(20) DEFAULT "active"');
 $pdo->exec('ALTER TABLE placements ADD client_id BIGINT NULL, ADD end_client_company_id BIGINT NULL, ADD worksite_city VARCHAR(100) NULL, ADD worksite_state VARCHAR(100) NULL, ADD worksite_country VARCHAR(2) NULL');
+$pdo->exec('ALTER TABLE placements ADD branch VARCHAR(160),ADD department VARCHAR(120),ADD service_line VARCHAR(120),ADD cost_center VARCHAR(120),ADD workers_comp_class VARCHAR(64),ADD remote_policy VARCHAR(6)');
 $pdo->exec('CREATE TABLE placement_corp_details(tenant_id BIGINT,placement_id BIGINT,ap_vendor_id BIGINT NULL)');
 $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT,actor_user_id BIGINT,event VARCHAR(128),meta_json LONGTEXT,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
 $before=$pdo->query('SELECT * FROM quanta_time_routes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);$times=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
