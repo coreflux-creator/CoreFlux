@@ -1,0 +1,374 @@
+{
+  "date": "2026-11-12",
+  "previous_goal_turn_classification": "no_progress",
+  "previous_goal_turn_reason": "The prior reply answered standalone accounting access. This continuation revalidated unfinished code, completed its tests and installed and exercised the native source-evidence workflow.",
+  "current_goal_turn_classification": "progress",
+  "source_commit": "4b36d108c14e71211b81f70848804b180d945ce7",
+  "ci": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43174776453",
+    "conclusion": "success",
+    "jobs_passed": 11,
+    "native_financial_checks": 100,
+    "local_parser_checks": 38,
+    "affected_ui_checks": 18
+  },
+  "installation": {
+    "checked_at": "2026-11-12T07:29:20+00:00",
+    "source_commit": "4b36d108c14e71211b81f70848804b180d945ce7",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "created_tables": [
+      "staffing_workbook_sources",
+      "staffing_financial_evidence"
+    ],
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/staffing-workbook-before-6c6b0b5d6921f2bbde04",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "served_screen_assets_verified": true,
+    "tables_verified": 370,
+    "rows_preserved": 34461,
+    "files_verified": 13,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "migration_applied": "189_staffing_financial_evidence.sql",
+    "preexisting_tables_preserved": 368,
+    "preexisting_rows_preserved": 34460,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/staffing-workbook-e9d8215642bf1ea0c2fb",
+      "hashes": {
+        "install_thunderhawk_staffing_workbook.php": "99025ed75f4355b2d32936cff099f45e3711fd1c17f3f87a9f61774766935c1f",
+        "staffing-workbook-package.json": "6c6b0b5d6921f2bbde040f3fa143e7f64da9632fac89546a4aafdf2666877a6b"
+      },
+      "ci_run": "43174776453",
+      "tested_commit": "4b36d108c14e71211b81f70848804b180d945ce7",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/staffing-workbook-install-result.json"
+    }
+  },
+  "files": {
+    "core/integrations/staffing_workbook.php": {
+      "before_sha256": null,
+      "sha256": "ae5ff124c098d355571b093eb54e4c0f199988e7576994d35cbb8c62ad3330d2"
+    },
+    "core/integrations/staffing_financial_evidence.php": {
+      "before_sha256": null,
+      "sha256": "1705031e3621677abe275bafdad53f4cb07864bc04f5548a4641f91904b0b9d8"
+    },
+    "core/integrations/staffing_reconciliation.php": {
+      "before_sha256": "23ce4a2e40b71567b5b7ec267cf5fd9bd7bc1e7f5a337a0426be20227c9d0666",
+      "sha256": "0c4de5d6cb67d704c67cec140fa3a33508c96b632f0d75e0fb871bbd3462b0e1"
+    },
+    "api/staffing_financial_evidence.php": {
+      "before_sha256": null,
+      "sha256": "36d2aa07f4932e3cb2ab0724e201a262e69d98a223e05c6dfcf6807163abd3e2"
+    },
+    "modules/treasury/ui/StaffingFinancialEvidence.jsx": {
+      "before_sha256": null,
+      "sha256": "4c1bb2c1562fdb3cd27df30f6b4bd89b02c7d7bb8d47082838743afe0c543d63"
+    },
+    "modules/treasury/ui/StaffingReconciliation.jsx": {
+      "before_sha256": "9d3fdcbda739d60de2f36f27e7d0c9363bb990c3fa350549ecd0f2704721cb52",
+      "sha256": "bce64991224a0227d8f608e37108f6a50c5c9983681d3bc60cbe7d1128e9795e"
+    },
+    "core/migrations/189_staffing_financial_evidence.sql": {
+      "before_sha256": null,
+      "sha256": "e6673c71b0195b22f055526ad046fe0080cc61a7121ccb6dff68c8666094dfa9"
+    },
+    "spa-assets/index-BV3PG3Zy.js": {
+      "before_sha256": null,
+      "sha256": "675b57df17b9e3678ce17499edce9f1f9d72ba4cefcceaeed5cc07b57d7c68fa"
+    },
+    "spa-assets/index-Cbmgy9mH.js": {
+      "before_sha256": null,
+      "sha256": "da7ef15387ccca0aa5b26f9e357921e2bf272cbc61e58d6a436cc05485092fa2"
+    },
+    "spa-assets/sw.js": {
+      "before_sha256": "b610c3f01fe7c95133d21479cb17d48ea0351b0c83e71eddf00aaf83dfe5c11c",
+      "sha256": "ba5da737c0e946e36a2cdd910cc882ee22ac6a5867d1928495984bff42976dd8"
+    },
+    "spa-assets/index.html": {
+      "before_sha256": "d3abad1f46453580ca7db5593a203e882ac061044994fab03c7694a76de2acd5",
+      "sha256": "70b8333bcdc15dd72055ead0387e45606992e6a326fb52adfd875d27eb153895"
+    },
+    "dashboard/dist/index.html": {
+      "before_sha256": "d3abad1f46453580ca7db5593a203e882ac061044994fab03c7694a76de2acd5",
+      "sha256": "70b8333bcdc15dd72055ead0387e45606992e6a326fb52adfd875d27eb153895"
+    },
+    "index.html": {
+      "before_sha256": "d3abad1f46453580ca7db5593a203e882ac061044994fab03c7694a76de2acd5",
+      "sha256": "70b8333bcdc15dd72055ead0387e45606992e6a326fb52adfd875d27eb153895"
+    }
+  },
+  "dependencies": {
+    "modules/placements/lib/end.php": "ac4ea08bafdc616808e0d95c4ad3c04ba203a2a57013ea66d7d688cb83b1d93f",
+    "modules/placements/lib/placements.php": "f7e2574c4afb3c40dacaa3305247099d0d2b9c052e93451eea7fb4f3e9f554bc",
+    "core/staffing_economics.php": "3e0da7dcd16056153ae10b0fbcfb5ce44a31598d00ef0fdd125cba7291505795",
+    "core/tenant_scope.php": "93f970e3e27a67694350f932fc51bc937b6d6837839cc50ca4d486a5073ac143",
+    "core/audit.php": "e1a4acf587ce7a21a7cfffb8a1c19095f1c22ea1f42727b28c75a4941d83ab42",
+    "modules/people/lib/companies.php": "86dbdcf8422b429d54b8791a255da2bfc19627e34e2b917f14f70b42ba65be3e",
+    "core/record_numbers.php": "a1a48d8e705ab1d7ef15649e740078166911fdac81df3e297fbdc4710797fe15",
+    "core/sub_tenants.php": "93708814436bbd06c7a560db1c65972cf0f706978aea4a64ea234bb652971658",
+    "core/api_bootstrap.php": "f2ca7d9e2558a374159c10f9d10d3da407874620e8ad211544ead6c187df0579",
+    "core/RBAC.php": "fea568b164d652dde0cc1f5684d1924202e174167325d1830cce9de958457cad",
+    "core/jobdiva/client.php": "7a67fe2d44118cb6451a69fdc657bdcdc997e4b61c9f92f235743e916875f30c",
+    "core/jobdiva/dates.php": "ef0a8db601d73700aacf8df190f1c7ed0bf7158460e6bfcc0f16c1f37b5e8a58",
+    "core/jobdiva/assignment_identity.php": "090748f8504155ccb2f157a3d21018114b17bc0156fad19971cb1fc000292685",
+    "core/jobdiva/assignment_contract.php": "02b174f84356e42f3f2eb53a2cb0ba2d9468bd5798884390fd5902e254252910",
+    "core/jobdiva/classification_mapping.php": "17085fd7efba296ed90eec7b6ba1717697f3e24a6dda6203519c5a7976c25b97",
+    "core/jobdiva/canonical_graph.php": "ec888ecda374a76a2338f15b9d8b0657b214d5f719db288b2ddf27b416b54dfe",
+    "core/jobdiva/projector.php": "7e755642fe01d3758a44d41858b84d28aa78362864445456f0625196668ded1e",
+    "core/integrations/field_map.php": "1cbcfd439c3f9ab0e3f44e55a039328925c434333d118ae6dd0d9cfb5cb5d521",
+    "core/integrations/source_values.php": "e0c31f420ef53dad84c65493637b6a2219256362b35b12ca8d97cc058a4848a9",
+    "core/integrations/entity_mappings.php": "f4074fd4aa9529fdeb00e8c2f200f49577850d5d6977eba60fd203b3307bf455",
+    "core/integrations/payload_field_index.php": "b50f094f128fffe17046fa110c7ec3fbb1b14397a669a203b29241e5a1760f14",
+    "modules/staffing/lib/clients.php": "ab2e3023efdc4ae441c681172ec4ba0dcab7b0dd701ca3ba0369c12971178a2c",
+    "modules/staffing/lib/jobs.php": "4fa53c75b86bf59207a8b2ec441988dc8d7461e92b7be27f93c011972222587d",
+    "modules/accounting/lib/accounting.php": "7803cd2912d2cd4cf5893750d34090d2a6922741ad7c6158b218a74bb7ec201b",
+    "core/jobdiva/sync.php": "e75bc552e4b0796b29d1776b7633b0ca0cedc43daf2bbc760c9b87655ddeeb09",
+    "modules/placements/lib/ownership.php": "37d797f2cf7a045230d03809634ecd262b7e7b53005254dd7c08ac2950ca8a76",
+    "modules/placements/lib/edit.php": "7f468d24a6032c6802f1591ef82cf8ebfa5e34ed51be1f42f2cb95f5b0d4ac05",
+    "core/jobdiva/stored_review.php": "4bca4f875bc7aceeaf8bdd55738ae7c6f7b898a56c6da8d5920c7056c80ca5e8",
+    "core/rbac/permissions.php": "1343e49a42c4d1039ea722e601015f666086ae2694629dc048d4267f8d3d3f59",
+    "core/rbac/legacy_map.php": "b9da416fcc63b87ab9cd9a8aaecc9226bbcc43dc1a1b97121bd71b91954dac35",
+    "core/memberships.php": "61a0a6c28dd1a3aaf30ed2b3fa631b89599a4e0e80f4431f760c17a34dbd58b2",
+    "modules/placements/lib/corp_details.php": "c062ddcb63446eaab6cdf21936a35061ce7ecd9bf395b321a2970313edce2623",
+    "modules/placements/api/corp.php": "c874fd04f474766ed8d0887f56c839cbf0697f645bb769346ae61831cd1c71c0",
+    "core/integrations/field_map_apply.php": "e0d5372ac278acd4af2e699559106f714722b492aa0b9fe8900008041c2a1cac",
+    "modules/placements/lib/economics_participants.php": "e52e799d2434fab9413872fbfdc9bca380764d8d5c98da16999824b9825dcd76",
+    "modules/placements/lib/economic_items_edit.php": "e2e21a4397e8b4823963dd539e0661f3fa991d6a0d80dc94f4ea5026d1aea61c",
+    "modules/placements/api/economics.php": "2e1bb76d34e8fa34d7e4e149d8944f2a95abe7f7e0ac950915de43646ff1c50d",
+    "modules/placements/ui/PlacementDetail.jsx": "87c55921a9ed46fb3793a013f23017ab6feae484557e0515d85fe54195bb21ea",
+    "modules/placements/ui/OneTimeItems.jsx": "ffad15e756c8a23c4760a7d697993624f1861ed8ff98e22caeb9ffda7a846191",
+    "modules/placements/lib/cycle_assignments.php": "03f68bcda9ec961374b66735ff67a1b6fd154ac84846061d59ba43a7fed47dab",
+    "modules/placements/lib/economics.php": "ad051b299fa124871a5d39e9b7ba4ca7c6cbcd1e854f67ac04ae0d60784b8af9",
+    "modules/placements/lib/economics_edit.php": "7d02ec88b77ca51a60654a7136e243476cb6740c6fe3515cceae054353f9f31c",
+    "core/jobdiva/contract_projection.php": "aa3e4d7cf6229c48d419db5e63257fceb4f021e4d56984a3085c5e72b854b591",
+    "modules/payroll/lib/payroll.php": "054fd65ffb780d3523d1ab175c4334591200dd87ef122885ce01933a3c9c22ec",
+    "modules/payroll/lib/cycles.php": "a908d57cd1ea89ef3878b3d4bb7c81b95799f168e4f5faaf3964bf4a6f2a57a4",
+    "modules/payroll/lib/artifacts.php": "db87958e0d49e2a947a5b2158e230ec2c687fc3578f31976a4826dd20cf44894",
+    "modules/people/lib/employees.php": "12b5883158416310b1261fde7a8be3172c61cf6af68f132e94e775d2e5eb1865",
+    "core/integrations/purepay_assignment_contract.php": "837549856661ab0b084546f780f6fa655ed6e8f85f52f65cafbc26fcbca734d0",
+    "core/integrations/delivery.php": "78e00174fbe5789d3a79cf5f2fc999cbb399f0243ac725adc618873771c96bcd",
+    "core/encryption.php": "0724924e9362eb0f5fac3a1f04556c4e85fc66a2b141d04ec8ecd1dbba1f27cf",
+    "modules/placements/lib/cycle_edits.php": "22b17a1cd3c0a74cb556b4251962abd7fa4cef318278e1a998a849529311970c",
+    "modules/placements/api/cycles.php": "0f6c48ba492dc770d61b2f1e50ecb509392c0f193f00b44ac70d4f23aeb4d533",
+    "modules/payroll/lib/staffing_cycle_guard.php": "27975577befe779e2ef24c9086fd3db72e881e63fb4e0ed02fadae11f4876a9f",
+    "modules/payroll/api/cycles.php": "ee49527cd6219e595d28eb17626f6af99ad02ba443c86e01f082eec1d7ffabce",
+    "modules/payroll/api/pay_schedules.php": "af9479c63be84cda2f570f4a9254a103cc2779e035b6cf7fdf5b573dc2dfee9d",
+    "modules/placements/lib/commercial_ownership.php": "3d0691ba7b5fb2324c59453f4f4dd6106ad93c2ade92c3050d12884e83970874",
+    "core/quanta/client.php": "30b41a7124cbc09e1113ef1c21e7843873a56caf17e1d8ce300602823d8c15c3",
+    "core/quanta/endpoint.php": "7f8e5cd1dda1305ebd132a32e2b6550236940761a59307713ee5e74dc4950802",
+    "core/quanta/identity.php": "3b627253d8649b380987105289f32e1a22505b315f0f51b2f684f2c04e9a6625",
+    "core/quanta/legacy_time_contract.php": "b9ff6b82f2a100b0535ddc7be49824220d81171c96563e95c8d7e5ab7766f1dc",
+    "core/quanta/legacy_time_delivery.php": "734bca02752c8f10d06aef366332efe7b0d831e69c86d35ed86f08f8f93102a4",
+    "core/quanta/onboarding_contract.php": "57af5867092b4c5d770c19b582c130368de281290346ad272836b599e689b878",
+    "core/quanta/onboarding_delivery.php": "aadc5803eb546b20b4a4b9ee6ef1b8962b689636ff98c52144e4681c057cb3c5",
+    "core/quanta/onboarding_documents.php": "59ca4c532fb5744ae537a34f562f5eea0191480fd94e74a40aa1fc15c6186a70",
+    "core/quanta/onboarding_transfers.php": "1d3b28c1e30f3d80b018201b53e141722470ae5d93890fdd0521393ad00e03b9",
+    "core/quanta/profile_baseline_contract.php": "92652bd38ba8fe9f9acaffc5bf02d51459b29ecb3d534f4e40fc3b10a94a6be1",
+    "core/quanta/profile_baseline_delivery.php": "74ce8b0bbfd0601b4c420181eeebe2c4474da0408f1cc72ce449b00c08a85f2f",
+    "core/quanta/profile_change_contract.php": "37b85e19271b6f8290aff4059bd1277ccc3807fd5fd6e1d35545cd4c6f9b4d47",
+    "core/quanta/profile_decision_contract.php": "3ee64ffdcafbcc678b39d72b0e96f5be13c738cca1fd8d0c27c17cc85924ec1b",
+    "core/quanta/profile_return_delivery.php": "feca8cf0ca307909a067b5075fb63f24cdc7dbc24b35ac380c4de59d3ee3abba",
+    "core/quanta/profile_review.php": "c8df22978a6d69e55eb52545857251b38fc480941c365c154619cf4bbbfdb28d",
+    "core/quanta/publication.php": "325b55b495c16015c428c0327b272befcf9d9578bc1d0e9d111816230cbed2c5",
+    "core/quanta/sync.php": "cd01873326233a52d21bd7f84868ccf5cdaa6e7350cbe63db05f8ea081cf0040",
+    "core/quanta/time_approval.php": "906fb20f607fab6c2a602096029e213a969e7695f31c1644dcbc4d59c72771c7",
+    "core/quanta/time_binding.php": "d3e13273fa461dd0c9701ef504cb8bad7f6fed806a4ff93823d2ce946c462040",
+    "core/quanta/time_control_contract.php": "3e098f05b4b03976e6180c22456e576b0b80b136f7bc1013a1c702b01ac7e563",
+    "core/quanta/time_current.php": "91094ebcea4626572a7f76294362ef862efe479023e9539d1bc5c0f1269cde7b",
+    "core/quanta/time_provenance.php": "c2ece67d8d257de46b4632c35fb33e6820344906f7132097954a54b2b515f3b9",
+    "core/quanta/time_review_contract.php": "df583e4ebdaee8fe809b6ec114dd37964ec61e1b4ecff1893195e350ac7b0dea",
+    "core/quanta/time_review_delivery.php": "f64866090c4da26f6505d2ca61c1d6e2e955816d384379e182b70847afd312ba",
+    "core/quanta/worker_delivery.php": "3d1565ae87f3edaad1fbd9eea472482ef205e3cd059da2fd89b9ae2e365abe56",
+    "core/quanta/worker_intake.php": "d015355f8cc7901997b3b55f9a4ed29fde7b56ba99463fc7fee192bce51a5f51",
+    "core/quanta/worker_writer.php": "246bf11f54ea8b91bbdcacf9874cda4a804ea0f106642fdfb196c61f8c65f7da",
+    "core/quanta/workspace.php": "353434335d57341c725c026c3e9f0c235c38fca6fc8b986fb4235f217eaf1068",
+    "core/integrations/identity.php": "9993acf6a2cd5a347a59ae0a01e5eb6a9a2ff9b21fd2da013895e67593e1d145",
+    "spa-assets/index-C9Kqh6OI.js": "77c51ce08259e5ba76a52bae14d98b022efbcd98e21887d1b5606756b2876ee1",
+    "spa-assets/index-CHmo4T_t.js": "21d5536830008f57dd682a7c7856b9ae060484a289bc690044c215f64294f3ab",
+    "spa-assets/index-CYcM0MSD.css": "34076d40e2e528e51f4313b79dc1942a93b9c629e9f426fadd5f8b795d28d9fc",
+    "spa-assets/index-SRkxIh9x.css": "e4a8bde4c3c6f480a044435c9c2ff93c61eaef47fad8471d791d3df9fb5976e8",
+    ".deploy-version": "3dd2feef4b0f6d43333cd0d1b253612bfb44ca74a398779ce8aae481d50d5015",
+    "core/quanta/routes.php": "81c53adf7ae8589a2dc9b5484dd2fa8a4dd01ef0f40cd853bea1d7d7345c5cda",
+    "core/quanta/time_control_delivery.php": "056a36d8f0ae0750cb3b54e80068339ba76686e3c2d5e7e2868899a64d5f83d4",
+    "core/integrations/staffing_exchange_fields.php": "c63f49fa3b2999720d1a1032b9f5a0d6a1270a01e7c6217df739df769894eb0c",
+    "dashboard/src/pages/QuantaMetadataPanel.jsx": "9846045a1891c27b716b9b9cc1e85cc9759d971d0a214584ce2eaf989b0a3d58",
+    "spa-assets/index-bW73efam.js": "49286c7b847d927ea17e88d36c974efc2e0da8a9f6dd5b679c929d169f16f413",
+    "spa-assets/index-Cluxq1DD.js": "1b07696d7440c2ceb97931138cd9c4360329ff7366cc00f240dd30cf49473c87",
+    "core/quanta/core_contract.php": "dc5fd979185fa6340406aba7197389dca96ad8c38cf9cc485f7c5a981b142ab2",
+    "core/quanta/metadata_delivery.php": "307e0da690d159d6198ec093bf1f45a55e916da81471bc5d7054a33eb523c8a0",
+    "core/integrations/staffing_workflow_fields.php": "02b1e0d81f6ac54b958457017ee07c6ab20a7106bb710476160f43e6d3a179b5",
+    "core/jobdiva/staffing_field_mappings.php": "f83ccb926719bca5da46a46540929546ee2d6e2706752ee12d84ee3f9ee717ea",
+    "core/integrations/staffing_field_ownership.php": "e54479e46e93ee7277ab10d1549682ef05cd7a7b02302b578d21d66c70391c20",
+    "core/integrations/staffing_field_contract.php": "bdb5a05f3a27cd301cbf36c4e45ef6310470c8042162954f0d5cd2acda791392",
+    "core/integrations/purepay_observation_contract.php": "d01dd9e40bc4c4fcfac2dcef0028301cdc7ebc8d3e8d8945307afe476c007a5d",
+    "core/integrations/purepay_observations.php": "b550f1edb7ede6f16cff2b98fe5755f98dbf310a50a714af619756a2f4fc136a",
+    "core/integrations/purepay_financial_line_links.php": "a9ad5987cfc2eb79958ba350cdc89cade157522df901f7323dfff40eca84f22e",
+    "core/integrations/purepay_financial_observations.php": "cb63dbc88210c7887cec75bad9dd83fb08ccd2fe3dbd31097db8c04f6c943ba9",
+    "core/integrations/purepay_core.php": "25f31cbf5b77d74dabf12875aa2cf1dd77c6d8f799f2a82a6902920c9e283424",
+    "core/accounting/account_import.php": "1c81792176b4cb1a6eb6019572c5cf4655852cab6a277d0398bf423496757e5d",
+    "core/accounting/account_mapping_service.php": "15ca0af090cb12e171fc8d84f6dfbc946970c1677c1bfb49be54c4bd8a520643",
+    "core/accounting/command_service.php": "0d3c5629fdb2b32d11006c266ef62706fd6ef5ef3f45e5f44d71da1445577edc",
+    "core/accounting/control_accounts.php": "0e01f82160283d5d25bec8c659495f911f8328a4f64a86b4bbd89ca38352a29a",
+    "core/accounting/jaz_adapter.php": "12eab72383553386c06a0b086f1b4fda75d145ac7800fc32829ae5e7ac04f662",
+    "core/accounting/jaz_http.php": "ec4799ab02b22e23ec5dea6545b1488ce2b4aa8b1bafcd67ed38501e03e3edf9",
+    "core/accounting/jaz_payload_mapper.php": "5c4b44aedd4d0429ce668da73ebae20739e2e5fab832260d50bb950a18b02a8f",
+    "core/accounting/mail_settings.php": "857ff5dc70c55d5bc1dbdd50471b76895b5ce7a014430f510b6d90f2adaa0aa9",
+    "core/accounting/provider_adapter.php": "5e02abbc6275fa276b5ddec145117b2674d7216fbb5fd57f60d07b8e235fbdf6",
+    "core/accounting/standalone_api_boundary.php": "8fca9a02830a5bb516b4d11546b4c742d457882911d44393ccceee1a408a6b42",
+    "core/accounting/standalone_boundary.php": "875d24f6940bab0594f7150fd840d3fa58a3c39f85270ca609088d7b9b7001af",
+    "core/accounting/sync_config_service.php": "1cd296357c39b603858e0bb8e870fa7fcbc20140fc0b88d737f0deec4ccc802e",
+    "core/accounting/system_accounts.php": "4911afc84df5b3ee8021c62105b342dde52b5b5cd8d7ed8fb6838bd46b51e21e",
+    "core/ai/artifacts.php": "61fd2db973088831ed597efa2a06b42096489e97b3df8f8025a01f8de80a7727",
+    "core/ai_interpretation.php": "0a259358d79423257ef749ce106855142759690de33e0697c8febd574eac3725",
+    "core/auditor.php": "e612223f957a9584db9092fe8e6c026c1e644395834318e72f90d36689f36b87",
+    "core/auth.php": "b8cdc94afbee892ef301a828c5171b81dc3a5ac760bf52ff72d0cb8e6c8d4e1b",
+    "core/config.php": "d890a467e0474fd1438f14ee3ab64151e33b7630a7d7f08c39514087d07db606",
+    "core/db.php": "2f168a209ce18aebf8e5ec7cbfc9c5ae6ce84eeb4026e1bc2ca1d6cdeeff58f1",
+    "core/event_lineage.php": "2f0d77d1f1504c9cfe70fd8dbf2b008aa65e8494a1dca14e74c124982cf47b74",
+    "core/event_registry.php": "f6ddbe2e407b6edbde8357b0ffeeef8c188946f2e6e040110a7e205c5ee39e21",
+    "core/exception_queue.php": "3844111a3a8089d50226dc1bf139c6dd97d1d860cd96afb5e38180a97cf13cb6",
+    "core/financial_state_cache.php": "611c5d4ca54ec9a5b0371e3e2edaf685dddbb8a96beeda65231fbe47b7387d0e",
+    "core/integrations/delivery_enablement.php": "a021cd62c08a9dc81d42d9a6b4c2dc280917002cea71192ed14e243eac723133",
+    "core/integrations/purepay_financial_observation_contract.php": "4e03825870d755d5626fcb5fccaff8f1878f2e207ec0d3d200da7cf8e8e5f4d4",
+    "core/integrations/purepay_links.php": "996c138248b482edb65324fe8e9081b97e30b0d53d9477dc362297d6719cb063",
+    "core/integrations/purepay_payroll_inputs.php": "48b651d6c5e589744b21099c7dd0aacf13584dcb5609bdf626bb18ee3965de5a",
+    "core/jwt.php": "3ed55f5b06a744be37819c12811fd0463c01b6026477618a68354783376354c5",
+    "core/migrate.php": "7b8ea9a10a26b33abb8bfbede1609b524663676688334d076fa19b0df80be67b",
+    "core/migration_hash.php": "5aa78fdd4946ae4ebd208c8ba6841b3ca4a6745206de38fbd691bea8112c202d",
+    "core/migration_policy.php": "9e716a6a4459e3489aa9c5e47afd4ddcb255370f2868b3cbddb13472f7a0bab3",
+    "core/ModuleRegistry.php": "9ad90193fab553e4f460435fb02765a1d570a34b97f46fd462d9104c5c7fc490",
+    "core/modules.php": "95241fefeca2641e1ec2c6bd906322a35f48cc6e5ab09ef13988e366d2321576",
+    "core/posting_engine/formula.php": "7412f63c977b5246faaf766b4c64fde5d8405a1c4f91bb2e7ff99c562703121d",
+    "core/posting_engine/process.php": "00de404b19423313fbb6b338bb683de7e4a89103a18e8ec5e8553246ce26e4c4",
+    "core/purepay_adapter.php": "aa0659f03f8f3e2d52c98b7335325f03374b55e534423039fd6a7f3d8cc6f0d1",
+    "core/purepay_financial_binding.php": "1b1d0246de295bbff3073fd693d83cf0a31a00dbde2a501048d427e412393b54",
+    "core/purepay_service.php": "04ed6c97b97cdc1253d0ea5937df136299abdb194ce53a2fe12104466ea4422b",
+    "core/seeds/event_registry_seed.php": "ac5bd09744ba8525b28de42a73f3fd4d809ca0bb71997af6ffe294aaf38ea827",
+    "core/tx_helpers.php": "748ae80c6bf29da9b1b0fd945939821d19108a034c17245da50bf9789d061ab9",
+    "modules/accounting/lib/credit_balances.php": "b978d62e019bf7f2447c71dd88a53f45c5df2b0cb4a526793d77ea2886c7a5cb",
+    "modules/accounting/lib/dimensions.php": "01ff3844acb5b0801fa4377b78c98171b2ab04ace601879a5ba0766e9fe1806d",
+    "modules/accounting/lib/multi_period.php": "2016c260d2eb0fb93937d94aeb60887544b71c7784c1a0b67aba8d4c88c2a328",
+    "modules/people/lib/documents.php": "3ad7ae24e4cd9b1f5a08560aec074d9a4a0ebb7a495319d0a9dcbaba4b44a5f6",
+    "modules/people/lib/onboarding.php": "bb5d830f615003e8ce065f7f61653c132d21a824c3adabdf4054149d409a756d",
+    "modules/staffing/lib/dimension_snapshot.php": "9bcd0a172fe9c4c2f4d92cddcfb2f2a1f7ac48291f2a3876364fc500bcc9e48b",
+    "modules/staffing/lib/dimensions.php": "96929ae0e64788970749b5d7c1d29d361fe4db63e0556c48c6919e4ac341bb52",
+    "modules/staffing/lib/timesheets.php": "396539afe40f5af69a0f87fa14d47761c0064eaf20d26bf7beaeeda2cc82a7b0",
+    "modules/time/lib/time.php": "968fd5a0abe98d0faac8665448ef389cd9b87945bc680a84144f2910c57eb36a",
+    "core/integrations/staffing_reconciliation_contract.php": "a3e4cff057c7f205f234eea66b212068b0c512b044606e4b621e107a4f8ec44e",
+    "api/staffing_reconciliation.php": "5a4af01f216fc09da3cc3f7caeb5c9ed2b2234dd902a82b642d036c9961a4a35",
+    "modules/treasury/ui/PurePaySettings.jsx": "acbf89dc4409395cd459e01bf6569f5ab1fca30363b8c96673f64c723cf28339",
+    "spa-assets/index-D26YxMMw.js": "8186da729a0e902323da0cf36d7d8f63a07d680563cb042b1968271c7a2b01ef",
+    "spa-assets/index-ELrnPAOj.js": "41d6960c2cdba1de7a57f8b4e6b97e68fb4bad5cc95618dcbf6b137b7dae363a"
+  },
+  "acceptance": {
+    "preview_at": "2026-11-12T07:29:34+00:00",
+    "saved_at": "2026-11-12T07:30:08+00:00",
+    "verified_at": "2026-11-12T07:30:58+00:00",
+    "source_sha256": "9b5b7edcffe0296a458538f1017cee848238fec9d3286d6456a9a750010c8b92",
+    "tenant_id": 2002,
+    "placement_number": "PL-864",
+    "person_number": "P-358",
+    "new_encrypted_sources": 1,
+    "new_review_receipts": 5,
+    "new_review_audits": 5,
+    "exact_replays_without_duplicates": 5,
+    "receipt_ids": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "protected_tables_unchanged": 367,
+    "post_save_verification_all_tables_unchanged": true,
+    "anonymous_actions": [
+      "preview",
+      "save",
+      "history",
+      "download"
+    ],
+    "anonymous_requested_tenants": [
+      2002,
+      999
+    ],
+    "anonymous_status": 401,
+    "native_original_bytes_verified": true,
+    "source_workbook_changed": false,
+    "worksheet_invoice_values_match": true,
+    "matching_may_september_approved_core_time_present": false,
+    "october_approved_time_and_existing_paid_payroll_retained": true,
+    "provider_dates_and_currency_preserved": true,
+    "original_client_approval_proven": false,
+    "line_time_allocation_proven": false,
+    "full_app_browser_acceptance": "pending user sign-in; existing pilot tab still shows Login",
+    "private_receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/staffing-workbook-acceptance-result.json"
+  },
+  "artifacts": {
+    "staffing-workbook-preflight.json": {
+      "path": "output/staffing-workbook-preflight.json",
+      "sha256": "f180e9e72697942dd3a3844f202b57c2a91fc11f64783b0221a2357518eb1456"
+    },
+    "staffing-workbook-preview-20261112.json": {
+      "path": "output/staffing-workbook-preview-20261112.json",
+      "sha256": "4936092dea186d2983f313da2714d4707471cfbebc88dde52bf23f46b4bd652a"
+    },
+    "staffing-workbook-save-20261112.json": {
+      "path": "output/staffing-workbook-save-20261112.json",
+      "sha256": "f70f35f4bb6e896f8abc31b72ff728046a3627896fa6bb7e58343ec63161cf0a"
+    },
+    "staffing-workbook-verify-20261112.json": {
+      "path": "output/staffing-workbook-verify-20261112.json",
+      "sha256": "b3e456047bc27c1b9cb38f280f25f690939d078adb7b643c1242d75944423df2"
+    },
+    "staffing-workbook-ui-final.log": {
+      "path": "output/staffing-workbook-ui-final.log",
+      "sha256": "023325108085c257fd615d106bef2e6ad1faa34cf3f03dcb45e17ecd6b5460cc"
+    },
+    "staffing-workbook-build.log": {
+      "path": "output/staffing-workbook-build.log",
+      "sha256": "3ef49b279617ad14d43c7914036e2f06678a2a5ad44c552f83b5d15618f525ed"
+    },
+    "staffing-workbook-native-ci.log": {
+      "path": "output/staffing-workbook-native-ci.log",
+      "sha256": "0267e70affe762729fa3fb955f829eb0dba0f5d9da22c2c7175af01d17a040d2"
+    },
+    "staffing-workbook-native-extraction-20261112.json": {
+      "path": "output/staffing-workbook-native-extraction-20261112.json",
+      "sha256": "86e5a2cf0c80a4779fd55e8963693e1053aec26ffd417b713ebe529dc5350e1c"
+    },
+    "prepare_staffing_workbook_release.py": {
+      "path": "output/prepare_staffing_workbook_release.py",
+      "sha256": "28e29bb9ead2be3239f0cb31546311c73770c3cd0f99406ad2c7ea1a662467fa"
+    },
+    "run_staffing_workbook_install.py": {
+      "path": "output/run_staffing_workbook_install.py",
+      "sha256": "cc74720ba4cd330926fbb6d4fa1b967d1a6ea9f75c6b8cf80632c94b87be9e4f"
+    },
+    "accept_staffing_workbook.py": {
+      "path": "output/accept_staffing_workbook.py",
+      "sha256": "c6a1441ed3a7d0a990184b65a12ebd0b24d3cc3707439b4d4b300fab1c616719"
+    }
+  },
+  "scope": {
+    "isolated_pilot_only": true,
+    "production_cutover": false,
+    "real_payroll_or_payment_execution": false,
+    "financial_postings": false,
+    "provider_business_writes": false,
+    "arabella_changed": false
+  },
+  "limitations": [
+    "Rendered authenticated review/history/download acceptance awaits the existing user sign-in request.",
+    "Provider service dates, currencies, source time IDs and original client approval remain absent where absent at source.",
+    "May\u2013September worksheet hours are supplemental evidence, not newly imported or approved Core time.",
+    "Same-period line-to-time allocation, fees, returns and bank delivery remain separate acceptance requirements.",
+    "The 573 unresolved field dispositions, partial custom registry, reverse ownership conflicts and remaining lifecycle/correction journeys remain open."
+  ],
+  "goal_status": "active_incomplete"
+}
