@@ -35,10 +35,11 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$rateAppr  = (string) file_get_contents('/app/modules/placements/lib/rate_approve.php');
-$ratesApi  = (string) file_get_contents('/app/modules/placements/api/rates.php');
-$detail    = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
-$readiness = (string) file_get_contents('/app/modules/staffing/api/readiness.php');
+$root = dirname(__DIR__);
+$rateAppr  = (string) file_get_contents($root . '/modules/placements/lib/rate_approve.php');
+$ratesApi  = (string) file_get_contents($root . '/modules/placements/api/rates.php');
+$detail    = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
+$readiness = (string) file_get_contents($root . '/modules/staffing/api/readiness.php');
 
 echo "\n1. Soft-skip telemetry — auto-approve helper audits the why\n";
 $a('placement.rates.auto_approve_skipped_no_permission audit emitted',
@@ -99,9 +100,9 @@ $a('payroll fallback "Person #N" path preserved as last-resort label',
 
 echo "\n5. PHP syntax\n";
 foreach ([
-    '/app/modules/placements/lib/rate_approve.php',
-    '/app/modules/placements/api/rates.php',
-    '/app/modules/staffing/api/readiness.php',
+    $root . '/modules/placements/lib/rate_approve.php',
+    $root . '/modules/placements/api/rates.php',
+    $root . '/modules/staffing/api/readiness.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
