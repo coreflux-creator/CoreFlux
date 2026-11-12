@@ -3,9 +3,16 @@ import { api } from '../../../dashboard/src/lib/api';
 
 const destinations = { ar: 'Client invoice', ap: 'Vendor bill', payroll: 'Payroll earning', none: 'Margin-only cost' };
 export default function OneTimeItems({ placementId, startDate, currency, items = [], parties = [], canManage = false, refresh }) {
+  const storageKey = `coreflux:pending-placement-item:${placementId}`;
+  const readPending = () => {
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(storageKey) || 'null');
+      return saved && typeof saved.request_id === 'string' && typeof saved.description === 'string' ? saved : null;
+    } catch { return null; }
+  };
   const emptyForm = () => ({ description: '', settlement_channel: 'ar', economic_party_id: '', direction: 'charge', amount: '', currency, apply_on: startDate || new Date().toISOString().slice(0, 10), taxable: false });
-  const [form, setForm] = useState(emptyForm);
-  const [pending, setPending] = useState(null);
+  const [pending, setPending] = useState(readPending);
+  const [form, setForm] = useState(() => pending || emptyForm());
   const [receipts, setReceipts] = useState({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -17,17 +24,21 @@ export default function OneTimeItems({ placementId, startDate, currency, items =
     event.preventDefault();
     if (!canManage || busy) return;
     const body = pending || { ...form, currency, amount: form.amount, economic_party_id: form.economic_party_id ? Number(form.economic_party_id) : null, request_id: crypto.randomUUID() };
+    // Keep the exact request through a page reload after an uncertain response.
+    try { window.sessionStorage.setItem(storageKey, JSON.stringify(body)); }
+    catch { setMessage('Your browser could not preserve this save. Allow session storage and retry.'); return; }
     setPending(body); setBusy(true); setMessage('');
     try {
       const result = await api.post(`/modules/placements/api/economics.php?placement_id=${placementId}&action=item`, body);
       if (!result?.item || Number(result.item.placement_id) !== Number(placementId) || result.item.source_external_id !== `native-item:${body.request_id}`) throw new Error('The save result could not be confirmed.');
       setReceipts(current => ({ ...current, [result.item.id]: result.item }));
+      window.sessionStorage.removeItem(storageKey);
       setPending(null); setForm(emptyForm());
       setMessage(result.item.status === 'void' ? 'This item was already saved and later removed.' : result.changed ? 'One-time item added to the placement contract.' : 'The previous save is confirmed. No duplicate item was added.');
       // The receipt confirms the save even if a subsequent refresh is unavailable.
       Promise.resolve().then(() => refresh?.()).catch(() => {});
     } catch (error) {
-      if (error.status === 422) setPending(null);
+      if (error.status === 422) { setPending(null); window.sessionStorage.removeItem(storageKey); }
       setMessage(error.status === 422 ? error.message : `${error.message} Retry this save to confirm its result before entering another item.`);
     } finally { setBusy(false); }
   };
@@ -54,7 +65,7 @@ export default function OneTimeItems({ placementId, startDate, currency, items =
           <td>{destinations[item.settlement_channel]}</td>
           <td>{item.recipient_name || parties.find(party => Number(party.id) === Number(item.economic_party_id))?.display_name || '-'}</td>
           <td>{item.apply_on}</td><td>{item.direction === 'credit' ? '-' : ''}{item.currency} {Number(item.amount).toFixed(2)}</td>
-          <td>{item.settlement_status === 'applied' || item.obligation_id ? 'Applied' : item.settlement_channel === 'none' ? 'Margin only' : 'Pending'}</td>
+          <td>{item.ar_invoice_id ? `Applied to invoice #${item.ar_invoice_id}` : item.ap_bill_id ? `Applied to vendor bill #${item.ap_bill_id}` : item.payroll_ref_id ? `Applied to payroll run #${item.payroll_ref_id}` : item.settlement_status === 'applied' || item.obligation_id ? 'Applied' : item.settlement_channel === 'none' ? 'Margin only' : 'Pending'}</td>
           <td>{canManage && item.settlement_status !== 'applied' && !item.obligation_id && !Number(item.source_managed) && <button type="button" className="btn btn--sm" disabled={disabled} onClick={() => remove(item)}>Remove</button>}</td>
         </tr>)}
       </tbody>
@@ -72,7 +83,7 @@ export default function OneTimeItems({ placementId, startDate, currency, items =
         {!['ap','payroll'].includes(form.settlement_channel) && <label>Effect<select className="input" aria-label="Item effect" value={form.direction} onChange={e => update('direction', e.target.value)}><option value="charge">{form.settlement_channel === 'ar' ? 'Charge client' : 'Add cost'}</option><option value="credit">{form.settlement_channel === 'ar' ? 'Credit client' : 'Reduce cost'}</option></select></label>}
         <label>Amount<input className="input" aria-label="Item amount" type="number" min="0.01" max="9999999999.99" step="0.01" required value={form.amount} onChange={e => update('amount', e.target.value)} /></label>
         <label>Apply on<input className="input" aria-label="Item apply date" type="date" required value={form.apply_on} onChange={e => update('apply_on', e.target.value)} /></label>
-        <label>Contract currency<input className="input" readOnly value={currency} /></label>
+        <label>Contract currency<input className="input" readOnly value={pending?.currency || currency} /></label>
         {form.settlement_channel === 'ar' && <label><input type="checkbox" checked={form.taxable} onChange={e => update('taxable', e.target.checked)} /> Taxable</label>}
       </fieldset>
       <button className="btn btn--primary" disabled={busy || (!pending && form.settlement_channel !== 'none' && recipients.length === 0)}>{busy ? 'Saving...' : pending ? 'Retry same save' : 'Add one-time item'}</button>

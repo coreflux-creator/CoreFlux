@@ -274,7 +274,7 @@ try {
     finally{$pdo->exec('DROP TRIGGER cf_contract_http_item_audit');}
     $expect($snapshot($graphTables)===$unchanged,'Failed native item audit rolls back the charge and leaves the graph unchanged');
     [$status,$item]=$request('POST',$itemPath,$itemBody);$itemId=(int)($item['id']??0);
-    $expect($status===201&&$itemId>0&&$item['changed']&&$item['item']['source_managed']===0,'Authorized native HTTP creates one Core-owned item');
+    $expect($status===201&&$itemId>0&&$item['changed']&&(int)$item['item']['source_managed']===0,'Authorized native HTTP creates one Core-owned item');
     $unchanged=$snapshot($graphTables);[$status,$again]=$request('POST',$itemPath,$itemBody);
     $expect($status===200&&!$again['changed']&&$again['id']===$itemId&&$snapshot($graphTables)===$unchanged,'Exact HTTP retry confirms the original item without duplicating it');
     $expect($request('POST',$itemPath,array_replace($itemBody,['amount'=>'26.00']))[0]===409&&$snapshot($graphTables)===$unchanged,'HTTP request-key reuse cannot replace a saved charge');

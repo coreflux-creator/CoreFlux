@@ -25,7 +25,7 @@ try{
     placementEconomicsReconcile($tenant,$placement);
     $q=$pdo->prepare('SELECT id FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND settlement_channel=? AND active=1 ORDER BY id LIMIT 1');
     $q->execute([$tenant,$placement,'ar']);$ar=(int)$q->fetchColumn();$q->execute([$tenant,$placement,'ap']);$ap=(int)$q->fetchColumn();
-    $payroll=placementEconomicsUpsertParty($tenant,$placement,'manual:ci-item-payroll',['source_type'=>'manual','role'=>'commission_recipient','display_name'=>'CI Payroll Recipient','person_id'=>$person,'settlement_channel'=>'payroll','money_flow'=>'payable','fee_basis'=>'none','source_managed'=>0]);
+    $payroll=placementEconomicsUpsertParty($tenant,$placement,['source_ref'=>'manual:ci-item-payroll','source_type'=>'manual','role'=>'commission_recipient','display_name'=>'CI Payroll Recipient','person_id'=>$person,'settlement_channel'=>'payroll','money_flow'=>'payable','fee_basis'=>'none','source_managed'=>0]);
     $body=['description'=>'CI one-time charge','settlement_channel'=>'ar','economic_party_id'=>$ar,'direction'=>'charge','amount'=>'25.00','currency'=>'USD','apply_on'=>'2026-10-15','taxable'=>false,'request_id'=>$key()];
     $create=static fn(array $input):array=>placementEconomicsCreateNativeItem($tenant,$placement,$input);
     $fresh=static fn(array $changes=[]):array=>$create(array_replace($body,['request_id'=>$key()],$changes));

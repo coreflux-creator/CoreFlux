@@ -9,6 +9,8 @@ const require=createRequire(import.meta.url);
 const compiled=await build({entryPoints:[fileURLToPath(new URL('../../modules/placements/ui/OneTimeItems.jsx',import.meta.url))],bundle:true,platform:'node',format:'cjs',write:false,external:['react'],plugins:[{name:'item-api',setup(b){b.onResolve({filter:/lib\/api$/},()=>({path:'fixture-api',external:true}));}}]});
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 async function fixture(options={}){
+  const storage=options.storage || new Map();
+  globalThis.window={confirm:()=>true,sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}};
   const f={calls:[],refreshes:0},module={exports:{}};
   const api=Object.fromEntries(['post','delete'].map(method=>[method,async(url,body)=>{f.calls.push({method,url,body});return options.respond?.(method,url,body,f.calls.length)??{id:91,changed:true,item:{...body,id:91,placement_id:15,status:'active',source_managed:0,source_external_id:`native-item:${body.request_id}`}};} ]));
   new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='fixture-api'?{api}:require(id),module,module.exports);
@@ -37,4 +39,9 @@ test('a newly applied server item replaces the pending receipt and removes its r
 });
 test('a permission downgrade removes the form and prevents replay of a pending save',async()=>{
   const f=await fixture({respond:async()=>{throw new Error('Connection lost');}});try{await f.submit();f.props.canManage=false;await f.update();assert.equal(f.tree.root.findAllByType('form').length,0);assert.equal(f.tree.root.findAllByType('button').length,0);assert.equal(f.calls.length,1);}finally{f.close();}
+});
+test('reopening the form after a page reload resumes the original uncertain save',async()=>{
+  const storage=new Map();const first=await fixture({storage,respond:async()=>{throw new Error('Connection lost');}});
+  await first.submit();const original=first.calls[0].body;first.close();
+  const reopened=await fixture({storage});try{assert.equal(reopened.tree.root.findByType('fieldset').props.disabled,true);assert.ok(text(reopened.tree.root).includes('Retry same save'));await reopened.submit();assert.deepEqual(reopened.calls[0].body,original);assert.equal(storage.size,0);}finally{reopened.close();}
 });
