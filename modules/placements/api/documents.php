@@ -1,117 +1,55 @@
 <?php
-/**
- * Placements API — documents (S3 via Core StorageService). SPEC §3.8.
- */
-require_once __DIR__ . '/../../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../../core/RBAC.php';
-require_once __DIR__ . '/../../../core/StorageService.php';
-require_once __DIR__ . '/../../../core/storage_register.php';
-require_once __DIR__ . '/../lib/placements.php';
+/** Placement-private uploads, downloads and retained evidence. */
+require_once __DIR__.'/../../../core/api_bootstrap.php';
+require_once __DIR__.'/../../../core/RBAC.php';
+require_once __DIR__.'/../../../core/StorageService.php';
+require_once __DIR__.'/../lib/placements.php';
+require_once __DIR__.'/../lib/ownership.php';
+require_once __DIR__.'/../lib/documents.php';
 
 use Core\StorageService;
 
-$ctx = api_require_auth();
-$user = $ctx['user'];
-$method = api_method();
-$action = $_GET['action'] ?? '';
-$pid    = (int) api_query('placement_id', 0);
-$tid    = (int) $ctx['tenant_id'];
-
-$requirePlacement = static function (int $placementId): array {
-    if ($placementId <= 0) api_error('placement_id required', 400);
-    $placement = scopedFind(
-        'SELECT id FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
-        ['id' => $placementId]
-    );
-    if (!$placement) api_error('Placement not found', 404);
-    return $placement;
-};
-
-if ($method === 'GET' && $action === 'upload_url') {
-    rbac_legacy_require($user, 'placements.docs.manage');
-    $requirePlacement($pid);
-    $fileName = (string) api_query('file_name', 'document');
-    $key  = StorageService::getInstance()->build_key('placements', $tid, 'document', $pid, $fileName);
-    $post = StorageService::getInstance()->get_presigned_post($key);
-    api_ok(['storage_key' => $key, 'upload' => $post]);
-}
-
-if ($method === 'GET') {
-    rbac_legacy_require($user, 'placements.docs.view');
-    $documentId = (int) api_query('id', 0);
-    if ($documentId > 0) {
-        $document = scopedFind(
-            'SELECT d.*, s.s3_key
-               FROM placement_documents d
-               JOIN storage_objects s ON s.id = d.storage_object_id AND s.tenant_id = d.tenant_id
-              WHERE d.tenant_id = :tenant_id AND d.id = :id AND d.deleted_at IS NULL',
-            ['id' => $documentId]
-        );
-        if (!$document) api_error('Document not found', 404);
-        api_ok([
-            'document' => $document,
-            'signed_url' => StorageService::getInstance()->get_signed_url((string) $document['s3_key']),
-        ]);
+$ctx=api_require_auth(); $method=api_method(); $action=$_GET['action']??'';
+rbac_legacy_require($ctx['user'],$method==='GET'&&$action!=='upload_url'?'placements.docs.view':'placements.docs.manage');
+header('Cache-Control: no-store, private'); header('X-Content-Type-Options: nosniff');
+try {
+    $pdo=getDB(); $tenant=(int)$ctx['tenant_id']; $owner=placementDocumentDirectory($pdo,$tenant);
+    $scope=['tenant_id'=>$tenant,'placements_tenant_id'=>$owner,'actor_user_id'=>(int)$ctx['user']['id']];
+    $placement=(int)api_query('placement_id',0); $id=(int)api_query('id',0);
+    $head=static fn(string $key):?array=>StorageService::getInstance()->head($key);
+    if ($method==='GET' && $action==='upload_url') {
+        placementDocumentPlacement($pdo,$owner,$placement);
+        $metadata=placementDocumentMetadata(['doc_type'=>'other','file_name'=>api_query('file_name','document')]);
+        $storage=StorageService::getInstance();
+        if ($storage->driver_name()==='local') api_error('Private document storage is not configured.',503);
+        $key=$storage->build_key('placements',$owner,'document',$placement,$metadata['file_name']);
+        placementDocumentKey($owner,$placement,$key);
+        $post=$storage->get_presigned_post($key,['policy'=>[['content-length-range',1,26214400]]]);
+        placementDocumentScope($pdo,$scope);
+        api_ok(['storage_key'=>$key,'upload'=>['url'=>$post['form_action'],'fields'=>$post['fields']]]);
     }
-    $requirePlacement($pid);
-    api_ok(['documents' => placementDocuments($pid)]);
-}
-
-if ($method === 'POST') {
-    rbac_legacy_require($user, 'placements.docs.manage');
-    $requirePlacement($pid);
-    $body = api_json_body();
-    api_require_fields($body, ['doc_type']);
-    $allowed = ['msa','sow','work_order','rate_sheet','timesheet_template','poc','noc','other'];
-    if (!in_array($body['doc_type'], $allowed, true)) {
-        api_error('Invalid doc_type', 422, ['allowed' => $allowed]);
+    if ($method==='GET' && $id>0) {
+        $document=placementDocumentGet($pdo,$scope,$id);
+        $object=placementDocumentObject($pdo,$owner,(int)$document['placement_id'],(int)$document['storage_object_id']);
+        placementDocumentVerifyObject($object,$head,null); placementDocumentScope($pdo,$scope);
+        api_ok(['document'=>placementDocumentPublic($document),'signed_url'=>StorageService::getInstance()->get_signed_url($object['s3_key'])]);
     }
-    $storageObjectId = (int) ($body['storage_object_id'] ?? 0);
-    if ($storageObjectId <= 0) {
-        api_require_fields($body, ['storage_key', 'filename']);
-        $expectedPrefix = "placements/{$tid}/document/{$pid}/";
-        if (!str_starts_with((string) $body['storage_key'], $expectedPrefix)) {
-            api_error('Invalid storage key', 422);
-        }
-        $storageObjectId = registerStorageObject(
-            $tid,
-            'placements',
-            'document',
-            $pid,
-            (string) $body['storage_key'],
-            (string) $body['filename'],
-            isset($body['mime']) ? (string) $body['mime'] : null,
-            isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
-            isset($user['id']) ? (int) $user['id'] : null
-        );
-    } else {
-        $ownedObject = scopedFind(
-            'SELECT id FROM storage_objects WHERE tenant_id = :tenant_id AND id = :id',
-            ['id' => $storageObjectId]
-        );
-        if (!$ownedObject) api_error('Storage object not found', 404);
+    if ($method==='GET') {
+        placementDocumentPlacement($pdo,$owner,$placement);
+        $q=$pdo->prepare('SELECT * FROM placement_documents WHERE tenant_id=? AND placement_id=? AND deleted_at IS NULL ORDER BY id');
+        $q->execute([$owner,$placement]); api_ok(['documents'=>array_map('placementDocumentPublic',$q->fetchAll(PDO::FETCH_ASSOC))]);
     }
-    $id = scopedInsert('placement_documents', [
-        'placement_id'        => $pid,
-        'doc_type'            => $body['doc_type'],
-        'storage_object_id'   => $storageObjectId,
-        'file_name'           => $body['file_name'] ?? $body['filename'] ?? null,
-        'effective_from'      => $body['effective_from'] ?? null,
-        'effective_to'        => $body['effective_to']   ?? null,
-        'uploaded_by_user_id' => $user['id'] ?? null,
-    ]);
-    placementsAudit('placement.document.uploaded', ['placement_id' => $pid, 'document_id' => $id, 'doc_type' => $body['doc_type']], $pid);
-    api_ok(['id' => $id, 'storage_object_id' => $storageObjectId], 201);
-}
-
-if ($method === 'DELETE') {
-    rbac_legacy_require($user, 'placements.docs.manage');
-    $id = (int) api_query('id', 0);
-    if ($id <= 0) api_error('id required', 400);
-    $rows = scopedUpdate('placement_documents', $id, ['deleted_at' => date('Y-m-d H:i:s')]);
-    if ($rows === 0) api_error('Not found', 404);
-    placementsAudit('placement.document.deleted', ['document_id' => $id], $id);
-    api_ok(['ok' => true]);
-}
-
-api_error('Method not allowed', 405);
+    $audit=static function(string $event,int $id,array $meta):void { placementRequiredAudit($event,$meta,$id); };
+    if ($method==='POST') {
+        if (!str_starts_with(strtolower($_SERVER['CONTENT_TYPE']??''),'application/json')) api_error('Use a JSON document request.',415);
+        $result=placementDocumentRegister($pdo,$scope,$placement,api_json_body(),$head,$audit);
+        api_ok($result,$result['replayed']?200:201);
+    }
+    if ($method==='DELETE') {
+        if ($id<=0) api_error('id required',400);
+        api_ok(placementDocumentRetire($pdo,$scope,$id,$audit));
+    }
+    api_error('Method not allowed',405);
+} catch (InvalidArgumentException $e) { api_error($e->getMessage(),422); }
+catch (PlacementDocumentConflict $e) { api_error($e->getMessage(),409); }
+catch (Throwable $e) { error_log('Placement document request failed: '.get_class($e)); api_error('Document storage is unavailable. Please try again.',503); }

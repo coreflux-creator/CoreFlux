@@ -8,6 +8,7 @@ require_once __DIR__ . '/staffing_workflow_fields.php';
 require_once __DIR__ . '/staffing_field_ownership.php';
 require_once __DIR__ . '/staffing_time_field_contract.php';
 require_once __DIR__ . '/staffing_employment_field_contract.php';
+require_once __DIR__ . '/staffing_document_field_contract.php';
 
 function staffingFieldContractTables(): array
 {
@@ -108,7 +109,7 @@ function staffingFieldContractRules(string $table, string $field): array
             if ($approval) $rules['write_policy'] = 'specialized_workflow_only';
         }
     }
-    return staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules));
+    return staffingDocumentFieldRules($table,$field,staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules)));
 }
 
 /** All columns of the allowlisted tables, including newly added fields, are accounted for. No record values. */
@@ -151,7 +152,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-12.4', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-12.5', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

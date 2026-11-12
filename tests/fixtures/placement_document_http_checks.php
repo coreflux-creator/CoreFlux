@@ -1,0 +1,52 @@
+<?php
+/** Included by the native cookie/RBAC/tenant fixture; actual object bytes, simulated signed form transport. */
+RBACResolver::grantModule($membership,'placements','write',[$tenant],$actor);
+[$status,$upload]=$request('GET',$documentUploadPath);
+$expect($status===200&&is_string($upload['upload']['url']??null)&&isset($upload['upload']['fields']['key'])&&!isset($upload['upload']['form_action']),'Upload response matches the native browser helper contract');
+$expect($upload['upload']['fields']['key']===$upload['storage_key']&&json_decode($upload['upload']['fields']['fixture_policy'],true)===['policy'=>[['content-length-range',1,26214400]]],'Upload form binds the exact file key and positive 25 MiB limit');
+$key=$upload['storage_key'];$bytes='%PDF-1.4 synthetic HTTP placement agreement';
+$documentDriver->put($key,$bytes,['mime'=>'application/pdf','source_is_bytes'=>true]);
+$body=['doc_type'=>'sow','storage_key'=>$key,'filename'=>'synthetic.pdf','mime'=>'text/html','size_bytes'=>1,'effective_from'=>'2026-11-01','effective_to'=>'2026-11-30'];
+$before=$snapshot($graphTables);
+$expect($request('POST',$documentPath,$body,true,$tenant,true)[0]===415&&$snapshot($graphTables)===$before,'Form submission cannot bypass JSON document registration');
+$pdo->exec("CREATE TRIGGER cf_contract_http_doc_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.document.uploaded' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic document audit failure'; END IF; END");
+try{$expect($request('POST',$documentPath,$body)[0]===503&&$snapshot($graphTables)===$before,'Native audit failure rolls back HTTP document and storage registration');}finally{$pdo->exec('DROP TRIGGER cf_contract_http_doc_audit');}
+[$status,$saved]=$request('POST',$documentPath,$body);
+$expect($status===201&&!$saved['replayed'],'Native HTTP registration commits one owned document');
+$docId=(int)$saved['id'];$objectId=(int)$saved['storage_object_id'];
+$q=$pdo->prepare('SELECT * FROM storage_objects WHERE id=?');$q->execute([$objectId]);$object=$q->fetch(PDO::FETCH_ASSOC);
+$expect((int)$object['tenant_id']===$tenant&&(int)$object['entity_id']===$own['placement']&&(int)$object['size_bytes']===strlen($bytes)&&$object['mime']==='application/pdf','HTTP registry records actual owner placement size and MIME');
+$before=$snapshot($graphTables);[$status,$retry]=$request('POST',$documentPath,$body);
+$expect($status===200&&$retry['replayed']&&$retry['id']===$docId&&$snapshot($graphTables)===$before,'HTTP lost-response retry preserves one document identity');
+$q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event='placement.document.uploaded' AND target_id=?");$q->execute([$tenant,$actor,$docId]);
+$expect((int)$q->fetchColumn()===1,'HTTP retry retains one native audit receipt with the actual operator');
+$expect($request('POST',$documentPath,array_replace($body,['doc_type'=>'msa']))[0]===409,'HTTP retry cannot silently change document meaning');
+$expect($request('POST',$documents.'?placement_id='.$bare,['doc_type'=>'other','storage_object_id'=>$objectId,'filename'=>'synthetic.pdf'])[0]===409,'HTTP existing-object shortcut cannot attach another placement file');
+$expect($request('POST',$documentPath,array_replace($body,['tenant_id'=>$foreignTenant]))[0]===422,'HTTP caller cannot set document owner');
+$expect($request('POST',$documentPath,array_replace($body,['effective_from'=>'2026-02-30']))[0]===422,'HTTP invalid effective date rejected');
+$expect($request('GET',$documents.'?placement_id='.$foreign['placement'])[0]===409,'HTTP foreign placement has no document listing');
+$expect($request('GET',$documents.'?id='.$docId,null,true,$foreignTenant)[0]===403&&$snapshot($graphTables)===$before,'Foreign workspace pin cannot issue a file URL or mutate stored evidence');
+[$status,$download]=$request('GET',$documents.'?id='.$docId);
+$expect($status===200&&is_string($download['signed_url']??null)&&!isset($download['document']['s3_key'])&&!isset($download['document']['tenant_id']),'Document reader gets a signed URL without private storage metadata');
+$pdo->prepare('UPDATE storage_objects SET entity_id=? WHERE id=?')->execute([(string)$bare,$objectId]);
+$expect($request('GET',$documents.'?id='.$docId)[0]===409,'HTTP download refuses a storage entity mismatch');
+$pdo->prepare('UPDATE storage_objects SET entity_id=? WHERE id=?')->execute([(string)$own['placement'],$objectId]);
+$documentDriver->put($key,'%PDF overwritten agreement',['mime'=>'application/pdf','source_is_bytes'=>true]);
+$expect($request('GET',$documents.'?id='.$docId)[0]===409&&$request('POST',$documentPath,$body)[0]===409,'Changed physical bytes cannot masquerade as the registered file on download or retry');
+$documentDriver->delete($key);
+$expect($request('GET',$documents.'?id='.$docId)[0]===409,'HTTP download refuses missing physical evidence');
+$documentDriver->put($key,$bytes,['mime'=>'application/pdf','source_is_bytes'=>true]);
+[$status,$childUpload]=$request('GET',$documentUploadPath,null,true,$childTenant);
+$expect($status===200&&str_starts_with($childUpload['storage_key'],'placements/'.$tenant.'/document/'.$own['placement'].'/'),'Shared child upload uses the owning placement directory');
+RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
+$expect($request('GET',$documents.'?id='.$docId)[0]===200&&$request('GET',$documentUploadPath)[0]===403&&$request('DELETE',$documents.'?id='.$docId)[0]===403,'Same native session can read but cannot upload or retire after downgrade');
+RBACResolver::grantModule($membership,'placements','write',[$tenant],$actor);
+$before=$snapshot($graphTables);
+$pdo->exec("CREATE TRIGGER cf_contract_http_doc_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.document.deleted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic document retirement audit failure'; END IF; END");
+try{$expect($request('DELETE',$documents.'?id='.$docId)[0]===503&&$snapshot($graphTables)===$before,'HTTP retirement audit failure keeps original document active');}finally{$pdo->exec('DROP TRIGGER cf_contract_http_doc_audit');}
+[$status,$retired]=$request('DELETE',$documents.'?id='.$docId);
+$expect($status===200&&!$retired['replayed']&&$documentDriver->read($key,1024)===$bytes,'HTTP retirement preserves original file bytes');
+$before=$snapshot($graphTables);[$status,$retiredRetry]=$request('DELETE',$documents.'?id='.$docId);
+$expect($status===200&&$retiredRetry['replayed']&&$snapshot($graphTables)===$before,'HTTP repeated retirement is idempotent');
+$expect($request('GET',$documents.'?id='.$docId)[0]===409&&$request('POST',$documentPath,$body)[0]===409,'Retired document cannot be downloaded or resurrected by upload retry');
+$operations[]=['GET',$documents.'?id='.$docId,null];

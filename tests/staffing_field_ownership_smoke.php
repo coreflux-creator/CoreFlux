@@ -57,4 +57,22 @@ foreach(['status','employment_type','flsa_class','hire_date','start_date','job_t
 foreach(['employment_type','hire_date']as$field)$check(staffingFieldContractRules('people',$field)['owner']==='core_people_employment_setup','Mirrored person employment fact has the same owner: '.$field);
 $check(staffingFieldContractRules('people_employment_reviews','review_ct')['disposition']==='restricted','Setup review envelope remains private');
 $check(staffingFieldContractRules('people_employment_reviews','future_field')['disposition']==='review_required','Future setup fields are not implicitly approved');
+foreach(['people_documents','placement_documents']as$table){
+    foreach(['storage_object_id','file_name','uploaded_by_user_id','created_at','deleted_at']as$field){
+        $rule=staffingFieldContractRules($table,$field);
+        $check($rule['definition_status']==='reviewed_core_definition'&&$rule['remote_contracts']['quanta']['status']==='core_internal_only','Vault field has an explicit local owner without implied replication: '.$table.'.'.$field);
+    }
+    $check(staffingFieldContractRules($table,'future_field')['disposition']==='review_required','New document fields remain unreviewed: '.$table);
+}
+foreach(['employee_id','kind','filename','mime_type','size_bytes','storage_path','uploaded_by','uploaded_at','signed_by','notes']as$field){
+    $rule=staffingFieldContractRules('people_documents',$field);
+    $check($rule['owner']==='core_legacy_document_review'&&str_contains($rule['write_policy'],'preserve_legacy'),'Legacy document field requires explicit identity and storage review: '.$field);
+}
+$check(staffingFieldContractRules('people_documents','storage_path')['disposition']==='restricted','Legacy file locator stays private');
+$check(str_contains(staffingFieldContractRules('people_documents','signed')['definition'],'not cryptographic'),'Signature metadata does not become verified approval');
+foreach(['employee_id','event_type','effective_date','job_title','department','location','manager_id','status','reason','notes','created_by']as$field){
+    $rule=staffingFieldContractRules('people_employment_history',$field);
+    $check($rule['owner']==='core_people_employment_history'&&$rule['remote_contracts']['purepayroll']['status']==='core_internal_only','History field cannot masquerade as payroll execution: '.$field);
+}
+$check(staffingFieldContractRules('people_employment_history','future_field')['disposition']==='review_required','Future history fields remain unreviewed');
 echo "Staffing field ownership: {$passed} passed\n";

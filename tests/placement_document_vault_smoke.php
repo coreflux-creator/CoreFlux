@@ -1,0 +1,20 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/../modules/placements/lib/documents.php';
+$checks=0;
+$check=static function(bool $ok,string $label)use(&$checks){if(!$ok)throw new RuntimeException($label);$checks++;};
+$reject=static function(callable $run,string $label)use($check){try{$run();}catch(InvalidArgumentException|PlacementDocumentConflict $e){$check(true,$label);return;}throw new RuntimeException($label);};
+$key='placements/10/document/100/synthetic.pdf';
+$check(placementDocumentKey(10,100,$key)===$key,'exact owner and placement key');
+foreach(['placements/11/document/100/s.pdf','placements/10/document/101/s.pdf','people/10/document/100/s.pdf','placements/10/document/100/','placements/10/document/100/../s.pdf','placements/10/document/100/a\\b','placements/10/document/100/a'.chr(10)]as$bad)$reject(fn()=>placementDocumentKey(10,100,$bad),'unsafe or foreign key rejected');
+$metadata=placementDocumentMetadata(['doc_type'=>'sow','filename'=>'Synthetic.pdf','effective_from'=>'2026-11-01','effective_to'=>'2026-11-30']);
+$check($metadata['file_name']==='Synthetic.pdf'&&$metadata['effective_to']==='2026-11-30','native UI upload metadata');
+foreach([['doc_type'=>'unknown'],['file_name'=>''],['file_name'=>str_repeat('a',256)],['effective_from'=>'2026-02-30'],['effective_to'=>'2026-01-01'],['tenant_id'=>11],['uploaded_by_user_id'=>3],['signed'=>true]]as$bad)$reject(fn()=>placementDocumentMetadata(array_replace($metadata,$bad)),'invalid or authority-bearing metadata rejected');
+$check(placementDocumentMetadata(['doc_type'=>'other','effective_from'=>'','effective_to'=>''])['effective_from']===null,'blank dates remain unknown');
+$head=['size_bytes'=>12,'etag'=>'synthetic','mime'=>'application/pdf'];
+$check(placementDocumentHead(fn()=>$head,$key)===$head,'physical metadata accepted');
+foreach([null,[],['size_bytes'=>0,'etag'=>'x'],['size_bytes'=>26214401,'etag'=>'x'],['size_bytes'=>'12','etag'=>'x'],['size_bytes'=>12,'etag'=>'']]as$bad)$reject(fn()=>placementDocumentHead(fn()=>$bad,$key),'unverified or oversized object rejected');
+$check(placementDocumentHead(fn()=>['size_bytes'=>26214401,'etag'=>'x'],$key,null)['size_bytes']===26214401,'existing larger objects remain downloadable');
+$public=placementDocumentPublic(['id'=>1,'placement_id'=>100,'s3_key'=>$key,'tenant_id'=>10,'deleted_at'=>null]);
+$check($public===['id'=>1,'placement_id'=>100],'public metadata omits storage keys and private columns');
+echo "PASS {$checks} placement document validation checks\n";

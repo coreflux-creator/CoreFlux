@@ -11,7 +11,23 @@ if (PHP_SAPI !== 'cli-server' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
 if (!in_array($path, ['/login.php', '/logout.php', '/modules/placements/api/economics.php', '/modules/placements/api/corp.php', '/modules/placements/api/cycles.php', '/modules/payroll/api/cycles.php', '/modules/payroll/api/pay_schedules.php',
-    '/modules/placements/api/jobdiva_reconciliation.php'], true)) { http_response_code(404); exit; }
+    '/modules/placements/api/jobdiva_reconciliation.php', '/modules/placements/api/documents.php'], true)) { http_response_code(404); exit; }
+if ($path==='/modules/placements/api/documents.php') {
+    require_once dirname(__DIR__,2).'/core/StorageService.php';
+    $storageRoot=getenv('COREFLUX_CONTRACT_HTTP_STORAGE');
+    if (!is_string($storageRoot) || !str_starts_with($storageRoot,sys_get_temp_dir().'/coreflux-contract-http-')
+        || realpath($storageRoot)!==$storageRoot || is_link($storageRoot) || basename($storageRoot)!=='objects') { http_response_code(404); exit; }
+    // Actual bytes use LocalDriver. Only the signed-form transport is synthetic; never contact S3 in CI.
+    $driver=new class($storageRoot,'synthetic-document-http') extends \Core\Storage\LocalDriver {
+        public function driver_name():string{return 's3';}
+        public function get_presigned_post(string $key,array $constraints=[]):array {
+            $post=parent::get_presigned_post($key);
+            $post['fields']['fixture_policy']=json_encode($constraints,JSON_THROW_ON_ERROR);
+            return $post;
+        }
+    };
+    \Core\StorageService::reset($driver);
+}
 $script = dirname(__DIR__, 2) . $path;
 $_SERVER['SCRIPT_FILENAME'] = $script;
 require $script;

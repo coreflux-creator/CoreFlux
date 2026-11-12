@@ -10,12 +10,16 @@ require_once __DIR__ . '/../modules/placements/lib/economics_edit.php';
 require_once __DIR__ . '/../modules/placements/lib/commercial_ownership.php';
 require_once __DIR__ . '/../core/memberships.php';
 require_once __DIR__ . '/../core/rbac/permissions.php';
+require_once __DIR__ . '/../core/StorageService.php';
 $pdo = getDB();
 if (!$pdo || $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') exit(2);
 $tenant = 900012; $foreignTenant = 900013; $childTenant=900014;
 if ($pdo->query('SELECT id FROM tenants WHERE id IN (900012,900013,900014)')->fetchColumn()) throw new RuntimeException('Fixture tenants already exist');
 $root = dirname(__DIR__); $directory = sys_get_temp_dir() . '/coreflux-contract-http-' . bin2hex(random_bytes(12));
 if (!mkdir($directory, 0700)) throw new RuntimeException('Private fixture directory unavailable');
+$documentRoot=$directory.'/objects';
+$documentDriver=new \Core\Storage\LocalDriver($documentRoot,'synthetic-document-http');
+putenv('COREFLUX_CONTRACT_HTTP_STORAGE='.$documentRoot);
 $actor = null; $membership = null; $childMembership=null; $server = null; $cookie = $directory . '/cookie.private';
 $report = ['scope'=>'Native login, dual RBAC, tenant isolation and stored contract HTTP round trip',
     'checks'=>[], 'requests'=>[], 'production_changed'=>false, 'live_provider_contacted'=>false, 'passed'=>false];
@@ -34,7 +38,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     return $out;
 };
 $graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details','placement_economic_items','placement_economic_obligations',
-    'staffing_operating_cycles','payroll_pay_schedules','payroll_pay_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings'];
+    'staffing_operating_cycles','payroll_pay_schedules','payroll_pay_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings','placement_documents','storage_objects'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
 $seed = static function(int $tid, string $start) use ($pdo): array {
@@ -141,12 +145,18 @@ try {
     $sharedId=(int)placementAuditRow($own['placement'])['billing_operating_cycle_id'];
     $operations[]=['GET',$cycles.'?action=edit_review&id='.$sharedId,null];
     $operations[]=['PATCH',$cycles.'?id='.$sharedId,['name'=>'Synthetic unauthorized schedule edit']];
+    $documents='/modules/placements/api/documents.php';$documentPath=$documents.'?placement_id='.$own['placement'];
+    $documentUploadPath=$documentPath.'&action=upload_url&file_name=synthetic.pdf';
+    $operations[]=['GET',$documentPath,null];$operations[]=['GET',$documentUploadPath,null];
+    $operations[]=['POST',$documentPath,['doc_type'=>'other','storage_key'=>'not-owned','filename'=>'synthetic.pdf']];
+    $operations[]=['DELETE',$documents.'?id=999999',null];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
     $expect($status===302&&!str_contains($location,'error='),'Native password login creates a real cookie session');
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'No module grant denied: '.$method.' '.$path);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
+    $expect($request('GET',$documentUploadPath)[0]===403,'Read-only placement grant cannot issue upload credentials');
     [$status,$review]=$request('GET',$reviewPath);
     $expect($status===200&&$review['placement_id']===$own['placement']&&count($review['groups'])===4,'Placement reader sees the four actual ownership groups');
     $expect(($review['permissions']['release']??null)===false,'Ownership review reports that a reader cannot release fields');
@@ -375,6 +385,7 @@ try {
     $unchanged=$snapshot($graphTables);
     $expect($request('PATCH',$payCyclePath,['active'=>0],true,$childTenant)[0]===409&&$request('PATCH',$paySchedulePath,['active'=>0],true,$childTenant)[0]===409&&$snapshot($graphTables)===$unchanged,'Native payroll guards resolve the shared owner before refusing a child-workspace bypass');
     RBACResolver::revokeModule($membership,'payroll',$actor);
+    require __DIR__.'/fixtures/placement_document_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
@@ -410,6 +421,10 @@ try {
     }
     if (is_resource($server)) { proc_terminate($server); proc_close($server); $report['owned_server_stopped']=true; }
     if (!$report['passed'] && is_file($directory.'/http.log')) $report['server_log']=substr((string)file_get_contents($directory.'/http.log'),-12000);
+    if (is_dir($documentRoot)&&!is_link($documentRoot)&&realpath($documentRoot)===$directory.'/objects') {
+        $entries=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($documentRoot,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
+        foreach($entries as$entry){if($entry->isDir()&&!$entry->isLink())rmdir($entry->getPathname());else unlink($entry->getPathname());}rmdir($documentRoot);
+    }
     if (realpath($directory)===$directory) foreach (glob($directory.'/*') ?: [] as $file) {
         if (is_file($file)&&!is_link($file)&&realpath(dirname($file))===$directory) unlink($file);
     }
