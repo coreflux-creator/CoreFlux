@@ -27,6 +27,7 @@ const TARGETS = [
 
 const PAYROLL_SKIP_LABELS = {
   no_matching_employee: 'no matching employee record',
+  reviewed_employment_link_or_payroll_profile_required: 'need a reviewed employment link and an enabled payroll profile',
   no_payroll_profile_or_schedule: 'missing payroll profile or pay schedule',
   no_payroll_profile_or_cycle: 'missing payroll profile or pay schedule',
   no_editable_pay_period_for_work_date: 'no editable pay period covering the work date',
