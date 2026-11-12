@@ -3092,7 +3092,8 @@ function jobdivaApplyPlacementFieldMappings(
     ?int $endClientCompanyId,
     int $staffingJobId,
     array $payload,
-    int $contactId = 0
+    int $contactId = 0,
+    array $options = []
 ): array {
     $summary = ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'errors' => []];
     if ($tenantId <= 0 || $placementId <= 0) return $summary;
@@ -3133,10 +3134,11 @@ function jobdivaApplyPlacementFieldMappings(
     $apply = static function (string $entityType, array $payloadForApply, array $ctx) use (
         $tenantId,
         &$summary,
-        $mergeSummary
+        $mergeSummary,
+        $options
     ): void {
         try {
-            $mergeSummary(integrationFieldMapApplyAll($tenantId, 'jobdiva', $entityType, $payloadForApply, $ctx));
+            $mergeSummary(integrationFieldMapApplyAll($tenantId, 'jobdiva', $entityType, $payloadForApply, $ctx, $options));
         } catch (\Throwable $e) {
             $msg = '[jobdiva placement field_map] applyAll ' . $entityType . ' failed: ' . $e->getMessage();
             error_log($msg);

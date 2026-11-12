@@ -11,6 +11,7 @@ import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import BillToClientPicker from './BillToClientPicker';
 import CommercialOwnershipReview from './CommercialOwnershipReview';
+import SourceRuleReview from './SourceRuleReview';
 import OneTimeItems from './OneTimeItems';
 import PlacementDocumentsTab from './PlacementDocumentsTab';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
@@ -905,16 +906,16 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
       </section>}
 
       <details style={{ marginTop: 28 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Integration evidence and advanced source rules</summary>
-        <div style={{ marginTop: 20 }}><ChainTab canManage={canManage} canReveal={permissions.portal_credentials_view === true} pid={placement.id} chain={chain} reload={refreshAll} /></div>
-        <div style={{ marginTop: 28 }}><ReferralsTab canManage={permissions.referrals_manage === true} pid={placement.id} rows={referrals} reload={refreshAll} /></div>
-        <div style={{ marginTop: 28 }}><CommissionsTab canManage={permissions.commissions_manage === true} pid={placement.id} rows={commissions} reload={refreshAll} /></div>
+        <div style={{ marginTop: 20 }}><ChainTab sourceLinked={String(placement.external_id || "").startsWith("jd:")} canManage={canManage} canReveal={permissions.portal_credentials_view === true} pid={placement.id} chain={chain} reload={refreshAll} /></div>
+        <div style={{ marginTop: 28 }}><ReferralsTab sourceLinked={String(placement.external_id || "").startsWith("jd:")} canManage={permissions.referrals_manage === true} pid={placement.id} rows={referrals} reload={refreshAll} /></div>
+        <div style={{ marginTop: 28 }}><CommissionsTab sourceLinked={String(placement.external_id || "").startsWith("jd:")} canManage={permissions.commissions_manage === true} pid={placement.id} rows={commissions} reload={refreshAll} /></div>
         {placement.engagement_type === 'c2c' && <div style={{ marginTop: 28 }}><CorpTab key={placement.id} canManage={permissions.corp_manage === true} pid={placement.id} /></div>}
       </details>
     </div>
   );
 }
 
-function ChainTab({ pid, chain, reload, canManage = false, canReveal = false }) {
+function ChainTab({ pid, chain, reload, canManage = false, canReveal = false, sourceLinked = false }) {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [form, setForm] = useState({ position: 0, party_name: '', party_role: 'end_client', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
   const [adding, setAdding] = useState(false);
@@ -952,6 +953,7 @@ function ChainTab({ pid, chain, reload, canManage = false, canReveal = false }) 
     <div data-testid="tab-chain">
       <h3>Vendor chain</h3>
       <p className="muted" data-testid="chain-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
+      {sourceLinked && <SourceRuleReview placementId={pid} kind="chain" onApplied={reload} />}
       <p style={{ color: 'var(--cf-text-secondary)' }}>Position 0 = end client. Higher numbers = layers between us and them. Fees stack additively.</p>
       <table className="data-table" data-testid="chain-table">
         <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Portal fee %</th><th>Submittal #</th><th>VMS Job #</th><th>Portal creds</th><th>Contract</th><th></th></tr></thead>
@@ -1043,7 +1045,7 @@ function InlineEdit({ value, onSave, testId, placeholder, readOnly = false }) {
   );
 }
 
-function PortalCredsDialog({ row, onClose, onSaved, canReveal = false }) {
+function PortalCredsDialog({ row, onClose, onSaved, canReveal = false, sourceLinked = false }) {
   const [revealed, setRevealed] = useState(null);     // shown plaintext (from reveal_portal)
   const [revealing, setRevealing] = useState(false);
   const [revealError, setRevealError] = useState(null);
@@ -1373,7 +1375,7 @@ function RatesTab({ pid, rates, startDate, reload, canManage = false, canApprove
 }
 
 // ── Commissions ────────────────────────────────────────────
-function CommissionsTab({ pid, rows, reload, canManage = false }) {
+function CommissionsTab({ pid, rows, reload, canManage = false, sourceLinked = false }) {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
@@ -1403,6 +1405,7 @@ function CommissionsTab({ pid, rows, reload, canManage = false }) {
     <div data-testid="tab-commissions">
       <h3>Commission splits</h3>
       <p className="muted" data-testid="commission-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
+      {sourceLinked && <SourceRuleReview placementId={pid} kind="commission" onApplied={reload} />}
       <table className="data-table" data-testid="commissions-table">
         <thead><tr><th>Recipient</th><th>Role</th><th>Split</th><th>Basis</th><th>From</th><th>To</th><th></th></tr></thead>
         <tbody>
@@ -1445,7 +1448,7 @@ function CommissionsTab({ pid, rows, reload, canManage = false }) {
 }
 
 // ── Referrals ────────────────────────────────────────────
-function ReferralsTab({ pid, rows, reload, canManage = false }) {
+function ReferralsTab({ pid, rows, reload, canManage = false, sourceLinked = false }) {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
@@ -1482,6 +1485,7 @@ function ReferralsTab({ pid, rows, reload, canManage = false }) {
     <div data-testid="tab-referrals">
       <h3>Referral fees</h3>
       <p className="muted" data-testid="referral-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
+      {sourceLinked && <SourceRuleReview placementId={pid} kind="referral" onApplied={reload} />}
       <table className="data-table" data-testid="referrals-table">
         <thead><tr><th>Referrer</th><th>Fee</th><th>Basis</th><th>Start</th><th>Duration</th><th></th></tr></thead>
         <tbody>

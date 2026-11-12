@@ -1235,17 +1235,23 @@ function integrationFieldMapApplyAll(
     string $integration,
     string $entityType,
     array $payload,
-    array $contextRowIds
+    array $contextRowIds,
+    array $options = []
 ): array {
     $summary = ['attempted' => 0, 'written' => 0, 'skipped' => 0, 'skipped_reasons' => [], 'errors' => []];
     if ($tid <= 0 || $integration === '' || $entityType === '') return $summary;
     $maps = integrationFieldMapResolveGeneralised($tid, $integration, $entityType);
+    if (isset($options['only_tables'])) {
+        $only=$options['only_tables'];
+        if(!is_array($only)||!array_is_list($only)||!$only||array_diff($only,['placement_client_chain','placement_referrals','placement_commissions'])) throw new InvalidArgumentException('Choose supported source rule tables.',422);
+        $maps=array_values(array_filter($maps,static fn(array $m):bool=>in_array($m['target_table']??'', $only,true)));
+    }
     if (!$maps) return $summary;
     require_once __DIR__ . '/../../modules/placements/lib/source_rule_ownership.php';
     $placementId=integrationFieldMapPlacementIdFromContext($contextRowIds);
     $ruleFields=array_column(placementSourceRuleDefinitions(),'field','table');
-    $hasRules=(bool)array_intersect(array_map('strtolower',array_column($maps,'target_table')),array_keys($ruleFields));
-    $apply=static function(?array $lockedParent=null) use ($tid,$integration,$entityType,$payload,$contextRowIds,$summary,$maps,$placementId,$ruleFields):array {
+    $hasRules=(bool)array_intersect(array_map(static fn($table)=>strtolower((string)$table),array_column($maps,'target_table')),array_keys($ruleFields));
+    $apply=static function(?array $lockedParent=null) use ($tid,$integration,$entityType,$payload,$contextRowIds,$summary,$maps,$placementId,$ruleFields,$options):array {
     $ruleOwned=$lockedParent?placementOwnershipFields($lockedParent['coreflux_overridden_fields']??null):[];
     if ($integration === 'jobdiva' && $entityType === 'placement') {
         require_once __DIR__ . '/../jobdiva/classification_mapping.php';
@@ -1487,7 +1493,7 @@ function integrationFieldMapApplyAll(
 
     if ($integration === 'jobdiva' && $entityType === 'placement') {
         $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
-        if ($placementId > 0 && $summary['written'] > 0 && $summary['errors'] === []) {
+        if ($placementId > 0 && $summary['written'] > 0 && $summary['errors'] === [] && ($options['reconcile'] ?? true)) {
             try {
                 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
                 placementEconomicsReconcile($tid, $placementId);

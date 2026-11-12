@@ -67,6 +67,7 @@ return [
         'placement.referral.added',
         'placement.referral.updated',
         'placement.referral.removed',
+        'placement.source_rules.replaced',
         'placement.financials.viewed',
         'placement.corp.viewed',
         'placement.corp.updated',
