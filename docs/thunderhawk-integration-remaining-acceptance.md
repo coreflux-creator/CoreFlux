@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 reviewed source rules - installed pilot checkpoint
+
+Runtime `74906e8f` passed all eleven jobs in [CI 43276286272](https://github.com/coreflux-creator/CoreFlux/actions/runs/43276286272) and is installed in the isolated pilot. Advanced chain, referral and commission rules now have a reviewed source-replacement path: saved source evidence, explicit recipient-compatible row reuse, linked-record protection, stale-review rejection, one-set ownership release and audit-backed replay. Default writers and configured mappings are both exercised. Separate participant settings and their actual retained values remain visible. Unrepresentable flat commission terms remain blocked for review.
+
+The hosted native fixture passed 25 source-ownership checks plus 36 replacement checks. Final read-only verification preserved all 377 tables / 34,883 original rows, verified 283 runtime fingerprints and retained the earlier retired document's bytes. BrowserOS exercised the new component with synthetic local data; authenticated hosted HTTP/browser acceptance is still pending. See [source rule review acceptance](thunderhawk-source-rule-review.md) and `deploy/thunderhawk-source-rule-review-20261112.json`.
+
+The last turn answered standalone accounting access without integration progress; this continuation revalidated current source and deployed the reviewed workflow. No provider, production, Arabella or financial execution occurred. The metadata inventory remains 2,110 fields / 437 native decisions, and the wider JobDiva time, portal/document/lifecycle/merge, AWS browser-upload, financial allocation and full completion-audit requirements remain open. The full goal stays active.
+
 ## November 12 advanced rule editors - development checkpoint
 
 The chain, referral and commission APIs now share a native transaction boundary for validation, directory-scoped recipient resolution, whole-rule-set ownership, graph reconciliation and required audit. New-rule request IDs support lost-response retries. JobDiva's default writers and generalized field mappings honor these holds before creating companies or child rows. The old source matches use mutable position, role/date and notes; they are not provider child IDs. Generic field handback therefore cannot clear these holds. A reviewed source-replacement workflow with explicit identity matching remains required before this change is ready for pilot deployment. Existing source IDs and frozen rate snapshots must remain unchanged.
