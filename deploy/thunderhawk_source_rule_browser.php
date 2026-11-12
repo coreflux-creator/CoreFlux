@@ -9,7 +9,7 @@ const FR_BEFORE=FR_PRIVATE.'/source-rule-browser-before.private.json';
 const FR_EMAIL='core-source-rule-reviewer-20261112@example.invalid';
 const FR_MODULES=['people','placements'];
 if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='staging'||getcwd()!==FR_ROOT||posix_geteuid()!==1003
- ||realpath(FR_PRIVATE)!==FR_PRIVATE||(fileperms(FR_PRIVATE)&0777)!==0700||!in_array($argv[1]??'',['prepare','inspect','finish','retire'],true))exit(2);
+ ||realpath(FR_PRIVATE)!==FR_PRIVATE||(fileperms(FR_PRIVATE)&0777)!==0700||!in_array($argv[1]??'',['prepare','inspect','finish','retire','verify_retirement'],true))exit(2);
 require_once FR_ROOT.'/core/db.php';require_once FR_ROOT.'/core/integrations/identity.php';
 require_once FR_ROOT.'/core/tenant_scope.php';
 require_once FR_ROOT.'/core/memberships.php';require_once FR_ROOT.'/core/rbac/permissions.php';require_once FR_ROOT.'/core/RBAC.php';
@@ -100,17 +100,31 @@ $ruleEdit('referral',$ruleReferral,['fee_flat'=>'12.00']);
  echo json_encode(['status'=>'browser_ready','actor_id'=>$actor,'membership_id'=>$membership,'grants'=>$report['grants'],'credential_printed'=>false,'fixture'=>$seeded]);exit;
 }
 $report=json_decode(file_get_contents(FR_STATE),true,64,JSON_THROW_ON_ERROR);
-if($argv[1]==='inspect'){echo json_encode($report,JSON_THROW_ON_ERROR);exit;}
-if(($report['status']??null)!=='browser_ready')throw new RuntimeException('Inspect fixture before cleanup');
+if($argv[1]==='inspect'){
+ $before=json_decode(file_get_contents(FR_BEFORE),true,64,JSON_THROW_ON_ERROR);$after=frSnapshot($pdo);$missing=[];$added=[];
+ foreach($before as$table=>$rows){$counts=array_count_values($after[$table]??[]);foreach(array_count_values($rows)as$hash=>$n)if(($counts[$hash]??0)<$n)$missing[$table]=($missing[$table]??0)+$n-($counts[$hash]??0);if($rows!==($after[$table]??null))$added[$table]=count($after[$table]??[])-count($rows);}
+ $q=$pdo->prepare("SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=2002 AND target_id=? AND event='placement.source_rules.replaced'");$q->execute([$report['fixture']['placement']]);
+ $report['current_receipts']=array_map(static fn($r)=>['actor'=>(int)$r['actor_user_id'],'result'=>json_decode($r['meta_json'],true,512,JSON_THROW_ON_ERROR)['result']],$q->fetchAll(PDO::FETCH_ASSOC));
+ $report['original_row_mismatches']=$missing;$report['changed_table_row_deltas']=$added;$report['tables_checked']=count($after);
+ echo json_encode($report,JSON_THROW_ON_ERROR);exit;
+}
+$verifyOnly=$argv[1]==='verify_retirement';
+if($verifyOnly){
+ if(($report['status']??null)!=='needs_inspection'||empty($report['synthetic_fixture_retired'])||file_exists(FR_CREDENTIAL)||file_exists(FR_PRIVATE.'/source-rule-browser-retirement-verification-v2-20261112.json'))throw new RuntimeException('Retirement verification precondition differs');
+ $report['prior_verification_failure']=['class'=>$report['failure_class']??null,'line'=>$report['failure_line']??null,'message'=>$report['failure_message']??null];
+ unset($report['failure_class'],$report['failure_line'],$report['failure_message']);
+}elseif(($report['status']??null)!=='browser_ready')throw new RuntimeException('Inspect fixture before cleanup');
 $actor=(int)$report['actor_id'];$membership=(int)$report['membership_id'];
 try{
  $fixture=$report['fixture'];$pid=(int)$fixture['placement'];
  require_once FR_ROOT.'/modules/placements/lib/source_rule_review.php';
  $q=$pdo->prepare("SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=2002 AND target_id=? AND event='placement.source_rules.replaced'");$q->execute([$pid]);$audits=$q->fetchAll(PDO::FETCH_ASSOC);
  $report['replacement_receipts']=array_map(static fn($r)=>['actor'=>(int)$r['actor_user_id'],'result'=>json_decode($r['meta_json'],true,512,JSON_THROW_ON_ERROR)['result']],$audits);
- if($argv[1]==='finish'){
+ if($argv[1]==='finish'||$verifyOnly){
   if(count($audits)!==3||count(array_filter($audits,static fn($r)=>(int)$r['actor_user_id']===$actor))!==3)throw new RuntimeException('Three authenticated replacement receipts required');
-  $owned=placementOwnershipFields(placementAuditRow($pid)['coreflux_overridden_fields']);
+  $q=$pdo->prepare('SELECT coreflux_overridden_fields FROM placements WHERE tenant_id=2002 AND id=? AND person_id=?');$q->execute([$pid,$fixture['person']]);$ownership=$q->fetchColumn();
+  if($ownership===false)throw new RuntimeException('Synthetic placement is missing');
+  $owned=placementOwnershipFields($ownership);
   if(array_intersect(['chain_rules','commission_rules','referral_rules'],$owned)||!in_array('notes',$owned,true))throw new RuntimeException('Source ownership differs');
   foreach(['chain'=>array_values($fixture['chain']),'commission'=>[$fixture['commission']],'referral'=>[$fixture['referral']]]as$kind=>$expected){
    $receipts=array_values(array_filter($report['replacement_receipts'],static fn($r)=>$r['result']['kind']===$kind));
@@ -122,7 +136,7 @@ try{
   $q=$pdo->prepare('SELECT fee_flat FROM placement_referrals WHERE tenant_id=2002 AND id=?');$q->execute([$fixture['referral']]);if((float)$q->fetchColumn()!==10.0)throw new RuntimeException('Referral differs');
   $report['all_three_source_rules_verified']=true;
  }
- $pdo->beginTransaction();try{
+ if(!$verifyOnly){$pdo->beginTransaction();try{
   $pdo->prepare('UPDATE placements SET deleted_at=NOW(),status="ended" WHERE tenant_id=2002 AND id=? AND person_id=?')->execute([$pid,$fixture['person']]);
   $pdo->prepare('UPDATE people SET deleted_at=NOW() WHERE tenant_id=2002 AND id=?')->execute([$fixture['person']]);
   foreach($fixture['companies']as$id)$pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE tenant_id=2002 AND id=?')->execute([$id]);
@@ -132,24 +146,33 @@ try{
  foreach(FR_MODULES as$module)RBACResolver::revokeModule($membership,$module,4);
  deactivateMembership($actor,2002);
  $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE tenant_id=2002 AND id=? AND email=?')->execute([$actor,FR_EMAIL]);
+ if(!is_file(FR_CREDENTIAL)||is_link(FR_CREDENTIAL)||!unlink(FR_CREDENTIAL))throw new RuntimeException('Temporary credential cleanup failed');
+ }
  $s=$pdo->prepare('SELECT COUNT(*) FROM membership_module_access WHERE membership_id=?');$s->execute([$membership]);if((int)$s->fetchColumn())throw new RuntimeException('Temporary grants remain');
  $s=$pdo->prepare('SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=2002 AND email=? AND is_active=0 AND password IS NULL AND password_hash IS NULL');$s->execute([$actor,FR_EMAIL]);if((int)$s->fetchColumn()!==1)throw new RuntimeException('Actor retirement differs');
- if(!is_file(FR_CREDENTIAL)||is_link(FR_CREDENTIAL)||!unlink(FR_CREDENTIAL))throw new RuntimeException('Temporary credential cleanup failed');
+ if(file_exists(FR_CREDENTIAL))throw new RuntimeException('Temporary credential still exists');
  $before=json_decode(file_get_contents(FR_BEFORE),true,64,JSON_THROW_ON_ERROR);$after=frSnapshot($pdo);
  if(array_keys($before)!==array_keys($after))throw new RuntimeException('Schema changed');
- $allowed=['users','tenant_memberships','user_tenants','membership_audit','audit_log','rbac_bridge_audit','people','companies','company_roles','ap_vendors_index','staffing_clients','placements','placement_rates','placement_client_chain','placement_referrals','placement_commissions','placement_economic_parties','staffing_operating_cycles','external_entity_mappings'];$added=[];
+ $allowed=['users','tenant_memberships','user_tenants','membership_audit','audit_log','rbac_bridge_audit','people','companies','company_roles','ap_vendors_index','staffing_clients','placements','placement_rates','placement_client_chain','placement_referrals','placement_commissions','placement_economic_parties','staffing_operating_cycles','external_entity_mappings','core_record_numbers','integration_payload_field_index'];$added=[];
  foreach($before as$table=>$rows){
   if($rows===$after[$table])continue;if(!in_array($table,$allowed,true))throw new RuntimeException('Business rows changed: '.$table);
   $counts=array_count_values($after[$table]);foreach(array_count_values($rows)as$hash=>$n)if(($counts[$hash]??0)<$n)throw new RuntimeException('Original row changed: '.$table);
   if($table==='rbac_bridge_audit')foreach($pdo->query('SELECT * FROM rbac_bridge_audit')->fetchAll(PDO::FETCH_ASSOC)as$row)
    if(!in_array(hash('sha256',serialize($row)),$rows,true)&&((int)$row['tenant_id']!==2002||(int)$row['user_id']!==$actor))throw new RuntimeException('Unrelated permission audit added');
-  if(in_array($table,['people','companies','company_roles','ap_vendors_index','staffing_clients','placements','placement_rates','placement_client_chain','placement_referrals','placement_commissions','placement_economic_parties','staffing_operating_cycles','external_entity_mappings'],true))foreach($pdo->query('SELECT * FROM `'.$table.'`')->fetchAll(PDO::FETCH_ASSOC)as$row){
+  if(in_array($table,['people','companies','company_roles','ap_vendors_index','staffing_clients','placements','placement_rates','placement_client_chain','placement_referrals','placement_commissions','placement_economic_parties','staffing_operating_cycles','external_entity_mappings','core_record_numbers','integration_payload_field_index'],true))foreach($pdo->query('SELECT * FROM `'.$table.'`')->fetchAll(PDO::FETCH_ASSOC)as$row){
    if(in_array(hash('sha256',serialize($row)),$rows,true))continue;
-   if((int)$row['tenant_id']!==2002)throw new RuntimeException('Unexpected synthetic tenant');
+   if($table==='company_roles'){
+    if(!in_array((int)$row['company_id'],$fixture['companies'],true))throw new RuntimeException('Unexpected company-role owner');
+   }elseif((int)$row['tenant_id']!==2002)throw new RuntimeException('Unexpected synthetic tenant: '.$table);
    if(isset($row['placement_id'])&&(int)$row['placement_id']!==$pid)throw new RuntimeException('Unexpected synthetic placement');
    if($table==='people'&&((int)$row['id']!==(int)$fixture['person']||$row['deleted_at']===null))throw new RuntimeException('Synthetic person not retired');
    if($table==='placements'&&((int)$row['id']!==$pid||$row['deleted_at']===null))throw new RuntimeException('Synthetic placement not retired');
    if($table==='companies'&&(!in_array((int)$row['id'],$fixture['companies'],true)||$row['deleted_at']===null))throw new RuntimeException('Synthetic company not retired');
+   if($table==='core_record_numbers'){
+    $definition=coreRecordNumberDefinition($row['entity_type']);$q=$pdo->prepare('SELECT * FROM '.$definition['table'].' WHERE tenant_id=2002 AND id=?');$q->execute([$row['record_id']]);$numbered=$q->fetch(PDO::FETCH_ASSOC);
+    if(!$numbered||(int)$row['record_id']!==(int)$row['canonical_record_id']||in_array(hash('sha256',serialize($numbered)),$before[$definition['table']],true))throw new RuntimeException('Unexpected record number destination');
+   }
+   if($table==='integration_payload_field_index'&&($row['integration']!=='jobdiva'||$row['entity_type']!=='jobdiva_assignment'||(int)$row['occurrence_count']!==1))throw new RuntimeException('Unexpected source field index');
   }
   $added[$table]=count($after[$table])-count($rows);
  }
@@ -157,4 +180,5 @@ try{
  $report['tables_verified']=count($after);$report['original_rows_preserved']=array_sum(array_map('count',$before));$report['added_rows']=$added;
  $report['operator_retired']=true;$report['original_business_rows_unchanged']=true;$report['passed']=true;$report['status']='complete';
 }catch(Throwable $e){$report['failure_class']=get_class($e);$report['failure_line']=$e->getLine();$report['failure_message']=$e->getMessage();$report['status']='needs_inspection';}
-$report['finished_at']=gmdate('c');frSave(FR_STATE,$report);echo json_encode($report,JSON_THROW_ON_ERROR);exit($report['passed']?0:1);
+$report['finished_at']=gmdate('c');$report['read_only_retirement_verification']=$verifyOnly;
+frSave($verifyOnly?FR_PRIVATE.'/source-rule-browser-retirement-verification-v2-20261112.json':FR_STATE,$report,$verifyOnly);echo json_encode($report,JSON_THROW_ON_ERROR);exit($report['passed']?0:1);
