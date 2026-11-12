@@ -68,9 +68,9 @@ try{
  $pdo->exec('UPDATE placement_economic_obligations SET amount=99 WHERE id='.$id);
  $check($fails(fn()=>payrollRunEconomicEarnings(999991),'earning evidence differs'),'changed source amount cannot pass saved evidence validation');
  $pdo->exec('UPDATE placement_economic_obligations SET amount=12.34 WHERE id='.$id);
- $pdo->prepare('UPDATE placement_payroll_recipient_receipts SET receipt_sha256=? WHERE obligation_id=?')->execute([str_repeat('0',64),$id]);
+ $pdo->prepare('UPDATE placement_payroll_recipient_receipts SET receipt_sha256=? WHERE tenant_id=2002 AND obligation_id=?')->execute([str_repeat('0',64),$id]);
  $check($fails(fn()=>payrollRunEconomicEarnings(999991),'earning evidence differs'),'changed receipt fingerprint is refused');
- $pdo->prepare('UPDATE placement_payroll_recipient_receipts SET receipt_sha256=? WHERE obligation_id=?')->execute([$receipt['receipt_sha256'],$id]);
+ $pdo->prepare('UPDATE placement_payroll_recipient_receipts SET receipt_sha256=? WHERE tenant_id=2002 AND obligation_id=?')->execute([$receipt['receipt_sha256'],$id]);
  $pdo->exec('UPDATE placement_economic_obligations SET status="paid" WHERE id='.$id);
  $check($write(1)===$id&&$pdo->query('SELECT status FROM placement_economic_obligations WHERE id='.$id)->fetchColumn()==='paid','exact retry cannot regress the final source status');
  $pdo->exec("INSERT INTO placement_economic_obligations(tenant_id,placement_id,economic_party_id,source_type,source_ref_id,amount,currency,status,payroll_ref_id) VALUES(2002,1,1,'manual',99,25,'USD','payroll',999992)");
