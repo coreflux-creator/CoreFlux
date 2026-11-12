@@ -1411,10 +1411,15 @@ function placementEconomicsModelForRate(
     }
 
     $baseMargin = max(0, $invoiceRate - $payRate);
+    $commissionIssues=[];
     foreach ($parties as $party) {
         if (($party['money_flow'] ?? '') !== 'payable') continue;
         $basis = (string) ($party['fee_basis'] ?? 'none');
         if ($basis === 'pay_rate') continue;
+        if (($party['source_type']??'')==='commission' && ($issue=placementCommissionTermsIssue($party))) {
+            $commissionIssues[]=['economic_party_id'=>(int)$party['id'],'message'=>$issue];
+            continue;
+        }
         $pct = max(0, (float) ($party['fee_pct'] ?? 0));
         $flat = max(0, (float) ($party['fee_flat'] ?? 0));
         $amount = match ($basis) {
@@ -1523,6 +1528,7 @@ function placementEconomicsModelForRate(
             ($line['currency'] ?? (isset($line['terms_issue']) ? null : ($rate['currency'] ?? 'USD'))) === ($rate['currency'] ?? 'USD')
                 && empty($line['terms_issue']) ? (float)$line['amount'] : 0.0, $fixedLines)), 2),
         'fixed_obligations_by_currency' => placementCommissionCurrencyTotals($fixedLines, (string)($rate['currency'] ?? 'USD')),
+        'commission_review_issues' => $commissionIssues,
         'employer_cost_rates' => $resolvedEmployerCosts['rates'],
         'employer_cost_sources' => $resolvedEmployerCosts['sources'],
         'c2c_overhead_rate' => $resolvedC2COverhead['rate'],

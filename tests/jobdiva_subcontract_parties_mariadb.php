@@ -22,6 +22,7 @@ foreach (coreflux_split_sql_statements(file_get_contents(__DIR__ . '/../core/mig
     if (preg_match('/CREATE TABLE IF NOT EXISTS placement_economic_(parties|obligations)\s*\(/', $sql)) $pdo->exec($sql);
 }
 $pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,approved_at DATETIME,economics_snapshot_json JSON)');
+foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/196_commission_terms.sql'))as$sql)$pdo->exec($sql);
 $pdo->exec('INSERT INTO placement_rates VALUES(1,"2026-10-01 12:00:00",\'{"parties":[{"source_ref":"jobdiva:unresolved:subcontract_company:0"}]}\')');
 $passed = 0;
 $check = static function (bool $ok, string $label) use (&$passed): void {

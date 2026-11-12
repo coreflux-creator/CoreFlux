@@ -797,6 +797,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
             : 'Set a tenant default or placement override before treating this margin as complete.'}
         </div>}
         {!contractModel.approved && <p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 12px', fontSize: 13 }}>This is the complete source-backed preview. Billing, AP, and payroll will use it only after approval.</p>}
+        {(contractModel.commission_review_issues || []).map(issue => <p className="error" key={issue.economic_party_id}>Commission review: {issue.message} The displayed margin excludes unresolved commission costs.</p>)}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
           {[['Gross client rate', contractModel.bill_rate], ['Invoice rate after adjustments', contractModel.invoice_bill_rate ?? contractModel.bill_rate], ['Labor pay / vendor rate', contractModel.pay_rate], ['All hourly costs', contractModel.modeled_hourly_cost], ['Modeled margin', contractModel.modeled_hourly_margin]].map(([label, value]) => <div key={label}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>{label}</span><strong>{contractModel.currency} {Number(value).toFixed(2)} / hour</strong></div>)}
           <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Margin</span><strong>{(Number(contractModel.modeled_margin_pct) * 100).toFixed(2)}%</strong></div>

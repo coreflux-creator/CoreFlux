@@ -39,7 +39,7 @@ try {
     $model=placementEconomicsModelForRate($tenant,$pid,$rate,$parties,null,'w2');
     $check($model['fixed_obligations']===0.0&&$model['fixed_obligations_by_currency']===['INR'=>7500.0],'INR commission is shown separately from USD fixed totals');
     $snapshot=placementEconomicsApprovalSnapshot($tenant,$rate);
-    $snapParty=current(array_filter($snapshot['contract_parties'],static fn($p)=>$p['source_ref']==='commission:'.$id));
+    $snapParty=current(array_filter($snapshot['economics_snapshot']['contract_parties'],static fn($p)=>$p['source_ref']==='commission:'.$id));
     $check($snapParty['currency']==='INR'&&$snapParty['payment_frequency']==='one_time'&&$snapParty['due_month']==='2026-08','Future approved contract snapshots preserve all terms');
     $check($read('placement_rates')===$rates,'Review does not rewrite any existing approved rate');
     $check(placementEconomicsPayrollCharges($tenant,$pid,1,98,65,'2026-07-31')===[],'One-time commission is not due before its recorded month');
@@ -58,6 +58,7 @@ try {
     $check($obligation>0&&$claim($party,99200002,992002)===0,'One-time amount is claimed once across batches and runs');
     $check(placementEconomicsPayrollCharges($tenant,$pid,1,98,65,'2026-09-01')===[],'Later time calculation does not repeat a consumed one-time amount');
     $check($refused(fn()=>$edit('update',$id,['flat_amount'=>'100.00']),409),'Consumed commission amount cannot be retrospectively changed');
+    $check($refused(fn()=>$edit('delete',$id,[]),409),'Consumed commission cannot be deleted out of its historical graph');
     $check($refused(fn()=>$edit('update',$id,['payment_frequency'=>'per_pay_period','due_month'=>null]),409),'Consumed one-time commission cannot become recurring');
     $check($refused(fn()=>placementCommissionProtectConsumed($pdo,$tenant,$pid,$id,['user_id'=>$uid+9999]),409),'Consumed recipient changes require a new future rule');
     $edit('update',$id,['notes'=>'Retained historical contract','effective_to'=>'2026-09-01']);

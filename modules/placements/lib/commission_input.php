@@ -123,7 +123,12 @@ function placementCommissionProtectConsumed(PDO $pdo,int $tenant,int $placement,
         elseif((string)$prior!==(string)$value)$changed=true;
     }
     if(!$changed)return;
+    if(placementCommissionHasObligations($pdo,$tenant,$placement,$ruleId))throw new RuntimeException('This commission has entered a financial workflow. Keep its recipient and terms; end this rule and add a new rule for future changes.',409);
+}
+
+function placementCommissionHasObligations(PDO $pdo,int $tenant,int $placement,int $ruleId): bool
+{
     $q=$pdo->prepare('SELECT o.id FROM placement_economic_obligations o JOIN placement_economic_parties p ON p.id=o.economic_party_id AND p.tenant_id=o.tenant_id AND p.placement_id=o.placement_id WHERE p.tenant_id=? AND p.placement_id=? AND p.source_ref=? AND o.status<>"void" LIMIT 1');
     $q->execute([$tenant,$placement,'commission:'.$ruleId]);
-    if($q->fetchColumn())throw new RuntimeException('This commission has entered a financial workflow. Keep its recipient and terms; end this rule and add a new rule for future changes.',409);
+    return (bool)$q->fetchColumn();
 }

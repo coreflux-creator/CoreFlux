@@ -132,7 +132,7 @@ function placementSourceRuleReplacementPlan(PDO $pdo,array $parent,string $kind)
         foreach(['payment_terms_overridden','pwp_overridden','cycle_overridden']as$flag)if(!empty($party[$flag]))$flags[]=$flag;
         foreach(['payment_terms_overridden'=>'payment_terms','pwp_overridden'=>'pwp_enabled','cycle_overridden'=>'operating_cycle_id']as$flag=>$field)if(!empty($party[$flag]))$retained[$field]=$party[$field]??null;
         $publicCurrent[]=['id'=>(int)$row['id'],'values'=>array_intersect_key($row,array_flip(placementSourceRuleSourceFields($kind))),
-            'identity'=>placementSourceRuleIdentity($kind,$row),'has_linked_records'=>placementSourceRuleHasLinks($kind,$row),'retained_participant_settings'=>$flags,'retained_participant_values'=>$retained];
+            'identity'=>placementSourceRuleIdentity($kind,$row),'has_linked_records'=>placementSourceRuleHasLinks($kind,$row)||($kind==='commission'&&placementCommissionHasObligations($pdo,$tenant,$placement,(int)$row['id'])),'retained_participant_settings'=>$flags,'retained_participant_values'=>$retained];
     }
     $token=hash('sha256',serialize(['v'=>1,'parent'=>$parent,'kind'=>$kind,'source'=>$source['__row_token'],
         'current'=>$current,'parties'=>$parties,'proposed'=>$proposed,'references'=>$references,'issues'=>$issues]));
@@ -194,6 +194,7 @@ function placementSourceRuleReplace(int $tenant,int $placement,string $kind,arra
         foreach($retire as$id)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=? AND placement_id=? AND id=?')->execute([$tenant,$placement,$id]);
         $applied=[];
         foreach($plan['proposed']as$proposal){$values=$proposal['values'];$id=$selected[$proposal['key']];
+            if($kind==='commission' && $id)placementCommissionProtectConsumed($pdo,$tenant,$placement,$id,$values);
             if($id){$pdo->prepare('UPDATE '.$table.' SET '.implode(',',array_map(static fn($field)=>$field.'=?',array_keys($values))).' WHERE tenant_id=? AND placement_id=? AND id=?')->execute(array_merge(array_values($values),[$tenant,$placement,$id]));}
             else{$pdo->prepare('INSERT INTO '.$table.' (tenant_id,placement_id,'.implode(',',array_keys($values)).') VALUES ('.implode(',',array_fill(0,count($values)+2,'?')).')')->execute(array_merge([$tenant,$placement],array_values($values)));$id=(int)$pdo->lastInsertId();}
             $applied[$proposal['key']]=$id;

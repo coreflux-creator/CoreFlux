@@ -100,6 +100,7 @@ function placementSourceRuleEdit(int $tenant,int $placement,string $kind,string 
         if($operation!=='create') {
             $q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? AND placement_id=? AND id=? FOR UPDATE');$q->execute([$tenant,$placement,$id]);$before=$q->fetch(PDO::FETCH_ASSOC);
             if(!$before) throw new RuntimeException('Rule not found.',404);
+            if($kind==='commission' && $operation==='delete' && placementCommissionHasObligations($pdo,$tenant,$placement,$id))throw new RuntimeException('This commission has entered a financial workflow. Keep the rule and use an end date for future work.',409);
         }
         $after=null;$values=[];
         if($operation!=='delete') {
