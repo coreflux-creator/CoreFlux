@@ -88,7 +88,7 @@ PHP;
             $curl = curl_init('https://phpstack-1516771-6707602.cloudwaysapps.com/api/admin/' . $name);
             curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_FOLLOWLOCATION => false,
                 CURLOPT_TIMEOUT => 25, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
-                CURLOPT_HTTPHEADER => $key === null ? [] : ['X-Jobdiva-Time-Intake-Probe: ' . $key]]);
+                CURLOPT_HTTPHEADER => $key === null ? [] : ['X-Commission-Terms-Probe: ' . $key]]);
             $response = curl_exec($curl); $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE); curl_close($curl);
             if ($key === null && ($status !== 404 || $response !== '')) throw new RuntimeException('Anonymous probe access');
             if ($key !== null) {
