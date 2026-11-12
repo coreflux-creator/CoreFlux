@@ -54,7 +54,9 @@ foreach([43,44,45] as $id){$pdo->exec('INSERT INTO placements(id,tenant_id,perso
 $owners=quantaTimeControlOwners(1);$records=[];$assignmentIds=[];
 foreach([42,43,44,45] as $id){$s=quantaMetadataSource($pdo,$instance,$owners,'placement',$id);$assignmentIds[$id]=quantaCoreRemoteId('workspace-a',$s['reference']);
     $records[$assignmentIds[$id]]=$s['assignment']+['id'=>$assignmentIds[$id],'tenant_id'=>'workspace-a','worker_id'=>'worker-1',
-        'person_link_id'=>quantaCoreRemoteId('workspace-a',$s['person']),'worksite_id'=>'site-1','version'=>1];}
+        'person_link_id'=>quantaCoreRemoteId('workspace-a',$s['person']),'worksite_id'=>'site-1','version'=>1];
+    unset($records[$assignmentIds[$id]]['assignment_context']); // Legacy reporting omissions do not block routing.
+}
 $quantaContext=$context;$race=false;$mismatch=false;$writes=0;
 $GLOBALS['__quanta_transport']=static function($method,$url)use($quantaContext,&$records,&$race,&$mismatch,$observer):array{
     $path=parse_url($url,PHP_URL_PATH);

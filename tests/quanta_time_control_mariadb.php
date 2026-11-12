@@ -15,6 +15,7 @@ $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_i
 $owners=quantaTimeControlOwners(1);$local=quantaMetadataSource($pdo,$instance,$owners,'placement',42);
 $assignment=$local['assignment']+['worksite_id'=>'site-1','id'=>quantaCoreRemoteId('workspace-a',$local['reference']),
     'tenant_id'=>'workspace-a','worker_id'=>'worker-1','person_link_id'=>quantaCoreRemoteId('workspace-a',$local['person']),'version'=>1];
+unset($assignment['assignment_context']); // Legacy reporting omissions do not block reviewed time setup.
 $identity=array_intersect_key($assignment,array_flip(['id','tenant_id','person','placement','worker_id','person_link_id','engagement_type','start_date','client','vendor','end_client']));
 $quantaContext=$context;$policy=null;$legacy=0;$enabled=true;$foreign=false;$posts=0;$recoveries=0;$receipts=[];$lost=false;$race=false;$passed=0;
 $remoteContext=static function()use(&$policy,&$legacy,&$enabled,&$foreign,$identity,$assignment):array {

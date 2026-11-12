@@ -187,6 +187,13 @@ function quantaAssignmentPlan(string $workspaceId, array $desired, ?array $remot
         'expected'=>$desired+['version'=>$remote['version']+1],'status'=>$changes?'preview':'unchanged'];
 }
 
+/** Reporting-only changes must not gate time setup, including historical closed assignments. */
+function quantaAssignmentTimePlan(string $workspaceId,array $desired,?array $remote): array
+{
+    unset($desired['assignment_context']);
+    return quantaAssignmentPlan($workspaceId,$desired,$remote);
+}
+
 function quantaContractRecord(string $key,string $workspaceId,array $reference): ?array
 {
     $id=quantaCoreRemoteId($workspaceId,$reference);

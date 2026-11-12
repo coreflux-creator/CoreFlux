@@ -119,7 +119,7 @@ function quantaTimeControlSnapshot(int $tenant,int $personId,string $site,array 
         $candidates=array_values(array_filter($remote['assignments'],static fn($r)=>$r['identity']['id']===$id));
         if(count($candidates)!==1||!in_array($candidates[0]['status'],['draft','active','ended'],true))throw new RuntimeException('The selected placement is unavailable at this worksite');
         $candidate=$candidates[0];$record=quantaContractRecord($s['access']['api_key'],$workspace,$placement['reference']);
-        $plan=quantaAssignmentPlan($workspace,$placement['assignment']+['worksite_id'=>$site],$record);
+        $plan=quantaAssignmentTimePlan($workspace,$placement['assignment']+['worksite_id'=>$site],$record);
         $identity=array_intersect_key($record??[],array_flip(array_keys($candidate['identity'])));
         if($plan['status']!=='unchanged'||($record['version']??null)!==$candidate['version']||integrationDeliveryHash($identity)!==integrationDeliveryHash($candidate['identity']))throw new RuntimeException('Publish the current assignment details before enabling its time');
         $selected[]=['id'=>$id,'version'=>$record['version']];$records[]=$record;

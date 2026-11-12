@@ -39,6 +39,15 @@ $check(quantaAssignmentPlan('a',$contextual,$contextRemote)['status']==='unchang
 $check(quantaAssignmentPlan('a',$desired,$contextRemote)['status']==='unchanged','legacy source omission preserves existing reporting context');
 $newContext=array_replace($context,['department'=>null]);
 $check(quantaAssignmentPlan('a',array_replace($contextual,['assignment_context'=>$newContext]),$contextRemote)['body']===['expected_version'=>3,'assignment_context'=>$newContext],'clearing a reporting value is a versioned update of the same assignment');
+$legacyContextRemote=$contextRemote;unset($legacyContextRemote['assignment_context']);
+$check(quantaAssignmentTimePlan('a',$contextual,$legacyContextRemote)['status']==='unchanged','missing legacy reporting fields do not gate time setup');
+$check(quantaAssignmentTimePlan('a',array_replace($contextual,['assignment_context'=>$newContext]),$contextRemote)['status']==='unchanged','reporting-only changes do not gate time setup');
+$closedContext=array_replace($contextual,['status'=>'ended','end_date'=>'2026-10-10']);
+$closedRemote=array_replace($legacyContextRemote,['status'=>'ended','end_date'=>'2026-10-10']);
+$check(quantaAssignmentTimePlan('a',$closedContext,$closedRemote)['status']==='unchanged','closed assignments retain historical time routing without reporting backfill');
+$check($fails(fn()=>quantaAssignmentPlan('a',$closedContext,$closedRemote)),'reporting publication cannot silently rewrite a closed assignment');
+$check($fails(fn()=>quantaAssignmentTimePlan('a',$contextual,$closedRemote)),'time comparison still refuses reopening a closed assignment');
+$check($fails(fn()=>quantaAssignmentTimePlan('a',$contextual,array_replace($legacyContextRemote,['tenant_id'=>'b']))),'time comparison still refuses a foreign assignment');
 $siteContext['assignment_context_contract_version']=QUANTA_ASSIGNMENT_CONTEXT_VERSION;
 $GLOBALS['__quanta_transport']=static function()use(&$siteContext){return ['status'=>200,'body'=>json_encode($siteContext)];};
 quantaAssignmentContextRequire('fixture-key','a');$check(true,'provider advertises the assignment reporting capability');

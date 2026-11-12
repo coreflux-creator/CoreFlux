@@ -54,7 +54,7 @@ function quantaSaveRoutes(int $tenant,int $actor,array $input): array
             $remote=quantaContractRecord($access['api_key'],$access['context']['workspace']['id'],$source['placement']['reference']);
             if(!$remote||($remote['worker_id']??null)!==$route['worker_id']||($remote['worksite_id']??null)!==$route['worksite_id']
                 ||($remote['person_link_id']??null)!==quantaCoreRemoteId($access['context']['workspace']['id'],$source['placement']['person']))throw new RuntimeException('Reconcile the assignment worker and worksite before routing');
-            $plan=quantaAssignmentPlan($access['context']['workspace']['id'],$source['placement']['assignment']+['worksite_id'=>$route['worksite_id']],$remote);
+            $plan=quantaAssignmentTimePlan($access['context']['workspace']['id'],$source['placement']['assignment']+['worksite_id'=>$route['worksite_id']],$remote);
             if($plan['status']!=='unchanged')throw new RuntimeException('Publish current shared assignment details before routing captured time');
         }
         $prepared[]=[$route,$source];
