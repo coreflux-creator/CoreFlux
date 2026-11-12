@@ -82,6 +82,14 @@ try {
     $check(count($scheduled)===1&&(int)$scheduled[0]['employee_id']===20&&(int)$scheduled[0]['profile_id']===3,'schedule roster joins shared employment to requesting company profile');
     $check((int)payrollReadPeople(fn()=>peopleGetEmployee(20))['tenant_id']===10&&currentModuleKey()==='payroll','People read uses directory scope and restores payroll scope');
     $check($fails(fn()=>payrollReadPeople(static function(){throw new RuntimeException('scope test');}),'scope test')&&currentModuleKey()==='payroll','scope restoration survives errors');
+    $pdo->exec("INSERT INTO people_compensation(tenant_id,employee_id,pay_type,pay_rate_cents,pay_frequency,currency,effective_from) VALUES(10,20,'hourly',5000,'biweekly','USD','2026-11-01')");
+    $pdo->exec("INSERT INTO people_tax_federal(tenant_id,employee_id,filing_status,effective_date) VALUES(10,20,'single','2026-11-01')");
+    $period=['period_start'=>'2026-11-02','period_end'=>'2026-11-15','pay_date'=>'2026-11-20'];
+    $ctx=payrollBuildComputeContext(20,$period,[],['hours_regular'=>3]);
+    $check($ctx!==null&&$ctx['pay_rate_cents']===5000&&$ctx['hours_regular']===3.0&&currentModuleKey()==='payroll','compute context reads shared People compensation and tax with company-owned payroll profile');
+    $pdo->exec("UPDATE people_compensation SET currency='INR'");
+    $check($fails(fn()=>payrollBuildComputeContext(20,$period,[]),'explicit USD currency'),'foreign employment compensation cannot enter native USD calculation');
+    $pdo->exec("UPDATE people_compensation SET currency='USD'");
     $roster=payrollRunSourceEmployees([],payrollRunExtractedHours(7),payrollRunEconomicEarnings(7));
     $check(count($roster['employees'])===1&&(int)$roster['employees'][0]['employee_id']===20&&$roster['economic_only']===[],'placement-routed hours survive a different default schedule');
     $roster=payrollRunSourceEmployees([],[],payrollRunEconomicEarnings(7));

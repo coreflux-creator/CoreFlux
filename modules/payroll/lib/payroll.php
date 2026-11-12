@@ -244,6 +244,7 @@ function payrollBuildComputeContext(int $employeeId, array $period, array $tenan
     ]);
     if (!$emp) return null;
     if (!$comp) return null;
+    payrollAssertSourceCurrency($comp['currency'] ?? null, 'Employee compensation');
     if (!$fed) return null;
     $profile = payrollGetProfile($employeeId);
     if (!$profile) return null;
