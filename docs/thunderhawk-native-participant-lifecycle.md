@@ -22,9 +22,34 @@ failure injection, authenticated audit receipts and removal replay.
 The first candidate's module smoke lane found one source-location expectation
 that still looked for company-directory validation in the API file. The check now
 follows the API's delegation to the native participant writer, while retaining the
-directory validation and company-creation assertions. Full corrected CI and
-isolated hosted acceptance remain pending.
+directory validation and company-creation assertions.
+
+Runtime source 3d7c35a735b3b921ce1d8670a00747516778e79e passed all 11 jobs in
+[CI run 43136548296](https://github.com/coreflux-creator/CoreFlux/actions/runs/43136548296),
+including 21 participant database checks and 111 native HTTP checks. The latter
+retired its synthetic actor, stopped its test server, and removed session files.
+
+The initial isolated installation hit an undefined cURL constant introduced by
+an overly broad deployment-script prefix replacement. The runtime files were
+restored; a separate recovery verified every original file and all 34,455 original
+database rows, refreshed the web cache, and confirmed probe cleanup. Correction
+9bce052e preserves the cURL constant and requires that completed recovery before
+the next attempt. The runtime source is unchanged from the successful CI run.
+
+The corrected two-file update installed at 2026-11-12 01:54:32 UTC after 39
+dependency hashes matched. It preserved 368 tables, all 34,455 rows and the private
+configuration. All 21 rollback-only checks then passed against the installed
+runtime, again leaving every original row unchanged. The first failure, recovery,
+and distinct v2 installation/verification receipts are retained in
+deploy/thunderhawk-participant-lifecycle-20261111.json.
 
 This change does not complete participant identity/source ownership policy,
 one-time item transactions, the separate cycle configuration/assignment endpoint,
 or the full integration. Those remain explicit follow-up work.
+
+The next ownership regression should cover an existing JobDiva-managed corporate
+participant changed in Core, followed by a source refresh. The current corporate
+source updater writes company and terms before the caller suppresses overridden
+graph options, while the participant upsert retains its prior source-management
+flag. Both the source row and its projection need an explicit, consistent decision;
+transaction atomicity alone does not establish that ownership policy.

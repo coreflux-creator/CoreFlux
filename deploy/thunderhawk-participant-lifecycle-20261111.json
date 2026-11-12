@@ -1,0 +1,123 @@
+{
+  "recorded_at": "2026-11-12T01:55:58.237783+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "Saved-company evidence implementation and corrected regression were pushed; the current continuation verified and installed them before implementing participant atomicity.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "source_commit": "3d7c35a735b3b921ce1d8670a00747516778e79e",
+  "scope": "Native participant creation/removal save directory, vendor, cycle, corporate source and audit changes atomically in isolated Core staging.",
+  "ci": {
+    "run": "43136548296",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43136548296",
+    "jobs_passed": 11
+  },
+  "checks": {
+    "native_database": 21,
+    "native_http": 111,
+    "hosted_database": 21,
+    "installed_files": 2,
+    "dependencies_matched": 39,
+    "tables_preserved": 368,
+    "rows_preserved": 34455,
+    "synthetic_rows_rolled_back": true,
+    "late_validation_and_audit_failure_roll_back": true,
+    "parent_lock_contention_verified": true,
+    "foreign_and_deleted_placement_refusal": true,
+    "removal_replay_unchanged": true,
+    "identities_preserved": true,
+    "native_http_actor_retired": true
+  },
+  "installed_hashes": {
+    "modules/placements/lib/economics_participants.php": "ebbf0600431e55325ad7ebc08dbb16d95569b9bc40dfa5bf95e4a06efb7082b7",
+    "modules/placements/api/economics.php": "10195ad21b30f8a7fcb566750f34e6d59011d9039201055934de7e823e345fa3"
+  },
+  "install_receipt": {
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/participant-lifecycle-aea258e7249297598103",
+    "hashes": {
+      "install_thunderhawk_participant_lifecycle.php": "ff033ad61a90cd3bcf30de2ca915f75e131a89a02941dc921198dde8918e0d91",
+      "participant-lifecycle-package.json": "e16f1a7a230e778896704cde780ac137f5570617ead83a4f43c3c35061fe60b0"
+    },
+    "ci_run": "43136548296",
+    "tested_commit": "3d7c35a735b3b921ce1d8670a00747516778e79e",
+    "action": "install",
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/participant-lifecycle-v2-install-result.json"
+  },
+  "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/participant-lifecycle-v2-before-e16f1a7a230e77889670",
+  "hosted_receipt": {
+    "source_commit": "3d7c35a735b3b921ce1d8670a00747516778e79e",
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/participant-lifecycle-verification-d1d70cb23dd79e2364bd",
+    "hashes": {
+      "participant-lifecycle-fixture.php": "7990b054e709e21f30a6392085d423a09b5ba08dfa0d50725828e0587c31ac9e",
+      "verify_thunderhawk_participant_lifecycle.php": "b10c93aacd1a1b2664a277dfc9fa3b02962f0556faf15793542d509997dd83f2"
+    },
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/participant-lifecycle-v2-hosted-result.json"
+  },
+  "deployment_recovery": {
+    "initial_failure": "Undefined constant \"CURLINFO_RESPONPL_CODE\"",
+    "recovery": {
+      "checked_at": "2026-11-12T01:52:33+00:00",
+      "status": "complete",
+      "pid": 3981095,
+      "passed": true,
+      "source_commit": "3d7c35a735b3b921ce1d8670a00747516778e79e",
+      "runtime_files_restored": true,
+      "database_rows_preserved": 34455,
+      "web": {
+        "passed": true,
+        "sapi": "fpm-fcgi"
+      },
+      "cache_refreshed": true,
+      "temporary_probes_removed": true
+    },
+    "corrected_installer_commit": "9bce052e",
+    "runtime_source_unchanged": true,
+    "method": "Verified original file hashes and all original database rows, refreshed the web cache and removed probes, then installed with distinct v2 receipts using the identical CI-tested runtime."
+  },
+  "boundaries": {
+    "production_changed": false,
+    "provider_apps_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "signed_in_operator_browser_workflow_verified": false
+  },
+  "remaining": [
+    "Complete participant identity/source ownership policy, one-time item transactions and the separate cycle creation/assignment/update paths.",
+    "Complete generic automatic batch retention, end-client chain clearing, rate ownership and new-placement failure handling.",
+    "Complete operator workflow acceptance, CSV/lifecycle/activation replay and field/destination/custom-field alignment.",
+    "Complete portal/onboarding/document workflow acceptance and financial-result, billing/AP/AR lineage and reconciliation."
+  ],
+  "evidence": {
+    "participant-lifecycle-ci-3d7c35a7.json": {
+      "path": "output/participant-lifecycle-ci-3d7c35a7.json",
+      "sha256": "4aa9b76b28650e37cbe8c2888a5b4096c6634d42440da19ce170609cf46cfb2c"
+    },
+    "participant-lifecycle-db-3d7c35a7.log": {
+      "path": "output/participant-lifecycle-db-3d7c35a7.log",
+      "sha256": "ee094f30372b65bb3bd03aaac2ba3c9db34cdc612eb1dbecc5c06f511836d3f0"
+    },
+    "participant-lifecycle-native-3d7c35a7.json": {
+      "path": "output/participant-lifecycle-native-3d7c35a7.json",
+      "sha256": "0065e55c28b80d6e2c9199728332a431c6aa3c945474c91898e31757da6404f5"
+    },
+    "participant-lifecycle-3d7c35a7-preflight.json": {
+      "path": "output/participant-lifecycle-3d7c35a7-preflight.json",
+      "sha256": "716cbaf39154fe514412c61741facce87063c572e5354534ea3fb6a07475c47a"
+    },
+    "participant-lifecycle-v2-install-result.json": {
+      "path": "output/participant-lifecycle-v2-install-result.json",
+      "sha256": "5f5db1b8569cff87c085deee241dcae75b5a07dc4c983241d0821d61efbc122f"
+    },
+    "participant-lifecycle-v2-hosted-result.json": {
+      "path": "output/participant-lifecycle-v2-hosted-result.json",
+      "sha256": "ffb16eb2f63462553dc8e1e999e3d03db4e9e8a42cdfc59331b487eed65158ad"
+    },
+    "participant-lifecycle-install-result.json": {
+      "path": "output/participant-lifecycle-install-result.json",
+      "sha256": "16a423018b1d6921d73fa3cfdbbfcbc224b618941fdab1b4341900264c7fedd7"
+    },
+    "participant-lifecycle-recovery-result.json": {
+      "path": "output/participant-lifecycle-recovery-result.json",
+      "sha256": "566ef487be7a8920835547ee3ffaf5a3d5323725e9766e52ac446684f7a84507"
+    }
+  }
+}
