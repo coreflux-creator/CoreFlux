@@ -33,7 +33,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     }
     return $out;
 };
-$graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details',
+$graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details','placement_economic_items','placement_economic_obligations',
     'staffing_operating_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
@@ -128,6 +128,10 @@ try {
     $corpPath='/modules/placements/api/corp.php?placement_id='.$corpPlacement;
     $corpBody=['corp_legal_name'=>'Synthetic HTTP Corporate Payee','corp_contact_phone'=>'555-0100'];
     $operations[]=['GET',$corpPath,null];$operations[]=['PUT',$corpPath,$corpBody];
+    $itemPath=$economics.'?action=item&placement_id='.$own['placement'];
+    $itemBody=['description'=>'Synthetic HTTP one-time charge','settlement_channel'=>'ar','economic_party_id'=>$own['ar'],
+        'direction'=>'charge','amount'=>'25.00','currency'=>'USD','apply_on'=>'2026-10-15','request_id'=>'99190001-0000-4000-8000-000000000001'];
+    $operations[]=['POST',$itemPath,$itemBody];$operations[]=['DELETE',$economics.'?action=item&id=999999',null];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -262,6 +266,29 @@ try {
     $expect($status===200&&!$sameCorp['changed']&&$snapshot($graphTables)===$unchanged,'Fresh identical corporate save is an unchanged HTTP success');
     $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.corp.updated'");
     $q->execute([$tenant,$corpPlacement,$actor]);$expect((int)$q->fetchColumn()===2,'Corporate saves audit the authenticated actor once per actual change');
+    $unchanged=$snapshot($graphTables);
+    $expect($request('POST',$economics.'?action=item&placement_id='.$foreign['placement'],$itemBody)[0]===404
+        &&$snapshot($graphTables)===$unchanged,'A native item cannot be created against a foreign placement');
+    $pdo->exec("CREATE TRIGGER cf_contract_http_item_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event IN ('placement.economic_item.added','placement.economic_item.removed') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic item audit failure'; END IF; END");
+    try{$expect($request('POST',$itemPath,$itemBody)[0]===503,'One-time item audit failure returns a retryable HTTP error');}
+    finally{$pdo->exec('DROP TRIGGER cf_contract_http_item_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'Failed native item audit rolls back the charge and leaves the graph unchanged');
+    [$status,$item]=$request('POST',$itemPath,$itemBody);$itemId=(int)($item['id']??0);
+    $expect($status===201&&$itemId>0&&$item['changed']&&$item['item']['source_managed']===0,'Authorized native HTTP creates one Core-owned item');
+    $unchanged=$snapshot($graphTables);[$status,$again]=$request('POST',$itemPath,$itemBody);
+    $expect($status===200&&!$again['changed']&&$again['id']===$itemId&&$snapshot($graphTables)===$unchanged,'Exact HTTP retry confirms the original item without duplicating it');
+    $expect($request('POST',$itemPath,array_replace($itemBody,['amount'=>'26.00']))[0]===409&&$snapshot($graphTables)===$unchanged,'HTTP request-key reuse cannot replace a saved charge');
+    $pdo->exec("CREATE TRIGGER cf_contract_http_item_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.economic_item.removed' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic item removal audit failure'; END IF; END");
+    try{$expect($request('DELETE',$economics.'?action=item&id='.$itemId)[0]===503,'Failed native removal audit is reported to the caller');}
+    finally{$pdo->exec('DROP TRIGGER cf_contract_http_item_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'Failed HTTP item removal leaves the charge active');
+    [$status,$removed]=$request('DELETE',$economics.'?action=item&id='.$itemId);
+    $expect($status===200&&$removed['changed']&&$removed['item']['status']==='void','Native item removal preserves a voided history record');
+    $unchanged=$snapshot($graphTables);[$status,$removed]=$request('DELETE',$economics.'?action=item&id='.$itemId);
+    $expect($status===200&&!$removed['changed']&&$snapshot($graphTables)===$unchanged,'Repeated HTTP item removal is an unchanged success');
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event IN ('placement.economic_item.added','placement.economic_item.removed')");
+    $q->execute([$tenant,$own['placement'],$actor]);$expect((int)$q->fetchColumn()===2,'Creation and removal record the authenticated actor exactly once each');
+    $operations[]=['DELETE',$economics.'?action=item&id='.$itemId,null];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
     [$status,$context]=$request('GET',$contextPath);

@@ -11,6 +11,7 @@ import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import BillToClientPicker from './BillToClientPicker';
 import CommercialOwnershipReview from './CommercialOwnershipReview';
+import OneTimeItems from './OneTimeItems';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -615,16 +616,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
   const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
   const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'pay_rate', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
-  const [itemForm, setItemForm] = useState({
-    description: '', settlement_channel: 'ar', economic_party_id: '', direction: 'charge',
-    amount: '', currency: 'USD', apply_on: placement.start_date || new Date().toISOString().slice(0, 10), taxable: false,
-  });
   const contractCurrency = contractModel.currency || rates[0]?.currency || 'USD';
-  useEffect(() => {
-    setItemForm((current) => current.currency === contractCurrency
-      ? current
-      : { ...current, currency: contractCurrency });
-  }, [contractCurrency]);
   const partyPersonLookup = useApi(canManage && partyRecipientType === 'person' && partyPersonSearch.length >= 2 && !partyForm.person_id
     ? `/modules/people/api/people.php?q=${encodeURIComponent(partyPersonSearch)}&per_page=10`
     : null);
@@ -690,34 +682,6 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
     } catch (e) { setMessage(`Add failed: ${e.message}`); }
     finally { setBusy(false); }
   };
-  const addEconomicItem = async (e) => {
-    e.preventDefault();
-    if (!canManageFinancials || busy) return;
-    setBusy(true); setMessage('');
-    try {
-      await api.post(`${path}&action=item`, {
-        ...itemForm,
-        economic_party_id: itemForm.economic_party_id ? Number(itemForm.economic_party_id) : null,
-        amount: Number(itemForm.amount),
-      });
-      setItemForm({
-        description: '', settlement_channel: 'ar', economic_party_id: '', direction: 'charge',
-        amount: '', currency: contractCurrency, apply_on: placement.start_date || new Date().toISOString().slice(0, 10), taxable: false,
-      });
-      setMessage('One-time item added to the placement contract.'); refreshAll();
-    } catch (e) { setMessage(`Save failed: ${e.message}`); }
-    finally { setBusy(false); }
-  };
-  const removeEconomicItem = async (item) => {
-    if (!canManageFinancials || busy) return;
-    if (!window.confirm(`Remove "${item.description}"?`)) return;
-    setBusy(true); setMessage('');
-    try {
-      await api.delete(`/modules/placements/api/economics.php?action=item&id=${item.id}`);
-      setMessage('One-time item removed.'); refreshAll();
-    } catch (e) { setMessage(`Remove failed: ${e.message}`); }
-    finally { setBusy(false); }
-  };
   const arTermsOptions = ['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90'];
   const apTermsOptions = [...arTermsOptions, 'PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'];
   const frequencyOptions = ['weekly','biweekly','semimonthly','monthly','adhoc'];
@@ -774,19 +738,6 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
       : ['vendor', ...(placement.engagement_type === 'c2c' ? ['c2c_vendor'] : []), 'worker', 'msp', 'prime_vendor', 'sub_vendor', 'referrer', 'other'];
   const settlementParties = parties.filter((party) => party.money_flow !== 'informational');
   const sourceAttributions = parties.filter((party) => party.money_flow === 'informational');
-  const itemRecipientOptions = settlementParties.filter((party) => party.settlement_channel === itemForm.settlement_channel);
-  const itemDestinationLabel = (channel) => ({
-    ar: 'Client invoice', ap: 'Vendor bill', payroll: 'Payroll earning', none: 'Margin-only cost',
-  }[channel] || channel);
-  const itemStatusLabel = (item) => {
-    if (item.settlement_status === 'applied') {
-      if (item.ar_invoice_id) return `Applied to invoice #${item.ar_invoice_id}`;
-      if (item.ap_bill_id) return `Applied to vendor bill #${item.ap_bill_id}`;
-      if (item.payroll_ref_id) return `Applied to payroll run #${item.payroll_ref_id}`;
-      return 'Applied';
-    }
-    return item.settlement_status === 'margin_only' ? 'Included in margin' : 'Pending';
-  };
   const readinessProblems = [
     readiness.missing_receivable_party && 'Client billing recipient',
     readiness.multiple_receivable_parties && 'Choose one bill-to client',
@@ -823,40 +774,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
         <RatesTab canManage={canManageFinancials} canApprove={permissions.financials_approve === true} pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} isReferral={placement.engagement_type === 'referral'} referralHourlyCost={referralHourlyCost} sourceC2COverhead={sourceC2COverhead} />
       </section>
 
-      <section style={{ marginTop: 24 }} data-testid="economics-one-time-items">
-        <h4 style={{ marginBottom: 4 }}>One-time items</h4>
-        <table className="data-table">
-          <thead><tr><th>Item</th><th>Destination</th><th>Recipient</th><th>Apply on</th><th>Amount</th><th>Status</th><th aria-label="Actions" /></tr></thead>
-          <tbody>
-            {economicItems.length === 0 && <tr><td colSpan={7} className="empty">No one-time items.</td></tr>}
-            {economicItems.map((item) => <tr key={item.id} data-testid={`economic-item-${item.id}`}>
-              <td>{item.description}{Number(item.taxable) ? <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>Taxable</div> : null}</td>
-              <td>{itemDestinationLabel(item.settlement_channel)}</td>
-              <td>{item.recipient_name || '-'}</td>
-              <td>{item.apply_on}</td>
-              <td>{item.direction === 'credit' ? '-' : ''}{item.currency} {Number(item.amount).toFixed(2)}</td>
-              <td>{itemStatusLabel(item)}</td>
-              <td>{canManageFinancials && item.settlement_status !== 'applied' && !Number(item.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeEconomicItem(item)}>Remove</button>}</td>
-            </tr>)}
-          </tbody>
-        </table>
-        {canManageFinancials && <form onSubmit={addEconomicItem} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) repeat(auto-fit, minmax(145px, 1fr))', gap: 8, alignItems: 'end', marginTop: 12 }}>
-          <Field label="Description"><input className="input" required maxLength={255} value={itemForm.description} onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })} placeholder="Background check, signing bonus, client credit..." /></Field>
-          <Field label="Destination"><select className="input" value={itemForm.settlement_channel} onChange={(e) => {
-            const channel = e.target.value;
-            const recipient = settlementParties.find((party) => party.settlement_channel === channel);
-            setItemForm({ ...itemForm, settlement_channel: channel, economic_party_id: recipient?.id || '', direction: ['ap','payroll'].includes(channel) ? 'charge' : itemForm.direction, taxable: channel === 'ar' ? itemForm.taxable : false });
-          }}><option value="ar">Client invoice</option><option value="ap">Vendor bill</option><option value="payroll">Payroll earning</option><option value="none">Margin-only cost</option></select></Field>
-          {itemForm.settlement_channel !== 'none' && <Field label="Recipient"><select className="input" required value={itemForm.economic_party_id} onChange={(e) => setItemForm({ ...itemForm, economic_party_id: e.target.value })}><option value="">Choose recipient</option>{itemRecipientOptions.map((party) => <option key={party.id} value={party.id}>{party.display_name}</option>)}</select></Field>}
-          {!['ap','payroll'].includes(itemForm.settlement_channel) && <Field label="Effect"><select className="input" value={itemForm.direction} onChange={(e) => setItemForm({ ...itemForm, direction: e.target.value })}><option value="charge">{itemForm.settlement_channel === 'ar' ? 'Charge client' : 'Add cost'}</option><option value="credit">{itemForm.settlement_channel === 'ar' ? 'Credit client' : 'Reduce cost'}</option></select></Field>}
-          <Field label="Amount"><input className="input" type="number" min="0.01" step="0.01" required value={itemForm.amount} onChange={(e) => setItemForm({ ...itemForm, amount: e.target.value })} placeholder="0.00" /></Field>
-          <Field label="Apply on"><input className="input" type="date" required value={itemForm.apply_on} onChange={(e) => setItemForm({ ...itemForm, apply_on: e.target.value })} /></Field>
-          <Field label="Contract currency"><input className="input" readOnly value={itemForm.currency} /></Field>
-          {itemForm.settlement_channel === 'ar' && <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, marginBottom: 10 }}><input type="checkbox" checked={itemForm.taxable} onChange={(e) => setItemForm({ ...itemForm, taxable: e.target.checked })} /> Taxable</label>}
-          <button className="btn btn--primary" disabled={busy || (itemForm.settlement_channel !== 'none' && itemRecipientOptions.length === 0)}>{busy ? 'Saving...' : 'Add one-time item'}</button>
-        </form>}
-        {canManageFinancials && itemForm.settlement_channel !== 'none' && itemRecipientOptions.length === 0 && <p className="error">Add a {itemDestinationLabel(itemForm.settlement_channel).toLowerCase()} participant before assigning this item.</p>}
-      </section>
+      <OneTimeItems key={placement.id} placementId={placement.id} startDate={placement.start_date} currency={contractCurrency} items={economicItems} parties={settlementParties} canManage={canManageFinancials} refresh={refreshAll} />
 
       {contractModel.available && <section style={{ marginTop: 24 }} data-testid="economics-model-summary">
         <h4>{contractModel.approved ? 'Approved contract economics' : 'Current draft economics'}{readiness.missing_w2_overhead_cost || readiness.missing_c2c_overhead_cost ? ' · provisional' : ''}</h4>

@@ -10,6 +10,8 @@ $apMigration = $read('modules/ap/migrations/019_economic_item_source.sql');
 $economics = $read('modules/placements/lib/economics.php');
 $api = $read('modules/placements/api/economics.php');
 $ui = $read('modules/placements/ui/PlacementDetail.jsx');
+$itemsUi = $read('modules/placements/ui/OneTimeItems.jsx');
+$itemsEdit = $read('modules/placements/lib/economic_items_edit.php');
 $billing = $read('modules/billing/lib/billing.php');
 $billingApi = $read('modules/billing/api/invoices.php');
 $ap = $read('modules/ap/lib/ap.php');
@@ -39,16 +41,16 @@ $assert('settlement lines and obligations identify economic items',
     && str_contains($apMigration, "'economic_item'"));
 $assert('placement API creates and validates one-time items',
     str_contains($api, "\$action === 'item'")
-    && str_contains($api, 'placementEconomicsCreateItem')
-    && str_contains($api, 'The selected recipient does not match this item destination')
-    && str_contains($api, 'One-time items must use the placement contract currency'));
+    && str_contains($api, 'placementEconomicsCreateNativeItem')
+    && str_contains($itemsEdit, 'The selected recipient does not match this item destination')
+    && str_contains($itemsEdit, 'One-time items must use the placement contract currency'));
 $assert('placement UI exposes destination recipient date amount and effect',
-    str_contains($ui, 'One-time items')
-    && str_contains($ui, 'Client invoice')
-    && str_contains($ui, 'Vendor bill')
-    && str_contains($ui, 'Payroll earning')
-    && str_contains($ui, 'Margin-only cost')
-    && str_contains($ui, 'Apply on'));
+    str_contains($ui, '<OneTimeItems')
+    && str_contains($itemsUi, 'Client invoice')
+    && str_contains($itemsUi, 'Vendor bill')
+    && str_contains($itemsUi, 'Payroll earning')
+    && str_contains($itemsUi, 'Margin-only cost')
+    && str_contains($itemsUi, 'Apply on'));
 $assert('hard-coded manual fixed-cost inputs are retired from the editor',
     !str_contains($ui, '<Field label="Background / onboarding cost">')
     && !str_contains($ui, '<Field label="Other fixed cost">'));

@@ -1994,6 +1994,21 @@ function placementEconomicsRecordObligation(
     int $sourceRefId,
     array $values
 ): int {
+    if ($sourceType === 'economic_item') {
+        require_once __DIR__ . '/economic_items_edit.php';
+        return placementEconomicsClaimItem($tenantId, $placementId, $economicPartyId, $sourceRefId, $values);
+    }
+    return placementEconomicsWriteObligation($tenantId, $placementId, $economicPartyId, $sourceType, $sourceRefId, $values);
+}
+
+function placementEconomicsWriteObligation(
+    int $tenantId,
+    int $placementId,
+    int $economicPartyId,
+    string $sourceType,
+    int $sourceRefId,
+    array $values
+): int {
     if (!in_array($sourceType, ['time_bundle','time_entry','ar_invoice','manual','economic_item'], true)) {
         throw new \InvalidArgumentException('Invalid economic obligation source');
     }
