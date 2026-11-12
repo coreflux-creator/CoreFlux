@@ -46,8 +46,11 @@ try{
     $first=onboardingDocument($pdo,$evidenceCase,$documentId,$head);
     $vc($first['document_id']===$documentId && strlen($first['revision'])===64,'onboarding verifies actual LocalDriver bytes and owned metadata');
     $driver->put($key,'%PDF-1.4 changed physical evidence',['mime'=>'application/pdf']);clearstatcache();
+    $vr(fn()=>onboardingDocument($pdo,$evidenceCase,$documentId,$head),'physical overwrite cannot replace registered onboarding evidence');
+    $vr(fn()=>$register($body),'physical overwrite cannot replay a prior registration');
+    $driver->put($key,$bytes,['mime'=>'application/pdf']);clearstatcache();
     $second=onboardingDocument($pdo,$evidenceCase,$documentId,$head);
-    $vc($first['revision']!==$second['revision'],'physical overwrite invalidates document evidence revision');
+    $vc(peopleDocumentVerifyObject($object,$head)['etag']===$object['etag']&&strlen($second['revision'])===64,'restored original bytes pass the stored fingerprint check');
     $pdo->exec('UPDATE storage_objects SET soft_deleted_at=NOW() WHERE id='.$objectId);
     $vr(fn()=>peopleDocumentObject($pdo,10,100,$objectId),'retired registry object cannot generate a download');
     $vr(fn()=>onboardingDocument($pdo,$evidenceCase,$documentId,$head),'retired registry object cannot remain onboarding evidence');
@@ -78,6 +81,29 @@ try{
     $vc((int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn()===$beforeRegistry
         &&(int)$pdo->query('SELECT COUNT(*) FROM people_documents')->fetchColumn()===$beforeDocuments
         &&$pdo->query('SELECT resume_storage_object_id FROM people WHERE id=100')->fetchColumn()===null,'outer rollback restores registry, document and resume pointer');
+    $vaultSnapshot=static function()use($pdo){$rows=[];foreach(['people','people_documents','storage_objects','audit_log']as$table)$rows[$table]=$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);return $rows;};
+    $failAudit=static function(string $event,callable $run)use($pdo,$vaultSnapshot,$vc){
+        $before=$vaultSnapshot();
+        $pdo->exec("CREATE TRIGGER vault_required_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='{$event}' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic vault required audit failure'; END IF; END");
+        try{$run();throw new LogicException('Required audit failure was ignored');}
+        catch(PDOException $e){$vc(str_contains($e->getMessage(),'Synthetic vault required audit failure')&&$vaultSnapshot()===$before,'Required '.$event.' audit failure rolls back the entire document command');}
+        finally{$pdo->exec('DROP TRIGGER vault_required_audit_failure');}
+    };
+    $atomicBody=['doc_type'=>'resume','storage_key'=>$newKey,'filename'=>'atomic.pdf'];
+    $failAudit('people.document.uploaded',fn()=>$register($atomicBody));
+    $saved=$register($atomicBody);$before=$vaultSnapshot();
+    $vc($register($atomicBody)['replayed']&&$vaultSnapshot()===$before,'Upload response-loss retry does not duplicate audit or storage identity');
+    $patch=['doc_type'=>'offer','signed'=>true,'signed_at'=>'2026-11-12'];
+    $failAudit('people.document.updated',fn()=>peopleDocumentMutate($pdo,$scope,$saved['id'],$patch));
+    peopleDocumentMutate($pdo,$scope,$saved['id'],$patch);$before=$vaultSnapshot();
+    peopleDocumentMutate($pdo,$scope,$saved['id'],$patch);
+    $vc($vaultSnapshot()===$before,'Exact metadata retry records no additional audit event');
+    peopleDocumentMutate($pdo,$scope,$saved['id'],['doc_type'=>'resume']);
+    $failAudit('people.document.deleted',fn()=>peopleDocumentMutate($pdo,$scope,$saved['id'],null));
+    peopleDocumentMutate($pdo,$scope,$saved['id'],null);$before=$vaultSnapshot();
+    peopleDocumentMutate($pdo,$scope,$saved['id'],null);
+    $vc($vaultSnapshot()===$before,'Retirement retry preserves one event and no resurrection');
+    $vc($storage->read($newKey,1024)==='%PDF atomic rollback','All database failure and recovery cases preserve original stored bytes');
     $pdo->exec('UPDATE people SET deleted_at=NOW() WHERE id=100');
     $vr(fn()=>$register(['doc_type'=>'offer','storage_key'=>$newKey,'filename'=>'atomic.pdf']),'retired person cannot receive evidence');
     echo "PASS {$vaultChecks} real-storage person-vault checks\n";

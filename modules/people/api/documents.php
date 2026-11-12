@@ -71,7 +71,8 @@ if ($method === 'GET') {
         rbac_legacy_require($user, 'people.docs.view');
         $row = $findDocument($id);
         $obj = peopleDocumentObject($pdo, $tid, (int)$row['person_id'], (int)$row['storage_object_id']);
-        peopleDocumentHead($head, $obj['s3_key'], null);
+        peopleDocumentVerifyObject($obj,$head,null);
+        if(peopleDocumentDirectory($pdo,$operatingTenant)!==$tid)throw new PeopleDocumentConflict('People directory changed. Reload the document.');
         peopleDocumentAccessAudit($pdo,$scope,$row);
         $signed = StorageService::getInstance()->get_signed_url($obj['s3_key']);
         api_ok(['document' => peopleDocumentPublic($row), 'signed_url' => $signed]);
@@ -91,9 +92,6 @@ if ($method === 'POST') {
     $requirePerson($personId);
     $body = api_json_body();
     $result=peopleDocumentRegister($pdo,$scope,$personId,$body,$head);
-    if (!$result['replayed']) peopleAudit('people.document.uploaded', [
-        'person_id'=>$personId, 'people_tenant_id'=>$tid, 'doc_type'=>$body['doc_type'], 'document_id'=>$result['id']
-    ],$personId);
     api_ok($result,$result['replayed']?200:201);
 }
 
@@ -103,7 +101,6 @@ if ($method === 'PATCH') {
     if ($id <= 0) api_error('id required', 400);
     $body=api_json_body();
     $personId=peopleDocumentMutate($pdo,$scope,$id,$body);
-    peopleAudit('people.document.updated',['document_id'=>$id,'fields'=>array_keys($body),'people_tenant_id'=>$tid],$personId);
     api_ok(['ok' => true]);
 }
 
@@ -112,7 +109,6 @@ if ($method === 'DELETE') {
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $personId=peopleDocumentMutate($pdo,$scope,$id,null);
-    peopleAudit('people.document.deleted', ['document_id' => $id,'people_tenant_id'=>$tid], $personId);
     api_ok(['ok' => true]);
 }
 

@@ -2,7 +2,7 @@
 /** Included in the disposable MariaDB exchange fixture; all physical files are synthetic. */
 $docStart=$passed;
 $pdo->exec('ALTER TABLE people_documents MODIFY id BIGINT NOT NULL AUTO_INCREMENT, ADD file_name VARCHAR(255) CHARACTER SET utf8mb4 NULL, ADD uploaded_by_user_id BIGINT NULL, ADD created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
-$pdo->exec('ALTER TABLE storage_objects MODIFY id BIGINT NOT NULL AUTO_INCREMENT, ADD filename VARCHAR(255) CHARACTER SET utf8mb4 NULL, ADD mime VARCHAR(120) NULL, ADD size_bytes BIGINT NULL, ADD created_by_user_id BIGINT NULL, ADD created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+$pdo->exec('ALTER TABLE storage_objects MODIFY id BIGINT NOT NULL AUTO_INCREMENT, ADD filename VARCHAR(255) CHARACTER SET utf8mb4 NULL, ADD mime VARCHAR(120) NULL, ADD size_bytes BIGINT NULL, ADD created_by_user_id BIGINT NULL, ADD created_at DATETIME DEFAULT CURRENT_TIMESTAMP, ADD etag VARCHAR(80) NULL, ADD s3_version_id VARCHAR(80) NULL');
 class QuantaVaultFixtureDriver extends \Core\Storage\LocalDriver {
     public array $keys=[];public int $writes=0;public $beforePut=null;public $afterPut=null;public $afterRead=null;
     public function put(string $key,string $value,array $opts=[]):array {
@@ -50,7 +50,7 @@ $newDocReceipt=static function()use(&$docReceipt,&$docDelivery,&$docTask,$docSco
     $qRemote['submissions'][]=$docReceipt;$qRemote['version']++;return $docView()['version'];
 };
 $docCounts=static fn()=>[(int)$pdo->query('SELECT COUNT(*) FROM people_documents')->fetchColumn(),
-    (int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn(),(int)$pdo->query('SELECT COUNT(*) FROM staffing_onboarding_events')->fetchColumn()];
+    (int)$pdo->query('SELECT COUNT(*) FROM storage_objects')->fetchColumn(),(int)$pdo->query('SELECT COUNT(*) FROM staffing_onboarding_events')->fetchColumn(),(int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event LIKE 'people.document.%'")->fetchColumn()];
 $docImport=static function($version)use($docScope,$qId,&$docReceipt,&$docDelivery,$docStorage){return quantaOnboardingImportDocument($docScope,$qId,$docReceipt['id'],$docDelivery,$version,$docStorage);};
 $transfer=static function()use($pdo,&$docReceipt,$qWorkspace){return quantaOnboardingTransferGet($pdo,11,quantaOnboardingImportId($qWorkspace,$docReceipt['id']));};
 try{
@@ -62,7 +62,18 @@ try{
     $reject(fn()=>quantaOnboardingImportDocument($qScope,$qId,$docReceipt['id'],$docDelivery,$version,$docStorage),'document import requires document-management permission');
     $reject(fn()=>$docImport($version-1),'stale document import version rejected before file IO');
     $check($docDownloads===0&&$docDriver->writes===0&&$before===$docCounts(),'rejected preflight downloads no file and creates no metadata');
+    $pdo->exec("CREATE TRIGGER fixture_reject_person_upload_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='people.document.uploaded' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic person upload audit failure'; END IF; END");
+    try{$docImport($version);throw new LogicException('Document upload audit failure ignored');}
+    catch(PDOException $e){$check(str_contains($e->getMessage(),'Synthetic person upload audit failure'),'Quanta import surfaces the required person-vault audit failure');}
+    finally{$pdo->exec('DROP TRIGGER fixture_reject_person_upload_audit');}
+    $check($before===$docCounts()&&$docView()['version']===$version,'Quanta upload audit failure rolls back registry, person document, onboarding revision and audit');
+    $retainedKey=$transfer()['storage_key'];$retainedWrites=$docDriver->writes;
+    $check($transfer()['state']==='stored'&&$transfer()['document_id']===null&&$docStorage->read($retainedKey,1024)===$docBytes,'Failed audit retains the verified physical copy for recovery');
     $result=$docImport($version);$task=array_values(array_filter($docView()['tasks'],static fn($t)=>$t['id']===$docTask))[0];
+    $check($docDriver->writes===$retainedWrites&&$transfer()['storage_key']===$retainedKey,'Quanta audit recovery reuses the original upload without another physical write');
+    $q=$pdo->prepare("SELECT meta_json FROM audit_log WHERE event='people.document.uploaded' AND target_id=2 ORDER BY id DESC LIMIT 1");$q->execute();$docAudit=json_decode($q->fetchColumn(),true);
+    $check(($docAudit['people_tenant_id']??null)===10&&($docAudit['document_id']??null)===$result['document_id'],'Quanta document import records the owning People directory and committed document');
+
     $document=$pdo->query('SELECT * FROM people_documents WHERE id='.(int)$result['document_id'])->fetch(PDO::FETCH_ASSOC);
     $object=peopleDocumentObject($pdo,10,2,(int)$document['storage_object_id']);
     $check($docStorage->read($object['s3_key'],1024)===$docBytes,'registered Core vault contains exact verified provider bytes');

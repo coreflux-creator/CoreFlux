@@ -99,7 +99,7 @@ function staffingDocumentFieldRules(string $table,string $field,array $rules):ar
             ['source'=>'modules/people/api/employees.php','route'=>'/modules/people/api/employees.php'],
         ]:[['source'=>'modules/'.$module.'/lib/documents.php','route'=>'/modules/'.$module.'/api/documents.php']]),
         'disposition'=>$private?'restricted':(in_array($rules['disposition'],['system_owned','source_reference','restricted'],true)?$rules['disposition']:'specialized_workflow'),
-        'write_policy'=>$legacyField?'preserve_legacy; explicit_identity_and_storage_review_before_canonical_binding':($isHistory?'native_event_history; no_generic_sync_or_retroactive_rewrite':'native_owned_vault; exact_entity_and_verified_storage; no_blanket_remote_replication'),
+        'write_policy'=>$legacyField?'preserve_legacy; explicit_identity_and_storage_review_before_canonical_binding':($isHistory?'native_event_history; no_generic_sync_or_retroactive_rewrite':'native_owned_vault; exact_entity_and_verified_storage; required_atomic_change_audit; preserve_recorded_physical_identity; no_blanket_remote_replication'),
         'effective_date_policy'=>$isHistory?'preserve_event_effective_date_and_original_history':($legacyField?'preserve_original_legacy_values':'document_dates_do_not_change_assignment_or_payroll_state'),
         'exchange_boundary'=>$isHistory?'No employment-history receiver is implemented. Current employment setup and provider employment identity use their separate reviewed workflows.':'Quanta onboarding uses its separately reviewed evidence-transfer workflow. This dictionary does not authorize replication of the vault or legacy files.',
     ]);

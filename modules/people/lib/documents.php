@@ -60,7 +60,24 @@ function peopleDocumentHead(callable $head, string $key, ?int $maxBytes=25*1024*
         || !is_int($object['size_bytes']??null) || $object['size_bytes']<1 || ($maxBytes!==null && $object['size_bytes']>$maxBytes)) {
         throw new PeopleDocumentConflict('The uploaded file is missing, incomplete or exceeds 25 MB.');
     }
+    foreach (['etag','version_id'] as $field) {
+        $value=$object[$field]??null;
+        if ($value!==null && (!is_string($value)||$value===''||strlen($value)>80||preg_match('/[\x00-\x1f\x7f]/',$value))) throw new PeopleDocumentConflict('Stored file identity is invalid.');
+    }
     return $object;
+}
+
+/** New registrations retain physical identity; old unstamped files are not silently backfilled. */
+function peopleDocumentVerifyObject(array $object,callable $head,?int $maxBytes=25*1024*1024): array {
+    $physical=peopleDocumentHead($head,$object['s3_key'],$maxBytes);
+    if(is_string($object['etag']??null)&&$object['etag']!==''
+        &&($physical['etag']!==$object['etag']||(int)$object['size_bytes']!==$physical['size_bytes'])) {
+        throw new PeopleDocumentConflict('Stored file changed after registration. Upload the replacement as a new document for review.');
+    }
+    if(is_string($object['s3_version_id']??null)&&$object['s3_version_id']!==''&&($physical['version_id']??null)!==$object['s3_version_id']) {
+        throw new PeopleDocumentConflict('Stored file version changed after registration. Review the document.');
+    }
+    return $physical;
 }
 
 function peopleDocumentMetadata(array $body, bool $create=false): array {
@@ -91,14 +108,22 @@ function peopleDocumentPublic(array $row): array {
     return array_intersect_key($row,array_flip(['id','person_id','doc_type','storage_object_id','file_name','signed','signed_at','expires_at','uploaded_by_user_id','created_at']));
 }
 
-/** Log the actual person and directory; never invent an employee ID for a legacy audit table. */
-function peopleDocumentAccessAudit(PDO $pdo,array $scope,array $document): void {
-    if((int)($scope['actor_user_id']??0)<=0)throw new LogicException('Authenticated document access required.');
+/** Person/document identity belongs in the central audit, never a fabricated legacy employee ID. */
+function peopleDocumentAudit(PDO $pdo,array $scope,string $event,array $document,array $details=[]): void {
+    if((int)($scope['tenant_id']??0)<=0||(int)($scope['people_tenant_id']??0)<=0||(int)($scope['actor_user_id']??0)<=0
+        ||!in_array($event,['people.document.uploaded','people.document.updated','people.document.deleted','people.document.download_authorized'],true)) {
+        throw new LogicException('Authenticated document audit required.');
+    }
+    if($event!=='people.document.download_authorized'&&!$pdo->inTransaction())throw new LogicException('Document change audit requires the write transaction.');
     $meta=['people_tenant_id'=>(int)$scope['people_tenant_id'],'person_id'=>(int)$document['person_id'],
-        'document_id'=>(int)$document['id'],'storage_object_id'=>(int)$document['storage_object_id'],'doc_type'=>$document['doc_type']];
+        'document_id'=>(int)$document['id'],'storage_object_id'=>(int)$document['storage_object_id'],'doc_type'=>$document['doc_type']]+$details;
     $q=$pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(?,?,?,?,?,?,NOW())');
-    $q->execute([(int)$scope['tenant_id'],(int)$scope['actor_user_id'],'people.document.download_authorized',
-        (int)$document['person_id'],json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null]);
+    $q->execute([(int)$scope['tenant_id'],(int)$scope['actor_user_id'],$event,(int)$document['person_id'],
+        json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null]);
+}
+
+function peopleDocumentAccessAudit(PDO $pdo,array $scope,array $document): void {
+    peopleDocumentAudit($pdo,$scope,'people.document.download_authorized',$document);
 }
 
 /** Existing HTTP uploads own their transaction; composed commands use the helper below. */
@@ -113,7 +138,7 @@ function peopleDocumentRegister(PDO $pdo, array $scope, int $person, array $body
 
 /** Caller owns commit/rollback. Fresh directory/person locks and object checks remain mandatory. */
 function peopleDocumentRegisterInTransaction(PDO $pdo, array $scope, int $person, array $body, callable $head): array {
-    if (!$pdo->inTransaction()) throw new LogicException('Document registration requires a transaction.');
+    if (!$pdo->inTransaction()||(int)($scope['actor_user_id']??0)<=0) throw new LogicException('Document registration requires an authenticated transaction.');
     $metadata=peopleDocumentMetadata($body,true);
     $owner=peopleDocumentDirectory($pdo,$scope['tenant_id'],true);
     if ($owner!==$scope['people_tenant_id']) throw new PeopleDocumentConflict('People directory changed. Reload before uploading.');
@@ -129,14 +154,14 @@ function peopleDocumentRegisterInTransaction(PDO $pdo, array $scope, int $person
         $objectId=(int)($s->fetchColumn()?:0);
         $object=$objectId ? peopleDocumentObject($pdo,$owner,$person,$objectId,true) : null;
     }
-    $blob=peopleDocumentHead($head,$key);
+    $blob=$object===null?peopleDocumentHead($head,$key):peopleDocumentVerifyObject($object,$head);
     $metadata['file_name']??=$object['filename']??null;
     if (!$metadata['file_name']) throw new InvalidArgumentException('A document filename is required.');
     if (!$objectId) {
         $mime=$blob['mime']??null;
         if (!is_string($mime) || strlen($mime)>120 || !preg_match('~^[a-z0-9.+-]+/[a-z0-9.+-]+$~iD',$mime)) $mime='application/octet-stream';
-        $s=$pdo->prepare("INSERT INTO storage_objects(tenant_id,module,entity_type,entity_id,s3_key,filename,mime,size_bytes,created_by_user_id,created_at) VALUES(:t,'people','document',:p,:k,:f,:m,:s,:a,NOW())");
-        $s->execute(['t'=>$owner,'p'=>(string)$person,'k'=>$key,'f'=>$metadata['file_name'],'m'=>$mime,'s'=>$blob['size_bytes'],'a'=>$scope['actor_user_id']]);
+        $s=$pdo->prepare("INSERT INTO storage_objects(tenant_id,module,entity_type,entity_id,s3_key,s3_version_id,filename,mime,size_bytes,etag,created_by_user_id,created_at) VALUES(:t,'people','document',:p,:k,:v,:f,:m,:s,:e,:a,NOW())");
+        $s->execute(['t'=>$owner,'p'=>(string)$person,'k'=>$key,'v'=>$blob['version_id']??null,'f'=>$metadata['file_name'],'m'=>$mime,'s'=>$blob['size_bytes'],'e'=>$blob['etag'],'a'=>$scope['actor_user_id']]);
         $objectId=(int)$pdo->lastInsertId();
     }
     $s=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND storage_object_id=:o FOR UPDATE');
@@ -153,35 +178,53 @@ function peopleDocumentRegisterInTransaction(PDO $pdo, array $scope, int $person
         $s=$pdo->prepare('UPDATE people SET resume_storage_object_id=:o WHERE tenant_id=:t AND id=:p');
         $s->execute(['o'=>$objectId,'t'=>$owner,'p'=>$person]);
     }
+    peopleDocumentAudit($pdo,$scope,'people.document.uploaded',['id'=>$id,'person_id'=>$person,'storage_object_id'=>$objectId]+$metadata,
+        ['metadata'=>$metadata,'physical_identity'=>['etag'=>$blob['etag'],'version_id'=>$blob['version_id']??null,'size_bytes'=>$blob['size_bytes']]]);
     return ['id'=>$id,'storage_object_id'=>$objectId,'replayed'=>false];
 }
 
 function peopleDocumentMutate(PDO $pdo, array $scope, int $id, ?array $body): int {
-    if ($pdo->inTransaction()) throw new LogicException('Document metadata owns its transaction.');
+    if ($pdo->inTransaction()||(int)($scope['actor_user_id']??0)<=0) throw new LogicException('Document metadata requires its own authenticated transaction.');
     $metadata=$body===null ? null : peopleDocumentMetadata($body);
     $pdo->beginTransaction();
     try {
         $owner=peopleDocumentDirectory($pdo,$scope['tenant_id'],true);
         if ($owner!==$scope['people_tenant_id']) throw new PeopleDocumentConflict('People directory changed. Reload the document.');
-        $s=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND id=:id AND deleted_at IS NULL FOR UPDATE');
+        $s=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=:t AND id=:id FOR UPDATE');
         $s->execute(['t'=>$owner,'id'=>$id]); $row=$s->fetch(PDO::FETCH_ASSOC);
         if (!$row || !(int)$row['person_id']) throw new PeopleDocumentConflict('Document is unavailable in this directory.');
         $person=(int)$row['person_id']; peopleDocumentPerson($pdo,$owner,$person,true);
+        if($row['deleted_at']!==null){
+            if($metadata!==null)throw new PeopleDocumentConflict('A retired document cannot be edited or restored.');
+            $pdo->commit();return $person;
+        }
+        $s=$pdo->prepare('SELECT resume_storage_object_id FROM people WHERE tenant_id=? AND id=?');$s->execute([$owner,$person]);
+        $priorResume=$s->fetchColumn();$afterResume=$priorResume;
+        $changes=[];
+        if($metadata!==null)foreach($metadata as$field=>$value){
+            if(($row[$field]===null)!==($value===null)||(string)$row[$field]!== (string)$value)$changes[$field]=$value;
+        }
         if ($metadata===null) {
             $s=$pdo->prepare('UPDATE people_documents SET deleted_at=NOW() WHERE tenant_id=:t AND id=:id');
             $s->execute(['t'=>$owner,'id'=>$id]);
-        } else {
-            $set=implode(',',array_map(static fn($key)=>$key.'=:'.$key,array_keys($metadata)));
+        } elseif($changes) {
+            $set=implode(',',array_map(static fn($key)=>$key.'=:'.$key,array_keys($changes)));
             $s=$pdo->prepare('UPDATE people_documents SET '.$set.' WHERE tenant_id=:_t AND id=:_id');
-            $s->execute($metadata+['_t'=>$owner,'_id'=>$id]);
+            $s->execute($changes+['_t'=>$owner,'_id'=>$id]);
         }
         if ($metadata!==null && ($metadata['doc_type']??null)==='resume') {
             peopleDocumentObject($pdo,$owner,$person,(int)$row['storage_object_id'],true);
-            $s=$pdo->prepare('UPDATE people SET resume_storage_object_id=:o WHERE tenant_id=:t AND id=:p');
-            $s->execute(['o'=>$row['storage_object_id'],'t'=>$owner,'p'=>$person]);
-        } elseif ($metadata===null || (isset($metadata['doc_type']) && $metadata['doc_type']!=='resume')) {
-            $s=$pdo->prepare('UPDATE people SET resume_storage_object_id=NULL WHERE tenant_id=:t AND id=:p AND resume_storage_object_id=:o');
-            $s->execute(['o'=>$row['storage_object_id'],'t'=>$owner,'p'=>$person]);
+            $afterResume=(int)$row['storage_object_id'];
+        } elseif (($metadata===null || (isset($metadata['doc_type']) && $metadata['doc_type']!=='resume'))
+            &&(int)$priorResume===(int)$row['storage_object_id']) $afterResume=null;
+        $resumeChanged=($priorResume===null)!==($afterResume===null)||(string)$priorResume!==(string)$afterResume;
+        if($resumeChanged){$s=$pdo->prepare('UPDATE people SET resume_storage_object_id=? WHERE tenant_id=? AND id=?');$s->execute([$afterResume,$owner,$person]);}
+        if($metadata===null||$changes||$resumeChanged){
+            $s=$pdo->prepare('SELECT * FROM people_documents WHERE tenant_id=? AND id=?');$s->execute([$owner,$id]);$after=$s->fetch(PDO::FETCH_ASSOC);
+            peopleDocumentAudit($pdo,$scope,$metadata===null?'people.document.deleted':'people.document.updated',$after,
+                ['before'=>peopleDocumentPublic($row)+['deleted_at'=>$row['deleted_at']],
+                 'after'=>peopleDocumentPublic($after)+['deleted_at'=>$after['deleted_at']],
+                 'resume_storage_before'=>$priorResume,'resume_storage_after'=>$afterResume]);
         }
         $pdo->commit(); return $person;
     } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }

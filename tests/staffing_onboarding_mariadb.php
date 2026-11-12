@@ -39,6 +39,7 @@ try{
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/194_document_ownership_transfers.sql'))as$sql)$pdo->exec($sql);
     foreach([1,2]as$pass)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/171_staffing_onboarding.sql'))as$sql)$pdo->exec($sql);
     $check(true,'migration replays on populated-compatible schema');
+    $pdo->exec('CREATE TABLE audit_log(id BIGINT PRIMARY KEY AUTO_INCREMENT,tenant_id BIGINT,actor_user_id BIGINT,event VARCHAR(120),target_id BIGINT,meta_json LONGTEXT,ip_address VARCHAR(45),created_at DATETIME)');
     $pdo->exec('CREATE TABLE people(id BIGINT PRIMARY KEY,tenant_id BIGINT,status VARCHAR(30),deleted_at DATETIME NULL)');
     $pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,person_id BIGINT,status VARCHAR(30),engagement_type VARCHAR(20),start_date DATE,end_date DATE,accounting_entity_id BIGINT,branch VARCHAR(50),workers_comp_class VARCHAR(30),worksite_state VARCHAR(20),worksite_country VARCHAR(10),deleted_at DATETIME NULL)');
     $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(30),record_id BIGINT,record_number VARCHAR(64))');

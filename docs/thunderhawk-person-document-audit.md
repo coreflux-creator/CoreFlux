@@ -1,0 +1,13 @@
+# Person document audit and physical identity
+
+November 12, 2026 candidate. The preceding reply answered the standalone accounting access question and made no integration progress. This continuation revalidated the pending implementation at `70dfafb9`; its eleven CI jobs passed in run `43238786831`. Installed runtime remains `d2c4bb0c` with the 260 pins in `deploy/thunderhawk-document-merge-20261112.json`. This candidate is not yet installed.
+
+Native person uploads, metadata edits and retirement previously committed before calling the best-effort People audit writer. That writer expected a `request_id` audit column which is absent in the pilot's legacy central audit schema. The candidate writes required document audit records inside the same transaction as the registry, document, resume pointer and composed Quanta onboarding changes. Failure to save the audit rolls back those database effects. The physical upload remains private and available to the existing original-key retry workflow.
+
+Successful upload retries keep one document/object/audit. Identical metadata retries and repeat retirement add no audit event; selecting an older resume still records a real pointer change. Retired documents cannot be edited or revived. Audit records retain the operating company, People directory, current person, original document and storage IDs, and metadata before/after changes. Existing download authorization auditing remains required before a URL is returned. No legacy employment ID is invented.
+
+New registrations save the verified storage ETag, version and byte length. Download, registration replay and onboarding evidence validation reject a mismatch with a recorded physical identity. Replacement files require new document evidence. Existing unstamped objects remain readable with fresh physical checks; the change does not invent their historical fingerprints or alter their registry rows.
+
+Tests cover native authenticated CRUD, shared directories, exact retry, audit failure, complete transaction rollback, original byte retention, storage overwrite/version rejection, Quanta's retained-copy recovery, unchanged approval authority and independent employer review. Physical storage and provider writes remain outside the database transaction; a rolled-back registration does not erase a previously verified copy. No real payroll, payment, posting, production cutover or Arabella change is in scope.
+
+This fixes a discovered document-audit gap. It does not complete the remaining field decisions, portal/lifecycle and rendered correction journeys, legacy JobDiva time hardening, relationship-aware merging or financial reconciliation. The full integration remains active.

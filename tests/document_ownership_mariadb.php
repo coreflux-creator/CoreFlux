@@ -19,9 +19,9 @@ $transfer=static function(string $module,int $from,int $to,array $override=[])us
     try{$count=documentOwnershipTransfer($pdo,array_replace(['tenant_id'=>11,$module.'_tenant_id'=>10,'actor_user_id'=>90],$override),$module,$from,$to,$module==='people'?'people.merge':'jobdiva.placement_consolidation');$pdo->commit();return $count;}
     catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 };
-$snapshot=static function()use($pdo){$out=[];foreach(['people_documents','placement_documents','storage_objects','document_ownership_transfers']as$table)$out[$table]=$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);return $out;};
+$snapshot=static function()use($pdo){$out=[];foreach(['people_documents','placement_documents','storage_objects','document_ownership_transfers','audit_log']as$table)$out[$table]=$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);return $out;};
 try{
-    foreach(['tenants','tenant_module_scope','people','placements','people_documents','placement_documents','storage_objects','document_ownership_transfers']as$table)$pdo->exec('CREATE TABLE '.$table.' LIKE coreaccounting_ci.'.$table);
+    foreach(['tenants','tenant_module_scope','people','placements','people_documents','placement_documents','storage_objects','document_ownership_transfers','audit_log']as$table)$pdo->exec('CREATE TABLE '.$table.' LIKE coreaccounting_ci.'.$table);
     $pdo->exec("INSERT INTO tenants(id,name,parent_id,tenant_type,is_active) VALUES(10,'Synthetic owner',NULL,'master',1),(11,'Synthetic child',10,'sub',1),(12,'Synthetic foreign',NULL,'master',1)");
     foreach([100,101,102,103,104]as$id){
         $owner=$id===103?12:10;

@@ -71,7 +71,8 @@ function onboardingDocument(PDO $pdo,array $case,int $documentId,callable $head,
         // Existing unmerged evidence hashes remain stable. A merge requires fresh evidence review.
         if($binding['history'])$doc['ownership_receipts']=array_column($binding['history'],'receipt_sha256');
     } catch (PeopleDocumentConflict|DocumentOwnershipConflict $e) { throw new OnboardingConflict('Document storage is not valid for this person.'); }
-    $blob=$head($doc['s3_key']);
+    try { $blob=peopleDocumentVerifyObject($object,$head,null); }
+    catch(PeopleDocumentConflict $e){throw new OnboardingConflict('Stored evidence changed after registration. Request a new document for review.');}
     if(!is_array($blob)||!is_string($blob['etag']??null)||$blob['etag']===''||!isset($blob['size_bytes'])||(int)$blob['size_bytes']<0)throw new OnboardingConflict('The stored document could not be verified.');
     $stamp=['etag'=>$blob['etag'],'version_id'=>$blob['version_id']??null,'size_bytes'=>(int)$blob['size_bytes'],'last_modified'=>$blob['last_modified']??null];
     return ['document_id'=>$documentId,'revision'=>onboardingHash(['document'=>$doc,'object'=>$stamp]),

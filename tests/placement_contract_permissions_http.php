@@ -387,6 +387,7 @@ try {
     RBACResolver::revokeModule($membership,'payroll',$actor);
     require __DIR__.'/fixtures/placement_document_http_checks.php';
     require __DIR__.'/fixtures/document_merge_http_checks.php';
+    require __DIR__.'/fixtures/person_document_audit_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);

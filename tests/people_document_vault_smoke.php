@@ -21,4 +21,10 @@ foreach([null,['etag'=>'','size_bytes'=>1],['etag'=>'x','size_bytes'=>0],['etag'
 $check(peopleDocumentHead(static fn($key)=>['etag'=>'older-large-file','size_bytes'=>30*1024*1024],'key',null)['size_bytes']===30*1024*1024,'existing large documents remain downloadable without buffering their contents');
 $safe=peopleDocumentPublic(['id'=>1,'file_name'=>'a.pdf','storage_path'=>'private/old','s3_key'=>'private/key','employee_id'=>77,'tenant_id'=>10]);
 $check($safe===['id'=>1,'file_name'=>'a.pdf'],'vault metadata omits legacy paths and employee identity');
+$stamp=['s3_key'=>'key','size_bytes'=>5,'etag'=>'original','s3_version_id'=>'v1'];
+$valid=['size_bytes'=>5,'etag'=>'original','version_id'=>'v1'];
+$check(peopleDocumentVerifyObject($stamp,fn()=>$valid)===$valid,'recorded object identity verified');
+foreach([['etag'=>'changed'],['size_bytes'=>6],['version_id'=>'v2']]as$change)$reject(fn()=>peopleDocumentVerifyObject($stamp,fn()=>array_replace($valid,$change)));
+$check(peopleDocumentVerifyObject(['s3_key'=>'key','etag'=>null,'s3_version_id'=>null],fn()=>$valid)===$valid,'unstamped legacy files are verified without fabricating a past fingerprint');
+foreach([['etag'=>str_repeat('a',81)],['version_id'=>str_repeat('a',81)],['version_id'=>"bad\nversion"]]as$change)$reject(fn()=>peopleDocumentHead(fn()=>array_replace($valid,$change),'key'));
 echo "PASS {$n} document input and ownership checks\n";
