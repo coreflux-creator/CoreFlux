@@ -61,7 +61,7 @@ $a('row: inline edit vms',                           strpos($ui, 'chain-vms-${c.
 $a('inline edit Save+Cancel handlers',               strpos($ui, '-save') !== false && strpos($ui, '-cancel') !== false);
 $a('row: portal button per chain row',               strpos($ui, 'chain-portal-btn-${c.id}') !== false);
 $a('badge ↔ has_portal_credentials',                 strpos($ui, "c.has_portal_credentials ? '🔒 Manage' : '+ Set'") !== false);
-$a('PortalCredsDialog rendered conditionally',       strpos($ui, '{portalFor && (') !== false);
+$a('PortalCredsDialog requires placement editing', strpos($ui, '{canManage && portalFor && (') !== false);
 $a('dialog testid',                                  strpos($ui, 'data-testid="chain-portal-dialog"') !== false);
 $a('dialog reveal posts to action=reveal_portal',    strpos($ui, 'action=reveal_portal&id=') !== false);
 $a('dialog save posts to action=set_portal',         strpos($ui, 'action=set_portal&id=') !== false);

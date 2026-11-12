@@ -72,10 +72,11 @@ try {
     $economics='/modules/placements/api/economics.php'; $stored='/modules/placements/api/jobdiva_reconciliation.php';
     $review=$economics.'?action=ownership_review&placement_id=874'; $release=$economics.'?action=release_ownership&placement_id=874';
     $patch=$economics.'?id='.$party; $preview=$stored.'?action=stored_preview'; $apply=$stored.'?action=stored_apply';
+    $context=$economics.'?placement_id=874';
     // Invalid confirmations/empty changes are intentional. The hosted verifier
     // must never consume a real review token or submit a valid business edit.
     $operations=[['GET',$review,null],['POST',$release,['confirm'=>'']],['PATCH',$patch,[]],
-        ['POST',$preview,['per_page'=>1]],['POST',$apply,['confirm'=>'']]];
+        ['POST',$preview,['per_page'=>1]],['POST',$apply,['confirm'=>'']],['GET',$context,null],['POST',$context.'&action=reconcile',[]]];
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     $email='contract-http-'.bin2hex(random_bytes(12)).'@example.invalid'; $password=bin2hex(random_bytes(32)); $hash=password_hash($password,PASSWORD_DEFAULT);
     $pdo->beginTransaction();
@@ -93,20 +94,35 @@ try {
     RBACResolver::grantModule($membership,'placements','read',[2002],$actor);
     [$status,$data]=$request('GET',$review);
     $expect($status===200&&($data['placement_id']??null)===874&&is_array($data['groups']??null),'Hosted reader receives only the requested synthetic ownership review');
-    foreach (array_slice($operations,1) as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Read grant denies writes and stored reconciliation: '.$method.' '.$path);
+    $expect(($data['permissions']['release']??null)===false,'Hosted ownership review withholds reader release controls');
+    [$status,$data]=$request('GET',$context);
+    $expect($status===200&&count($data['permissions']??[])===7&&!in_array(true,$data['permissions'],true),'Hosted contract reader receives no edit permissions');
+    $expect($snapshot($tables)===$before,'Opening the hosted contract preserves every observed business row');
+    foreach ($operations as [$method,$path,$body]) if ($method!=='GET') $expect($request($method,$path,$body)[0]===403,'Read grant denies writes and stored reconciliation: '.$method.' '.$path);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,true,999)[0]===403,'Foreign tenant pin denied: '.$method.' '.$path);
     $expect($request('GET',$economics.'?action=ownership_review&placement_id='.$foreignPlacement)[0]===404,'Foreign placement is not disclosed under the simulation pin');
+    $expect($request('GET',$economics.'?placement_id='.$foreignPlacement)[0]===404,'Hosted contract context refuses a foreign placement');
     RBACResolver::grantModule($membership,'placements','write',[2002],$actor);
+    [$status,$data]=$request('GET',$context);
+    $expect($status===200&&$data['permissions']['manage']===true&&$data['permissions']['financials_manage']===false&&$data['permissions']['financials_approve']===false,'Hosted editor permissions distinguish general editing from financial editing');
     [$status,$data]=$request('POST',$preview,['per_page'=>1]);
     $expect($status===200&&is_array($data['rows']??null),'Hosted editor can preview saved assignment evidence');
+    $expect(($data['permissions']['apply']??null)===false,'Hosted source preview denies apply to a general editor');
+    $expect($request('POST',$economics.'?placement_id='.$foreignPlacement.'&action=reconcile',[])[0]===404,'Hosted editor cannot refresh another tenant contract');
     $expect($request('POST',$release,['confirm'=>''])[0]===422,'Hosted editor reaches release validation but missing confirmation is refused');
     $expect($request('PATCH',$patch,[])[0]===422,'Hosted editor reaches native change validation but empty edits are refused');
     $expect($request('POST',$apply,['confirm'=>''])[0]===403,'Hosted editor cannot apply source financial fields');
     RBACResolver::grantModule($membership,'placements','admin',[2002],$actor);
+    [$status,$data]=$request('GET',$context);
+    $expect($status===200&&!in_array(false,$data['permissions'],true),'Hosted administrator receives its full contract permissions');
+    [$status,$data]=$request('POST',$preview,['per_page'=>1]);
+    $expect($status===200&&($data['permissions']['apply']??null)===true,'Hosted administrator source preview permits reviewed apply');
     $expect($request('POST',$apply,['confirm'=>''])[0]===422,'Hosted administrator reaches apply validation but missing confirmation is refused');
     $expect($snapshot($tables)===$before,'Permission and validation checks preserve all observed business rows');
     RBACResolver::grantModule($membership,'placements','read',[2002],$actor);
-    foreach (array_slice($operations,1) as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Hosted session loses writes immediately after downgrade: '.$method.' '.$path);
+    [$status,$data]=$request('GET',$context);
+    $expect($status===200&&!in_array(true,$data['permissions'],true),'Hosted session receives read-only controls immediately after downgrade');
+    foreach ($operations as [$method,$path,$body]) if ($method!=='GET') $expect($request($method,$path,$body)[0]===403,'Hosted session loses writes immediately after downgrade: '.$method.' '.$path);
     RBACResolver::revokeModule($membership,'placements',$actor);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Hosted session loses all contract access after revocation: '.$method.' '.$path);
     $request('GET','/logout.php'); $expect($request('GET',$review)[0]===401,'Hosted logout invalidates the cookie session');

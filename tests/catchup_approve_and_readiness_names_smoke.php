@@ -68,8 +68,8 @@ $a('handler POSTs to the catch-up endpoint',
    str_contains($detail, '/modules/placements/api/rates.php?action=approve_all_for_placement&placement_id=${pid}'));
 $a('draftCount derived from rates filter',
    str_contains($detail, "const draftCount = rates.filter(r => !r.approved_at).length;"));
-$a('button only renders when draftCount > 0',
-   str_contains($detail, '{draftCount > 0 && (')
+$a('button only renders with approval permission and draftCount > 0',
+   str_contains($detail, '{canApprove && draftCount > 0 && (')
    && str_contains($detail, 'data-testid="rates-approve-all-drafts"'));
 $a('button label pluralises correctly',
    str_contains($detail, "Approve all {draftCount} draft{draftCount === 1 ? '' : 's'}"));

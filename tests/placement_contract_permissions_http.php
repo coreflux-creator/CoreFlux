@@ -34,7 +34,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     return $out;
 };
 $graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details',
-    'staffing_operating_cycles','staffing_clients','companies','ap_vendors','external_entity_mappings'];
+    'staffing_operating_cycles','staffing_clients','companies','ap_vendors_index','external_entity_mappings'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
 $seed = static function(int $tid, string $start) use ($pdo): array {
