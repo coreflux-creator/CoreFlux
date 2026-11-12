@@ -436,6 +436,7 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
         try {
             $entry = quantaNormalizeEntry($raw, $worksites, $requestedStatus);
             $row += $entry;
+            $row['has_core_import'] = !empty($imports[$id]);
             $route = quantaRouteFor($routes, $entry, $workerPeople, $access);
             $row['placement_id'] = (int) $route['placement_id'];
             $row['placement_number'] = $route['placement_number'];
@@ -554,6 +555,11 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                     quantaTimeApprovalRecord($pdo, $tenantId, (int)$prior['id'], $actorId, $access);
                     $updated++;
                 } else {
+                    // A removed component has durable history. Only an explicit source
+                    // correction may reactivate it and link its replacement entry.
+                    $retired = $pdo->prepare('SELECT id FROM quanta_time_imports WHERE tenant_id=? AND quanta_entry_id=? AND component=? AND is_current=0 FOR UPDATE');
+                    $retired->execute([$tenantId,$id,$component]);
+                    if ($retired->fetchColumn()) throw new RuntimeException('Use Review source correction to restore a previously removed Quanta component.');
                     $payload['external_id'] = hash('sha256', $id . '|' . $component);
                     $payload['created_by_user_id'] = $actorId;
                     $entryId = scopedInsert('time_entries', $payload);

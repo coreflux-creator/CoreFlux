@@ -151,7 +151,7 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
         'workspace'=>$access['context']['workspace'],'source'=>$entry,'route'=>quantaTimeRouteEvidence($entry,$route),
         'prior'=>$prior,'headers'=>$headers,'periods'=>$periods,'destination'=>$destination,'capacity'=>$capacity];
     return ['review_hash'=>integrationDeliveryHash($snapshot),'snapshot'=>$snapshot,'entry'=>$entry,'route'=>$route,
-        'access'=>$access,'week_start'=>$start,'week_end'=>$end,'active'=>$active];
+        'access'=>$access,'observations'=>$state['observations'],'week_start'=>$start,'week_end'=>$end,'active'=>$active];
 }
 
 function quantaTimeRevisionView(array $s): array
@@ -235,7 +235,7 @@ function quantaTimeRevisionApply(int $tenant,int $actor,string $id,string $hash,
             'timesheet_ids'=>$sheets,'status'=>'pending_review'];
         $pdo->prepare('INSERT INTO quanta_time_revisions(tenant_id,source_entry_id,review_hash,request_hash,actor_user_id,reason,before_ct,after_ct,source_ct) VALUES(?,?,?,?,?,?,?,?,?)')
             ->execute([$tenant,$id,$hash,$request,$actor,$reason,encryptField(integrationDeliveryJson($before)),
-                encryptField(integrationDeliveryJson($after)),encryptField(integrationDeliveryJson($entry))]);
+                encryptField(integrationDeliveryJson($after)),encryptField(integrationDeliveryJson(['entry'=>$entry,'observations'=>$p['observations']]))]);
         $revisionId=(int)$pdo->lastInsertId();
         $s=$pdo->prepare('SELECT * FROM quanta_time_revisions WHERE tenant_id=? AND id=?'); $s->execute([$tenant,$revisionId]);
         $result=quantaTimeRevisionReceipt($s->fetch(PDO::FETCH_ASSOC)); $pdo->commit(); return $result;

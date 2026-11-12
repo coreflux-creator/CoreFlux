@@ -410,7 +410,7 @@ export default function QuantaSettings() {
                 <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `${row.placement_number || 'Placement number unavailable'} · ${row.person_name}` : '—'}</td>
                 <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}<QuantaApprovalEvidence value={row.source_approval} />
                   {row.status === 'imported' && <QuantaTimeReview entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
-                  {['imported', 'conflict', 'update'].includes(row.status) && <QuantaTimeRevision entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
+                  {(row.has_core_import || ['imported', 'conflict', 'update'].includes(row.status)) && <QuantaTimeRevision entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
                 </td>
               </tr>)}</tbody>
             </table>

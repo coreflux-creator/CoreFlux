@@ -474,6 +474,9 @@ if ($method === 'POST' && $action !== '') {
         rbac_legacy_require($user, 'time.entry.manage');
         if ($entry['status'] !== 'approved') api_error('Only approved entries can be corrected (supersede)', 409);
         timeApiAssertNotSettled($entry);
+        require_once __DIR__.'/../../../core/quanta/time_revisions.php';
+        try { quantaTimeAssertManualCorrection(getDB(),(int)effectiveTenantIdForRequest(),$entry); }
+        catch (RuntimeException $e) { api_error($e->getMessage(),409); }
         $body = api_json_body();
         api_require_fields($body, ['correction_reason']);
 

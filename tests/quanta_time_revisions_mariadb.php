@@ -21,6 +21,7 @@ $pdo->exec('ALTER TABLE time_entries MODIFY id BIGINT AUTO_INCREMENT,
     ADD ap_extracted_ref VARCHAR(255) NULL, ADD ap_extracted_by_user_id BIGINT NULL,
     ADD payroll_extracted_ref VARCHAR(255) NULL, ADD payroll_extracted_by_user_id BIGINT NULL,
     ADD created_at DATETIME DEFAULT CURRENT_TIMESTAMP, ADD updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+$pdo->exec('DROP TABLE time_downstream_feed'); // Replace the inherited read-only fixture with the real module table.
 $applyFile('modules/time/migrations/001_init.sql');
 $applyFile('modules/staffing/migrations/001_timesheets.sql');
 $migrate('147_staffing_timesheet_approval_columns.sql');
@@ -31,6 +32,20 @@ $pdo->exec('CREATE TABLE payroll_source_claims(time_tenant_id BIGINT,time_entry_
 $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT,actor_user_id BIGINT,event VARCHAR(128),target_id BIGINT,meta_json LONGTEXT,created_at DATETIME)');
 $pdo->exec('CREATE TABLE accounting_entities(id BIGINT PRIMARY KEY,tenant_id BIGINT,active BOOLEAN)');
 $pdo->exec('INSERT INTO accounting_entities VALUES(1,1,1)');
+$pdo->exec('ALTER TABLE people ADD entity_id BIGINT NULL');
+$pdo->exec('ALTER TABLE placements ADD external_id VARCHAR(80), ADD end_client_company_id BIGINT, ADD client_id BIGINT,
+    ADD staffing_job_id BIGINT, ADD jobdiva_job_id VARCHAR(80), ADD recruiter_name VARCHAR(80), ADD recruiter_email VARCHAR(120),
+    ADD account_manager_name VARCHAR(80), ADD account_manager_email VARCHAR(120), ADD worksite_state VARCHAR(40),
+    ADD branch VARCHAR(80), ADD service_line VARCHAR(80), ADD workers_comp_class VARCHAR(40), ADD department VARCHAR(80),
+    ADD cost_center VARCHAR(80), ADD accounting_entity_id BIGINT');
+$pdo->exec('UPDATE placements SET client_id=1,accounting_entity_id=1,worksite_state="NJ",workers_comp_class="synthetic-class" WHERE id=42');
+$pdo->exec('CREATE TABLE staffing_clients(id BIGINT PRIMARY KEY,tenant_id BIGINT,company_id BIGINT,name VARCHAR(80))');
+$pdo->exec('INSERT INTO staffing_clients VALUES(1,1,10,"Synthetic client")');
+$pdo->exec('CREATE TABLE staffing_jobs(id BIGINT PRIMARY KEY,tenant_id BIGINT,department VARCHAR(80),location_state VARCHAR(40))');
+$pdo->exec('CREATE TABLE placement_commissions(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,user_id BIGINT,role VARCHAR(40),effective_from DATE,effective_to DATE)');
+foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/126_staffing_economic_graph.sql'))as$sql) {
+    if(preg_match('/CREATE TABLE IF NOT EXISTS placement_economic_parties\s*\(/',$sql))$pdo->exec($sql);
+}
 $pdo->exec('CREATE TABLE placement_referrals(id BIGINT,tenant_id BIGINT,placement_id BIGINT,fee_flat DECIMAL(12,2),fee_basis VARCHAR(32),start_date DATE,end_date DATE)');
 $pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,effective_from DATE,effective_to DATE,
     bill_rate DECIMAL(12,2),pay_rate DECIMAL(12,2),bill_rate_unit VARCHAR(32),pay_rate_unit VARCHAR(32),currency CHAR(3),ot_multiplier DECIMAL(5,2),dt_multiplier DECIMAL(5,2),approved_at DATETIME)');
@@ -54,6 +69,13 @@ $pdo->exec('INSERT INTO time_periods(id,tenant_id,start_date,end_date,label) VAL
 $sheet=staffingTimesheetUpsert(19,'2026-09-28','2026-10-04',['tenant_id'=>1,'source'=>'quanta','created_by_user_id'=>7]);
 $pdo->exec('UPDATE time_entries SET timesheet_id='.(int)$sheet['id']);
 $pdo->exec('UPDATE quanta_time_imports SET timesheet_id='.(int)$sheet['id']);
+// Unchanged approved native time in the same week must retain its own reviewer and frozen evidence.
+$sibling=scopedInsert('time_entries',['tenant_id'=>1,'person_id'=>19,'placement_id'=>42,'period_id'=>1,
+    'timesheet_id'=>(int)$sheet['id'],'work_date'=>'2026-10-01','hours'=>1,'hour_type'=>'regular','category'=>'regular_billable',
+    'billable'=>1,'payable'=>1,'source'=>'manual_entry','source_system'=>'manual','status'=>'approved','created_by_user_id'=>7,
+    'approved_by_user_id'=>12,'approved_at'=>'2026-10-03 11:00:00','approved_via'=>'manual','rate_snapshot_id'=>81,
+    'dimension_snapshot_json'=>'{}','dimension_snapshot_hash'=>hash('sha256','{}')]);
+$siblingBefore=timeEntryGet($sibling);
 timeReconcileTimesheetHeader((int)$sheet['id'],8);
 $passed=0;
 $fails=static function(callable $fn,string $part=''):bool{try{$fn();return false;}catch(Throwable $e){if($part!==''&&!str_contains($e->getMessage(),$part))throw$e;return true;}};
@@ -100,8 +122,12 @@ $pdo->beginTransaction();$proof=quantaTimeAssertCurrent($pdo,1,[$new]);$pdo->rol
 $check($proof['source_entries']===1,'replacement retains source proof at approval/consumption boundary');
 $pdo->beginTransaction();
 $check($fails(fn()=>staffingTimesheetApprovalPlan(7,staffingTimesheetRow(1,(int)$sheet['id'],true),1),'different approver'),'weekly approval also enforces independent correction review');
-staffingTimesheetApplyApproval(9,(int)$sheet['id'],[$new=>['rate_id'=>81,'dimensions'=>[]]],['tenant_id'=>1]);$pdo->commit();
+$plan=staffingTimesheetApprovalPlan(9,staffingTimesheetRow(1,(int)$sheet['id'],true),1);
+$check(array_keys($plan)===[$new]&&(int)$plan[$new]['rate_id']===81,'native weekly plan resolves replacement rate/dimensions and excludes already approved siblings');
+staffingTimesheetApplyApproval(9,(int)$sheet['id'],$plan,['tenant_id'=>1]);$pdo->commit();
 $check(timeEntryGet($new)['status']==='approved'&&(int)timeEntryGet($new)['approved_by_user_id']===9,'native approval writes a new independent reviewer and frozen evidence');
+$check(timeEntryGet($sibling)===$siblingBefore&&staffingTimesheetRow(1,(int)$sheet['id'])['approved_by_user_id']===null,
+    'unchanged approved sibling keeps its evidence and mixed reviewers are not replaced by one header approver');
 // Add a component back and move the source into a different open week.
 $remote['regular_hours']=6;$remote['overtime_hours']=2;$remote['hours']=8;$remote['work_date']='2026-10-05';$remote['updated_at']='2026-10-06T10:00:00Z';
 $p2=$preview();$r2=$save($p2,'Corrected date and overtime');
