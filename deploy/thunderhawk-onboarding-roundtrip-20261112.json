@@ -1,0 +1,437 @@
+{
+  "previous_goal_turn": "No integration progress: answered standalone accounting access. Revalidated current source and native CI, corrected real-driver test setup, installed and completed the native onboarding round trip.",
+  "scope": "Existing isolated Thunderhawk synthetic P-387 / PL-902, tenant 2002; no production cutover or financial execution.",
+  "core_runtime": "414f1ed9f728f1c3632cd0523eacb85e5454296b",
+  "quanta_source": "6b48c0d87e3349e4ff9ba4b28c9722c16cea15dc",
+  "ci": "https://github.com/coreflux-creator/Quanta/actions/runs/43304801568",
+  "tests": {
+    "native_application": 399,
+    "native_transaction": 11,
+    "portal": 98,
+    "local_application_passed": 389,
+    "local_application_skipped": 10
+  },
+  "package_sha256": "572fac7026995485ab3c642fbead8391c96aa87b1cdf55404a92bd888e37d5eb",
+  "runtime_files_changed": {
+    "backend/app/coreflux_onboarding.py": "96b673982240690728984a8a46b8874b99c3785ff83822fd4bbebf095a4a3bfa",
+    "backend/app/coreflux_documents.py": "3c0cc91437c2a4a8346c52b4b63952f641edd43c0b662a87c0dceeaefe39c2f5",
+    "backend/app/coreflux_commit.py": "01cedec34ea4782f7f5a9c391f2318e918b2d01a0e02b5478c28344af496ab14"
+  },
+  "backup": {
+    "checked_at": "2026-11-12T20:58:13.702666+00:00",
+    "passed": true,
+    "database": "corepilot_quanta_20261029",
+    "original_database_restored_over": false,
+    "application_code_changed": false,
+    "settings_changed": false,
+    "new_container_created": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "storage_mode": "replica_set",
+    "restore_descriptor_preflight": {
+      "used": 291,
+      "soft_limit": 1024,
+      "estimated_additional": 283,
+      "reserve": 128
+    },
+    "private_backup": "/srv/core-integration-pilot/20261029/private/quanta-storage-backup-20261112T205819Z-8fc1d06e",
+    "temporary_restore_database": "corepilot_restorecheck_ee5f9b888746401e9b57c363",
+    "web_before": {
+      "id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+      "running": true,
+      "started_at": "2026-11-12T16:16:23.572183951Z"
+    },
+    "mongo_container_id": "9d92241f2fd5c1aeac60c055226280ed6e47f1aec328f0fd3b1d07a3608c3f86",
+    "stage": "verified",
+    "drain_metadata": {
+      "appended_usage_events": 59,
+      "guard_before": {
+        "_id": "core-time-writers-v1",
+        "revision": 283
+      },
+      "guard_after": {
+        "_id": "core-time-writers-v1",
+        "revision": 284
+      },
+      "business_records_preserved": true
+    },
+    "archive_sha256": "2ab882c634a6d5d383d62f8645a0f362517c0a2203a15d6cb63b7850b275f2ee",
+    "archive_bytes": 126233,
+    "consistent_source_snapshot": true,
+    "coordinator_guard": {
+      "before": {
+        "_id": "core-time-writers-v1",
+        "revision": 284
+      },
+      "after": {
+        "_id": "core-time-writers-v1",
+        "revision": 285
+      },
+      "startup_only": true
+    },
+    "restore_verified": true,
+    "restored_collections": 72,
+    "restored_records": 1875,
+    "original_records_and_indexes_preserved": false,
+    "original_business_records_and_indexes_preserved": true,
+    "application_files_preserved": true,
+    "other_services_unchanged": true,
+    "coordination_enabled": true,
+    "appended_usage_events": 0,
+    "temporary_restore_database_removed": true,
+    "web_after": {
+      "id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+      "running": true,
+      "started_at": "2026-11-12T20:58:26.047844126Z"
+    },
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    },
+    "completed_at": "2026-11-12T20:58:47.442985+00:00"
+  },
+  "installation": {
+    "source_commit": "6b48c0d87e3349e4ff9ba4b28c9722c16cea15dc",
+    "passed": true,
+    "started_at": "2026-11-12T20:59:33.614392+00:00",
+    "coordination_enabled": true,
+    "operational_time_enabled": true,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "settings_changed": false,
+    "database_restored_over": false,
+    "private_receipt_directory": "/srv/core-integration-pilot/20261029/private/quanta-onboarding-gridfs-before-ec364c81289745bbb029ebdad8d4e571",
+    "health": {
+      "ok": true,
+      "service": "quanta",
+      "version": "0.1.0",
+      "startup_mode": "web",
+      "usage_recording": false,
+      "tenant_automations": {
+        "running": false,
+        "job_count": 0
+      },
+      "migration_hold": false
+    },
+    "hosted_probe": {
+      "passed": true,
+      "checks": [
+        "native_gridfs_constructor",
+        "active_snapshot_refusal"
+      ],
+      "database_writes": false,
+      "temporary_database_created": false,
+      "external_network_attempts": 0
+    },
+    "runtime_files_verified": 182,
+    "frontend_files_verified": 82,
+    "installed_file_count": 3,
+    "original_business_records_preserved": 1874,
+    "original_time_entries": 14,
+    "new_empty_collections": [],
+    "coordinator_guard": {
+      "before": {
+        "_id": "core-time-writers-v1",
+        "revision": 285
+      },
+      "after": {
+        "_id": "core-time-writers-v1",
+        "revision": 286
+      }
+    },
+    "other_services_unchanged": true,
+    "frontend_shell_preserved": true,
+    "served_assets_verified": true,
+    "target_container_id": "a56cf7351dc985bc41c69fafd48117a40e14ec277a2f81682341ed246fd52281",
+    "target_started_at": "2026-11-12T20:59:41.848729074Z",
+    "completed_at": "2026-11-12T21:00:00.624722+00:00"
+  },
+  "native_core_round_trip": {
+    "started_at": "2026-11-12T20:33:00+00:00",
+    "phase": "complete",
+    "passed": true,
+    "actors": {
+      "operator": {
+        "id": 100,
+        "membership_id": 88,
+        "email": "core-onboarding-browser-operator-20261112@example.invalid",
+        "grants": {
+          "people": "admin",
+          "placements": "admin",
+          "staffing": "read",
+          "time": "read",
+          "integrations": "admin"
+        }
+      },
+      "reviewer": {
+        "id": 101,
+        "membership_id": 89,
+        "email": "core-onboarding-browser-reviewer-20261112@example.invalid",
+        "grants": {
+          "people": "admin",
+          "placements": "read",
+          "staffing": "read"
+        }
+      }
+    },
+    "feature_sha256": "c9280a52189cc64e9c3d7baf69e230b9ce31fc51d000d29fd16549d5f699cade",
+    "tenant_id": 2002,
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "case_id": "c642d96a-e28f-43b0-8aeb-22d18a0b4e19",
+    "case_version": 8,
+    "tasks": [
+      {
+        "id": "f02cf6df-53bb-4301-90d3-0565eac571ab",
+        "kind": "attestation",
+        "state": "approved",
+        "evidence": {
+          "source": "quanta_worker",
+          "provider_workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+          "provider_worker_id": "cfw_84c68922408ef4edb348e7d1a00c5254e9c019936e192ce5fd9f517199ab52d6",
+          "provider_identity_id": "65bd97ec-020a-4d17-a5dc-1fd841c3aee5",
+          "provider_receipt_id": "cfs_0977d5a0d7c9f68745b8d85981607aefe86f8c5836ee78e1430abe47036a3cb6",
+          "publication_delivery_id": 108,
+          "projection_hash": "8614103f1ad69d2487d4d1c8d417e9e474732d08e80195bda928ab9e396d72de",
+          "source_revision": "c350fb0af8657eff8a785d15a4b03309aeef74e969c1beab2d36d13615ded425",
+          "submitted_at": "2026-11-12T20:40:06.861161+00:00",
+          "acknowledged": true,
+          "imported_by_user_id": 100,
+          "imported_at": "2026-11-12T21:01:00Z"
+        },
+        "review": {
+          "decision": "approve",
+          "reason": "Independent synthetic review: worker attestation matches P-387 and PL-902. Pilot evidence only; no real employment or payroll authorization.",
+          "actor_user_id": 101,
+          "reviewed_at": "2026-11-12T21:04:00Z",
+          "expires_at": null,
+          "source_revision": "c350fb0af8657eff8a785d15a4b03309aeef74e969c1beab2d36d13615ded425"
+        }
+      },
+      {
+        "id": "649f6f01-c01d-4591-98b0-d3300dfa8245",
+        "kind": "document",
+        "state": "approved",
+        "evidence": {
+          "source": "quanta_worker",
+          "provider_workspace_id": "4f93d4e7-af74-4765-b812-3464bb6d974b",
+          "provider_worker_id": "cfw_84c68922408ef4edb348e7d1a00c5254e9c019936e192ce5fd9f517199ab52d6",
+          "provider_identity_id": "65bd97ec-020a-4d17-a5dc-1fd841c3aee5",
+          "provider_receipt_id": "cfs_2a2dd89b54853ff7fd8c383d549d40d266987b46bff05cf3815ffd65615b354c",
+          "publication_delivery_id": 108,
+          "projection_hash": "8614103f1ad69d2487d4d1c8d417e9e474732d08e80195bda928ab9e396d72de",
+          "source_revision": "c350fb0af8657eff8a785d15a4b03309aeef74e969c1beab2d36d13615ded425",
+          "submitted_at": "2026-11-12T21:00:10.992181+00:00",
+          "acknowledged": true,
+          "imported_by_user_id": 100,
+          "imported_at": "2026-11-12T21:01:33Z",
+          "document_id": 3,
+          "revision": "3cc4a3f8ec0bc94323d79ccfac340cf70ab767df16b2b87f1f72981a37dec5c3",
+          "expires_at": null,
+          "provider_document_id": "cfof_2a2dd89b54853ff7fd8c383d549d40d266987b46bff05cf3815ffd65615b354c",
+          "sha256": "855ace556ace5a7f485be0ef4754506374be3a1b3034dae2cc23f7280b7d644b",
+          "filename": "synthetic-pl902-onboarding-note.pdf"
+        },
+        "review": {
+          "decision": "approve",
+          "reason": "Independent synthetic review: opened document #3 from the Core vault and confirmed the PL-902 test note. Original SHA-256 855ace556ace5a7f485be0ef4754506374be3a1b3034dae2cc23f7280b7d644b retained. No real employment or payroll authorization.",
+          "actor_user_id": 101,
+          "reviewed_at": "2026-11-12T21:04:10Z",
+          "expires_at": null,
+          "source_revision": "c350fb0af8657eff8a785d15a4b03309aeef74e969c1beab2d36d13615ded425"
+        }
+      }
+    ],
+    "actors_retired": true,
+    "tables_verified": 378,
+    "original_rows_checked": 34986,
+    "added_rows": {
+      "audit_log": 2,
+      "integration_deliveries": 2,
+      "membership_audit": 18,
+      "people_documents": 1,
+      "quanta_onboarding_document_transfers": 1,
+      "rbac_bridge_audit": 14,
+      "staffing_onboarding_cases": 1,
+      "staffing_onboarding_events": 8,
+      "storage_objects": 1,
+      "tenant_memberships": 2,
+      "user_tenants": 2,
+      "users": 2
+    },
+    "finished_at": "2026-11-12T21:08:08+00:00"
+  },
+  "replay_conflict_and_isolation": {
+    "passed": true,
+    "checks": [
+      "attestation_exact_receipt_replayed",
+      "attestation_changed_receipt_refused",
+      "document_exact_receipt_replayed",
+      "document_changed_receipt_refused",
+      "foreign_company_case_refused"
+    ],
+    "case_version": 8,
+    "rows_preserved": 35040,
+    "service_boundary_checks": true,
+    "financial_execution": false
+  },
+  "provider_file_and_cleanup": {
+    "passed": true,
+    "case_id": "cfo_8e325ec7c5709f5c623814372f5788274bf8951ba164458f23458e2e1b052b85",
+    "provider_case_version": 4,
+    "required_tasks_approved": 2,
+    "worker_receipts": 2,
+    "upload_reservations": 1,
+    "physical_file_attempts": 1,
+    "file_bytes": 1852,
+    "file_sha256": "855ace556ace5a7f485be0ef4754506374be3a1b3034dae2cc23f7280b7d644b",
+    "identity_disabled": true,
+    "worker_password_unset": true,
+    "active_worker_sessions": 0,
+    "existing_worker_and_assignment_ids_preserved": true,
+    "preservation": {
+      "quanta": {
+        "original_rows_checked": 1803,
+        "differences": {
+          "api_keys": {
+            "changed": [
+              "6ae3e484258d6faa8459b9ff"
+            ],
+            "removed": [],
+            "added_count": 0,
+            "indexes_changed": false
+          },
+          "api_usage_events": {
+            "changed": [],
+            "removed": [],
+            "added_count": 59,
+            "indexes_changed": false
+          },
+          "audit_events": {
+            "changed": [],
+            "removed": [],
+            "added_count": 6,
+            "indexes_changed": false
+          },
+          "auth_sessions": {
+            "changed": [],
+            "removed": [],
+            "added_count": 3,
+            "indexes_changed": false
+          },
+          "coreflux_commit_fences": {
+            "changed": [
+              "core-time-writers-v1"
+            ],
+            "removed": [],
+            "added_count": 0,
+            "indexes_changed": false
+          },
+          "coreflux_deliveries": {
+            "changed": [],
+            "removed": [],
+            "added_count": 2,
+            "indexes_changed": false
+          },
+          "coreflux_onboarding": {
+            "changed": [],
+            "removed": [],
+            "added_count": 1,
+            "indexes_changed": false
+          },
+          "coreflux_onboarding_files.chunks": {
+            "changed": [],
+            "removed": [],
+            "added_count": 1,
+            "indexes_changed": false
+          },
+          "coreflux_onboarding_files.files": {
+            "changed": [],
+            "removed": [],
+            "added_count": 1,
+            "indexes_changed": false
+          },
+          "coreflux_onboarding_uploads": {
+            "changed": [],
+            "removed": [],
+            "added_count": 1,
+            "indexes_changed": false
+          },
+          "identities": {
+            "changed": [
+              "6ae3e484258d6faa8459b9fb",
+              "6af5a848fba98d76fa8428f1"
+            ],
+            "removed": [],
+            "added_count": 0,
+            "indexes_changed": false
+          },
+          "password_reset_attempts": {
+            "changed": [],
+            "removed": [],
+            "added_count": 1,
+            "indexes_changed": true
+          },
+          "password_reset_tokens": {
+            "changed": [],
+            "removed": [],
+            "added_count": 1,
+            "indexes_changed": false
+          },
+          "users": {
+            "changed": [
+              "6ae3e484258d6faa8459b9fc",
+              "cfw_84c68922408ef4edb348e7d1a00c5254e9c019936e192ce5fd9f517199ab52d6"
+            ],
+            "removed": [],
+            "added_count": 0,
+            "indexes_changed": false
+          }
+        },
+        "actor_fields": {
+          "65bd97ec-020a-4d17-a5dc-1fd841c3aee5": [
+            "updated_at"
+          ],
+          "cfw_84c68922408ef4edb348e7d1a00c5254e9c019936e192ce5fd9f517199ab52d6": [
+            "last_login_at",
+            "updated_at"
+          ],
+          "8041205e-b179-4991-8dbe-65d51a474e22": [
+            "last_login_at"
+          ],
+          "ff6fdfe9-291c-4fac-91aa-51782ba5585f": []
+        }
+      },
+      "pure": {
+        "original_rows_checked": 104,
+        "differences": {}
+      }
+    }
+  },
+  "native_portal_complete": true,
+  "publication_ids": [
+    108,
+    109
+  ],
+  "limitations": [
+    "The synthetic identity was reactivated by a guarded fixture before native password reset/sign-in. This does not prove a native staff reactivation flow.",
+    "Core receipt replay/conflict/company-isolation checks ran at its production service boundary, not by forging browser sessions.",
+    "A separate assignment refresh was needed to update the portal summary from 0/2 to 2/2 after refreshing onboarding details.",
+    "Core currently labels the worker submission timestamp as the staff import time; retained evidence contains separate correct submitted_at and imported_at values.",
+    "Quanta tenant export/import GridFS call sites remain to be aligned with the new database wrapper.",
+    "P-387/PL-902 PurePay publication and the held two-hour payroll-input/result continuation remain incomplete. The overall integration goal remains active."
+  ]
+}
