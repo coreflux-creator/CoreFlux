@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/economics_edit.php';
+require_once __DIR__ . '/../lib/commercial_ownership.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -34,6 +35,23 @@ function placementEconomicsApiCadence(int $tenantId, string $channel, mixed $raw
     $cycleId = placementEconomicsEnsureStandardCycle($tenantId, $purpose, $cadence);
     if (!$cycleId) api_error('Could not resolve the requested payment frequency', 422);
     return ['cadence' => $cadence, 'cycle_id' => $cycleId, 'purpose' => $purpose];
+}
+
+if (($method === 'GET' && $action === 'ownership_review') || ($method === 'POST' && $action === 'release_ownership')) {
+    rbac_legacy_require($user, $method === 'GET' ? 'placements.view' : 'placements.manage');
+    if ($placementId <= 0) api_error('placement_id required', 400);
+    try {
+        if ($method === 'GET') api_ok(placementCommercialOwnershipReview($tenantId, $placementId));
+        $body = api_json_body();
+        if (($body['confirm'] ?? '') !== 'RELEASE_COMMERCIAL_OWNERSHIP') api_error('Confirm the reviewed ownership release.', 422);
+        api_ok(placementReleaseCommercialOwnership($tenantId, $placementId,
+            is_array($body['groups'] ?? null) ? $body['groups'] : [], (string)($body['review_token'] ?? '')));
+    } catch (PDOException $e) {
+        error_log('[commercial ownership release] ' . $e->getMessage());
+        api_error('The contract review could not be completed. Refresh it and try again.', 503);
+    } catch (InvalidArgumentException | RuntimeException $e) {
+        api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
+    }
 }
 
 if ($method === 'GET') {

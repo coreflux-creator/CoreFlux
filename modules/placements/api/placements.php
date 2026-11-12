@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/end.php';
 require_once __DIR__ . '/../lib/ownership.php';
+require_once __DIR__ . '/../lib/commercial_ownership.php';
 require_once __DIR__ . '/../lib/edit.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
@@ -115,6 +116,8 @@ if ($method === 'POST') {
         $body = api_json_body();
         $fields = is_array($body['fields'] ?? null) ? $body['fields'] : [];
         if (empty($fields)) api_error('fields[] required', 422);
+        if (!array_is_list($fields) || array_filter($fields, static fn($field) => !is_string($field))) api_error('Choose valid field names.', 422);
+        if (array_intersect($fields, placementCommercialOwnershipFields())) api_error('Review linked commercial ownership on the Contract tab before returning these fields to JobDiva.', 422);
         if (!is_array($body['review'] ?? null)) api_error('Refresh the placement before returning fields to JobDiva.', 422);
         try { $release = placementClearOverrides($id, $fields, $body['review']); }
         catch (RuntimeException|InvalidArgumentException $e) {

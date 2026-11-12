@@ -10,6 +10,7 @@ import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import BillToClientPicker from './BillToClientPicker';
+import CommercialOwnershipReview from './CommercialOwnershipReview';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -880,6 +881,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
 
       <section style={{ marginTop: 24 }}>
         <h4>Commercial terms by participant</h4>
+        {String(placement.external_id || '').startsWith('jd:') && <CommercialOwnershipReview placementId={placement.id} disabled={busy} onReleased={refreshAll} />}
         <table className="data-table" data-testid="economics-parties-table">
           <thead><tr><th>Participant</th><th>Role</th><th>Flow</th><th>Calculation</th><th>Value</th><th>Billing / payment frequency</th><th>Payment terms</th><th aria-label="Actions" /></tr></thead>
           <tbody>
