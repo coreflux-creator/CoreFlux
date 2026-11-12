@@ -151,11 +151,8 @@ function payrollRunEconomicEarnings(int $runId): array {
     $tenantId = currentTenantId();
     if (!$tenantId) return [];
     $stmt = getDB()->prepare(
-        'SELECT o.id,o.currency,CAST(ROUND(o.amount * 100) AS SIGNED) AS commission_cents,
-                ep.person_id,ep.user_id,ep.settlement_channel
+        'SELECT o.*,CAST(ROUND(o.amount * 100) AS SIGNED) AS commission_cents
            FROM placement_economic_obligations o
-      LEFT JOIN placement_economic_parties ep
-             ON ep.tenant_id = o.tenant_id AND ep.id = o.economic_party_id AND ep.placement_id=o.placement_id
           WHERE o.tenant_id = :obligation_tenant_id AND o.payroll_ref_id = :run_id
             AND o.status IN ("payroll","paid") ORDER BY o.id'
     );
@@ -168,8 +165,7 @@ function payrollRunEconomicEarnings(int $runId): array {
     foreach ($rows as $row) {
         $label = 'Payroll obligation #' . $row['id'];
         payrollAssertSourceCurrency($row['currency'], $label);
-        $employee = $row['settlement_channel'] === 'payroll' ? placementEconomicsPayrollEmployee($tenantId, $row) : null;
-        if (!$employee) throw new RuntimeException($label . ' requires an unambiguous payroll recipient and enabled profile.');
+        $employee = placementPayrollReceiptEmployee($tenantId,$row,placementPayrollReceipt(getDB(),$tenantId,(int)$row['id']));
         $id = (int) $employee['employee_id'];
         $result[$id] = ($result[$id] ?? 0) + (int) $row['commission_cents'];
     }

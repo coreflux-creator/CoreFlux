@@ -126,6 +126,7 @@ function placementEconomicsClaimItem(int $tenant, int $placement, int $partyId, 
                 || (int)($prior[$targetField] ?? 0) !== (int)($values[$targetField] ?? 0)
                 || abs((float)$prior['amount']-$amount) > 0.000001 || $prior['currency'] !== $item['currency']) throw new RuntimeException('This one-time item is already assigned to another settlement.',409);
             // A native retry must not move a claim to another document or regress its status.
+            if ($targetField==='payroll_ref_id') placementPayrollReceiptEvidence($prior,placementPayrollReceipt($pdo,$tenant,(int)$prior['id']));
             return (int)$prior['id'];
         }
         $party = $pdo->prepare('SELECT settlement_channel FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND id=? AND active=1 FOR UPDATE');

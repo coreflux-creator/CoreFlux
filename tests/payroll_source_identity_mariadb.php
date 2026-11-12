@@ -35,6 +35,7 @@ try {
     $pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,payroll_cycle_id BIGINT NULL,payroll_operating_cycle_id BIGINT NULL)');
     $pdo->exec('CREATE TABLE staffing_operating_cycles(id BIGINT PRIMARY KEY,tenant_id BIGINT,payroll_pay_cycle_id BIGINT,active INT)');
     $pdo->exec('INSERT INTO placements VALUES(100,10,NULL,NULL),(101,11,NULL,NULL)');
+    $pdo->exec('ALTER TABLE placements ADD deleted_at DATETIME NULL');
     $pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,currency CHAR(3),approved_at DATETIME NULL,economics_snapshot_json LONGTEXT,pay_rate DECIMAL(12,4),bill_rate DECIMAL(12,4),ot_multiplier DECIMAL(6,2),dt_multiplier DECIMAL(6,2))');
     $pdo->exec("INSERT INTO placement_rates VALUES(1,10,100,'USD',NOW(),'{\"available\":true,\"contract_parties\":[]}',50,100,1.5,2),(2,11,101,'USD',NOW(),'{\"available\":true,\"contract_parties\":[]}',50,100,1.5,2)");
     $pdo->exec('CREATE TABLE placement_economic_parties(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,person_id BIGINT NULL,user_id BIGINT NULL,settlement_channel VARCHAR(20))');
@@ -44,9 +45,17 @@ try {
     $pdo->exec("ALTER TABLE placement_economic_parties ADD display_name VARCHAR(100) DEFAULT 'Synthetic payee',ADD role VARCHAR(20) DEFAULT 'recruiter',ADD company_id BIGINT NULL,ADD ap_vendor_id BIGINT NULL,ADD payment_terms VARCHAR(30) DEFAULT 'NET30',ADD pwp_enabled INT DEFAULT 0,ADD pwp_overridden INT DEFAULT 0,ADD operating_cycle_id BIGINT NULL,ADD active INT DEFAULT 1");
     $pdo->exec('CREATE TABLE ap_vendors_index(id BIGINT,tenant_id BIGINT,vendor_name VARCHAR(100),vendor_type VARCHAR(20),default_terms VARCHAR(30),default_pwp INT)');
     $apply('core/migrations/138_placement_one_time_items.sql');
+    $apply('core/migrations/197_payroll_obligation_recipients.sql');
     $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT NULL,actor_user_id BIGINT NULL,event VARCHAR(100),target_id BIGINT NULL,meta_json LONGTEXT,ip_address VARCHAR(50),created_at DATETIME)');
     $pdo->exec("INSERT INTO time_entries VALUES(1,10,1,100,'2026-11-09','regular_billable',2,'Synthetic','approved',1,NOW(),7,7),(2,10,1,100,'2026-11-10','OT_billable',1,'Synthetic','approved',1,NOW(),7,7),(3,11,1,101,'2026-11-09','regular_billable',3,'Shared','approved',2,NOW(),7,7),(4,10,2,100,'2026-11-09','regular_billable',4,'Unlinked','approved',1,NULL,NULL,NULL)");
-    $pdo->exec("INSERT INTO placement_economic_obligations(id,tenant_id,placement_id,economic_party_id,payroll_ref_id,amount,currency,status,source_type,source_ref_id) VALUES(1,10,100,1,7,12.34,'USD','payroll','manual',1),(2,10,100,1,7,0.01,'USD','payroll','manual',2),(3,11,101,2,7,99.99,'USD','payroll','manual',3)");
+    $pdo->exec("INSERT INTO placement_economic_obligations(id,tenant_id,placement_id,economic_party_id,payroll_ref_id,amount,currency,status,source_type,source_ref_id) VALUES(1,10,100,1,7,12.34,'USD','payroll','manual',1),(2,10,100,1,7,0.01,'USD','payroll','manual',2),(3,11,101,2,8,99.99,'USD','payroll','manual',3)");
+    $check($fails(fn()=>payrollRunEconomicEarnings(7),'no saved payroll recipient'),'unreceipted historical earnings are not silently adopted from current identity');
+    // These are invented source rows. Exercise capture at first extraction, not a legacy adoption path.
+    $pdo->exec("UPDATE placement_economic_obligations SET payroll_ref_id=NULL,status='projected'");
+    $pdo->exec("INSERT INTO payroll_runs(id,tenant_id,pay_period_id,status) VALUES(7,10,1,'draft'),(8,11,2,'draft')");
+    foreach([[10,100,1,1,7,'12.34'],[10,100,1,2,7,'0.01'],[11,101,2,3,8,'99.99']] as [$t,$p,$party,$source,$run,$amount]) {
+        placementEconomicsWriteObligation($t,$p,$party,'manual',$source,['amount'=>$amount,'currency'=>'USD','status'=>'payroll','payroll_ref_id'=>$run]);
+    }
     $hours=payrollRunExtractedHours(7);$earnings=payrollRunEconomicEarnings(7);
     $check($hours===[20=>['hours_regular'=>2.0,'hours_overtime'=>1.0]],'reviewed employee receives regular and overtime exactly once despite reused email');
     $check($earnings===[20=>1235],'economic source adds exact cents only in the current company');
@@ -67,17 +76,17 @@ try {
     $check($fails(fn()=>payrollRunEconomicEarnings(7),'explicit USD currency'),'foreign commission remains outside USD earnings');
     $pdo->exec("UPDATE placement_economic_obligations SET currency='USD' WHERE id=1");
     $pdo->exec('UPDATE payroll_profiles SET enabled=0 WHERE id=1');
-    $check($fails(fn()=>payrollRunExtractedHours(7),'reviewed person/employment link')&&$fails(fn()=>payrollRunEconomicEarnings(7),'unambiguous payroll recipient'),'disabled profiles cannot silently omit hours or commissions');
+    $check($fails(fn()=>payrollRunExtractedHours(7),'reviewed person/employment link')&&$fails(fn()=>payrollRunEconomicEarnings(7),'no longer enabled'),'disabled profiles cannot silently omit hours or commissions');
     $pdo->exec('UPDATE payroll_profiles SET enabled=1 WHERE id=1');
     $pdo->exec('UPDATE people_employees SET user_id=99 WHERE id IN(20,21)');
     $pdo->exec('UPDATE placement_economic_obligations SET economic_party_id=3 WHERE id=1');
-    $check($fails(fn()=>payrollRunEconomicEarnings(7),'unambiguous payroll recipient'),'duplicate account-only recipients cannot double commission');
+    $check($fails(fn()=>payrollRunEconomicEarnings(7),'earning evidence differs'),'changing a recorded earning party cannot redirect the saved recipient');
     $pdo->exec('UPDATE placement_economic_obligations SET economic_party_id=1 WHERE id=1');
     $pdo->exec('UPDATE placement_economic_parties SET placement_id=999 WHERE id=1');
-    $check($fails(fn()=>payrollRunEconomicEarnings(7),'unambiguous payroll recipient'),'an obligation cannot borrow a party from another placement');
+    $check(payrollRunEconomicEarnings(7)===$earnings,'later party changes leave the original earning recipient intact');
     $pdo->exec('UPDATE placement_economic_parties SET placement_id=100 WHERE id=1');
     setRequestTenantId(11);
-    $check(payrollRunExtractedHours(7)===[20=>['hours_regular'=>3.0,'hours_overtime'=>0.0]]&&payrollRunEconomicEarnings(7)===[20=>9999],'shared People ownership retains separate company time and commission');
+    $check(payrollRunExtractedHours(7)===[20=>['hours_regular'=>3.0,'hours_overtime'=>0.0]]&&payrollRunEconomicEarnings(8)===[20=>9999]&&payrollRunEconomicEarnings(7)===[],'shared People ownership retains separate company time and commission');
     $scheduled=payrollEmployeesForSchedule(2);
     $check(count($scheduled)===1&&(int)$scheduled[0]['employee_id']===20&&(int)$scheduled[0]['profile_id']===3,'schedule roster joins shared employment to requesting company profile');
     $check((int)payrollReadPeople(fn()=>peopleGetEmployee(20))['tenant_id']===10&&currentModuleKey()==='payroll','People read uses directory scope and restores payroll scope');
@@ -90,25 +99,54 @@ try {
     $pdo->exec("UPDATE people_compensation SET currency='INR'");
     $check($fails(fn()=>payrollBuildComputeContext(20,$period,[]),'explicit USD currency'),'foreign employment compensation cannot enter native USD calculation');
     $pdo->exec("UPDATE people_compensation SET currency='USD'");
-    $roster=payrollRunSourceEmployees([],payrollRunExtractedHours(7),payrollRunEconomicEarnings(7));
+    $roster=payrollRunSourceEmployees([],payrollRunExtractedHours(7),payrollRunEconomicEarnings(8));
     $check(count($roster['employees'])===1&&(int)$roster['employees'][0]['employee_id']===20&&$roster['economic_only']===[],'placement-routed hours survive a different default schedule');
-    $roster=payrollRunSourceEmployees([],[],payrollRunEconomicEarnings(7));
+    $roster=payrollRunSourceEmployees([],[],payrollRunEconomicEarnings(8));
     $check($roster['economic_only']===[20=>true],'commission-only employee does not gain default salary or hours');
-    $check(count(payrollRunSourceEmployees($scheduled,[],payrollRunEconomicEarnings(7))['employees'])===1,'scheduled recipient is not duplicated by source earnings');
+    $check(count(payrollRunSourceEmployees($scheduled,[],payrollRunEconomicEarnings(8))['employees'])===1,'scheduled recipient is not duplicated by source earnings');
     setRequestTenantId(12);
     $check(payrollRunExtractedHours(7)===[]&&payrollRunEconomicEarnings(7)===[]&&payrollEmployeesForSchedule(2)===[],'foreign company sees none of the sources or scheduled profiles');
     setRequestTenantId(10);
+    $receiptBefore=$pdo->query('SELECT * FROM placement_payroll_recipient_receipts ORDER BY id')->fetchAll();
+    $apply('core/migrations/197_payroll_obligation_recipients.sql');
+    $check($pdo->query('SELECT * FROM placement_payroll_recipient_receipts ORDER BY id')->fetchAll()===$receiptBefore,'migration replay preserves existing recipient receipts');
+    $replay=['amount'=>'12.34','currency'=>'USD','status'=>'payroll','payroll_ref_id'=>7];
+    $check(placementEconomicsWriteObligation(10,100,1,'manual',1,$replay)===1&&$pdo->query('SELECT * FROM placement_payroll_recipient_receipts ORDER BY id')->fetchAll()===$receiptBefore,'exact source replay retains one original recipient receipt');
+    foreach([['amount'=>'25.00'],['payroll_ref_id'=>8],['status'=>'billed'],['period_end'=>'2026-11-15']] as $change) {
+        $check($fails(fn()=>placementEconomicsWriteObligation(10,100,1,'manual',1,array_replace($replay,$change)),'saved payroll earning'),'conflicting source replay cannot rewrite amount, route or evidence');
+    }
+    $pdo->exec('UPDATE placement_economic_parties SET person_id=2,user_id=99,active=0 WHERE id=1');
+    $check(payrollRunEconomicEarnings(7)===$earnings,'source recipient edits and retirement cannot redirect a recorded earning');
+    $pdo->exec('UPDATE placement_economic_parties SET person_id=1,user_id=NULL,active=1 WHERE id=1');
+    $check($fails(fn()=>placementEconomicsWriteObligation(10,100,3,'manual',4,$replay),'unambiguous payroll recipient'),'new account-only earnings require an unambiguous recipient');
+    $check($fails(fn()=>placementEconomicsWriteObligation(10,100,1,'manual',4,array_replace($replay,['payroll_ref_id'=>8])),'draft payroll run'),'new earnings cannot use another company run');
+    $check($fails(fn()=>placementEconomicsWriteObligation(10,100,1,'manual',4,$replay+['payroll_source_party'=>['person_id'=>2,'settlement_channel'=>'payroll']]),'approved payroll recipient changed'),'stale approved recipient is rejected at the final writer');
+    $pdo->exec("CREATE TRIGGER receipt_fault BEFORE INSERT ON placement_payroll_recipient_receipts FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='receipt fixture fault'");
+    $count=(int)$pdo->query('SELECT COUNT(*) FROM placement_economic_obligations')->fetchColumn();
+    $check($fails(fn()=>placementEconomicsWriteObligation(10,100,1,'manual',4,$replay),'receipt fixture fault')&&(int)$pdo->query('SELECT COUNT(*) FROM placement_economic_obligations')->fetchColumn()===$count,'receipt failure rolls back its earning atomically');
+    $pdo->exec('DROP TRIGGER receipt_fault');
+    $pdo->exec("UPDATE placement_payroll_recipient_receipts SET receipt_sha256=REPEAT('0',64) WHERE obligation_id=1 AND tenant_id=10");
+    $check($fails(fn()=>payrollRunEconomicEarnings(7),'earning evidence differs'),'altered recipient evidence is refused');
+    $pdo->prepare('UPDATE placement_payroll_recipient_receipts SET receipt_sha256=? WHERE obligation_id=1 AND tenant_id=10')->execute([$receiptBefore[0]['receipt_sha256']]);
+    $pdo->beginTransaction();$pdo->query('SELECT id FROM placements WHERE id=100 FOR UPDATE')->fetchColumn();$main=$pdo;
+    $second=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    $second->exec('SET SESSION innodb_lock_wait_timeout=1');
+    try {
+        $pdo=$second;
+        $check($fails(fn()=>placementEconomicsWriteObligation(10,100,1,'manual',4,$replay),'Lock wait timeout')&&!$pdo->inTransaction(),'competing receipt writer waits on the parent and rolls back on timeout');
+    } finally {$pdo=$main;$pdo->rollBack();$second=null;}
+    $pdo->exec("UPDATE payroll_runs SET status='voided'");
     // Exercise the actual settlement writer, not a parallel SQL implementation.
     $pdo->exec('UPDATE time_entries SET payroll_extracted_at=NULL,payroll_extracted_ref=NULL,payroll_extracted_by_user_id=NULL WHERE tenant_id=10');
     $cols=['at'=>'payroll_extracted_at','ref'=>'payroll_extracted_ref','by'=>'payroll_extracted_by_user_id'];
     $settle=static fn(array $ids)=>_settleTimeIntoPayroll($ids,$cols,7,10,10,$pdo,implode(',',array_fill(0,count($ids),'?')));
     $pdo->exec("UPDATE placement_rates SET currency='INR' WHERE id=1");
     $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
-    $check($fails(fn()=>$settle([1,2]),'explicit USD currency')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===0&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'currency failure leaves the entire source batch and draft runs unchanged');
+    $check($fails(fn()=>$settle([1,2]),'explicit USD currency')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===2&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'currency failure leaves the entire source batch and draft runs unchanged');
     $pdo->exec("UPDATE placement_rates SET currency='USD' WHERE id=1");
     $pdo->exec("INSERT INTO placement_economic_items(tenant_id,placement_id,economic_party_id,description,settlement_channel,amount,currency,apply_on) VALUES(10,100,1,'Synthetic foreign one-time item','payroll',7500,'INR','2026-11-01')");
     $itemBefore=$pdo->query('SELECT * FROM placement_economic_items')->fetchAll();
-    $check($fails(fn()=>$settle([1,2]),'explicit USD currency')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===0&&$pdo->query('SELECT * FROM placement_economic_items')->fetchAll()===$itemBefore&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'foreign one-time commission rolls back draft creation and retains original source terms');
+    $check($fails(fn()=>$settle([1,2]),'explicit USD currency')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===2&&$pdo->query('SELECT * FROM placement_economic_items')->fetchAll()===$itemBefore&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'foreign one-time commission rolls back draft creation and retains original source terms');
     $pdo->exec("UPDATE placement_economic_items SET status='void'");
     $snapshot=['available'=>true,'contract_parties'=>[['id'=>1,'person_id'=>1,'user_id'=>null,'display_name'=>'Synthetic payee','role'=>'recruiter','money_flow'=>'payable','settlement_channel'=>'payroll','fee_basis'=>'flat','fee_flat'=>12.34]]];
     $pdo->prepare('UPDATE placement_rates SET economics_snapshot_json=? WHERE id=1')->execute([json_encode($snapshot)]);
@@ -117,8 +155,8 @@ try {
     $check((int)array_values($result['created'])[0]['employee_id']===20&&payrollRunExtractedHours($run)===$hours,'native settlement and recalculation agree on employee and hours');
     $check(payrollRunEconomicEarnings($run)===[20=>1234]&&(int)$pdo->query("SELECT COUNT(*) FROM placement_economic_obligations WHERE source_type='time_bundle'")->fetchColumn()===1,'settlement creates one exact USD commission and native readback keeps its reviewed recipient');
     $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
-    $check($fails(fn()=>$settle([1,2]),'already extracted')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===1&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'extraction replay cannot create duplicate runs or change source stamps');
-    $check($pdo->query('SELECT status FROM payroll_runs')->fetchColumn()==='draft'&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_line_items')->fetchColumn()===0,'fixture never computes, approves, posts or pays payroll');
+    $check($fails(fn()=>$settle([1,2]),'already extracted')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===3&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'extraction replay cannot create duplicate runs or change source stamps');
+    $check($pdo->query('SELECT status FROM payroll_runs WHERE id='.$run)->fetchColumn()==='draft'&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_line_items')->fetchColumn()===0,'fixture never computes, approves, posts or pays payroll');
     $check((string)$pdo->query('SELECT payroll_extracted_ref FROM time_entries WHERE id=1')->fetchColumn()===(string)$run,'actual BIGINT extraction column retains the numeric native run identity');
     require_once __DIR__.'/../modules/payroll/lib/accounting_posting.php';
     $pdo->exec("ALTER TABLE placements ADD engagement_type VARCHAR(20) DEFAULT 'w2'");

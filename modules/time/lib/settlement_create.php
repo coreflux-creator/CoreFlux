@@ -759,6 +759,8 @@ function _settleTimeIntoPayroll(
                                 'amount' => $charge['calculated_amount'],
                                 'currency' => strtoupper(trim($chargeCurrency)),
                                 'commission_terms' => ($charge['source_type'] ?? '') === 'commission' && ($charge['fee_basis'] ?? '') === 'flat' ? $charge : null,
+                                'payroll_source_party' => $charge,
+                                'payroll_recipient' => $recipient,
                                 'status' => 'payroll',
                                 'payroll_ref_id' => (int) $recipientRun['run_id'],
                             ]

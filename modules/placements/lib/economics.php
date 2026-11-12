@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/placements.php';
 require_once __DIR__ . '/commission_input.php';
+require_once __DIR__ . '/payroll_recipients.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
 {
@@ -2000,7 +2001,7 @@ function placementEconomicsPayrollCharges(
 }
 
 /** Resolve a payroll-channel economic participant to the canonical employee. */
-function placementEconomicsPayrollEmployee(int $tenantId, array $party): ?array
+function placementEconomicsPayrollEmployee(int $tenantId, array $party, bool $forUpdate = false): ?array
 {
     require_once __DIR__.'/../../people/lib/employment_links.php';
     $pdo=getDB();$owner=effectiveTenantIdForModule('people',$tenantId);
@@ -2008,18 +2009,18 @@ function placementEconomicsPayrollEmployee(int $tenantId, array $party): ?array
     $personId=(int)($party['person_id']??0);$userId=(int)($party['user_id']??0);
     if($personId>0){
         if(!peopleEmploymentSchema($pdo))return null;
-        $s=$pdo->prepare('SELECT e.id AS employee_id,e.legal_first_name,e.legal_last_name,pp.id AS profile_id,pp.cycle_id,pp.schedule_id,pp.enabled
+        $s=$pdo->prepare('SELECT e.id AS employee_id,e.tenant_id AS employee_tenant_id,e.legal_first_name,e.legal_last_name,pp.id AS profile_id,pp.cycle_id,pp.schedule_id,pp.enabled
             FROM people_employment_links l JOIN people p ON p.tenant_id=l.tenant_id AND p.id=l.person_id
             JOIN people_employees e ON e.tenant_id=l.tenant_id AND e.id=l.employee_id
             JOIN payroll_profiles pp ON pp.employee_id=e.id AND pp.tenant_id=?
             WHERE l.tenant_id=? AND l.person_id=? AND p.deleted_at IS NULL AND LOWER(p.classification)="w2"
-            AND e.status IN ("active","on_leave") AND pp.enabled=1 AND (?=0 OR e.user_id=?) LIMIT 2');
+            AND e.status IN ("active","on_leave") AND pp.enabled=1 AND (?=0 OR e.user_id=?) LIMIT 2'.($forUpdate?' FOR UPDATE':''));
         $s->execute([$tenantId,$owner,$personId,$userId,$userId]);
     }else{
         if($userId<=0)return null;
-        $s=$pdo->prepare('SELECT e.id AS employee_id,e.legal_first_name,e.legal_last_name,pp.id AS profile_id,pp.cycle_id,pp.schedule_id,pp.enabled
+        $s=$pdo->prepare('SELECT e.id AS employee_id,e.tenant_id AS employee_tenant_id,e.legal_first_name,e.legal_last_name,pp.id AS profile_id,pp.cycle_id,pp.schedule_id,pp.enabled
             FROM people_employees e JOIN payroll_profiles pp ON pp.employee_id=e.id AND pp.tenant_id=?
-            WHERE e.tenant_id=? AND e.user_id=? AND e.status IN ("active","on_leave") AND pp.enabled=1 LIMIT 2');
+            WHERE e.tenant_id=? AND e.user_id=? AND e.status IN ("active","on_leave") AND pp.enabled=1 LIMIT 2'.($forUpdate?' FOR UPDATE':''));
         $s->execute([$tenantId,$owner,$userId]);
     }
     $rows=$s->fetchAll(PDO::FETCH_ASSOC);
@@ -2045,6 +2046,13 @@ function placementEconomicsRecordObligation(
 }
 
 function placementEconomicsWriteObligation(
+    int $tenantId, int $placementId, int $economicPartyId, string $sourceType, int $sourceRefId, array $values
+): int {
+    return placementPayrollWriteObligation($tenantId,$placementId,$economicPartyId,$sourceType,$sourceRefId,$values);
+}
+
+/** Internal storage; callers must use the transactional writer above. */
+function placementEconomicsStoreObligation(
     int $tenantId,
     int $placementId,
     int $economicPartyId,

@@ -16,6 +16,10 @@ $financial=[$read('accounting_events'),$read('accounting_journal_entries'),$read
 $key=static fn():string=>substr(bin2hex(random_bytes(4)),0,8).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(6));
 $pdo->beginTransaction();
 try{
+    require_once __DIR__.'/payroll_recipient_fixture.php';
+    $recipientUser=(int)$pdo->query('SELECT MIN(id) FROM users WHERE is_active=1')->fetchColumn();
+    payrollRecipientFixture($pdo,$tenant,$recipientUser,[99185004,99185006]);
+    $financial=[$read('accounting_events'),$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('payroll_runs'),$read('ap_payments'),$read('billing_payments')];
     $person=scopedInsert('people',['first_name'=>'CI Item','last_name'=>'Recipient','classification'=>'1099','email_primary'=>'native-item@example.invalid']);
     $company=companiesUpsertByName($tenant,'CI Item Billing Company',[],['client']);
     $client=staffingClientEnsureForCompany($tenant,$company,'CI Item Billing Company')['client_id'];
@@ -25,7 +29,7 @@ try{
     placementEconomicsReconcile($tenant,$placement);
     $q=$pdo->prepare('SELECT id FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND settlement_channel=? AND active=1 ORDER BY id LIMIT 1');
     $q->execute([$tenant,$placement,'ar']);$ar=(int)$q->fetchColumn();$q->execute([$tenant,$placement,'ap']);$ap=(int)$q->fetchColumn();
-    $payroll=placementEconomicsUpsertParty($tenant,$placement,['source_ref'=>'manual:ci-item-payroll','source_type'=>'manual','role'=>'commission_recipient','display_name'=>'CI Payroll Recipient','person_id'=>$person,'settlement_channel'=>'payroll','money_flow'=>'payable','fee_basis'=>'none','source_managed'=>0]);
+    $payroll=placementEconomicsUpsertParty($tenant,$placement,['source_ref'=>'manual:ci-item-payroll','source_type'=>'manual','role'=>'commission_recipient','display_name'=>'CI Payroll Recipient','user_id'=>$recipientUser,'settlement_channel'=>'payroll','money_flow'=>'payable','fee_basis'=>'none','source_managed'=>0]);
     $body=['description'=>'CI one-time charge','settlement_channel'=>'ar','economic_party_id'=>$ar,'direction'=>'charge','amount'=>'25.00','currency'=>'USD','apply_on'=>'2026-10-15','taxable'=>false,'request_id'=>$key()];
     $create=static fn(array $input):array=>placementEconomicsCreateNativeItem($tenant,$placement,$input);
     $fresh=static fn(array $changes=[]):array=>$create(array_replace($body,['request_id'=>$key()],$changes));
@@ -91,6 +95,6 @@ try{
     }finally{$pdo=$main;$secondDb=null;}
     scopedUpdate('placements',$placement,['deleted_at'=>date('Y-m-d H:i:s')]);$stable=$snapshot();
     $check($refused(fn()=>$fresh(),404)&&$refused(fn()=>placementEconomicsRemoveNativeItem($tenant,$margin['id']),404)&&$snapshot()===$stable,'Deleted placements refuse both new items and removal');
-    $check([$read('accounting_events'),$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('payroll_runs'),$read('ap_payments'),$read('billing_payments')]===$financial,'Item tests create no financial postings, payroll runs or payments');
+    $check([$read('accounting_events'),$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('payroll_runs'),$read('ap_payments'),$read('billing_payments')]===$financial,'Item mutations preserve fixture drafts and create no financial postings or payments');
 }finally{if($pdo->inTransaction())$pdo->rollBack();setRequestTenantId(null);}
 echo "$checks native one-time item checks passed.\n";

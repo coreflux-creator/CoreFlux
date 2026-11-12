@@ -20,6 +20,9 @@ $protected=[$read('payroll_runs'),$read('accounting_events'),$read('accounting_j
 $pdo->beginTransaction();
 try {
     $uid=(int)$pdo->query('SELECT MIN(id) FROM users WHERE is_active=1')->fetchColumn();$user=['id'=>$uid];
+    require_once __DIR__.'/payroll_recipient_fixture.php';
+    payrollRecipientFixture($pdo,$tenant,$uid,[992001,992002,992003,992004,992005]);
+    $protected=[$read('payroll_runs'),$read('accounting_events'),$read('accounting_journal_entries'),$read('time_entries')];
     $pdo->prepare('INSERT INTO tenant_memberships(tenant_id,user_id,persona_label,persona_type,is_primary,status) VALUES(?,?,"CI terms","tenant_admin",1,"active") ON DUPLICATE KEY UPDATE status="active"')->execute([$tenant,$uid]);
     $person=scopedInsert('people',['first_name'=>'CI','last_name'=>'Commission terms','classification'=>'w2','email_primary'=>'commission-terms@example.invalid']);
     $pid=scopedInsert('placements',['person_id'=>$person,'title'=>'CI explicit commission','status'=>'on_hold','engagement_type'=>'w2','start_date'=>'2026-05-18','external_id'=>'jd:99200001']);

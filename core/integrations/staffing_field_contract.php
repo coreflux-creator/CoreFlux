@@ -9,6 +9,7 @@ require_once __DIR__ . '/staffing_field_ownership.php';
 require_once __DIR__ . '/staffing_time_field_contract.php';
 require_once __DIR__ . '/staffing_employment_field_contract.php';
 require_once __DIR__ . '/staffing_document_field_contract.php';
+require_once __DIR__ . '/staffing_payroll_recipient_field_contract.php';
 
 function staffingFieldContractTables(): array
 {
@@ -16,7 +17,7 @@ function staffingFieldContractTables(): array
         'people', 'companies', 'company_roles', 'company_addresses', 'company_contacts',
         'staffing_clients', 'ap_vendors_index', 'staffing_jobs', 'placements',
         'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_referrals',
-        'placement_corp_details', 'placement_economic_parties', 'placement_economic_items', 'placement_economic_obligations',
+        'placement_corp_details', 'placement_economic_parties', 'placement_economic_items', 'placement_economic_obligations', 'placement_payroll_recipient_receipts',
         'staffing_operating_cycles', 'people_documents', 'placement_documents', 'document_ownership_transfers',
         'people_banking', 'people_tax', 'people_employees', 'people_employment_history', 'people_employment_links', 'people_employment_reviews',
         'people_compensation', 'people_i9', 'people_tax_federal', 'people_tax_state', 'people_bank_accounts',
@@ -113,7 +114,7 @@ function staffingFieldContractRules(string $table, string $field): array
         }
     }
     $rules = staffingPlacementControlFieldRules($table, $field, $rules);
-    return staffingDocumentFieldRules($table,$field,staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules)));
+    return staffingPayrollRecipientFieldRules($table,$field,staffingDocumentFieldRules($table,$field,staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules))));
 }
 
 /** All columns of the allowlisted tables, including newly added fields, are accounted for. No record values. */

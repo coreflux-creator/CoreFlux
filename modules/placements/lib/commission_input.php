@@ -95,12 +95,13 @@ function placementCommissionClaim(int $tenant,int $placement,int $partyId,string
         }
         $frequency=$terms['payment_frequency'];
         if($frequency==='one_time' && $terms['due_month']>substr((string)($values['period_end']??''),0,7))throw new RuntimeException('The commission due month has not arrived.',409);
-        $sql='SELECT amount,currency FROM placement_economic_obligations WHERE tenant_id=? AND placement_id=? AND economic_party_id=? AND status<>"void"';
+        $sql='SELECT * FROM placement_economic_obligations WHERE tenant_id=? AND placement_id=? AND economic_party_id=? AND status<>"void"';
         $params=[$tenant,$placement,$partyId];
         if($frequency==='per_pay_period'){$sql.=' AND payroll_ref_id=?';$params[]=$values['payroll_ref_id'];}
         $q=$pdo->prepare($sql.' FOR UPDATE');$q->execute($params);$prior=$q->fetchAll(PDO::FETCH_ASSOC);
         if($prior) {
             if(count($prior)!==1||$prior[0]['currency']!==$values['currency']||round((float)$prior[0]['amount'],2)!==round((float)$values['amount'],2))throw new RuntimeException('A different commission amount is already reserved for this payment. Review it before continuing.',409);
+            placementPayrollReceiptEvidence($prior[0],placementPayrollReceipt($pdo,$tenant,(int)$prior[0]['id']));
             return 0;
         }
         return placementEconomicsWriteObligation($tenant,$placement,$partyId,$sourceType,$sourceId,$values);
