@@ -1,0 +1,28 @@
+# Thunderhawk pilot acceptance checkpoint
+
+This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
+
+## Current evidence and the next acceptance work
+
+| Original requirement | Evidence available | Remaining acceptance work |
+| --- | --- | --- |
+| Stable people, company, client, vendor and placement identities | Persisted Core numbers, scoped provider links, hosted identity acceptance and synthetic lifecycle receipts preserve existing IDs. | Revalidate the selected cohort against current deployed contracts and record any unresolved or unsupported identity relationship explicitly. |
+| Every scoped field has an ownership and destination decision | A November 12 read-only inventory of the deployed dictionary matched all three current source files. It covers 2,036 standard/workflow/reference entries; 684 are still marked `review_required`. | Complete field-by-field dispositions, including visible custom definitions. A field need not be copied into every app; source-only, restricted and unsupported-with-gap are valid explicit decisions. An unverified default is not completed alignment. |
+| JobDiva and Quanta intake, reviewed Core ownership, assignment publication | Hosted identity, profile, contract and lifecycle checks exist. The shared-schedule release passed 35 hosted checks and 213 authenticated HTTP checks. The subsequent encrypted-record ownership fix passed 41 hosted and 215 authenticated HTTP checks and is installed in isolated staging. | Reconcile the dictionary with actual receiving contracts and exercise remaining reverse-change/ownership conflicts through the operator workflow. |
+| Quanta worker and staff portal, onboarding and documents | Existing synthetic document and employer-review receipts; worker browser acceptance; November 10 manager/admin screens and scoped CSV downloads. | Verify the remaining document/lifecycle and closure behavior in the rendered portal. Synthetic employer approvals establish workflow behavior, not independent human employment approval. |
+| Approved time and return status | Historical source replay retained ten October 5–18 entries, 80 hours, separate test-approver evidence and accepted Core return status. Other synthetic periods remain separate. | Preserve revision and approval provenance through corrections; distinguish the user-designated workbook from an original client approval stamp, which was not present. |
+| PurePayroll inputs and actual results | Held synthetic payroll drafts and replay checks; a fresh November 12 read-only comparison still matches 80 hours and numeric gross 5,200 to the existing October 23 run. Protected records were unchanged. | Historical provider currency, explicit overtime and original time IDs remain absent. Retain these as visible reconciliation exceptions; do not fill them with defaults or submit the historical period for payroll again. |
+| PurePay documents, financial results and Core comparison | Existing AP/AR observations, reviewed invoice-line associations and confirmed source invoice currency; original provider records retained. | Complete the operator's linked comparison across the same work/period, including document allocation, fees/returns where present, and explicit unexplained differences. A retrieved document or a numeric match alone is not complete lineage. |
+| Replay, conflict and tenant isolation | Hosted and CI suites cover identity, time, held draft cancellation, lifecycle, native edits, audit rollback and scope refusal. | Match each final operator journey to its evidence and repeat only checks affected by changes. Do not infer full completion from a narrow passing test. |
+
+The immediate priority is the field-disposition inventory and the remaining portal/financial operator journey. Additional calendar scheduling features or production deployment machinery should not displace those requirements unless a pilot acceptance step demonstrates that they are needed.
+
+## Evidence for this checkpoint
+
+- `deploy/thunderhawk-shared-schedules-20261111.json`: installed shared schedule release and recovered hosted report.
+- `deploy/thunderhawk-binary-ownership-20261112.json`: encrypted-record review fix, all eleven CI jobs passing, isolated installation and rollback-only hosted acceptance. The change preserves private identity protections and makes changes to encrypted bytes invalidate stale reviews; public reviews and audits exclude ciphertext.
+- `output/historical-reconciliation-current-20261112.json`: fresh deployed Core/provider read, zero hour and numeric gross differences, no protected-record changes.
+- `output/current-field-coverage-20261112.json` and its summary: metadata-only inventory under a read-only database transaction. Custom fields are explicitly not included in this first inventory. Provider status counts are dictionary classifications, not successful delivery counts.
+- Earlier hosted identity, onboarding, time/payroll, manager-browser and synthetic-offboarding manifests remain the evidence for their recorded dates. This checkpoint does not relabel them as freshly rerun.
+
+The full integration goal remains active and incomplete.
