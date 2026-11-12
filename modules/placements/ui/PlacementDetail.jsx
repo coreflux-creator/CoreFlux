@@ -12,6 +12,7 @@ import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import BillToClientPicker from './BillToClientPicker';
 import CommercialOwnershipReview from './CommercialOwnershipReview';
 import OneTimeItems from './OneTimeItems';
+import PlacementDocumentsTab from './PlacementDocumentsTab';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
 
 /**
@@ -29,7 +30,6 @@ export default function PlacementDetail({ session }) {
   const rates     = data?.rates ?? [];
   const commissions = data?.commissions ?? [];
   const referrals   = data?.referrals ?? [];
-  const documents   = data?.documents ?? [];
   const dimensionReadiness = data?.dimension_readiness ?? null;
 
   if (loading) return <p data-testid="placement-detail-loading">Loading…</p>;
@@ -116,7 +116,7 @@ export default function PlacementDetail({ session }) {
         <Route path="corp"       element={<Navigate to="../economics" replace />} />
         <Route path="cycles"     element={<Navigate to="../economics" replace />} />
         <Route path="timesheets" element={<PlacementTimesheetsTab pid={placement.id} placement={placement} />} />
-        <Route path="documents"  element={<DocumentsTab   pid={placement.id} rows={documents} reload={reload} />} />
+        <Route path="documents"  element={<PlacementDocumentsTab pid={placement.id} />} />
         <Route path="approval"   element={<ApprovalTab    pid={placement.id} placement={placement} reload={reload} />} />
         <Route path="custom" element={<RecordCustomFields entityType="placements" recordId={placement.id} definitionsUrl="/modules/placements/custom_fields" />} />
         <Route path="margin"     element={<Navigate to="../economics" replace />} />
@@ -1571,90 +1571,6 @@ function CorpTab({ pid, canManage = false }) {
 }
 
 // ── Documents ────────────────────────────────────────────
-function DocumentsTab({ pid, rows, reload }) {
-  const [docType, setDocType] = useState('other');
-  const [effectiveFrom, setEffectiveFrom] = useState('');
-  const [effectiveTo, setEffectiveTo] = useState('');
-  const [file, setFile] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState(null);
-
-  const upload = async (event) => {
-    event.preventDefault();
-    if (!file) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const uploaded = await uploadFileViaPresignedPost(
-        `/modules/placements/api/documents.php?action=upload_url&placement_id=${pid}&file_name=${encodeURIComponent(file.name)}`,
-        file
-      );
-      await api.post(`/modules/placements/api/documents.php?placement_id=${pid}`, {
-        ...uploaded,
-        doc_type: docType,
-        effective_from: effectiveFrom || null,
-        effective_to: effectiveTo || null,
-      });
-      setFile(null);
-      setEffectiveFrom('');
-      setEffectiveTo('');
-      setMessage({ ok: true, text: `${uploaded.filename} uploaded.` });
-      reload();
-    } catch (error) {
-      setMessage({ ok: false, text: error?.message || String(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const openDocument = async (id) => {
-    setMessage(null);
-    try {
-      const result = await api.get(`/modules/placements/api/documents.php?id=${id}`);
-      if (!result?.signed_url) throw new Error('A download link could not be created.');
-      window.open(result.signed_url, '_blank', 'noopener,noreferrer');
-    } catch (error) {
-      setMessage({ ok: false, text: error?.message || String(error) });
-    }
-  };
-
-  return (
-    <div data-testid="tab-documents">
-      <h3>Documents</h3>
-      <form onSubmit={upload} className="filter-bar" style={{ alignItems: 'end', marginBottom: 'var(--cf-space-3)' }} data-testid="placement-document-upload">
-        <label>Type
-          <select className="input" value={docType} onChange={(event) => setDocType(event.target.value)}>
-            {['msa', 'sow', 'work_order', 'rate_sheet', 'timesheet_template', 'poc', 'noc', 'other'].map((type) => (
-              <option key={type} value={type}>{humanizeValue(type)}</option>
-            ))}
-          </select>
-        </label>
-        <label>Effective from<input className="input" type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} /></label>
-        <label>Effective to<input className="input" type="date" value={effectiveTo} onChange={(event) => setEffectiveTo(event.target.value)} /></label>
-        <label>File<input className="input" type="file" onChange={(event) => setFile(event.target.files?.[0] || null)} data-testid="placement-document-file" /></label>
-        <button className="btn btn--primary" type="submit" disabled={busy || !file} data-testid="placement-document-submit">
-          <Upload size={16} aria-hidden="true" /> {busy ? 'Uploading…' : 'Upload'}
-        </button>
-      </form>
-      {message && <p className={message.ok ? 'success' : 'error'} data-testid="placement-document-message">{message.text}</p>}
-      <table className="data-table" data-testid="documents-table">
-        <thead><tr><th>Type</th><th>File</th><th>Effective</th><th>Uploaded</th><th aria-label="Actions" /></tr></thead>
-        <tbody>
-          {rows.length === 0 && <tr><td colSpan={5} className="empty" data-testid="documents-empty">No documents yet.</td></tr>}
-          {rows.map(d => (
-            <tr key={d.id} data-testid={`document-row-${d.id}`}>
-              <td>{humanizeValue(d.doc_type)}</td><td>{d.file_name || `#${d.storage_object_id}`}</td>
-              <td>{d.effective_from || '—'}{d.effective_to ? ` → ${d.effective_to}` : ''}</td>
-              <td>{(d.created_at || '').slice(0, 10)}</td>
-              <td><button className="btn btn--ghost btn--icon" type="button" onClick={() => openDocument(d.id)} aria-label={`Open ${d.file_name || 'document'}`} title="Open document"><ExternalLink size={16} aria-hidden="true" /></button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 // ── Approval contact ────────────────────────────────────────
 function ApprovalTab({ pid, placement, reload }) {
   const [form, setForm] = useState({

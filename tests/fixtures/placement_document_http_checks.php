@@ -1,11 +1,22 @@
 <?php
 /** Included by the native cookie/RBAC/tenant fixture; actual object bytes, simulated signed form transport. */
 RBACResolver::grantModule($membership,'placements','write',[$tenant],$actor);
+[$status,$listing]=$request('GET',$documentPath);
+$expect($status===200&&$listing['context']===['tenant_id'=>$tenant,'placements_tenant_id'=>$tenant,'actor_user_id'=>$actor,'placement_id'=>$own['placement'],'permissions'=>['manage'=>true]],'Native document form receives authenticated company directory placement and write access');
 [$status,$upload]=$request('GET',$documentUploadPath);
 $expect($status===200&&is_string($upload['upload']['url']??null)&&isset($upload['upload']['fields']['key'])&&!isset($upload['upload']['form_action']),'Upload response matches the native browser helper contract');
 $expect($upload['upload']['fields']['key']===$upload['storage_key']&&json_decode($upload['upload']['fields']['fixture_policy'],true)===['policy'=>[['content-length-range',1,26214400]]],'Upload form binds the exact file key and positive 25 MiB limit');
 $key=$upload['storage_key'];$bytes='%PDF-1.4 synthetic HTTP placement agreement';
+$statusPath=$documentPath.'&action=upload_status&storage_key='.rawurlencode($key);
+[$status,$absent]=$request('GET',$statusPath);
+$expect($status===200&&$absent['present']===false&&$absent['context']===$listing['context'],'Native upload recovery confirms an absent file in the exact workspace');
+[$status,$renewed]=$request('GET',$documentUploadPath.'&storage_key='.rawurlencode($key));
+$expect($status===200&&$renewed['storage_key']===$key,'An interrupted absent upload renews the same storage identity');
+$expect($request('GET',$documentPath.'&action=upload_status&storage_key='.rawurlencode('placements/'.$foreignTenant.'/document/'.$foreign['placement'].'/foreign.pdf'))[0]===409,'Upload recovery refuses foreign storage identity');
 $documentDriver->put($key,$bytes,['mime'=>'application/pdf','source_is_bytes'=>true]);
+[$status,$present]=$request('GET',$statusPath);
+$expect($status===200&&$present['present']===true,'Recovery detects bytes uploaded despite a lost storage response');
+$expect($request('GET',$documentUploadPath.'&storage_key='.rawurlencode($key))[0]===409,'Existing uploaded bytes cannot be overwritten by a renewed form');
 $body=['doc_type'=>'sow','storage_key'=>$key,'filename'=>'synthetic.pdf','mime'=>'text/html','size_bytes'=>1,'effective_from'=>'2026-11-01','effective_to'=>'2026-11-30'];
 $before=$snapshot($graphTables);
 $expect($request('POST',$documentPath,$body,true,$tenant,true)[0]===415&&$snapshot($graphTables)===$before,'Form submission cannot bypass JSON document registration');
@@ -13,6 +24,7 @@ $pdo->exec("CREATE TRIGGER cf_contract_http_doc_audit BEFORE INSERT ON audit_log
 try{$expect($request('POST',$documentPath,$body)[0]===503&&$snapshot($graphTables)===$before,'Native audit failure rolls back HTTP document and storage registration');}finally{$pdo->exec('DROP TRIGGER cf_contract_http_doc_audit');}
 [$status,$saved]=$request('POST',$documentPath,$body);
 $expect($status===201&&!$saved['replayed'],'Native HTTP registration commits one owned document');
+$expect((int)$saved['document']['placement_id']===$own['placement']&&$saved['document']['file_name']==='synthetic.pdf'&&$saved['context']===$listing['context'],'Registration returns verified metadata and workspace for the browser receipt');
 $docId=(int)$saved['id'];$objectId=(int)$saved['storage_object_id'];
 $q=$pdo->prepare('SELECT * FROM storage_objects WHERE id=?');$q->execute([$objectId]);$object=$q->fetch(PDO::FETCH_ASSOC);
 $expect((int)$object['tenant_id']===$tenant&&(int)$object['entity_id']===$own['placement']&&(int)$object['size_bytes']===strlen($bytes)&&$object['mime']==='application/pdf','HTTP registry records actual owner placement size and MIME');
@@ -28,6 +40,7 @@ $expect($request('GET',$documents.'?placement_id='.$foreign['placement'])[0]===4
 $expect($request('GET',$documents.'?id='.$docId,null,true,$foreignTenant)[0]===403&&$snapshot($graphTables)===$before,'Foreign workspace pin cannot issue a file URL or mutate stored evidence');
 [$status,$download]=$request('GET',$documents.'?id='.$docId);
 $expect($status===200&&is_string($download['signed_url']??null)&&!isset($download['document']['s3_key'])&&!isset($download['document']['tenant_id']),'Document reader gets a signed URL without private storage metadata');
+$expect($request('GET',$documents.'?id='.$docId.'&placement_id='.$bare)[0]===409,'Download cannot substitute another placement for the rendered document');
 $pdo->prepare('UPDATE storage_objects SET entity_id=? WHERE id=?')->execute([(string)$bare,$objectId]);
 $expect($request('GET',$documents.'?id='.$docId)[0]===409,'HTTP download refuses a storage entity mismatch');
 $pdo->prepare('UPDATE storage_objects SET entity_id=? WHERE id=?')->execute([(string)$own['placement'],$objectId]);
@@ -35,10 +48,14 @@ $documentDriver->put($key,'%PDF overwritten agreement',['mime'=>'application/pdf
 $expect($request('GET',$documents.'?id='.$docId)[0]===409&&$request('POST',$documentPath,$body)[0]===409,'Changed physical bytes cannot masquerade as the registered file on download or retry');
 $documentDriver->delete($key);
 $expect($request('GET',$documents.'?id='.$docId)[0]===409,'HTTP download refuses missing physical evidence');
+$expect($request('GET',$documentUploadPath.'&storage_key='.rawurlencode($key))[0]===409,'Missing but registered evidence cannot be overwritten by upload renewal');
 $documentDriver->put($key,$bytes,['mime'=>'application/pdf','source_is_bytes'=>true]);
 [$status,$childUpload]=$request('GET',$documentUploadPath,null,true,$childTenant);
 $expect($status===200&&str_starts_with($childUpload['storage_key'],'placements/'.$tenant.'/document/'.$own['placement'].'/'),'Shared child upload uses the owning placement directory');
+$expect($childUpload['context']['tenant_id']===$childTenant&&$childUpload['context']['placements_tenant_id']===$tenant,'Shared child context separates operating workspace from owning directory');
 RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
+[$status,$readOnly]=$request('GET',$documentPath);
+$expect($status===200&&$readOnly['context']['permissions']['manage']===false&&$request('GET',$statusPath)[0]===403,'Read-only context hides upload controls and cannot recover write uploads');
 $expect($request('GET',$documents.'?id='.$docId)[0]===200&&$request('GET',$documentUploadPath)[0]===403&&$request('DELETE',$documents.'?id='.$docId)[0]===403,'Same native session can read but cannot upload or retire after downgrade');
 RBACResolver::grantModule($membership,'placements','write',[$tenant],$actor);
 $before=$snapshot($graphTables);

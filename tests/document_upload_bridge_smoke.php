@@ -7,6 +7,7 @@ $placementStorage = (string) file_get_contents($root . '/modules/placements/lib/
 $peopleApi = (string) file_get_contents($root . '/modules/people/api/documents.php');
 $peopleStorage = (string) file_get_contents($root . '/modules/people/lib/documents.php');
 $placementUi = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
+$documentUi = (string) file_get_contents($root . '/modules/placements/ui/PlacementDocumentsTab.jsx');
 $peopleUi = (string) file_get_contents($root . '/modules/people/ui/PersonDetail.jsx');
 $storage = (string) file_get_contents($root . '/core/storage_register.php');
 
@@ -30,8 +31,8 @@ $checks = [
     'storage idempotency lookup is tenant scoped' =>
         str_contains($storage, 'WHERE tenant_id = :t AND s3_key = :k'),
     'placement detail exposes upload and open controls' =>
-        str_contains($placementUi, 'data-testid="placement-document-upload"')
-        && str_contains($placementUi, 'openDocument(d.id)'),
+        str_contains($documentUi, 'data-testid="placement-document-upload"')
+        && str_contains($documentUi, 'openDocument(d.id)'),
     'person detail exposes upload and open controls' =>
         str_contains($peopleUi, 'data-testid="person-document-upload"')
         && str_contains($peopleUi, 'openDocument(d.id)'),
