@@ -2,11 +2,17 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 12 document-merge ownership - installed pilot checkpoint
+## November 12 person-document audit - installed pilot checkpoint
+
+Runtime `b413c5bd` is installed with all eleven release jobs passing. Person document uploads, edits and retirement now save their required audit in the same transaction, including composed Quanta onboarding intake. New objects retain their physical identity; changed bytes or versions cannot pass download, registration replay or onboarding validation. Exact retries do not duplicate audit or document records. Validation passed 308 authenticated HTTP checks, 39 native person-vault checks, 111 Quanta private-document intake checks and eighteen hosted checks. The hosted synthetic checks use temporary tables and controlled physical metadata; they preserve every original row and are not a substitute for the pending normal browser-upload journey. All 376 tables / 34,831 rows, 260 runtime pins and earlier retired document bytes were verified. See [person-document audit acceptance](thunderhawk-person-document-audit.md) and `deploy/thunderhawk-person-document-audit-20261112.json`.
+
+The current metadata inventory remains **2,094 fields with 441 remaining decisions**. The AWS exact-origin correction, normal browser upload, remaining portal/correction journeys, relationship-aware merging, JobDiva time hardening, receiving-contract validation and financial reconciliation remain open. The full integration is active and incomplete.
+
+## November 12 document-merge ownership - preceding checkpoint
 
 Runtime `d2c4bb0c` is installed with migration 194 and 260 verified pins. Exact document transfer chains preserve the original object and require fresh onboarding evidence review. The native person merge preserves legacy employment contacts, original access history, surviving provider ID and colliding custom values; its final audit is transactional. Downloads require saved access authorization. Validation passed all eleven release jobs, 41 native transfer checks, 289 authenticated HTTP checks and nineteen hosted checks. The hosted merge fixtures used temporary tables; no real record was merged. All 34,830 preexisting rows were preserved. See `docs/thunderhawk-document-merge-ownership.md` and `deploy/thunderhawk-document-merge-20261112.json`.
 
-The current metadata inventory is **2,094 fields with 441 remaining decisions**. Merge acceptance still needs placement/provider relationships, prior onboarding cases, employment identity reconciliation, collision review and rendered operator acceptance. Legacy person-upload audit hardening also remains. The AWS sign-in tab is no longer present; the storage-origin correction has not been applied. The wider integration remains active and incomplete.
+At this checkpoint the metadata inventory contained **2,094 fields with 441 remaining decisions**. Merge acceptance still needs placement/provider relationships, prior onboarding cases, employment identity reconciliation, collision review and rendered operator acceptance. The subsequent person-document release above closes the discovered native audit gap. The storage-origin correction has not been applied. The wider integration remains active and incomplete.
 
 ## Current evidence and the next acceptance work
 
