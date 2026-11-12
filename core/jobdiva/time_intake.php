@@ -36,13 +36,16 @@ function jobdivaTimeHeaderOpen(PDO $pdo,int $tenant,int $id,int $person,string $
         ||!empty($row['approved_at'])||!empty($row['approved_by_user_id']))throw new JobdivaTimeConflict('The original week is submitted, approved, locked or unavailable. Review its source correction separately.');
     return $row;
 }
-function jobdivaTimeApplyRecord(int $tenant,?int $actor,array $payload): array {
+function jobdivaTimeApplyRecord(int $tenant,?int $actor,array $payload,array $fetchedConnection): array {
     $source=jobdivaTimeSource($payload);$hash=mappingHash($payload);$pdo=getDB();
     if($tenant<=0||($actor!==null&&$actor<=0)||$pdo->inTransaction())throw new LogicException('Time intake requires its own company transaction.');
     $pdo->beginTransaction();
     try{
         $peopleOwner=jobdivaTimeDirectory($pdo,$tenant,'people');$placementOwner=jobdivaTimeDirectory($pdo,$tenant,'placements');
         $connection=jobdivaTimeIntakeConnection($pdo,$tenant,true);
+        if((int)($fetchedConnection['id']??0)!==(int)$connection['id']
+            ||!is_string($fetchedConnection['identity_hash']??null)
+            ||!hash_equals($connection['identity_hash'],$fetchedConnection['identity_hash']))throw new JobdivaTimeConflict('The JobDiva account changed while source time was being fetched. Fetch it again from the current account.');
         $q=$pdo->prepare("SELECT * FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='placement' AND external_id=? FOR UPDATE");$q->execute([$tenant,$source['placement_external_id']]);$placementMap=$q->fetch(PDO::FETCH_ASSOC);
         if(!$placementMap)throw new JobdivaTimeConflict('placement_unmapped');
         if($placementMap['external_id']!==$source['placement_external_id']||$placementMap['sync_status']!=='ok')throw new JobdivaTimeConflict('Placement source identity requires review.');

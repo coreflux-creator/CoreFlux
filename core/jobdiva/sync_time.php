@@ -133,7 +133,7 @@ function jobdivaHourTypeFromCategory(string $category): array
 function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
 {
     $pdo=getDB();
-    jobdivaTimeIntakeConnection($pdo,$tid); // Refuse disabled or differently owned intake before provider IO.
+    $fetchedConnection=jobdivaTimeIntakeConnection($pdo,$tid); // Pin the source account before provider IO.
     $items=isset($opts['items_override'])&&is_array($opts['items_override'])?$opts['items_override']:jobdivaSyncFetchWithRetry($tid,JOBDIVA_PATH_TIMESHEETS_DELTA,$opts);
     $processed=0;$skipped=0;$failed=0;$replayed=0;$errors=[];$skipReasons=['placement_unmapped'=>0,'placement_missing_person'=>0];
     foreach($items as$jd){
@@ -141,7 +141,7 @@ function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
         try{
             if(!is_array($jd))throw new InvalidArgumentException('Source time record must be an object.');
             $external=jobdivaTimeSource($jd)['external_id'];
-            $result=jobdivaTimeApplyRecord($tid,$userId,$jd);
+            $result=jobdivaTimeApplyRecord($tid,$userId,$jd,$fetchedConnection);
             if($result['replayed']){$skipped++;$replayed++;}else$processed++;
         }catch(Throwable $e){
             if($e instanceof JobdivaTimeConflict&&array_key_exists($e->getMessage(),$skipReasons)){$skipped++;$skipReasons[$e->getMessage()]++;}

@@ -11,7 +11,7 @@ $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccountin
 $fixture='coreflux_jobdiva_time_ci';
 if($child){
     $pdo->exec('USE '.$fixture);setRequestTenantId(11);
-    echo json_encode(jobdivaTimeApplyRecord(11,90,json_decode(base64_decode($argv[2],true),true,32,JSON_THROW_ON_ERROR)),JSON_THROW_ON_ERROR);exit;
+    echo json_encode(jobdivaTimeApplyRecord(11,90,json_decode(base64_decode($argv[2],true),true,32,JSON_THROW_ON_ERROR),jobdivaTimeIntakeConnection($pdo,11)),JSON_THROW_ON_ERROR);exit;
 }
 $pdo->exec('CREATE DATABASE '.$fixture);$pdo->exec('USE '.$fixture);$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE,PDO::FETCH_ASSOC);setRequestTenantId(11);
 $passed=0;$check=static function(bool $ok,string $label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS {$label}\n";};
@@ -28,7 +28,9 @@ try{
     $pdo->exec("INSERT INTO jobdiva_connections(id,tenant_id,client_id,username,password_enc,status,sync_config) VALUES(1,11,'synthetic','synthetic',X'00','connected','{\"time\":{\"source\":\"jobdiva\",\"direction\":\"pull\"}}')");
     $pdo->exec("INSERT INTO external_entity_mappings(tenant_id,source_system,internal_entity_type,external_id,internal_entity_id,direction,sync_status) VALUES(11,'jobdiva','placement','start-100',100,'pull','ok')");
     $row=['id'=>'time-1','placementId'=>'start-100','date'=>'2026-11-09','hours'=>'8','category'=>'regular','description'=>'Synthetic original','approval'=>['status'=>'approved','actor'=>'external-1','at'=>'2026-11-10T10:00:00Z']];
-    $apply=static fn(array $r)=>jobdivaTimeApplyRecord(11,90,$r);
+    $apply=static fn(array $r)=>jobdivaTimeApplyRecord(11,90,$r,jobdivaTimeIntakeConnection($pdo,11));
+    $fetchedConnection=jobdivaTimeIntakeConnection($pdo,11);$pdo->exec("UPDATE jobdiva_connections SET username='changed-during-fetch' WHERE id=1");
+    $reject(fn()=>jobdivaTimeApplyRecord(11,90,$row,$fetchedConnection),'Account changed during provider fetch','being fetched');$pdo->exec("UPDATE jobdiva_connections SET username='synthetic' WHERE id=1");
     foreach([['category'=>'unknown'],['hours'=>'oops'],['date'=>'2026-02-30'],['date'=>'2026-12-01'],['placementId'=>'missing']]as$patch)$reject(fn()=>$apply(array_replace($row,$patch)),'Invalid or unresolved source');
     $pdo->exec("UPDATE jobdiva_connections SET sync_config='{\"time\":{\"source\":\"coreflux\",\"direction\":\"off\"}}' WHERE id=1");
     $reject(fn()=>$apply($row),'Disabled time intake','does not currently own');
@@ -75,7 +77,7 @@ try{
     $pdo->exec('DELETE FROM payroll_native_observations');
     $pdo->exec("UPDATE jobdiva_connections SET username='other-source-account' WHERE id=1");$reject(fn()=>$apply($changed),'Changed JobDiva account','source, connection or directory');$pdo->exec("UPDATE jobdiva_connections SET username='synthetic' WHERE id=1");
     $pdo->exec("UPDATE tenant_module_scope SET scope_mode='isolated' WHERE tenant_id=11 AND module_key='people'");$reject(fn()=>$apply($changed),'Changed People directory','unavailable');$pdo->exec("UPDATE tenant_module_scope SET scope_mode='shared' WHERE tenant_id=11 AND module_key='people'");
-    $reject(fn()=>jobdivaTimeApplyRecord(12,90,$row),'Foreign company','does not currently own');
+    $reject(fn()=>jobdivaTimeApplyRecord(12,90,$row,$fetchedConnection),'Foreign company','does not currently own');
     $reject(fn()=>$apply(array_replace($row,['id'=>'time-2','hours'=>'17'])),'Daily capacity','exceed 24');
     $failure('jobdiva_time_intake',fn()=>$apply(array_replace($changed,['hours'=>'6'])));
     // Two actual PHP workers overlap at the locked company row, then reconcile one receipt.
