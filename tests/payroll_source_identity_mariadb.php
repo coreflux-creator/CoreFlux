@@ -46,7 +46,7 @@ try {
     $apply('core/migrations/138_placement_one_time_items.sql');
     $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT NULL,actor_user_id BIGINT NULL,event VARCHAR(100),target_id BIGINT NULL,meta_json LONGTEXT,ip_address VARCHAR(50),created_at DATETIME)');
     $pdo->exec("INSERT INTO time_entries VALUES(1,10,1,100,'2026-11-09','regular_billable',2,'Synthetic','approved',1,NOW(),'payroll:run#7',7),(2,10,1,100,'2026-11-10','OT_billable',1,'Synthetic','approved',1,NOW(),'payroll:run#7',7),(3,11,1,101,'2026-11-09','regular_billable',3,'Shared','approved',2,NOW(),'payroll:run#7',7),(4,10,2,100,'2026-11-09','regular_billable',4,'Unlinked','approved',1,NULL,NULL,NULL)");
-    $pdo->exec("INSERT INTO placement_economic_obligations(id,tenant_id,placement_id,economic_party_id,payroll_ref_id,amount,currency,status) VALUES(1,10,100,1,7,12.34,'USD','payroll'),(2,10,100,1,7,0.01,'USD','payroll'),(3,11,101,2,7,99.99,'USD','payroll')");
+    $pdo->exec("INSERT INTO placement_economic_obligations(id,tenant_id,placement_id,economic_party_id,payroll_ref_id,amount,currency,status,source_type,source_ref_id) VALUES(1,10,100,1,7,12.34,'USD','payroll','manual',1),(2,10,100,1,7,0.01,'USD','payroll','manual',2),(3,11,101,2,7,99.99,'USD','payroll','manual',3)");
     $hours=payrollRunExtractedHours(7);$earnings=payrollRunEconomicEarnings(7);
     $check($hours===[20=>['hours_regular'=>2.0,'hours_overtime'=>1.0]],'reviewed employee receives regular and overtime exactly once despite reused email');
     $check($earnings===[20=>1235],'economic source adds exact cents only in the current company');
