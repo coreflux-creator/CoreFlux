@@ -183,7 +183,7 @@ try{
             $check($waiting>=2,'two document requests overlap at the authority/case row locks');$observer->commit();$results=[];
             foreach($children as[$process,$pipes]){$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($process);if($exit!==0)throw new RuntimeException('Overlapping document command failed: '.$err);$results[]=json_decode($out,true,32,JSON_THROW_ON_ERROR);}$children=[];
             $check($results[0]['document_id']===$results[1]['document_id']&&$results[0]['replayed']!==$results[1]['replayed'],'overlapping imports return one document and original durable receipt');
-            $after=$docCounts();$check($after===[$before[0]+1,$before[1]+1,$before[2]+1],'overlapping import creates one registry, document and history event');
+            $after=$docCounts();$check($after===[$before[0]+1,$before[1]+1,$before[2]+1,$before[3]+1],'overlapping import creates one registry, document, history and audit event');
         }finally{if($observer->inTransaction())$observer->rollBack();foreach($children as[$process,$pipes]){if(is_resource($process))proc_terminate($process);foreach([1,2]as$i)if(is_resource($pipes[$i]))fclose($pipes[$i]);if(is_resource($process))proc_close($process);}}
     }
     echo 'PASS '.($passed-$docStart)." private document vault intake checks\n";
