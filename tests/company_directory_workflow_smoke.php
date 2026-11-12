@@ -40,6 +40,11 @@ $checks = [
 
 foreach (['chain', 'referrals', 'economics', 'csv_import', 'placements'] as $endpoint) {
     $source = (string) file_get_contents($root . '/modules/placements/api/' . $endpoint . '.php');
+    if ($endpoint === 'economics') {
+        $checks['economics delegates authorized creation to the native participant writer'] =
+            str_contains($source, 'placementEconomicsCreateNativeParty($tenantId, $placementId, api_json_body(), $user)');
+        $source .= (string) file_get_contents($root . '/modules/placements/lib/economics_participants.php');
+    }
     $checks["$endpoint validates selected companies against the Companies directory"] =
         preg_match('/companiesGet\([^;]+placementsCompanyDirectoryTenantId\(\)\)/', $source) === 1;
     if ($endpoint !== 'placements') {
