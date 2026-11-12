@@ -141,8 +141,12 @@ try {
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
 
-    if (in_array($action,['time_revision_preview','time_revision_apply','time_revision_history'],true)) {
+    if (in_array($action,['time_revision_preview','time_revision_apply','time_revision_history','time_revision_recent'],true)) {
         foreach (['time.view','time.entry.manage','time.review'] as $permission) rbac_legacy_require($user,$permission);
+        if ($action==='time_revision_recent') {
+            if (isset($body['before'])&&!is_int($body['before'])) throw new InvalidArgumentException('Invalid history page.');
+            api_ok(quantaTimeRevisionRecent($tenantId,$actorId,$body['before']??null));
+        }
         if (!is_string($body['source_entry_id']??null)) throw new InvalidArgumentException('Choose a Quanta source entry.');
         $sourceId=$body['source_entry_id'];
         if ($action==='time_revision_preview') api_ok(quantaTimeRevisionPreview($tenantId,$actorId,$sourceId));

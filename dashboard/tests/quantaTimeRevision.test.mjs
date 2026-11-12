@@ -15,13 +15,13 @@ const button = (f, label) => f.tree.root.findAllByType('button').find(n => text(
 const review = { review_hash: 'original-hash', source_entry_id: 'entry-1', workspace: { name: 'Synthetic company' },
   before: [{ id: 1, work_date: '2026-10-02', hours: '8.00', category: 'regular_billable', status: 'approved' }],
   after: { work_date: '2026-10-02', placement_id: 42, components: { regular: 7.5 }, source_approval: { approved_at: '2026-10-04' } } };
-async function fixture(respond) {
+async function fixture(respond, name = 'default') {
   const f = { pinned: '11', calls: [] }; const module = { exports: {} };
   const api = { getPinnedTenantId: () => f.pinned, api: { post(url, body, options) {
     const action = url.split('action=time_revision_')[1]; f.calls.push({ action, body, options }); return respond(action, body);
   } } };
   new Function('require', 'module', 'exports', compiled.outputFiles[0].text)(id => id === 'fixture-api' ? api : require(id), module, module.exports);
-  f.Component = module.exports.default; f.props = { tenantId: 11, connectionRevision: 1, entryId: 'entry-1' };
+  f.Component = module.exports[name]; f.props = { tenantId: 11, connectionRevision: 1, entryId: 'entry-1' };
   await act(async () => { f.tree = create(React.createElement(f.Component, f.props)); });
   f.click = async label => { const b = button(f, label); assert.ok(b); assert.equal(!!b.props.disabled, false); await act(async () => b.props.onClick()); };
   f.confirm = async () => act(async () => {
@@ -74,5 +74,14 @@ for (const changed of [{ entryId: 'entry-2' }, { tenantId: 12 }, { connectionRev
 test('history can be read without asking the provider for current source', async () => {
   const f = await fixture(async () => ({ items: [], next_before: null }));
   try { await f.click('Correction history'); assert.deepEqual(f.calls.map(c => c.action), ['history']); assert.ok(text(f.tree.toJSON()).includes('No recorded'));
+  } finally { f.close(); }
+});
+test('saved correction recovery works without a source feed and pins the company', async () => {
+  const f = await fixture(async () => ({ items: [{ id: 3, created_at: '2026-10-05', actor_user_id: 7, reason: 'Corrected source hours',
+    review: { ...review, person_number: 'P-19', placement_number: 'PL-42' },
+    result: { superseded_entry_ids: { regular: 1 }, new_entry_ids: { regular: 3 } } }], next_before: null }), 'QuantaTimeRevisionHistory');
+  try { await f.click('Find saved corrections'); assert.deepEqual(f.calls.map(c => c.action), ['recent']);
+    assert.equal(f.calls[0].options.headers['X-CoreFlux-Tenant-Id'], '11'); assert.ok(text(f.tree.toJSON()).includes('PL-42'));
+    f.pinned = '12'; await f.click('Find saved corrections'); assert.equal(f.calls.length, 1); assert.ok(!text(f.tree.toJSON()).includes('PL-42'));
   } finally { f.close(); }
 });

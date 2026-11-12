@@ -4,8 +4,9 @@ declare(strict_types=1);
 define('COREFLUX_QREVIEW_FIXTURE',true);
 require __DIR__.'/quanta_time_provenance_mariadb.php';
 require_once __DIR__.'/../core/quanta/time_revisions.php';
-// The inherited fixture uses a distinct disposable database; the next review fixture has its own name.
-$pdo->exec('RENAME TABLE quanta_time_revisions TO old_empty_revisions'); $migrate('191_quanta_time_revisions.sql');
+$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE,PDO::FETCH_ASSOC); // Match the application's real connection.
+// This disposable database is removed below before the next review fixture starts.
+$migrate('191_quanta_time_revisions.sql');
 setRequestTenantId(1); putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);
 $applyFile=static function(string $path)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../'.$path))as$sql)$pdo->exec($sql);};
 $pdo->exec('DELETE FROM quanta_time_imports WHERE quanta_entry_id<>"entry-1"');
@@ -117,7 +118,7 @@ $check(count(quantaImportLookup(1,['entry-1'])['entry-1'])===1&&staffingTimeshee
 $calls=$remoteCalls;$mode='offline';
 $check($save($p)===$result&&$snapshot()===$after&&$remoteCalls===$calls,'lost-response retry recovers the original receipt even when provider is unavailable');$mode='approved';
 $check($fails(fn()=>$save($p,'different reason'),'different request')&&$snapshot()===$after,'same review cannot be reused with a changed request');
-$check($fails(fn()=>timeApproveEntry($new,['id'=>7]),'different approver'),'correction operator cannot approve its own replacement');
+$check($fails(fn()=>timeApproveEntry($new,['id'=>7]),'cannot approve your own'),'correction operator cannot approve its own replacement');
 $pdo->beginTransaction();$proof=quantaTimeAssertCurrent($pdo,1,[$new]);$pdo->rollBack();
 $check($proof['source_entries']===1,'replacement retains source proof at approval/consumption boundary');
 $pdo->beginTransaction();
@@ -136,6 +137,9 @@ $current=quantaImportLookup(1,['entry-1'])['entry-1'];
 $check((int)$current['overtime']['is_current']===1&&$current['regular']['work_date']==='2026-10-05','reinstated component retains provider ID and the corrected date');
 $check(count(quantaTimeRevisionHistory(1,7,'entry-1')['items'])===2,'operator can retrieve both immutable correction receipts');
 $check(quantaTimeRevisionHistory(1,7,'other-entry')['items']===[],'history is source scoped');
+$mode='offline'; $calls=$remoteCalls;
+$check(count(quantaTimeRevisionRecent(1,7)['items'])===2&&$remoteCalls===$calls,'recent receipts remain available without the provider feed or connection');
+setRequestTenantId(2);$check(quantaTimeRevisionRecent(2,7)['items']===[],'another company cannot read saved correction history');setRequestTenantId(1);
 $history=$pdo->query('SELECT * FROM quanta_time_revisions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);$migrate('191_quanta_time_revisions.sql');
 $check($history===$pdo->query('SELECT * FROM quanta_time_revisions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'schema replay preserves the correction history');
 echo "$passed Quanta correction integration checks passed\n";

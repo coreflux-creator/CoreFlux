@@ -12,7 +12,7 @@ import QuantaTimeControl, { QuantaTimeControlRecovery } from './QuantaTimeContro
 import { QuantaLegacyTimeRecovery } from './QuantaLegacyTime';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
 import QuantaTimeReview, { QuantaTimeReviewRecovery } from './QuantaTimeReview';
-import QuantaTimeRevision from './QuantaTimeRevision';
+import QuantaTimeRevision, { QuantaTimeRevisionHistory } from './QuantaTimeRevision';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -435,6 +435,7 @@ export default function QuantaSettings() {
     </>}
     <QuantaMetadataRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaTimeReviewRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
+    <QuantaTimeRevisionHistory tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaTimeControlRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
     <QuantaLegacyTimeRecovery tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />
   </div>;

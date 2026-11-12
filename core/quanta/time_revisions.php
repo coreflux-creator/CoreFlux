@@ -157,6 +157,7 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
 function quantaTimeRevisionView(array $s): array
 {
     return ['source_entry_id'=>$s['source_entry_id'],'workspace'=>$s['workspace'],
+        'person_number'=>$s['route']['person_number'],'placement_number'=>$s['route']['placement_number'],
         'before'=>array_values(array_map(static fn(array $row):array=>array_intersect_key($row,array_flip([
             'id','placement_id','timesheet_id','work_date','hours','category','status','approved_at','approved_by_user_id','rate_snapshot_id'])),
             array_filter($s['prior']['entries'],static fn(array $row):bool=>$row['status']!=='superseded'))),
@@ -189,6 +190,10 @@ function quantaTimeRevisionApply(int $tenant,int $actor,string $id,string $hash,
     if ($pdo->inTransaction()) throw new LogicException('Correction apply requires its own transaction.');
     $pdo->beginTransaction();
     try {
+        // Serialize attempts before looking up an absent unique receipt, avoiding
+        // competing gap locks. Local receipt recovery does not need an active key.
+        $connectionLock=$pdo->prepare('SELECT id FROM quanta_connections WHERE tenant_id=? FOR UPDATE');
+        $connectionLock->execute([$tenant]); $connectionLock->fetchAll();
         $s=$pdo->prepare('SELECT * FROM quanta_time_revisions WHERE tenant_id=? AND review_hash=? FOR UPDATE');
         $s->execute([$tenant,$hash]); $receipt=$s->fetch(PDO::FETCH_ASSOC);
         if ($receipt) {
@@ -248,5 +253,15 @@ function quantaTimeRevisionHistory(int $tenant,int $actor,string $id,?int $befor
     if ($before!==null && $before<=0) throw new InvalidArgumentException('Invalid history page.');
     $s=getDB()->prepare('SELECT * FROM quanta_time_revisions WHERE tenant_id=? AND source_entry_id=?'.($before?' AND id<?':'').' ORDER BY id DESC LIMIT 26');
     $s->execute($before?[$tenant,$id,$before]:[$tenant,$id]); $rows=$s->fetchAll(PDO::FETCH_ASSOC);
+    return ['items'=>array_map('quantaTimeRevisionReceipt',array_slice($rows,0,25)),'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
+}
+
+/** Receipt recovery survives changed/withdrawn provider time and expired provider connections. */
+function quantaTimeRevisionRecent(int $tenant,int $actor,?int $before=null): array
+{
+    quantaTimeRevisionScope($tenant,$actor,'history');
+    if ($before!==null && $before<=0) throw new InvalidArgumentException('Invalid history page.');
+    $s=getDB()->prepare('SELECT * FROM quanta_time_revisions WHERE tenant_id=?'.($before?' AND id<?':'').' ORDER BY id DESC LIMIT 26');
+    $s->execute($before?[$tenant,$before]:[$tenant]); $rows=$s->fetchAll(PDO::FETCH_ASSOC);
     return ['items'=>array_map('quantaTimeRevisionReceipt',array_slice($rows,0,25)),'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
 }

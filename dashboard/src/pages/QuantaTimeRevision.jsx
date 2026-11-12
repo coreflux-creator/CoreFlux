@@ -75,3 +75,41 @@ export default function QuantaTimeRevision({ entryId, tenantId, connectionRevisi
     </div>}
   </details>;
 }
+
+export function QuantaTimeRevisionHistory({ tenantId, connectionRevision }) {
+  const [page, setPage] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const generation = useRef(0);
+  useEffect(() => {
+    const lifecycle = generation; generation.current++; setPage(null); setBusy(false); setError('');
+    return () => { lifecycle.current++; };
+  }, [tenantId, connectionRevision]);
+  const run = async (before = null) => {
+    const current = () => !!tenantId && (!getPinnedTenantId() || String(getPinnedTenantId()) === String(tenantId));
+    if (!current()) { setPage(null); setError('Company changed. Refresh before continuing.'); return; }
+    const sequence = ++generation.current; setBusy(true); setError('');
+    try {
+      const result = await api.post('/api/quanta.php?action=time_revision_recent', { before }, { headers: { 'X-CoreFlux-Tenant-Id': String(tenantId) } });
+      if (sequence !== generation.current) return;
+      if (!current()) { setPage(null); setError('Company changed. Refresh before continuing.'); return; }
+      setPage(prior => ({ ...result, items: before ? [...(prior?.items || []), ...result.items] : result.items }));
+    } catch (err) { if (sequence === generation.current) setError(err.message || 'Could not retrieve correction history'); }
+    finally { if (sequence === generation.current) setBusy(false); }
+  };
+  return <section style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--cf-border)' }}>
+    <h2 style={{ fontSize: 18 }}>Source correction history</h2>
+    <p>Recover saved correction receipts even when the Quanta source has changed or is no longer available.</p>
+    <button className="btn btn-secondary" disabled={busy || !tenantId} onClick={() => run()}>Find saved corrections</button>
+    {error && <p role="alert">{error}</p>}
+    {page?.items.length === 0 && <p>No saved corrections.</p>}
+    {page?.items.map(item => <div key={item.id} style={{ marginTop: 12 }}>
+      <strong>Correction #{item.id} · {item.review.person_number} · {item.review.placement_number}</strong>
+      <p>{item.created_at} · {item.review.workspace?.name} · Source {item.review.source_entry_id} · Core user #{item.actor_user_id}</p>
+      <p>{item.reason}</p>
+      <p>Original entries: {Object.values(item.result.superseded_entry_ids).join(', ')}. Replacement entries: {Object.values(item.result.new_entry_ids).join(', ')}.</p>
+      <p>Replacement hours required independent Core approval. Check the timesheet for its current status.</p>
+    </div>)}
+    {page?.next_before && <button className="btn btn-secondary" disabled={busy} onClick={() => run(page.next_before)}>Earlier saved corrections</button>}
+  </section>;
+}
