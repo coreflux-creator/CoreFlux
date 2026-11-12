@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__.'/staffing_reconciliation_contract.php';
 require_once __DIR__.'/purepay_financial_line_links.php';
 require_once __DIR__.'/purepay_observations.php';
+require_once __DIR__.'/staffing_financial_evidence.php';
 
 function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array $owners,string $number,string $start,string $end,?string $runId=null,?int $before=null): array
 {
@@ -31,6 +32,7 @@ function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array 
             foreach($q->fetchAll(PDO::FETCH_ASSOC)as$r)$rates[(int)$r['id']]=$r;
         }
         $time=staffingReconciliationTime($entries,$rates,$period);
+        $workbookReady=(int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('staffing_financial_evidence','staffing_workbook_sources')")->fetchColumn()===2;
         $otherEntries=count(array_filter($personEntries,static fn($e)=>(int)$e['placement_id']!==$target['placement_id']&&empty($e['superseded_by_id'])));
         $sql='SELECT l.id FROM purepay_financial_line_links l WHERE l.tenant_id=? AND l.connection_id=?
             AND l.placement_tenant_id=? AND l.placement_id=?
@@ -59,6 +61,9 @@ function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array 
             $q=$pdo->prepare('SELECT MAX(id) FROM purepay_financial_observations WHERE tenant_id=? AND connection_id=? AND document_kind=? AND document_id=?');
             $q->execute([$tenant,$context['connection_id'],$source['kind'],$source['document_id']]);
             $latestCapture=(int)$q->fetchColumn();
+            $workbookEvidence=$workbookReady&&$source['kind']==='invoice'
+                ?staffingEvidenceLatest($pdo,$context+['owners'=>integrationDeliveryCanonical($lineOwners)],$saved['id']):null;
+            if($workbookEvidence!==null&&$workbookEvidence['saved']['association_hash']!==$row['link_hash'])throw new RuntimeException('Workbook evidence refers to a different association review.');
             $financial[]=['association_id'=>$saved['id'],'reviewed_at'=>$saved['reviewed_at'],'capture_id'=>$link['capture_id'],
                 'captured_at'=>$source['observed_at'],'newer_capture_available'=>$latestCapture>$link['capture_id'],
                 'kind'=>$source['kind'],'document_id'=>$source['document_id'],'line_id'=>$source['line_id'],
@@ -68,6 +73,9 @@ function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array 
                 'core_approved_hours'=>$subset===null?null:$subset[$source['kind']==='invoice'?'billable_hours':'payable_hours'],
                 'core_amount'=>$coreAmount,'core_currency'=>$subset['currency']??null,
                 'comparison'=>staffingReconciliationDifference($line['amount'],$coreAmount,$source['document_currency'],$subset['currency']??null,$comparable),
+                'workbook_evidence'=>$workbookEvidence,
+                'workbook_comparison'=>($workbookEvidence['saved']['action']??null)==='record'
+                    ?staffingWorkbookComparison($workbookEvidence['saved']['workbook'],$line,$source['document_currency'],$entries,$rates,$period):null,
                 'document_payment_evidence'=>['scope'=>'whole_document_not_allocated_to_this_line',
                     'outgoing_payments'=>$observation['outgoing_payments'],'collections'=>$observation['collections'],
                     'recorded_receipts'=>$document['recorded_receipts'],'quickbooks_receipts'=>$document['quickbooks_receipts'],
@@ -107,6 +115,7 @@ function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array 
     $report=['tenant_id'=>$tenant,'placement'=>$target['placement'],'person'=>$target['person'],'person_name'=>$target['person_name'],
         'period'=>$period,'read_at'=>gmdate('c'),'time'=>$time,'financial_lines'=>$financial,'payroll'=>$payroll,
         'next_before'=>$more?(int)end($ids):null,'financial_coverage'=>'reviewed_placement_associations_only',
+        'workbook_evidence_available'=>$workbookReady,
         'provider_refreshed'=>false,'financial_postings'=>false,'execution_authority'=>false];
     if(strlen(json_encode($report,JSON_THROW_ON_ERROR))>2000000)throw new RuntimeException('This comparison is too large. Review the saved document evidence separately.');
     return $report;

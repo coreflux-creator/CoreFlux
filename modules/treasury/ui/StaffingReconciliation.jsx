@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, getPinnedTenantId } from '../../../dashboard/src/lib/api';
+import StaffingFinancialEvidence, { WorkbookEvidenceDetails } from './StaffingFinancialEvidence';
 
 const show = value => value == null ? 'Unknown' : String(value);
 const periods = { exact: 'Same work period', within: 'Within the selected period', contains: 'Covers a longer period', overlap: 'Partly overlaps', outside: 'Outside the selected period', unknown: 'Service dates unavailable' };
@@ -16,12 +17,14 @@ function Difference({ comparison }) {
 
 export function StaffingReconciliationView({ report }) {
   const [page, setPage] = useState(0);
-  useEffect(() => setPage(0), [report]);
+  const [evidenceChanged, setEvidenceChanged] = useState(false);
+  useEffect(() => { setPage(0); setEvidenceChanged(false); }, [report]);
   const entries = report.time.entries, start = page * 50;
   return <section aria-label="Placement financial comparison">
     <h4>{report.placement.number} · {report.person.number} · {report.person_name}</h4>
     <p>Work period {report.period.start} to {report.period.end}. Read {report.read_at}.</p>
     <p>This combines current Core time with saved provider evidence. It covers reviewed placement associations on this page; unlinked documents are not included. Provider records have not been refreshed by this comparison.</p>
+    {evidenceChanged && <p role="status">Workbook reviews changed. Run “Compare saved evidence” again to refresh this view.</p>}
     <h5>Approved Core time</h5>
     <p>{show(report.time.approved_hours)} approved hours · {show(report.time.payable_hours)} payable · {show(report.time.billable_hours)} billable.</p>
     <p>Frozen-rate pay: {show(report.time.pay_amount)}. Frozen-rate bill amount: {show(report.time.bill_amount)}. Currency: {show(report.time.currency)}.</p>
@@ -43,6 +46,15 @@ export function StaffingReconciliationView({ report }) {
         <tr><td>Currency</td><td>{show(line.currency)}</td><td>{show(line.core_currency)}</td></tr>
       </tbody></table>
       <Difference comparison={line.comparison} />
+      {line.workbook_evidence?.saved.action === 'record' && <details><summary>Saved workbook support · review #{line.workbook_evidence.id}</summary><WorkbookEvidenceDetails workbook={line.workbook_evidence.saved.workbook} /></details>}
+      {line.workbook_comparison && <section aria-label="Workbook comparison">
+        <p>Worksheet versus selected period: {periods[line.workbook_comparison.worksheet_relation_to_selection]}. Provider dates versus worksheet period: {periods[line.workbook_comparison.provider_relation_to_worksheet]}.</p>
+        <p>Provider minus worksheet: {show(line.workbook_comparison.provider_vs_worksheet_hours_difference)} hours; {show(line.workbook_comparison.provider_vs_worksheet_amount.numeric_difference)} numeric amount. Same-currency, same-period amount difference: {show(line.workbook_comparison.provider_vs_worksheet_amount.monetary_difference)}.</p>
+        {line.workbook_comparison.core_comparison_period && <p>For {line.workbook_comparison.core_comparison_period.start} to {line.workbook_comparison.core_comparison_period.end}: worksheet numeric inputs total {show(line.workbook_comparison.worksheet_known_hours_in_common_period)} hours; Core has {show(line.workbook_comparison.core_approved_hours_in_common_period)} approved hours. Worksheet minus Core: {show(line.workbook_comparison.worksheet_minus_core_hours)}. {line.workbook_comparison.blank_days_in_common_period} worksheet days remain blank.</p>}
+        <p>This is a comparison of reviewed source values. It does not establish original client approval or allocate the document to Core time entries.</p>
+      </section>}
+      {line.workbook_evidence?.saved.action === 'withdraw' && <p>The previous workbook support was withdrawn in review #{line.workbook_evidence.id}.</p>}
+      {line.kind === 'invoice' && report.workbook_evidence_available && <StaffingFinancialEvidence tenantId={report.tenant_id} associationId={line.association_id} onSaved={() => setEvidenceChanged(true)} />}
       <details><summary>Document payments, fees, returns and allocations</summary>
         <p>These records belong to the whole document. They are not automatically allocated to this placement line. Stored paid statuses do not prove bank delivery. Amounts labelled cents retain that unit.</p>
         <Facts value={Object.fromEntries(Object.entries(line.document_payment_evidence).filter(([key]) => key !== 'scope'))} />
