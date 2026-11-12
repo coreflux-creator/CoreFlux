@@ -68,6 +68,23 @@ return [
         'people.custom_field.value_set',
     ],
 
+    'custom_field_entities' => [
+        'people' => [
+            'label' => 'People', 'owner_module' => 'people', 'record_table' => 'people',
+            'definition_table' => 'people_custom_field_defs', 'value_table' => 'people_custom_field_values',
+            'view_permission' => 'people.view', 'manage_permission' => 'people.custom_fields.manage',
+            'value_manage_permission' => 'people.manage', 'pii_permission' => 'people.pii.view', 'pii_manage_permission' => 'people.pii.manage',
+            'surfaces' => ['forms', 'detail', 'exports', 'reports'], 'layouts' => [],
+        ],
+        'companies' => [
+            'label' => 'Companies', 'owner_module' => 'companies', 'record_table' => 'companies',
+            'definition_table' => 'custom_fields', 'value_table' => 'custom_values',
+            'view_permission' => 'people.view', 'manage_permission' => 'people.custom_fields.manage',
+            'value_manage_permission' => 'people.manage', 'pii_permission' => 'people.pii.view', 'pii_manage_permission' => 'people.pii.manage',
+            'surfaces' => ['forms', 'detail', 'exports', 'reports'], 'layouts' => [],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => [],

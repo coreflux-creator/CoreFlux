@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/ModuleRegistry.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/audit.php';
+require_once __DIR__ . '/custom_field_types.php';
 
 function customFieldEntityRegistry(): array
 {
@@ -485,6 +486,9 @@ function customFieldDefinitionCreate(int $tenantId, string $entityType, array $a
 
     if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
         $cols = customFieldPeopleDefinitionColumns();
+        foreach (['visible_to_roles_json','editable_by_roles_json'] as $accessColumn) {
+            if (!empty($data[$accessColumn]) && !in_array($accessColumn, $cols, true)) throw new InvalidArgumentException('This directory cannot retain the requested field access rules.');
+        }
         $insert = [
             'tenant_id' => $tenantId,
             'field_key' => $data['field_key'],
@@ -513,6 +517,10 @@ function customFieldDefinitionCreate(int $tenantId, string $entityType, array $a
     }
 
     $cols = customFieldLegacyColumns();
+    if (!in_array('field_name', $cols, true) || !in_array('field_label', $cols, true)) throw new InvalidArgumentException('The custom field registry needs stable keys before new definitions can be created.');
+    foreach (['visible_to_roles_json','editable_by_roles_json'] as $accessColumn) {
+        if (!empty($data[$accessColumn]) && !in_array($accessColumn, $cols, true)) throw new InvalidArgumentException('This directory cannot retain the requested field access rules.');
+    }
     $insert = ['tenant_id' => $tenantId, 'module' => $entityType];
     $insert[in_array('field_name', $cols, true) ? 'field_name' : 'label'] = $data['field_key'];
     $insert[in_array('field_label', $cols, true) ? 'field_label' : 'label'] = $data['field_label'];
@@ -656,7 +664,7 @@ function customFieldNormalizeDefinitionPayload(array $args, bool $creating): arr
     }
     if ($creating || array_key_exists('field_label', $args)) {
         $label = trim((string) ($args['field_label'] ?? ''));
-        if ($label === '') throw new InvalidArgumentException('field_label is required');
+        if ($label === '' || strlen($label) > 200) throw new InvalidArgumentException('field_label is required and must be at most 200 bytes');
         $out['field_label'] = $label;
     }
     if ($creating || array_key_exists('field_type', $args)) {
@@ -672,8 +680,11 @@ function customFieldNormalizeDefinitionPayload(array $args, bool $creating): arr
             ? json_encode($options, JSON_UNESCAPED_SLASHES)
             : ($args['options_json'] ?? $options);
     }
-    if (array_key_exists('required', $args) || $creating) $out['required'] = !empty($args['required']) ? 1 : 0;
-    if (array_key_exists('pii', $args) || $creating) $out['pii'] = !empty($args['pii']) ? 1 : 0;
+    foreach (['required', 'pii'] as $flag) {
+        if (array_key_exists($flag, $args) || $creating) {
+            $out[$flag] = (int) customFieldTypedValue(['field_type'=>'boolean'], $args[$flag] ?? false);
+        }
+    }
     if ($creating || customFieldPayloadHasAnyKey($args, ['visible_to', 'visible_to_roles', 'visible_to_roles_json'])) {
         $out['visible_to_roles_json'] = customFieldNormalizeRoleSetPayload($args, [
             'visible_to',
@@ -966,6 +977,7 @@ function customFieldLegacyValues(
     $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType, 'record_id' => $recordId]);
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $row['legacy_value_storage'] = true;
         $rows[] = customFieldNormalizeValueRow($row);
     }
     return $rows;
@@ -978,11 +990,16 @@ function customFieldNormalizeValueRow(array $row): array
     $isActive = array_key_exists('is_active', $row) ? (int) $row['is_active'] : 1;
     $archived = ($deletedAt !== null && (string) $deletedAt !== '') || $isActive === 0;
     $value = match ($type) {
-        'number'  => $row['value_number'] !== null ? (float) $row['value_number'] : null,
+        'number'  => customFieldTypedValue(['field_type'=>'number','required'=>0], $row['value_number'] ?? null),
         'date'    => $row['value_date'],
         'boolean' => $row['value_boolean'] === null ? null : (bool) $row['value_boolean'],
         default   => $row['value_text'],
     };
+    if (!empty($row['legacy_value_storage'])) {
+        $raw = $row['value_text'];
+        if ($type === 'multiselect' && is_string($raw)) $raw = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+        $value = customFieldTypedValue(['field_type'=>$type,'required'=>0,'options_json'=>$row['options_json']??null], $raw);
+    }
     if ($type === 'multiselect' && is_string($value) && $value !== '') {
         $decoded = json_decode($value, true);
         if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) $value = $decoded;
@@ -1011,127 +1028,19 @@ function customFieldNormalizeValueRow(array $row): array
 
 function customFieldValueUpsert(int $tenantId, string $entityType, int $recordId, string $fieldKey, $value): void
 {
-    $entity = customFieldEntity($entityType);
-    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
-
-    if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
-        customFieldPeopleValueUpsert($tenantId, $recordId, $fieldKey, $value);
-        return;
-    }
-
-    customFieldLegacyValueUpsert($tenantId, $entityType, $recordId, $fieldKey, $value);
+    require_once __DIR__ . '/custom_field_storage.php';
+    customFieldStorageWrite(getDB(), $tenantId, $entityType, $recordId, $fieldKey, $value);
 }
 
+// Compatibility entry points use the same record guards and atomic typed writer.
 function customFieldPeopleValueUpsert(int $tenantId, int $personId, string $fieldKey, $value): void
 {
-    $pdo = getDB();
-    $defStmt = $pdo->prepare(
-        'SELECT id, field_type
-           FROM people_custom_field_defs
-          WHERE tenant_id = :tenant_id AND field_key = :field_key AND deleted_at IS NULL
-          LIMIT 1'
-    );
-    $defStmt->execute(['tenant_id' => $tenantId, 'field_key' => $fieldKey]);
-    $def = $defStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$def) throw new InvalidArgumentException("Unknown people custom field: {$fieldKey}");
-
-    $fieldType = (string) $def['field_type'];
-    $column = match ($fieldType) {
-        'number'  => 'value_number',
-        'date'    => 'value_date',
-        'boolean' => 'value_boolean',
-        default   => 'value_text',
-    };
-
-    $coerced = $value;
-    if ($fieldType === 'multiselect' && is_array($value)) $coerced = json_encode($value);
-    if ($fieldType === 'boolean') $coerced = $value === null ? null : (int) (bool) $value;
-    if ($fieldType === 'number') $coerced = $value === null ? null : (float) $value;
-
-    $insert = $pdo->prepare(
-        'INSERT INTO people_custom_field_values
-            (tenant_id, person_id, field_def_id, value_text, value_number, value_date, value_boolean, updated_at)
-         VALUES (:tenant_id, :person_id, :field_def_id, NULL, NULL, NULL, NULL, NOW())
-         ON DUPLICATE KEY UPDATE
-            value_text = NULL,
-            value_number = NULL,
-            value_date = NULL,
-            value_boolean = NULL,
-            updated_at = NOW()'
-    );
-    $insert->execute([
-        'tenant_id'    => $tenantId,
-        'person_id'    => $personId,
-        'field_def_id' => (int) $def['id'],
-    ]);
-
-    $update = $pdo->prepare(
-        "UPDATE people_custom_field_values
-            SET {$column} = :value, updated_at = NOW()
-          WHERE tenant_id = :tenant_id AND person_id = :person_id AND field_def_id = :field_def_id"
-    );
-    $update->execute([
-        'value'        => $coerced,
-        'tenant_id'    => $tenantId,
-        'person_id'    => $personId,
-        'field_def_id' => (int) $def['id'],
-    ]);
+    customFieldValueUpsert($tenantId, 'people', $personId, $fieldKey, $value);
 }
 
 function customFieldLegacyValueUpsert(int $tenantId, string $module, int $recordId, string $fieldKey, $value): void
 {
-    $pdo = getDB();
-    $cols = customFieldLegacyColumns();
-    $keyCol = in_array('field_name', $cols, true) ? 'field_name' : 'label';
-    $defStmt = $pdo->prepare(
-        "SELECT id
-           FROM custom_fields
-          WHERE tenant_id = :tenant_id
-            AND module = :module
-            AND {$keyCol} = :field_key
-            " . customFieldLegacyActiveWhere($cols) . "
-          LIMIT 1"
-    );
-    $defStmt->execute([
-        'tenant_id' => $tenantId,
-        'module'    => $module,
-        'field_key' => $fieldKey,
-    ]);
-    $fieldId = (int) ($defStmt->fetchColumn() ?: 0);
-    if ($fieldId <= 0) throw new InvalidArgumentException("Unknown {$module} custom field: {$fieldKey}");
-
-    $existing = $pdo->prepare(
-        'SELECT id FROM custom_values
-          WHERE tenant_id = :tenant_id AND field_id = :field_id AND record_id = :record_id
-          LIMIT 1'
-    );
-    $existing->execute([
-        'tenant_id' => $tenantId,
-        'field_id'  => $fieldId,
-        'record_id' => $recordId,
-    ]);
-    $valueToStore = is_array($value) ? json_encode($value) : $value;
-    $valueId = (int) ($existing->fetchColumn() ?: 0);
-    if ($valueId > 0) {
-        $stmt = $pdo->prepare(
-            'UPDATE custom_values
-                SET value = :value
-              WHERE tenant_id = :tenant_id AND id = :id'
-        );
-        $stmt->execute(['value' => $valueToStore, 'tenant_id' => $tenantId, 'id' => $valueId]);
-        return;
-    }
-
-    $stmt = $pdo->prepare(
-        'INSERT INTO custom_values (tenant_id, field_id, record_id, value)
-         VALUES (:tenant_id, :field_id, :record_id, :value)'
-    );
-    $stmt->execute([
-        'tenant_id' => $tenantId,
-        'field_id'  => $fieldId,
-        'record_id' => $recordId,
-        'value'     => $valueToStore,
-    ]);
+    customFieldValueUpsert($tenantId, $module, $recordId, $fieldKey, $value);
 }
 
 function customFieldLegacyColumns(): array

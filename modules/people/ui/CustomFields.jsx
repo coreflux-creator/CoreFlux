@@ -11,13 +11,16 @@ export default function CustomFields() {
   const [form, setForm] = useState({ field_key: '', field_label: '', field_type: 'text', required: false, pii: false });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState(null);
+  const [optionsText, setOptionsText] = useState('');
 
   const add = async (e) => {
     e.preventDefault();
     setAdding(true); setAddError(null);
     try {
-      await api.post(path, form);
+      const choices = ['select', 'multiselect'].includes(form.field_type);
+      await api.post(path, { ...form, ...(choices ? { options: optionsText.split('\n').map(s => s.trim()).filter(Boolean) } : {}) });
       setForm({ field_key: '', field_label: '', field_type: 'text', required: false, pii: false });
+      setOptionsText('');
       reload();
     } catch (e) { setAddError(e); }
     finally     { setAdding(false); }
@@ -46,6 +49,11 @@ export default function CustomFields() {
                 data-testid="custom-fields-type">
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
+        {['select', 'multiselect'].includes(form.field_type) && (
+          <label>Choices, one per line
+            <textarea className="input" value={optionsText} onChange={e => setOptionsText(e.target.value)} required data-testid="custom-fields-options" />
+          </label>
+        )}
         <label data-testid="custom-fields-required-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
           <input type="checkbox" checked={form.required}
                  onChange={e => setForm({ ...form, required: e.target.checked })}

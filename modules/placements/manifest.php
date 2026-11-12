@@ -74,6 +74,16 @@ return [
         'placement.jobdiva_reconciliation.applied',
     ],
 
+    'custom_field_entities' => [
+        'placements' => [
+            'label' => 'Placements', 'owner_module' => 'placements', 'record_table' => 'placements',
+            'definition_table' => 'custom_fields', 'value_table' => 'custom_values',
+            'view_permission' => 'placements.view', 'manage_permission' => 'placements.custom_fields.manage',
+            'value_manage_permission' => 'placements.manage', 'pii_permission' => 'people.pii.view', 'pii_manage_permission' => 'people.pii.manage',
+            'surfaces' => ['forms', 'detail', 'exports', 'reports'], 'layouts' => [],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => ['people'],

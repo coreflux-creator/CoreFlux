@@ -28,6 +28,9 @@
  */
 declare(strict_types=1);
 
+putenv('COREFLUX_DISABLE_DATABASE=1');
+$root = dirname(__DIR__);
+
 require_once __DIR__ . '/../core/integrations/field_map_apply.php';
 
 $pass = 0; $fail = 0;
@@ -37,7 +40,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 echo "\n1. Migration 077 — tenant_integration_field_map generalisation\n";
-$m077 = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents('/app/core/migrations/077_tenant_field_map_generalise.sql'));
+$m077 = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($root . '/core/migrations/077_tenant_field_map_generalise.sql'));
 $a('adds source_path column',          str_contains($m077, 'ADD COLUMN source_path    VARCHAR(255) NULL'));
 $a('adds target_module column',        str_contains($m077, 'ADD COLUMN target_module  VARCHAR(64)  NULL'));
 $a('adds target_table column',         str_contains($m077, 'ADD COLUMN target_table   VARCHAR(64)  NULL'));
@@ -52,7 +55,7 @@ $a('backfills company rows',           str_contains($m077, "WHERE entity_type = 
 $a('adds target-lookup index',         str_contains($m077, 'ADD KEY ix_target_lookup (tenant_id, integration, target_module, target_table)'));
 
 echo "\n2. Migration 078 — integration_writable_targets catalog + seed\n";
-$m078 = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents('/app/core/migrations/078_integration_writable_targets.sql'));
+$m078 = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($root . '/core/migrations/078_integration_writable_targets.sql'));
 $a('creates integration_writable_targets table',
     str_contains($m078, 'CREATE TABLE IF NOT EXISTS integration_writable_targets'));
 $a('uq_tenant_target unique key',      str_contains($m078, 'UNIQUE KEY uq_tenant_target (tenant_id, target_module, target_table, target_column)'));
@@ -91,7 +94,7 @@ $a('missing path returns null',     integrationPayloadResolvePath($payload, '_jd
 $a('object cursor returns null',    integrationPayloadResolvePath($payload, '_jd_customer') === null);
 
 echo "\n4. tenantIntegrationFieldMapUpsert — generalised shape accepted\n";
-$fm = (string) file_get_contents('/app/core/integrations/field_map.php');
+$fm = (string) file_get_contents($root . '/core/integrations/field_map.php');
 $a('reads source_path from payload',  str_contains($fm, "\$sourcePath    = isset(\$payload['source_path'])"));
 $a('reads target_module from payload',str_contains($fm, "\$targetModule  = isset(\$payload['target_module'])"));
 $a('reads target_table from payload', str_contains($fm, "\$targetTable   = isset(\$payload['target_table'])"));
@@ -113,7 +116,7 @@ $a('upsert writes all five generalized columns',
     && str_contains($fm, 'target_module, target_table, target_column, linked_entity,'));
 
 echo "\n5. integrationFieldMapApplyAll — wire-up + bucket semantics\n";
-$apply = (string) file_get_contents('/app/core/integrations/field_map_apply.php');
+$apply = (string) file_get_contents($root . '/core/integrations/field_map_apply.php');
 $a('buckets writes per (target_table, row_id)',
     str_contains($apply, '$bucket = []; // key: "tbl#id"'));
 $a('flushes bucket via single UPDATE per row',
@@ -121,7 +124,7 @@ $a('flushes bucket via single UPDATE per row',
 $a('UPDATE always enforces tenant_id scope',
     str_contains($apply, 'WHERE id = :id AND tenant_id = :t'));
 $a('source_path resolves first, external_field is fallback',
-    strpos($apply, "integrationPayloadResolvePath(\$payload, (string) \$m['source_path'])")
+    strpos($apply, "integrationPayloadResolvePath(\$payload, (string) \$m['source_path'],")
     < strpos($apply, "tenantIntegrationFieldMapPluckPath(\$payload, (string) \$m['external_field'])"));
 $a('sync plucker also honors source_path before legacy external_field',
     str_contains($fm, 'SELECT internal_field, external_field, source_path, transform')
@@ -132,9 +135,9 @@ $a('applies transform via existing helper',
     str_contains($apply, "tenantIntegrationFieldMapApplyTransform(\$val, (string) \$m['transform'])"));
 $a('custom_field_values target bucketed separately',
     str_contains($apply, "if (\$table === 'custom_field_values')")
-    && str_contains($apply, "\$bucket[\$key]['cf'][\$col] = \$val;"));
-$a('cf bucket flushed via customFieldValueUpsert when available',
-    str_contains($apply, 'customFieldValueUpsert($tid, $entityType, $b[\'id\'], $code, $v)'));
+    && str_contains($apply, "\$bucket[\$key]['cf'][\$col][]"));
+$a('custom mappings use their typed destination and preserve existing Core values',
+    str_contains($apply, 'integrationCustomFieldApply($pdo,$tid,$integration,$entry[\'mapping\'],(int)$b[\'id\'],$entry[\'value\'])'));
 $a('skip + error log when linked_entity has no context row',
     str_contains($apply, 'no_context_row for linked_entity'));
 $a('protected identity targets are hidden and skipped',
@@ -143,8 +146,8 @@ $a('protected identity targets are hidden and skipped',
     && str_contains($apply, 'integrationFieldMapSkip($summary, $m, \'protected_target\')'));
 
 echo "\n6. JobDiva sync invokes applyAll right after mappingUpsert\n";
-$sync = (string) file_get_contents('/app/core/jobdiva/sync.php');
-$projector = (string) file_get_contents('/app/core/jobdiva/projector.php');
+$sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
+$projector = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $a('apply step requires field_map_apply.php',
     str_contains($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';"));
 $a('placement sync calls shared placement mapping helper',
@@ -164,7 +167,7 @@ $a('apply step is wrapped in try/catch (best-effort)',
     (bool) preg_match('/try \{\s*\$summary\[\'field_map\'\] = jobdivaApplyPlacementFieldMappings/s', $projector));
 
 echo "\n7. /api/admin/integrations/writable_targets.php discovery endpoint\n";
-$wt = (string) file_get_contents('/app/api/admin/integrations/writable_targets.php');
+$wt = (string) file_get_contents($root . '/api/admin/integrations/writable_targets.php');
 $a('GET only',                       str_contains($wt, "if (api_method() !== 'GET') api_error('Method not allowed', 405);"));
 $a('RBAC tenant_admin.integrations', str_contains($wt, "rbac_legacy_require(\$user, 'tenant_admin.integrations')"));
 $a('returns targets[] from integrationWritableTargetsList',
@@ -175,10 +178,10 @@ $a('module + table query params honoured',
 
 echo "\n8. PHP syntax\n";
 foreach ([
-    '/app/core/integrations/field_map.php',
-    '/app/core/integrations/field_map_apply.php',
-    '/app/core/jobdiva/sync.php',
-    '/app/api/admin/integrations/writable_targets.php',
+    $root . '/core/integrations/field_map.php',
+    $root . '/core/integrations/field_map_apply.php',
+    $root . '/core/jobdiva/sync.php',
+    $root . '/api/admin/integrations/writable_targets.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

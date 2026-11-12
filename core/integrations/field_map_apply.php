@@ -124,7 +124,7 @@ function integrationFieldMapIsProtectedTarget(string $table, string $column): bo
  * shallow-tolerant resolver — this is the strict dotted-path one
  * that the Phase 2/3 UI builds against.
  */
-function integrationPayloadResolvePathStrict(array $payload, string $path): mixed
+function integrationPayloadResolvePathStrict(array $payload, string $path, bool $allowList = false): mixed
 {
     if ($path === '' || $path === '$') return null;
     $cursor = $payload;
@@ -165,7 +165,7 @@ function integrationPayloadResolvePathStrict(array $payload, string $path): mixe
             $cursor = $matchedValue;
         }
     }
-    if (is_array($cursor)) return null; // not a scalar leaf
+    if (is_array($cursor) && (!$allowList || !array_is_list($cursor))) return null;
     return $cursor;
 }
 
@@ -216,10 +216,10 @@ function integrationPayloadSourcePathAliases(string $path): array
     return $out;
 }
 
-function integrationPayloadResolvePath(array $payload, string $path): mixed
+function integrationPayloadResolvePath(array $payload, string $path, bool $allowList = false): mixed
 {
     foreach (integrationPayloadSourcePathAliases($path) as $candidatePath) {
-        $value = integrationPayloadResolvePathStrict($payload, $candidatePath);
+        $value = integrationPayloadResolvePathStrict($payload, $candidatePath, $allowList);
         if ($value !== null) return $value;
     }
     return null;
@@ -1279,7 +1279,7 @@ function integrationFieldMapApplyAll(
         // legacy `external_field` (flat) is the fallback.
         $val = null;
         if (!empty($m['source_path'])) {
-            $val = integrationPayloadResolvePath($payload, (string) $m['source_path']);
+            $val = integrationPayloadResolvePath($payload, (string) $m['source_path'], ($m['target_table'] ?? '') === 'custom_field_values');
         }
         if ($val === null && !empty($m['external_field'])) {
             // Walk shallow + enriched nests via the existing legacy
@@ -1306,7 +1306,7 @@ function integrationFieldMapApplyAll(
             }
         }
         $rawValForSafety = $val;
-        $val = integrationFieldMapCoerceTargetValue($val, $m);
+        $val = ($m['target_table'] ?? null) === 'custom_field_values' ? $val : integrationFieldMapCoerceTargetValue($val, $m);
         if ($val === null || $val === '') {
             if (strtolower((string) $m['target_table']) === 'placement_rates') $invalidRateSource = true;
             integrationFieldMapSkip($summary, $m, 'value_not_valid_for_coreflux_field');
@@ -1358,7 +1358,7 @@ function integrationFieldMapApplyAll(
         }
         $key = $pendingPlacementRateFor > 0
             ? $table . '@placement#' . $pendingPlacementRateFor
-            : $table . '#' . $rowId;
+            : ($table === 'custom_field_values' ? $table . ':' . (string) ($m['target_module'] ?? '') : $table) . '#' . $rowId;
         if (!isset($bucket[$key])) {
             $bucket[$key] = [
                 'table' => $table,
@@ -1372,9 +1372,8 @@ function integrationFieldMapApplyAll(
         }
 
         if ($table === 'custom_field_values') {
-            // target_column carries the custom_fields.code; the apply
-            // step writes via the existing custom-fields primitive.
-            $bucket[$key]['cf'][$col] = $val;
+            // A stable definition key belongs to the destination module, not the source payload entity.
+            $bucket[$key]['cf'][$col][] = ['value'=>$rawValForSafety,'mapping'=>$m];
         } else {
             $bucket[$key]['set'][$col] = $val;
             $bucket[$key]['raw_set'][$col] = $rawValForSafety;
@@ -1450,18 +1449,18 @@ function integrationFieldMapApplyAll(
             }
         }
         if (!empty($b['cf'])) {
-            try {
-                require_once __DIR__ . '/../custom_fields.php';
-                foreach ($b['cf'] as $code => $v) {
-                    if (function_exists('customFieldValueUpsert')) {
-                        customFieldValueUpsert($tid, $entityType, $b['id'], $code, $v);
-                        $summary['written']++;
-                    } else {
-                        $summary['errors'][] = "custom_fields lib missing — code={$code}";
-                    }
+            require_once __DIR__ . '/custom_fields.php';
+            foreach ($b['cf'] as $code => $values) {
+                try {
+                    if(count($values)!==1)throw new InvalidArgumentException('Multiple mappings target the same custom field; review the ambiguity.');
+                    $entry=$values[0];
+                    $result=integrationCustomFieldApply($pdo,$tid,$integration,$entry['mapping'],(int)$b['id'],$entry['value']);
+                    if($result['changed'])$summary['written']++;
+                    else integrationFieldMapSkip($summary,$entry['mapping'],'custom_value_already_current');
+                } catch (\Throwable $e) {
+                    $summary['skipped']+=count($values);
+                    $summary['errors'][] = "cf_write_fail {$b['table']}#{$b['id']}: " . $e->getMessage();
                 }
-            } catch (\Throwable $e) {
-                $summary['errors'][] = "cf_write_fail {$b['table']}#{$b['id']}: " . $e->getMessage();
             }
         }
     }

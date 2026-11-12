@@ -274,6 +274,31 @@ class ModuleRegistry {
         return $this->getPeopleGraphContracts()[$moduleId] ?? null;
     }
 
+    /** Manifest-owned custom entities. Ambiguous declarations never pick an arbitrary storage owner. */
+    public function getCustomFieldEntities(): array {
+        $entities = [];
+        foreach ($this->modules as $moduleId => $module) {
+            $declared = $module['custom_field_entities'] ?? [];
+            if (!is_array($declared)) throw new RuntimeException('Invalid custom field entity declarations');
+            foreach ($declared as $key => $entity) {
+                if (!is_string($key) || !preg_match('/^[a-z][a-z0-9_]*$/D', $key) || !is_array($entity)
+                    || isset($entities[$key])) throw new RuntimeException('Ambiguous custom field entity declaration');
+                foreach (['record_table', 'definition_table', 'value_table', 'owner_module', 'view_permission', 'manage_permission'] as $required) {
+                    if (!is_string($entity[$required] ?? null) || $entity[$required] === '') throw new RuntimeException('Incomplete custom field entity declaration');
+                }
+                foreach (['record_table', 'definition_table', 'value_table', 'owner_module'] as $identifier) {
+                    if (!preg_match('/^[a-z][a-z0-9_]*$/D', $entity[$identifier])) throw new RuntimeException('Invalid custom field storage declaration');
+                }
+                $entities[$key] = array_merge($entity, ['entity_type' => $key, 'module_id' => $moduleId]);
+            }
+        }
+        return $entities;
+    }
+
+    public function getCustomFieldEntity(string $entityType): ?array {
+        return $this->getCustomFieldEntities()[$entityType] ?? null;
+    }
+
     /**
      * Map of permission_key => human_readable_description across all modules.
      * Useful for an admin UI that wants to render checkboxes with labels.

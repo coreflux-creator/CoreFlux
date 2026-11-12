@@ -593,7 +593,7 @@ function CustomFieldsTab({ personId }) {
   const defsApi  = useApi('/api/v1/people/custom-field-definitions');
   const valsApi  = useApi(`/api/v1/people/custom-field-values/${personId}`);
   const layoutApi = useApi('/api/v1/people/custom-field-layouts/detail');
-  const defs     = defsApi.data?.definitions ?? [];
+  const defs     = (defsApi.data?.definitions ?? []).filter(d => !d.sensitive_hidden && d.field_access?.visible !== false);
   const valsRaw  = valsApi.data?.values ?? [];
   const layout    = layoutApi.data?.layout?.layout ?? {};
   const fieldOrder = Array.isArray(layout.field_order) ? layout.field_order : [];
@@ -617,12 +617,14 @@ function CustomFieldsTab({ personId }) {
   const loading = defsApi.loading || valsApi.loading || layoutApi.loading;
   if (loading) return <p data-testid="tab-custom-loading">Loading…</p>;
   if (defsApi.error) return <p className="error" data-testid="tab-custom-error">Error: {defsApi.error.message}</p>;
+  if (valsApi.error) return <p className="error" data-testid="tab-custom-error">Error: {valsApi.error.message}</p>;
 
-  const get = (k) => (k in draft ? draft[k] : (valByKey[k] ?? (defs.find((d) => d.field_key === k)?.field_type === 'boolean' ? false : '')));
+  const get = (k) => (k in draft ? draft[k] : (valByKey[k] ?? null));
   const setV = (k) => (e) => {
     const field = defs.find((d) => d.field_key === k);
-    let v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-    if (field?.field_type === 'number' && v !== '') v = Number(v);
+    let v = e.target.value;
+    if (field?.field_type === 'boolean') v = v === '' ? null : v === 'true';
+    if (field?.field_type === 'multiselect') v = Array.from(e.target.selectedOptions, option => option.value);
     setDraft({ ...draft, [k]: v });
   };
 
@@ -685,25 +687,29 @@ function CustomFieldsTab({ personId }) {
 
 function CustomFieldInput({ def, value, onChange }) {
   const testId = `custom-values-input-${def.field_key}`;
+  const disabled = def.field_access?.editable === false;
   if (def.field_type === 'boolean') {
-    return <input type="checkbox" data-testid={testId} checked={!!value} onChange={onChange} />;
+    return <select className="input" data-testid={testId} disabled={disabled} value={value == null || value === '' ? '' : String(value)} onChange={onChange}>
+      <option value="">— Unset —</option><option value="true">Yes</option><option value="false">No</option>
+    </select>;
   }
   if (def.field_type === 'date') {
-    return <input type="date" className="input" data-testid={testId} value={value || ''} onChange={onChange} />;
+    return <input type="date" className="input" data-testid={testId} disabled={disabled} value={value || ''} onChange={onChange} />;
   }
   if (def.field_type === 'number') {
-    return <input type="number" className="input" data-testid={testId} value={value ?? ''} onChange={onChange} />;
+    return <input type="number" step="any" className="input" data-testid={testId} disabled={disabled} value={value ?? ''} onChange={onChange} />;
   }
-  if (def.field_type === 'select') {
+  if (def.field_type === 'select' || def.field_type === 'multiselect') {
     const opts = (() => { try { return JSON.parse(def.options_json || '[]'); } catch { return []; } })();
+    const multiple = def.field_type === 'multiselect';
     return (
-      <select className="input" data-testid={testId} value={value || ''} onChange={onChange}>
-        <option value="">—</option>
+      <select className="input" data-testid={testId} disabled={disabled} multiple={multiple} value={multiple ? (Array.isArray(value) ? value : []) : (value || '')} onChange={onChange}>
+        {!multiple && <option value="">—</option>}
         {opts.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     );
   }
-  return <input className="input" data-testid={testId} value={value || ''} onChange={onChange} />;
+  return <input className="input" data-testid={testId} disabled={disabled} value={value ?? ''} onChange={onChange} />;
 }
 
 

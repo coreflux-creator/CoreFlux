@@ -1,0 +1,125 @@
+<?php
+declare(strict_types=1);
+$inCi=getenv('GITHUB_ACTIONS')==='true'&&getenv('CI')==='true';
+$local=getenv('COREFLUX_DELIVERY_LOCAL_FIXTURE')==='1'&&in_array('--confirm-disposable-fixture',$argv,true)&&(string)getenv('COREFLUX_DELIVERY_TEST_PASSWORD')!=='';
+if(!$inCi&&!$local)throw new RuntimeException('Explicit disposable fixture configuration required');
+putenv('COREFLUX_DISABLE_DATABASE=1');
+require_once __DIR__.'/../core/custom_field_actions.php';
+require_once __DIR__.'/../core/integrations/field_map_apply.php';
+require_once __DIR__.'/../core/integrations/custom_fields.php';
+require_once __DIR__.'/../core/migrate.php';
+$password=$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD');
+$options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC];
+$pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
+$db='coreflux_custom_fields_'.gmdate('YmdHis').'_'.getmypid();
+$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
+$passed=0;
+$check=static function(bool $ok,string $label)use(&$passed):void{if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
+$fails=static function(callable $fn,string $contains=''):bool{try{$fn();return false;}catch(Throwable $e){return $contains===''||str_contains($e->getMessage(),$contains);}};
+$apply=static function(string $file)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../'.$file))as$sql)$pdo->exec($sql);};
+try {
+    foreach(['people','companies','placements'] as $table){
+        $pdo->exec('CREATE TABLE '.$table.'(id BIGINT UNSIGNED PRIMARY KEY,tenant_id BIGINT UNSIGNED,deleted_at DATETIME)');
+        $pdo->exec('INSERT INTO '.$table.' VALUES(1,'.($table==='companies'?20:10).',NULL),(2,30,NULL),(3,10,NOW()),(4,20,NULL),(5,10,NULL)');
+    }
+    $pdo->exec('CREATE TABLE tenants(id BIGINT PRIMARY KEY,parent_id BIGINT,tenant_type VARCHAR(20),name VARCHAR(80),is_active BOOLEAN)');
+    $pdo->exec('INSERT INTO tenants VALUES(10,NULL,"master","Synthetic parent",1),(20,10,"sub","Synthetic child",1),(30,NULL,"master","Other company",1)');
+    $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(50),scope_mode VARCHAR(20),PRIMARY KEY(tenant_id,module_key))');
+    $pdo->exec('INSERT INTO tenant_module_scope VALUES(20,"companies","isolated")');
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../modules/people/migrations/003_spec_alignment.sql'))as$sql){
+        if(preg_match('/CREATE TABLE IF NOT EXISTS people_custom_field_(defs|values)\s*\(/',$sql))$pdo->exec($sql);
+    }
+    $apply('core/migrations/190_staffing_custom_fields.sql');$apply('core/migrations/190_staffing_custom_fields.sql');
+    $apply('core/migrations/068_tenant_integration_field_map.sql');$apply('core/migrations/077_tenant_field_map_generalise.sql');
+    $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT,actor_user_id BIGINT,event VARCHAR(128),target_id BIGINT,meta_json TEXT,created_at DATETIME)');
+    $snapshot=static function()use($pdo):array{$out=[];foreach(['people','companies','placements','tenants','tenant_module_scope']as$t)$out[$t]=$pdo->query('SELECT * FROM '.$t.' ORDER BY 1')->fetchAll();return$out;};
+    $protected=$snapshot();
+    $create=static fn(string $entity,string $key,string $type='text',array $extra=[])=>customFieldDefinitionAction(20,$entity,'create',0,['field_key'=>$key,'field_label'=>$key,'field_type'=>$type]+$extra,99,true);
+    $read=static function(string $entity,int $record,string $key,int $tenant=20)use($pdo):array{$owner=customFieldDirectoryOwner($tenant,$entity);$def=customFieldStorageDefinition($pdo,$owner,$entity,$record,$key);return customFieldStorageCurrent($pdo,$owner,$entity,$record,$def);};
+    foreach(['people','placements','companies']as$entity)$create($entity,'shared_flag','boolean');
+    $check(customFieldDirectoryOwner(20,'people')===10&&customFieldDirectoryOwner(20,'placements')===10&&customFieldDirectoryOwner(20,'companies')===20,'directories honor parent sharing and company isolation');
+    $check(count(customFieldDefinitions(10,'people'))===1&&customFieldDefinitions(20,'people')===[],'definition discovery reads without undefined payload and remains directory scoped');
+    $map=static function(string $entity,string $key,string $path,string $internal='')use($pdo):array{
+        $pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,source_path,internal_field,target_module,target_table,target_column,linked_entity) VALUES(20,"jobdiva","placement",?,?,?,?,"custom_field_values",?,?)')
+            ->execute([$path,$path,$internal?:$entity.'_'.$key,$entity,$key,match($entity){'people'=>'person','companies'=>'end_client_company',default=>'placement'}]);
+        return ['id'=>(int)$pdo->lastInsertId(),'target_module'=>$entity,'target_table'=>'custom_field_values','target_column'=>$key];
+    };
+    $mapping=$map('people','shared_flag','personFlag');$map('placements','shared_flag','assignmentFlag');$map('companies','shared_flag','companyFlag');
+    $context=['self'=>1,'placement'=>1,'person'=>1,'end_client_company'=>1];
+    $payload=['personFlag'=>false,'assignmentFlag'=>true,'companyFlag'=>'false'];
+    $result=integrationFieldMapApplyAll(20,'jobdiva','placement',$payload,$context);
+    $check($result['written']===3&&$result['errors']===[],'one source payload routes three same-numbered records to their distinct custom entities');
+    $check($read('people',1,'shared_flag')['value']===false&&$read('placements',1,'shared_flag')['value']===true&&$read('companies',1,'shared_flag')['value']===false,'false and true retain meaning across typed and shared storage');
+    $auditBefore=$pdo->query('SELECT * FROM audit_log ORDER BY id')->fetchAll();
+    $replay=integrationFieldMapApplyAll(20,'jobdiva','placement',$payload,$context);
+    $check($replay['written']===0&&$replay['skipped']===3&&$replay['errors']===[]&&$pdo->query('SELECT * FROM audit_log ORDER BY id')->fetchAll()===$auditBefore,'exact source replay changes no values or audit rows');
+    $payload['personFlag']=true;
+    $conflict=integrationFieldMapApplyAll(20,'jobdiva','placement',$payload,$context);
+    $check($conflict['written']===0&&count($conflict['errors'])===1&&$read('people',1,'shared_flag')['value']===false,'changed incoming source reports conflict and retains Core value');
+    $user=['id'=>99,'role'=>'user'];
+    customFieldValuesAction(20,'people',1,['shared_flag'=>null],$user,false);
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,20,'jobdiva',$mapping,1,false),'different custom value')&&$read('people',1,'shared_flag')===['exists'=>true,'value'=>null],'explicit operator clear stays owned and cannot be refilled by source');
+    foreach(['people','placements','companies']as$entity){
+        $create($entity,'exact_decimal','number');
+        customFieldValuesAction(20,$entity,1,['exact_decimal'=>'99999999999999.999999'],$user,false);
+        $check($read($entity,1,'exact_decimal')['value']==='99999999999999.999999','exact six-place decimal retained for '.$entity);
+        $check($fails(fn()=>customFieldValuesAction(20,$entity,1,['exact_decimal'=>'3 hours'],$user,false)),'malformed numeric update refused for '.$entity);
+    }
+    $create('placements','choice_list','multiselect',['options'=>['A','B']]);
+    $map('placements','choice_list','choices');
+    $choice=integrationFieldMapApplyAll(20,'jobdiva','placement',['choices'=>['B','A','B']],$context);
+    $check($choice['written']===1&&$read('placements',1,'choice_list')['value']===['A','B'],'multiselect source reaches strict choices without flattening an array');
+    $choice=integrationFieldMapApplyAll(20,'jobdiva','placement',['choices'=>['A','B']],$context);
+    $check($choice['written']===0&&$choice['errors']===[],'multiselect order and duplicates do not create a false conflict');
+    $create('placements','duplicate_source');$map('placements','duplicate_source','left');$map('placements','duplicate_source','right','second_duplicate_source');
+    $ambiguous=integrationFieldMapApplyAll(20,'jobdiva','placement',['left'=>'A','right'=>'B'],$context);
+    $check($ambiguous['written']===0&&$ambiguous['skipped']===6&&count($ambiguous['errors'])===1&&!$read('placements',1,'duplicate_source')['exists'],'two mappings to one destination require review instead of last-value wins');
+    $create('people','sensitive_note','text',['pii'=>true]);$sensitive=$map('people','sensitive_note','private');
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,20,'jobdiva',$sensitive,1,'private source'),'protected owner workflow'),'source cannot fill protected custom values');
+    $check($fails(fn()=>customFieldValuesAction(20,'people',1,['sensitive_note'=>'private'],$user,false),'Permission'),'operator needs separate sensitive permission');
+    customFieldValuesAction(20,'people',1,['sensitive_note'=>'private'],$user,true);
+    $visible=customFieldFilterValuesForUser(customFieldValues(10,'people',1,false),$user);
+    $check(!in_array('sensitive_note',array_column($visible,'field_key'),true),'ordinary value read excludes sensitive custom values');
+    $restrictedId=$create('placements','restricted_note','text',['editable_by'=>['admin'],'visible_to'=>['admin']]);
+    $restricted=$map('placements','restricted_note','restricted');
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,20,'jobdiva',$restricted,1,'private'))&&$fails(fn()=>customFieldValuesAction(20,'placements',1,['restricted_note'=>'private'],$user,true)),'role-restricted fields cannot be filled by source or an unrelated role');
+    $check($fails(fn()=>$create('people','unsupported_roles','text',['editable_by'=>['admin']]),'cannot retain'),'unsupported people access rules are refused instead of silently dropped');
+    foreach([2,3,999]as$record)$check($fails(fn()=>integrationCustomFieldApply($pdo,20,'jobdiva',$mapping,$record,false),'unavailable'),'foreign archived or missing person refused '.$record);
+    $check($fails(fn()=>customFieldValuesAction(30,'people',1,['shared_flag'=>true],$user,true),'unavailable'),'foreign active directory cannot write another company record');
+    $check($fails(fn()=>$create('placements','bad_options','select',['options'=>['A','A']]))&&$fails(fn()=>$create('placements','empty_options','select')),'invalid choice definitions never persist');
+    $check($fails(fn()=>customFieldDefinitionAction(20,'placements','update',$restrictedId,['field_key'=>'renamed'],99,true),'immutable')&&$fails(fn()=>customFieldDefinitionAction(20,'placements','update',$restrictedId,['field_type'=>'number'],99,true),'immutable'),'definition keys and types cannot change underneath saved mappings');
+    $piiId=(int)$pdo->query("SELECT id FROM people_custom_field_defs WHERE field_key='sensitive_note'")->fetchColumn();
+    $check($fails(fn()=>customFieldDefinitionAction(20,'people','update',$piiId,['pii'=>false],99,false),'Sensitive'),'turning sensitivity off also needs sensitive management permission');
+    $check($fails(fn()=>customFieldDefinitionAction(30,'placements','archive',$restrictedId,[],99,true),'not found'),'foreign directory cannot archive a definition');
+    $before=$pdo->query('SELECT * FROM people_custom_field_values ORDER BY id')->fetchAll();$auditBefore=$pdo->query('SELECT * FROM audit_log ORDER BY id')->fetchAll();
+    $check($fails(fn()=>customFieldValuesAction(20,'people',1,['shared_flag'=>true,'zz_unknown'=>'bad'],$user,true))&&$pdo->query('SELECT * FROM people_custom_field_values ORDER BY id')->fetchAll()===$before&&$pdo->query('SELECT * FROM audit_log ORDER BY id')->fetchAll()===$auditBefore,'unknown second field rolls back the entire operator batch and its audit');
+    $pdo->exec("CREATE TRIGGER reject_custom_audit BEFORE INSERT ON audit_log FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit refused'");
+    $check($fails(fn()=>customFieldValuesAction(20,'people',1,['shared_flag'=>true],$user,true),'audit refused')&&$pdo->query('SELECT * FROM people_custom_field_values ORDER BY id')->fetchAll()===$before,'audit failure rolls back operator value change');
+    $check($fails(fn()=>$create('placements','audit_failure'),'audit refused')&&(int)$pdo->query("SELECT COUNT(*) FROM custom_fields WHERE field_name='audit_failure'")->fetchColumn()===0,'audit failure rolls back definition creation');
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,20,'jobdiva',$mapping,5,false),'audit refused')&&!$read('people',5,'shared_flag')['exists'],'audit failure rolls back source fill');
+    $pdo->exec('DROP TRIGGER reject_custom_audit');
+    $pdo->beginTransaction();customFieldValuesAction(20,'people',1,['shared_flag'=>true],$user,true);$pdo->rollBack();
+    $check($pdo->query('SELECT * FROM people_custom_field_values ORDER BY id')->fetchAll()===$before,'caller rollback also rolls back successful nested custom actions');
+    $def=customFieldStorageDefinition($pdo,10,'people',5,'shared_flag');
+    $pdo->prepare('INSERT INTO people_custom_field_values(tenant_id,person_id,field_def_id,value_boolean) VALUES(30,5,?,1)')->execute([$def['id']]);
+    $collision=$pdo->query('SELECT * FROM people_custom_field_values WHERE person_id=5')->fetchAll();
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,20,'jobdiva',$mapping,5,false),'ownership is inconsistent')&&$pdo->query('SELECT * FROM people_custom_field_values WHERE person_id=5')->fetchAll()===$collision,'corrupt legacy uniqueness collision is refused without overwriting foreign-owned bytes');
+    $pdo->exec('DELETE FROM people_custom_field_values WHERE person_id=5');
+    $other=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);$other->exec('SET innodb_lock_wait_timeout=1');
+    $pdo->beginTransaction();customFieldStorageWrite($pdo,10,'people',5,'shared_flag',true,null,true);
+    $check($fails(fn()=>customFieldStorageWrite($other,10,'people',5,'shared_flag',false,null,true),'Lock wait timeout'),'concurrent source writer waits on the canonical record instead of racing the first fill');
+    $pdo->commit();
+    $check($fails(fn()=>customFieldStorageWrite($other,10,'people',5,'shared_flag',false,null,true),'different custom value'),'after first commit competing source sees the conflict');
+    $other=null;
+    $check($fails(fn()=>$pdo->prepare('INSERT INTO custom_values(tenant_id,field_id,record_id,value) VALUES(30,?,1,"bad")')->execute([$restrictedId])),'database foreign key refuses a definition/value tenant mismatch');
+    customFieldValuesAction(20,'placements',1,['restricted_note'=>'retained'],['id'=>99,'role'=>'admin'],true);
+    customFieldDefinitionAction(20,'placements','archive',$restrictedId,[],99,true);
+    $check($fails(fn()=>customFieldValuesAction(20,'placements',1,['restricted_note'=>'changed'],['id'=>99,'role'=>'admin'],true),'active custom field')&&(string)$pdo->query('SELECT value FROM custom_values WHERE field_id='.$restrictedId)->fetchColumn()==='retained','archive retains saved values and refuses further writes');
+    $check($snapshot()===$protected,'people placements companies directory settings and identities are unchanged');
+    $metadata=implode('',array_column($pdo->query('SELECT meta_json FROM audit_log')->fetchAll(),'meta_json'));
+    $check(!str_contains($metadata,'private source')&&!str_contains($metadata,'99999999999999')&&!str_contains($metadata,'retained'),'audit records describe changes without recording custom values');
+    echo "Staffing custom field database fixture: $passed passed\n";
+} finally {
+    if($pdo->inTransaction())$pdo->rollBack();
+    $pdo->exec('USE information_schema');$pdo->exec('DROP DATABASE '.$db);
+}
