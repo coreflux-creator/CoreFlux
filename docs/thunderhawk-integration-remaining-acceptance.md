@@ -27,6 +27,16 @@ The immediate priority is the field-disposition inventory and the remaining port
 
 The full integration goal remains active and incomplete.
 
+## November 12 time-field alignment candidate
+
+The preceding goal turn made progress by installing the reviewed Quanta correction workflow and verifying hosted paid-period guards. A fresh metadata-only read at 09:34 UTC confirmed 2,037 inventory entries and 574 undecided native fields, including the newly installed current-component marker. No business values were exported or changed.
+
+The candidate explicitly defines time entries, processing periods, weekly headers, downstream bundles and Quanta import evidence. It adds the previously omitted original-approval observation and encrypted-correction receipt tables to the inventory. On the current column inventory, 87 previously undecided fields receive native ownership and specialized writer decisions; 487 remain undecided outside this set. New unknown columns remain unreviewed. The candidate preserves every existing implemented exchange mapping, adds the actual approved-time and Core-status paths, and distinguishes local raw storage from provider projections. Private approval evidence, notes and encrypted revision envelopes retain dedicated handling. This dictionary does not grant access, enable any connector, or prove a live delivery.
+
+Source inspection also found unfinished behavior in the legacy JobDiva time adapter: unknown categories default to regular, source approval/provenance retention is incomplete, a protected approved row can leave its data unchanged while the source mapping hash advances, and changed source dates/identity and locked-period handling need hardening. The candidate exposes these routes as `legacy_adapter_hardening_required`, rather than claiming reviewed two-way corrections. Fixing and validating those behaviors remains required before using JobDiva time sync in the live pilot.
+
+Local checks pass: 147 time-field contract checks, 40 ownership checks and 366 record-number/mapping checks. Native CI, isolated installation and hosted dictionary/preservation readback are pending. The synthetic Quanta correction round trip, signed-in operator journeys, remaining fields and financial reconciliation remain open.
+
 ## November 12 reviewed Quanta source corrections — installed pilot release
 
 This goal continuation classified the intervening accounting-link reply as no integration progress, revalidated the clean implementation worktree at `2c8d12eb`, and inspected the actual correction writer. The old manual correction action could replace approved Quanta time with an unlinked manual draft. The candidate now sends Quanta corrections through an explicit source review and refuses that manual provenance bypass under the entry lock.

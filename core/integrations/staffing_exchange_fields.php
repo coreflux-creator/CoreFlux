@@ -2,6 +2,7 @@
 /** Source-backed exchange inventory. Describes payloads; never authorizes or performs a write. */
 declare(strict_types=1);
 require_once __DIR__ . '/../jobdiva/staffing_field_mappings.php';
+require_once __DIR__ . '/staffing_time_field_contract.php';
 
 function staffingExchangeFieldMappings(): array
 {
@@ -206,6 +207,14 @@ function staffingExchangeFieldMappings(): array
         $commercial('staffing_operating_cycles.'.$column,'current_commercial_context.cycles[].'.$column,'only_cycles_referenced_by_current_placement_or_parties; scoped_to_placement_owner');
     foreach(['id','economic_party_id','description','settlement_channel','direction','amount','currency','apply_on','taxable','status','source_system','source_external_id'] as $column)
         $commercial('placement_economic_items.'.$column,'current_commercial_context.one_time_items[].'.$column,'preserve_active_and_void_configuration; exact_decimal_amount; matching_party_channel; never_posting_or_payment_evidence');
+    staffingTimeExchangeMappings($add);
+    foreach ($fields as $key => &$providers) {
+        if (!str_starts_with($key, 'time_entries.')) continue;
+        foreach ($providers['jobdiva'] ?? [] as $index => $mapping) {
+            $providers['jobdiva'][$index]['verification_status'] = 'legacy_adapter_hardening_required';
+        }
+    }
+    unset($providers);
     return $fields;
 }
 
@@ -213,10 +222,12 @@ function staffingExchangeRemoteContracts(string $key, array $contracts): array
 {
     foreach (staffingExchangeFieldMappings()[$key] ?? [] as $provider => $mappings) {
         $directions = array_values(array_unique(array_column($mappings, 'direction')));
+        $status = $mappings[0]['verification_status'] ?? 'source_verified_hosted_acceptance_pending';
         $contracts[$provider] = [
             'path' => count($mappings) === 1 ? $mappings[0]['path'] : null,
-            'direction' => count($directions) === 1 ? $directions[0] : 'reviewed_inbound_and_outbound',
-            'status' => $mappings[0]['verification_status'] ?? 'source_verified_hosted_acceptance_pending',
+            'direction' => count($directions) === 1 ? $directions[0]
+                : ($status === 'legacy_adapter_hardening_required' ? 'legacy_inbound_and_outbound' : 'reviewed_inbound_and_outbound'),
+            'status' => $status,
             'mappings' => $mappings,
             'sync_enabled_by_dictionary' => false,
         ];
@@ -236,6 +247,7 @@ function staffingExchangeWorkflowGaps(): array
         'jobdiva_field_alignment' => 'Existing adapter paths, precedence and transformations are inventoried. Live Thunderhawk cohort/source observations and tenant overrides still require verification; no sync is enabled by this dictionary.',
         'jobdiva_identity_review' => 'Email/spreadsheet matches require reviewed candidate/person linking, with source/target drift checks and durable receipts. Competing links cannot be replaced. Shared-directory JobDiva projection and the live round trip remain pending.',
         'jobdiva_source_defaults' => 'Legacy country truncation and hour/USD/classification fallbacks are disclosed in their mappings. These defaults must not be treated as verified source facts.',
+        'jobdiva_time_review' => 'The legacy time adapter defaults unknown categories to regular, does not retain complete source approval evidence, and can advance the mapping hash when an approved native row was not updated. Changed dates/placement identity and locked-period handling need hardening before live time synchronization. These source-backed mappings describe existing behavior, not verified-safe two-way correction or permission to enable it.',
         'commission_source_terms' => 'Legacy commission rows lack separate currency, payment frequency, due-month precision and approval state. Preserve the source amount, currency, recipient, basis and timing for review; do not infer these from placement currency, a row ordinal, allocation percentages or effective dates. The native commission API rejects unsupported fields; connector imports require separate review. Foreign-currency commission settlement remains unimplemented.',
     ];
 }

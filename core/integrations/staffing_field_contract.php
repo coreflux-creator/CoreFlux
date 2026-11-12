@@ -6,6 +6,7 @@ require_once __DIR__ . '/../record_numbers.php';
 require_once __DIR__ . '/staffing_exchange_fields.php';
 require_once __DIR__ . '/staffing_workflow_fields.php';
 require_once __DIR__ . '/staffing_field_ownership.php';
+require_once __DIR__ . '/staffing_time_field_contract.php';
 
 function staffingFieldContractTables(): array
 {
@@ -20,7 +21,7 @@ function staffingFieldContractTables(): array
         'time_entries', 'time_periods', 'time_downstream_feed', 'staffing_timesheets', 'quanta_time_imports',
         'payroll_runs', 'payroll_line_items', 'ap_bills', 'ap_payments', 'billing_invoices',
         'billing_payments', 'external_entity_mappings',
-    ], staffingWorkflowFieldTables());
+    ], staffingWorkflowFieldTables(), staffingTimeEvidenceTables());
 }
 
 function staffingFieldContractRules(string $table, string $field): array
@@ -104,7 +105,7 @@ function staffingFieldContractRules(string $table, string $field): array
             if ($approval) $rules['write_policy'] = 'specialized_workflow_only';
         }
     }
-    return $rules;
+    return staffingTimeFieldRules($table, $field, $rules);
 }
 
 /** All columns of the allowlisted tables, including newly added fields, are accounted for. No record values. */
@@ -147,7 +148,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-12.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-12.2', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
