@@ -105,7 +105,7 @@ export default function PlacementDetail({ session }) {
       <Routes>
         <Route index             element={<Navigate to="overview" replace />} />
         <Route path="overview"   element={<OverviewTab    placement={placement} dimensionReadiness={dimensionReadiness} reload={reload} />} />
-        <Route path="economics"  element={<EconomicsTab   placement={placement} chain={chain} rates={rates} commissions={commissions} referrals={referrals} reload={reload} />} />
+        <Route path="economics"  element={<EconomicsTab   key={placement.id} placement={placement} chain={chain} rates={rates} commissions={commissions} referrals={referrals} reload={reload} />} />
         <Route path="chain"      element={<Navigate to="../economics" replace />} />
         <Route path="rates"      element={<Navigate to="../economics" replace />} />
         <Route path="commissions"element={<Navigate to="../economics" replace />} />
@@ -574,9 +574,12 @@ function OverviewEdit({ placement, onClose }) {
 }
 
 // ── Chain ────────────────────────────────────────────────
-function EconomicsTab({ placement, chain, rates, commissions, referrals, reload }) {
+export function EconomicsTab({ placement, chain, rates, commissions, referrals, reload }) {
   const path = `/modules/placements/api/economics.php?placement_id=${placement.id}`;
   const { data, loading, error, reload: reloadEconomics } = useApi(path);
+  const permissions = !loading && !error && Number(data?.placement?.id) === Number(placement.id) ? (data?.permissions || {}) : {};
+  const canManage = permissions.manage === true;
+  const canManageFinancials = permissions.financials_manage === true;
   const parties = data?.parties || [];
   const economicItems = data?.items || [];
   const readiness = data?.readiness || {};
@@ -609,7 +612,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
   const [partyCompany, setPartyCompany] = useState(null);
   const [partyRecipientType, setPartyRecipientType] = useState('company');
   const [partyPersonSearch, setPartyPersonSearch] = useState('');
-  const usersLookup = useApi('/api/users.php');
+  const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
   const [partyForm, setPartyForm] = useState({ role: 'vendor', settlement_channel: 'ap', fee_basis: 'pay_rate', fee_pct: '', fee_flat: '', cadence: 'biweekly', payment_terms: 'NET30', pwp_enabled: false });
   const [itemForm, setItemForm] = useState({
@@ -622,12 +625,24 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
       ? current
       : { ...current, currency: contractCurrency });
   }, [contractCurrency]);
-  const partyPersonLookup = useApi(partyRecipientType === 'person' && partyPersonSearch.length >= 2 && !partyForm.person_id
+  const partyPersonLookup = useApi(canManage && partyRecipientType === 'person' && partyPersonSearch.length >= 2 && !partyForm.person_id
     ? `/modules/people/api/people.php?q=${encodeURIComponent(partyPersonSearch)}&per_page=10`
     : null);
 
-  const refreshAll = () => { reloadEconomics(); reload(); };
+  const refreshAll = async () => { await Promise.all([reloadEconomics(), reload()]); };
+  const refreshParticipants = async () => {
+    if (!canManage || busy) return;
+    setBusy(true); setMessage('');
+    try {
+      await api.post(`${path}&action=reconcile`, {});
+      setMessage('Contract participants refreshed.');
+      try { await refreshAll(); }
+      catch { setMessage('Contract participants refreshed. Reload the Contract tab to see the saved result.'); }
+    } catch (e) { setMessage(`Refresh failed: ${e.message}`); }
+    finally { setBusy(false); }
+  };
   const patchParty = async (id, changes) => {
+    if (!canManage || busy) return;
     setBusy(true); setMessage('');
     try {
       await api.patch(`/modules/placements/api/economics.php?id=${id}`, changes);
@@ -636,6 +651,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     finally { setBusy(false); }
   };
   const removeParty = async (party) => {
+    if (!canManage || busy) return;
     if (!window.confirm(`Remove ${party.display_name} from this placement's economics?`)) return;
     setBusy(true); setMessage('');
     try {
@@ -646,6 +662,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
   };
   const addParty = async (e) => {
     e.preventDefault();
+    if (!canManage || busy) return;
     const selectedUser = tenantUsers.find((user) => Number(user.id) === Number(partyForm.user_id));
     if (partyRecipientType === 'company' && !partyCompany?.name) { setMessage('Choose or create a company first.'); return; }
     if (partyRecipientType === 'user' && !selectedUser) { setMessage('Choose an internal user first.'); return; }
@@ -674,7 +691,9 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     finally { setBusy(false); }
   };
   const addEconomicItem = async (e) => {
-    e.preventDefault(); setBusy(true); setMessage('');
+    e.preventDefault();
+    if (!canManageFinancials || busy) return;
+    setBusy(true); setMessage('');
     try {
       await api.post(`${path}&action=item`, {
         ...itemForm,
@@ -690,6 +709,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
     finally { setBusy(false); }
   };
   const removeEconomicItem = async (item) => {
+    if (!canManageFinancials || busy) return;
     if (!window.confirm(`Remove "${item.description}"?`)) return;
     setBusy(true); setMessage('');
     try {
@@ -794,11 +814,13 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
         <div><h3 style={{ margin: 0 }}>Placement contract</h3><p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>Rates, client billing, labor pay, fees, and every settlement recipient for this engagement.</p></div>
         <span className={`badge badge--${readiness.ready ? 'active' : 'candidate'}`} data-testid="economics-readiness">{readiness.ready ? 'Ready for settlement' : `${readinessProblems.length} setup item${readinessProblems.length === 1 ? '' : 's'}`}</span>
       </header>
+      {!canManage && !canManageFinancials && <p role="note">You have view access to this contract.</p>}
+      {canManage && <button type="button" className="btn btn--sm" disabled={busy} onClick={refreshParticipants}>Refresh contract participants</button>}
       {!readiness.ready && <div className="alert alert--warn" style={{ marginTop: 12 }}>Still needed: {readinessProblems.join(', ') || 'contract setup'}.</div>}
       {message && <div className={message.includes('failed') ? 'alert alert--err' : 'alert alert--ok'} style={{ marginTop: 12 }}>{message}</div>}
 
       <section style={{ marginTop: 24 }}>
-        <RatesTab pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} isReferral={placement.engagement_type === 'referral'} referralHourlyCost={referralHourlyCost} sourceC2COverhead={sourceC2COverhead} />
+        <RatesTab canManage={canManageFinancials} canApprove={permissions.financials_approve === true} pid={placement.id} rates={rates} startDate={placement.start_date} reload={refreshAll} embedded employerCostsRequired={readiness.missing_w2_overhead_cost} c2cCostsRequired={readiness.missing_c2c_overhead_cost} tenantEconomicsDefaults={tenantEconomicsDefaults} isW2={placement.engagement_type === 'w2'} isC2C={placement.engagement_type === 'c2c'} isReferral={placement.engagement_type === 'referral'} referralHourlyCost={referralHourlyCost} sourceC2COverhead={sourceC2COverhead} />
       </section>
 
       <section style={{ marginTop: 24 }} data-testid="economics-one-time-items">
@@ -814,11 +836,11 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
               <td>{item.apply_on}</td>
               <td>{item.direction === 'credit' ? '-' : ''}{item.currency} {Number(item.amount).toFixed(2)}</td>
               <td>{itemStatusLabel(item)}</td>
-              <td>{item.settlement_status !== 'applied' && !Number(item.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeEconomicItem(item)}>Remove</button>}</td>
+              <td>{canManageFinancials && item.settlement_status !== 'applied' && !Number(item.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeEconomicItem(item)}>Remove</button>}</td>
             </tr>)}
           </tbody>
         </table>
-        <form onSubmit={addEconomicItem} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) repeat(auto-fit, minmax(145px, 1fr))', gap: 8, alignItems: 'end', marginTop: 12 }}>
+        {canManageFinancials && <form onSubmit={addEconomicItem} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) repeat(auto-fit, minmax(145px, 1fr))', gap: 8, alignItems: 'end', marginTop: 12 }}>
           <Field label="Description"><input className="input" required maxLength={255} value={itemForm.description} onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })} placeholder="Background check, signing bonus, client credit..." /></Field>
           <Field label="Destination"><select className="input" value={itemForm.settlement_channel} onChange={(e) => {
             const channel = e.target.value;
@@ -832,8 +854,8 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
           <Field label="Contract currency"><input className="input" readOnly value={itemForm.currency} /></Field>
           {itemForm.settlement_channel === 'ar' && <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, marginBottom: 10 }}><input type="checkbox" checked={itemForm.taxable} onChange={(e) => setItemForm({ ...itemForm, taxable: e.target.checked })} /> Taxable</label>}
           <button className="btn btn--primary" disabled={busy || (itemForm.settlement_channel !== 'none' && itemRecipientOptions.length === 0)}>{busy ? 'Saving...' : 'Add one-time item'}</button>
-        </form>
-        {itemForm.settlement_channel !== 'none' && itemRecipientOptions.length === 0 && <p className="error">Add a {itemDestinationLabel(itemForm.settlement_channel).toLowerCase()} participant before assigning this item.</p>}
+        </form>}
+        {canManageFinancials && itemForm.settlement_channel !== 'none' && itemRecipientOptions.length === 0 && <p className="error">Add a {itemDestinationLabel(itemForm.settlement_channel).toLowerCase()} participant before assigning this item.</p>}
       </section>
 
       {contractModel.available && <section style={{ marginTop: 24 }} data-testid="economics-model-summary">
@@ -890,11 +912,11 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
               <td><strong>{party.display_name}</strong><div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{party.company_id ? `Company #${party.company_id}${party.ap_vendor_id ? ` / Vendor #${party.ap_vendor_id}` : ''}` : party.person_id ? `Person #${party.person_id}` : party.source_type}</div></td>
               <td>{party.role.replace(/_/g, ' ')}</td>
               <td>{party.settlement_channel === 'ar' ? 'Receivable' : party.settlement_channel === 'ap' ? 'Accounts payable' : party.settlement_channel === 'payroll' ? 'Payroll' : 'Informational'}</td>
-              <td>{party.money_flow === 'payable' && !Number(party.source_managed) ? <select className="input" value={party.fee_basis} disabled={busy} onChange={(e) => patchParty(party.id, { fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value} value={value}>{value === 'pay_rate' ? 'labor pay rate' : value.replace(/_/g, ' ')}</option>)}</select> : party.fee_basis.replace(/_/g, ' ')}</td>
-              <td>{party.fee_basis === 'pay_rate' ? 'Uses labor pay rate' : ['pct_bill','pct_margin','portal_fee_pct'].includes(party.fee_basis) ? <input className="input" type="number" min="0" step="0.01" style={{ minWidth: 90 }} defaultValue={(Number(party.fee_pct || 0) * 100).toFixed(2)} disabled={busy || Number(party.source_managed)} onBlur={(e) => patchParty(party.id, { fee_pct: Number(e.target.value) / 100 })} aria-label={`Percent for ${party.display_name}`} /> : ['per_hour','per_invoice','one_time','flat','portal_fee_flat'].includes(party.fee_basis) ? <input className="input" type="number" min="0" step="0.01" style={{ minWidth: 90 }} defaultValue={Number(party.fee_flat || 0).toFixed(2)} disabled={busy || Number(party.source_managed)} onBlur={(e) => patchParty(party.id, { fee_flat: Number(e.target.value) })} aria-label={`Amount for ${party.display_name}`} /> : '-'}</td>
-              <td>{party.settlement_channel !== 'none' ? <select className="input" value={party.cycle_cadence || ''} disabled={busy} onChange={(e) => patchParty(party.id, { cadence: e.target.value })} aria-label={`Frequency for ${party.display_name}`}><option value="" disabled>Choose frequency</option>{frequencyOptions.map((value) => <option key={value} value={value}>{frequencyLabel[value]}</option>)}</select> : '-'}</td>
-              <td>{['ar','ap'].includes(party.settlement_channel) ? <select className="input" value={party.payment_terms || party.vendor_default_terms || 'NET30'} disabled={busy} onChange={(e) => patchParty(party.id, { payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} aria-label={`Payment terms for ${party.display_name}`}>{(party.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select> : party.settlement_channel === 'payroll' ? 'Paid through payroll' : '-'}</td>
-              <td>{!Number(party.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeParty(party)}>Remove</button>}</td>
+              <td>{canManage && party.money_flow === 'payable' && !Number(party.source_managed) ? <select className="input" value={party.fee_basis} disabled={busy} onChange={(e) => patchParty(party.id, { fee_basis: e.target.value })}>{['none','pay_rate','per_hour','per_invoice','one_time','pct_bill','pct_margin','flat'].map((value) => <option key={value} value={value}>{value === 'pay_rate' ? 'labor pay rate' : value.replace(/_/g, ' ')}</option>)}</select> : party.fee_basis.replace(/_/g, ' ')}</td>
+              <td>{party.fee_basis === 'pay_rate' ? 'Uses labor pay rate' : ['pct_bill','pct_margin','portal_fee_pct'].includes(party.fee_basis) ? <input className="input" type="number" min="0" step="0.01" style={{ minWidth: 90 }} defaultValue={(Number(party.fee_pct || 0) * 100).toFixed(2)} disabled={!canManage || busy || Number(party.source_managed)} onBlur={(e) => patchParty(party.id, { fee_pct: Number(e.target.value) / 100 })} aria-label={`Percent for ${party.display_name}`} /> : ['per_hour','per_invoice','one_time','flat','portal_fee_flat'].includes(party.fee_basis) ? <input className="input" type="number" min="0" step="0.01" style={{ minWidth: 90 }} defaultValue={Number(party.fee_flat || 0).toFixed(2)} disabled={!canManage || busy || Number(party.source_managed)} onBlur={(e) => patchParty(party.id, { fee_flat: Number(e.target.value) })} aria-label={`Amount for ${party.display_name}`} /> : '-'}</td>
+              <td>{party.settlement_channel !== 'none' ? <select className="input" value={party.cycle_cadence || ''} disabled={!canManage || busy} onChange={(e) => patchParty(party.id, { cadence: e.target.value })} aria-label={`Frequency for ${party.display_name}`}><option value="" disabled>Choose frequency</option>{frequencyOptions.map((value) => <option key={value} value={value}>{frequencyLabel[value]}</option>)}</select> : '-'}</td>
+              <td>{['ar','ap'].includes(party.settlement_channel) ? <select className="input" value={party.payment_terms || party.vendor_default_terms || 'NET30'} disabled={!canManage || busy} onChange={(e) => patchParty(party.id, { payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} aria-label={`Payment terms for ${party.display_name}`}>{(party.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select> : party.settlement_channel === 'payroll' ? 'Paid through payroll' : '-'}</td>
+              <td>{canManage && !Number(party.source_managed) && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => removeParty(party)}>Remove</button>}</td>
             </tr>)}
           </tbody>
         </table>
@@ -914,7 +936,7 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
         </table>
       </section>}
 
-      <section style={{ marginTop: 28 }}>
+      {canManage && <section style={{ marginTop: 28 }}>
         <h4>Add participant</h4>
         <form onSubmit={addParty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, alignItems: 'end' }}>
           <label><span style={{ display: 'block', fontSize: 12 }}>Recipient type</span><select className="input" value={partyRecipientType} onChange={(e) => {
@@ -959,26 +981,26 @@ function EconomicsTab({ placement, chain, rates, commissions, referrals, reload 
           {['ar','ap'].includes(partyForm.settlement_channel) && <label><span style={{ display: 'block', fontSize: 12 }}>Payment terms</span><select className="input" value={partyForm.payment_terms} onChange={(e) => setPartyForm({ ...partyForm, payment_terms: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })}>{(partyForm.settlement_channel === 'ar' ? arTermsOptions : apTermsOptions).map((term) => <option key={term} value={term}>{termsLabel(term)}</option>)}</select></label>}
           <button className="btn" disabled={busy}>Add participant</button>
         </form>
-      </section>
+      </section>}
 
       <details style={{ marginTop: 28 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Integration evidence and advanced source rules</summary>
-        <div style={{ marginTop: 20 }}><ChainTab pid={placement.id} chain={chain} reload={refreshAll} /></div>
-        <div style={{ marginTop: 28 }}><ReferralsTab pid={placement.id} rows={referrals} reload={refreshAll} /></div>
-        <div style={{ marginTop: 28 }}><CommissionsTab pid={placement.id} rows={commissions} reload={refreshAll} /></div>
-        {placement.engagement_type === 'c2c' && <div style={{ marginTop: 28 }}><CorpTab pid={placement.id} /></div>}
+        <div style={{ marginTop: 20 }}><ChainTab canManage={canManage} canReveal={permissions.portal_credentials_view === true} pid={placement.id} chain={chain} reload={refreshAll} /></div>
+        <div style={{ marginTop: 28 }}><ReferralsTab canManage={permissions.referrals_manage === true} pid={placement.id} rows={referrals} reload={refreshAll} /></div>
+        <div style={{ marginTop: 28 }}><CommissionsTab canManage={permissions.commissions_manage === true} pid={placement.id} rows={commissions} reload={refreshAll} /></div>
+        {placement.engagement_type === 'c2c' && <div style={{ marginTop: 28 }}><CorpTab canManage={permissions.corp_manage === true} pid={placement.id} /></div>}
       </details>
     </div>
   );
 }
 
-function ChainTab({ pid, chain, reload }) {
+function ChainTab({ pid, chain, reload, canManage = false, canReveal = false }) {
   const [form, setForm] = useState({ position: 0, party_name: '', party_role: 'end_client', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
   const [adding, setAdding] = useState(false);
   const [error, setError]   = useState(null);
   const [portalFor, setPortalFor] = useState(null); // chain row currently editing portal creds
 
   const add = async (e) => {
-    e.preventDefault(); setAdding(true); setError(null);
+    e.preventDefault(); if (!canManage) return; setAdding(true); setError(null);
     try {
       await api.post(`/modules/placements/api/chain.php?placement_id=${pid}`, {
         ...form, position: parseInt(form.position, 10),
@@ -991,10 +1013,11 @@ function ChainTab({ pid, chain, reload }) {
     } catch (e) { setError(e); }
     finally     { setAdding(false); }
   };
-  const del = async (id) => { if (!confirm('Remove tier?')) return; await api.delete(`/modules/placements/api/chain.php?id=${id}`); reload(); };
+  const del = async (id) => { if (!canManage || !confirm('Remove tier?')) return; await api.delete(`/modules/placements/api/chain.php?id=${id}`); reload(); };
 
   // Inline patch helper (used by submittal_id / vms_job_id cells).
   const patchField = async (id, field, value) => {
+    if (!canManage) return;
     try {
       await api.patch(`/modules/placements/api/chain.php?id=${id}`, { [field]: value || null });
       reload();
@@ -1016,13 +1039,13 @@ function ChainTab({ pid, chain, reload }) {
               <td>{c.party_role}</td>
               <td>{c.portal_fee_pct ? `${(c.portal_fee_pct * 100).toFixed(2)}%` : '—'}</td>
               <td>
-                <InlineEdit value={c.submittal_id} onSave={(v) => patchField(c.id, 'submittal_id', v)} testId={`chain-submittal-${c.id}`} placeholder="—" />
+                <InlineEdit readOnly={!canManage} value={c.submittal_id} onSave={(v) => patchField(c.id, 'submittal_id', v)} testId={`chain-submittal-${c.id}`} placeholder="—" />
               </td>
               <td>
-                <InlineEdit value={c.vms_job_id} onSave={(v) => patchField(c.id, 'vms_job_id', v)} testId={`chain-vms-${c.id}`} placeholder="—" />
+                <InlineEdit readOnly={!canManage} value={c.vms_job_id} onSave={(v) => patchField(c.id, 'vms_job_id', v)} testId={`chain-vms-${c.id}`} placeholder="—" />
               </td>
               <td>
-                <button
+                {canManage && <button
                   type="button"
                   className="btn btn--ghost"
                   data-testid={`chain-portal-btn-${c.id}`}
@@ -1030,15 +1053,15 @@ function ChainTab({ pid, chain, reload }) {
                   style={{ fontSize: 12 }}
                 >
                   {c.has_portal_credentials ? '🔒 Manage' : '+ Set'}
-                </button>
+                </button>}
               </td>
-              <td><ContractCell row={c} /></td>
-              <td><button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`chain-delete-${c.id}`}>Remove</button></td>
+              <td><ContractCell row={c} canManage={canManage} /></td>
+              <td>{canManage && <button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`chain-delete-${c.id}`}>Remove</button>}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <form onSubmit={add} style={{ display: 'flex', gap: 'var(--cf-space-2)', marginTop: 'var(--cf-space-3)', flexWrap: 'wrap' }} data-testid="chain-add-form">
+      {canManage && <form onSubmit={add} style={{ display: 'flex', gap: 'var(--cf-space-2)', marginTop: 'var(--cf-space-3)', flexWrap: 'wrap' }} data-testid="chain-add-form">
         <input className="input" type="number" placeholder="#" value={form.position} onChange={e => setForm({ ...form, position: e.target.value })} style={{ width: '60px' }} data-testid="chain-position" />
         <input className="input" placeholder="Party name" value={form.party_name} onChange={e => setForm({ ...form, party_name: e.target.value })} data-testid="chain-name" required />
         <select className="input" value={form.party_role} onChange={e => setForm({ ...form, party_role: e.target.value })} data-testid="chain-role">
@@ -1048,12 +1071,13 @@ function ChainTab({ pid, chain, reload }) {
         <input className="input" placeholder="Submittal #" value={form.submittal_id} onChange={e => setForm({ ...form, submittal_id: e.target.value })} style={{ width: '140px' }} data-testid="chain-submittal" />
         <input className="input" placeholder="VMS Job #" value={form.vms_job_id} onChange={e => setForm({ ...form, vms_job_id: e.target.value })} style={{ width: '140px' }} data-testid="chain-vms" />
         <button className="btn btn--primary" disabled={adding} data-testid="chain-add-btn">{adding ? '…' : 'Add tier'}</button>
-      </form>
+      </form>}
       {error && <p className="error" data-testid="chain-error">Error: {error.message}</p>}
 
-      {portalFor && (
+      {canManage && portalFor && (
         <PortalCredsDialog
           row={portalFor}
+          canReveal={canReveal}
           onClose={() => setPortalFor(null)}
           onSaved={() => { setPortalFor(null); reload(); }}
         />
@@ -1062,9 +1086,10 @@ function ChainTab({ pid, chain, reload }) {
   );
 }
 
-function InlineEdit({ value, onSave, testId, placeholder }) {
+function InlineEdit({ value, onSave, testId, placeholder, readOnly = false }) {
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(value || '');
+  if (readOnly) return <span data-testid={testId}>{value || placeholder}</span>;
   if (!editing) {
     return (
       <span
@@ -1093,7 +1118,7 @@ function InlineEdit({ value, onSave, testId, placeholder }) {
   );
 }
 
-function PortalCredsDialog({ row, onClose, onSaved }) {
+function PortalCredsDialog({ row, onClose, onSaved, canReveal = false }) {
   const [revealed, setRevealed] = useState(null);     // shown plaintext (from reveal_portal)
   const [revealing, setRevealing] = useState(false);
   const [revealError, setRevealError] = useState(null);
@@ -1102,6 +1127,7 @@ function PortalCredsDialog({ row, onClose, onSaved }) {
   const [saveError, setSaveError] = useState(null);
 
   const reveal = async () => {
+    if (!canReveal) return;
     if (!confirm('Reveal vendor portal credentials? This action is logged to the audit trail.')) return;
     setRevealing(true); setRevealError(null);
     try {
@@ -1148,7 +1174,7 @@ function PortalCredsDialog({ row, onClose, onSaved }) {
         </p>
         {row.has_portal_credentials && !revealed && (
           <div style={{ marginBottom: 12 }}>
-            <button type="button" className="btn btn--ghost" data-testid="chain-portal-reveal" onClick={reveal} disabled={revealing}>
+            <button type="button" className="btn btn--ghost" data-testid="chain-portal-reveal" onClick={reveal} disabled={!canReveal || revealing}>
               {revealing ? 'Revealing…' : '👁 Reveal stored credentials'}
             </button>
             {revealError && <p className="error" data-testid="chain-portal-reveal-error">Error: {revealError.message}</p>}
@@ -1214,7 +1240,7 @@ function rateDraftForm(rate, startDate, sourceC2COverhead = null) {
   };
 }
 
-function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCostsRequired = false, c2cCostsRequired = false, tenantEconomicsDefaults = {}, isW2 = false, isC2C = false, isReferral = false, referralHourlyCost = 0, sourceC2COverhead = null }) {
+function RatesTab({ pid, rates, startDate, reload, canManage = false, canApprove = false, embedded = false, employerCostsRequired = false, c2cCostsRequired = false, tenantEconomicsDefaults = {}, isW2 = false, isC2C = false, isReferral = false, referralHourlyCost = 0, sourceC2COverhead = null }) {
   const sourceDraft = rates.find((rate) => !rate.approved_at) || null;
   const latestRate = sourceDraft || rates[0] || null;
   const [form, setForm] = useState(() => rateDraftForm(latestRate, startDate, sourceC2COverhead));
@@ -1255,7 +1281,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
   };
 
   const draft = async (e) => {
-    e.preventDefault(); setBusy(true); setError(null);
+    e.preventDefault(); if (!canManage) return; setBusy(true); setError(null);
     try {
       const numberOrNull = (value) => value === '' ? null : Number(value);
       const percentOrNull = (value) => value === '' ? null : Number(value) / 100;
@@ -1281,6 +1307,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
   };
 
   const approve = async (rateId) => {
+    if (!canApprove) return;
     // No more "Is this a correction?" popup. The server auto-detects
     // a correction (any prior approved row on this placement) and
     // generates a default reason. Operators who genuinely need a
@@ -1297,6 +1324,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
   };
 
   const approveAllDrafts = async () => {
+    if (!canApprove) return;
     // Catch-up button for the (frequent) case where a placement was
     // promoted from draft BEFORE the auto-approve side effect shipped
     // — or where the operator at promotion time didn't have the
@@ -1323,7 +1351,7 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
               : 'Client revenue, labor compensation, and operating cost factors. Approved rows are locked snapshots used by billing, AP, payroll, and margin.'}
           </p>
         </div>
-        {draftCount > 0 && (
+        {canApprove && draftCount > 0 && (
           <button
             type="button"
             className="btn btn--primary"
@@ -1356,13 +1384,13 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
                                   : <span className="badge badge--candidate" data-testid={`rate-state-${r.id}`}>draft</span>}
                   {r.is_correction ? ' (correction)' : ''}
               </td>
-              <td>{!r.approved_at && <button className="btn btn--primary" onClick={() => approve(r.id)} data-testid={`rate-approve-${r.id}`}>Approve</button>}</td>
+              <td>{canApprove && !r.approved_at && <button className="btn btn--primary" onClick={() => approve(r.id)} data-testid={`rate-approve-${r.id}`}>Approve</button>}</td>
             </tr>;
           })}
         </tbody>
       </table>
 
-      <form onSubmit={draft} style={{ marginTop: 'var(--cf-space-3)' }} data-testid="rates-draft-form">
+      {canManage && <form onSubmit={draft} style={{ marginTop: 'var(--cf-space-3)' }} data-testid="rates-draft-form">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
           <Field label="Effective from"><input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="rates-effective-from" required /></Field>
           <Field label={isReferral ? 'Client referral fee / hour' : 'Client bill rate'}><input className="input" type="number" min="0" step="0.0001" placeholder="0.00" value={form.bill_rate} onChange={e => setForm({ ...form, bill_rate: e.target.value })} data-testid="rates-bill" required /></Field>
@@ -1413,21 +1441,21 @@ function RatesTab({ pid, rates, startDate, reload, embedded = false, employerCos
           </div>
         </details>
         <button className="btn btn--primary" style={{ marginTop: 8 }} disabled={busy} data-testid="rates-draft-btn">{busy ? 'Saving...' : sourceDraft ? 'Update draft contract' : rates.length ? 'Draft rate correction' : 'Draft contract rate'}</button>
-      </form>
+      </form>}
       {error && <p className="error" data-testid="rates-error">Error: {error.message}</p>}
     </div>
   );
 }
 
 // ── Commissions ────────────────────────────────────────────
-function CommissionsTab({ pid, rows, reload }) {
-  const usersLookup = useApi('/api/users.php');
+function CommissionsTab({ pid, rows, reload, canManage = false }) {
+  const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
   const emptyForm = () => ({ role: 'recruiter', user_id: '', split_pct: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState(null);
   const add = async (e) => {
-    e.preventDefault(); setError(null);
+    e.preventDefault(); if (!canManage) return; setError(null);
     try {
       await api.post(`/modules/placements/api/commissions.php?placement_id=${pid}`, {
         ...form, split_pct: form.split_pct ? parseFloat(form.split_pct) : null,
@@ -1437,11 +1465,12 @@ function CommissionsTab({ pid, rows, reload }) {
     } catch (e) { setError(e); }
   };
   const patchRecipient = async (id, userId) => {
+    if (!canManage) return;
     setError(null);
     try { await api.patch(`/modules/placements/api/commissions.php?id=${id}`, { user_id: Number(userId) }); reload(); }
     catch (e) { setError(e); }
   };
-  const del = async (id) => { if (!confirm('Remove split?')) return; await api.delete(`/modules/placements/api/commissions.php?id=${id}`); reload(); };
+  const del = async (id) => { if (!canManage || !confirm('Remove split?')) return; await api.delete(`/modules/placements/api/commissions.php?id=${id}`); reload(); };
   return (
     <div data-testid="tab-commissions">
       <h3>Commission splits</h3>
@@ -1452,19 +1481,19 @@ function CommissionsTab({ pid, rows, reload }) {
           {rows.map(c => (
             <tr key={c.id} data-testid={`commission-row-${c.id}`}>
               <td>
-                <select className="input" value={c.user_id || ''} onChange={e => patchRecipient(c.id, e.target.value)} aria-label={`Commission recipient for ${c.role}`}>
+                {canManage ? <select className="input" value={c.user_id || ''} onChange={e => patchRecipient(c.id, e.target.value)} aria-label={`Commission recipient for ${c.role}`}>
                   <option value="">Choose recipient</option>
                   {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
-                </select>
+                </select> : (c.recipient_name || c.recipient_email || (c.user_id ? `User #${c.user_id}` : 'Not assigned'))}
               </td>
               <td>{c.role}</td><td>{c.split_pct ? `${(c.split_pct * 100).toFixed(2)}%` : c.flat_amount ? `$${c.flat_amount}` : '—'}</td>
               <td>{c.basis}</td><td>{c.effective_from}</td><td>{c.effective_to || '—'}</td>
-              <td><button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`commission-delete-${c.id}`}>Remove</button></td>
+              <td>{canManage && <button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`commission-delete-${c.id}`}>Remove</button>}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <form onSubmit={add} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="commissions-add-form">
+      {canManage && <form onSubmit={add} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="commissions-add-form">
         <select className="input" required value={form.user_id} onChange={e => setForm({ ...form, user_id: e.target.value })} data-testid="commission-recipient">
           <option value="">Choose recipient</option>
           {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
@@ -1478,26 +1507,26 @@ function CommissionsTab({ pid, rows, reload }) {
         </select>
         <input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="commission-from" />
         <button className="btn btn--primary" data-testid="commission-add-btn">Add</button>
-      </form>
+      </form>}
       {error && <p className="error" data-testid="commissions-error">Error: {error.message}</p>}
     </div>
   );
 }
 
 // ── Referrals ────────────────────────────────────────────
-function ReferralsTab({ pid, rows, reload }) {
-  const usersLookup = useApi('/api/users.php');
+function ReferralsTab({ pid, rows, reload, canManage = false }) {
+  const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
   const emptyForm = () => ({ referrer_type: 'vendor', referrer_vendor_name: '', referrer_company_id: '', referrer_person_id: '', referrer_user_id: '', fee_basis: 'pct_bill', fee_pct: '', fee_flat: '', start_date: new Date().toISOString().slice(0,10), duration_months: '', payment_terms_override: 'NET30', pwp_enabled: false });
   const [form, setForm] = useState(emptyForm);
   const [referrerCompany, setReferrerCompany] = useState(null);
   const [personSearch, setPersonSearch] = useState('');
-  const personLookup = useApi(form.referrer_type === 'person' && personSearch.length >= 2 && !form.referrer_person_id
+  const personLookup = useApi(canManage && form.referrer_type === 'person' && personSearch.length >= 2 && !form.referrer_person_id
     ? `/modules/people/api/people.php?q=${encodeURIComponent(personSearch)}&per_page=10`
     : null);
   const [error, setError] = useState(null);
   const add = async (e) => {
-    e.preventDefault(); setError(null);
+    e.preventDefault(); if (!canManage) return; setError(null);
     try {
       const payload = {
         ...form,
@@ -1514,7 +1543,7 @@ function ReferralsTab({ pid, rows, reload }) {
       reload();
     } catch (e) { setError(e); }
   };
-  const del = async (id) => { if (!confirm('Remove referral?')) return; await api.delete(`/modules/placements/api/referrals.php?id=${id}`); reload(); };
+  const del = async (id) => { if (!canManage || !confirm('Remove referral?')) return; await api.delete(`/modules/placements/api/referrals.php?id=${id}`); reload(); };
   return (
     <div data-testid="tab-referrals">
       <h3>Referral fees</h3>
@@ -1527,12 +1556,12 @@ function ReferralsTab({ pid, rows, reload }) {
               <td>{r.referrer_name || r.referrer_vendor_name || `#${r.referrer_person_id || r.referrer_user_id}`}</td>
               <td>{r.fee_pct ? `${(r.fee_pct * 100).toFixed(2)}%` : r.fee_flat ? `$${r.fee_flat}` : '—'}</td>
               <td>{r.fee_basis}</td><td>{r.start_date}</td><td>{r.duration_months ? `${r.duration_months}mo` : '—'}</td>
-              <td><button className="btn btn--ghost" onClick={() => del(r.id)} data-testid={`referral-delete-${r.id}`}>Remove</button></td>
+              <td>{canManage && <button className="btn btn--ghost" onClick={() => del(r.id)} data-testid={`referral-delete-${r.id}`}>Remove</button>}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <form onSubmit={add} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="referrals-add-form">
+      {canManage && <form onSubmit={add} style={{ marginTop: 'var(--cf-space-3)', display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }} data-testid="referrals-add-form">
         <select className="input" value={form.referrer_type} onChange={e => { setForm({ ...emptyForm(), referrer_type: e.target.value }); setReferrerCompany(null); setPersonSearch(''); }} data-testid="referral-type">
           <option value="vendor">vendor</option><option value="person">person</option><option value="user">user</option>
         </select>
@@ -1553,14 +1582,14 @@ function ReferralsTab({ pid, rows, reload }) {
         <input className="input" type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} data-testid="referral-start" />
         <select className="input" value={form.payment_terms_override} onChange={e => setForm({ ...form, payment_terms_override: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} data-testid="referral-terms">{['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'].map(term => <option key={term} value={term}>{term === 'PWP' ? 'Paid when paid' : term.startsWith('PWP_NET') ? `Paid when paid + ${term.slice(7)} days` : term.replace('DUE_ON_RECEIPT', 'Due on receipt').replace('NET', 'Net ')}</option>)}</select>
         <button className="btn btn--primary" data-testid="referral-add-btn">Add</button>
-      </form>
+      </form>}
       {error && <p className="error" data-testid="referrals-error">Error: {error.message}</p>}
     </div>
   );
 }
 
 // ── Corp (C2C only) ────────────────────────────────────────
-function CorpTab({ pid }) {
+function CorpTab({ pid, canManage = false }) {
   const path = `/modules/placements/api/corp.php?placement_id=${pid}`;
   const { data, loading, error, reload } = useApi(path);
   const corp = data?.corp;
@@ -1568,6 +1597,7 @@ function CorpTab({ pid }) {
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState(null);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const save = async () => {
+    if (!canManage) return;
     setSaving(true); setSaveError(null);
     try {
       await api.put(path, { ...corp, ...form });
@@ -1587,14 +1617,14 @@ function CorpTab({ pid }) {
           ['corp_contact_name','Contact name'],['corp_contact_email','Contact email'],['corp_contact_phone','Contact phone']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>{l}{k === 'corp_ein' && corp?.corp_ein_last4 ? ` (current: •••${corp.corp_ein_last4})` : ''}</span>
-            <input className="input" value={form[k] ?? (k === 'corp_ein' ? '' : (corp?.[k] ?? ''))} onChange={set(k)} data-testid={`corp-${k.replace(/_/g, '-')}`} />
+            <input className="input" readOnly={!canManage} value={form[k] ?? (k === 'corp_ein' ? '' : (corp?.[k] ?? ''))} onChange={set(k)} data-testid={`corp-${k.replace(/_/g, '-')}`} />
           </label>
         ))}
       </div>
       {saveError && <p className="error" data-testid="corp-save-error">Error: {saveError.message}</p>}
-      <button className="btn btn--primary" style={{ marginTop: 'var(--cf-space-3)' }} onClick={save} disabled={saving} data-testid="corp-save">
+      {canManage && <button className="btn btn--primary" style={{ marginTop: 'var(--cf-space-3)' }} onClick={save} disabled={saving} data-testid="corp-save">
         {saving ? 'Saving…' : 'Save'}
-      </button>
+      </button>}
     </div>
   );
 }
@@ -1755,11 +1785,11 @@ function MarginTab({ currentRate, chain }) {
   );
 }
 
-function ContractCell({ row }) {
+function ContractCell({ row, canManage = false }) {
   const [state, setState] = useState({ status: 'idle', error: null, draft: null });
 
   const onPick = async (file) => {
-    if (!file) return;
+    if (!canManage || !file) return;
     setState({ status: 'uploading', error: null, draft: null });
     try {
       const uploaded = await uploadFileViaPresignedPost(
@@ -1774,7 +1804,8 @@ function ContractCell({ row }) {
 
   return (
     <div data-testid={`chain-contract-${row.id}`} style={{ minWidth: 140 }}>
-      {state.status === 'idle' && (
+      {!canManage && <span>View access</span>}
+      {canManage && state.status === 'idle' && (
         <label className="btn btn--ghost" style={{ cursor: 'pointer', fontSize: 12 }} data-testid={`chain-contract-${row.id}-pick-label`}>
           ✨ Extract MSA/SOW
           <input

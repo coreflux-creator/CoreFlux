@@ -60,6 +60,7 @@ if ($action === 'stored_preview') {
         'dry_run_token' => $plan['dry_run_token'],
         'pagination' => $plan['pagination'] + ['page' => $page, 'per_page' => $perPage],
         'safety' => $plan['safety'],
+        'permissions' => ['apply' => rbac_legacy_can($user, 'placements.financials.manage')],
     ]);
 }
 
@@ -126,6 +127,7 @@ if ($action === 'dry_run') {
         'mapping_errors' => $plan['mapping_errors'],
         'dry_run_token' => $plan['dry_run_token'],
         'safety' => $plan['safety'],
+        'permissions' => ['apply' => rbac_legacy_can($user, 'placements.financials.manage')],
     ]);
 }
 

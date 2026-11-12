@@ -7,7 +7,7 @@ const require=createRequire(import.meta.url),React=require('react'),{create,act}
 const compiled=await build({entryPoints:[fileURLToPath(new URL('../../modules/placements/ui/CommercialOwnershipReview.jsx',import.meta.url))],bundle:true,platform:'node',format:'cjs',write:false,external:['react'],plugins:[{name:'isolated-review',setup(b){
   b.onResolve({filter:/lib\/api$/},()=>({path:'fixture-api',external:true}));
 }}]});
-const review={placement_id:15,review_token:'a'.repeat(64),groups:[
+const review={placement_id:15,permissions:{release:true},review_token:'a'.repeat(64),groups:[
   {key:'vendor_terms',label:'Contractor terms and paid when paid',selectable:true,placement_values:{vendor_payment_terms_override:'NET30',vendor_pwp_enabled:0},participants:[{id:2,name:'Synthetic contractor',values:{payment_terms:'NET30',pwp_enabled:0}}]},
   {key:'client_cycle',label:'Client billing schedule',selectable:false,blocked_reason:'Review the participant source link first.',placement_values:{client_bill_cycle:'weekly'},participants:[{id:3,name:'Synthetic client',values:{operating_cycle_id:70},cycle:{name:'Weekly billing',cadence:'weekly',anchor_date:'2026-11-09'}}]},
 ]};
@@ -70,5 +70,25 @@ test('navigation discards an in-flight release notification for the previous pla
   try{await f.click('Review JobDiva ownership');await f.select();let request;act(()=>{request=button(f,'Return selected fields to JobDiva').props.onClick();});
     await act(async()=>f.tree.update(f.render(16)));await act(async()=>{pending.resolve({changed:true});await request;});
     assert.equal(refreshed,0);assert.ok(!text(f.tree.root).includes('Ownership released.'));assert.equal(button(f,'Review JobDiva ownership').props.disabled,false);
+  }finally{f.close();}
+});
+
+test('readers and responses without permissions expose evidence but no release action',async()=>{
+  for(const permissions of [{release:false},undefined]){
+    const f=await fixture(async()=>({...structuredClone(review),permissions}));
+    try{await f.click('Review JobDiva ownership');assert.ok(text(f.tree.root).includes('NET30'));
+      assert.ok(text(f.tree.root).includes('requires placement edit access'));
+      assert.equal(f.tree.root.findAllByType('input').length,0);
+      assert.equal(button(f,'Return selected fields to JobDiva'),undefined);
+      assert.equal(f.calls.filter(c=>c.method==='post').length,0);
+    }finally{f.close();}
+  }
+});
+
+test('refreshing after a permission downgrade removes prior release selections',async()=>{
+  let allowed=true;const f=await fixture(async()=>({...structuredClone(review),permissions:{release:allowed}}));
+  try{await f.click('Review JobDiva ownership');await f.select();allowed=false;
+    await f.click('Refresh ownership review');assert.equal(button(f,'Return selected fields to JobDiva'),undefined);
+    assert.equal(f.tree.root.findAllByType('input').length,0);assert.equal(f.calls.filter(c=>c.method==='post').length,0);
   }finally{f.close();}
 });

@@ -19,6 +19,16 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $placementId = (int) ($_GET['placement_id'] ?? 0);
 
+/** Screen affordances use the same dual permission checks as their writers. */
+function placementEconomicsApiPermissions(array $user): array
+{
+    $permissions = [];
+    foreach (['manage','financials.manage','financials.approve','commissions.manage','referrals.manage','corp.manage','portal_credentials.view'] as $name) {
+        $permissions[str_replace('.', '_', $name)] = rbac_legacy_can($user, 'placements.' . $name);
+    }
+    return $permissions;
+}
+
 function placementEconomicsApiPurpose(string $channel): string
 {
     return $channel === 'ar' ? 'billing' : $channel;
@@ -41,7 +51,9 @@ if (($method === 'GET' && $action === 'ownership_review') || ($method === 'POST'
     rbac_legacy_require($user, $method === 'GET' ? 'placements.view' : 'placements.manage');
     if ($placementId <= 0) api_error('placement_id required', 400);
     try {
-        if ($method === 'GET') api_ok(placementCommercialOwnershipReview($tenantId, $placementId));
+        if ($method === 'GET') api_ok(placementCommercialOwnershipReview($tenantId, $placementId) + [
+            'permissions' => ['release' => rbac_legacy_can($user, 'placements.manage')],
+        ]);
         $body = api_json_body();
         if (($body['confirm'] ?? '') !== 'RELEASE_COMMERCIAL_OWNERSHIP') api_error('Confirm the reviewed ownership release.', 422);
         api_ok(placementReleaseCommercialOwnership($tenantId, $placementId,
@@ -57,7 +69,14 @@ if (($method === 'GET' && $action === 'ownership_review') || ($method === 'POST'
 if ($method === 'GET') {
     rbac_legacy_require($user, 'placements.view');
     if ($placementId <= 0) api_error('placement_id required', 400);
-    $context = placementEconomicsContext($tenantId, $placementId, true);
+    // Viewing a contract never reconciles, creates or updates its graph.
+    // Editors use the explicit reconcile action below when a refresh is needed.
+    try {
+        $context = placementEconomicsContext($tenantId, $placementId, false);
+    } catch (PDOException $e) {
+        error_log('[placement contract read] ' . $e->getMessage());
+        $context = ['available' => false, 'reconcile' => ['errors' => [$e->getMessage()]]];
+    }
     if (empty($context['available'])) {
         $failure = $context['reconcile'] ?? [];
         $detail = (string) ($failure['errors'][0] ?? '');
@@ -75,15 +94,26 @@ if ($method === 'GET') {
             'migration_pending' => $schemaMissing,
         ]));
     }
-    api_ok($context);
+    api_ok($context + ['permissions' => placementEconomicsApiPermissions($user)]);
 }
 
 if ($method === 'POST' && $action === 'reconcile') {
     rbac_legacy_require($user, 'placements.manage');
     if ($placementId <= 0) api_error('placement_id required', 400);
-    $result = placementEconomicsReconcile($tenantId, $placementId);
-    placementsAudit('placement.economics.reconciled', $result, $placementId);
-    api_ok(['result' => $result, 'context' => placementEconomicsContext($tenantId, $placementId, false)]);
+    try {
+        $response = placementWithLockedRecord($tenantId, $placementId, static function () use ($tenantId, $placementId): array {
+            $result = placementEconomicsReconcile($tenantId, $placementId);
+            if (empty($result['available'])) throw new RuntimeException('Contract participants could not be refreshed. Review the placement setup and try again.', 503);
+            placementRequiredAudit('placement.economics.reconciled', $result, $placementId);
+            return ['result' => $result, 'context' => placementEconomicsContext($tenantId, $placementId, false)];
+        });
+        api_ok($response);
+    } catch (PDOException $e) {
+        error_log('[placement contract refresh] ' . $e->getMessage());
+        api_error('Contract participants could not be refreshed. Please try again.', 503);
+    } catch (InvalidArgumentException | RuntimeException $e) {
+        api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
+    }
 }
 
 if ($method === 'POST' && $action === 'item') {

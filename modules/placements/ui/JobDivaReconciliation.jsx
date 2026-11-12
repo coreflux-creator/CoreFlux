@@ -45,9 +45,13 @@ export default function JobDivaReconciliation() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const canApplyStored = storedPreview?.permissions?.apply === true && !storedBusy && !storedNeedsRefresh;
+  const canApplyCsv = preview?.permissions?.apply === true && !busy;
 
   const refreshStored = useCallback(async () => {
     setStoredBusy('preview');
+    setStoredNeedsRefresh(true);
+    setStoredSelected(new Set());
     setStoredError('');
     try {
       const data = await api.post(`${ENDPOINT}?action=stored_preview`, { page: storedPage, per_page: 20 });
@@ -67,6 +71,7 @@ export default function JobDivaReconciliation() {
   }, [refreshStored]);
 
   const toggleStoredSelected = (startId) => {
+    if (!canApplyStored) return;
     setStoredSelected(current => {
       const next = new Set(current);
       if (next.has(startId)) next.delete(startId);
@@ -76,6 +81,7 @@ export default function JobDivaReconciliation() {
   };
 
   const selectStoredOutcome = (outcome) => {
+    if (!canApplyStored) return;
     setStoredSelected(current => {
       const next = new Set(current);
       (storedPreview?.rows || [])
@@ -95,7 +101,7 @@ export default function JobDivaReconciliation() {
   };
 
   const applyStored = async () => {
-    if (!storedPreview || storedSelected.size === 0 || storedNeedsRefresh || storedBusy) return;
+    if (!storedPreview || !canApplyStored || storedSelected.size === 0) return;
     const retained = (storedPreview.rows || []).filter(row => storedSelected.has(row.start_id))
       .reduce((count, row) => count + (row.contract?.ownership_conflicts?.length || 0), 0);
     const ok = window.confirm(
@@ -169,6 +175,8 @@ export default function JobDivaReconciliation() {
   const runPreview = async () => {
     if (!csv || !mappedStartId) return;
     setBusy('preview');
+    setPreview(null);
+    setSelected(new Set());
     setError('');
     setResult(null);
     try {
@@ -187,6 +195,7 @@ export default function JobDivaReconciliation() {
   };
 
   const toggleSelected = (startId) => {
+    if (!canApplyCsv) return;
     setSelected(current => {
       const next = new Set(current);
       if (next.has(startId)) next.delete(startId);
@@ -196,6 +205,7 @@ export default function JobDivaReconciliation() {
   };
 
   const selectOutcome = (outcome) => {
+    if (!canApplyCsv) return;
     setSelected(current => {
       const next = new Set(current);
       (preview?.rows || [])
@@ -206,7 +216,7 @@ export default function JobDivaReconciliation() {
   };
 
   const applySelected = async () => {
-    if (!preview || selected.size === 0) return;
+    if (!preview || !canApplyCsv || selected.size === 0) return;
     const ok = window.confirm(
       `Apply the previewed changes for ${selected.size} exact JobDiva Start ID${selected.size === 1 ? '' : 's'}?\n\n` +
       'This will create or update only the selected rows. It will not delete or archive placements, and approved rates remain locked.',
@@ -214,6 +224,7 @@ export default function JobDivaReconciliation() {
     if (!ok) return;
     setBusy('apply');
     setError('');
+    setPreview(null);
     try {
       const data = await api.post(`${ENDPOINT}?action=apply`, {
         csv,
@@ -230,7 +241,7 @@ export default function JobDivaReconciliation() {
       });
       setPreview(refreshed);
     } catch (e) {
-      setError(e.message || 'Apply failed. No changes were made.');
+      setError(`${e.message || 'The result could not be confirmed.'} Run a fresh dry-run before applying again.`);
     } finally {
       setBusy('');
     }
@@ -330,9 +341,9 @@ export default function JobDivaReconciliation() {
             </div>
 
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-              <button type="button" className="btn btn--ghost" onClick={() => selectStoredOutcome('update')}>Select reprojections</button>
-              <button type="button" className="btn btn--ghost" onClick={() => selectStoredOutcome('restore')}>Select restores</button>
-              <button type="button" className="btn btn--ghost" onClick={() => selectStoredOutcome('create')}>Select creates</button>
+              <button type="button" className="btn btn--ghost" disabled={!canApplyStored} onClick={() => selectStoredOutcome('update')}>Select reprojections</button>
+              <button type="button" className="btn btn--ghost" disabled={!canApplyStored} onClick={() => selectStoredOutcome('restore')}>Select restores</button>
+              <button type="button" className="btn btn--ghost" disabled={!canApplyStored} onClick={() => selectStoredOutcome('create')}>Select creates</button>
               <button type="button" className="btn btn--ghost" onClick={() => setStoredSelected(new Set())}>Clear</button>
             </div>
 
@@ -367,6 +378,7 @@ export default function JobDivaReconciliation() {
                             {row.selectable ? (
                               <input
                                 type="checkbox"
+                                disabled={!canApplyStored}
                                 checked={storedSelected.has(row.start_id)}
                                 onChange={() => toggleStoredSelected(row.start_id)}
                                 aria-label={`Select stored Start ID ${row.start_id}`}
@@ -460,7 +472,7 @@ export default function JobDivaReconciliation() {
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={storedSelected.size === 0 || Boolean(storedBusy) || storedNeedsRefresh}
+                disabled={!canApplyStored || storedSelected.size === 0}
                 onClick={applyStored}
                 data-testid="jobdiva-stored-reconciliation-apply"
               >
@@ -596,8 +608,8 @@ export default function JobDivaReconciliation() {
               </p>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn--ghost" onClick={() => selectOutcome('update')}>Select updates</button>
-              <button type="button" className="btn btn--ghost" onClick={() => selectOutcome('create')}>Select creates</button>
+              <button type="button" className="btn btn--ghost" disabled={!canApplyCsv} onClick={() => selectOutcome('update')}>Select updates</button>
+              <button type="button" className="btn btn--ghost" disabled={!canApplyCsv} onClick={() => selectOutcome('create')}>Select creates</button>
               <button type="button" className="btn btn--ghost" onClick={() => setSelected(new Set())}>Clear</button>
             </div>
           </div>
@@ -643,6 +655,7 @@ export default function JobDivaReconciliation() {
                             <input
                               type="checkbox"
                               checked={selected.has(row.start_id)}
+                              disabled={!canApplyCsv}
                               onChange={() => toggleSelected(row.start_id)}
                               aria-label={`Select Start ID ${row.start_id}`}
                             />
@@ -708,7 +721,7 @@ export default function JobDivaReconciliation() {
             <button
               type="button"
               className="btn btn--primary"
-              disabled={selected.size === 0 || Boolean(busy)}
+              disabled={!canApplyCsv || selected.size === 0}
               onClick={applySelected}
               data-testid="jobdiva-reconciliation-apply"
             >

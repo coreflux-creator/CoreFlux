@@ -1095,10 +1095,14 @@ function placementEconomicsContext(int $tenantId, int $placementId, bool $reconc
                 payroll_operating_cycle_id, billing_cycle_id, ap_cycle_id, payroll_cycle_id,
                 client_bill_cycle, vendor_pay_cycle, client_payment_terms_override,
                 vendor_payment_terms_override, vendor_pwp_enabled
-           FROM placements WHERE tenant_id = :t AND id = :p LIMIT 1'
+           FROM placements WHERE tenant_id = :t AND id = :p AND deleted_at IS NULL LIMIT 1'
     );
     $p->execute(['t' => $tenantId, 'p' => $placementId]);
     $placement = $p->fetch(\PDO::FETCH_ASSOC) ?: [];
+    if (!$placement) {
+        return ['available' => false, 'parties' => [], 'cycles' => [], 'readiness' => [],
+            'reconcile' => ['available' => false, 'errors' => ['placement not found']]];
+    }
     $parties = placementEconomicsParties($tenantId, $placementId);
     $cyclesSt = $pdo->prepare(
         'SELECT * FROM staffing_operating_cycles

@@ -26,6 +26,7 @@ export default function CommercialOwnershipReview({ placementId, disabled = fals
   const [notice, setNotice] = useState('');
   const generation = useRef(0);
   const endpoint = `/modules/placements/api/economics.php?placement_id=${placementId}`;
+  const canRelease = review?.permissions?.release === true;
   useEffect(() => {
     setReview(null); setSelected([]); setError(''); setNotice(''); setBusy(false);
     return () => { generation.current += 1; };
@@ -41,7 +42,7 @@ export default function CommercialOwnershipReview({ placementId, disabled = fals
     finally { if (request === generation.current) setBusy(false); }
   };
   const release = async () => {
-    if (!review || !selected.length || busy || disabled) return;
+    if (!review || !canRelease || !selected.length || busy || disabled) return;
     const chosen = review.groups.filter(group => selected.includes(group.key));
     if (!window.confirm(`Return these linked fields to JobDiva?\n\n${chosen.map(group => group.label).join('\n')}\n\nCurrent values stay unchanged now. A later JobDiva refresh may replace them. Placement and participant ownership will be released together.`)) return;
     const token = review.review_token;
@@ -63,13 +64,14 @@ export default function CommercialOwnershipReview({ placementId, disabled = fals
     {error && <p className="error" role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {review && <div style={{ marginTop: 12, padding: 16, border: '1px solid #cbd5e1', borderRadius: 8 }}>
-      <h4 style={{ marginTop: 0 }}>Return linked contract fields to JobDiva</h4>
-      <p>Review the current values below. Releasing ownership keeps these values in place until a later source refresh. Related placement and participant fields are released together.</p>
+      <h4 style={{ marginTop: 0 }}>{canRelease ? 'Return linked contract fields to JobDiva' : 'Contract field ownership'}</h4>
+      <p>{canRelease ? 'Review the current values below. Releasing ownership keeps these values in place until a later source refresh. Related placement and participant fields are released together.' : 'You can review these values. Releasing ownership requires placement edit access.'}</p>
       {!review.groups?.length && <p>No linked commercial fields are currently managed by Core.</p>}
       {(review.groups || []).map(group => <div key={group.key} style={{ padding: '12px 0', borderTop: '1px solid #e2e8f0' }}>
         <label style={{ display: 'flex', gap: 8, fontWeight: 600 }}>
-          <input type="checkbox" disabled={!group.selectable || busy || disabled} checked={selected.includes(group.key)}
+          {canRelease && <input type="checkbox" disabled={!group.selectable || busy || disabled} checked={selected.includes(group.key)}
             onChange={() => setSelected(current => current.includes(group.key) ? current.filter(key => key !== group.key) : [...current, group.key])} />
+          }
           {group.label}
         </label>
         {!group.selectable && <p role="note">{group.blocked_reason}</p>}
@@ -81,7 +83,7 @@ export default function CommercialOwnershipReview({ placementId, disabled = fals
           {group.corporation_values && <><strong>Corporation record</strong><CurrentValues values={group.corporation_values} /></>}
         </div>
       </div>)}
-      <button type="button" className="btn btn--primary" onClick={release} disabled={disabled || busy || !selected.length}>Return selected fields to JobDiva</button>
+      {canRelease && <button type="button" className="btn btn--primary" onClick={release} disabled={disabled || busy || !selected.length}>Return selected fields to JobDiva</button>}
     </div>}
   </section>;
 }

@@ -34,7 +34,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     return $out;
 };
 $graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details',
-    'staffing_operating_cycles','staffing_clients','companies','external_entity_mappings'];
+    'staffing_operating_cycles','staffing_clients','companies','ap_vendors','external_entity_mappings'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
 $seed = static function(int $tid, string $start) use ($pdo): array {
@@ -73,6 +73,10 @@ try {
     $financialBefore=$snapshot($financialTables);
     $own=$seed($tenant,'99190001'); $foreign=$seed($foreignTenant,'99190011');
     setRequestTenantId($tenant); $_SESSION['tenant_id']=$tenant;
+    // Deliberately do not reconcile: an ordinary reader must not build this graph.
+    $bare=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unbuilt contract','status'=>'on_hold',
+        'engagement_type'=>'1099','start_date'=>'2026-10-01','client_id'=>$own['client'],
+        'end_client_company_id'=>$own['company'],'worksite_country'=>'US']);
     $foreignBefore=jobdivaPlacementProjectionAuditSnapshot($foreignTenant,$foreign['placement']);
     $email='contract-http-'.bin2hex(random_bytes(10)).'@example.invalid';
     $password=bin2hex(random_bytes(32)); $hash=password_hash($password,PASSWORD_DEFAULT);
@@ -110,10 +114,13 @@ try {
     $reviewPath=$economics.'?action=ownership_review&placement_id='.$own['placement'];
     $releasePath=$economics.'?action=release_ownership&placement_id='.$own['placement'];
     $patchPath=$economics.'?id='.$own['ar'];
+    $contextPath=$economics.'?placement_id='.$own['placement'];
+    $barePath=$economics.'?placement_id='.$bare;
+    $refreshPath=$barePath.'&action=reconcile';
     $previewPath=$stored.'?action=stored_preview'; $applyPath=$stored.'?action=stored_apply';
     $release=['confirm'=>'RELEASE_COMMERCIAL_OWNERSHIP','groups'=>['client_terms'],'review_token'=>str_repeat('0',64)];
     $apply=['confirm'=>'APPLY_STORED_JOBDIVA_ASSIGNMENTS','selected_start_ids'=>[$own['start']],'dry_run_token'=>str_repeat('0',64),'per_page'=>20];
-    $operations=[['GET',$reviewPath,null],['POST',$releasePath,$release],['PATCH',$patchPath,['payment_terms'=>'NET15']],['POST',$previewPath,[]],['POST',$applyPath,$apply]];
+    $operations=[['GET',$reviewPath,null],['POST',$releasePath,$release],['PATCH',$patchPath,['payment_terms'=>'NET15']],['POST',$previewPath,[]],['POST',$applyPath,$apply],['GET',$contextPath,null],['POST',$refreshPath,[]]];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -122,13 +129,24 @@ try {
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
     [$status,$review]=$request('GET',$reviewPath);
     $expect($status===200&&$review['placement_id']===$own['placement']&&count($review['groups'])===4,'Placement reader sees the four actual ownership groups');
-    foreach (array_slice($operations,1) as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Read grant denies change or stored reconciliation: '.$method.' '.$path);
+    $expect(($review['permissions']['release']??null)===false,'Ownership review reports that a reader cannot release fields');
+    [$status,$context]=$request('GET',$contextPath);
+    $expect($status===200&&count($context['permissions']??[])===7&&!in_array(true,$context['permissions'],true),'Contract context gives reader no editing permissions');
+    [$status,$context]=$request('GET',$barePath);
+    $expect($status===200&&$context['parties']===[]&&$context['readiness']['missing_receivable_party']===true,'Reading an unbuilt contract reports its missing setup without creating participants');
+    foreach ($operations as [$method,$path,$body]) if ($method!=='GET') $expect($request($method,$path,$body)[0]===403,'Read grant denies change or stored reconciliation: '.$method.' '.$path);
     $expect($request('GET',$economics.'?action=ownership_review&placement_id='.$foreign['placement'])[0]===404,'Foreign placement ID is not disclosed within the pinned workspace');
+    $expect($request('GET',$economics.'?placement_id='.$foreign['placement'])[0]===404,'Ordinary context does not disclose a foreign placement');
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,true,$foreignTenant)[0]===403,'Foreign tenant pin denied: '.$method.' '.$path);
     $expect($snapshot($graphTables)===$unchanged,'Anonymous, ungranted, read-only and foreign-tenant denials preserve every graph row');
     RBACResolver::grantModule($membership,'placements','write',[$tenant],$actor);
+    [$status,$context]=$request('GET',$contextPath);
+    $expect($status===200&&$context['permissions']['manage']===true&&$context['permissions']['financials_manage']===false&&$context['permissions']['financials_approve']===false,'Placement editing does not grant rate editing or approval');
+    [$status,$editorReview]=$request('GET',$reviewPath);
+    $expect($status===200&&$editorReview['permissions']['release']===true,'Editor ownership review exposes the authorized release action');
     [$status,$plan]=$request('POST',$previewPath,[]);
     $expect($status===200&&count($plan['rows'])===1&&$plan['rows'][0]['selectable']===true,'Placement editor previews only its complete saved JobDiva assignment');
+    $expect(($plan['permissions']['apply']??null)===false,'Source preview withholds apply permission from the placement editor');
     $apply['dry_run_token']=$plan['dry_run_token'];
     $expect($request('POST',$applyPath,$apply)[0]===403,'Placement write alone cannot apply saved source financial fields');
     $release['review_token']=$review['review_token'];
@@ -136,6 +154,17 @@ try {
     $expect($request('PATCH',$economics.'?id='.$foreign['ar'],['payment_terms'=>'NET15'])[0]===404,'Editor cannot change another tenant participant by ID');
     $expect($request('POST',$economics.'?action=release_ownership&placement_id='.$foreign['placement'],$release)[0]===404,'Editor cannot release another tenant contract by ID');
     $expect($snapshot($graphTables)===$unchanged,'Preview and rejected editor actions preserve graph values and identities');
+    $expect($request('POST',$economics.'?placement_id='.$foreign['placement'].'&action=reconcile',[])[0]===404,'An editor cannot refresh another tenant contract');
+    $pdo->exec("CREATE TRIGGER cf_contract_http_reconcile_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.economics.reconciled' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic refresh audit failure'; END IF; END");
+    try { $expect($request('POST',$refreshPath,[])[0]===503,'A failed required audit rejects participant refresh'); }
+    finally { $pdo->exec('DROP TRIGGER cf_contract_http_reconcile_audit'); }
+    $expect($snapshot($graphTables)===$unchanged,'Failed refresh audit rolls back every participant, cycle and vendor change');
+    [$status,$refreshed]=$request('POST',$refreshPath,[]);
+    $expect($status===200&&$refreshed['result']['available']===true&&count($refreshed['context']['parties'])>=2,'Explicit editor refresh builds the unbuilt contract participants');
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.economics.reconciled'");
+    $q->execute([$tenant,$bare,$actor]);$expect((int)$q->fetchColumn()===1,'Successful refresh and its authenticated audit commit together exactly once');
+    $afterRefresh=$snapshot($graphTables);
+    $expect($request('GET',$barePath)[0]===200&&$snapshot($graphTables)===$afterRefresh,'Reading a refreshed contract leaves all business rows unchanged');
     [$status,$edited]=$request('PATCH',$patchPath,['payment_terms'=>'NET15']);
     $expect($status===200&&$edited['changed']===true&&$edited['party']['payment_terms']==='NET15','Placement editor saves a native commercial change');
     $row=placementAuditRow($own['placement']);
@@ -143,10 +172,13 @@ try {
     $unchanged=$snapshot($graphTables);
     $expect($request('POST',$releasePath,$release)[0]===409,'An old ownership review cannot release a newer contract edit');
     RBACResolver::grantModule($membership,'placements','admin',[$tenant],$actor);
+    [$status,$context]=$request('GET',$contextPath);
+    $expect($status===200&&!in_array(false,$context['permissions'],true),'Administrator receives the contract permissions authorized by both access layers');
     $expect($request('POST',$applyPath,array_replace($apply,['confirm'=>'']))[0]===422,'Saved source apply requires explicit confirmation');
     $expect($request('POST',$applyPath,$apply)[0]===409,'Administrator cannot apply a source preview from before the native edit');
     $expect($snapshot($graphTables)===$unchanged,'Stale reviews and missing confirmations leave all graph rows unchanged');
     [$status,$plan]=$request('POST',$previewPath,[]); $expect($status===200,'Administrator refreshes the saved source review');
+    $expect(($plan['permissions']['apply']??null)===true,'Administrator source preview explicitly permits apply');
     $apply['dry_run_token']=$plan['dry_run_token'];
     [$status,$applied]=$request('POST',$applyPath,$apply);
     $expect($status===200&&$applied['projected']===1&&$applied['retained_core_fields']>=4,'Authorized source apply reports retained Core commercial decisions');
@@ -175,7 +207,9 @@ try {
     $expect(in_array('placement.economic_party.updated',$events,true)&&in_array('placement.commercial_ownership.released',$events,true),'Native writes record the authenticated actor and workspace in the audit trail');
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
-    foreach (array_slice($operations,1) as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Same session immediately loses writes after downgrade: '.$method.' '.$path);
+    [$status,$context]=$request('GET',$contextPath);
+    $expect($status===200&&!in_array(true,$context['permissions'],true),'Same session immediately receives read-only screen permissions after downgrade');
+    foreach ($operations as [$method,$path,$body]) if ($method!=='GET') $expect($request($method,$path,$body)[0]===403,'Same session immediately loses writes after downgrade: '.$method.' '.$path);
     RBACResolver::revokeModule($membership,'placements',$actor);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body)[0]===403,'Same session loses contract access after revocation: '.$method.' '.$path);
     $request('GET','/logout.php');
