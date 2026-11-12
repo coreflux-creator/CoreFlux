@@ -103,6 +103,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
         // 2) Group by placement_id.
         $byPlacement = [];
         foreach ($entries as $e) $byPlacement[(int) $e['placement_id']][] = $e;
+        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
 
         // 3) Per placement: price each row from its locked rate snapshot.
         $created = [];
