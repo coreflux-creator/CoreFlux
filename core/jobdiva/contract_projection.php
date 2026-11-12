@@ -22,6 +22,18 @@ function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagemen
         || array_filter($owned, static fn($field) => !is_string($field) || $field === '')) {
         throw new RuntimeException('Review the placement field ownership before reconciling its contract.', 422);
     }
+    foreach ($currentGraph['economic_parties'] ?? [] as $party) {
+        if (($party['source_type'] ?? '') === 'corp'
+            && ($party['source_ref'] ?? '') === 'corp:' . (int)($currentGraph['placement']['id'] ?? 0)
+            && array_key_exists('source_managed', $party) && empty($party['source_managed'])) {
+            // An inactive manual row is also a decision: a source refresh must
+            // not recreate a corporate payee that an operator removed.
+            $owned[] = 'corp_identity';
+        }
+    }
+    if (in_array('corp_identity', $owned, true) && ($currentGraph['placement']['engagement_type'] ?? '') === 'c2c') {
+        $owned[] = 'engagement_type';
+    }
     if ($sourceEngagement !== '' && in_array('engagement_type',$owned,true)
         && ($currentGraph['placement']['engagement_type'] ?? '') !== $sourceEngagement) {
         // Payee and rate semantics from a conflicting employment model need
@@ -361,6 +373,10 @@ function jobdivaContractProjectionBuild(
     }
 
     $currentPlacement = is_array($currentGraph['placement'] ?? null) ? $currentGraph['placement'] : [];
+    $currentCorp = $currentGraph['corp'][0] ?? [];
+    $corporateIdentityOwned = false;
+    try { $corporateIdentityOwned = in_array('corp_identity', jobdivaContractOwnedFields($currentGraph), true); }
+    catch (RuntimeException $e) { if ($e->getCode() !== 422) throw $e; }
     $currentRate = jobdivaContractProjectionCurrentRate($currentGraph);
     $currentReferralPayout = null;
     if ($engagement === 'referral') {
@@ -409,12 +425,21 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionField('Settlement', 'vendor_payment_terms', 'Vendor payment terms', $currentPlacement['vendor_payment_terms_override'] ?? null, $vendorTerms ?: null, $sourceFor('vendor_payment_terms', 'Assignment.SALARY.Subcontractor_Payment_terms')),
         jobdivaContractProjectionField('Settlement', 'client_payment_terms', 'Client payment terms', $currentPlacement['client_payment_terms_override'] ?? null, $clientTerms ?: null, $sourceFor('client_payment_terms', 'Assignment.BILLING payment terms')),
         jobdivaContractProjectionField('Settlement', 'paid_when_paid', 'Paid when paid', isset($currentPlacement['vendor_pwp_enabled']) ? (bool) $currentPlacement['vendor_pwp_enabled'] : null, $pwp, $sourceFor('paid_when_paid', 'Assignment.SALARY payment terms')),
+        ...($engagement === 'c2c' || $currentCorp || $corporateIdentityOwned ? [
+            jobdivaContractProjectionField('Participant', 'corp_identity', 'Corporate payee',
+                $currentCorp ? 'Core company ' . (int)($currentCorp['company_id'] ?? 0) . ': ' . ($currentCorp['corp_legal_name'] ?? '') : null,
+                $corporationId !== '' || $corporationName !== '' ? 'JobDiva company ' . $corporationId . ': ' . $corporationName : null,
+                $sourceFor('corporation_id', 'Assignment.SUBCONTRACT_COMPANYID')),
+        ] : []),
     ];
 
     $knownEngagement = in_array($engagement, ['w2', 'c2c', '1099', 'temp_to_perm', 'direct_hire', 'internal', 'referral'], true);
     $requiresHourlyEconomics = !in_array($engagement, ['direct_hire', 'internal'], true);
     $datesValid = $startDate !== null && ($endDate === null || $endDate >= $startDate);
     $c2cPayeePresent = $engagement !== 'c2c' || $corporationId !== '' || $corporationName !== '';
+    if ($engagement === 'c2c' && $corporateIdentityOwned) {
+        $c2cPayeePresent = (int)($currentCorp['company_id'] ?? 0) > 0 && trim((string)($currentCorp['corp_legal_name'] ?? '')) !== '';
+    }
     $referralPayeePresent = $engagement !== 'referral' || $referralVendorName !== '';
     $existingLaborPayees = array_values(array_filter(
         $currentGraph['economic_parties'] ?? [],
@@ -471,7 +496,9 @@ function jobdivaContractProjectionBuild(
         jobdivaContractProjectionCheck('client_rate', 'Client rate', !$requiresHourlyEconomics || $grossBill > 0, $grossBill > 0 ? number_format($grossBill, 2) : 'No positive assignment bill rate.'),
         jobdivaContractProjectionCheck('labor_rate', $engagement === 'referral' ? 'Referral payout rate' : 'Labor pay rate', !$requiresHourlyEconomics || ($engagement === 'referral' ? $referralPayoutRate > 0 : $laborRate > 0), ($engagement === 'referral' ? $referralPayoutRate : $laborRate) > 0 ? number_format($engagement === 'referral' ? $referralPayoutRate : $laborRate, 2) : ($engagement === 'referral' ? 'No positive hourly referral payout.' : 'No positive salary/vendor pay rate.')),
         jobdivaContractProjectionCheck('rate_arithmetic', 'Gross-to-net arithmetic', $grossBill <= 0 || ($invoiceRate >= 0 && $invoiceRate <= $grossBill + 0.0001), $grossBill > 0 ? number_format($grossBill, 2) . ' gross - ' . number_format($discountAmount, 2) . ' adjustment = ' . number_format($invoiceRate, 2) . ' invoice' : 'No hourly client rate.'),
-        jobdivaContractProjectionCheck('c2c_payee', 'C2C vendor identity', $c2cPayeePresent, $c2cPayeePresent ? ($corporationName ?: "JobDiva company {$corporationId}") : 'Subcontract company ID and name are both missing.'),
+        jobdivaContractProjectionCheck('c2c_payee', 'C2C vendor identity', $c2cPayeePresent,
+            $corporateIdentityOwned ? ($c2cPayeePresent ? 'Core corporate payee is retained.' : 'The Core corporate payee was removed. Restore it or review returning its identity to JobDiva.')
+                : ($c2cPayeePresent ? ($corporationName ?: "JobDiva company {$corporationId}") : 'Subcontract company ID and name are both missing.')),
         jobdivaContractProjectionCheck('billing_frequency', 'Client billing frequency', $clientCadence !== '' || !$requiresHourlyEconomics, $clientCadence !== '' ? $clientCadence : 'Will use the client/tenant default.', 'warning'),
         jobdivaContractProjectionCheck('payment_frequency', $engagement === 'referral' ? 'Referral payment frequency' : 'Labor payment frequency', $payCadence !== '' || !$requiresHourlyEconomics, $payCadence !== '' ? $payCadence : 'Will use the worker/vendor default.', 'warning'),
         $paymentPayeeCheck,

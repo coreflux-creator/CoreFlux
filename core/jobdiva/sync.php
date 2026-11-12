@@ -4021,11 +4021,21 @@ function jobdivaStoredAssignmentProjectionPlan(
             : jobdivaContractProjectionBuild([], $currentGraph, $startId);
         $subcontractEvidence = null;
         $subcontractId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contractProjection['source_contract'] ?? []]);
-        if ($subcontractId !== '') {
-            $subcontractEvidence = jobdivaStoredSubcontractCompanyEvidence($tenantId, $subcontractId, $contractProjection['source_contract'] ?? []);
+        $contractFields = array_column($contractProjection['fields'] ?? [], null, 'field');
+        $retainsCorporateIdentity = !empty($contractFields['corp_identity']['core_owned']);
+        $currentCorporateIdentity = $placementId > 0 ? jobdivaCorporateIdentityRecord($tenantId,(int)$placementId) : null;
+        if ($subcontractId !== '' || $retainsCorporateIdentity) {
+            $subcontractEvidence = $retainsCorporateIdentity
+                ? jobdivaStoredCoreSubcontractCompanyEvidence($tenantId, (int)$placementId, $subcontractId)
+                : jobdivaStoredSubcontractCompanyEvidence($tenantId, $subcontractId, $contractProjection['source_contract'] ?? []);
+            if (!$retainsCorporateIdentity && !empty($currentCorporateIdentity['has_private_records'])
+                && (int)($subcontractEvidence['company_id'] ?? 0) !== (int)$currentCorporateIdentity['company_id']) {
+                $subcontractEvidence['available'] = false;
+                $subcontractEvidence['detail'] = 'Review the linked corporate tax record and documents before changing the source payee.';
+            }
             unset($subcontractEvidence['payload']);
             $contractProjection['subcontract_company'] = $subcontractEvidence;
-            $companyCheck = jobdivaContractProjectionCheck('stored_subcontract_company', 'Saved subcontract company',
+            $companyCheck = jobdivaContractProjectionCheck('stored_subcontract_company', $retainsCorporateIdentity ? 'Retained Core corporate payee' : 'Saved subcontract company',
                 $subcontractEvidence['available'], $subcontractEvidence['detail']);
             $contractProjection['checks'][] = $companyCheck;
             if (!$subcontractEvidence['available']) {
@@ -4033,6 +4043,13 @@ function jobdivaStoredAssignmentProjectionPlan(
                 $contractProjection['blocking_issues'][] = $companyCheck;
                 $contractProjection['complete'] = false;
             }
+        }
+        if (!$retainsCorporateIdentity && !empty($currentCorporateIdentity['has_private_records'])
+            && ($contractProjection['source_contract']['engagement_type'] ?? '') !== 'c2c') {
+            $check = jobdivaContractProjectionCheck('corporate_private_records','Corporate identity change',false,
+                'Review the linked corporate tax record and documents before removing the C2C payee.');
+            $contractProjection['checks'][] = $check; $contractProjection['blocking_issues'][] = $check;
+            $contractProjection['complete'] = false;
         }
         $summary['retained_core_fields'] += count($contractProjection['ownership_conflicts'] ?? []);
         foreach ($contractProjection['blocking_issues'] ?? [] as $check) {
@@ -4973,7 +4990,45 @@ function jobdivaSyncCorpPluck(int $tid, array $jd, string $targetColumn, array $
     ));
 }
 
-/** Read-only identity evidence shared by stored preview and apply. Never fetches or upserts. */
+/** Identity guards need presence flags, never tax ciphertext or document contents. */
+function jobdivaCorporateIdentityRecord(int $tid, int $placementId): ?array
+{
+    $q = getDB()->prepare('SELECT company_id,corp_legal_name,
+        (corp_ein_ct IS NOT NULL AND corp_ein_ct <> "") OR msa_storage_object_id IS NOT NULL
+          OR coi_storage_object_id IS NOT NULL OR w9_storage_object_id IS NOT NULL AS has_private_records
+        FROM placement_corp_details WHERE tenant_id=? AND placement_id=?');
+    $q->execute([$tid,$placementId]); return $q->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/** Read-only Core identity evidence shared by stored preview and apply. */
+function jobdivaStoredCoreSubcontractCompanyEvidence(int $tid, int $placementId, string $externalId): array
+{
+    $result = ['external_id'=>$externalId,'available'=>false,'company_id'=>null,'name'=>null,
+        'source'=>'core_owned','evidence_hash'=>null,'payload'=>null,
+        'detail'=>'Restore the Core corporate payee or review returning its identity to JobDiva before applying this contract.'];
+    $q = getDB()->prepare('SELECT pcd.company_id,pcd.corp_legal_name,pcd.ap_vendor_id,c.name AS company_name,ep.id AS party_id,ep.company_id AS party_company_id,
+        ep.ap_vendor_id AS party_vendor_id,ep.display_name AS party_name,ep.active AS party_active,
+        v.company_id AS vendor_company_id
+        FROM placement_corp_details pcd
+        JOIN companies c ON c.id=pcd.company_id AND c.tenant_id=? AND c.deleted_at IS NULL
+        LEFT JOIN placement_economic_parties ep ON ep.tenant_id=pcd.tenant_id AND ep.placement_id=pcd.placement_id
+          AND ep.source_type="corp" AND ep.source_ref=CONCAT("corp:",pcd.placement_id)
+          AND ep.role="c2c_vendor" AND ep.settlement_channel="ap"
+        LEFT JOIN ap_vendors_index v ON v.tenant_id=pcd.tenant_id AND v.id=pcd.ap_vendor_id
+        WHERE pcd.tenant_id=? AND pcd.placement_id=?');
+    $q->execute([companiesDirectoryTenantId($tid),$tid,$placementId]);
+    $row = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$row || (int)$row['party_active'] !== 1 || (int)$row['company_id'] !== (int)$row['party_company_id']
+        || (int)$row['company_id'] !== (int)$row['vendor_company_id']
+        || (int)$row['ap_vendor_id'] <= 0 || (int)$row['ap_vendor_id'] !== (int)$row['party_vendor_id']
+        || trim((string)$row['corp_legal_name']) === '' || $row['corp_legal_name'] !== $row['party_name']) return $result;
+    // Hash only identity evidence. Never expose encrypted tax data or document references.
+    $identity = array_intersect_key($row,array_flip(['company_id','corp_legal_name','ap_vendor_id','company_name','party_id','party_company_id','party_vendor_id','party_name','party_active','vendor_company_id']));
+    return array_replace($result, ['available'=>true,'company_id'=>(int)$row['company_id'],'name'=>$row['corp_legal_name'],
+        'evidence_hash'=>mappingHash($identity),
+        'detail'=>'Core company ' . $row['company_id'] . ': ' . $row['corp_legal_name'] . ' is retained. JobDiva company links are unchanged.']);
+}
+
 function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, array $storedContract = []): array
 {
     $externalId = jobdivaAssignmentCompanyId($externalId);
@@ -5159,12 +5214,27 @@ function jobdivaSyncUpsertPlacementCorpDetails(
 ): array {
     $summary = ['written' => 0, 'removed' => 0, 'row' => 0, 'skipped' => false, 'errors' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
+    // The canonical placement writer holds the parent lock. Read the same
+    // ownership decision used by preview before resolving any provider company.
+    $pdo = getDB();
+    $ownershipRow = $pdo->prepare('SELECT id,engagement_type,coreflux_overridden_fields,vendor_payment_terms_override,vendor_pwp_enabled FROM placements WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');
+    $ownershipRow->execute([$tid,$placementId]);
+    $ownedPlacement = $ownershipRow->fetch(PDO::FETCH_ASSOC);
+    if (!$ownedPlacement) throw new RuntimeException('Placement not found.', 404);
+    $ownershipParties = $pdo->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? FOR UPDATE');
+    $ownershipParties->execute([$tid,$placementId]);
+    $owned = jobdivaContractOwnedFields(['placement'=>$ownedPlacement,'economic_parties'=>$ownershipParties->fetchAll(PDO::FETCH_ASSOC)]);
+    if (in_array('corp_identity', $owned, true)) {
+        return array_replace($summary, ['skipped'=>true,'retained_core_identity'=>true]);
+    }
+    $currentCorp = jobdivaCorporateIdentityRecord($tid,$placementId);
 
     $engagement = jobdivaNormalisePlacementEngagementType((string) ($resolvedEngagement ?? ''), '');
     if ($engagement === '') {
         $engagement = jobdivaInferPlacementEngagementTypeFromPayload($jd, '');
     }
     if ($engagement !== 'c2c') {
+        if (!empty($currentCorp['has_private_records'])) throw new RuntimeException('Review the linked corporate tax record and documents before removing the C2C payee.',409);
         try {
             $pdo = getDB();
             $st = $pdo->prepare(
@@ -5290,6 +5360,21 @@ function jobdivaSyncUpsertPlacementCorpDetails(
     foreach ($fields as $col => $value) {
         if ($value !== null && trim((string) $value) !== '') {
             $clean[$col] = $value;
+        }
+    }
+    if (in_array('vendor_payment_terms_override', $owned, true)) {
+        if ($currentCorp) unset($clean['payment_terms_override']);
+        else $clean['payment_terms_override'] = $ownedPlacement['vendor_payment_terms_override'];
+    }
+    if (in_array('vendor_pwp_enabled', $owned, true)) {
+        if ($currentCorp) unset($clean['pwp_enabled']);
+        else $clean['pwp_enabled'] = $ownedPlacement['vendor_pwp_enabled'];
+    }
+    if ($currentCorp && isset($clean['company_id']) && (int)$currentCorp['company_id'] !== (int)$clean['company_id']) {
+        if (!empty($currentCorp['has_private_records'])) throw new RuntimeException('Review the linked corporate tax record and documents before changing the source payee.', 409);
+        foreach (['corp_address_line1','corp_address_line2','corp_city','corp_state','corp_postal_code','corp_country',
+            'corp_contact_name','corp_contact_email','corp_contact_phone','coi_expiry'] as $companyField) {
+            if (!array_key_exists($companyField,$clean)) $clean[$companyField] = null;
         }
     }
     if (empty($clean['corp_legal_name'])) {

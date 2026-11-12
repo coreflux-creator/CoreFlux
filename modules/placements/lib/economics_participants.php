@@ -42,6 +42,9 @@ function placementEconomicsCreateNativeParty(int $tenantId, int $placementId, ar
         ], true)) {
             throw new InvalidArgumentException('Invalid economic party role', 422);
         }
+        if ($role === 'c2c_vendor' && ($placement['engagement_type'] !== 'c2c' || $channel !== 'ap')) {
+            throw new InvalidArgumentException('A corporate payee requires a C2C placement and accounts payable destination.', 422);
+        }
 
         $companyId = !empty($body['company_id']) ? (int) $body['company_id'] : null;
         $personId = !empty($body['person_id']) ? (int) $body['person_id'] : null;
@@ -102,6 +105,18 @@ function placementEconomicsCreateNativeParty(int $tenantId, int $placementId, ar
             $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), $displayName, [
                 'created_by_user_id' => $user['id'] ?? null,
             ], ['vendor']);
+        }
+        $corporateIdentityChanged = false;
+        if ($role === 'c2c_vendor') {
+            $corpRead = $pdo->prepare('SELECT company_id,
+                (corp_ein_ct IS NOT NULL AND corp_ein_ct <> "") OR msa_storage_object_id IS NOT NULL
+                  OR coi_storage_object_id IS NOT NULL OR w9_storage_object_id IS NOT NULL AS has_private_records
+                FROM placement_corp_details WHERE tenant_id=? AND placement_id=? FOR UPDATE');
+            $corpRead->execute([$tenantId,$placementId]); $priorCorp = $corpRead->fetch(PDO::FETCH_ASSOC);
+            $corporateIdentityChanged = $priorCorp && (int)$priorCorp['company_id'] !== (int)$companyId;
+            if ($corporateIdentityChanged && !empty($priorCorp['has_private_records'])) {
+                throw new RuntimeException('Review the linked corporate tax record and documents before changing this payee.', 409);
+            }
         }
 
         $terms = placementEconomicsNormaliseTerms((string) ($body['payment_terms'] ?? 'NET30'));
@@ -176,6 +191,14 @@ function placementEconomicsCreateNativeParty(int $tenantId, int $placementId, ar
         if ($channel === 'ap') $partyOverrides['pwp_enabled'] = $pwp;
         placementEconomicsUpdateParty($tenantId, $partyId, $partyOverrides);
         if ($role === 'c2c_vendor' && $companyId && $vendor) {
+            $ownedFields = array_values(array_unique(array_merge(
+                placementOwnershipFields($placement['coreflux_overridden_fields'] ?? null),
+                ['corp_identity','vendor_pay_cycle','ap_operating_cycle_id','vendor_payment_terms_override','vendor_pwp_enabled']
+            )));
+            // A native choice takes ownership even when this canonical party
+            // was originally projected from JobDiva. Keep its IDs and lineage.
+            $pdo->prepare('UPDATE placement_economic_parties SET source_managed=0 WHERE tenant_id=? AND placement_id=? AND id=?')
+                ->execute([$tenantId,$placementId,$partyId]);
             getDB()->prepare(
                 'INSERT INTO placement_corp_details
                     (placement_id, tenant_id, company_id, ap_vendor_id, corp_legal_name,
@@ -191,7 +214,14 @@ function placementEconomicsCreateNativeParty(int $tenantId, int $placementId, ar
                 'v' => (int) $vendor['id'], 'name' => $displayName,
                 'terms' => $terms, 'pwp' => $pwp ? 1 : 0,
             ]);
+            if ($corporateIdentityChanged) {
+                $pdo->prepare('UPDATE placement_corp_details SET corp_address_line1=NULL,corp_address_line2=NULL,
+                    corp_city=NULL,corp_state=NULL,corp_postal_code=NULL,corp_country=NULL,
+                    corp_contact_name=NULL,corp_contact_email=NULL,corp_contact_phone=NULL,coi_expiry=NULL
+                    WHERE tenant_id=? AND placement_id=?')->execute([$tenantId,$placementId]);
+            }
             scopedUpdate('placements', $placementId, [
+                'coreflux_overridden_fields' => json_encode($ownedFields, JSON_THROW_ON_ERROR),
                 'vendor_pay_cycle' => $frequency['cadence'] ?? 'biweekly',
                 'ap_operating_cycle_id' => $frequency['cycle_id'] ?? null,
                 'vendor_payment_terms_override' => $terms,
@@ -201,6 +231,7 @@ function placementEconomicsCreateNativeParty(int $tenantId, int $placementId, ar
         placementRequiredAudit('placement.economic_party.added', [
             'placement_id' => $placementId, 'economic_party_id' => $partyId,
             'role' => $role, 'company_id' => $companyId, 'ap_vendor_id' => $vendor['id'] ?? null,
+            'core_owned_fields' => $ownedFields ?? [],
         ], $placementId);
         return ['id' => $partyId, 'context' => placementEconomicsContext($tenantId, $placementId, false)];
     });
@@ -221,6 +252,16 @@ function placementEconomicsRemoveNativeParty(int $tenantId, int $partyId): array
         if (!empty($row['source_managed'])) throw new RuntimeException('Remove the source chain/referral/commission record instead of deleting its economic projection.', 409);
         if (!(int)$row['active']) return ['ok'=>true,'changed'=>false];
         if ((string)$row['source_type'] === 'corp') {
+            $privateRead = $pdo->prepare('SELECT 1 FROM placement_corp_details WHERE tenant_id=? AND placement_id=?
+                AND ((corp_ein_ct IS NOT NULL AND corp_ein_ct <> "") OR msa_storage_object_id IS NOT NULL
+                  OR coi_storage_object_id IS NOT NULL OR w9_storage_object_id IS NOT NULL) FOR UPDATE');
+            $privateRead->execute([$tenantId,$placementId]);
+            if ($privateRead->fetchColumn()) throw new RuntimeException('Review the linked corporate tax record and documents before removing this payee.', 409);
+            $ownedFields = array_values(array_unique(array_merge(
+                placementOwnershipFields($placement['coreflux_overridden_fields'] ?? null), ['corp_identity']
+            )));
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE tenant_id=? AND id=?')
+                ->execute([json_encode($ownedFields, JSON_THROW_ON_ERROR),$tenantId,$placementId]);
             $pdo->prepare('DELETE FROM placement_corp_details WHERE tenant_id = :t AND placement_id = :p')->execute(['t'=>$tenantId,'p'=>$placementId]);
         }
         placementEconomicsUpdateParty($tenantId, $partyId, ['active'=>0]);

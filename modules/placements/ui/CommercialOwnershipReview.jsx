@@ -7,9 +7,12 @@ const labels = {
   vendor_pay_cycle: 'Payment frequency', vendor_pay_cycle_anchor: 'Payment anchor date',
   payment_terms: 'Payment terms', payment_terms_override: 'Payment terms', pwp_enabled: 'Paid when paid',
   name: 'Schedule', cadence: 'Frequency', anchor_date: 'Anchor date',
+  company_id: 'Core company ID', display_name: 'Payee', corp_legal_name: 'Legal name', active: 'Active payee',
+  engagement_type: 'Employment model',
 };
 const valueText = (key, value) => value === null || value === undefined || value === '' ? '—'
-  : key.endsWith('pwp_enabled') ? (Number(value) ? 'Yes' : 'No') : String(value);
+  : key.endsWith('pwp_enabled') || key === 'active' ? (Number(value) ? 'Yes' : 'No')
+    : key === 'engagement_type' ? String(value).toUpperCase() : String(value);
 function CurrentValues({ values }) {
   return <dl style={{ margin: '6px 0', display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) 2fr', gap: '4px 12px' }}>
     {Object.entries(values || {}).filter(([key]) => labels[key]).map(([key, value]) => <React.Fragment key={key}>
@@ -74,6 +77,7 @@ export default function CommercialOwnershipReview({ placementId, disabled = fals
           }
           {group.label}
         </label>
+        {group.description && <p>{group.description}</p>}
         {!group.selectable && <p role="note">{group.blocked_reason}</p>}
         <div style={{ marginLeft: 22 }}>
           <strong>Placement</strong><CurrentValues values={group.placement_values} />

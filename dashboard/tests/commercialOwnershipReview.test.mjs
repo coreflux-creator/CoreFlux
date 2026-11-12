@@ -38,6 +38,26 @@ test('cancelled confirmation preserves selection without a write',async()=>{
     assert.ok(f.confirmations[0].includes('Contractor terms and paid when paid'));assert.ok(f.confirmations[0].includes('Current values stay unchanged now.'));
   }finally{f.close();}
 });
+
+test('corporate review shows identity, retained model and inactive status before a separate release',async()=>{
+  const corpReview={...review,groups:[{
+    key:'corp_identity',label:'Corporate payee identity',selectable:true,
+    description:'Core keeps the chosen payee and its C2C model. A later source review can replace the released identity.',
+    placement_values:{engagement_type:'c2c'},corporation_values:{company_id:71,corp_legal_name:'Synthetic Corporation'},
+    participants:[{id:9,name:'Synthetic Corporation',values:{company_id:71,display_name:'Synthetic Corporation',active:0}}],
+  }]};
+  const f=await fixture(async method=>method==='get'?corpReview:{changed:true,values_applied:false});
+  try{
+    await f.click('Review JobDiva ownership');const t=text(f.tree.root);
+    assert.ok(t.includes('Core company ID71'));assert.ok(t.includes('Employment modelC2C'));
+    assert.ok(t.includes('Active payeeNo'));assert.ok(t.includes(corpReview.groups[0].description));
+    assert.equal(f.calls.filter(c=>c.method==='post').length,0);
+    await f.select();await f.click('Return selected fields to JobDiva');
+    assert.deepEqual(f.calls.find(c=>c.method==='post').body.groups,['corp_identity']);
+    assert.ok(f.confirmations[0].includes('Corporate payee identity'));
+    assert.ok(f.confirmations[0].includes('Current values stay unchanged now.'));
+  }finally{f.close();}
+});
 test('release submits the reviewed groups and seal once and consumes its selection',async()=>{
   let refreshed=0;const f=await fixture(undefined,{onReleased:()=>{refreshed++;}});try{await f.click('Review JobDiva ownership');await f.select();await f.click('Return selected fields to JobDiva');
     assert.deepEqual(f.calls.find(c=>c.method==='post'),{method:'post',url:'/modules/placements/api/economics.php?placement_id=15&action=release_ownership',body:{groups:['vendor_terms'],review_token:review.review_token,confirm:'RELEASE_COMMERCIAL_OWNERSHIP'}});
