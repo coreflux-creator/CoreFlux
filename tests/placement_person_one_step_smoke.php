@@ -70,7 +70,7 @@ $assert('server derives classification instead of trusting the browser',
     && str_contains($api, "'direct_hire' => 'perm'")
     && str_contains($api, "default => 'w2'"));
 $assert('active W-2 people retain the payroll bridge',
-    str_contains($api, 'peopleEnsureEmployeesFromW2()'));
+    str_contains($api, 'peopleEmploymentForNewPerson($createdPersonId,'));
 $assert('response identifies the created person',
     str_contains($api, "'person_created' => \$createdPersonId !== null")
     && str_contains($api, "\$response['person'] = peopleGet(\$createdPersonId)"));

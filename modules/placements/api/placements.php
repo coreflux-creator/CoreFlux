@@ -438,11 +438,13 @@ if ($method === 'POST') {
         throw $e;
     }
 
-    // Preserve the People module's payroll bridge for active W-2 records.
+    // Create a stable employment link only for this explicitly created W-2 person.
     // It is intentionally non-fatal and runs after the atomic create commits.
     if ($createdPersonId !== null && ($newPersonInsert['classification'] ?? null) === 'w2') {
         require_once __DIR__ . '/../../people/lib/employees.php';
-        try { peopleEnsureEmployeesFromW2(); } catch (\Throwable $_) { /* dashboard backfill is the fallback */ }
+        require_once __DIR__.'/../../people/lib/employment_links.php';
+        try { peopleEmploymentForNewPerson($createdPersonId,(int)$user['id']); }
+        catch (\Throwable $e) { error_log('New person employment requires review: '.$createdPersonId); }
     }
 
     $response = [

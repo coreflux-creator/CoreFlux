@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Directory from './Directory';
 import PersonCreate from './PersonCreate';
 import PersonDetail from './PersonDetail';
+import EmployeeDetail from './EmployeeDetail';
 import Pipeline from './Pipeline';
 import DocumentVault from './DocumentVault';
 import CustomFields from './CustomFields';
@@ -35,6 +36,7 @@ export default function PeopleModule({ session }) {
         <Route path="vendors/*"     element={<VendorsModule  session={session} />} />
         <Route path="merge"         element={<CompaniesMerge session={session} />} />
         <Route path="audit_pii"     element={<PIIAuditLog    session={session} />} />
+        <Route path="employment/:employeeId/*" element={<EmployeeDetail session={session} />} />
         <Route path=":personId/*"   element={<PersonDetail   session={session} />} />
       </Routes>
     </div>

@@ -48,8 +48,8 @@ function EmploymentTab({ employee }) {
       <dt>Job title</dt><dd>{employee.job_title || '—'}</dd>
       <dt>Department</dt><dd>{employee.department || '—'}</dd>
       <dt>Location</dt><dd>{employee.location || '—'}</dd>
-      <dt>Employment type</dt><dd>{employee.employment_type?.replace('_', ' ')}</dd>
-      <dt>FLSA</dt><dd>{employee.flsa_class?.replace('_', '-')}</dd>
+      <dt>Employment type</dt><dd>{employee.employment_type?.replace('_', ' ') || 'Needs review'}</dd>
+      <dt>FLSA</dt><dd>{employee.flsa_class?.replace('_', '-') || 'Needs review'}</dd>
       <dt>Hire date</dt><dd>{employee.hire_date || '—'}</dd>
       <dt>Start date</dt><dd>{employee.start_date || '—'}</dd>
       <dt>Work email</dt><dd>{employee.work_email || '—'}</dd>
@@ -286,7 +286,7 @@ export default function EmployeeDetail() {
   return (
     <section className="employee-detail" data-testid={`people-detail-${employee.id}`}>
       <header className="employee-detail__header">
-        <button className="btn btn--ghost" onClick={() => navigate('../directory')}>← Directory</button>
+        <button className="btn btn--ghost" onClick={() => navigate('/modules/people/directory')}>← Directory</button>
         <div>
           <h2>{employee.preferred_name || employee.legal_first_name} {employee.legal_last_name}</h2>
           <p className="muted">{employee.job_title || '—'} · {employee.department || '—'} · #{employee.employee_number}</p>

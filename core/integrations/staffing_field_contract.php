@@ -7,6 +7,7 @@ require_once __DIR__ . '/staffing_exchange_fields.php';
 require_once __DIR__ . '/staffing_workflow_fields.php';
 require_once __DIR__ . '/staffing_field_ownership.php';
 require_once __DIR__ . '/staffing_time_field_contract.php';
+require_once __DIR__ . '/staffing_employment_field_contract.php';
 
 function staffingFieldContractTables(): array
 {
@@ -16,7 +17,7 @@ function staffingFieldContractTables(): array
         'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_referrals',
         'placement_corp_details', 'placement_economic_parties', 'placement_economic_items', 'placement_economic_obligations',
         'staffing_operating_cycles', 'people_documents', 'placement_documents',
-        'people_banking', 'people_tax', 'people_employees', 'people_employment_history',
+        'people_banking', 'people_tax', 'people_employees', 'people_employment_history', 'people_employment_links',
         'people_compensation', 'people_i9', 'people_tax_federal', 'people_tax_state', 'people_bank_accounts',
         'time_entries', 'time_periods', 'time_downstream_feed', 'staffing_timesheets', 'quanta_time_imports',
         'payroll_runs', 'payroll_line_items', 'ap_bills', 'ap_payments', 'billing_invoices',
@@ -57,6 +58,8 @@ function staffingFieldContractRules(string $table, string $field): array
         'time_entries.hours' => ['Decimal hours for the work date and category, not minutes.', 'hours'],
         'time_entries.status' => ['Core review status; source approval does not itself approve Core time.', 'enum'],
         'people_employees.employee_number' => ['Legacy employment number; separate from the canonical person number.', 'source_reference'],
+        'people_employees.employment_type' => ['Reviewed employment type. New person-linked records preserve unknown as null until employment setup.', 'nullable-enum'],
+        'people_employees.flsa_class' => ['Reviewed overtime classification. W-2 alone does not establish exemption status; new person-linked records preserve unknown as null.', 'nullable-enum'],
     ];
     $restricted = preg_match('/(?:ssn|tax_id|bank|routing|account_number|password|credential|token|secret|dob|birth|_ct$)/i', $field)
         || in_array($table, ['people_banking', 'people_tax', 'people_bank_accounts', 'people_tax_federal', 'people_tax_state', 'people_i9'], true)
@@ -105,7 +108,7 @@ function staffingFieldContractRules(string $table, string $field): array
             if ($approval) $rules['write_policy'] = 'specialized_workflow_only';
         }
     }
-    return staffingTimeFieldRules($table, $field, $rules);
+    return staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules));
 }
 
 /** All columns of the allowlisted tables, including newly added fields, are accounted for. No record values. */
@@ -148,7 +151,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-12.2', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-12.3', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

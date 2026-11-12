@@ -1973,37 +1973,28 @@ function placementEconomicsPayrollCharges(
 /** Resolve a payroll-channel economic participant to the canonical employee. */
 function placementEconomicsPayrollEmployee(int $tenantId, array $party): ?array
 {
-    $pdo = getDB();
-    $st = $pdo->prepare(
-        'SELECT e.id AS employee_id, e.legal_first_name, e.legal_last_name,
-                pp.id AS profile_id, pp.cycle_id, pp.schedule_id, pp.enabled
-           FROM people_employees e
-           JOIN payroll_profiles pp ON pp.tenant_id = e.tenant_id AND pp.employee_id = e.id
-      LEFT JOIN people pe ON pe.tenant_id = e.tenant_id AND pe.id = :person_id
-          WHERE e.tenant_id = :t AND e.status IN ("active","on_leave") AND pp.enabled = 1
-            AND (
-                 (:user_id > 0 AND e.user_id = :user_id_match)
-                 OR (:person_id_match > 0 AND (
-                      (pe.user_id IS NOT NULL AND e.user_id = pe.user_id)
-                      OR (pe.email_primary IS NOT NULL AND (
-                           LOWER(e.personal_email) = LOWER(pe.email_primary)
-                           OR LOWER(e.work_email) = LOWER(pe.email_primary)
-                      ))
-                 ))
-            )
-          ORDER BY e.id LIMIT 1'
-    );
-    $userId = (int) ($party['user_id'] ?? 0);
-    $personId = (int) ($party['person_id'] ?? 0);
-    $st->execute([
-        't' => $tenantId,
-        'user_id' => $userId,
-        'user_id_match' => $userId,
-        'person_id' => $personId ?: null,
-        'person_id_match' => $personId,
-    ]);
-    $row = $st->fetch(\PDO::FETCH_ASSOC);
-    return $row ?: null;
+    require_once __DIR__.'/../../people/lib/employment_links.php';
+    $pdo=getDB();$owner=effectiveTenantIdForModule('people',$tenantId);
+    if(!$owner)return null;
+    $personId=(int)($party['person_id']??0);$userId=(int)($party['user_id']??0);
+    if($personId>0){
+        if(!peopleEmploymentSchema($pdo))return null;
+        $s=$pdo->prepare('SELECT e.id AS employee_id,e.legal_first_name,e.legal_last_name,pp.id AS profile_id,pp.cycle_id,pp.schedule_id,pp.enabled
+            FROM people_employment_links l JOIN people p ON p.tenant_id=l.tenant_id AND p.id=l.person_id
+            JOIN people_employees e ON e.tenant_id=l.tenant_id AND e.id=l.employee_id
+            JOIN payroll_profiles pp ON pp.employee_id=e.id AND pp.tenant_id=?
+            WHERE l.tenant_id=? AND l.person_id=? AND p.deleted_at IS NULL AND LOWER(p.classification)="w2"
+            AND e.status IN ("active","on_leave") AND pp.enabled=1 AND (?=0 OR e.user_id=?) LIMIT 2');
+        $s->execute([$tenantId,$owner,$personId,$userId,$userId]);
+    }else{
+        if($userId<=0)return null;
+        $s=$pdo->prepare('SELECT e.id AS employee_id,e.legal_first_name,e.legal_last_name,pp.id AS profile_id,pp.cycle_id,pp.schedule_id,pp.enabled
+            FROM people_employees e JOIN payroll_profiles pp ON pp.employee_id=e.id AND pp.tenant_id=?
+            WHERE e.tenant_id=? AND e.user_id=? AND e.status IN ("active","on_leave") AND pp.enabled=1 LIMIT 2');
+        $s->execute([$tenantId,$owner,$userId]);
+    }
+    $rows=$s->fetchAll(PDO::FETCH_ASSOC);
+    return count($rows)===1?$rows[0]:null;
 }
 
 function placementEconomicsRecordObligation(

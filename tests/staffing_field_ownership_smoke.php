@@ -41,4 +41,10 @@ foreach($incomplete as &$contract)foreach($contract['mappings']??[]as$index=>$ma
 unset($contract);
 $check(staffingFieldExchangeOwnership('people',$incomplete)===null,
     'missing exchange direction leaves ownership unverified');
+foreach(['id','tenant_id','person_id','employee_id','review_id','actor_user_id','origin','reason','review_ct','created_at']as$field){
+    $rule=staffingFieldContractRules('people_employment_links',$field);
+    $check($rule['owner']==='core_people_employment_identity'&&$rule['remote_contracts']['quanta']['status']==='core_internal_only','Employment identity field stays in Core: '.$field);
+}
+$check(staffingFieldContractRules('people_employment_links','review_ct')['disposition']==='restricted','Employment snapshot remains restricted');
+$check(staffingFieldContractRules('people_employment_links','future_field')['disposition']==='review_required','Unknown employment fields still need review');
 echo "Staffing field ownership: {$passed} passed\n";

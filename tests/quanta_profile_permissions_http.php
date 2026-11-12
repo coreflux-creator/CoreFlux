@@ -103,10 +103,14 @@ try {
     $reads = static fn() => is_file($directory . '/provider-read.log') ? (int)count(file($directory . '/provider-read.log')) : 0;
     foreach ($actions as $action) $expect($call($action,[],false)[0]===401,'Anonymous session denied: ' . $action);
     $expect($reads()===0,'Anonymous requests never reach the provider');
+    $employment='/modules/people/api/employment_link.php';
+    $expect($request($employment.'?person_id=1',null,false)[0]===401,'Anonymous employment directory denied');
+    $expect($request($employment.'?action=apply',['confirm_link'=>true,'review_token'=>'invalid'],false)[0]===401,'Anonymous employment mutation denied');
     [$status,,$location] = $request('/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true);
     unset($password,$hash);
     $expect($status===302 && !str_contains($location,'error='),'Native password login creates a real session cookie');
     foreach ($actions as $action) $expect($call($action)[0]===403,'Ungranted reviewer denied: ' . $action);
+    $expect($request($employment.'?person_id=1',null)[0]===403,'Missing people grant cannot read employment links');
     RBACResolver::grantModule($membership,'integrations','read',[$tenant],$actor);
     RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
     foreach ($actions as $action) $expect($call($action)[0]===403,'Read-only integration access denied: ' . $action);
@@ -114,10 +118,15 @@ try {
     RBACResolver::revokeModule($membership,'people',$actor);
     foreach ($actions as $action) $expect($call($action)[0]===403,'Missing people access denied: ' . $action);
     RBACResolver::grantModule($membership,'people','read',[$tenant],$actor);
+    $expect($request($employment.'?person_id=0',null)[0]===422,'People read admits employment lookup before validating identity');
+    foreach(['preview','apply']as$action)$expect($request($employment.'?action='.$action,[])[0]===403,'People read cannot change employment identity: '.$action);
     foreach ($reviews as $action) $expect($call($action)[0]===403,'Read-only people access cannot review or return: ' . $action);
     $expect($call('profile_baseline_preview',['person_id'=>0])[0]===422,'Snapshot preview admits people-read before validating the chosen person');
     $expect($reads()===0,'All permission denials occur before provider reads');
     RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
+    $expect($request($employment.'?action=preview',[])[0]===422,'People write admits employment review and validates its fields');
+    foreach([false,1,'true',null]as$confirmation)$expect($request($employment.'?action=apply',['confirm_link'=>$confirmation,'review_token'=>'invalid'])[0]===422,'Employment link requires literal confirmation');
+    $expect($request($employment.'?person_id=1',null,true,999)[0]===403,'Foreign pinned company cannot inspect employment identity');
     foreach (['profile_review_list','profile_return_list'] as $action) {
         [$status,$data] = $call($action);
         $expect($status===200 && ($data['rows']??null)===[],'Authorized native session reads only its empty queue: ' . $action);

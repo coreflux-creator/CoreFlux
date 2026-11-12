@@ -242,7 +242,9 @@ if ($method === 'POST') {
         && strtoupper((string) ($insert['classification'] ?? '')) === 'W2'
     ) {
         require_once __DIR__ . '/../lib/employees.php';
-        try { peopleEnsureEmployeesFromW2(); } catch (\Throwable $_) { /* dashboard backfill is the fallback */ }
+        require_once __DIR__.'/../lib/employment_links.php';
+        try { peopleEmploymentForNewPerson($id,(int)$user['id']); }
+        catch (\Throwable $e) { error_log('New person employment requires review: '.$id); }
     }
 
     api_ok(['person' => peopleGet($id)], 201);

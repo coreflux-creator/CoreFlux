@@ -57,6 +57,10 @@ $counts = [];
 $diff   = [];
 
 try {
+    require_once __DIR__.'/../lib/employment_links.php';
+    $owner=peopleEmploymentOwner((int)$ctx['tenant_id']);
+    $lock=$pdo->prepare('SELECT id FROM tenants WHERE id=? FOR UPDATE');$lock->execute([$owner]);$lock->fetchColumn();
+    if(peopleEmploymentLink($pdo,$owner,$duplicateId))throw new RuntimeException('The duplicate has a saved employment link. Reconcile its employment identity before merging.');
     // Apply field resolutions onto primary
     $update = [];
     foreach ($resolutions as $field => $choice) {

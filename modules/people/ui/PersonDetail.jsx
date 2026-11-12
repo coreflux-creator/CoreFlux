@@ -8,6 +8,7 @@ import LinkedExternalSystemsPanel from '../../../dashboard/src/components/Linked
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import OnboardingTab from './OnboardingTab';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
+import EmploymentLinkPanel from './EmploymentLinkPanel';
 
 const CLASSIFICATION_LABELS = {
   w2: 'W-2 employee', '1099': '1099 contractor', c2c: 'C2C contractor',
@@ -139,6 +140,7 @@ function OverviewTab({ person, reload }) {
       {editing
         ? <OverviewEdit person={person} onClose={() => { setEditing(false); reload(); }} />
         : <OverviewView person={person} />}
+      {!editing && person.classification === 'w2' && <EmploymentLinkPanel personId={person.id} />}
     </div>
   );
 }
