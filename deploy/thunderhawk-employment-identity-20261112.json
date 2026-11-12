@@ -1,0 +1,408 @@
+{
+  "recorded_at": "2026-11-12T11:00:13.480278+00:00",
+  "scope": "Thunderhawk isolated pilot tenant 2002 only",
+  "previous_goal_turn": "Standalone accounting access answered; no integration progress. Runtime/source and successful prior CI were revalidated.",
+  "status": "implemented_installed_native_verified_browser_pending",
+  "runtime_commit": "b19b7fc04c408721ae9352fa33568268fad3bd44",
+  "initial_runtime_commit": "be3930e683ca27cb4783b204f77e0cb6677fd483",
+  "ci": [
+    {
+      "run": "43202892941",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43202892941",
+      "source_commit": "be3930e683ca27cb4783b204f77e0cb6677fd483",
+      "jobs_passed": 11
+    },
+    {
+      "run": "43204383324",
+      "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43204383324",
+      "source_commit": "b19b7fc04c408721ae9352fa33568268fad3bd44",
+      "jobs_passed": 11
+    }
+  ],
+  "validation": {
+    "native_database_checks": 38,
+    "rendered_component_tests": 8,
+    "ownership_checks": 52,
+    "native_http_permissions": true,
+    "frontend_build": true
+  },
+  "installation": {
+    "checked_at": "2026-11-12T10:50:33+00:00",
+    "source_commit": "be3930e683ca27cb4783b204f77e0cb6677fd483",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "created_tables": [
+      "people_employment_links"
+    ],
+    "schema_statements_completed": 2,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-identity-before-2a7ee0d6c764a7d6e501",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "served_screen_assets_verified": true,
+    "tables_verified": 374,
+    "rows_preserved": 34694,
+    "files_verified": 20,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "existing_employment_values_preserved": true,
+    "migration_applied": "192_people_employment_links.sql",
+    "preexisting_tables_preserved": 373,
+    "preexisting_rows_preserved": 34693,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-identity-a028011910f03fa7ed44",
+      "hashes": {
+        "install_thunderhawk_employment_identity.php": "6ec85f045cdc365d2438d0bd2ed3d458b42fc7b2c3a8790d765aa7f92c9b067b",
+        "employment-identity-package.json": "2a7ee0d6c764a7d6e5010523639d596c8428804dc42dc62506362c0d32a1ea00"
+      },
+      "ci_run": "43202892941",
+      "tested_commit": "be3930e683ca27cb4783b204f77e0cb6677fd483",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-identity-install-result.json"
+    }
+  },
+  "native_acceptance": {
+    "checked_at": "2026-11-12T10:50:46+00:00",
+    "phase": "employment_link",
+    "step": "complete",
+    "passed": true,
+    "tenant_id": 2002,
+    "person_ids": [
+      358,
+      368,
+      387
+    ],
+    "employment_ids": [
+      4,
+      5,
+      6
+    ],
+    "synthetic": true,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "browser_acceptance": false,
+    "requests": [
+      {
+        "path": "/login.php",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 302
+      },
+      {
+        "path": "/api/placements/placements?id=864",
+        "method": "GET",
+        "tenant": 2,
+        "status": 403
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?person_id=358",
+        "method": "GET",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=preview",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=apply",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=apply",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?person_id=368",
+        "method": "GET",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=preview",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=apply",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=apply",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?person_id=387",
+        "method": "GET",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=preview",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=apply",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/modules/people/api/employment_link.php?action=apply",
+        "method": "POST",
+        "tenant": 2002,
+        "status": 200
+      },
+      {
+        "path": "/logout.php",
+        "method": "GET",
+        "tenant": 2002,
+        "status": 302
+      }
+    ],
+    "operator_id": 92,
+    "operator_membership_id": 78,
+    "links": [
+      {
+        "person_id": 358,
+        "employee_id": 4,
+        "link_id": 1,
+        "replay_verified": true
+      },
+      {
+        "person_id": 368,
+        "employee_id": 5,
+        "link_id": 2,
+        "replay_verified": true
+      },
+      {
+        "person_id": 387,
+        "employee_id": 6,
+        "link_id": 3,
+        "replay_verified": true
+      }
+    ],
+    "provider_calls": 0,
+    "employment_records_created": 0,
+    "operator_retired": true,
+    "private_session_removed": true,
+    "original_rows_preserved": 34694,
+    "tables_verified": 374,
+    "added_record_tables": {
+      "membership_audit": {
+        "before": 337,
+        "after": 340
+      },
+      "people_employment_links": {
+        "before": 0,
+        "after": 3
+      },
+      "tenant_memberships": {
+        "before": 77,
+        "after": 78
+      },
+      "user_tenants": {
+        "before": 83,
+        "after": 84
+      },
+      "users": {
+        "before": 79,
+        "after": 80
+      }
+    },
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-review-440c7d11249c9977",
+      "hashes": {
+        "accept_thunderhawk_employment_identity.php": "efae6115dee1755f01d29f94a6dc91432cf40b49fdf5fa7665cb56790a407ddd",
+        "thunderhawk_employment_native.php": "89cdaf1720b0b5313651a1b8bae48318b6b0253c778a14c81d8149e5ddeb718d",
+        "employment-runtime-pins.json": "1103e3f7b1b61f77eef9bae00a3d52cffc5f7c87a9f62e8a0bb96e498bde4f0e",
+        "employment-reviewed-pairs.json": "d6761de471a5889dc6ee7bfc7537834379110b267ffafc0bb60b74f759821c31"
+      },
+      "source_commit": "be3930e683ca27cb4783b204f77e0cb6677fd483",
+      "result": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/synthetic-employment-identity-20261112.json"
+    },
+    "checks_passed": 615,
+    "distinct_checks": [
+      "No existing link will be replaced",
+      "Reviewed existing pilot pairs are explicit",
+      "Correction case proves separate employment creation for P-387",
+      "Native operator login succeeded",
+      "Real Thunderhawk access denied",
+      "Native directory permits explicit review for P-358",
+      "Reviewed employment is available in this directory",
+      "Reviewed person contact evidence is unchanged",
+      "Reviewed employment contact evidence is unchanged",
+      "Review retains original person and employment numbers",
+      "Reviewed permanent link saved",
+      "Exact retry recovers the original receipt",
+      "Native directory permits explicit review for P-368",
+      "Native directory permits explicit review for P-387",
+      "Exactly three reviewed pilot links exist",
+      "Same-name synthetic person resolves its own existing payroll profile",
+      "Temporary module grants removed",
+      "Temporary operator retired",
+      "Private session removed",
+      "Schema unchanged",
+      "Only reviewed metadata additions in membership_audit",
+      "Original record preserved in membership_audit",
+      "Only reviewed metadata additions in people_employment_links",
+      "Only reviewed metadata additions in tenant_memberships",
+      "Original record preserved in tenant_memberships",
+      "Only reviewed metadata additions in user_tenants",
+      "Original record preserved in user_tenants",
+      "Only reviewed metadata additions in users",
+      "Original record preserved in users",
+      "Operational switches unchanged"
+    ]
+  },
+  "read_only_correction": {
+    "checked_at": "2026-11-12T10:59:56+00:00",
+    "source_commit": "b19b7fc04c408721ae9352fa33568268fad3bd44",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-read-fix-before-c3138c5ed800dd1653eb",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "web_metadata_contract_verified": true,
+    "tables_verified": 374,
+    "rows_preserved": 34703,
+    "files_verified": 2,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-read-fix-65bff359cf07284f3e94",
+      "hashes": {
+        "install_thunderhawk_employment_read_fix.php": "6eb37d8e4a42359bc5f1705b2214c4a6bcbe0a08e6b3996cddb84fb35f8a6264",
+        "employment-read-fix-package.json": "c3138c5ed800dd1653eb7fae281028e46a11d26dd2eeca4cb85e8cf2bee03a29"
+      },
+      "ci_run": "43204383324",
+      "tested_commit": "b19b7fc04c408721ae9352fa33568268fad3bd44",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/employment-read-fix-install-result.json"
+    }
+  },
+  "final_readback": {
+    "checked_at": "2026-11-12T11:00:10+00:00",
+    "passed": true,
+    "read_only": true,
+    "tables_unchanged": 374,
+    "rows_unchanged": 34703,
+    "links": [
+      {
+        "person_id": 358,
+        "employee_id": 4,
+        "link_id": 1
+      },
+      {
+        "person_id": 368,
+        "employee_id": 5,
+        "link_id": 2
+      },
+      {
+        "person_id": 387,
+        "employee_id": 6,
+        "link_id": 3
+      }
+    ],
+    "field_contract_version": "2026-11-12.3",
+    "inventory_fields": 2068,
+    "remaining_field_decisions": 487,
+    "employment_fields_reviewed": 10,
+    "anonymous": {
+      "GET": 401,
+      "POST": 401
+    },
+    "files_verified": 20
+  },
+  "scope_guards": {
+    "production_changed": false,
+    "arabella_changed": false,
+    "provider_writes": 0,
+    "real_payroll_payments_financial_postings": false
+  },
+  "evidence_files": {
+    "employment-identity-inspection.json": {
+      "path": "output/employment-identity-inspection.json",
+      "sha256": "b407a8eeb3db2b6b262309a71741a343e5afe94fa0aee8a4ee563a4a0129eccb"
+    },
+    "employment-identity-preflight.json": {
+      "path": "output/employment-identity-preflight.json",
+      "sha256": "b7ad09c6607fec184058d9b7e2c69f75131dd25d1e505be83684ca6f97a844cf"
+    },
+    "employment-identity-inspect-result.json": {
+      "path": "output/employment-identity-inspect-result.json",
+      "sha256": "270606c913ec1f5bed34147c1d22c7156d771f99979894e3404874021d660a72"
+    },
+    "employment-identity-install-result.json": {
+      "path": "output/employment-identity-install-result.json",
+      "sha256": "b92bf19fc566d33f932080a22fb9b33fd5f46a567593e06e6a334f459abbce36"
+    },
+    "employment-identity-acceptance-result.json": {
+      "path": "output/employment-identity-acceptance-result.json",
+      "sha256": "7c2c9738bee3edc6139e20be133ec8d3e0725f52385ca995e5d63b5bad78c55b"
+    },
+    "employment-read-fix-preflight.json": {
+      "path": "output/employment-read-fix-preflight.json",
+      "sha256": "2de89249ff33a8cc1ba48289ea3b756bfcddda6b031874654632bd3a4006efe8"
+    },
+    "employment-read-fix-inspect-result.json": {
+      "path": "output/employment-read-fix-inspect-result.json",
+      "sha256": "176901b1a001c396f2fc6d4a1c34dd4229e4f5d178c210b293473df2d747571b"
+    },
+    "employment-read-fix-install-result.json": {
+      "path": "output/employment-read-fix-install-result.json",
+      "sha256": "eeed391e1058cfcd249d925fe1dd80e4d27fca64d2fb22aeb5a4d64d6d6ef1ce"
+    },
+    "employment-identity-final-readback.json": {
+      "path": "output/employment-identity-final-readback.json",
+      "sha256": "f305e2908465de5a37dc375336eea40074c53fdc753ab56390b557c6f0882918"
+    }
+  },
+  "helper_source_sha256": {
+    "deploy/install_thunderhawk_employment_identity.php": "6ec85f045cdc365d2438d0bd2ed3d458b42fc7b2c3a8790d765aa7f92c9b067b",
+    "deploy/install_thunderhawk_employment_read_fix.php": "6eb37d8e4a42359bc5f1705b2214c4a6bcbe0a08e6b3996cddb84fb35f8a6264",
+    "deploy/thunderhawk_employment_native.php": "89cdaf1720b0b5313651a1b8bae48318b6b0253c778a14c81d8149e5ddeb718d",
+    "deploy/accept_thunderhawk_employment_identity.php": "efae6115dee1755f01d29f94a6dc91432cf40b49fdf5fa7665cb56790a407ddd",
+    "deploy/run_employment_identity_acceptance.py": "b675528c102137ae9fb69ac31d07cebe8ee824ba293647155a09a6cb57f990b2",
+    "output/inspect_employment_identity.py": "2091a73f6c39deec20196352e09672db1c3002fa4b5008f7731f5d75f51bd301",
+    "output/prepare_employment_identity.py": "f44c57fc8dea1d35750e6119b72c393ee445dda8dea0a7995cb3a7436386f028",
+    "output/build_employment_identity_release.py": "90a0b7bbef787ba069a31588ee8ab6d5b4b5a295787c2b2f511ea7985ddd0b4e",
+    "output/run_employment_identity_install.py": "c41404d92bdd83153e25b4f1c667feebeac733b86572b9e25a444c7289df49c3",
+    "output/prepare_employment_acceptance.py": "30d9f6f04389704d3e377a1ff3b4bc9d8b8806621f43fe710a042b98745724c8",
+    "output/prepare_employment_read_fix.py": "c98281b8bb0afad6a4133a4e5cdac98dab7cd91a3ea17d19e706ec3b802ecc8d",
+    "output/run_employment_read_fix_install.py": "46a8bd9a3da0befe07ed8156c4847f4ac24a3efbaf675ef438f1efff19dd61b8",
+    "output/verify_employment_identity.py": "27e416edf5ce335ae3e1a11320062ac3fe6496a071eec4f7fd8dd45baf3ae6d7"
+  },
+  "observed_corrections": [
+    "First CI found an obsolete test requiring email lookup and a disposable fixture ID collision. Both tests were corrected; no pilot operation repeated.",
+    "The final hosted read-only transaction caught implicit row locking in the lookup. b19b7fc0 separates explicit writer locks from reads, adds native regression coverage, and is verified through FPM and read-only full-database readback.",
+    "The initial preflight helper extracted a PHP opening tag incorrectly; that attempt executed no PHP. The corrected read-only preflight matched all pinned files before any deployment."
+  ],
+  "remaining": [
+    "Signed-in full-app employment review/new-person workflow",
+    "Remaining field ownership and destination decisions",
+    "Rendered onboarding/document/lifecycle and source correction acceptance",
+    "Financial time-to-line allocation, missing source provenance and settlement exceptions"
+  ]
+}
