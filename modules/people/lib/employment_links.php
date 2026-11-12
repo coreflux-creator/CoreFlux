@@ -6,11 +6,11 @@ require_once __DIR__.'/../../../core/sub_tenants.php';
 require_once __DIR__.'/../../../core/integrations/delivery.php';
 require_once __DIR__.'/../../../core/integrations/identity.php';
 
-function peopleEmploymentOwner(int $requestTenant): int
+function peopleEmploymentOwner(int $requestTenant,bool $forUpdate=false): int
 {
     if ($requestTenant<=0 || $requestTenant!==(int)currentTenantId()) throw new InvalidArgumentException('Choose a person in the current company.');
     // Review/apply must see current ownership, not subTenantLookup's process cache.
-    $pdo=getDB();$lock=$pdo->inTransaction()?' FOR UPDATE':'';
+    $pdo=getDB();$lock=$forUpdate&&$pdo->inTransaction()?' FOR UPDATE':'';
     $s=$pdo->prepare('SELECT id,parent_id,tenant_type,is_active FROM tenants WHERE id=?'.$lock);
     $s->execute([$requestTenant]);$tenant=$s->fetch(PDO::FETCH_ASSOC);
     if (!$tenant || !(int)$tenant['is_active']) throw new RuntimeException('People directory is unavailable.');
@@ -71,7 +71,7 @@ function peopleEmploymentCandidates(PDO $pdo,int $owner,array $person): array
 function peopleEmploymentSnapshot(PDO $pdo,int $tenant,int $actor,int $personId,?int $employeeId): array
 {
     if (!$pdo->inTransaction() || $actor<=0 || $personId<=0 || ($employeeId!==null&&$employeeId<=0)) throw new InvalidArgumentException('Choose a valid person and employment record.');
-    $owner=peopleEmploymentOwner($tenant);
+    $owner=peopleEmploymentOwner($tenant,true);
     if (!peopleEmploymentSchema($pdo)) throw new RuntimeException('Employment linking is not installed.');
     $s=$pdo->prepare('SELECT id FROM tenants WHERE id=? FOR UPDATE');$s->execute([$owner]);
     if (!$s->fetchColumn()) throw new RuntimeException('People directory is unavailable.');
@@ -138,6 +138,7 @@ function peopleEmploymentApply(int $tenant,int $actor,string $token): array
     if (($saved['request_tenant_id']??null)!==$tenant||($saved['owner_tenant_id']??null)!==$owner||($saved['actor_user_id']??null)!==$actor||($saved['instance_id']??null)!==integrationInstanceId()) throw new RuntimeException('This review belongs to another company, operator or installation.');
     $pdo=getDB();if($pdo->inTransaction())throw new LogicException('Employment link requires its own transaction.');$pdo->beginTransaction();
     try {
+        if(peopleEmploymentOwner($tenant,true)!==$owner)throw new RuntimeException('The People directory changed. Review the link again.');
         $s=$pdo->prepare('SELECT id FROM tenants WHERE id=? FOR UPDATE');$s->execute([$owner]);$s->fetchColumn();
         $s=$pdo->prepare('SELECT * FROM people_employment_links WHERE tenant_id=? AND review_id=?');$s->execute([$owner,$review['id']]);$prior=$s->fetch(PDO::FETCH_ASSOC);
         if ($prior) {

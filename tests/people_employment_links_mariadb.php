@@ -59,6 +59,9 @@ try {
     $check((int)$linked['link']['employee_id']===20&&!$linked['replayed'],'explicit reviewed employment identity is saved');
     $check($beforePeople===$pdo->query('SELECT * FROM people ORDER BY id')->fetchAll(),'linking preserves source IDs and person facts');
     $check(peopleEmploymentApply(10,7,$expired)['replayed']===true,'lost response safely recovers the original receipt even after expiry');
+    $pdo->exec('SET TRANSACTION READ ONLY');$pdo->beginTransaction();
+    $readback=peopleEmploymentContext(10,1);$readInventory=peopleEnsureEmployeesFromW2();$pdo->rollBack();
+    $check((int)$readback['link']['employee_id']===20&&$readInventory['materialised']===0,'employment lookup and legacy inventory work in a read-only transaction without row locks');
     $check($fails(fn()=>peopleEmploymentPreview(10,7,1,$newId,'Try reassignment')),'saved person link cannot be silently reassigned');
     $person(4,'four@example.invalid');
     $check($fails(fn()=>peopleEmploymentPreview(10,7,4,20,'Try shared employee')),'one employment record cannot be linked to two people');
