@@ -2,6 +2,12 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 commercial field alignment — installed checkpoint
+
+Runtime `54e93415` passed all eleven CI jobs and is installed in the isolated Core pilot. The source-backed native field rules resolve 71 undecided dispositions and 73 owners across 87 existing fields while preserving existing adapters and private-field restrictions. The installed inventory contains 2,125 entries and **372 remaining undecided dispositions**; all custom registries are inspected. Installation preserved all 35,087 current rows across 378 tables, and independent verification checked 343 runtime fingerprints and all 35,040 original rows. Production, providers, Arabella and financial execution were unchanged. [Details](thunderhawk-commercial-field-decisions.md) and [manifest](../deploy/thunderhawk-commercial-fields-20261112.json).
+
+The preceding accounting-access answer made no integration progress. This continuation completed the installed field update and reproduced a concrete exchange loss: Core drops independent commission currency/frequency/due month, and the receiver rejects them. Next is paired contract retention and native display with old receipt/replay preservation. Wider source, lifecycle, document, financial and completion-audit requirements remain open; no narrow check establishes completion.
+
 ## November 12 native operational round trip and company-access correction
 
 The existing synthetic P-387 / PL-902 journey now continues through Quanta onboarding and corrected/independently approved time, native PurePayroll employee setup, native PurePay assignment creation, source reservation, one held two-hour $100 draft and a source-linked result saved in Core. Exact draft replay returns the same run; changed-request and double-allocation attempts are refused. Reloading Core recovers the original intake receipt and saved result.
