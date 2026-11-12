@@ -1,0 +1,110 @@
+{
+  "recorded_at": "2026-11-12T00:30:00.696737+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "The previous turn deployed the commercial ownership review and passed all 30 hosted checks while preserving existing rows.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "scope": "Isolated Core staging, simulation tenant 2002; no production cutover",
+  "runtime_source": "07a1b49fc2b6e52bf2ba0a1668b55667159bd13b",
+  "ci": {
+    "run": "43126850272",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43126850272",
+    "jobs_passed": 11
+  },
+  "changes": [
+    "Stored review validation, selected graph loading, company resolution, projection and audit now share one serializable transaction",
+    "Stored review consumes saved source evidence and refuses provider fetches while its database scope is open",
+    "Missing subcontract company evidence requires refresh; exact saved names and IDs resolve inside the transaction",
+    "Field-map configuration participates in review tokens and per-request mapping caches are flushed",
+    "Temporary autocommit suppression and a sentinel savepoint prevent implicit writes from committing after a lost transaction",
+    "Protected nested scopes use savepoints; arbitrary existing transactions are rejected without altering them",
+    "Native API reports busy or changed records without exposing SQL errors"
+  ],
+  "verification": {
+    "stored_review_transaction_checks_disposable": 20,
+    "stored_review_transaction_checks_hosted": 20,
+    "commercial_release_checks": 30,
+    "native_commercial_edit_checks": 33,
+    "stored_contract_review_checks": 16,
+    "contract_ownership_checks": 28,
+    "native_placement_edit_checks": 27,
+    "lifecycle_checks": 30,
+    "prior_ownership_checks": 17,
+    "ending_checks": 13,
+    "request_checks": 17,
+    "original_containers_preserved": 206,
+    "installed_files": 4,
+    "dependencies_checked": 34,
+    "tables_preserved": 368,
+    "rows_preserved_at_install": 34356,
+    "rows_preserved_after_hosted_check": 34356,
+    "temporary_probe_removed": true,
+    "synthetic_rows_rolled_back": true
+  },
+  "candidate_history": [
+    {
+      "source": "175183bda96f501ff00bf111c01d873ec453c572",
+      "checks": 17,
+      "passed": true,
+      "note": "First candidate passed; review then identified the swallowed transaction-loss case."
+    },
+    {
+      "source": "07a1b49fc2b6e52bf2ba0a1668b55667159bd13b",
+      "checks": 20,
+      "passed": true,
+      "note": "Expanded transaction-loss and session-restoration coverage passed before deployment."
+    }
+  ],
+  "boundaries": {
+    "provider_changed": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "sequence_gaps_allowed": true,
+    "native_http_authorization_acceptance": false,
+    "signed_in_browser_acceptance": false,
+    "frontend_changed": false,
+    "contention_scope": "A plain SELECT of the committed simulation tenant row blocks a second connection no-op UPDATE; temporary business records remain rollback-only.",
+    "lost_transaction_test": "Explicit rollback simulates a swallowed transaction-ending failure, followed by an implicit synthetic write; the sentinel rejects completion and the write is rolled back.",
+    "concurrency_limitations": "Not a stress test of all application writers or lock schedules; the HTTP page remains bounded to 20 assignments.",
+    "hosted_test_method": "Exact installed functions inside rollback-only scopes, with every original database row fingerprinted"
+  },
+  "coordination_window_released": true,
+  "remaining_scope": [
+    "Native HTTP authorization and signed-in workflow acceptance",
+    "Expose missing saved company evidence during preview and guide source refresh before apply",
+    "Additional participant ownership/source-link reconciliation and participant POST/DELETE/cycle-assignment atomicity",
+    "Expose retained-value decisions in generic batch results; assess concurrency and lock contention across other writers",
+    "Cleared end-client chains, rate ownership, new-placement graph failures, CSV and lifecycle invariants, activation replay",
+    "Complete field/destination/custom-field alignment and portal/onboarding/document workflows",
+    "Financial-result and billing/AP/AR lineage and reconciliation acceptance; reconcile dictionary verification labels"
+  ],
+  "installed_runtime_hashes": {
+    "core/jobdiva/stored_review.php": "4bca4f875bc7aceeaf8bdd55738ae7c6f7b898a56c6da8d5920c7056c80ca5e8",
+    "core/jobdiva/client.php": "7a67fe2d44118cb6451a69fdc657bdcdc997e4b61c9f92f235743e916875f30c",
+    "core/jobdiva/sync.php": "fe11e09348b40f1cbd6868b54b0a05a8f36e8d8ee036cca7cb9238a83a1353ca",
+    "modules/placements/api/jobdiva_reconciliation.php": "d72767f3bb15047deb518a29da7fe4d670a2cdbb495bd4952443300d5a3493d1"
+  },
+  "evidence": {
+    "stored-review-transaction-07a1b49f-disposable-result.json": {
+      "path": "output/stored-review-transaction-07a1b49f-disposable-result.json",
+      "sha256": "b65e3187cd493f5ded93c11f6f1ad657e66e0039a977ff228c25e085637b46c6"
+    },
+    "stored-review-transaction-07a1b49f-preflight.json": {
+      "path": "output/stored-review-transaction-07a1b49f-preflight.json",
+      "sha256": "3a4810604b0d3b027705dd22067a8771f4e2bf9f57fd7a285bcb703082332939"
+    },
+    "stored-review-transaction-install-result.json": {
+      "path": "output/stored-review-transaction-install-result.json",
+      "sha256": "ef9da5c398b05426a9fc48e22380140678f24d79b02ead0453e9652db328a888"
+    },
+    "stored-review-transaction-hosted-result.json": {
+      "path": "output/stored-review-transaction-hosted-result.json",
+      "sha256": "9babd6d0b5771ebf9046706f91c78ac464eb419b347ceff984cce2d8ec1f41a1"
+    },
+    "stored-review-transaction-ci.json": {
+      "path": "output/stored-review-transaction-ci.json",
+      "sha256": "52d9d1eb34e12bc7ac288b50675ea20b9a863fa71c60fc5036edaa22db953c94"
+    }
+  }
+}
