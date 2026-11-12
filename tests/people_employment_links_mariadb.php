@@ -88,13 +88,14 @@ try {
     $check((int)$resolved['employee_id']===20,'payroll resolves through the reviewed permanent identity');
     $pdo->exec('UPDATE people SET first_name="Changed",email_primary="reused@example.invalid" WHERE id=1');
     $pdo->exec('UPDATE people_employees SET work_email="old@example.invalid" WHERE id=20');
-    $pdo->exec("INSERT INTO people_employees(id,tenant_id,employee_number,legal_first_name,legal_last_name,work_email,status) VALUES(31,10,'REUSED-31','Changed','Name','reused@example.invalid','active')");
-    $pdo->exec('INSERT INTO payroll_profiles VALUES(3,10,31,1,2,1)');
+    $pdo->exec("INSERT INTO people_employees(tenant_id,employee_number,legal_first_name,legal_last_name,work_email,status) VALUES(10,'REUSED-CONTACT','Changed','Name','reused@example.invalid','active')");
+    $reusedId=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO payroll_profiles VALUES(3,10,?,1,2,1)')->execute([$reusedId]);
     $check((int)placementEconomicsPayrollEmployee(10,['person_id'=>1])['employee_id']===20,'contact changes and recycled email cannot redirect payroll');
     $check(placementEconomicsPayrollEmployee(10,['person_id'=>5])===null,'unlinked person has no guessed payroll identity');
     $check(placementEconomicsPayrollEmployee(12,['person_id'=>1])===null,'foreign company cannot resolve another company payroll profile');
     setRequestTenantId(11);$check((int)placementEconomicsPayrollEmployee(11,['person_id'=>1])['profile_id']===2,'shared person resolves only the requesting company payroll profile');setRequestTenantId(10);
-    $pdo->exec('UPDATE people_employees SET user_id=99 WHERE id IN(20,31)');
+    $pdo->prepare('UPDATE people_employees SET user_id=99 WHERE id IN(20,?)')->execute([$reusedId]);
     $check(placementEconomicsPayrollEmployee(10,['user_id'=>99])===null,'ambiguous account-only payee never selects the first match');
     $check(placementEconomicsPayrollEmployee(10,['person_id'=>1,'user_id'=>98])===null,'payee account conflict fails closed');
     $pdo->exec('UPDATE payroll_profiles SET enabled=0 WHERE id=1');
