@@ -11,6 +11,7 @@ const labels = {
   role: 'Role', user_id: 'User ID', split_pct: 'Split', basis: 'Calculation', flat_amount: 'Flat amount',
   effective_from: 'Effective from', effective_to: 'Effective to',
   payment_terms: 'Payment terms', operating_cycle_id: 'Schedule reference',
+  currency: 'Currency', payment_frequency: 'Payment frequency', due_month: 'Due month',
 };
 const settings = { payment_terms_overridden: 'payment terms', pwp_overridden: 'paid when paid', cycle_overridden: 'schedule' };
 function display(field, value) {

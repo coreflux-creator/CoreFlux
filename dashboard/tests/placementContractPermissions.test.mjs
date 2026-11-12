@@ -14,6 +14,48 @@ const party={id:1,display_name:'Synthetic client',role:'client',source_type:'pla
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 const button=(f,label)=>f.tree.root.findAllByType('button').find(n=>text(n)===label);
 const byId=(f,id)=>f.tree.root.findAllByProps({'data-testid':id});
+
+test('commission editor sends an independent currency, one-time frequency and month without inventing a day',async()=>{
+  const f=await fixture({commissions_manage:true});
+  const set=async(props,value)=>act(async()=>f.tree.root.findByProps(props).props.onChange({target:{value}}));
+  try{
+    await f.click('Edit terms');
+    await set({'aria-label':'Commission amount'},'7500.00');
+    await set({'aria-label':'Commission currency'},'INR');
+    await set({'aria-label':'Commission frequency'},'one_time');
+    await set({type:'month'},'2026-08');
+    await set({'data-testid':'commission-from'},'2026-05-18');
+    await act(async()=>byId(f,'commissions-add-form')[0].props.onSubmit({preventDefault(){}}));
+    const call=f.calls.find(c=>c.url.includes('/commissions.php'));
+    assert.equal(call.method,'patch');assert.ok(call.url.endsWith('id=7'));
+    assert.equal(call.body.currency,'INR');assert.equal(call.body.payment_frequency,'one_time');
+    assert.equal(call.body.due_month,'2026-08');assert.equal(call.body.flat_amount,'7500.00');
+    assert.equal(call.body.effective_from,'2026-05-18');assert.equal(call.body.due_date,undefined);
+    assert.equal(f.parentReloads,1);assert.equal(button(f,'Save terms'),undefined);
+  }finally{f.close();}
+});
+
+test('switching a fixed commission to percentage clears independent fixed terms',async()=>{
+  const f=await fixture({commissions_manage:true});
+  const set=async(props,value)=>act(async()=>f.tree.root.findByProps(props).props.onChange({target:{value}}));
+  try{
+    await f.click('Edit terms');await set({'aria-label':'Commission currency'},'INR');
+    await set({'aria-label':'Commission frequency'},'one_time');await set({type:'month'},'2026-08');
+    await set({'data-testid':'commission-basis'},'net_margin');await set({'data-testid':'commission-split'},'0.1');
+    await act(async()=>byId(f,'commissions-add-form')[0].props.onSubmit({preventDefault(){}}));
+    const body=f.calls.find(c=>c.url.includes('/commissions.php')).body;
+    assert.equal(body.currency,'');assert.equal(body.payment_frequency,'');assert.equal(body.due_month,'');assert.equal(body.flat_amount,'');assert.equal(body.split_pct,0.1);
+  }finally{f.close();}
+});
+
+test('commission validation refusal retains the entered terms for correction',async()=>{
+  const f=await fixture({commissions_manage:true},{respond:async()=>{throw new Error('Review the recipient');}});
+  try{
+    await f.click('Edit terms');await act(async()=>f.tree.root.findByProps({'aria-label':'Commission currency'}).props.onChange({target:{value:'INR'}}));
+    await act(async()=>byId(f,'commissions-add-form')[0].props.onSubmit({preventDefault(){}}));
+    assert.ok(text(f.tree.root).includes('Review the recipient'));assert.equal(f.tree.root.findByProps({'aria-label':'Commission currency'}).props.value,'INR');assert.ok(button(f,'Save terms'));
+  }finally{f.close();}
+});
 async function fixture(permissions={},options={}){
   const f={calls:[],reads:[],reloads:0,parentReloads:0,context:{data:{placement,permissions,parties:[party],readiness:{ready:false}},loading:false,error:null}},module={exports:{}};
   f.corp={corp:{corp_legal_name:'Synthetic vendor',company_id:71,ap_vendor_id:82,corp_contact_phone:'555-0100',corp_ein_last4:'6789'},review_token:'a'.repeat(64)};

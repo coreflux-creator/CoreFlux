@@ -112,9 +112,7 @@ function placementSourceRuleReplacementPlan(PDO $pdo,array $parent,string $kind)
             placementSourceRuleInput($kind,$values);
             placementSourceRuleValues($kind,$values);
         } catch (InvalidArgumentException $e) { $issues[]='Source values need review: '.$e->getMessage(); }
-        if($kind==='commission' && (float)($values['flat_amount']??0)>0) {
-            $issues[]='This source commission has a flat amount. These legacy rules cannot retain its separate currency and payment schedule. Review the complete commission terms before returning control.';
-        }
+        if($kind==='commission' && ($issue=placementCommissionTermsIssue($values))) $issues[]=$issue;
         // References created only during simulation are not committed identities.
         $company=$values[$kind==='chain'?'company_id':'referrer_company_id']??null;
         $user=$values[$kind==='commission'?'user_id':'referrer_user_id']??null;

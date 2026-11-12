@@ -5526,10 +5526,11 @@ function jobdivaSyncUpsertPlacementCommissionRow(
     string $basis,
     string $effectiveFrom,
     ?string $effectiveTo,
-    string $sourceLabel
+    string $sourceLabel,
+    array $terms = []
 ): int {
     if ($tid<=0 || $placementId<=0) return 0;
-    return placementWithSourceRuleWrite($tid,$placementId,'commission',static function() use ($tid,$placementId,$role,$userId,$splitPct,$flatAmount,$basis,$effectiveFrom,$effectiveTo,$sourceLabel) {
+    return placementWithSourceRuleWrite($tid,$placementId,'commission',static function() use ($tid,$placementId,$role,$userId,$splitPct,$flatAmount,$basis,$effectiveFrom,$effectiveTo,$sourceLabel,$terms) {
     if ($tid <= 0 || $placementId <= 0 || $role === '' || $effectiveFrom === '') return 0;
     if ($splitPct !== null && ($splitPct <= 0 || $splitPct > 1)) $splitPct = null;
     if ($flatAmount !== null && $flatAmount <= 0) $flatAmount = null;
@@ -5537,6 +5538,8 @@ function jobdivaSyncUpsertPlacementCommissionRow(
     if ($flatAmount !== null && $splitPct === null) $basis = 'flat';
 
     $pdo = getDB();
+    require_once __DIR__.'/../../modules/placements/lib/commission_input.php';
+    $terms=placementCommissionTermsInput($terms);
     $notes = 'Source: JobDiva commission projection (' . $sourceLabel . ')';
     $existing = $pdo->prepare(
         'SELECT id
@@ -5557,12 +5560,16 @@ function jobdivaSyncUpsertPlacementCommissionRow(
     ]);
     $existingId = (int) $existing->fetchColumn();
     if ($existingId > 0) {
+        placementCommissionProtectConsumed($pdo,$tid,$placementId,$existingId,$terms+[
+            'user_id'=>$userId,'basis'=>$basis,'split_pct'=>$splitPct,'flat_amount'=>$flatAmount,
+            'currency'=>null,'payment_frequency'=>null,'due_month'=>null]);
         $pdo->prepare(
             'UPDATE placement_commissions
                 SET user_id = :uid,
                     split_pct = :split,
                     basis = :basis,
                     flat_amount = :flat,
+                    currency = :currency, payment_frequency = :frequency, due_month = :due_month,
                     effective_to = :eto,
                     notes = :notes
               WHERE id = :id AND tenant_id = :t'
@@ -5571,6 +5578,7 @@ function jobdivaSyncUpsertPlacementCommissionRow(
             'split' => $splitPct,
             'basis' => $basis,
             'flat' => $flatAmount,
+            'currency' => $terms['currency'] ?? null, 'frequency' => $terms['payment_frequency'] ?? null, 'due_month' => $terms['due_month'] ?? null,
             'eto' => $effectiveTo,
             'notes' => $notes,
             'id' => $existingId,
@@ -5581,10 +5589,10 @@ function jobdivaSyncUpsertPlacementCommissionRow(
 
     $pdo->prepare(
         'INSERT INTO placement_commissions
-            (tenant_id, placement_id, role, user_id, split_pct, basis, flat_amount,
+            (tenant_id, placement_id, role, user_id, split_pct, basis, flat_amount, currency, payment_frequency, due_month,
              effective_from, effective_to, notes)
          VALUES
-            (:t, :p, :role, :uid, :split, :basis, :flat, :ef, :eto, :notes)'
+            (:t, :p, :role, :uid, :split, :basis, :flat, :currency, :frequency, :due_month, :ef, :eto, :notes)'
     )->execute([
         't' => $tid,
         'p' => $placementId,
@@ -5593,6 +5601,7 @@ function jobdivaSyncUpsertPlacementCommissionRow(
         'split' => $splitPct,
         'basis' => $basis,
         'flat' => $flatAmount,
+        'currency' => $terms['currency'] ?? null, 'frequency' => $terms['payment_frequency'] ?? null, 'due_month' => $terms['due_month'] ?? null,
         'ef' => $effectiveFrom,
         'eto' => $effectiveTo,
         'notes' => $notes,
@@ -5740,6 +5749,13 @@ function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, strin
         $email = jobdivaPluckFieldDeep($jd, $def['email_keys']);
         $commissionUserId = jobdivaResolvePlacementCommissionUserId($tid, $email !== '' ? $email : null, $name !== '' ? $name : null);
 
+        $terms=[];
+        foreach(['currency','payment_frequency','due_month'] as $field) {
+            $camel=str_replace(' ','',ucwords(str_replace('_',' ',$field)));
+            $roleCamel=lcfirst(str_replace(' ','',ucwords(str_replace('_',' ',$role))));
+            $terms[$field]=jobdivaCommissionMappedOrDefault($tid,$field,$linked,$jd,
+                static fn()=>jobdivaPluckFieldDeep($jd,array_merge([$role.' commission '.str_replace('_',' ',$field),$roleCamel.'Commission'.$camel],$field==='payment_frequency'?[$roleCamel.'CommissionFrequency']:[])));
+        }
         $id = jobdivaSyncUpsertPlacementCommissionRow(
             $tid,
             $placementId,
@@ -5750,7 +5766,8 @@ function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, strin
             $basis,
             $effectiveFrom,
             $effectiveTo,
-            $role
+            $role,
+            $terms
         );
         if ($id > 0) {
             $summary['written']++;

@@ -13,6 +13,7 @@ require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/placements.php';
+require_once __DIR__ . '/commission_input.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
 {
@@ -411,14 +412,14 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
         'INSERT INTO placement_economic_parties
             (tenant_id, placement_id, source_ref, source_type, source_id, role,
              display_name, company_id, person_id, user_id, ap_vendor_id,
-             money_flow, settlement_channel, fee_basis, fee_pct, fee_flat,
+             money_flow, settlement_channel, fee_basis, fee_pct, fee_flat, currency, payment_frequency, due_month,
              payment_terms, pwp_enabled, operating_cycle_id,
              effective_from, effective_to, source_system, source_external_id,
              source_managed, active, created_by_user_id)
          VALUES
             (:t, :p, :source_ref, :source_type, :source_id, :role,
              :display_name, :company_id, :person_id, :user_id, :ap_vendor_id,
-             :money_flow, :settlement_channel, :fee_basis, :fee_pct, :fee_flat,
+             :money_flow, :settlement_channel, :fee_basis, :fee_pct, :fee_flat, :currency, :payment_frequency, :due_month,
              :payment_terms, :pwp_enabled, :operating_cycle_id,
              :effective_from, :effective_to, :source_system, :source_external_id,
              :source_managed, 1, :created_by_user_id)
@@ -436,6 +437,9 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
              fee_basis = IF(source_managed = 0 AND VALUES(source_managed) = 1, fee_basis, VALUES(fee_basis)),
              fee_pct = IF(source_managed = 0 AND VALUES(source_managed) = 1, fee_pct, VALUES(fee_pct)),
              fee_flat = IF(source_managed = 0 AND VALUES(source_managed) = 1, fee_flat, VALUES(fee_flat)),
+             currency = IF(source_managed = 0 AND VALUES(source_managed) = 1, currency, VALUES(currency)),
+             payment_frequency = IF(source_managed = 0 AND VALUES(source_managed) = 1, payment_frequency, VALUES(payment_frequency)),
+             due_month = IF(source_managed = 0 AND VALUES(source_managed) = 1, due_month, VALUES(due_month)),
              payment_terms = IF(source_managed = 0 AND VALUES(source_managed) = 1, payment_terms, IF(payment_terms_overridden = 1, payment_terms, VALUES(payment_terms))),
              pwp_enabled = IF(source_managed = 0 AND VALUES(source_managed) = 1, pwp_enabled, IF(pwp_overridden = 1, pwp_enabled, VALUES(pwp_enabled))),
              operating_cycle_id = IF(source_managed = 0 AND VALUES(source_managed) = 1, operating_cycle_id, IF(cycle_overridden = 1, operating_cycle_id, VALUES(operating_cycle_id))),
@@ -461,6 +465,9 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
         'fee_basis' => $basis,
         'fee_pct' => $party['fee_pct'] ?? null,
         'fee_flat' => $party['fee_flat'] ?? null,
+        'currency' => $party['currency'] ?? null,
+        'payment_frequency' => $party['payment_frequency'] ?? null,
+        'due_month' => $party['due_month'] ?? null,
         'payment_terms' => $terms,
         'pwp_enabled' => !empty($party['pwp_enabled']) ? 1 : 0,
         'operating_cycle_id' => $party['operating_cycle_id'] ?? null,
@@ -788,6 +795,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 'money_flow' => 'payable', 'settlement_channel' => $row['user_id'] ? 'payroll' : 'none',
                 'fee_basis' => (string) $row['basis'], 'fee_pct' => $row['split_pct'] ?? null,
                 'fee_flat' => $row['flat_amount'] ?? null, 'operating_cycle_id' => $payrollCycleId,
+                'currency' => $row['currency'] ?? null, 'payment_frequency' => $row['payment_frequency'] ?? null, 'due_month' => $row['due_month'] ?? null,
                 'effective_from' => $row['effective_from'] ?? null, 'effective_to' => $row['effective_to'] ?? null,
                 'source_system' => $sourceSystem, 'source_external_id' => $sourceExternal,
             ]);
@@ -1476,6 +1484,10 @@ function placementEconomicsModelForRate(
             'role' => (string) $party['role'],
             'basis' => $basis,
             'amount' => round($flat, 2),
+            'currency' => $party['currency'] ?? (($party['source_type'] ?? '') === 'commission' ? null : ($rate['currency'] ?? 'USD')),
+            'payment_frequency' => $party['payment_frequency'] ?? null,
+            'due_month' => $party['due_month'] ?? null,
+            'terms_issue' => ($party['source_type'] ?? '') === 'commission' ? placementCommissionTermsIssue($party) : null,
             'settlement_channel' => (string) $party['settlement_channel'],
         ];
     }
@@ -1507,7 +1519,10 @@ function placementEconomicsModelForRate(
         'modeled_hourly_cost' => round($hourlyCost, 4),
         'modeled_hourly_margin' => round($net, 4),
         'modeled_margin_pct' => $invoiceRate > 0 ? round($net / $invoiceRate, 6) : 0,
-        'fixed_obligations' => round(array_sum(array_column($fixedLines, 'amount')), 2),
+        'fixed_obligations' => round(array_sum(array_map(static fn(array $line): float =>
+            ($line['currency'] ?? (isset($line['terms_issue']) ? null : ($rate['currency'] ?? 'USD'))) === ($rate['currency'] ?? 'USD')
+                && empty($line['terms_issue']) ? (float)$line['amount'] : 0.0, $fixedLines)), 2),
+        'fixed_obligations_by_currency' => placementCommissionCurrencyTotals($fixedLines, (string)($rate['currency'] ?? 'USD')),
         'employer_cost_rates' => $resolvedEmployerCosts['rates'],
         'employer_cost_sources' => $resolvedEmployerCosts['sources'],
         'c2c_overhead_rate' => $resolvedC2COverhead['rate'],
@@ -1714,6 +1729,9 @@ function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
             'fee_basis' => $party['fee_basis'] ?? 'none',
             'fee_pct' => isset($party['fee_pct']) ? (float) $party['fee_pct'] : null,
             'fee_flat' => isset($party['fee_flat']) ? (float) $party['fee_flat'] : null,
+            'currency' => $party['currency'] ?? null,
+            'payment_frequency' => $party['payment_frequency'] ?? null,
+            'due_month' => $party['due_month'] ?? null,
             'payment_terms' => $terms,
             'resolved_payment_terms' => $terms !== null
                 ? placementEconomicsResolvedTerms($terms, $resolvedPwp)
@@ -1926,9 +1944,14 @@ function placementEconomicsPayrollCharges(
         if (!empty($party['effective_to']) && strcmp((string) $party['effective_to'], $asOf) < 0) continue;
 
         $basis = (string) ($party['fee_basis'] ?? 'none');
+        $commissionFlat = ($party['source_type'] ?? '') === 'commission' && $basis === 'flat';
+        if (($party['source_type'] ?? '') === 'commission' && ($issue=placementCommissionTermsIssue($party))) throw new RuntimeException($issue, 409);
+        if ($commissionFlat) {
+            if ($party['payment_frequency']==='one_time' && $party['due_month']>substr($asOf,0,7)) continue;
+        }
         $pct = (float) ($party['fee_pct'] ?? 0);
         $flat = (float) ($party['fee_flat'] ?? 0);
-        if ($basis === 'one_time') {
+        if ($basis === 'one_time' || ($commissionFlat && $party['payment_frequency']==='one_time')) {
             $once = getDB()->prepare(
                 'SELECT 1 FROM placement_economic_obligations
                   WHERE tenant_id = :t AND economic_party_id = :party
@@ -2005,6 +2028,9 @@ function placementEconomicsRecordObligation(
     int $sourceRefId,
     array $values
 ): int {
+    if (!empty($values['commission_terms'])) {
+        return placementCommissionClaim($tenantId,$placementId,$economicPartyId,$sourceType,$sourceRefId,$values);
+    }
     if ($sourceType === 'economic_item') {
         require_once __DIR__ . '/economic_items_edit.php';
         return placementEconomicsClaimItem($tenantId, $placementId, $economicPartyId, $sourceRefId, $values);

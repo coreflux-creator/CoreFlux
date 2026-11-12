@@ -800,7 +800,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
           {[['Gross client rate', contractModel.bill_rate], ['Invoice rate after adjustments', contractModel.invoice_bill_rate ?? contractModel.bill_rate], ['Labor pay / vendor rate', contractModel.pay_rate], ['All hourly costs', contractModel.modeled_hourly_cost], ['Modeled margin', contractModel.modeled_hourly_margin]].map(([label, value]) => <div key={label}><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>{label}</span><strong>{contractModel.currency} {Number(value).toFixed(2)} / hour</strong></div>)}
           <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Margin</span><strong>{(Number(contractModel.modeled_margin_pct) * 100).toFixed(2)}%</strong></div>
-          <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Fixed obligations</span><strong>{contractModel.currency} {Number(contractModel.fixed_obligations).toFixed(2)}</strong></div>
+          <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>Fixed obligations by currency</span>{Object.entries(contractModel.fixed_obligations_by_currency || { [contractModel.currency]: contractModel.fixed_obligations }).map(([currency, amount]) => <strong key={currency} style={{ display: 'block' }}>{currency === 'UNKNOWN' ? 'Currency needs review' : currency} {Number(amount).toFixed(2)}</strong>)}</div>
           <div><span style={{ display: 'block', fontSize: 12, color: 'var(--cf-text-secondary)' }}>One-time net impact</span><strong>{contractModel.currency} {Number(contractModel.one_time_net_impact || 0).toFixed(2)}</strong></div>
         </div>
         <details style={{ marginTop: 10 }}><summary style={{ cursor: 'pointer' }}>Revenue and cost breakdown</summary><table className="data-table" style={{ marginTop: 8 }}><thead><tr><th>Item</th><th>Type</th><th>Basis</th><th>Channel</th><th>Amount</th></tr></thead><tbody>{[
@@ -808,7 +808,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
           ...(contractModel.hourly_lines || []).map((line) => ({ ...line, lineType: 'Hourly cost', hourly: true })),
           ...(contractModel.fixed_lines || []).map((line) => ({ ...line, lineType: 'Fixed cost', hourly: false })),
           ...(contractModel.one_time_lines || []).map((line) => ({ ...line, lineType: line.economic_effect === 'revenue' ? 'One-time revenue' : 'One-time cost', hourly: false })),
-        ].map((line, index) => <tr key={`${line.role || line.name}-${index}`}><td>{line.name}</td><td>{line.lineType}</td><td>{line.basis.replace(/_/g, ' ')}</td><td>{line.settlement_channel}</td><td>{contractModel.currency} {Number(line.amount).toFixed(2)}{line.hourly ? ' / hour' : ''}</td></tr>)}</tbody></table></details>
+        ].map((line, index) => <tr key={`${line.role || line.name}-${index}`}><td>{line.name}{line.terms_issue && <small style={{ display: 'block' }}>{line.terms_issue}</small>}</td><td>{line.lineType}</td><td>{line.basis.replace(/_/g, ' ')}{line.payment_frequency && ` · ${line.payment_frequency.replace(/_/g, ' ')}`}{line.due_month && ` · due ${line.due_month}`}</td><td>{line.settlement_channel}</td><td>{Object.hasOwn(line, 'currency') ? (line.currency || 'Currency needs review') : contractModel.currency} {Number(line.amount).toFixed(2)}{line.hourly ? ' / hour' : ''}</td></tr>)}</tbody></table></details>
       </section>}
 
       {Object.keys(sourceContract).length > 0 && <section style={{ marginTop: 24 }} data-testid="jobdiva-overheads">
@@ -1383,20 +1383,24 @@ function CommissionsTab({ pid, rows, reload, canManage = false, sourceLinked = f
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
-  const emptyForm = () => ({ role: 'recruiter', user_id: '', split_pct: '', flat_amount: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
+  const emptyForm = () => ({ role: 'recruiter', user_id: '', split_pct: '', flat_amount: '', basis: 'net_margin', currency: '', payment_frequency: '', due_month: '', effective_from: new Date().toISOString().slice(0,10), effective_to: '', notes: '' });
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const reset = () => { setForm(emptyForm()); setEditing(null); setRequestId(crypto.randomUUID()); };
   const add = async (e) => {
-    e.preventDefault(); if (!canManage) return; setError(null);
+    e.preventDefault(); if (!canManage || busy) return; setError(null); setBusy(true);
     try {
-      await api.post(`/modules/placements/api/commissions.php?placement_id=${pid}`, {
-        request_id: requestId,
+      const payload = {
         ...form, split_pct: form.split_pct ? parseFloat(form.split_pct) : null,
-      });
-      setForm(emptyForm());
-      setRequestId(crypto.randomUUID());
+      };
+      if (editing) await api.patch(`/modules/placements/api/commissions.php?id=${editing}`, payload);
+      else await api.post(`/modules/placements/api/commissions.php?placement_id=${pid}`, { ...payload, request_id: requestId });
+      reset();
       reload();
     } catch (e) { setError(e); }
+    finally { setBusy(false); }
   };
   const patchRecipient = async (id, userId) => {
     if (!canManage) return;
@@ -1411,9 +1415,9 @@ function CommissionsTab({ pid, rows, reload, canManage = false, sourceLinked = f
       <p className="muted" data-testid="commission-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
       {sourceLinked && <SourceRuleReview placementId={pid} kind="commission" onApplied={reload} />}
       <table className="data-table" data-testid="commissions-table">
-        <thead><tr><th>Recipient</th><th>Role</th><th>Split</th><th>Basis</th><th>From</th><th>To</th><th></th></tr></thead>
+        <thead><tr><th>Recipient</th><th>Role</th><th>Split / amount</th><th>Calculation and frequency</th><th>Due month</th><th>From</th><th>To</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={7} className="empty" data-testid="commissions-empty">No splits.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} className="empty" data-testid="commissions-empty">No splits.</td></tr>}
           {rows.map(c => (
             <tr key={c.id} data-testid={`commission-row-${c.id}`}>
               <td>
@@ -1422,9 +1426,9 @@ function CommissionsTab({ pid, rows, reload, canManage = false, sourceLinked = f
                   {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                 </select> : (c.recipient_name || c.recipient_email || (c.user_id ? `User #${c.user_id}` : 'Not assigned'))}
               </td>
-              <td>{c.role}</td><td>{Number(c.split_pct) ? `${(c.split_pct * 100).toFixed(2)}%` : Number(c.flat_amount) ? c.flat_amount : '—'}</td>
-              <td>{c.basis}</td><td>{c.effective_from}</td><td>{c.effective_to || '—'}</td>
-              <td>{canManage && <button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`commission-delete-${c.id}`}>Remove</button>}</td>
+              <td>{c.role}</td><td>{Number(c.split_pct) ? `${(c.split_pct * 100).toFixed(2)}%` : Number(c.flat_amount) ? `${c.currency || 'Currency needs review'} ${Number(c.flat_amount).toFixed(2)}` : '—'}</td>
+              <td>{c.basis}{c.basis === 'flat' && <small style={{ display: 'block' }}>{c.payment_frequency === 'one_time' ? 'One time' : c.payment_frequency === 'per_pay_period' ? 'Per pay period' : 'Frequency needs review'}</small>}</td><td>{c.due_month || '—'}</td><td>{c.effective_from}</td><td>{c.effective_to || '—'}</td>
+              <td>{canManage && <><button type="button" className="btn btn--ghost" disabled={busy} onClick={() => { setEditing(c.id); setError(null); setForm(Object.fromEntries(Object.keys(emptyForm()).map(key => [key, c[key] ?? '']))); }}>Edit terms</button><button className="btn btn--ghost" disabled={busy} onClick={() => del(c.id)} data-testid={`commission-delete-${c.id}`}>Remove</button></>}</td>
             </tr>
           ))}
         </tbody>
@@ -1438,14 +1442,23 @@ function CommissionsTab({ pid, rows, reload, canManage = false, sourceLinked = f
           {['account_manager','lead','recruiter','team','other'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         {form.basis === 'flat'
-          ? <input className="input" type="number" step="0.01" min="0.01" required placeholder="Amount in contract currency" value={form.flat_amount} onChange={e => setForm({ ...form, flat_amount: e.target.value })} data-testid="commission-flat" />
+          ? <input className="input" type="number" step="0.01" min="0.01" required aria-label="Commission amount" placeholder="Commission amount" value={form.flat_amount} onChange={e => setForm({ ...form, flat_amount: e.target.value })} data-testid="commission-flat" />
           : <input className="input" type="number" step="0.0001" min="0.0001" max="1" required placeholder="0.30 = 30%" value={form.split_pct} onChange={e => setForm({ ...form, split_pct: e.target.value })} data-testid="commission-split" />}
-        <select className="input" value={form.basis} onChange={e => setForm({ ...form, basis: e.target.value, split_pct: '', flat_amount: '' })} data-testid="commission-basis">
+        <select className="input" aria-label="Commission calculation" value={form.basis} onChange={e => setForm({ ...form, basis: e.target.value, split_pct: '', flat_amount: '', currency: '', payment_frequency: '', due_month: '' })} data-testid="commission-basis">
           {['net_margin','gross_margin','bill_rate','flat'].map(b => <option key={b} value={b}>{b}</option>)}
         </select>
-        <input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="commission-from" />
-        <button className="btn btn--primary" data-testid="commission-add-btn">Add</button>
+        {form.basis === 'flat' && <>
+          <select className="input" required aria-label="Commission currency" value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })}><option value="">Choose currency</option>{['USD','CAD','GBP','EUR','INR','AUD'].map(currency => <option key={currency}>{currency}</option>)}</select>
+          <select className="input" required aria-label="Commission frequency" value={form.payment_frequency} onChange={e => setForm({ ...form, payment_frequency: e.target.value, due_month: '' })}><option value="">Choose frequency</option><option value="one_time">One time</option><option value="per_pay_period">Per pay period</option></select>
+          {form.payment_frequency === 'one_time' && <label>Due month<input className="input" required type="month" value={form.due_month} onChange={e => setForm({ ...form, due_month: e.target.value })} /></label>}
+        </>}
+        <label>Effective from<input className="input" required type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="commission-from" /></label>
+        <label>Effective to<input className="input" type="date" value={form.effective_to} onChange={e => setForm({ ...form, effective_to: e.target.value })} /></label>
+        <input className="input" aria-label="Commission notes" placeholder="Notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+        <button className="btn btn--primary" disabled={busy} data-testid="commission-add-btn">{busy ? 'Saving…' : editing ? 'Save terms' : 'Add'}</button>
+        {editing && <button type="button" className="btn btn--ghost" disabled={busy} onClick={reset}>Cancel edit</button>}
       </form>}
+      <p className="muted">The due month keeps month precision. Saving terms does not schedule a payment or convert currency. Native US payroll accepts USD only.</p>
       {error && <p className="error" data-testid="commissions-error">Error: {error.message}</p>}
     </div>
   );

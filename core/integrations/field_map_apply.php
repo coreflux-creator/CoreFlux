@@ -1458,6 +1458,11 @@ function integrationFieldMapApplyAll(
                     }
                     continue;
                 }
+                if ($tableLower === 'placement_commissions') {
+                    require_once __DIR__.'/../../modules/placements/lib/commission_input.php';
+                    $b['set']=placementCommissionTermsInput($b['set']);
+                    placementCommissionProtectConsumed($pdo,$tid,integrationFieldMapPlacementIdFromContext($contextRowIds),(int)$b['id'],$b['set']);
+                }
                 $sets = [];
                 $params = ['id' => $b['id'], 't' => $tid];
                 foreach ($b['set'] as $c => $v) {

@@ -10,7 +10,7 @@ function placementSourceRuleFields(string $kind): array
             'payment_terms_override','pwp_enabled','is_payable','submittal_id','vms_job_id','contract_storage_object_id'],
         'referral'=>['referrer_type','referrer_vendor_name','referrer_company_id','referrer_person_id','referrer_user_id',
             'fee_pct','fee_flat','fee_basis','payment_terms_override','pwp_enabled','duration_months','start_date','end_date','notes'],
-        'commission'=>['role','user_id','plan_id','split_pct','basis','flat_amount','effective_from','effective_to','notes'],
+        'commission'=>['role','user_id','plan_id','split_pct','basis','flat_amount','effective_from','effective_to','notes','currency','payment_frequency','due_month'],
         default=>throw new InvalidArgumentException('Unknown placement rule set.',422),
     };
 }
@@ -19,7 +19,7 @@ function placementSourceRuleFields(string $kind): array
 function placementSourceRuleInput(string $kind, array $input): array
 {
     if ($kind === 'commission') {
-        try { placementCommissionInput($input); }
+        try { $input=placementCommissionTermsInput(placementCommissionInput($input)); }
         catch (InvalidArgumentException $e) { throw new InvalidArgumentException($e->getMessage(),422); }
     }
     $allowed=placementSourceRuleFields($kind);

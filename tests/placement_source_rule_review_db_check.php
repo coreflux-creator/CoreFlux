@@ -125,7 +125,9 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$re
     JobdivaStoredReviewTransaction::run(static function()use($tenant,$pid,$payload,$edit,$commission,$preview,$check):void{
         $edit('commission','update',$commission,['notes'=>'Hold currency review']);$flat=$payload;unset($flat['recruiterCommissionPct']);$flat['recruiterCommissionFlat']=7500;$flat['recruiterCommissionCurrency']='INR';$flat['recruiterCommissionFrequency']='one_time';
         mappingUpsert($tenant,'jobdiva','jobdiva_assignment','99190001',$pid,$flat);$p=$preview('commission');
-        $check(!$p['selectable']&&str_contains(implode(' ',$p['issues']),'currency and payment schedule'),'Foreign-currency one-time source commission remains for review without dropping its terms');
+        $check(!$p['selectable']&&str_contains(implode(' ',$p['issues']),'due month'),'Incomplete one-time source commission remains for review without dropping its currency');
+        $flat['recruiterCommissionDueMonth']='2026-08';mappingUpsert($tenant,'jobdiva','jobdiva_assignment','99190001',$pid,$flat);$p=$preview('commission');
+        $check($p['selectable']&&$p['proposed'][0]['values']['currency']==='INR'&&$p['proposed'][0]['values']['payment_frequency']==='one_time'&&$p['proposed'][0]['values']['due_month']==='2026-08','Complete source terms survive the review without a fabricated payment date or currency conversion');
     },true);
     $check($read('placement_rates')===$rates&&$read('people')===$people,'All reviews and replacements preserve people and approved rate snapshots');
     $check([$read('accounting_events'),$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('time_entries')]===$financial,'Source-rule replacement creates no financial postings or time changes');

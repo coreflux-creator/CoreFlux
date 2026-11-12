@@ -140,30 +140,45 @@ CsvImportService::registerSchema('placements', [
         'recruiter_commission_effective_from' => ['label' => 'Recruiter commission effective from', 'type' => 'date'],
         'recruiter_commission_effective_to' => ['label' => 'Recruiter commission effective to', 'type' => 'date'],
         'recruiter_commission_notes' => ['label' => 'Recruiter commission notes'],
+        'recruiter_commission_currency' => ['label' => 'Recruiter commission currency'],
+        'recruiter_commission_payment_frequency' => ['label' => 'Recruiter commission payment frequency'],
+        'recruiter_commission_due_month' => ['label' => 'Recruiter commission due month'],
         'account_manager_commission_pct' => ['label' => 'Account manager commission %', 'type' => 'number'],
         'account_manager_commission_flat' => ['label' => 'Account manager commission flat', 'type' => 'number'],
         'account_manager_commission_basis' => ['label' => 'Account manager commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
         'account_manager_commission_effective_from' => ['label' => 'Account manager commission effective from', 'type' => 'date'],
         'account_manager_commission_effective_to' => ['label' => 'Account manager commission effective to', 'type' => 'date'],
         'account_manager_commission_notes' => ['label' => 'Account manager commission notes'],
+        'account_manager_commission_currency' => ['label' => 'Account manager commission currency'],
+        'account_manager_commission_payment_frequency' => ['label' => 'Account manager commission payment frequency'],
+        'account_manager_commission_due_month' => ['label' => 'Account manager commission due month'],
         'lead_commission_pct' => ['label' => 'Lead commission %', 'type' => 'number'],
         'lead_commission_flat' => ['label' => 'Lead commission flat', 'type' => 'number'],
         'lead_commission_basis' => ['label' => 'Lead commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
         'lead_commission_effective_from' => ['label' => 'Lead commission effective from', 'type' => 'date'],
         'lead_commission_effective_to' => ['label' => 'Lead commission effective to', 'type' => 'date'],
         'lead_commission_notes' => ['label' => 'Lead commission notes'],
+        'lead_commission_currency' => ['label' => 'Lead commission currency'],
+        'lead_commission_payment_frequency' => ['label' => 'Lead commission payment frequency'],
+        'lead_commission_due_month' => ['label' => 'Lead commission due month'],
         'team_commission_pct' => ['label' => 'Team commission %', 'type' => 'number'],
         'team_commission_flat' => ['label' => 'Team commission flat', 'type' => 'number'],
         'team_commission_basis' => ['label' => 'Team commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
         'team_commission_effective_from' => ['label' => 'Team commission effective from', 'type' => 'date'],
         'team_commission_effective_to' => ['label' => 'Team commission effective to', 'type' => 'date'],
         'team_commission_notes' => ['label' => 'Team commission notes'],
+        'team_commission_currency' => ['label' => 'Team commission currency'],
+        'team_commission_payment_frequency' => ['label' => 'Team commission payment frequency'],
+        'team_commission_due_month' => ['label' => 'Team commission due month'],
         'other_commission_pct' => ['label' => 'Other commission %', 'type' => 'number'],
         'other_commission_flat' => ['label' => 'Other commission flat', 'type' => 'number'],
         'other_commission_basis' => ['label' => 'Other commission basis', 'enum' => ['net_margin','gross_margin','bill_rate','flat']],
         'other_commission_effective_from' => ['label' => 'Other commission effective from', 'type' => 'date'],
         'other_commission_effective_to' => ['label' => 'Other commission effective to', 'type' => 'date'],
         'other_commission_notes' => ['label' => 'Other commission notes'],
+        'other_commission_currency' => ['label' => 'Other commission currency'],
+        'other_commission_payment_frequency' => ['label' => 'Other commission payment frequency'],
+        'other_commission_due_month' => ['label' => 'Other commission due month'],
         'corp_legal_name' => ['label' => 'C2C corp legal name'],
         'corp_ein' => ['label' => 'C2C corp EIN'],
         'corp_address_line1' => ['label' => 'C2C corp address line 1'],
@@ -435,7 +450,9 @@ function placementsCsvBuildCommissionPayload(string $role, array $row): ?array
     $basis = placementsCsvNormaliseCommissionBasis($row[$prefix . '_basis'] ?? null);
     if ($flat !== null && $split === null) $basis = 'flat';
 
-    return [
+    require_once __DIR__.'/../lib/commission_input.php';
+    $terms=placementCommissionTermsInput(['currency'=>$row[$prefix.'_currency']??null,'payment_frequency'=>$row[$prefix.'_payment_frequency']??null,'due_month'=>$row[$prefix.'_due_month']??null]);
+    return $terms + [
         'role' => $role,
         'split_pct' => $split,
         'basis' => $basis,
@@ -466,6 +483,7 @@ function placementsCsvUpsertCommissions(int $placementId, array $row, bool $upda
         );
         unset($payload['role']);
         if ($updateExisting && $existing) {
+            placementCommissionProtectConsumed(getDB(),(int)effectiveTenantIdForRequest(),$placementId,(int)$existing['id'],$payload);
             scopedUpdate('placement_commissions', (int) $existing['id'], $payload);
             continue;
         }

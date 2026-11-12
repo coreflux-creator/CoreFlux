@@ -13,7 +13,8 @@ foreach([
     ['chain',['party_name'=>[]]],['chain',['party_name'=>"Bad\0Name"]],['chain',['submittal_id'=>str_repeat('x',65)]],
     ['referral',['start_date'=>'2026-02-30']],['referral',['fee_pct'=>'10%']],['referral',['fee_flat'=>'-1']],
     ['referral',['duration_months'=>'1.5']],['referral',['duration_months'=>1201]],['referral',['fee_flat'=>INF]],
-    ['commission',['currency'=>'INR']],['commission',['payment_frequency'=>'one_time']],['commission',['due_date'=>'2026-08']],
+    ['commission',['currency'=>'INVALID']],['commission',['payment_frequency'=>'weekly']],['commission',['due_date'=>'2026-08']],
+    ['commission',['due_month'=>'2026-13']],['commission',['due_month'=>'2026-08-01']],['commission',['currency'=>true]],
     ['commission',['basis'=>'one_time']],['commission',['split_pct'=>true]],['commission',['flat_amount'=>'100000000.00']],
 ]as[$kind,$input])$check($reject(fn()=>placementSourceRuleInput($kind,$input)),"$kind rejects malformed ".array_key_first($input));
 $v=placementSourceRuleInput('referral',['fee_pct'=>0.1,'fee_flat'=>'','pwp_enabled'=>'0','referrer_person_id'=>'42','end_date'=>null]);

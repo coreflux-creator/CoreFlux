@@ -106,7 +106,12 @@ function placementSourceRuleEdit(int $tenant,int $placement,string $kind,string 
             $defaults=match($kind){'chain'=>['pwp_enabled'=>0,'is_payable'=>0],'referral'=>['pwp_enabled'=>0],default=>['basis'=>'net_margin']};
             $values=array_intersect_key(array_replace($defaults,$before??[],$input),array_flip(placementSourceRuleFields($kind)));
             placementSourceRuleValues($kind,$values);
+            if ($kind==='commission' && ($operation==='create' || array_intersect(array_keys($input),['basis','flat_amount','split_pct','currency','payment_frequency','due_month']))) {
+                $issue=placementCommissionTermsIssue($values);
+                if($issue)throw new InvalidArgumentException($issue,422);
+            }
             $values=placementSourceRuleResolve($pdo,$tenant,$placement,$id,$kind,$values,$input,$user);
+            if($kind==='commission' && $before)placementCommissionProtectConsumed($pdo,$tenant,$placement,$id,$values);
         }
         // A separately reviewed participant must not silently swallow this edit.
         if($before) {

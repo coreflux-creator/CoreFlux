@@ -745,7 +745,7 @@ function _settleTimeIntoPayroll(
                                 $pdo, $tenantId, $recipientScheduleId, $actorUserId, end($workDates) ?: null
                             );
                         if (!$recipientRun) throw new TimeSettlementException("No open payroll period for {$charge['display_name']}");
-                        placementEconomicsRecordObligation(
+                        $obligationId = placementEconomicsRecordObligation(
                             $tenantId,
                             $placementId,
                             (int) $charge['id'],
@@ -758,11 +758,12 @@ function _settleTimeIntoPayroll(
                                 'basis_amount' => $charge['calculation_basis_amount'],
                                 'amount' => $charge['calculated_amount'],
                                 'currency' => strtoupper(trim($chargeCurrency)),
+                                'commission_terms' => ($charge['source_type'] ?? '') === 'commission' && ($charge['fee_basis'] ?? '') === 'flat' ? $charge : null,
                                 'status' => 'payroll',
                                 'payroll_ref_id' => (int) $recipientRun['run_id'],
                             ]
                         );
-                        $created[$createdKey]['economic_earnings']++;
+                        if ($obligationId > 0) $created[$createdKey]['economic_earnings']++;
                     }
                 }
             }

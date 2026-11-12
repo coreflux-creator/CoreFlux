@@ -88,8 +88,8 @@ PHP
     };
     foreach (['POST','PATCH'] as $method) {
         foreach ([
-            ['currency'=>'INR'], ['currency'=>'USD'], ['currency'=>null],
-            ['payment_frequency'=>'one_time'], ['due_month'=>'2026-08'], ['due_date'=>'2026-08-01'],
+            ['currency'=>'INVALID'], ['currency'=>true], ['currency'=>[]],
+            ['payment_frequency'=>'weekly'], ['due_month'=>'2026-13'], ['due_date'=>'2026-08-01'],
             ['basis'=>'one_time'], ['basis'=>'per_hour'], ['notes'=>['currency'=>'INR']],
             ['tenant_id'=>99], ['placement_id'=>99], ['created_by_user_id'=>99],
             ['source_managed'=>1], ['approved_at'=>'2026-08-01'], ['unsupported_source_term'=>'private value'],
@@ -103,6 +103,9 @@ PHP
             $method.' supported legacy mutation still reaches its writer');
         $check($result['writes'][0]['flat_amount']==='125.50' && $result['writes'][0]['effective_from']==='2026-08-01',
             $method.' retains amount precision and rule effective date');
+        $result=$invoke($method,array_replace($valid,['flat_amount'=>'7500.00','currency'=>'inr','payment_frequency'=>'one_time','due_month'=>'2026-08']));
+        $check($result['writes'][0]['currency']==='INR' && $result['writes'][0]['due_month']==='2026-08' && $result['writes'][0]['payment_frequency']==='one_time',
+            $method.' retains independent currency, one-time frequency and month precision');
     }
     $result=$invoke('PATCH',['user_id'=>7]);
     $check($result['status']===200 && $result['writes']===[['user_id'=>7]],'recipient-only edit remains supported');
@@ -111,7 +114,7 @@ PHP
     foreach(array_reverse($dirs) as $dir) if(is_dir($dir))rmdir($dir);
 }
 $rule=staffingFieldContractRules('placement_commissions','flat_amount');
-$check($rule['unit']==='amount; currency-and-frequency-not-stored','dictionary discloses missing amount units');
+$check($rule['unit']==='amount; explicit-currency','dictionary documents explicit amount denomination');
 $check(str_contains(staffingFieldContractRules('placement_commissions','effective_from')['definition'],'not the commission payment due'),
     'effective date does not claim due date precision');
 foreach($rule['remote_contracts'] as $contract) {
