@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/economics.php';
+require_once __DIR__ . '/../lib/source_rule_edit.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -143,108 +144,26 @@ if ($method === 'POST' && $action === 'clear_portal') {
     api_ok(['ok' => true]);
 }
 
-if ($method === 'POST') {
-    rbac_legacy_require($user, 'placements.manage');
-    $pid = (int) api_query('placement_id', 0);
-    if ($pid <= 0) api_error('placement_id required', 400);
-    $body = api_json_body();
-    api_require_fields($body, ['position', 'party_role']);
-    if (!in_array($body['party_role'], ['end_client','msp','prime_vendor','sub_vendor','direct'], true)) {
-        api_error('Invalid party_role', 422);
+if (in_array($method,['POST','PATCH','DELETE'],true)) {
+    rbac_legacy_require($user,'placements.manage');
+    $tenant=(int)placementsGraphTenantId((int)$ctx['tenant_id']);
+    $id=(int)api_query('id',0); $pid=(int)api_query('placement_id',0);
+    try {
+        if($method!=='POST') {
+            if($id<=0) api_error('id required',400);
+            $q=getDB()->prepare('SELECT placement_id FROM placement_client_chain WHERE tenant_id=? AND id=?');
+            $q->execute([$tenant,$id]);$pid=(int)$q->fetchColumn();
+            if($pid<=0) api_error('Rule not found',404);
+        }
+        if($pid<=0) api_error('placement_id required',400);
+        $result=placementSourceRuleEdit($tenant,$pid,'chain',match($method){'POST'=>'create','PATCH'=>'update',default=>'delete'},
+            $id,$method==='DELETE'?[]:api_json_body(),$user);
+        api_ok($result,$method==='POST'?201:200);
+    } catch(PDOException $e) {
+        error_log('[placement chain edit] '.$e->getCode());
+        api_error('The rule could not be saved. Refresh the contract and try again.',503);
+    } catch(InvalidArgumentException|RuntimeException $e) {
+        api_error($e->getMessage(),in_array($e->getCode(),[403,404,409,422,503],true)?$e->getCode():422);
     }
-    if (empty($body['party_name']) && empty($body['company_id'])) {
-        api_error('Either company_id (preferred) or party_name is required', 422);
-    }
-
-    // Resolve the company FK + display name in either direction.
-    require_once __DIR__ . '/../../people/lib/companies.php';
-    $companyId   = !empty($body['company_id']) ? (int) $body['company_id'] : null;
-    $partyName   = $body['party_name'] ?? null;
-    $roleForDir  = $body['party_role'] === 'end_client'
-                   ? 'client'
-                   : ($body['party_role'] === 'direct' ? 'client' : $body['party_role']);
-
-    if ($companyId) {
-        $co = companiesGet($companyId, placementsCompanyDirectoryTenantId());
-        if (!$co) api_error('company_id not found in this tenant', 422);
-        $partyName = $co['name'];
-        companiesAddRole($companyId, $roleForDir);
-        companiesBumpUsage($companyId);
-    } else {
-        $companyId = companiesUpsertByName(placementsCompanyDirectoryTenantId(), (string) $partyName, [
-            'created_by_user_id' => $user['id'] ?? null,
-        ], [$roleForDir]);
-        companiesBumpUsage($companyId);
-    }
-
-    $id = scopedInsert('placement_client_chain', [
-        'placement_id'    => $pid,
-        'position'        => (int) $body['position'],
-        'party_name'      => $partyName,
-        'party_role'      => $body['party_role'],
-        'company_id'      => $companyId,
-        'vendor_portal_id'=> $body['vendor_portal_id'] ?? null,
-        'portal_fee_pct'  => $body['portal_fee_pct']   ?? null,
-        'portal_fee_flat' => $body['portal_fee_flat']  ?? null,
-        'payment_terms_override' => !empty($body['payment_terms_override'])
-            ? placementEconomicsNormaliseTerms((string) $body['payment_terms_override']) : null,
-        'pwp_enabled'     => !empty($body['pwp_enabled']) ? 1 : 0,
-        'is_payable'      => !empty($body['is_payable']) ? 1 : 0,
-        'submittal_id'    => $body['submittal_id']     ?? null,
-        'vms_job_id'      => $body['vms_job_id']       ?? null,
-        'contract_storage_object_id' => $body['contract_storage_object_id'] ?? null,
-    ]);
-    placementEconomicsReconcile(currentTenantId(), $pid);
-    placementsAudit('placement.chain.updated', ['placement_id' => $pid, 'op' => 'add', 'chain_id' => $id, 'company_id' => $companyId], $pid);
-    api_ok(['id' => $id, 'company_id' => $companyId], 201);
 }
-
-if ($method === 'PATCH') {
-    rbac_legacy_require($user, 'placements.manage');
-    $id = (int) api_query('id', 0);
-    if ($id <= 0) api_error('id required', 400);
-    $body = api_json_body();
-    // Strip identity + sensitive fields. Portal creds go through set_portal/clear_portal.
-    foreach (['id','tenant_id','placement_id','portal_credentials_ct','kms_key_version','has_portal_credentials'] as $k) {
-        unset($body[$k]);
-    }
-    $allowed = [
-        'position','party_name','party_role','company_id','vendor_portal_id',
-        'portal_fee_pct','portal_fee_flat','payment_terms_override','pwp_enabled','is_payable',
-        'submittal_id','vms_job_id','contract_storage_object_id',
-    ];
-    $body = array_intersect_key($body, array_flip($allowed));
-    if (array_key_exists('payment_terms_override', $body) && $body['payment_terms_override'] !== null) {
-        $body['payment_terms_override'] = placementEconomicsNormaliseTerms((string) $body['payment_terms_override']);
-    }
-    foreach (['pwp_enabled','is_payable'] as $flag) {
-        if (array_key_exists($flag, $body)) $body[$flag] = !empty($body[$flag]) ? 1 : 0;
-    }
-    if (!$body) api_error('No fields to update', 422);
-    $source = scopedFind('SELECT placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    if (!$source) api_error('Not found', 404);
-    if (!empty($body['company_id'])) {
-        $company = companiesGet((int) $body['company_id'], placementsCompanyDirectoryTenantId());
-        if (!$company) api_error('Company not found in this placement directory', 422);
-        $body['party_name'] = (string) $company['name'];
-    }
-    $rows = scopedUpdate('placement_client_chain', $id, $body);
-    if ($rows === 0) api_error('Not found or no change', 404);
-    placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'patch', 'fields' => array_keys($body)], $id);
-    if ($source) placementEconomicsReconcile(currentTenantId(), (int) $source['placement_id']);
-    api_ok(['ok' => true]);
-}
-
-if ($method === 'DELETE') {
-    rbac_legacy_require($user, 'placements.manage');
-    $id = (int) api_query('id', 0);
-    if ($id <= 0) api_error('id required', 400);
-    $source = scopedFind('SELECT placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    $rows = scopedDelete('placement_client_chain', $id);
-    if ($rows === 0) api_error('Not found', 404);
-    placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'delete'], $id);
-    if ($source) placementEconomicsReconcile(currentTenantId(), (int) $source['placement_id']);
-    api_ok(['ok' => true]);
-}
-
-api_error('Method not allowed', 405);
+api_error('Method not allowed',405);

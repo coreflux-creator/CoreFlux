@@ -915,6 +915,7 @@ export function EconomicsTab({ placement, chain, rates, commissions, referrals, 
 }
 
 function ChainTab({ pid, chain, reload, canManage = false, canReveal = false }) {
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [form, setForm] = useState({ position: 0, party_name: '', party_role: 'end_client', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
   const [adding, setAdding] = useState(false);
   const [error, setError]   = useState(null);
@@ -924,17 +925,19 @@ function ChainTab({ pid, chain, reload, canManage = false, canReveal = false }) 
     e.preventDefault(); if (!canManage) return; setAdding(true); setError(null);
     try {
       await api.post(`/modules/placements/api/chain.php?placement_id=${pid}`, {
+        request_id: requestId,
         ...form, position: parseInt(form.position, 10),
         portal_fee_pct: form.portal_fee_pct ? parseFloat(form.portal_fee_pct) : null,
         submittal_id: form.submittal_id || null,
         vms_job_id: form.vms_job_id || null,
       });
       setForm({ position: chain.length, party_name: '', party_role: 'sub_vendor', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
+      setRequestId(crypto.randomUUID());
       reload();
     } catch (e) { setError(e); }
     finally     { setAdding(false); }
   };
-  const del = async (id) => { if (!canManage || !confirm('Remove tier?')) return; await api.delete(`/modules/placements/api/chain.php?id=${id}`); reload(); };
+  const del = async (id) => { if (!canManage || !confirm('Remove tier?')) return; try { await api.delete(`/modules/placements/api/chain.php?id=${id}`); reload(); } catch (e) { setError(e); } };
 
   // Inline patch helper (used by submittal_id / vms_job_id cells).
   const patchField = async (id, field, value) => {
@@ -948,6 +951,7 @@ function ChainTab({ pid, chain, reload, canManage = false, canReveal = false }) 
   return (
     <div data-testid="tab-chain">
       <h3>Vendor chain</h3>
+      <p className="muted" data-testid="chain-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
       <p style={{ color: 'var(--cf-text-secondary)' }}>Position 0 = end client. Higher numbers = layers between us and them. Fees stack additively.</p>
       <table className="data-table" data-testid="chain-table">
         <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Portal fee %</th><th>Submittal #</th><th>VMS Job #</th><th>Portal creds</th><th>Contract</th><th></th></tr></thead>
@@ -1370,18 +1374,21 @@ function RatesTab({ pid, rates, startDate, reload, canManage = false, canApprove
 
 // ── Commissions ────────────────────────────────────────────
 function CommissionsTab({ pid, rows, reload, canManage = false }) {
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
-  const emptyForm = () => ({ role: 'recruiter', user_id: '', split_pct: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
+  const emptyForm = () => ({ role: 'recruiter', user_id: '', split_pct: '', flat_amount: '', basis: 'net_margin', effective_from: new Date().toISOString().slice(0,10) });
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState(null);
   const add = async (e) => {
     e.preventDefault(); if (!canManage) return; setError(null);
     try {
       await api.post(`/modules/placements/api/commissions.php?placement_id=${pid}`, {
+        request_id: requestId,
         ...form, split_pct: form.split_pct ? parseFloat(form.split_pct) : null,
       });
       setForm(emptyForm());
+      setRequestId(crypto.randomUUID());
       reload();
     } catch (e) { setError(e); }
   };
@@ -1391,10 +1398,11 @@ function CommissionsTab({ pid, rows, reload, canManage = false }) {
     try { await api.patch(`/modules/placements/api/commissions.php?id=${id}`, { user_id: Number(userId) }); reload(); }
     catch (e) { setError(e); }
   };
-  const del = async (id) => { if (!canManage || !confirm('Remove split?')) return; await api.delete(`/modules/placements/api/commissions.php?id=${id}`); reload(); };
+  const del = async (id) => { if (!canManage || !confirm('Remove split?')) return; try { await api.delete(`/modules/placements/api/commissions.php?id=${id}`); reload(); } catch (e) { setError(e); } };
   return (
     <div data-testid="tab-commissions">
       <h3>Commission splits</h3>
+      <p className="muted" data-testid="commission-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
       <table className="data-table" data-testid="commissions-table">
         <thead><tr><th>Recipient</th><th>Role</th><th>Split</th><th>Basis</th><th>From</th><th>To</th><th></th></tr></thead>
         <tbody>
@@ -1407,7 +1415,7 @@ function CommissionsTab({ pid, rows, reload, canManage = false }) {
                   {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                 </select> : (c.recipient_name || c.recipient_email || (c.user_id ? `User #${c.user_id}` : 'Not assigned'))}
               </td>
-              <td>{c.role}</td><td>{c.split_pct ? `${(c.split_pct * 100).toFixed(2)}%` : c.flat_amount ? `$${c.flat_amount}` : '—'}</td>
+              <td>{c.role}</td><td>{Number(c.split_pct) ? `${(c.split_pct * 100).toFixed(2)}%` : Number(c.flat_amount) ? c.flat_amount : '—'}</td>
               <td>{c.basis}</td><td>{c.effective_from}</td><td>{c.effective_to || '—'}</td>
               <td>{canManage && <button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`commission-delete-${c.id}`}>Remove</button>}</td>
             </tr>
@@ -1422,8 +1430,10 @@ function CommissionsTab({ pid, rows, reload, canManage = false }) {
         <select className="input" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} data-testid="commission-role">
           {['account_manager','lead','recruiter','team','other'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <input className="input" type="number" step="0.0001" placeholder="0.30 = 30%" value={form.split_pct} onChange={e => setForm({ ...form, split_pct: e.target.value })} data-testid="commission-split" />
-        <select className="input" value={form.basis} onChange={e => setForm({ ...form, basis: e.target.value })} data-testid="commission-basis">
+        {form.basis === 'flat'
+          ? <input className="input" type="number" step="0.01" min="0.01" required placeholder="Amount in contract currency" value={form.flat_amount} onChange={e => setForm({ ...form, flat_amount: e.target.value })} data-testid="commission-flat" />
+          : <input className="input" type="number" step="0.0001" min="0.0001" max="1" required placeholder="0.30 = 30%" value={form.split_pct} onChange={e => setForm({ ...form, split_pct: e.target.value })} data-testid="commission-split" />}
+        <select className="input" value={form.basis} onChange={e => setForm({ ...form, basis: e.target.value, split_pct: '', flat_amount: '' })} data-testid="commission-basis">
           {['net_margin','gross_margin','bill_rate','flat'].map(b => <option key={b} value={b}>{b}</option>)}
         </select>
         <input className="input" type="date" value={form.effective_from} onChange={e => setForm({ ...form, effective_from: e.target.value })} data-testid="commission-from" />
@@ -1436,6 +1446,7 @@ function CommissionsTab({ pid, rows, reload, canManage = false }) {
 
 // ── Referrals ────────────────────────────────────────────
 function ReferralsTab({ pid, rows, reload, canManage = false }) {
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const usersLookup = useApi(canManage ? '/api/users.php' : null);
   const tenantUsers = usersLookup.data?.users || usersLookup.data?.rows || [];
   const emptyForm = () => ({ referrer_type: 'vendor', referrer_vendor_name: '', referrer_company_id: '', referrer_person_id: '', referrer_user_id: '', fee_basis: 'pct_bill', fee_pct: '', fee_flat: '', start_date: new Date().toISOString().slice(0,10), duration_months: '', payment_terms_override: 'NET30', pwp_enabled: false });
@@ -1450,6 +1461,7 @@ function ReferralsTab({ pid, rows, reload, canManage = false }) {
     e.preventDefault(); if (!canManage) return; setError(null);
     try {
       const payload = {
+        request_id: requestId,
         ...form,
         referrer_company_id: referrerCompany?.id || null,
         referrer_vendor_name: referrerCompany?.name || form.referrer_vendor_name || null,
@@ -1460,14 +1472,16 @@ function ReferralsTab({ pid, rows, reload, canManage = false }) {
       await api.post(`/modules/placements/api/referrals.php?placement_id=${pid}`, payload);
       setForm(emptyForm());
       setReferrerCompany(null);
+      setRequestId(crypto.randomUUID());
       setPersonSearch('');
       reload();
     } catch (e) { setError(e); }
   };
-  const del = async (id) => { if (!canManage || !confirm('Remove referral?')) return; await api.delete(`/modules/placements/api/referrals.php?id=${id}`); reload(); };
+  const del = async (id) => { if (!canManage || !confirm('Remove referral?')) return; try { await api.delete(`/modules/placements/api/referrals.php?id=${id}`); reload(); } catch (e) { setError(e); } };
   return (
     <div data-testid="tab-referrals">
       <h3>Referral fees</h3>
+      <p className="muted" data-testid="referral-ownership-notice">Saving or removing a rule makes this entire rule set managed in Core. JobDiva refreshes retain source evidence and preserve these rules. Returning control requires a reviewed source proposal.</p>
       <table className="data-table" data-testid="referrals-table">
         <thead><tr><th>Referrer</th><th>Fee</th><th>Basis</th><th>Start</th><th>Duration</th><th></th></tr></thead>
         <tbody>
@@ -1475,7 +1489,7 @@ function ReferralsTab({ pid, rows, reload, canManage = false }) {
           {rows.map(r => (
             <tr key={r.id} data-testid={`referral-row-${r.id}`}>
               <td>{r.referrer_name || r.referrer_vendor_name || `#${r.referrer_person_id || r.referrer_user_id}`}</td>
-              <td>{r.fee_pct ? `${(r.fee_pct * 100).toFixed(2)}%` : r.fee_flat ? `$${r.fee_flat}` : '—'}</td>
+              <td>{Number(r.fee_pct) ? `${(r.fee_pct * 100).toFixed(2)}%` : Number(r.fee_flat) ? r.fee_flat : '—'}</td>
               <td>{r.fee_basis}</td><td>{r.start_date}</td><td>{r.duration_months ? `${r.duration_months}mo` : '—'}</td>
               <td>{canManage && <button className="btn btn--ghost" onClick={() => del(r.id)} data-testid={`referral-delete-${r.id}`}>Remove</button>}</td>
             </tr>
@@ -1494,11 +1508,12 @@ function ReferralsTab({ pid, rows, reload, canManage = false }) {
             {(personLookup.data?.rows || []).map(person => <button type="button" key={person.id} onClick={() => { setForm({ ...form, referrer_person_id: person.id }); setPersonSearch(`${person.first_name} ${person.last_name}`); }} style={{ display: 'block', width: '100%', padding: 8, textAlign: 'left', border: 0, background: 'white', cursor: 'pointer' }}>{person.first_name} {person.last_name} ({person.email_primary})</button>)}
           </div>}
         </div>}
-        <select className="input" value={form.fee_basis} onChange={e => setForm({ ...form, fee_basis: e.target.value })} data-testid="referral-basis">
+        <select className="input" value={form.fee_basis} onChange={e => setForm({ ...form, fee_basis: e.target.value, fee_pct: '', fee_flat: '' })} data-testid="referral-basis">
           {['per_hour','per_invoice','one_time','pct_bill','pct_margin'].map(b => <option key={b} value={b}>{b}</option>)}
         </select>
-        <input className="input" type="number" step="0.0001" placeholder="0.10 = 10%" value={form.fee_pct} onChange={e => setForm({ ...form, fee_pct: e.target.value })} data-testid="referral-fee" />
-        <input className="input" type="number" step="0.01" placeholder="Flat amount" value={form.fee_flat} onChange={e => setForm({ ...form, fee_flat: e.target.value })} data-testid="referral-flat" />
+        {['pct_bill', 'pct_margin'].includes(form.fee_basis)
+          ? <input className="input" type="number" step="0.0001" min="0.0001" max="1" required placeholder="0.10 = 10%" value={form.fee_pct} onChange={e => setForm({ ...form, fee_pct: e.target.value })} data-testid="referral-fee" />
+          : <input className="input" type="number" step="0.01" min="0.01" required placeholder="Amount in contract currency" value={form.fee_flat} onChange={e => setForm({ ...form, fee_flat: e.target.value })} data-testid="referral-flat" />}
         <input className="input" type="number" placeholder="Months" value={form.duration_months} onChange={e => setForm({ ...form, duration_months: e.target.value })} style={{ width: '90px' }} data-testid="referral-months" />
         <input className="input" type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} data-testid="referral-start" />
         <select className="input" value={form.payment_terms_override} onChange={e => setForm({ ...form, payment_terms_override: e.target.value, pwp_enabled: e.target.value.startsWith('PWP') })} data-testid="referral-terms">{['DUE_ON_RECEIPT','NET7','NET10','NET15','NET30','NET45','NET60','NET90','PWP','PWP_NET7','PWP_NET10','PWP_NET15','PWP_NET30','PWP_NET45','PWP_NET60','PWP_NET90'].map(term => <option key={term} value={term}>{term === 'PWP' ? 'Paid when paid' : term.startsWith('PWP_NET') ? `Paid when paid + ${term.slice(7)} days` : term.replace('DUE_ON_RECEIPT', 'Due on receipt').replace('NET', 'Net ')}</option>)}</select>

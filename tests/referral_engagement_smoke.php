@@ -21,8 +21,16 @@ $assert('placements API accepts referral', str_contains($placementsApi, "'intern
 $assert('referral person remains a candidate', str_contains($placementsApi, "'referral' => 'candidate'"));
 
 $referralsApi = $read('modules/placements/api/referrals.php');
-$assert('hourly payout must be positive', str_contains($referralsApi, 'Hourly referral payout must be greater than 0'));
-$assert('referral fee basis is allow-listed', str_contains($referralsApi, "['per_hour', 'per_invoice', 'one_time', 'pct_bill', 'pct_margin']"));
+require_once __DIR__.'/../modules/placements/lib/source_rule_input.php';
+$invalidHourly=false;
+try { placementSourceRuleValues('referral',['referrer_type'=>'vendor','fee_basis'=>'per_hour','fee_flat'=>0,'start_date'=>'2026-11-01']); }
+catch(InvalidArgumentException $e){$invalidHourly=$e->getCode()===422;}
+$assert('hourly payout must be positive',$invalidHourly);
+$invalidBasis=false;
+try { placementSourceRuleValues('referral',['referrer_type'=>'vendor','fee_basis'=>'unknown','fee_flat'=>10,'start_date'=>'2026-11-01']); }
+catch(InvalidArgumentException $e){$invalidBasis=$e->getCode()===422;}
+$assert('referral fee basis is allow-listed',$invalidBasis);
+$assert('referral API uses validated atomic writer',str_contains($referralsApi,'placementSourceRuleEdit'));
 
 echo "\nEconomics and settlement\n";
 $economics = $read('modules/placements/lib/economics.php');

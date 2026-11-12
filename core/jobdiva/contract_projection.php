@@ -43,6 +43,7 @@ function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagemen
             'referral_payout_rate','vendor_pay_cycle','vendor_pay_cycle_anchor','vendor_payment_terms_override','vendor_pwp_enabled');
     }
     $aliases = [
+        'referral_payout_rate'=>['referral_rules'],
         'end_client_name'=>['end_client_name','end_client_company_id'],
         'billing_client_name'=>['client_id'],
         'client_bill_cycle'=>['client_bill_cycle','billing_operating_cycle_id'],

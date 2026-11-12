@@ -71,15 +71,13 @@ $assert('placements POST preserves the selected bill-to role', strpos($placeApi,
 $assert('placements safeFields includes end_client_company_id', strpos((string) file_get_contents(__DIR__ . '/../modules/placements/lib/placements.php'), 'end_client_company_id') !== false);
 
 $chainApi = (string) file_get_contents(__DIR__ . '/../modules/placements/api/chain.php');
-$assert('chain POST accepts company_id',                  strpos($chainApi, "\$body['company_id']") !== false);
-$assert('chain POST falls back to party_name + auto-creates company', strpos($chainApi, 'companiesUpsertByName') !== false);
-$assert('chain POST tags vendor role from party_role',    strpos($chainApi, '$roleForDir') !== false);
-$assert('chain POST refuses missing company_id AND party_name', strpos($chainApi, 'Either company_id') !== false);
-
 $refApi = (string) file_get_contents(__DIR__ . '/../modules/placements/api/referrals.php');
-$assert('referrals POST resolves referrer_company_id',    strpos($refApi, 'referrer_company_id') !== false);
-$assert('referrals POST tags role=referrer',              strpos($refApi, "'referrer'") !== false);
-$assert('referrals POST only resolves company for vendor referrer', strpos($refApi, "'vendor'") !== false);
+$ruleEdit = (string) file_get_contents(__DIR__ . '/../modules/placements/lib/source_rule_edit.php');
+$assert('chain API uses atomic rule editor', str_contains($chainApi,'placementSourceRuleEdit'));
+$assert('referral API uses atomic rule editor', str_contains($refApi,'placementSourceRuleEdit'));
+$assert('company resolution stays within placement directory', str_contains($ruleEdit,'placementsCompanyDirectoryTenantId()') && str_contains($ruleEdit,'companiesGet'));
+$assert('named companies use canonical upsert', str_contains($ruleEdit,'companiesUpsertByName'));
+$assert('chain role and referral/vendor roles remain explicit', str_contains($ruleEdit,"['referrer','vendor']") && str_contains($ruleEdit,"\$values['party_role']"));
 
 echo "\nUI wiring (Clients + Vendors split — no 'Companies' in user-facing routes)\n";
 foreach (['CompanyTypeahead.jsx','DirectoryModule.jsx','ClientsModule.jsx','VendorsModule.jsx'] as $c) {

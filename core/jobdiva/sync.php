@@ -38,6 +38,7 @@ require_once __DIR__ . '/../../modules/people/lib/companies.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 require_once __DIR__ . '/../../modules/staffing/lib/jobs.php';
 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
+require_once __DIR__ . '/../../modules/placements/lib/source_rule_ownership.php';
 require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
 require_once __DIR__ . '/projector.php';
 require_once __DIR__ . '/stored_review.php';
@@ -4681,6 +4682,8 @@ function jobdivaSyncUpsertPlacementChainRow(
     array $extras = [],
     ?int $userId = null
 ): int {
+    if ($tid<=0 || $placementId<=0) return 0;
+    return placementWithSourceRuleWrite($tid,$placementId,'chain',static function() use ($tid,$placementId,$position,$partyRole,$partyName,$companyId,$extras,$userId) {
     $partyName = trim((string) $partyName);
     if ($tid <= 0 || $placementId <= 0 || $position < 0 || $partyRole === '') return 0;
 
@@ -4779,6 +4782,7 @@ function jobdivaSyncUpsertPlacementChainRow(
         'vms' => $payload['vms_job_id'] ?? null,
     ]);
     return (int) $pdo->lastInsertId();
+    }, 0);
 }
 
 function jobdivaSyncUpsertPlacementChain(
@@ -4789,6 +4793,8 @@ function jobdivaSyncUpsertPlacementChain(
     array $jd,
     ?int $userId = null
 ): array {
+    if ($tid<=0 || $placementId<=0) return ['written'=>0,'rows'=>[],'held_by_core'=>true];
+    return placementWithSourceRuleWrite($tid,$placementId,'chain',static function() use ($tid,$placementId,$endClientCompanyId,$endClientName,$jd,$userId) {
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
 
@@ -4958,6 +4964,7 @@ function jobdivaSyncUpsertPlacementChain(
     }
 
     return $summary;
+    }, ['written'=>0,'rows'=>[],'held_by_core'=>true]);
 }
 
 function jobdivaCorpMappedOrDefault(
@@ -5519,6 +5526,8 @@ function jobdivaSyncUpsertPlacementCommissionRow(
     ?string $effectiveTo,
     string $sourceLabel
 ): int {
+    if ($tid<=0 || $placementId<=0) return 0;
+    return placementWithSourceRuleWrite($tid,$placementId,'commission',static function() use ($tid,$placementId,$role,$userId,$splitPct,$flatAmount,$basis,$effectiveFrom,$effectiveTo,$sourceLabel) {
     if ($tid <= 0 || $placementId <= 0 || $role === '' || $effectiveFrom === '') return 0;
     if ($splitPct !== null && ($splitPct <= 0 || $splitPct > 1)) $splitPct = null;
     if ($flatAmount !== null && $flatAmount <= 0) $flatAmount = null;
@@ -5587,10 +5596,13 @@ function jobdivaSyncUpsertPlacementCommissionRow(
         'notes' => $notes,
     ]);
     return (int) $pdo->lastInsertId();
+    }, 0);
 }
 
 function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, string $startDate, array $jd): array
 {
+    if ($tid<=0 || $placementId<=0) return ['written'=>0,'rows'=>[],'held_by_core'=>true];
+    return placementWithSourceRuleWrite($tid,$placementId,'commission',static function() use ($tid,$placementId,$startDate,$jd) {
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
 
@@ -5745,6 +5757,7 @@ function jobdivaSyncUpsertPlacementCommissions(int $tid, int $placementId, strin
     }
 
     return $summary;
+    }, ['written'=>0,'rows'=>[],'held_by_core'=>true]);
 }
 
 /**
@@ -5945,6 +5958,8 @@ function jobdivaSyncUpsertPlacementReferral(
     array $jd,
     ?int $createdByUserId = null
 ): int {
+    if ($tid<=0 || $placementId<=0) return 0;
+    return placementWithSourceRuleWrite($tid,$placementId,'referral',static function() use ($tid,$placementId,$placementStartDate,$jd,$createdByUserId) {
     if ($tid <= 0 || $placementId <= 0) return 0;
     $contract = jobdivaContractProjectionContract($jd);
     $engagement = jobdivaClassificationRequire($jd);
@@ -6087,6 +6102,7 @@ function jobdivaSyncUpsertPlacementReferral(
              :terms, :pwp, :duration, :start_date, :end_date, :notes)'
     )->execute($values);
     return (int) $pdo->lastInsertId();
+    }, 0);
 }
 
 function jobdivaSyncPlacementEconomicOptions(array $jd): array

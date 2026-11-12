@@ -492,11 +492,11 @@ function placementReferrals(int $placementId): array
                 c.id AS canonical_company_id
            FROM placement_referrals pr
       LEFT JOIN companies c ON c.tenant_id = :company_tenant AND c.id = pr.referrer_company_id AND c.deleted_at IS NULL
-      LEFT JOIN people pp ON pp.tenant_id = pr.tenant_id AND pp.id = pr.referrer_person_id
+      LEFT JOIN people pp ON pp.tenant_id = :person_tenant AND pp.id = pr.referrer_person_id AND pp.deleted_at IS NULL
       LEFT JOIN users u ON u.id = pr.referrer_user_id
           WHERE pr.tenant_id = :tenant_id AND pr.placement_id = :pid
           ORDER BY pr.start_date DESC',
-        ['pid' => $placementId, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())]
+        ['pid' => $placementId, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest()), 'person_tenant'=>(int)effectiveTenantIdForModule('people',(int)placementsGraphTenantId())]
     );
 }
 

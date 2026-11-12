@@ -42,6 +42,7 @@ function api_ok(array $result,int $status=200): never {
     echo json_encode(['status'=>$status,'result'=>$result,'writes'=>$GLOBALS['writes']],JSON_THROW_ON_ERROR);exit;
 }
 function rbac_legacy_require(array $user,string $permission): void {}
+function placementsGraphTenantId(int $id): int { return $id; }
 function scopedFind(string $sql,array $values): array { return ['placement_id'=>17]; }
 function membershipReadSourceSql(): string { return 'fixture_membership'; }
 function getDB(): object {
@@ -60,9 +61,21 @@ PHP
     foreach (['core/RBAC.php','modules/placements/lib/placements.php','modules/placements/lib/economics.php'] as $path) {
         $put($root.'/'.$path, "<?php\n");
     }
-    foreach (['modules/placements/api/commissions.php','modules/placements/lib/commission_input.php'] as $path) {
+    foreach (['modules/placements/api/commissions.php','modules/placements/lib/commission_input.php','modules/placements/lib/source_rule_input.php'] as $path) {
         $put($root.'/'.$path, file_get_contents(__DIR__.'/../'.$path));
     }
+    // The real API and normalizer run here. Native transaction/graph behavior
+    // is exercised by placement_source_rule_db_check against real tables.
+    $put($root.'/modules/placements/lib/source_rule_edit.php', <<<'PHP'
+<?php
+require_once __DIR__.'/source_rule_input.php';
+function placementSourceRuleEdit(int $tenant,int $placement,string $kind,string $op,int $id,array $body,array $user): array {
+    $values=placementSourceRuleInput($kind,$body);
+    $GLOBALS['writes'][]=$values;
+    return ['id'=>19,'changed'=>true];
+}
+PHP
+    );
     $invoke = static function (string $method,array $body) use ($root,$put): array {
         $put($root.'/request.json',json_encode($body,JSON_THROW_ON_ERROR));
         $process=proc_open([PHP_BINARY,$root.'/modules/placements/api/commissions.php',$root.'/request.json',$method],
@@ -70,7 +83,7 @@ PHP
         if(!is_resource($process))throw new RuntimeException('Fixture process failed');
         fclose($pipes[0]);$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);
         fclose($pipes[1]);fclose($pipes[2]);
-        if(proc_close($process)!==0||$err!=='')throw new RuntimeException('Fixture failed: '.$err);
+        if(proc_close($process)!==0||$err!=='')throw new RuntimeException('Fixture failed: '.$err.' '.$out);
         return json_decode($out,true,512,JSON_THROW_ON_ERROR);
     };
     foreach (['POST','PATCH'] as $method) {

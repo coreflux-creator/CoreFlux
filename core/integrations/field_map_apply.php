@@ -1241,6 +1241,12 @@ function integrationFieldMapApplyAll(
     if ($tid <= 0 || $integration === '' || $entityType === '') return $summary;
     $maps = integrationFieldMapResolveGeneralised($tid, $integration, $entityType);
     if (!$maps) return $summary;
+    require_once __DIR__ . '/../../modules/placements/lib/source_rule_ownership.php';
+    $placementId=integrationFieldMapPlacementIdFromContext($contextRowIds);
+    $ruleFields=array_column(placementSourceRuleDefinitions(),'field','table');
+    $hasRules=(bool)array_intersect(array_map('strtolower',array_column($maps,'target_table')),array_keys($ruleFields));
+    $apply=static function(?array $lockedParent=null) use ($tid,$integration,$entityType,$payload,$contextRowIds,$summary,$maps,$placementId,$ruleFields):array {
+    $ruleOwned=$lockedParent?placementOwnershipFields($lockedParent['coreflux_overridden_fields']??null):[];
     if ($integration === 'jobdiva' && $entityType === 'placement') {
         require_once __DIR__ . '/../jobdiva/classification_mapping.php';
         $payload = jobdivaClassificationPayloadForTenant($tid, $payload);
@@ -1267,6 +1273,12 @@ function integrationFieldMapApplyAll(
             // Legacy row (pre-Phase-2 backfill missed it) — skip and let
             // the hardcoded syncer fallback path handle this column.
             integrationFieldMapSkip($summary, $m, 'unresolved_target');
+            continue;
+        }
+
+        $ruleField=$ruleFields[strtolower((string)$m['target_table'])]??null;
+        if($ruleField!==null && (!$lockedParent || in_array($ruleField,$ruleOwned,true))) {
+            integrationFieldMapSkip($summary,$m,$lockedParent?'core_owned_rule_set':'placement_context_required');
             continue;
         }
 
@@ -1346,6 +1358,11 @@ function integrationFieldMapApplyAll(
             integrationFieldMapSkip($summary, $m, 'target_row_not_resolved');
             $summary['errors'][] = "no_context_row for linked_entity={$linked} target={$m['target_table']}.{$m['target_column']} (mapping_id={$m['id']})";
             continue;
+        }
+        if(isset($ruleFields[$tableLower])) {
+            $belongs=$pdo->prepare('SELECT id FROM `'.$tableLower.'` WHERE tenant_id=? AND placement_id=? AND id=?');
+            $belongs->execute([$tid,$placementId,$rowId]);
+            if(!$belongs->fetchColumn()) {integrationFieldMapSkip($summary,$m,'rule_placement_mismatch');continue;}
         }
         if ($tableLower === 'placement_commissions') {
             $contextRowIds[integrationFieldMapCommissionContextKey($linked)] = $rowId;
@@ -1481,6 +1498,10 @@ function integrationFieldMapApplyAll(
     }
 
     return $summary;
+    };
+    return $hasRules && $placementId>0
+        ? placementWithLockedRecord($tid,$placementId,static fn(array $parent):array=>$apply($parent))
+        : $apply();
 }
 
 /** Apply one placement bucket without racing native edits or releasing ownership. */

@@ -50,6 +50,12 @@ function placementClearOverrides(int $id, array $fields, ?array $review = null):
         throw new InvalidArgumentException('Choose the fields to return to JobDiva.', 422);
     }
     $fields = array_values(array_unique($fields));
+    // Legacy source matchers use mutable position/role/date/notes. Clearing a
+    // rule-set hold without a reviewed source replacement can recreate deleted
+    // rules or duplicate an edited one. The generic field release cannot do it.
+    if (array_intersect($fields,['chain_rules','referral_rules','commission_rules'])) {
+        throw new InvalidArgumentException('This rule set is managed in Core. Returning it to JobDiva requires a reviewed source replacement; individual field release cannot change it.',422);
+    }
     return placementWithLockedRecord((int) effectiveTenantIdForRequest(), $id, static function (array $row, PDO $pdo) use ($id, $fields, $review): array {
         $current = placementOwnershipFields($row['coreflux_overridden_fields'] ?? null);
         $remaining = array_values(array_diff($current, $fields));

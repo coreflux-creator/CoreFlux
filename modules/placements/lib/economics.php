@@ -723,11 +723,11 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                     u.name AS user_name
                FROM placement_referrals r
           LEFT JOIN companies c ON c.id = r.referrer_company_id AND c.tenant_id = :company_owner AND c.deleted_at IS NULL
-          LEFT JOIN people pe ON pe.id = r.referrer_person_id AND pe.tenant_id = r.tenant_id
+          LEFT JOIN people pe ON pe.id = r.referrer_person_id AND pe.tenant_id = :person_owner AND pe.deleted_at IS NULL
           LEFT JOIN users u ON u.id = r.referrer_user_id
               WHERE r.tenant_id = :t AND r.placement_id = :p'
         );
-        $refSt->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => $companyOwner]);
+        $refSt->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => $companyOwner, 'person_owner'=>(int)effectiveTenantIdForModule('people',$tenantId)]);
         foreach ($refSt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
             $type = (string) $row['referrer_type'];
             $name = trim((string) ($row['company_name'] ?: $row['referrer_vendor_name'] ?: $row['person_name'] ?: $row['user_name']));

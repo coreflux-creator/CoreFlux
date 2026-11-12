@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, UserRoundPlus } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
@@ -78,6 +78,11 @@ export default function PlacementCreate() {
   const [internalHire, setInternalHire] = useState(false);
   const [endClient, setEndClient] = useState(null);
   const [chain, setChain]         = useState([]);
+  const ruleRequests = useRef(new Map());
+  const ruleRequest = (key) => {
+    if (!ruleRequests.current.has(key)) ruleRequests.current.set(key, crypto.randomUUID());
+    return ruleRequests.current.get(key);
+  };
   const [rate, setRate]           = useState({
     effective_from: '', bill_rate: '', pay_rate: '',
     bill_rate_unit: 'hour', pay_rate_unit: 'hour',
@@ -234,6 +239,7 @@ export default function PlacementCreate() {
           const c = chain[i];
           if (!c.company?.name) continue;
           await api.post(`/modules/placements/api/chain.php?placement_id=${placementId}`, {
+            request_id: ruleRequest(`chain:${i}`),
             position: i + 1,
             company_id: c.company.id || undefined,
             party_name: c.company.id ? undefined : c.company.name,
@@ -266,6 +272,7 @@ export default function PlacementCreate() {
       for (const c of commissions) {
         if (!c.role || !(c.split_pct || c.flat_amount)) continue;
         await api.post(`/modules/placements/api/commissions.php?placement_id=${placementId}`, {
+          request_id: ruleRequest(`commission:${commissions.indexOf(c)}`),
           role: c.role,
           user_id: c.user_id ? parseInt(c.user_id, 10) : null,
           split_pct: c.split_pct ? Number(c.split_pct) / 100 : null,
@@ -279,6 +286,7 @@ export default function PlacementCreate() {
       // 5) Referral
       if (referral && referral.referrer_type && referral.fee_basis) {
         await api.post(`/modules/placements/api/referrals.php?placement_id=${placementId}`, {
+          request_id: ruleRequest('referral'),
           referrer_type: referral.referrer_type,
           referrer_vendor_name: referral.referrer_vendor_name || null,
           referrer_company_id:  referral.referrer_company?.id || null,
