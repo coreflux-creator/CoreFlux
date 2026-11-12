@@ -13,7 +13,7 @@ $check=static function(bool $ok,string $message)use(&$checks):void{if(!$ok)throw
 $failure=static function(callable $fn):string{try{$fn();return '';}catch(Throwable $e){return $e->getMessage();}};
 $read=static fn(string $table):array=>getDB()->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
 $financial=[$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('accounting_events')];
-$pdo->beginTransaction();
+JobdivaStoredReviewTransaction::run(static function () use ($pdo,$tenant,&$checks,$check,$failure,$read,$financial): void {
 try{
     $person=scopedInsert('people',['first_name'=>'CI Review','last_name'=>'Worker','email_primary'=>'ci-review-worker@example.invalid','classification'=>'w2','external_id'=>'jd:99150002']);
     $billCompany=companiesUpsertByName($tenant,'CI Review Billing',[],['client']);
@@ -60,5 +60,6 @@ try{
     $check($again['retained_core_fields']===4&&jobdivaPlacementProjectionAuditSnapshot($tenant,$placement)===$stable,'Freshly reviewed replay preserves the commercial graph and retained decisions');
     $check($pdo->inTransaction(),'Stored apply does not commit its caller transaction');
     $check([$read('accounting_journal_entries'),$read('accounting_journal_entry_lines'),$read('accounting_events')]===$financial,'Review and reconciliation create no financial postings');
-}finally{if($pdo->inTransaction())$pdo->rollBack();setRequestTenantId(null);}
+}finally{setRequestTenantId(null);}
+}, true);
 echo "$checks JobDiva contract review checks passed.\n";

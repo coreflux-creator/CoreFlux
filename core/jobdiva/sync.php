@@ -40,6 +40,7 @@ require_once __DIR__ . '/../../modules/staffing/lib/jobs.php';
 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
 require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
 require_once __DIR__ . '/projector.php';
+require_once __DIR__ . '/stored_review.php';
 
 /**
  * JobDiva V2 BI endpoints — verified 2026-02 from
@@ -3731,6 +3732,7 @@ function jobdivaStoredAssignmentProjectionPlan(
     int $offset = 0
 ): array {
     require_once __DIR__ . '/../integrations/field_map.php';
+    tenantIntegrationFieldMapFlushCache();
     $limit = max(1, min(5000, $limit));
     $offset = max(0, $offset);
     $onlyLookup = [];
@@ -3762,6 +3764,7 @@ function jobdivaStoredAssignmentProjectionPlan(
     }
 
     $pdo = getDB();
+    $fieldMapRevision = mappingHash(tenantIntegrationFieldMapList($tenantId, 'jobdiva'));
     $countStmt = $pdo->prepare(
         "SELECT COUNT(*)
            FROM external_entity_mappings
@@ -4171,6 +4174,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         );
         $rowToken = hash('sha256', json_encode([
             'start_id' => $startId,
+            'field_map_revision' => $fieldMapRevision,
             'source_updated_at' => (string) ($sourceRow['updated_at'] ?? ''),
             'financial_updated_at' => $financialUpdatedAt,
             'source_evidence_sha256' => hash('sha256', is_string($sourceEvidenceJson) ? $sourceEvidenceJson : ''),
@@ -4264,6 +4268,7 @@ function jobdivaApplyStoredAssignmentProjection(
     if (!$selected) throw new \InvalidArgumentException('Select at least one verified Start ID.');
     if (count($selected) > 500) throw new \InvalidArgumentException('Apply is limited to 500 Start IDs at a time.');
 
+    return JobdivaStoredReviewTransaction::run(static function () use ($tenantId, $userId, $selected, $expectedToken, $limit, $offset): array {
     // Validate against the same compact all-assignment plan returned to the
     // browser, then load full joined payloads only for the selected Start IDs.
     $previewPlan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, [], false, $offset);
@@ -4304,21 +4309,16 @@ function jobdivaApplyStoredAssignmentProjection(
         'retained_core_fields' => 0,
         'rows' => [],
     ];
-    // Resolve source-owned C2C company identities before opening the write
-    // transaction. This can call JobDiva and must not hold placement locks.
+    // Resolve saved C2C identity evidence inside the same transaction.
+    // Stored review never performs a remote fetch while locks are held.
     foreach (array_keys($selected) as $startId) {
         $contract = $rowsByStart[$startId]['contract']['source_contract'] ?? [];
         $companyExternalId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contract]);
         if ($companyExternalId !== '') {
-            jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId);
+            jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId, $contract);
         }
     }
 
-    $ownsTransaction = !$pdo->inTransaction();
-    $savepoint = 'jobdiva_review_' . bin2hex(random_bytes(8));
-    try {
-        if ($ownsTransaction) $pdo->beginTransaction();
-        else $pdo->exec('SAVEPOINT ' . $savepoint);
         foreach (array_keys($selected) as $startId) {
             $row = $rowsByStart[$startId];
             $before = !empty($row['placement_id'])
@@ -4390,19 +4390,8 @@ function jobdivaApplyStoredAssignmentProjection(
                 'ownership_conflicts' => $projection['ownership_conflicts'] ?? [],
             ];
         }
-        if ($ownsTransaction) $pdo->commit();
-        else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) {
-            if ($ownsTransaction) $pdo->rollBack();
-            else {
-                $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
-                $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-            }
-        }
-        throw $e;
-    }
     return $result;
+    });
 }
 
 function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int $limit = 5000): array
@@ -4977,7 +4966,8 @@ function jobdivaSyncCorpPluck(int $tid, array $jd, string $targetColumn, array $
 function jobdivaSyncResolveSubcontractCompany(
     int $tid,
     string $externalId,
-    ?int $userId = null
+    ?int $userId = null,
+    array $storedContract = []
 ): ?array {
     $externalId = jobdivaAssignmentCompanyId($externalId);
     if ($tid <= 0 || $externalId === '') return null;
@@ -5047,6 +5037,17 @@ function jobdivaSyncResolveSubcontractCompany(
         }
     } catch (\Throwable $e) {
         error_log('[jobdiva subcontract company] mirror lookup failed for ' . $externalId . ': ' . $e->getMessage());
+    }
+
+    if (JobdivaStoredReviewTransaction::active()) {
+        $sourceId = jobdivaAssignmentCompanyId($storedContract['corporation_id'] ?? null);
+        $name = trim((string) ($storedContract['corporation_name'] ?? ''));
+        if ($sourceId === $externalId && $name !== '' && !jobdivaCompanyNameIsPlaceholder($name, $externalId)) {
+            $payload = ['id'=>$externalId, 'name'=>$name];
+            $companyId = jobdivaUpsertCompanyMapped($tid, $externalId, $name, ['created_by_user_id'=>$userId], $payload, $userId, ['vendor']);
+            return ['id'=>$companyId, 'name'=>$name, 'external_id'=>$externalId];
+        }
+        throw new RuntimeException('Refresh the saved JobDiva company evidence for subcontract company ' . $externalId . ' before applying this review.', 409);
     }
 
     try {
@@ -5138,7 +5139,7 @@ function jobdivaSyncUpsertPlacementCorpDetails(
         : [];
     $corpExternalId = jobdivaAssignmentCompanyId($contract['corporation_id'] ?? null);
     $resolvedCompany = $corpExternalId !== ''
-        ? jobdivaSyncResolveSubcontractCompany($tid, $corpExternalId, $userId)
+        ? jobdivaSyncResolveSubcontractCompany($tid, $corpExternalId, $userId, $contract)
         : null;
 
     $legalName = jobdivaSyncCorpPluck($tid, $jd, 'corp_legal_name', [

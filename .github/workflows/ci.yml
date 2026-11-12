@@ -603,6 +603,8 @@ jobs:
         run: php tests/placement_economic_party_edit_db_check.php --confirm-disposable-fixture
       - name: Verify reviewed commercial ownership release
         run: php tests/placement_commercial_ownership_db_check.php --confirm-disposable-fixture
+      - name: Verify stored-review transaction isolation
+        run: php tests/jobdiva_stored_review_transaction_db_check.php --confirm-disposable-fixture
 
       - name: Exercise multi-reviewer AP approval projection
         run: php tests/ap_approval_projection_db_check.php --confirm-disposable-fixture
