@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import FinancialReportLibrary from '../../../dashboard/src/components/FinancialReportLibrary';
 import PeriodSelector from './PeriodSelector';
@@ -28,6 +29,9 @@ export default function StaffingOverview({ session }) {
       </header>
 
       <FinancialReportLibrary session={session} prominent />
+
+      <p><Link className="btn" to="/modules/reports/staffing_reconciliation">Placement financial review</Link>{' '}
+        Compare approved time with saved invoice, payroll and workbook evidence.</p>
 
       <header className="reports-home__section-header">
         <div>
