@@ -36,6 +36,9 @@ if ($method === 'PUT' || $method === 'POST') {
     try {
         $result = placementApplyNativeEdit($pid, api_json_body(), $user, 'approval_contact');
         api_ok(['ok' => true, 'changed' => $result['changed']]);
+    } catch (PDOException $e) {
+        error_log('[approval setup] Database operation failed: ' . $e->getCode());
+        api_error('Approval setup could not be saved. Please try again.', 503);
     } catch (InvalidArgumentException|RuntimeException $e) {
         api_error($e->getMessage(), in_array($e->getCode(), [403,404,409,422,503], true) ? $e->getCode() : 422);
     }

@@ -13,7 +13,7 @@ function placementApprovalContactInput(array $patch, bool $focused = false): arr
     if ($focused && array_diff(array_keys($patch), placementApprovalContactFields())) {
         throw new InvalidArgumentException('Only timesheet approval setup can be changed here.', 422);
     }
-    foreach (['client_approver_name' => 255, 'client_approver_email' => 255] as $field => $limit) {
+    foreach (['client_approver_name' => 200, 'client_approver_email' => 255] as $field => $limit) {
         if (!array_key_exists($field, $patch)) continue;
         $value = $patch[$field];
         if ($value !== null && !is_string($value)) throw new InvalidArgumentException('Enter a valid approval contact.', 422);
@@ -24,7 +24,7 @@ function placementApprovalContactInput(array $patch, bool $focused = false): arr
         if ($value === '') $value = null;
         if ($value !== null && (mb_strlen($value) > $limit
             || ($field === 'client_approver_email' && !filter_var($value, FILTER_VALIDATE_EMAIL)))) {
-            throw new InvalidArgumentException('Enter a valid approval contact of up to 255 characters.', 422);
+            throw new InvalidArgumentException('Enter a valid approval contact of up to ' . $limit . ' characters.', 422);
         }
         $patch[$field] = $value;
     }

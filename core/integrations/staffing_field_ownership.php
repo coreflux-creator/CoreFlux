@@ -45,7 +45,7 @@ function staffingPlacementControlFieldRules(string $table, string $field, array 
 {
     $definitions = [
         'coreflux_overridden_fields' => ['Core-owned placement fields retained during JobDiva refresh. Native edits merge ownership; explicit reviewed handback releases it. Approval contact name and email are one choice.', 'json-list:field-name'],
-        'client_approver_name' => ['Client time-approval contact display name. A name does not establish a Core user, Quanta approver membership, or evidence that time was approved.', 'nullable-printable-text-max-255'],
+        'client_approver_name' => ['Client time-approval contact display name. A name does not establish a Core user, Quanta approver membership, or evidence that time was approved.', 'nullable-printable-text-max-200'],
         'client_approver_email' => ['Client time-approval contact address. An explicit Core clear remains owned; changing the contact does not grant portal access or approve existing time.', 'nullable-email-max-255'],
         'tokenized_email_approval_enabled' => ['Placement setting allowing the separate secure-email approval workflow. This boolean contains no token and is not an approval, invitation or provider permission.', 'boolean'],
         'bulk_uploads_can_be_pre_approved' => ['Placement setting consulted by the separately authorized time import workflow. Saving the setting changes no time entry or existing approval.', 'boolean'],

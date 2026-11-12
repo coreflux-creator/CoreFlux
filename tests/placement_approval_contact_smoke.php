@@ -19,6 +19,9 @@ foreach(['client_approver_name','client_approver_email']as$field){
     foreach([true,0,[],"A\nB","A\0B",str_repeat('x',256),"\xFF"]as$value)$check($refuses([$field=>$value]),'Malformed contact refused');
 }
 $check($refuses(['client_approver_email'=>'invalid']),'Invalid email refused');
+$check($refuses(['client_approver_name'=>str_repeat('x',201)]),'Name respects the native 200 character column');
+$check(placementApprovalContactInput(['client_approver_name'=>str_repeat('é',200)],true)['client_approver_name']===str_repeat('é',200),'Native name length counts Unicode characters');
+$check($refuses(['tokenized_email_approval_enabled'=>'false'],false),'Overview writes use the same strict boolean validation');
 foreach(['tenant_id','person_id','status','coreflux_overridden_fields']as$field)$check($refuses([$field=>'1']),'Focused setup rejects unrelated fields');
 foreach(array_merge(placementApprovalContactFields(),['coreflux_overridden_fields'])as$field){
     $r=staffingFieldContractRules('placements',$field);
