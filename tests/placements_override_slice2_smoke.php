@@ -25,8 +25,8 @@
  *     and asserting it merges field names into coreflux_overridden_fields
  *     when external_id starts with 'jd:'.
  *
- * Actual native ending, source refresh, configurable mapping and malformed
- * ownership behavior run against MariaDB in `placement_end_jobdiva_db_check.php`.
+ * Native edits, approval-contact pairing, explicit handback and actual source
+ * refresh run against MariaDB in `placement_native_edit_db_check.php`.
  */
 declare(strict_types=1);
 
@@ -77,9 +77,9 @@ $apiSrc = (string) file_get_contents('/app/modules/placements/api/placements.php
 $editSrc = (string) file_get_contents('/app/modules/placements/lib/edit.php');
 $assert('PATCH uses the same atomic edit as bulk operations',
     str_contains($apiSrc, "placementApplyNativeEdit(\$id, \$body, \$user, 'patch_status')"));
-$assert('native edit preserves JobDiva identity and merges current ownership',
+$assert('native edit checks JobDiva origin and validates stored ownership',
     str_contains($editSrc, "str_starts_with((string) (\$existing['external_id'] ?? ''), 'jd:')")
-    && str_contains($editSrc, 'array_merge($current, $fields)'));
+    && str_contains($editSrc, "placementOwnershipFields(\$existing['coreflux_overridden_fields'] ?? null)"));
 $assert('native values and ownership share one locked update',
     str_contains($editSrc, 'placementWithLockedRecord(')
     && str_contains($editSrc, "scopedUpdate('placements', \$id, \$patch)"));
