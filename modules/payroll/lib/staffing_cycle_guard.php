@@ -1,6 +1,7 @@
 <?php
 /** Keep native payroll editors from bypassing a reviewed staffing schedule. */
 declare(strict_types=1);
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 function payrollWithUnlinkedSchedule(int $tenant,int $id,string $kind,callable $write): array
 {
     if ($tenant<=0||$id<=0||!in_array($kind,['cycle','schedule'],true)) throw new RuntimeException('Payroll schedule not found.',404);
