@@ -137,7 +137,7 @@ function placementDocumentRegister(PDO $pdo, array $scope, int $placement, array
             if (isset($body['storage_key']) && $body['storage_key']!==$key) throw new PlacementDocumentConflict('Stored file and upload key do not agree.');
         } else {
             $key=placementDocumentKey($owner,$placement,$body['storage_key']??null);
-            $q=$pdo->prepare('SELECT id FROM storage_objects WHERE s3_key=? FOR UPDATE'); $q->execute([$key]);
+            $q=$pdo->prepare('SELECT id FROM storage_objects WHERE tenant_id=? AND s3_key=? FOR UPDATE'); $q->execute([$owner,$key]);
             $existing=$q->fetchColumn();
             if ($existing!==false) {
                 $objectId=(int)$existing; $object=placementDocumentObject($pdo,$owner,$placement,$objectId,true);
