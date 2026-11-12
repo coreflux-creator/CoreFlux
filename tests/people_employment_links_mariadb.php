@@ -179,6 +179,7 @@ try {
     $check($fails(fn()=>peopleEmploymentUpdatePerson(10,2,['hire_date'=>null])),'older person editor cannot clear the linked hire date');
     $check(peopleEmploymentUpdatePerson(10,2,['employment_type'=>'full_time','hire_date'=>'2026-11-01'])===0,'unchanged mirrored values can be retained without rewriting employment');
     $check(peopleEmploymentUpdatePerson(10,5,['employment_type'=>'part_time'])===1,'unlinked intake remains editable before employment review');
+    $check(peopleEmploymentUpdatePerson(10,3,['employment_type'=>'part_time'])===0,'person intake writer cannot update a foreign company record');
     $pdo->exec('UPDATE people SET employment_type="part_time" WHERE id=2');
     $alignment=peopleEmploymentSetupPreview(10,7,$newId,['employment_type'=>'full_time'],'Reconcile a legacy profile difference');
     $check($alignment['person_before']['employment_type']==='part_time'&&$alignment['before']['employment_type']==='full_time','review exposes both originals when legacy profile facts disagree');

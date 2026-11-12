@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $ui = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
 $api = (string) file_get_contents($root . '/modules/people/api/people.php');
+$employment = (string) file_get_contents($root . '/modules/people/lib/employment_setup.php');
 
 $checks = [
     'people directory exposes select-all and row selection' =>
@@ -22,8 +23,11 @@ $checks = [
         && str_contains($api, 'Too many ids (max 500 per call)')
         && str_contains($api, 'rbac_legacy_require($user, \'people.manage\')'),
     'people bulk updates remain tenant scoped and audited' =>
-        str_contains($api, 'scopedUpdate(\'people\', $id, [$field => $value])')
-        && str_contains($api, '\'source\' => \'bulk_update\''),
+        str_contains($api, 'peopleEmploymentUpdatePerson((int)$ctx[\'tenant_id\'], $id, [$field => $value])')
+        && str_contains($api, '\'source\' => \'bulk_update\'')
+        && str_contains($employment, 'peopleEmploymentOwner($tenant,true)')
+        && str_contains($employment, 'WHERE tenant_id=? AND id=?')
+        && str_contains($employment, 'scopedUpdate(\'people\',$personId,$patch)'),
 ];
 
 foreach ($checks as $label => $passed) {
