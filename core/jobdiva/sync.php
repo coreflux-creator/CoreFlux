@@ -4973,13 +4973,6 @@ function jobdivaSyncCorpPluck(int $tid, array $jd, string $targetColumn, array $
     ));
 }
 
-/**
- * Resolve JobDiva's subcontract company identity onto the shared company
- * graph. The exact Assignment detail may carry only SUBCONTRACT_COMPANYID,
- * so reuse an existing mapping first and fetch CompaniesDetail only on miss.
- *
- * @return array{id:int,name:string,external_id:string}|null
- */
 /** Read-only identity evidence shared by stored preview and apply. Never fetches or upserts. */
 function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, array $storedContract = []): array
 {
@@ -5029,6 +5022,7 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
     return $result;
 }
 
+/** Resolve the exact provider company; stored review uses saved evidence only. */
 function jobdivaSyncResolveSubcontractCompany(
     int $tid,
     string $externalId,

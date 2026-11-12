@@ -11,7 +11,11 @@ setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
 $checks=0;
 $check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks++;echo "PASS $label\n";};
 $failure=static function(callable $fn):string{try{$fn();return '';}catch(Throwable $e){return $e->getMessage();}};
-$read=static fn(string $table):array=>getDB()->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$read=static function(string $table):array{
+    $rows=getDB()->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC);
+    usort($rows,static fn($a,$b)=>strcmp(json_encode($a,JSON_THROW_ON_ERROR),json_encode($b,JSON_THROW_ON_ERROR)));
+    return $rows;
+};
 $tables=['companies','company_roles','external_entity_mappings','placements','placement_rates','placement_corp_details','placement_economic_parties','staffing_operating_cycles','ap_vendors_index'];
 $snapshot=static fn():array=>array_map($read,$tables);
 $financial=[$read('accounting_events'),$read('accounting_journal_entries'),$read('accounting_journal_entry_lines')];

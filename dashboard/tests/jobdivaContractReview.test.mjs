@@ -119,3 +119,13 @@ test('uncertain CSV submission consumes its review and requires a fresh dry-run'
     assert.ok(!text(f.tree.root).includes('No changes were made.'));assert.equal(f.calls.filter(c=>c.action==='apply').length,1);
   }finally{f.close();}
 });
+
+test('missing saved subcontract evidence is visible before any assignment can be selected',async()=>{
+  const detail='Refresh the saved JobDiva company evidence for subcontract company 901 in JobDiva settings, then refresh this preview.';
+  const blocked={...row,outcome:'blocked',selectable:false,errors:[detail],contract:{...row.contract,complete:false,checks:[{code:'stored_subcontract_company',label:'Saved subcontract company',status:'blocked',detail}]}};
+  const f=await fixture(async()=>({...preview,rows:[blocked],summary:{assignments:1,blocked:1,missing_subcontract_company:1}}));
+  try{await f.click('1 blocked');assert.ok(text(f.tree.root).includes('Saved subcontract company'));assert.ok(text(f.tree.root).includes(detail));
+    assert.equal(f.tree.root.findAllByProps({'aria-label':'Select stored Start ID 1001'}).length,0);
+    assert.equal(button(f,'Project selected assignments').props.disabled,true);assert.equal(f.calls.filter(c=>c.action==='stored_apply').length,0);
+  }finally{f.close();}
+});
