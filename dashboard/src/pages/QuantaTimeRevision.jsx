@@ -52,11 +52,11 @@ export default function QuantaTimeRevision({ entryId, tenantId, connectionRevisi
     <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => run('history')}>Correction history</button>
     {error && <p role="alert">{error}</p>}
     {review && <div>
-      <p><strong>{review.workspace?.name}</strong> · Quanta entry {review.source_entry_id}</p>
+      <p><strong>{review.workspace?.name}</strong> · {review.person_number} · Quanta entry {review.source_entry_id}</p>
       <p>Current Core entries:</p>
       <ul>{review.before.map(row => <li key={row.id}>#{row.id} · {row.work_date} · {row.category}: {row.hours} hours · {row.status}
         {row.approved_at && ` · Approved ${row.approved_at}`}</li>)}</ul>
-      <p>Replacement: {review.after.work_date} · Placement #{review.after.placement_id}</p>
+      <p>Replacement: {review.after.work_date} · {review.placement_number}</p>
       <ul>{Object.entries(review.after.components).map(([component, hours]) => <li key={component}>{component}: {hours} hours</li>)}</ul>
       <p>{review.after.description}</p>
       <p>Quanta approval: {review.after.source_approval?.approved_at} · {review.after.source_approval?.approved_by_email || 'Approver not supplied'}</p>

@@ -118,6 +118,9 @@ $observation=['observation'=>['status'=>'paid','period_start'=>'2026-10-01','per
     'comparison'=>['people'=>[['link_status'=>'linked','person'=>integrationRecordReference($instance,1,'person','P-19')]]]];
 $pdo->prepare('INSERT INTO payroll_native_observations VALUES(1,1,1,"historical-run",?)')->execute([encryptField(integrationDeliveryJson($observation))]);
 $check($fails($preview,'payroll evidence'),'historical payroll evidence blocks overlapping person/date without inventing placement allocation');
+$later=$observation;$later['comparison']['people'][0]['link_status']='unlinked';$later['comparison']['people'][0]['person']=null;
+$pdo->prepare('INSERT INTO payroll_native_observations VALUES(2,1,1,"historical-run",?)')->execute([encryptField(integrationDeliveryJson($later))]);
+$check($fails($preview,'payroll evidence'),'a later missing person link cannot erase earlier reviewed payroll evidence');$pdo->exec('DELETE FROM payroll_native_observations WHERE id=2');
 $pdo->exec('UPDATE payroll_native_observations SET tenant_id=2 WHERE id=1');
 $check(is_array($preview()),'another company payroll evidence does not block this source');$pdo->exec('DELETE FROM payroll_native_observations');
 $mode='unavailable';$check($fails($preview,'approve'),'withdrawn source cannot be reimported as a correction');$mode='approved';

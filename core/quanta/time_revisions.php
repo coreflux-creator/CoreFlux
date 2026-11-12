@@ -72,10 +72,9 @@ function quantaTimeRevisionUnconsumed(PDO $pdo, int $tenant, array $entry, array
     if ($s->fetchColumn()) throw new RuntimeException('This week has an accounting event. Resolve its accounting history before correcting the source.');
     // Historical provider payroll has no source claims. Preserve reviewed overlapping
     // person evidence without pretending it proves a particular placement allocation.
-    $s=$pdo->prepare('SELECT o.id FROM payroll_native_observations o JOIN
-        (SELECT MAX(id) id FROM payroll_native_observations WHERE tenant_id=? GROUP BY connection_id,run_id) latest ON latest.id=o.id
-        WHERE o.tenant_id=? ORDER BY o.id LIMIT 1001 FOR UPDATE');
-    $s->execute([$tenant,$tenant]); $observationIds=$s->fetchAll(PDO::FETCH_COLUMN);
+    // Later relinking must not erase a previously reviewed payroll/person association.
+    $s=$pdo->prepare('SELECT id FROM payroll_native_observations WHERE tenant_id=? ORDER BY id LIMIT 1001 FOR UPDATE');
+    $s->execute([$tenant]); $observationIds=$s->fetchAll(PDO::FETCH_COLUMN);
     if (count($observationIds)>1000) throw new RuntimeException('Review the historical payroll scope before correcting source time.');
     foreach ($observationIds as $observationId) {
         $s=$pdo->prepare('SELECT payload_ct FROM payroll_native_observations WHERE tenant_id=? AND id=? FOR UPDATE');
@@ -164,7 +163,8 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
     foreach ($headers as $headerId=>$_) {
         $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND id=? FOR UPDATE');
         $s->execute([$tenant,$headerId]); $header=$s->fetch(PDO::FETCH_ASSOC);
-        if (!$header || (int)$header['person_id']!==(int)$route['person_id'] || in_array($header['status'],['payroll_ready','billing_ready','locked'],true)) {
+        if (!$header || (int)$header['person_id']!==(int)$route['person_id'] || !empty($header['locked_at'])
+            || in_array($header['status'],['payroll_ready','billing_ready','locked'],true)) {
             throw new RuntimeException('An affected week is unavailable or locked for downstream work.');
         }
         $headers[$headerId]=$header;

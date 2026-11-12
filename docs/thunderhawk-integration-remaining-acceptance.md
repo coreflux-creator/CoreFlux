@@ -27,6 +27,22 @@ The immediate priority is the field-disposition inventory and the remaining port
 
 The full integration goal remains active and incomplete.
 
+## November 12 reviewed Quanta source corrections — source candidate
+
+This goal continuation classified the intervening accounting-link reply as no integration progress, revalidated the clean implementation worktree at `2c8d12eb`, and inspected the actual correction writer. The old manual correction action could replace approved Quanta time with an unlinked manual draft. The candidate now sends Quanta corrections through an explicit source review and refuses that manual provenance bypass under the entry lock.
+
+The operator previews a fresh approved Quanta revision, supplies a reason, and confirms the original and replacement time. Core retains the original entries, rates, approvals, import evidence and weekly headers in encrypted immutable correction receipts. Replacement entries keep Quanta identity and weekly/period links and start pending independent Core approval. Added, removed and restored components and moves between open weeks are supported. A correction cannot change the original worker/company identity; a missing captured assignment cannot downgrade its origin. A newly reviewed assignment route may change the destination placement for the same person.
+
+The transaction rejects stale source/Core/route/connection/week reviews, daily or weekly capacity conflicts, closed periods, locked/downstream weeks, extraction markers, payroll source claims, downstream bundles, actual invoice/bill source links and existing staffing accounting events. Reviewed historical payroll for the same canonical person and overlapping date also requires reconciliation; this is an ambiguity hold, not a claim of proven placement allocation or cash delivery. Older reviewed payroll evidence remains relevant after later identity-link changes. No financial document, payroll or ledger record is corrected automatically.
+
+Response-loss retry returns the original receipt, including while Quanta is unavailable. Both per-source and company-wide saved history are available independently of the provider feed. Weekly reapproval resolves rates/dimensions for pending replacements, preserves already approved siblings, and does not replace several original reviewers with one weekly approver.
+
+Validation to date: `bf9aa3c8` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43188609640), including 32 native correction checks. The later `38b51759` native job passed 37 correction checks and 258 actual login/session/dual-permission HTTP checks, with zero provider writes; its complete CI run is still being observed. Nine rendered component checks and the frontend build/hook lint pass locally. Two earlier native failures were fixed in the disposable fixture: its inherited downstream table lacked the real schema, and its PDO fetch mode differed from the application. Neither failure was a hosted deployment.
+
+The current follow-up adds preservation of older payroll evidence after a later unlinked capture, explicit locked-header timestamp handling, and shared person/placement numbers in the review screen. Its exact-head CI is pending. Migration `191_quanta_time_revisions.sql` adds the current-component marker and encrypted receipt table. These changes have **not** been installed in the pilot. Installed runtime remains `636a2222`; migration 191 requires a guarded paired schema/code installation, then hosted synthetic correction, reapproval, return-status and rendered operator acceptance. The historical October paid period must not be corrected or resubmitted as that test.
+
+The 573 previously unresolved field dispositions, remaining portal/document acceptance and financial allocations remain open. This source candidate does not establish completion of the integration.
+
 ## November 12 company and placement custom-field editor candidate
 
 The preceding reply answered the standalone accounting access question and did not advance the integration. This continuation revalidated runtime `5fbdd197`, the clean implementation worktree, the remaining acceptance list and successful eleven-job CI run `43181480260` before changing the next incomplete operator workflow.
