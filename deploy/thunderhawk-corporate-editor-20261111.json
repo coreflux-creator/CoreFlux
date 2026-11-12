@@ -1,0 +1,166 @@
+{
+  "recorded_at": "2026-11-12T03:06:48.821831+00:00",
+  "previous_goal_turn_classification": "progress",
+  "previous_goal_turn_reason": "The prior turn deployed and verified corporate participant ownership, release and restoration in isolated staging.",
+  "current_goal_turn_classification": "progress",
+  "goal_complete": false,
+  "source_commit": "ae78441336fd0edd2f3d1341a04c92fff78a7dce",
+  "scope": "Reviewed corporate-details editing, private-record retention, canonical payee alignment, atomic audit and Core ownership across native, JobDiva and custom mapping paths in isolated staging.",
+  "ci": {
+    "run": "43144952965",
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43144952965",
+    "jobs_passed": 11
+  },
+  "checks": {
+    "corporate_editor_database": 39,
+    "contract_native_http": 130,
+    "corporate_screen_components": 11,
+    "hosted_corporate_editor_database": 39,
+    "installed_files": 11,
+    "dependencies_matched": 38,
+    "tables_preserved": 368,
+    "rows_preserved": 34455,
+    "synthetic_rows_rolled_back": true,
+    "encrypted_ein_replay_and_masked_reads": true,
+    "audit_excludes_tax_ciphertext_and_plaintext": true,
+    "custom_schedule_identity_retained": true,
+    "custom_mapping_ownership_retained": true,
+    "stale_review_and_audit_failure_refusal": true,
+    "foreign_placement_document_refusal": true,
+    "foreign_tenant_and_deleted_placement_refusal": true,
+    "parent_lock_contention": true,
+    "native_http_actor_retired": true
+  },
+  "frontend": {
+    "frontend_base_commit": "f3988375a9f0c6015f2966695aaaa8f5e868aa58",
+    "frontend_build_commit": "8aca42a23d42ccdf63a32e65bb98baf270415198",
+    "frontend_changed_inputs": [
+      "modules/placements/ui/PlacementDetail.jsx"
+    ]
+  },
+  "installed_hashes": {
+    "modules/placements/lib/corp_details.php": "c062ddcb63446eaab6cdf21936a35061ce7ecd9bf395b321a2970313edce2623",
+    "modules/placements/lib/economics_edit.php": "a97e1407a2115b19e7b9e1fbba25e92ea9a90bb6b5c257b5148a4fa003d7a491",
+    "modules/placements/api/corp.php": "c874fd04f474766ed8d0887f56c839cbf0697f645bb769346ae61831cd1c71c0",
+    "core/integrations/field_map_apply.php": "e0d5372ac278acd4af2e699559106f714722b492aa0b9fe8900008041c2a1cac",
+    "modules/placements/ui/PlacementDetail.jsx": "fef5cb8558393a45fc53ddea59fe9a5ac6c43b9e0046c325583b5edeb1bea331",
+    "spa-assets/index-Bbk7cNJw.js": "e45d4ce9081b46f7e655e864c15e5af6e284caf222e00fcc06d834f1338db702",
+    "spa-assets/index-NwkK_JZ3.js": "c293f00e6da960f36c655ad6b1d4a51f20b831c62139d580476b00494a5cff3a",
+    "spa-assets/sw.js": "7a4a5687353b3a4a9011c34ed2318b3c5f87fc217503a3d0966ac899da141bb0",
+    "spa-assets/index.html": "de6415d23809d78593a6410e056411608f58479026610ded04f5fb6517065547",
+    "dashboard/dist/index.html": "de6415d23809d78593a6410e056411608f58479026610ded04f5fb6517065547",
+    "index.html": "de6415d23809d78593a6410e056411608f58479026610ded04f5fb6517065547"
+  },
+  "dependency_hashes": {
+    "modules/placements/lib/end.php": "ac4ea08bafdc616808e0d95c4ad3c04ba203a2a57013ea66d7d688cb83b1d93f",
+    "modules/placements/lib/placements.php": "f7e2574c4afb3c40dacaa3305247099d0d2b9c052e93451eea7fb4f3e9f554bc",
+    "modules/placements/lib/economics.php": "1b713f5a3d3805ff63b6f243033455e990217fc65e84ab0af8e6c376741458ae",
+    "core/staffing_economics.php": "3e0da7dcd16056153ae10b0fbcfb5ce44a31598d00ef0fdd125cba7291505795",
+    "core/tenant_scope.php": "93f970e3e27a67694350f932fc51bc937b6d6837839cc50ca4d486a5073ac143",
+    "core/audit.php": "e1a4acf587ce7a21a7cfffb8a1c19095f1c22ea1f42727b28c75a4941d83ab42",
+    "modules/people/lib/companies.php": "86dbdcf8422b429d54b8791a255da2bfc19627e34e2b917f14f70b42ba65be3e",
+    "core/record_numbers.php": "a1a48d8e705ab1d7ef15649e740078166911fdac81df3e297fbdc4710797fe15",
+    "core/sub_tenants.php": "93708814436bbd06c7a560db1c65972cf0f706978aea4a64ea234bb652971658",
+    "core/api_bootstrap.php": "f2ca7d9e2558a374159c10f9d10d3da407874620e8ad211544ead6c187df0579",
+    "core/RBAC.php": "fea568b164d652dde0cc1f5684d1924202e174167325d1830cce9de958457cad",
+    "core/jobdiva/client.php": "7a67fe2d44118cb6451a69fdc657bdcdc997e4b61c9f92f235743e916875f30c",
+    "core/jobdiva/dates.php": "ef0a8db601d73700aacf8df190f1c7ed0bf7158460e6bfcc0f16c1f37b5e8a58",
+    "core/jobdiva/assignment_identity.php": "090748f8504155ccb2f157a3d21018114b17bc0156fad19971cb1fc000292685",
+    "core/jobdiva/assignment_contract.php": "02b174f84356e42f3f2eb53a2cb0ba2d9468bd5798884390fd5902e254252910",
+    "core/jobdiva/contract_projection.php": "d615ce7e9b507e46592d8bfe1eaeef64e5f1a81e817c920e8395ebee69de9cef",
+    "core/jobdiva/classification_mapping.php": "17085fd7efba296ed90eec7b6ba1717697f3e24a6dda6203519c5a7976c25b97",
+    "core/jobdiva/canonical_graph.php": "ec888ecda374a76a2338f15b9d8b0657b214d5f719db288b2ddf27b416b54dfe",
+    "core/jobdiva/projector.php": "7e755642fe01d3758a44d41858b84d28aa78362864445456f0625196668ded1e",
+    "core/integrations/field_map.php": "1cbcfd439c3f9ab0e3f44e55a039328925c434333d118ae6dd0d9cfb5cb5d521",
+    "core/integrations/source_values.php": "e0c31f420ef53dad84c65493637b6a2219256362b35b12ca8d97cc058a4848a9",
+    "core/integrations/entity_mappings.php": "f4074fd4aa9529fdeb00e8c2f200f49577850d5d6977eba60fd203b3307bf455",
+    "core/integrations/payload_field_index.php": "b50f094f128fffe17046fa110c7ec3fbb1b14397a669a203b29241e5a1760f14",
+    "modules/staffing/lib/clients.php": "ab2e3023efdc4ae441c681172ec4ba0dcab7b0dd701ca3ba0369c12971178a2c",
+    "modules/staffing/lib/jobs.php": "4fa53c75b86bf59207a8b2ec441988dc8d7461e92b7be27f93c011972222587d",
+    "modules/accounting/lib/accounting.php": "7803cd2912d2cd4cf5893750d34090d2a6922741ad7c6158b218a74bb7ec201b",
+    "core/jobdiva/sync.php": "e75bc552e4b0796b29d1776b7633b0ca0cedc43daf2bbc760c9b87655ddeeb09",
+    "modules/placements/lib/ownership.php": "37d797f2cf7a045230d03809634ecd262b7e7b53005254dd7c08ac2950ca8a76",
+    "modules/placements/lib/edit.php": "7f468d24a6032c6802f1591ef82cf8ebfa5e34ed51be1f42f2cb95f5b0d4ac05",
+    "modules/placements/lib/commercial_ownership.php": "d56eafc68ea15a69b080acac07b69e06c49b9245651e5f0fced077dc1fe6d556",
+    "core/jobdiva/stored_review.php": "4bca4f875bc7aceeaf8bdd55738ae7c6f7b898a56c6da8d5920c7056c80ca5e8",
+    "core/rbac/permissions.php": "1343e49a42c4d1039ea722e601015f666086ae2694629dc048d4267f8d3d3f59",
+    "core/rbac/legacy_map.php": "b9da416fcc63b87ab9cd9a8aaecc9226bbcc43dc1a1b97121bd71b91954dac35",
+    "modules/placements/api/economics.php": "10195ad21b30f8a7fcb566750f34e6d59011d9039201055934de7e823e345fa3",
+    "core/memberships.php": "61a0a6c28dd1a3aaf30ed2b3fa631b89599a4e0e80f4431f760c17a34dbd58b2",
+    "spa-assets/index-CYcM0MSD.css": "34076d40e2e528e51f4313b79dc1942a93b9c629e9f426fadd5f8b795d28d9fc",
+    "spa-assets/index-SRkxIh9x.css": "e4a8bde4c3c6f480a044435c9c2ff93c61eaef47fad8471d791d3df9fb5976e8",
+    ".deploy-version": "3dd2feef4b0f6d43333cd0d1b253612bfb44ca74a398779ce8aae481d50d5015"
+  },
+  "install_receipt": {
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/corporate-editor-c50d5508b3cac14d1148",
+    "hashes": {
+      "install_thunderhawk_corporate_editor.php": "ef0da867120584cd57e7c412d10e321f56ba91b82b1919d930dd4f94c6b05785",
+      "corporate-editor-package.json": "cb79abf08701182e6d10f8f1549d2e270ae98928958c33e931ef6beb7b627137"
+    },
+    "ci_run": "43144952965",
+    "tested_commit": "ae78441336fd0edd2f3d1341a04c92fff78a7dce",
+    "action": "install",
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/corporate-editor-install-result.json"
+  },
+  "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/corporate-editor-before-cb79abf08701182e6d10",
+  "hosted_receipt": {
+    "source_commit": "ae78441336fd0edd2f3d1341a04c92fff78a7dce",
+    "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/corporate-editor-verification-c0e4cef30d9381ab5f42",
+    "hashes": {
+      "corporate-editor-fixture.php": "5231edc3b42740135569d1ad846055898ca0d07f73d24ee33133c749d70ab2ef",
+      "verify_thunderhawk_corporate_editor.php": "cb054fc671858a916517026278ec6716c8327365af1b0a1e0dde755f27f73601"
+    },
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/corporate-editor-hosted-result.json"
+  },
+  "corrected_test_failure": {
+    "run": "43143813461",
+    "source": "8f9a551d14989f7af58ca2773b0c4f28091f14bd",
+    "failure": "The synthetic source-refresh fixture omitted the required assignment status.",
+    "correction": "The fixture now supplies explicit on_hold status. UI recovery was also changed to use confirmed API responses instead of relying on the generic reload hook to propagate failures.",
+    "deployed_failed_source": false
+  },
+  "boundaries": {
+    "production_changed": false,
+    "provider_apps_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_or_financial_postings": false,
+    "signed_in_operator_browser_workflow_verified": false,
+    "private_encryption_key_replaced": false
+  },
+  "remaining": [
+    "Implement reviewed corporate private-record reassociation and native cycle/one-time item atomic ownership.",
+    "Complete automatic batch behavior, source-owned mapped commercial fields, end-client chains, rate ownership and new-placement failure handling.",
+    "Complete operator workflow acceptance, CSV/lifecycle/activation replay, field/destination alignment and provider exchange.",
+    "Complete portal/onboarding/document acceptance and financial-result, billing/AP/AR lineage and reconciliation."
+  ],
+  "evidence": {
+    "corporate-editor-ci-ae784413.json": {
+      "path": "output/corporate-editor-ci-ae784413.json",
+      "sha256": "bf11ad0dae2e8d0850f49d8fb6e1eb25b6d001b05600657bd671bc040a8fb0b2"
+    },
+    "corporate-editor-db-ae784413.log": {
+      "path": "output/corporate-editor-db-ae784413.log",
+      "sha256": "82db7a2d15d165aab979fa46011cec4d0149a15b7af68700778a7107246d5480"
+    },
+    "corporate-editor-native-ae784413.json": {
+      "path": "output/corporate-editor-native-ae784413.json",
+      "sha256": "264661e88c23b94f6414d31e2a21c7151aab02596ff701793a2341122d878da8"
+    },
+    "corporate-editor-ae784413-preflight.json": {
+      "path": "output/corporate-editor-ae784413-preflight.json",
+      "sha256": "94ad2fd7c8948b7328b8202c990753ff456c8bc69a20ae4979ba4b6a0e007435"
+    },
+    "corporate-editor-install-result.json": {
+      "path": "output/corporate-editor-install-result.json",
+      "sha256": "74d05c956d6bc595c3dc23b87d99181cc36012cbea70cdf5d9fe447a9382c5b4"
+    },
+    "corporate-editor-hosted-result.json": {
+      "path": "output/corporate-editor-hosted-result.json",
+      "sha256": "ffc0fd6eca6507564d55adbbbabed1f0f72cb7e0f9cb3e265953096895c03430"
+    },
+    "corporate-editor-db-8f9a551d.log": {
+      "path": "output/corporate-editor-db-8f9a551d.log",
+      "sha256": "e7ea9df7c73274a5b3387a27cbd06a93a3bcdac1d3876f506380d24cbe976d22"
+    }
+  }
+}
