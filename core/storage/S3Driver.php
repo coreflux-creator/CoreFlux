@@ -165,7 +165,9 @@ class S3Driver implements StorageDriver
                     ? $r->get('LastModified')->format(DATE_ATOM) : null,
             ];
         } catch (\Throwable $e) {
-            return null;
+            // Absence is a storage fact, not a fallback for denied or unavailable reads.
+            if ($e instanceof \Aws\Exception\AwsException && $e->getStatusCode() === 404) return null;
+            throw $e;
         }
     }
 

@@ -35,4 +35,19 @@ $driver->put($key,__FILE__,['source_is_bytes'=>true,'if_not_exists'=>true,'mime'
 if(count($requests)!==1||(string)$requests[0]->getBody()!==__FILE__||$requests[0]->getHeaderLine('If-None-Match')!=='*'
     ||$requests[0]->getHeaderLine('x-amz-server-side-encryption')!=='aws:kms'
     ||$requests[0]->hasHeader('x-amz-acl'))throw new RuntimeException('Private conditional byte upload request is invalid.');
-echo "PASS packaged S3 SDK lazy loading, scoped encrypted upload policy, signing and conditional byte upload (no network IO)\n";
+$client->getHandlerList()->setHandler(static fn()=>\GuzzleHttp\Promise\Create::promiseFor(new \Aws\Result([
+    'ContentLength'=>24,'ContentType'=>'text/plain','ETag'=>'synthetic-head','VersionId'=>'synthetic-head-version'])));
+$head=$driver->head($key);
+if($head['size_bytes']!==24||$head['etag']!=='synthetic-head'||$head['version_id']!=='synthetic-head-version')throw new RuntimeException('HEAD metadata differs');
+foreach([404,403,500]as$status){
+    $error=new \Aws\S3\Exception\S3Exception('Synthetic storage lookup',new \Aws\Command('HeadObject'),[
+        'response'=>new \GuzzleHttp\Psr7\Response($status),'code'=>$status===404?'NotFound':($status===403?'AccessDenied':'InternalError')]);
+    $client->getHandlerList()->setHandler(static fn()=>\GuzzleHttp\Promise\Create::rejectionFor($error));
+    if($status===404){if($driver->head($key)!==null)throw new RuntimeException('A confirmed absent key must return null');continue;}
+    $caught=null;try{$driver->head($key);}catch(\Throwable $failure){$caught=$failure;}
+    if(!$caught instanceof \Aws\Exception\AwsException||$caught->getStatusCode()!==$status)throw new RuntimeException('Unavailable storage must not appear absent');
+}
+$client->getHandlerList()->setHandler(static function(){throw new RuntimeException('Synthetic connection failure');});
+$caught=null;try{$driver->head($key);}catch(\Throwable $failure){$caught=$failure;}
+if(!$caught||$caught->getMessage()!=='Synthetic connection failure')throw new RuntimeException('Transport failure must not appear absent');
+echo "PASS packaged S3 SDK lazy loading, scoped encrypted upload policy, signing, conditional byte upload and missing-versus-unavailable HEAD (no network IO)\n";

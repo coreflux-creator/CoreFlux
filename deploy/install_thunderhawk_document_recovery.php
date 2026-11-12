@@ -4,7 +4,7 @@ declare(strict_types=1);
 const CI_ROOT = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html';
 const CI_PRIVATE = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030';
 const CI_FEATURE = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux.thunderhawk-pilot.php';
-const CI_FILES = ['modules/placements/api/documents.php', 'modules/placements/ui/PlacementDetail.jsx', 'modules/placements/ui/PlacementDocumentsTab.jsx', 'spa-assets/index-D3nDBJv9.js', 'spa-assets/index-IjEQyfsf.js', 'spa-assets/sw.js', 'spa-assets/index.html', 'dashboard/dist/index.html', 'index.html'];
+const CI_FILES = ['core/storage/S3Driver.php','modules/placements/api/documents.php', 'modules/placements/ui/PlacementDetail.jsx', 'modules/placements/ui/PlacementDocumentsTab.jsx', 'spa-assets/index-D3nDBJv9.js', 'spa-assets/index-IjEQyfsf.js', 'spa-assets/sw.js', 'spa-assets/index.html', 'dashboard/dist/index.html', 'index.html'];
 if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging' || getcwd() !== CI_ROOT
     || posix_geteuid() !== 1003 || realpath(CI_PRIVATE) !== CI_PRIVATE
     || !in_array($argv[1] ?? '', ['--inspect-document-recovery', '--install-document-recovery'], true)
@@ -113,7 +113,7 @@ try {
         if (str_ends_with($file, '.php')) token_get_all($bytes, TOKEN_PARSE);
     }
     if ($argv[1] === '--inspect-document-recovery') {
-        echo json_encode(['ready' => true, 'files' => 9, 'hosted_changes' => false]); exit;
+        echo json_encode(['ready' => true, 'files' => 10, 'hosted_changes' => false]); exit;
     }
     if (!mkdir($backup, 0700)) throw new RuntimeException('Private backup unavailable');
     foreach ($prior as $file => $bytes) if ($bytes !== null) file_put_contents($backup . '/' . str_replace('/', '_', $file), $bytes);
@@ -142,7 +142,7 @@ try {
     if (ciSnapshot($pdo) !== $before || hash_file('sha256', CI_FEATURE) !== $package['feature_sha256']) throw new RuntimeException('Database or configuration changed');
     foreach (CI_FILES as $file) if (hash_file('sha256', CI_ROOT . '/' . $file) !== $package['files'][$file]['sha256']) throw new RuntimeException('Installed hash differs');
     $report += ['tables_verified' => count($before), 'rows_preserved' => array_sum(array_column($before, 'rows')),
-        'files_verified' => 9, 'configuration_preserved' => true, 'temporary_probe_removed' => true];
+        'files_verified' => 10, 'configuration_preserved' => true, 'temporary_probe_removed' => true];
     $report['passed'] = true;
 } catch (Throwable $e) {
     $report['failure'] = $e->getMessage();
