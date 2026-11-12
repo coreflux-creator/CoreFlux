@@ -49,13 +49,13 @@ function ciWrite(string $path, string $bytes, int $mode = 0644): void {
 }
 function ciRefresh(bool $verify): array {
     $token = bin2hex(random_bytes(32));
-    $name = 'time_field_contract_' . bin2hex(random_bytes(12)) . '.php';
+    $name = 'approval_contact_' . bin2hex(random_bytes(12)) . '.php';
     $path = CI_ROOT . '/api/admin/' . $name;
     $body = <<<'PHP'
 <?php
 header('Cache-Control: no-store');
 if(($_SERVER['REQUEST_METHOD']??'')!=='POST'||($_SERVER['HTTP_HOST']??'')!=='phpstack-1516771-6707602.cloudwaysapps.com'
- ||time()>EXPIRES||!hash_equals(TOKEN,(string)($_SERVER['HTTP_X_TIME_FIELD_CONTRACT_PROBE']??''))){http_response_code(404);exit;}
+ ||time()>EXPIRES||!hash_equals(TOKEN,(string)($_SERVER['HTTP_X_APPROVAL_CONTACT_PROBE']??''))){http_response_code(404);exit;}
 try{
  foreach(FILES as $f)if(function_exists('opcache_invalidate'))opcache_invalidate(ROOT.'/'.$f,true);
  if(VERIFY){
