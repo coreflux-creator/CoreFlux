@@ -1,0 +1,187 @@
+{
+  "date": "2026-11-12",
+  "scope": "isolated Thunderhawk pilot; reporting metadata only",
+  "passed": true,
+  "production_cutover": false,
+  "real_payroll_or_payments": false,
+  "core_runtime": "4902c07f0788e9e30754e852e7375c847b0d8675",
+  "core_ci_run": 43162075621,
+  "core_ci_jobs_passed": 11,
+  "quanta_runtime": "651941e73701428736daa5fde0239102ff3296c7",
+  "quanta_ci_run": 43158705552,
+  "installed_fix": {
+    "checked_at": "2026-11-12T05:38:21+00:00",
+    "source_commit": "4902c07f0788e9e30754e852e7375c847b0d8675",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-context-fix-before-b9cea23c76312d5bee50",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "screen_files_preserved": true,
+    "tables_verified": 368,
+    "rows_preserved": 34456,
+    "files_verified": 2,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-context-fix-553ab4c43194633c1f0a",
+      "hashes": {
+        "install_thunderhawk_assignment_context_fix.php": "f27b822fa36e276a3087d51ea6832033ec2e3ea4d3716f3db7ccf761101b49f2",
+        "assignment-context-fix-package.json": "b9cea23c76312d5bee5002da2b5467d7704eb6eef592bc8923dbd1849ff4b0c3"
+      },
+      "ci_run": "43162075621",
+      "tested_commit": "4902c07f0788e9e30754e852e7375c847b0d8675",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-context-fix-install-result.json"
+    }
+  },
+  "publication": {
+    "checked_at": "2026-11-12T05:45:16+00:00",
+    "passed": true,
+    "delivery_states": {
+      "96": "failed",
+      "97": "delivered",
+      "98": "delivered"
+    },
+    "assignment_version": 3,
+    "onboarding_version": 6,
+    "core_case_version": 11,
+    "source_plan": "unchanged",
+    "all_original_core_records_preserved": true,
+    "replay_verified": true,
+    "publication_summary_flag_bug": true,
+    "original_receipt_preserved": true,
+    "no_delivery_repeated": true
+  },
+  "local_rejection_recovery": {
+    "checked_at": "2026-11-12T05:40:23+00:00",
+    "passed": true,
+    "delivery_id": 96,
+    "transport_calls": 0,
+    "original_source_sha256": "eff1c66637a6cf65a61af52f320999c1d67bed2401640db34788f08614ebf17b",
+    "payload_sha256": "4daed4dbd55f168172793c66e9935d8af6c17fdca1cced191fbb7bf854458630",
+    "provider_receipt": "not_found",
+    "assignment_version": 2,
+    "provider_writes": false,
+    "financial_changes": false,
+    "state": "failed",
+    "original_request_and_identity_preserved": true,
+    "new_review_required": true
+  },
+  "worker_browser": {
+    "passed": true,
+    "checks": {
+      "placement": true,
+      "person": true,
+      "branch": true,
+      "work_arrangement": true,
+      "version": true,
+      "required_tasks": true,
+      "approved_tasks": true,
+      "document_receipt": true,
+      "workspace_reads_denied": true,
+      "worker_report_downloaded": true
+    },
+    "session_method": "Existing isolated worker, short-lived native session; not a password/MFA acceptance test",
+    "csv_file": "output/assignment-context-worker-report.csv",
+    "csv_sha256": "47b96e3af565cf8da50c4e55e622259b728e2a46a407e301f52f6bf0192bcb3f",
+    "csv_rows": 1,
+    "csv_scope": "mine",
+    "screenshot_captured": false,
+    "screenshot_failure": "Browser capture timed out; rendered content, controls and downloaded file were verified."
+  },
+  "provider_changes": {
+    "changes": {
+      "api_keys": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1
+      },
+      "coreflux_assignments": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1
+      },
+      "coreflux_commit_fences": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1
+      },
+      "coreflux_deliveries": {
+        "added": 2,
+        "removed": 0,
+        "changed": 0
+      },
+      "coreflux_onboarding": {
+        "added": 0,
+        "removed": 0,
+        "changed": 1
+      }
+    },
+    "assignment_fields_changed": [
+      "assignment_context",
+      "history",
+      "last_delivery_id",
+      "updated_at",
+      "version"
+    ],
+    "onboarding_fields_changed": [
+      "last_delivery_id",
+      "projection_hash",
+      "publication",
+      "updated_at",
+      "version"
+    ],
+    "onboarding_publication_fields_changed": [
+      "assignment_version"
+    ],
+    "assignment_version": 3,
+    "onboarding_version": 6,
+    "original_time_entries": 13,
+    "current_time_entries": 13,
+    "original_assignment_history_preserved": true,
+    "new_history_retains_complete_prior_record": true,
+    "two_native_receipts_confirmed": true
+  },
+  "protected_provider_collections_unchanged": true,
+  "prior_install_evidence": "output/assignment-context-install-result.json",
+  "quanta_recovery_evidence": "../Quanta-profile-return/output/assignment-context-recovery-result.json",
+  "deployment_helper_sha256": {
+    "accept_thunderhawk_assignment_context.php": "2155e7067d31971a65d2c81e33e3ab9944438af1e5b0836b21c6695bbe554e8a",
+    "backup_thunderhawk_assignment_context.py": "dd9e996b12031a91f43fc2ed26d54e332b22137232ab9a76b817492ce0817140",
+    "install_thunderhawk_assignment_context.php": "9260999e2b5f53970c14ff7a811f81bf79df0288355d337c1209b35275257304",
+    "install_thunderhawk_quanta_assignment_context.py": "555b3a9b98033b98c6bdaac8f991be653263cad719b1f349c03016669f835fdb",
+    "recover_thunderhawk_assignment_context.py": "a56cd6f248e819662596e109fb768f0df6fe8500b5615f89db3858a3c1359e0d",
+    "install_thunderhawk_assignment_context_fix.php": "f27b822fa36e276a3087d51ea6832033ec2e3ea4d3716f3db7ccf761101b49f2",
+    "recover_thunderhawk_assignment_context_local_rejection.php": "8ab46ba3c23ef83fea95114a37ae215eb3373d1b8fb519a7b2023bac3b4d19f5",
+    "accept_thunderhawk_assignment_context_retry.php": "d12144bacdb6ec8a167b6dd096b77341e9ffaaee4423bf5eb6a5e41de8c6917a"
+  },
+  "executed_publication_helper": {
+    "script": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/accept_thunderhawk_assignment_context_retry-3da8975898ea35ce.php",
+    "sha256": "3da8975898ea35ce22531c70bcf4eacb6bcf2efd16684afecd01d093f70b812c",
+    "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/assignment-context-publish-reviewed-20261112.json",
+    "action": "--publish-isolated-reporting-context"
+  },
+  "limitations": [
+    "Only the six reporting fields are accepted here; the full field-disposition inventory remains open.",
+    "The existing isolated worker used a short-lived native session; this is not password/MFA or independent human employer approval acceptance.",
+    "Browser screenshot capture timed out. Rendered text, expanded controls, employer decisions, actual CSV download and forbidden workspace reads were verified.",
+    "The original publication receipt retained a false aggregate flag from PHP array-union semantics despite completing every check. Independent readback verified deliveries 97/98; no request was resent. The helper is corrected and the original receipt preserved.",
+    "The first recovery backup refused binary ciphertext JSON before its database transaction. A fresh inspection confirmed no state change, and the successful recovery stored the original ciphertext as base64.",
+    "Provider API-key use changed one key record; the authentication code writes last_used_at. All other original business collections apart from the reviewed assignment and onboarding projection retained their fingerprints.",
+    "The earlier full-schema disposable Mongo probe exhausted open-file descriptors. Bounded recovery retained original data; do not repeat that full-schema probe on this host."
+  ],
+  "cleanup": {
+    "browser_signed_out": true,
+    "native_session_storage_cleared": true,
+    "own_tab_closed": true,
+    "local_tunnel_closed": true,
+    "shared_host_window_released": true
+  },
+  "goal_complete": false,
+  "arabella_changed": false
+}
