@@ -1306,7 +1306,10 @@ function integrationFieldMapApplyAll(
             }
         }
         $rawValForSafety = $val;
-        $val = ($m['target_table'] ?? null) === 'custom_field_values' ? $val : integrationFieldMapCoerceTargetValue($val, $m);
+        // Custom values are checked against their definition at the guarded write.
+        if (($m['target_table'] ?? null) !== 'custom_field_values') {
+            $val = integrationFieldMapCoerceTargetValue($val, $m);
+        }
         if ($val === null || $val === '') {
             if (strtolower((string) $m['target_table']) === 'placement_rates') $invalidRateSource = true;
             integrationFieldMapSkip($summary, $m, 'value_not_valid_for_coreflux_field');

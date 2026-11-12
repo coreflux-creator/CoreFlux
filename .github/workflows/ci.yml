@@ -199,6 +199,7 @@ jobs:
           php tests/staffing_custom_fields_smoke.php
           php tests/field_mapping_phase2_smoke.php
           php tests/staffing_custom_fields_mariadb.php
+          php tests/staffing_custom_fields_http.php
 
       - name: Verify durable integration deliveries
         run: php tests/integration_delivery_mariadb.php
