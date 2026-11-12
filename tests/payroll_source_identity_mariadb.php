@@ -11,7 +11,7 @@ require_once __DIR__.'/../modules/payroll/lib/payroll.php';
 require_once __DIR__.'/../modules/time/lib/settlement_create.php';
 require_once __DIR__.'/../core/migrate.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
-$db='coreflux_payroll_identity_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
+$db='coreflux_payroll_identity_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db.' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');$pdo->exec('USE '.$db);
 $passed=0;$checks=[];
 $check=static function(bool $ok,string $label)use(&$passed,&$checks){if(!$ok)throw new RuntimeException($label);$passed++;$checks[]=$label;echo "PASS $label\n";};
 $fails=static function(callable $fn,string $message):bool{try{$fn();return false;}catch(Throwable $e){if(!str_contains($e->getMessage(),$message))throw $e;return true;}};
