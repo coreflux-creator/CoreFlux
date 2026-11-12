@@ -212,6 +212,11 @@ export default function PlacementCreate() {
     e.preventDefault();
     setSubmitting(true); setError(null); setPersonConflict(null);
     try {
+      for (const c of commissions) {
+        if (!c.role || !(c.split_pct || c.flat_amount)) continue;
+        if (!c.user_id) throw new Error('Choose the commission recipient before creating the placement.');
+        if (c.basis === 'flat' && (!c.currency || !c.payment_frequency || (c.payment_frequency === 'one_time' && !c.due_month))) throw new Error('Complete the fixed commission currency, frequency and due month before creating the placement.');
+      }
       // 1) Create placement
       const payload = { ...form };
       ['end_date', 'due_date'].forEach(k => { if (!payload[k]) delete payload[k]; });
@@ -278,6 +283,9 @@ export default function PlacementCreate() {
           split_pct: c.split_pct ? Number(c.split_pct) / 100 : null,
           flat_amount: c.flat_amount ? Number(c.flat_amount) : null,
           basis: c.basis || 'net_margin',
+          currency: c.currency || null,
+          payment_frequency: c.payment_frequency || null,
+          due_month: c.due_month || null,
           effective_from: c.effective_from || form.start_date,
           notes: c.notes || null,
         });
@@ -587,29 +595,34 @@ export default function PlacementCreate() {
             <>
               <SectionTitle>{internalHire ? '4' : '6'}. Commissions (optional)</SectionTitle>
               <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-                Each split is one row. Splits within the same role + window must sum to 100%.
+                Each row identifies a recipient and calculation. Fixed amounts also need a currency and payment frequency.
               </p>
               {commissions.map((c, i) => (
-                <div key={i} data-testid={`placement-create-commission-row-${i}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 0.8fr 0.8fr 1fr 1fr 30px', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                <div key={i} data-testid={`placement-create-commission-row-${i}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 8, alignItems: 'end' }}>
                   <Field label="Role">
                     <select className="input" value={c.role || ''} onChange={(e) => updateCommission(i, { role: e.target.value })} data-testid={`placement-create-commission-${i}-role`}>
                       <option value="">—</option>
                       {COMMISSION_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </Field>
-                  <Field label="User (optional for 'team')">
+                  <Field label="Recipient">
                     <select className="input" value={c.user_id || ''} onChange={(e) => updateCommission(i, { user_id: e.target.value })} data-testid={`placement-create-commission-${i}-user`}>
                       <option value="">—</option>
                       {tenantUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                     </select>
                   </Field>
                   <Field label="Split %"><input className="input" type="number" step="0.01" value={c.split_pct || ''} onChange={(e) => updateCommission(i, { split_pct: e.target.value })} data-testid={`placement-create-commission-${i}-pct`} placeholder="60" /></Field>
-                  <Field label="Flat $"><input className="input" type="number" step="0.01" value={c.flat_amount || ''} onChange={(e) => updateCommission(i, { flat_amount: e.target.value })} data-testid={`placement-create-commission-${i}-flat`} placeholder="when basis=flat" /></Field>
+                  <Field label="Flat amount"><input className="input" type="number" step="0.01" value={c.flat_amount || ''} onChange={(e) => updateCommission(i, { flat_amount: e.target.value })} data-testid={`placement-create-commission-${i}-flat`} placeholder="when basis=flat" /></Field>
                   <Field label="Basis">
-                    <select className="input" value={c.basis || 'net_margin'} onChange={(e) => updateCommission(i, { basis: e.target.value })} data-testid={`placement-create-commission-${i}-basis`}>
+                    <select className="input" value={c.basis || 'net_margin'} onChange={(e) => updateCommission(i, { basis: e.target.value, split_pct: '', flat_amount: '', currency: '', payment_frequency: '', due_month: '' })} data-testid={`placement-create-commission-${i}-basis`}>
                       {COMMISSION_BASIS.map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
                   </Field>
+                  {c.basis === 'flat' && <>
+                    <Field label="Commission currency"><select className="input" value={c.currency || ''} onChange={e => updateCommission(i, { currency: e.target.value })}><option value="">Choose currency</option>{['USD','CAD','GBP','EUR','INR','AUD'].map(currency => <option key={currency}>{currency}</option>)}</select></Field>
+                    <Field label="Commission frequency"><select className="input" value={c.payment_frequency || ''} onChange={e => updateCommission(i, { payment_frequency: e.target.value, due_month: '' })}><option value="">Choose frequency</option><option value="one_time">One time</option><option value="per_pay_period">Per pay period</option></select></Field>
+                    {c.payment_frequency === 'one_time' && <Field label="Due month"><input className="input" type="month" value={c.due_month || ''} onChange={e => updateCommission(i, { due_month: e.target.value })} /></Field>}
+                  </>}
                   <Field label="Effective from"><input className="input" type="date" value={c.effective_from || ''} onChange={(e) => updateCommission(i, { effective_from: e.target.value })} data-testid={`placement-create-commission-${i}-eff`} placeholder={form.start_date} /></Field>
                   <button type="button" onClick={() => setCommissions(commissions.filter((_, j) => j !== i))} data-testid={`placement-create-commission-${i}-remove`} style={{ background: 'transparent', border: 0, fontSize: 18, color: '#ef4444', cursor: 'pointer' }}>×</button>
                 </div>
