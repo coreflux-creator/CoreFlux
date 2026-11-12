@@ -57,7 +57,7 @@ try{
     $reject(fn()=>$apply(array_replace($changed,['hours'=>'6'])),'Changed approved source','independent reapproval');
     $pdo->exec("UPDATE time_entries SET status='draft',approved_at=NULL,approved_by_user_id=NULL,rate_snapshot_id=NULL WHERE id=".$id);
     $pdo->exec("UPDATE staffing_timesheets SET status='submitted'");$reject(fn()=>$apply(array_replace($changed,['hours'=>'6'])),'Submitted weekly artifact','submitted');$pdo->exec("UPDATE staffing_timesheets SET status='draft'");
-    $pdo->exec("UPDATE time_entries SET payroll_extracted_ref='existing-payroll' WHERE id=".$id);$reject(fn()=>$apply(array_replace($changed,['hours'=>'6'])),'Consumed draft','used downstream');$pdo->exec('UPDATE time_entries SET payroll_extracted_ref=NULL WHERE id='.$id);
+    $pdo->exec('UPDATE time_entries SET payroll_extracted_ref=99 WHERE id='.$id);$reject(fn()=>$apply(array_replace($changed,['hours'=>'6'])),'Consumed draft','used downstream');$pdo->exec('UPDATE time_entries SET payroll_extracted_ref=NULL WHERE id='.$id);
     $pdo->prepare('INSERT INTO payroll_source_claims(time_tenant_id,time_entry_id,authority_id,placement_tenant_id,rate_snapshot_id) VALUES(11,?,"synthetic-held",10,99)')->execute([$id]);
     $reject(fn()=>$apply(array_replace($changed,['hours'=>'6'])),'Held payroll reservation','reserved for PurePayroll');$pdo->exec('DELETE FROM payroll_source_claims');
     $pdo->prepare('INSERT INTO time_downstream_feed(tenant_id,period_id,placement_id,bundle_type,entries_json) VALUES(11,?,100,"ar",?)')->execute([$entry['period_id'],json_encode(['entry_ids'=>[$id]])]);
