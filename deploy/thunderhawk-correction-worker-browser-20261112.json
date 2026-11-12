@@ -1,0 +1,111 @@
+{
+  "checked_at": "2026-11-12T11:58:53.413616+00:00",
+  "scope": "Thunderhawk isolated pilot P-387 / PL-902",
+  "previous_goal_turn": "No integration progress: standalone accounting access answer. Installed Core runtime, final CI and provider state revalidated before this acceptance.",
+  "core_runtime": "58eb9bc97878cd10bea1b7c6bf4756c6c6e92c0d",
+  "core_evidence_commit": "09443d41566ecaa93d8ca0a2415590836e515d2a",
+  "core_evidence_ci": 43212154486,
+  "method": "BrowserOS rendered controls over private SSH loopback; native invitation, password setup, password sign-in, assignment/current-week views, download and sign-out",
+  "application_code_changed": false,
+  "public_access_rules_changed": false,
+  "native_password_login_verified": true,
+  "outbound_email_sent": false,
+  "worker_report": {
+    "rows": 1,
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "view": "mine",
+    "onboarding": "not_shared",
+    "sha256": "ed09be802184af668dc567d047c474187fa90ab431b864175818f3249121dc9c",
+    "bytes": 800
+  },
+  "acceptance": [
+    "Administrator sees corrected 1.50 hours accepted in Core and existing reviewed time eligibility",
+    "Invitation targets the existing worker and preserves provider identity",
+    "Preview reports locally captured invitation, never claims delivered mail",
+    "Native password setup and sign-in reach the intended worker account",
+    "Worker sees only its own assignment, stable person/placement/client/company IDs and current approved 1.50 hours",
+    "Worker Core status is current and accepted; onboarding remains explicitly not shared",
+    "Native downloaded worker report contains exactly one owned assignment",
+    "Worker team/workspace assignment, export and onboarding requests return 403",
+    "Both native login sessions signed out; new worker login disabled and password removed",
+    "Subsequent native worker sign-in refused as disabled"
+  ],
+  "scope_refusals": [
+    {
+      "path": "/api/core/assignments?view=workspace",
+      "status": 403
+    },
+    {
+      "path": "/api/core/assignments?view=team",
+      "status": 403
+    },
+    {
+      "path": "/api/core/assignments/export?view=workspace",
+      "status": 403
+    },
+    {
+      "path": "/api/core/onboarding?view=workspace",
+      "status": 403
+    }
+  ],
+  "preservation": {
+    "checked_at": "2026-11-12T11:56:51.884457+00:00",
+    "phase": "complete",
+    "worker": "cfw_84c68922408ef4edb348e7d1a00c5254e9c019936e192ce5fd9f517199ab52d6",
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "production_changed": false,
+    "email_mode": "devoutbox",
+    "real_payroll_payments_postings": false,
+    "quanta_collections": 71,
+    "pure_collections": 26,
+    "passed": true,
+    "business_records_preserved": true,
+    "provider_ids_preserved": true,
+    "approved_time_unchanged": true,
+    "purepay_unchanged": true,
+    "added": {
+      "audit_events": 8,
+      "auth_sessions": 2,
+      "identities": 1
+    },
+    "worker_login_retired": {
+      "created_identity_disabled": true,
+      "password_removed": true
+    },
+    "native_browser_sessions_revoked": 2,
+    "outbound_email_sent": false,
+    "invitation_captured_locally": true
+  },
+  "final_readback": {
+    "checked_at": "2026-11-12T11:58:53.413616+00:00",
+    "phase": "complete",
+    "business_records_preserved": true,
+    "purepay_unchanged": true,
+    "added": {
+      "audit_events": 8,
+      "auth_sessions": 2,
+      "identities": 1
+    },
+    "new_worker_identity": true,
+    "worker_password_set": false,
+    "outbox_added_lines": 1
+  },
+  "recovery": "The original evidence check flagged the portal coordination counter. Read-only reconstruction proved the complete original row matches exactly at revision 194; verifier now permits only revision advancement. No invitation, password setup or time mutation was repeated to repair verification.",
+  "evidence": {
+    "output/correction-browser-handle.json": "945b47780c7c99ad9ffd60ff2d06b54fa34fa8c012e415c029bdb5ae5bcfdc13",
+    "output/correction-browser-prepare.json": "b7a47c8783864cb24dc764dc0c48252f2a368ab9375fa1ed7fd3eae258fc3477",
+    "output/correction-browser-finish.json": "e2828878e57e8cf45fb0573da4a510ae8f56bf20775066325a7f383ed46a952d",
+    "output/correction-browser-observations.json": "67756520e422a381c9508f9802aeacdeae577969a384faf7130e69c6cad9bfa9",
+    "output/correction-worker-assignment-report.csv": "ed09be802184af668dc567d047c474187fa90ab431b864175818f3249121dc9c",
+    "output/correction-browser-final-readback.json": "6190dc716ab50e4d3f55c48fbe8c5aebe4ac1888b7c40d417a6f55f966c7e1c7",
+    "deploy/quanta_correction_browser_acceptance.py": "34dedb922c04af988b6e5f4fa57a5e4e20f02e8ed29236ec087cc8ef7d652024"
+  },
+  "remaining": [
+    "Rendered source unlock/edit/resubmit and independent reapproval, plus Core correction history review, are separate from this returned-status acceptance.",
+    "Document/lifecycle closure and full onboarding acceptance remain open.",
+    "Financial allocations/reconciliation, 477 remaining field decisions and final requirement-by-requirement audit remain open."
+  ],
+  "goal_complete": false
+}
