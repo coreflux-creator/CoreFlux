@@ -46,6 +46,9 @@ jobs:
           python3 tests/core_release_recovery_smoke.py
       - name: Refuse a provider source update without its matching reviewed release stamp
         run: python3 tests/test_pure_payment_display_release_contract.py
+
+      - name: Verify isolated commission release boundaries and partial recovery
+        run: python3 tests/test_pure_commission_release.py
       - name: Rehearse isolated Quanta update and exact runtime rollback
         run: python3 tests/quanta_time_pilot_installer_rehearsal.py
       - name: Verify isolated Quanta storage configuration boundaries
