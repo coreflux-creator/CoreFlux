@@ -72,11 +72,63 @@ Runtime hashes and evidence receipts are indexed in
 production Core, the separate Arabella pilot and real payroll/payment/financial
 posting were unchanged.
 
+## Native session and permission acceptance (November 11)
+
+The contract workflow now has a native HTTP regression using real password
+login and session cookies, the deployed dual permission resolver, and two
+invented company datasets. It exercises ordinary participant edits, saved
+JobDiva review/apply, grouped ownership release, stale-review rejection and
+freshly reviewed replay. The assertions check retained values and stable
+person/placement identities, not only HTTP status codes.
+
+The completed native HTTP test passed 61 checks in the live-business-graph
+job of [CI run 43129465466](https://github.com/coreflux-creator/CoreFlux/actions/runs/43129465466),
+source `486035febd07f4be8d77560846f6914ef94a9090`. It left the foreign company
+unchanged, created no financial posting/payroll run/payment, retired its
+synthetic login, stopped its loopback server and removed private session files.
+All eleven jobs in that CI run completed successfully.
+The first attempt correctly stopped when the new synthetic company had no
+active legal entity; the successful fixture provisions that prerequisite.
+
+The current permission contract is:
+
+| Action | Placement module access required |
+| --- | --- |
+| Review commercial ownership | Read |
+| Edit participant terms or release reviewed ownership | Write |
+| Preview saved JobDiva assignments | Write |
+| Apply saved JobDiva assignments, including financial fields | Admin |
+
+The legacy permission layer must also grant the corresponding action. These
+checks do not widen any user's permissions or change tenant settings.
+
+The hosted pilot separately passed 41 native-session checks at
+`2026-11-12T00:44:26Z`. Twenty relevant deployed runtime files matched the
+checked source. Anonymous requests, absent module grants, read-only writes,
+foreign tenant pins, a foreign placement ID, and writes after grant downgrade
+or revocation were denied. Authorized requests reached their expected review
+or validation paths. The hosted verifier intentionally submitted no valid
+business change; successful mutation and replay use the disposable CI fixture.
+All 8,537 checked business rows across 23 tables matched afterward. Synthetic
+operator 78 was retired, module grants removed, password material cleared,
+and its private cookie file removed. The earlier hosted attempt retired
+operator 77 and also preserved those business rows; its test had incorrectly
+assumed placement 864 belonged to another tenant. The corrected check derives
+the foreign record from its actual tenant ownership.
+
+This is HTTP/session acceptance, not a signed-in browser walkthrough. No
+application runtime, screen bundle, provider app or production deployment was
+changed by this verification work.
+
+The evidence index is `deploy/thunderhawk-contract-http-20261111.json`.
+
 ## Remaining integration scope
 
-The integration goal remains active. Next contract work includes native HTTP
-acceptance, participant creation/removal and cycle-assignment atomicity, and
-locking/revalidation throughout stored JobDiva apply. Generic batch results
+The integration goal remains active. Next contract work includes the signed-in
+operator walkthrough, participant creation/removal and cycle-assignment
+atomicity, and source-company availability during preview. Locking/revalidation
+throughout stored apply is covered by the subsequent protected-review release.
+Generic batch results
 still need retained-value explanations. Additional participant ownership
 release needs source-link reconciliation rather than blindly clearing flags.
 

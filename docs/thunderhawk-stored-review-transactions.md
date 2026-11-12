@@ -79,8 +79,11 @@ remains bounded to twenty assignments per page. Source-company availability
 should also be shown during preview, with a clear source-refresh action, so
 missing saved evidence is visible before apply.
 
-Native HTTP authorization and the signed-in operator workflow still need
-acceptance. The screen bundle, provider applications, production Core, Arabella
+Native HTTP authorization has subsequently passed the deployed-pilot check,
+and the disposable native-session round trip covers successful commercial
+edits, source apply, ownership release and replay. See the acceptance update in
+`docs/thunderhawk-commercial-ownership-release.md`. The signed-in browser
+workflow still needs acceptance. The screen bundle, provider applications, production Core, Arabella
 pilot and real payroll/payment/financial posting were unchanged.
 
 The full integration goal remains open: additional participant/source-link
