@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/people.php';
 require_once __DIR__ . '/../lib/audit.php';
+require_once __DIR__ . '/../lib/employment_setup.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -123,7 +124,7 @@ if ($method === 'POST') {
                     $results[] = ['id' => $id, 'ok' => true, 'reason' => 'no_change'];
                     continue;
                 }
-                scopedUpdate('people', $id, [$field => $value]);
+                peopleEmploymentUpdatePerson((int)$ctx['tenant_id'], $id, [$field => $value]);
                 peopleAudit('people.updated', [
                     'id' => $id,
                     'source' => 'bulk_update',
@@ -286,7 +287,8 @@ if ($method === 'PATCH') {
     }
 
     if (!$body) api_error('No fields to update', 422);
-    $rows = scopedUpdate('people', $id, $body);
+    try { $rows = peopleEmploymentUpdatePerson((int)$ctx['tenant_id'], $id, $body); }
+    catch(RuntimeException $e) { api_error($e->getMessage(),409); }
     if ($rows === 0) api_error('Not found or no change', 404);
     peopleAudit('people.updated', ['id' => $id, 'fields' => array_keys($body)], $id);
     api_ok(['person' => peopleGet($id)]);

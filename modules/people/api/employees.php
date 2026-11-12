@@ -16,6 +16,9 @@ require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/employees.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
+api_require_legacy_permission($ctx,api_method()==='GET'?'people.view':'people.manage');
+$canViewPII=rbac_legacy_can($user,'people.pii.view');
 
 switch (api_method()) {
 
@@ -25,7 +28,8 @@ switch (api_method()) {
         if ($id > 0) {
             $row = peopleGetEmployee($id);
             if (!$row) api_error('Not found', 404);
-            api_ok(['employee' => _presentEmployee($row, includePIIMask: true)]);
+            api_ok(['employee' => _presentEmployee($row, includePIIMask: $canViewPII),
+                'can_manage'=>rbac_legacy_can($user,'people.manage'),'can_view_pii'=>$canViewPII]);
         }
 
         $rows = peopleListActiveEmployees(
@@ -39,6 +43,8 @@ switch (api_method()) {
     case 'POST': {
         $body = api_json_body();
         api_require_fields($body, ['legal_first_name', 'legal_last_name']);
+        if(array_key_exists('ssn',$body)||array_key_exists('date_of_birth',$body))api_require_legacy_permission($ctx,'people.pii.manage');
+        if(isset($body['status'])&&$body['status']!=='pending')api_error('New employment starts pending. Link its person and review employment setup before activation.',409);
 
         // Employee number: caller may supply, or auto-increment per tenant
         $empNumber = trim((string)($body['employee_number'] ?? ''));
@@ -58,8 +64,8 @@ switch (api_method()) {
             'work_auth_status'   => $body['work_auth_status']    ?? null,
             'personal_email'     => $body['personal_email']      ?? null,
             'status'             => $body['status']              ?? 'pending',
-            'employment_type'    => $body['employment_type']     ?? 'full_time',
-            'flsa_class'         => $body['flsa_class']          ?? 'non_exempt',
+            'employment_type'    => $body['employment_type']     ?? null,
+            'flsa_class'         => $body['flsa_class']          ?? null,
             'hire_date'          => $body['hire_date']           ?? null,
             'start_date'         => $body['start_date']          ?? null,
             'manager_id'         => $body['manager_id']          ?? null,
@@ -79,7 +85,7 @@ switch (api_method()) {
         _logChange($id, 'employee', $id, 'create', array_keys($data));
 
         $row = peopleGetEmployee($id);
-        api_ok(['employee' => _presentEmployee($row, includePIIMask: true)], 201);
+        api_ok(['employee' => _presentEmployee($row, includePIIMask: $canViewPII)], 201);
     }
 
     case 'PUT':
@@ -91,11 +97,14 @@ switch (api_method()) {
         if (!$existing) api_error('Not found', 404);
 
         $body = api_json_body();
+        if(array_key_exists('ssn',$body)||array_key_exists('date_of_birth',$body))api_require_legacy_permission($ctx,'people.pii.manage');
+        if(array_intersect(array_keys($body),['status','employment_type','flsa_class','hire_date','start_date','job_title','department','location'])) {
+            api_error('Use the Employment tab to review and save employment setup changes.',409);
+        }
         $allowed = [
             'legal_first_name','legal_middle_name','legal_last_name','preferred_name',
             'date_of_birth','gender','marital_status','citizenship_status','work_auth_status',
-            'personal_email','employment_type','flsa_class','hire_date','start_date',
-            'manager_id','department','location','job_title','work_email','photo_url',
+            'personal_email','manager_id','work_email','photo_url',
         ];
         $update = [];
         foreach ($allowed as $field) {
@@ -107,13 +116,13 @@ switch (api_method()) {
             $update['ssn_last4']  = last4($body['ssn']);
             $update['ssn_hash']   = fieldHash($body['ssn']);
         }
-        if (!$update) api_ok(['employee' => _presentEmployee($existing, includePIIMask: true)]);
+        if (!$update) api_ok(['employee' => _presentEmployee($existing, includePIIMask: $canViewPII)]);
 
         scopedUpdate('people_employees', $id, $update);
         _logChange($id, 'employee', $id, 'update', array_keys($update));
 
         $row = peopleGetEmployee($id);
-        api_ok(['employee' => _presentEmployee($row, includePIIMask: true)]);
+        api_ok(['employee' => _presentEmployee($row, includePIIMask: $canViewPII)]);
     }
 
     case 'DELETE': {
@@ -152,7 +161,7 @@ function _presentEmployee(array $row, bool $includePIIMask): array {
     if ($includePIIMask) {
         $out['ssn_masked'] = $row['ssn_last4'] ? '***-**-' . $row['ssn_last4'] : null;
     } else {
-        unset($out['ssn_last4']);
+        unset($out['ssn_last4'],$out['ssn_masked'],$out['date_of_birth']);
     }
     return $out;
 }

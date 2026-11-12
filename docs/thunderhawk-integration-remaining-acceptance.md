@@ -17,6 +17,8 @@ This checkpoint separates the requested integration outcome from optional future
 
 The immediate priority is the field-disposition inventory and the remaining portal/financial operator journey. Additional calendar scheduling features or production deployment machinery should not displace those requirements unless a pilot acceptance step demonstrates that they are needed.
 
+The current employment setup candidate is recorded in `docs/thunderhawk-employment-setup-acceptance.md`. It adds the missing reviewed completion/activation screen and atomic alignment of overlapping person/employment facts. It does not supersede hosted evidence until its CI, isolated installation and operator acceptance are verified.
+
 ## Evidence for this checkpoint
 
 - `deploy/thunderhawk-shared-schedules-20261111.json`: installed shared schedule release and recovered hosted report.

@@ -47,4 +47,14 @@ foreach(['id','tenant_id','person_id','employee_id','review_id','actor_user_id',
 }
 $check(staffingFieldContractRules('people_employment_links','review_ct')['disposition']==='restricted','Employment snapshot remains restricted');
 $check(staffingFieldContractRules('people_employment_links','future_field')['disposition']==='review_required','Unknown employment fields still need review');
+foreach(['id','tenant_id','person_id','employee_id','review_id','actor_user_id','kind','reason','review_ct','history_id','created_at']as$field){
+    $rule=staffingFieldContractRules('people_employment_reviews',$field);
+    $check($rule['owner']==='core_people_employment_setup'&&$rule['remote_contracts']['purepayroll']['status']==='core_internal_only','Employment setup receipt remains local: '.$field);
+}
+foreach(['status','employment_type','flsa_class','hire_date','start_date','job_title','department','location']as$field){
+    $check(staffingFieldContractRules('people_employees',$field)['owner']==='core_people_employment_setup','Current employment field uses explicit setup workflow: '.$field);
+}
+foreach(['employment_type','hire_date']as$field)$check(staffingFieldContractRules('people',$field)['owner']==='core_people_employment_setup','Mirrored person employment fact has the same owner: '.$field);
+$check(staffingFieldContractRules('people_employment_reviews','review_ct')['disposition']==='restricted','Setup review envelope remains private');
+$check(staffingFieldContractRules('people_employment_reviews','future_field')['disposition']==='review_required','Future setup fields are not implicitly approved');
 echo "Staffing field ownership: {$passed} passed\n";

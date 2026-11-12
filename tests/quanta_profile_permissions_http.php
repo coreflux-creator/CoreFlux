@@ -75,7 +75,7 @@ try {
         [0=>['pipe','r'],1=>['file',$directory . '/http.log','a'],2=>['file',$directory . '/http.log','a']],$pipes,$root);
     if (!is_resource($server)) throw new RuntimeException('Native HTTP server did not start');
     fclose($pipes[0]);
-    $request = static function(string $path, ?array $body, bool $signedIn = true, int $pinned = 900011, bool $form = false) use ($port,$cookie,&$report): array {
+    $request = static function(string $path, ?array $body, bool $signedIn = true, int $pinned = 900011, bool $form = false, ?string $method = null) use ($port,$cookie,&$report): array {
         $curl = curl_init('http://127.0.0.1:' . $port . $path);
         $headers = ['Accept: application/json', 'X-CoreFlux-Tenant-Id: ' . $pinned];
         $options = [CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>1,CURLOPT_TIMEOUT=>15];
@@ -85,6 +85,7 @@ try {
             $headers[] = 'Content-Type: ' . ($form ? 'application/x-www-form-urlencoded' : 'application/json');
         }
         if ($signedIn) { $options[CURLOPT_COOKIEFILE]=$cookie; $options[CURLOPT_COOKIEJAR]=$cookie; }
+        if($method!==null)$options[CURLOPT_CUSTOMREQUEST]=$method;
         $options[CURLOPT_HTTPHEADER]=$headers; curl_setopt_array($curl,$options);
         $raw = curl_exec($curl); $status = (int)curl_getinfo($curl,CURLINFO_HTTP_CODE);
         $location = (string)curl_getinfo($curl,CURLINFO_REDIRECT_URL); curl_close($curl);
@@ -104,6 +105,9 @@ try {
     foreach ($actions as $action) $expect($call($action,[],false)[0]===401,'Anonymous session denied: ' . $action);
     $expect($reads()===0,'Anonymous requests never reach the provider');
     $employment='/modules/people/api/employment_link.php';
+    $setup='/modules/people/api/employment_setup.php';$employees='/modules/people/api/employees.php';
+    foreach([$setup.'?employee_id=1',$employees.'?id=1']as$route)$expect($request($route,null,false)[0]===401,'Anonymous employee access denied: '.$route);
+    $expect($request($setup.'?action=apply',['confirm_setup'=>true,'review_token'=>'invalid'],false)[0]===401,'Anonymous setup mutation denied');
     $expect($request($employment.'?person_id=1',null,false)[0]===401,'Anonymous employment directory denied');
     $expect($request($employment.'?action=apply',['confirm_link'=>true,'review_token'=>'invalid'],false)[0]===401,'Anonymous employment mutation denied');
     [$status,,$location] = $request('/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true);
@@ -111,6 +115,7 @@ try {
     $expect($status===302 && !str_contains($location,'error='),'Native password login creates a real session cookie');
     foreach ($actions as $action) $expect($call($action)[0]===403,'Ungranted reviewer denied: ' . $action);
     $expect($request($employment.'?person_id=1',null)[0]===403,'Missing people grant cannot read employment links');
+    foreach([$setup.'?employee_id=1',$employees.'?id=1']as$route)$expect($request($route,null)[0]===403,'Missing people grant cannot inspect employment: '.$route);
     RBACResolver::grantModule($membership,'integrations','read',[$tenant],$actor);
     RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
     foreach ($actions as $action) $expect($call($action)[0]===403,'Read-only integration access denied: ' . $action);
@@ -119,12 +124,32 @@ try {
     foreach ($actions as $action) $expect($call($action)[0]===403,'Missing people access denied: ' . $action);
     RBACResolver::grantModule($membership,'people','read',[$tenant],$actor);
     $expect($request($employment.'?person_id=0',null)[0]===422,'People read admits employment lookup before validating identity');
+    $expect($request($setup.'?employee_id=0',null)[0]===422,'People read admits setup lookup before validating employment');
+    $expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'Creation'])[0]===403,'People read cannot create employment');
+    foreach(['preview','apply']as$action)$expect($request($setup.'?action='.$action,[])[0]===403,'People read cannot change employment setup: '.$action);
+    $expect($request($setup.'?action=history&employee_id=1',null)[0]===403,'Setup review history requires People manage permission');
     foreach(['preview','apply']as$action)$expect($request($employment.'?action='.$action,[])[0]===403,'People read cannot change employment identity: '.$action);
     foreach ($reviews as $action) $expect($call($action)[0]===403,'Read-only people access cannot review or return: ' . $action);
     $expect($call('profile_baseline_preview',['person_id'=>0])[0]===422,'Snapshot preview admits people-read before validating the chosen person');
     $expect($reads()===0,'All permission denials occur before provider reads');
     RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
     $expect($request($employment.'?action=preview',[])[0]===422,'People write admits employment review and validates its fields');
+    $expect($request($setup.'?action=preview',[])[0]===422,'People write admits setup review and validates its fields');
+    foreach([false,1,'true',null]as$confirmation)$expect($request($setup.'?action=apply',['confirm_setup'=>$confirmation,'review_token'=>'invalid'])[0]===422,'Employment setup requires literal confirmation');
+    $expect($request($setup.'?employee_id=1',null,true,999)[0]===403,'Foreign pinned company cannot inspect employment setup');
+    foreach(['date_of_birth'=>'2000-01-01','ssn'=>'111223333']as$field=>$value)$expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'PII',$field=>$value])[0]===403,'People write cannot create restricted identity field: '.$field);
+    $pdo->prepare('INSERT INTO people_employees(tenant_id,employee_number,legal_first_name,legal_last_name,ssn_last4,date_of_birth) VALUES(?,"HTTP-PRIVATE","Synthetic","Employee","3333","2000-01-01")')->execute([$tenant]);
+    $privateEmployee=(int)$pdo->lastInsertId();
+    [$status,$privateView]=$request($employees.'?id='.$privateEmployee,null);
+    $expect($status===200&&!array_intersect(['ssn_last4','ssn_masked','date_of_birth'],array_keys($privateView['employee']??[]))&&($privateView['can_view_pii']??null)===false,'People write sees basic employment without SSN or birth date');
+    $expect($request($employees.'?id='.$privateEmployee,['date_of_birth'=>'2001-01-01'],true,$tenant,false,'PATCH')[0]===403,'People write cannot change the birth date through the legacy endpoint');
+    foreach(['status'=>'active','job_title'=>'Bypass','employment_type'=>'full_time']as$field=>$value)$expect($request($employees.'?id='.$privateEmployee,[$field=>$value],true,$tenant,false,'PATCH')[0]===409,'Direct employment edit cannot bypass setup review: '.$field);
+    $expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'Activation','status'=>'active'])[0]===409,'Legacy employment creation cannot bypass pending activation review');
+    RBACResolver::grantModule($membership,'people','admin',[$tenant],$actor);
+    [$status,$privateView]=$request($employees.'?id='.$privateEmployee,null);
+    $expect($status===200&&($privateView['employee']['ssn_masked']??null)==='***-**-3333'&&($privateView['employee']['date_of_birth']??null)==='2000-01-01'&&!isset($privateView['employee']['ssn_cipher'],$privateView['employee']['ssn_hash']),'People admin receives only the permitted identity presentation');
+    $pdo->prepare('DELETE FROM people_employees WHERE id=? AND tenant_id=?')->execute([$privateEmployee,$tenant]);
+    RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
     foreach([false,1,'true',null]as$confirmation)$expect($request($employment.'?action=apply',['confirm_link'=>$confirmation,'review_token'=>'invalid'])[0]===422,'Employment link requires literal confirmation');
     $expect($request($employment.'?person_id=1',null,true,999)[0]===403,'Foreign pinned company cannot inspect employment identity');
     foreach (['profile_review_list','profile_return_list'] as $action) {

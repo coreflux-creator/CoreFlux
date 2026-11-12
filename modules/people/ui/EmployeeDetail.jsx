@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useParams, NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AISuggestion from '../../../dashboard/src/components/AISuggestion';
+import EmploymentSetupPanel from './EmploymentSetupPanel';
 
 /* ─────────── Profile tab ─────────── */
-function ProfileTab({ employee, reload }) {
+function ProfileTab({ employee, canViewPII }) {
   const [aiSummary, setAiSummary] = useState(null);
   const loadSummary = async () => {
     const res = await api.post('/modules/people/api/ai_summary.php', { employee_id: employee.id });
@@ -31,8 +32,8 @@ function ProfileTab({ employee, reload }) {
         <dd>{employee.preferred_name || '—'}</dd>
         <dt>Employee #</dt><dd>{employee.employee_number}</dd>
         <dt>Status</dt><dd><span className={`badge badge--${employee.status}`}>{employee.status}</span></dd>
-        <dt>SSN</dt><dd data-testid="people-ssn-masked">{employee.ssn_masked || '—'}</dd>
-        <dt>Date of birth</dt><dd>{employee.date_of_birth || '—'}</dd>
+        {canViewPII && <><dt>SSN</dt><dd data-testid="people-ssn-masked">{employee.ssn_masked || '—'}</dd>
+        <dt>Date of birth</dt><dd>{employee.date_of_birth || '—'}</dd></>}
         <dt>Personal email</dt><dd>{employee.personal_email || '—'}</dd>
         <dt>Citizenship</dt><dd>{employee.citizenship_status || '—'}</dd>
         <dt>Work authorization</dt><dd>{employee.work_auth_status || '—'}</dd>
@@ -42,9 +43,9 @@ function ProfileTab({ employee, reload }) {
 }
 
 /* ─────────── Employment tab ─────────── */
-function EmploymentTab({ employee }) {
+function EmploymentTab({ employee, reload }) {
   return (
-    <dl className="detail-grid">
+    <><dl className="detail-grid">
       <dt>Job title</dt><dd>{employee.job_title || '—'}</dd>
       <dt>Department</dt><dd>{employee.department || '—'}</dd>
       <dt>Location</dt><dd>{employee.location || '—'}</dd>
@@ -60,7 +61,7 @@ function EmploymentTab({ employee }) {
           <dt>Termination reason</dt><dd>{employee.termination_reason || '—'}</dd>
         </>
       )}
-    </dl>
+    </dl><EmploymentSetupPanel employeeId={employee.id} onSaved={reload} /></>
   );
 }
 
@@ -305,8 +306,8 @@ export default function EmployeeDetail() {
 
       <Routes>
         <Route index              element={<Navigate to="profile" replace />} />
-        <Route path="profile"     element={<ProfileTab      employee={employee} reload={reload} />} />
-        <Route path="employment"  element={<EmploymentTab   employee={employee} />} />
+        <Route path="profile"     element={<ProfileTab      employee={employee} canViewPII={data.can_view_pii} />} />
+        <Route path="employment"  element={<EmploymentTab   employee={employee} reload={reload} />} />
         <Route path="compensation"element={<CompensationTab employeeId={employee.id} />} />
         <Route path="tax"         element={<TaxTab          employeeId={employee.id} />} />
         <Route path="banking"     element={<BankingTab      employeeId={employee.id} />} />

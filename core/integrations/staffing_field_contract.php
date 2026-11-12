@@ -17,7 +17,7 @@ function staffingFieldContractTables(): array
         'placement_rates', 'placement_client_chain', 'placement_commissions', 'placement_referrals',
         'placement_corp_details', 'placement_economic_parties', 'placement_economic_items', 'placement_economic_obligations',
         'staffing_operating_cycles', 'people_documents', 'placement_documents',
-        'people_banking', 'people_tax', 'people_employees', 'people_employment_history', 'people_employment_links',
+        'people_banking', 'people_tax', 'people_employees', 'people_employment_history', 'people_employment_links', 'people_employment_reviews',
         'people_compensation', 'people_i9', 'people_tax_federal', 'people_tax_state', 'people_bank_accounts',
         'time_entries', 'time_periods', 'time_downstream_feed', 'staffing_timesheets', 'quanta_time_imports',
         'payroll_runs', 'payroll_line_items', 'ap_bills', 'ap_payments', 'billing_invoices',
@@ -151,7 +151,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-12.3', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-12.4', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',
