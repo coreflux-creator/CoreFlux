@@ -109,6 +109,7 @@ function staffingFieldContractRules(string $table, string $field): array
             if ($approval) $rules['write_policy'] = 'specialized_workflow_only';
         }
     }
+    $rules = staffingPlacementControlFieldRules($table, $field, $rules);
     return staffingDocumentFieldRules($table,$field,staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules)));
 }
 

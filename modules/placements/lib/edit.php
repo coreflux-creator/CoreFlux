@@ -4,13 +4,15 @@ declare(strict_types=1);
 require_once __DIR__ . '/ownership.php';
 require_once __DIR__ . '/economics.php';
 require_once __DIR__ . '/rate_approve.php';
+require_once __DIR__ . '/approval_contact.php';
 
 function placementApplyNativeEdit(int $id, array $patch, array $user, string $via): array
 {
     if (!$patch) throw new InvalidArgumentException('No fields to update.', 422);
-    if (!in_array($via, ['patch_status', 'bulk_status', 'bulk_update', 'activate_action'], true)) {
+    if (!in_array($via, ['patch_status', 'bulk_status', 'bulk_update', 'activate_action', 'approval_contact'], true)) {
         throw new InvalidArgumentException('Unknown placement edit operation.', 422);
     }
+    $patch = placementApprovalContactInput($patch, $via === 'approval_contact');
     return placementWithLockedRecord((int) effectiveTenantIdForRequest(), $id, static function (array $existing, PDO $pdo) use ($id, $patch, $user, $via): array {
         $current = placementOwnershipFields($existing['coreflux_overridden_fields'] ?? null);
         foreach ($patch as $field => $value) {
@@ -36,7 +38,13 @@ function placementApplyNativeEdit(int $id, array $patch, array $user, string $vi
         $patch = array_replace($patch, placementsResolveCompanyRoles((int) $existing['tenant_id'], $patch, $existing, $user['id'] ?? null, currentTenantId()));
         $fields = array_keys($patch);
         if ($isJobDivaSourced) {
-            $merged = array_values(array_unique(array_merge($current, $fields)));
+            // A contact is one choice: a later source refresh must not combine
+            // a Core email with a different source person's display name.
+            $ownedFields = $fields;
+            if (array_intersect($fields, ['client_approver_name', 'client_approver_email'])) {
+                array_push($ownedFields, 'client_approver_name', 'client_approver_email');
+            }
+            $merged = array_values(array_unique(array_merge($current, $ownedFields)));
             if ($merged !== $current) $patch['coreflux_overridden_fields'] = json_encode($merged, JSON_THROW_ON_ERROR);
         }
         $changed = false;
@@ -54,11 +62,14 @@ function placementApplyNativeEdit(int $id, array $patch, array $user, string $vi
         if ($shouldAutoApproveRates) $autoApproved = placementsAutoApproveDraftRates($id, $user);
         if ($newStatus === 'active') placementsRequireActiveReady($id, (string) ($patch['start_date'] ?? $existing['start_date']), $via);
         if ($changed || $autoApproved > 0) {
-            $graph = placementEconomicsReconcile((int) $existing['tenant_id'], $id);
-            if (!$graph['available'] || $graph['errors']) {
-                throw new RuntimeException('The placement commercial graph could not be updated. Review its company links and try again.', 422);
+            if ($via !== 'approval_contact') {
+                $graph = placementEconomicsReconcile((int) $existing['tenant_id'], $id);
+                if (!$graph['available'] || $graph['errors']) {
+                    throw new RuntimeException('The placement commercial graph could not be updated. Review its company links and try again.', 422);
+                }
             }
-            $event = array_key_exists('status', $patch) ? 'placement.status_changed' : 'placement.updated';
+            $event = $via === 'approval_contact' ? 'placement.approval_contact.updated'
+                : (array_key_exists('status', $patch) ? 'placement.status_changed' : 'placement.updated');
             placementRequiredAudit($event, ['id'=>$id, 'fields'=>$fields, 'status'=>$newStatus, 'via'=>$via,
                 'rates_auto_approved'=>$autoApproved, 'before'=>$before, 'after'=>placementAuditRow($id)], $id);
             if ($autoApproved > 0) {

@@ -62,7 +62,69 @@ try{
     setRequestTenantId($tenant+1000000);$_SESSION['tenant_id']=$tenant+1000000;
     $check($refused(fn()=>placementApplyNativeEdit($placement,['notes'=>'Wrong tenant'],$user,'patch_status'),404),'Native edit cannot reach another tenant placement');
     setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
+    // The dedicated approval setup path must use the same ownership and audit
+    // guarantees as the overview, without changing economics or time approvals.
+    $setupBefore=placementAuditRow($placement);$graph=$read('placement_economic_parties');$time=$read('time_entries');
+    $result=placementApplyNativeEdit($placement,['client_approver_name'=>' Core Reviewer ',
+        'client_approver_email'=>'reviewer@example.invalid','tokenized_email_approval_enabled'=>false,
+        'bulk_uploads_can_be_pre_approved'=>'0'],$user,'approval_contact');
+    $setup=placementAuditRow($placement);$owned=json_decode($setup['coreflux_overridden_fields'],true);
+    $check($result['changed']&&$setup['client_approver_name']==='Core Reviewer'
+        &&count(array_intersect(['client_approver_name','client_approver_email'],$owned))===2,
+        'Focused approval setup normalizes contacts and owns the complete contact choice');
+    $q=$pdo->prepare("SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event='placement.approval_contact.updated' ORDER BY id DESC LIMIT 1");
+    $q->execute([$tenant,$placement]);$meta=json_decode($q->fetchColumn(),true);
+    $check($meta['before']===$setupBefore&&$meta['after']===$setup&&isset($meta['ownership_change_id']),
+        'Focused setup retains its original audit event with atomic before and after evidence');
+    $check($read('placement_economic_parties')===$graph&&$read('time_entries')===$time&&$read('placement_rates')===$rates,
+        'Contact setup does not reconcile commercial parties, change rates, or approve time');
+    $audit=$read('audit_log');
+    $repeat=placementApplyNativeEdit($placement,['client_approver_name'=>'Core Reviewer','client_approver_email'=>'reviewer@example.invalid',
+        'tokenized_email_approval_enabled'=>0,'bulk_uploads_can_be_pre_approved'=>false],$user,'approval_contact');
+    $check(!$repeat['changed']&&placementAuditRow($placement)===$setup&&$read('audit_log')===$audit,
+        'An exact repeated approval setup succeeds without duplicate audit or writes');
+    foreach([['title'=>'Not contact setup'],['status'=>'active'],['coreflux_overridden_fields'=>'[]'],
+        ['tokenized_email_approval_enabled'=>'false'],['bulk_uploads_can_be_pre_approved'=>null],
+        ['client_approver_name'=>[]],['client_approver_email'=>"a@example.invalid\r\nb@example.invalid"]]as$invalid){
+        $check($refused(fn()=>placementApplyNativeEdit($placement,$invalid,$user,'approval_contact'),422)
+            &&placementAuditRow($placement)===$setup&&$read('audit_log')===$audit,
+            'Focused setup rejects invalid or unrelated input without writes: '.array_key_first($invalid));
+    }
+    $check($refused(fn()=>placementClearOverrides($placement,['client_approver_email']),422)
+        &&placementAuditRow($placement)===$setup,'A contact choice cannot be partially handed back to JobDiva');
+    $source=['startId'=>'99130001','candidateId'=>'99130002','jobId'=>'99130003','startDate'=>'2026-11-01',
+        'status'=>'on_hold','approverName'=>'Source Reviewer','approverEmail'=>'source-reviewer@example.invalid',
+        '_jd_contract'=>['start_id'=>'99130001','engagement_type'=>'w2','start_date'=>'2026-11-01','placement_status'=>'on_hold']];
+    jobdivaSyncUpsertPlacement($tenant,$person,0,$source,'99130001');$afterSource=placementAuditRow($placement);
+    $check($afterSource['client_approver_name']==='Core Reviewer'&&$afterSource['client_approver_email']==='reviewer@example.invalid',
+        'The actual JobDiva placement writer preserves the native approval contact');
+    placementClearOverrides($placement,['client_approver_name','client_approver_email']);
+    jobdivaSyncUpsertPlacement($tenant,$person,0,$source,'99130001');$afterRelease=placementAuditRow($placement);
+    $check($afterRelease['client_approver_name']==='Source Reviewer'&&$afterRelease['client_approver_email']==='source-reviewer@example.invalid',
+        'An explicit paired handback lets the actual JobDiva writer refresh the contact');
+    placementApplyNativeEdit($placement,['client_approver_email'=>null],$user,'approval_contact');$cleared=placementAuditRow($placement);
+    jobdivaSyncUpsertPlacement($tenant,$person,0,$source,'99130001');$afterClear=placementAuditRow($placement);
+    $check($afterClear['client_approver_email']===null&&$afterClear['client_approver_name']===$cleared['client_approver_name']
+        &&count(array_intersect(['client_approver_name','client_approver_email'],json_decode($afterClear['coreflux_overridden_fields'],true)))===2,
+        'Explicit contact clearing remains Core-owned and cannot be filled by a later pull');
+    scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>'{}']);$broken=placementAuditRow($placement);$audit=$read('audit_log');
+    $check($refused(fn()=>placementApplyNativeEdit($placement,['client_approver_name'=>'Lost'],$user,'approval_contact'),422)
+        &&placementAuditRow($placement)===$broken&&$read('audit_log')===$audit,'Malformed ownership refuses focused setup atomically');
+    scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>$afterClear['coreflux_overridden_fields']]);
+    $auditBefore=placementAuditRow($placement);
+    $pdo->exec('CREATE TEMPORARY TABLE audit_log (id BIGINT,tenant_id BIGINT,target_id BIGINT,event VARCHAR(100),meta_json JSON)');
+    try {
+        $check($refused(fn()=>placementApplyNativeEdit($placement,['client_approver_name'=>'Unrecorded reviewer'],$user,'approval_contact'),503)
+            &&placementAuditRow($placement)===$auditBefore&&$pdo->inTransaction(),
+            'Unavailable audit storage rolls back contact values and ownership together');
+    } finally { $pdo->exec('DROP TEMPORARY TABLE audit_log'); }
+    setRequestTenantId($tenant+1000000);$_SESSION['tenant_id']=$tenant+1000000;
+    $check($refused(fn()=>placementApplyNativeEdit($placement,['client_approver_name'=>'Foreign'],$user,'approval_contact'),404),
+        'Focused setup cannot write a placement in another directory');
+    setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
     $manual=scopedInsert('placements',['person_id'=>$person,'status'=>'draft','start_date'=>'2026-11-01','engagement_type'=>'w2','title'=>'CI manual placement']);
+    placementApplyNativeEdit($manual,['client_approver_email'=>'manual@example.invalid'],$user,'approval_contact');
+    $check(placementAuditRow($manual)['coreflux_overridden_fields']===null,'Native-only approval setup does not invent a JobDiva relationship');
     $result=placementApplyNativeEdit($manual,['notes'=>'Native-only note'],$user,'bulk_update');$manualRow=placementAuditRow($manual);
     $check($result['changed']&&$manualRow['coreflux_overridden_fields']===null,'Native-only placement does not acquire JobDiva ownership flags');
     $draft=scopedInsert('placement_rates',['placement_id'=>$manual,'effective_from'=>'2026-11-01','bill_rate'=>100,'pay_rate'=>50]);

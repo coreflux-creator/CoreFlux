@@ -75,6 +75,11 @@ function placementClearOverrides(int $id, array $fields, ?array $review = null):
             && count(array_intersect($pair, $fields)) === 1) {
             throw new InvalidArgumentException('Return the status and actual end date to JobDiva together for this closed placement.', 422);
         }
+        $contactPair = ['client_approver_name', 'client_approver_email'];
+        if (count(array_intersect($contactPair, $current)) === 2
+            && count(array_intersect($contactPair, $fields)) === 1) {
+            throw new InvalidArgumentException('Return the approval contact name and email to JobDiva together.', 422);
+        }
         $released = array_values(array_diff($current, $remaining));
         scopedUpdate('placements', $id, ['coreflux_overridden_fields' => $remaining === [] ? null : json_encode($remaining, JSON_THROW_ON_ERROR)]);
         placementRequiredAudit('placement.override_cleared', ['id' => $id, 'fields' => $released,

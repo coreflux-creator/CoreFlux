@@ -24,6 +24,14 @@ function jobdivaStaffingFieldMappings(): array
     $candidate = '/apiv2/jobdiva/searchCandidate';
     $identityPolicy = 'existing_specialized_identity_resolver; never_assign_Core_business_numbers_from_provider_IDs';
     $contractPolicy = 'exact_Start_assignment_contract_before_tenant_enrichment; preserve_approved_rate_history; normal_Core_approval_still_required';
+    foreach (['client_approver_name'=>'approverName', 'client_approver_email'=>'approverEmail'] as $column=>$path) {
+        $add('placements.'.$column, $start, $path,
+            'tenant_field_map_then_approver_aliases_and_resolved_hiring_contact; candidate_self_contact_guard; absence_preserves_current_value',
+            'source_suggestion_only; native_Core_contact_choice_protects_both_fields_until_explicit_paired_handback',
+            'core/jobdiva/sync.php', ['known_limitations'=>[
+                'A hiring contact is not proof of client approval authority. This does not create a Quanta approver, issue an email link or approve time.',
+            ]]);
+    }
     $assignment = static function (string $key, string $path, string $normalized,
         string $transform, array $details = []) use ($add, $detail, $contractPolicy): void {
         $add($key, $detail, $path, $transform, $contractPolicy, 'core/jobdiva/sync.php',
