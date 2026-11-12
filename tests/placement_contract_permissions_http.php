@@ -34,7 +34,7 @@ $snapshot = static function(array $tables) use ($pdo): array {
     return $out;
 };
 $graphTables=['people','placements','placement_rates','placement_economic_parties','placement_corp_details',
-    'staffing_operating_cycles','staffing_clients','companies','ap_vendors_index','external_entity_mappings'];
+    'staffing_operating_cycles','staffing_clients','companies','company_roles','ap_vendors_index','external_entity_mappings'];
 $financialTables=['accounting_events','accounting_journal_entries','accounting_journal_entry_lines',
     'payroll_runs','ap_payments','billing_payments'];
 $seed = static function(int $tid, string $start) use ($pdo): array {
@@ -120,7 +120,9 @@ try {
     $previewPath=$stored.'?action=stored_preview'; $applyPath=$stored.'?action=stored_apply';
     $release=['confirm'=>'RELEASE_COMMERCIAL_OWNERSHIP','groups'=>['client_terms'],'review_token'=>str_repeat('0',64)];
     $apply=['confirm'=>'APPLY_STORED_JOBDIVA_ASSIGNMENTS','selected_start_ids'=>[$own['start']],'dry_run_token'=>str_repeat('0',64),'per_page'=>20];
-    $operations=[['GET',$reviewPath,null],['POST',$releasePath,$release],['PATCH',$patchPath,['payment_terms'=>'NET15']],['POST',$previewPath,[]],['POST',$applyPath,$apply],['GET',$contextPath,null],['POST',$refreshPath,[]]];
+    $createPartyPath=$economics.'?action=party&placement_id='.$own['placement'];
+    $manualParty=['role'=>'msp','display_name'=>'Synthetic HTTP Manual Participant','settlement_channel'=>'ap','cadence'=>'monthly','payment_terms'=>'NET30','fee_basis'=>'per_invoice','fee_flat'=>5];
+    $operations=[['GET',$reviewPath,null],['POST',$releasePath,$release],['PATCH',$patchPath,['payment_terms'=>'NET15']],['POST',$previewPath,[]],['POST',$applyPath,$apply],['GET',$contextPath,null],['POST',$refreshPath,[]],['POST',$createPartyPath,$manualParty],['DELETE',$patchPath,null]];
     $unchanged=$snapshot($graphTables);
     foreach ($operations as [$method,$path,$body]) $expect($request($method,$path,$body,false)[0]===401,'Anonymous denied: '.$method.' '.$path);
     [$status,,$location]=$request('POST','/login.php',['username'=>$email,'password'=>$password,'redirect'=>'spa'],true,$tenant,true); unset($password,$hash);
@@ -205,6 +207,31 @@ try {
     $q=$pdo->prepare("SELECT event,actor_user_id FROM audit_log WHERE tenant_id=? AND target_id=? AND event IN ('placement.economic_party.updated','placement.commercial_ownership.released') AND actor_user_id=?");
     $q->execute([$tenant,$own['placement'],$actor]); $events=array_column($q->fetchAll(PDO::FETCH_ASSOC),'event');
     $expect(in_array('placement.economic_party.updated',$events,true)&&in_array('placement.commercial_ownership.released',$events,true),'Native writes record the authenticated actor and workspace in the audit trail');
+    $unchanged=$snapshot($graphTables);
+    $expect($request('POST',$economics.'?action=party&placement_id='.$foreign['placement'],$manualParty)[0]===404,'Participant creation cannot target another tenant placement');
+    $expect($request('POST',$createPartyPath,array_replace($manualParty,['cadence'=>'invalid']))[0]===422&&$snapshot($graphTables)===$unchanged,'Invalid participant cadence creates no orphan company or role');
+    $pdo->exec("CREATE TRIGGER cf_contract_http_party_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.economic_party.added' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic participant create audit failure'; END IF; END");
+    try {$expect($request('POST',$createPartyPath,$manualParty)[0]===503,'Required creation audit failure is reported through HTTP');}
+    finally {$pdo->exec('DROP TRIGGER cf_contract_http_party_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'Failed HTTP creation rolls back all linked participant records');
+    [$status,$createdParty]=$request('POST',$createPartyPath,$manualParty);$manualId=(int)($createdParty['id']??0);
+    $expect($status===201&&$manualId>0&&!empty($createdParty['context']['available']),'Authorized participant creation returns the saved contract context');
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.economic_party.added'");
+    $q->execute([$tenant,$own['placement'],$actor]);
+    $expect((int)$q->fetchColumn()===1,'HTTP participant creation records the authenticated actor once');
+    $unchanged=$snapshot($graphTables);
+    $expect($request('DELETE',$economics.'?id='.$foreign['ar'],null)[0]===404&&$snapshot($graphTables)===$unchanged,'Participant deletion cannot target another tenant record');
+    $pdo->exec("CREATE TRIGGER cf_contract_http_party_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.economic_party.removed' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic participant remove audit failure'; END IF; END");
+    try {$expect($request('DELETE',$economics.'?id='.$manualId,null)[0]===503,'Required removal audit failure is reported through HTTP');}
+    finally {$pdo->exec('DROP TRIGGER cf_contract_http_party_audit');}
+    $expect($snapshot($graphTables)===$unchanged,'Failed HTTP removal leaves the participant active and unchanged');
+    [$status,$removedParty]=$request('DELETE',$economics.'?id='.$manualId,null);
+    $expect($status===200&&$removedParty['changed']===true,'Authorized HTTP removal deactivates the manual participant');
+    $unchanged=$snapshot($graphTables);[$status,$repeatRemoval]=$request('DELETE',$economics.'?id='.$manualId,null);
+    $expect($status===200&&$repeatRemoval['changed']===false&&$snapshot($graphTables)===$unchanged,'Repeated HTTP removal is an unchanged success');
+    $q=$pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND actor_user_id=? AND event='placement.economic_party.removed'");
+    $q->execute([$tenant,$own['placement'],$actor]);
+    $expect((int)$q->fetchColumn()===1,'Removal retry does not duplicate the authenticated audit receipt');
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
     [$status,$context]=$request('GET',$contextPath);

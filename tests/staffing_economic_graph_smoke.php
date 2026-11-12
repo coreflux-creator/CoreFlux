@@ -14,6 +14,7 @@ $contractMigration = $read('core/migrations/127_staffing_contract_terms.sql');
 $economics = $read('modules/placements/lib/economics.php');
 $economicsApi = $read('modules/placements/api/economics.php');
 $economicsEdit = $read('modules/placements/lib/economics_edit.php');
+$economicsParticipants = $read('modules/placements/lib/economics_participants.php');
 $cyclesApi = $read('modules/placements/api/cycles.php');
 $placementsApi = $read('modules/placements/api/placements.php');
 $rateApprove = $read('modules/placements/lib/rate_approve.php');
@@ -81,23 +82,23 @@ $assert('obligations are idempotent by source and party',
     && str_contains($economics, 'function placementEconomicsRecordObligation'));
 
 $assert('economics API supports participant terms and PWP edits',
-    str_contains($economicsApi, "'payment_terms','pwp_enabled','operating_cycle_id'")
-    || (str_contains($economicsApi, 'placementEconomicsUpdateParty') && str_contains($economicsApi, 'operating_cycle_id')));
+    str_contains($economicsApi, 'placementEconomicsApplyNativePartyEdit')
+    && str_contains($economicsEdit, "'payment_terms','pwp_enabled','operating_cycle_id'"));
 $assert('manual C2C vendor reuses the canonical corporate party identity',
-    str_contains($economicsApi, "? 'corp:' . \$placementId")
-    && str_contains($economicsApi, "'source_type' => \$role === 'c2c_vendor' ? 'corp' : 'manual'"));
+    str_contains($economicsParticipants, "? 'corp:' . \$placementId")
+    && str_contains($economicsParticipants, "'source_type' => \$role === 'c2c_vendor' ? 'corp' : 'manual'"));
 $assert('manual C2C terms mirror to the corporate source and removal clears it',
     str_contains($economicsApi, 'placementEconomicsApplyNativePartyEdit')
     && str_contains($economicsEdit, "UPDATE placement_corp_details SET ")
     && str_contains($economicsEdit, "\$corpChanges['payment_terms_override']")
-    && str_contains($economicsApi, 'DELETE FROM placement_corp_details'));
+    && str_contains($economicsParticipants, 'DELETE FROM placement_corp_details'));
 $assert('cycles can be created and assigned by purpose',
     str_contains($cyclesApi, "['billing','ap','payroll']")
     && str_contains($cyclesApi, "action === 'assign'"));
 $assert('ordinary frequencies resolve to reusable internal schedules',
     str_contains($economics, 'function placementEconomicsEnsureStandardCycle')
     && str_contains($economics, "'standard_cadence'")
-    && str_contains($economicsApi, 'placementEconomicsApiCadence'));
+    && str_contains($economicsParticipants, 'placementEconomicsNativeCreateCadence'));
 $assert('W2 and employee-like engagements resolve payroll rather than AP schedules',
     str_contains($economics, "['w2','temp_to_perm','internal']"));
 $assert('payroll recipient lookup accepts either employee email field',
@@ -205,9 +206,9 @@ $assert('economics screen can add company, person, or internal-user recipients',
     && str_contains($ui, '<option value="person">Person</option>')
     && str_contains($ui, '<option value="user">Internal user</option>'));
 $assert('participant editor enforces one company bill-to and correct AP/payroll identities',
-    str_contains($economicsApi, 'This placement already has a bill-to client')
-    && str_contains($economicsApi, 'Companies are paid through accounts payable')
-    && str_contains($economicsApi, 'Internal users are paid through payroll'));
+    str_contains($economicsParticipants, 'This placement already has a bill-to client')
+    && str_contains($economicsParticipants, 'Companies are paid through accounts payable')
+    && str_contains($economicsParticipants, 'Internal users are paid through payroll'));
 $assert('economics screen exposes readiness blockers and manual participant removal',
     str_contains($ui, 'missing_c2c_vendor')
     && str_contains($ui, 'missing_ar_payment_terms')
