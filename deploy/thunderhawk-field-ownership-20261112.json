@@ -1,0 +1,150 @@
+{
+  "scope": "isolated Core staging tenant 2002; ownership metadata and read-only financial lineage review",
+  "runtime_commit": "c91dac20311ce1251ed2b7162ad2ab22d10b1422",
+  "continuous_integration": {
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43165602642",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "installed_files": {
+    "core/integrations/staffing_field_ownership.php": {
+      "before_sha256": null,
+      "sha256": "e54479e46e93ee7277ab10d1549682ef05cd7a7b02302b578d21d66c70391c20"
+    },
+    "core/integrations/staffing_field_contract.php": {
+      "before_sha256": "60226f294d9d8313d57c0ccfcd3e230fe1e96ec3932fc18586d3670343ea5c23",
+      "sha256": "bdb5a05f3a27cd301cbf36c4e45ef6310470c8042162954f0d5cd2acda791392"
+    }
+  },
+  "pinned_dependencies": 104,
+  "installation": {
+    "checked_at": "2026-11-12T06:10:52+00:00",
+    "source_commit": "c91dac20311ce1251ed2b7162ad2ab22d10b1422",
+    "passed": true,
+    "production_changed": false,
+    "provider_changed": false,
+    "financial_postings": false,
+    "backup": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/field-ownership-before-dc89b37410347e30271b",
+    "web": {
+      "passed": true,
+      "sapi": "fpm-fcgi"
+    },
+    "screen_files_preserved": true,
+    "tables_verified": 368,
+    "rows_preserved": 34460,
+    "files_verified": 2,
+    "configuration_preserved": true,
+    "temporary_probe_removed": true,
+    "package": {
+      "directory": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/field-ownership-e8e5ef0eab2936a8501d",
+      "hashes": {
+        "install_thunderhawk_field_ownership.php": "86ed9e6bdbe173d24f797c41cd8a5b6d2e071b9fbc3c6296a21c3ab00c6ec265",
+        "field-ownership-package.json": "dc89b37410347e30271b28d68207e5361f82e7f86ac1b3fb34a89ee7db8f5433"
+      },
+      "ci_run": "43165602642",
+      "tested_commit": "c91dac20311ce1251ed2b7162ad2ab22d10b1422",
+      "action": "install",
+      "receipt": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030/field-ownership-install-result.json"
+    }
+  },
+  "inventory_verification": {
+    "checked_at": "2026-11-12T06:11:17+00:00",
+    "field_count": 2036,
+    "custom_fields_status": "partial",
+    "unverified_custom_entities": [
+      "placements",
+      "companies"
+    ],
+    "custom_definitions": [],
+    "review_required": 573,
+    "review_required_with_implemented_mapping": 0,
+    "current_source_matches": {
+      "core/integrations/staffing_field_contract.php": true,
+      "core/integrations/staffing_exchange_fields.php": true,
+      "core/integrations/staffing_workflow_fields.php": true,
+      "core/integrations/staffing_field_ownership.php": true
+    },
+    "records_changed": false,
+    "passed": true,
+    "field_keys_preserved": 2036,
+    "ownership_changes_verified": 111,
+    "no_sync_enabled": true
+  },
+  "local_checks": {
+    "ownership": 40,
+    "record_numbers": 332
+  },
+  "evidence_files": {
+    "field-ownership-install-result.json": "35459600ec840080cdd3fd5b1b0dd5a88c8ff1dc50988abd1e1df7c4707fecbe",
+    "installed-field-ownership-summary-20261112.json": "64c5bea89b0cddee88e8f8cc2282467cd544716882b1e25b9b1e035a42ec5264",
+    "field-ownership-dispositions-20261112.json": "a25ddc9e1bafeec57348ded2f5fbe7e8aa4a512e5f4f141fb87b3f69b760c105",
+    "financial-lineage-current-20261112.json": "4a0fbcf58afdf0dff7ce4dfb4a03ac943c9dde29ca991312691aae2d87f0c0d5",
+    "financial-lineage-provider-current-20261112.json": "9102013233b215d43d7e02e95b9f4401b1d4bce98884e503cf87260fec4839a0",
+    "financial-workbook-reconciliation-20261112.json": "3125ddb5c73f08911de8dc21d2c88e2b0e22cd8f15da7a193d96fa6594db19bd"
+  },
+  "financial_evidence": {
+    "provider_records_refreshed_via_read_only_endpoints": 5,
+    "source_captures_unchanged": 5,
+    "reviewed_placement_associations_preserved": 5,
+    "workbook_monthly_numeric_matches": 5,
+    "workbook_original_approval_stamp_proven": false,
+    "provider_currency_and_exact_service_dates_missing": true,
+    "monthly_invoices_same_period_as_october_payroll": false,
+    "automatic_backfill": false,
+    "workbook_modified": false,
+    "financial_postings": false
+  },
+  "limitations": [
+    "573 inventory fields still require explicit dispositions",
+    "Placement and company custom definitions remain unavailable; dedicated people registry has no visible pilot definitions",
+    "Ownership does not establish semantic definitions, enable sync, or prove acceptance in other tenants",
+    "Workbook supports monthly numeric comparison; provider currency, exact service dates and approval lineage remain unresolved",
+    "Remaining rendered lifecycle/conflict journeys and integrated financial comparison are not completed"
+  ],
+  "goal_complete": false
+}
