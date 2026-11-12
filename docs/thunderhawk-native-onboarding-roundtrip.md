@@ -26,6 +26,6 @@ The release and evidence are recorded in [the manifest](../deploy/thunderhawk-on
 
 ## Remaining work
 
-The overall integration is incomplete. P-387/PL-902 still needs publication to PurePay and the held two-hour payroll-input/result continuation. The original protected real payroll remains excluded from resubmission. Wider JobDiva field ownership, historical source evidence and the other operational flows remain governed by the full integration goal.
+The overall integration is incomplete. P-387/PL-902 subsequently completed native publication to PurePay and the held two-hour payroll-input/result continuation; see [the operational round trip](thunderhawk-native-operational-roundtrip.md), including its discovered company-access fix and remaining provider preservation exception. The original protected real payroll remains excluded from resubmission. Wider JobDiva field ownership, historical source evidence and the other operational flows remain governed by the full integration goal.
 
 This test used guarded fixture reactivation of a previously retired synthetic identity before native sign-in; native staff reactivation is not established by it. The portal required a separate assignment refresh after refreshing the onboarding details. Core's evidence caption currently shows the worker submission timestamp beside the staff-import label, although the stored timestamps are distinct and correct. Those interface issues and the other Quanta import/export GridFS call sites remain open.

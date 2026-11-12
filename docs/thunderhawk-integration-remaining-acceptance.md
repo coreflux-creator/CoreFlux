@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 12 native operational round trip and company-access correction
+
+The existing synthetic P-387 / PL-902 journey now continues through Quanta onboarding and corrected/independently approved time, native PurePayroll employee setup, native PurePay assignment creation, source reservation, one held two-hour $100 draft and a source-linked result saved in Core. Exact draft replay returns the same run; changed-request and double-allocation attempts are refused. Reloading Core recovers the original intake receipt and saved result.
+
+This acceptance exposed a legacy permission fallback that granted a home-company role when the requested company had no membership. Runtime `410670ea` corrects that fallback and is installed in the isolated Core pilot after all eleven CI jobs passed. The actual web process and installed service both deny the foreign-company check. The complete Core exchange preserved all 35,040 original rows across 378 tables; its temporary account is retired. See [the native round trip](thunderhawk-native-operational-roundtrip.md) and [its manifest](../deploy/thunderhawk-operational-roundtrip-20261112.json).
+
+Provider preservation remains open: two original isolated payment rows gained invoice-number labels matching their unchanged linked bills. Other original business fields and provider IDs are unchanged. PurePay's existing read-time enrichment persists those labels; a tenant-scoped in-memory correction is committed and has 76 passing tests but is not deployed. Its separate read-time payment-status synchronization also needs review. The draft remains held and no real financial execution occurred. The full field/cohort, JobDiva source, document-upload, financial provenance and remaining operational acceptance work below remains open; this is not full-goal completion.
+
 ## November 12 native payroll recipient receipts - installed checkpoint
 
 The previous goal turn made progress by recovering, installing and verifying independent commission terms. This continuation inspected current source and hosted state, then closed the mutable-recipient lookup in native economic earnings. Runtime `414f1ed9` passed all eleven jobs in [CI 43297528081](https://github.com/coreflux-creator/CoreFlux/actions/runs/43297528081), including 50 native payroll-source checks. New earnings retain their exact employment and company payroll-profile identities atomically; recalculation uses that receipt, and conflicting retries cannot rewrite it. Historical earnings without original recipient evidence are not silently adopted. None existed in the isolated pilot at installation.
