@@ -490,7 +490,13 @@ if ($method === 'POST' && $action !== '') {
         $pdo = getDB();
         $pdo->beginTransaction();
         try {
-            // New draft entry inherits placement/person/period, default status=draft, source=manual_entry
+            // Recheck under the write lock; a manual correction must not erase Quanta provenance.
+            $locked=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND id=? FOR UPDATE');
+            $locked->execute([(int)effectiveTenantIdForRequest(),$id]);
+            if ($locked->fetch(PDO::FETCH_ASSOC)!==$entry) throw new RuntimeException('Time changed. Refresh before correcting it.',409);
+            require_once __DIR__.'/../../../core/quanta/time_revisions.php';
+            quantaTimeAssertManualCorrection($pdo,(int)effectiveTenantIdForRequest(),$entry);
+            // Native manual correction path; Quanta corrections use the reviewed revision workflow.
             $newId = scopedInsert('time_entries', [
                 'placement_id'       => (int) $entry['placement_id'],
                 'person_id'          => (int) $entry['person_id'],
@@ -508,7 +514,7 @@ if ($method === 'POST' && $action !== '') {
             $pdo->commit();
         } catch (\Throwable $e) {
             $pdo->rollBack();
-            api_error('Correct failed: ' . $e->getMessage(), 500);
+            api_error('Correct failed: ' . $e->getMessage(), $e instanceof RuntimeException && $e->getCode()===409 ? 409 : 500);
         }
         timeAudit('time.entry.superseded', ['entry_id' => $id, 'by_entry_id' => $newId, 'reason' => $body['correction_reason']], $id);
         api_ok(['ok' => true, 'superseded_entry_id' => $id, 'new_entry_id' => $newId]);

@@ -12,6 +12,7 @@ import QuantaTimeControl, { QuantaTimeControlRecovery } from './QuantaTimeContro
 import { QuantaLegacyTimeRecovery } from './QuantaLegacyTime';
 import QuantaApprovalEvidence from './QuantaApprovalEvidence';
 import QuantaTimeReview, { QuantaTimeReviewRecovery } from './QuantaTimeReview';
+import QuantaTimeRevision from './QuantaTimeRevision';
 
 const endpoint = '/api/quanta.php?action=';
 const field = { padding: '8px 10px', border: '1px solid var(--cf-border)', borderRadius: 5, background: 'var(--cf-surface)', color: 'var(--cf-text-primary)', minHeight: 36 };
@@ -409,6 +410,7 @@ export default function QuantaSettings() {
                 <td style={cell}>{row.hours ?? '—'}</td><td style={cell}>{row.placement_id ? `${row.placement_number || 'Placement number unavailable'} · ${row.person_name}` : '—'}</td>
                 <td style={cell}><Status status={row.status} /></td><td style={{ ...cell, color: 'var(--cf-text-secondary)' }}>{row.message}<QuantaApprovalEvidence value={row.source_approval} />
                   {row.status === 'imported' && <QuantaTimeReview entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
+                  {['imported', 'conflict', 'update'].includes(row.status) && <QuantaTimeRevision entryId={row.id} tenantId={status.data?.workspace?.id} connectionRevision={status.data?.connection_revision} />}
                 </td>
               </tr>)}</tbody>
             </table>

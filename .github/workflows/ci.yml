@@ -262,6 +262,7 @@ jobs:
             test "$?" = 2
           fi
           php tests/quanta_time_provenance_mariadb.php
+          php tests/quanta_time_revisions_mariadb.php
           php tests/quanta_time_review_mariadb.php
           php tests/quanta_time_control_mariadb.php
           php tests/quanta_legacy_time_mariadb.php

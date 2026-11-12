@@ -857,7 +857,9 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
     staffingTimesheetRequirePositiveEntries($headerId, 'approve', $tenantId);
 
     $entryStmt = getDB()->prepare(
-        'SELECT id, placement_id, work_date, hours, status, created_by_user_id
+        'SELECT id, placement_id, work_date, hours, status, created_by_user_id,
+                approved_at, approved_by_user_id, approved_via, rate_snapshot_id,
+                dimension_snapshot_json, dimension_snapshot_hash
            FROM time_entries
           WHERE tenant_id = :tenant_id
             AND timesheet_id = :tid
@@ -894,6 +896,17 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
         $entryId = (int) $entry['id'];
         if ((float) $entry['hours'] <= 0) {
             throw new \RuntimeException("Timesheet #{$headerId} contains a zero-hour entry (#{$entryId}).");
+        }
+        // A source correction can leave independently approved siblings in the same week.
+        // Preserve their frozen evidence and approve only the replacement pending rows.
+        if ($entry['status']==='approved') {
+            if (empty($entry['approved_at']) || empty($entry['rate_snapshot_id']) || empty($entry['approved_via'])
+                || (empty($entry['approved_by_user_id']) && $entry['approved_via']!=='tokenized_client_email')
+                || empty($entry['dimension_snapshot_json']) || empty($entry['dimension_snapshot_hash'])
+                || !hash_equals($entry['dimension_snapshot_hash'],hash('sha256',$entry['dimension_snapshot_json']))) {
+                throw new \RuntimeException("Entry #{$entryId} has incomplete prior approval evidence. Review that entry separately.");
+            }
+            continue;
         }
         if (($entry['status'] ?? '') !== 'pending_review') {
             throw new \RuntimeException(
@@ -956,6 +969,7 @@ function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenant
             'dimensions' => $dimensionReadiness[$readinessKey],
         ];
     }
+    if (!$snapshots) throw new \RuntimeException('This week has no pending entries to approve. Refresh its status.');
     return $snapshots;
 }
 
@@ -973,7 +987,9 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
         throw new \InvalidArgumentException('Unsupported time-entry approval channel.');
     }
     require_once __DIR__.'/../../../core/quanta/time_current.php';
-    $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, array_keys($snapshots));
+    $sourceIds=$pdo->prepare('SELECT id FROM time_entries WHERE tenant_id=? AND timesheet_id=? AND status<>"superseded" ORDER BY id FOR UPDATE');
+    $sourceIds->execute([$tenantId,$headerId]);
+    $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, array_map('intval',$sourceIds->fetchAll(PDO::FETCH_COLUMN)));
     $headerUpdate = $pdo->prepare(
         "UPDATE staffing_timesheets
             SET status = 'approved',
@@ -1038,6 +1054,7 @@ function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snap
         'approval_token_id' => $options['approval_token_id'] ?? null,
         'quanta_source_check' => $sourceCheck ?: null,
     ], $tenantId);
+    timeReconcileTimesheetHeader($headerId,$userId);
 }
 
 /** Approve the whole week — cascade to rows. Two-eye control. */

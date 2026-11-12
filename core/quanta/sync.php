@@ -339,7 +339,7 @@ function quantaImportLookup(int $tenantId, array $entryIds, bool $lock = false, 
                 . ($review ? ", te.approved_by_user_id, te.approved_at, te.rate_snapshot_id, te.updated_at AS core_updated_at" : "") . "
                FROM quanta_time_imports qi
           LEFT JOIN time_entries te ON te.id = qi.time_entry_id AND te.tenant_id = qi.tenant_id
-              WHERE qi.tenant_id = ? AND qi.quanta_entry_id IN ({$holders})" . ($lock ? ' FOR UPDATE' : '')
+              WHERE qi.tenant_id = ? AND qi.is_current = 1 AND qi.quanta_entry_id IN ({$holders})" . ($lock ? ' FOR UPDATE' : '')
         );
         $stmt->execute(array_merge([$tenantId], $chunk));
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {

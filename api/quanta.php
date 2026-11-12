@@ -10,6 +10,7 @@ require_once __DIR__ . '/../core/quanta/workspace.php';
 require_once __DIR__ . '/../core/quanta/metadata_delivery.php';
 require_once __DIR__ . '/../core/quanta/worker_intake.php';
 require_once __DIR__ . '/../core/quanta/time_review_delivery.php';
+require_once __DIR__ . '/../core/quanta/time_revisions.php';
 require_once __DIR__ . '/../core/quanta/time_control_delivery.php';
 require_once __DIR__ . '/../core/quanta/legacy_time_delivery.php';
 require_once __DIR__ . '/../core/quanta/routes.php';
@@ -139,6 +140,21 @@ try {
     if ($method !== 'POST') api_error('Method not allowed', 405);
     rbac_legacy_require($user, 'integrations.quanta.manage');
     $body = api_json_body();
+
+    if (in_array($action,['time_revision_preview','time_revision_apply','time_revision_history'],true)) {
+        foreach (['time.view','time.entry.manage','time.review'] as $permission) rbac_legacy_require($user,$permission);
+        if (!is_string($body['source_entry_id']??null)) throw new InvalidArgumentException('Choose a Quanta source entry.');
+        $sourceId=$body['source_entry_id'];
+        if ($action==='time_revision_preview') api_ok(quantaTimeRevisionPreview($tenantId,$actorId,$sourceId));
+        if ($action==='time_revision_history') {
+            if (isset($body['before'])&&!is_int($body['before'])) throw new InvalidArgumentException('Invalid history page.');
+            api_ok(quantaTimeRevisionHistory($tenantId,$actorId,$sourceId,$body['before']??null));
+        }
+        if (($body['confirm_revision']??null)!==true || !is_string($body['review_hash']??null) || !is_string($body['reason']??null)) {
+            throw new InvalidArgumentException('Confirm the reviewed correction and provide its reason.');
+        }
+        api_ok(quantaTimeRevisionApply($tenantId,$actorId,$sourceId,$body['review_hash'],$body['reason']));
+    }
 
     if (in_array($action, ['profile_return_list', 'profile_return_status', 'profile_return_send', 'profile_return_resume'], true)) {
         rbac_legacy_require($user, 'people.view');

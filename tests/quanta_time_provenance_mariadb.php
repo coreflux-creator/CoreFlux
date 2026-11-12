@@ -12,7 +12,7 @@ $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$
 $db='coreflux_qorigin_'.(defined('COREFLUX_QLEGACY_FIXTURE')?'legacy_':(defined('COREFLUX_QROUTES_FIXTURE')?'routes_':(defined('COREFLUX_QCONTROL_FIXTURE')?'control_':(defined('COREFLUX_QPAYROLL_FIXTURE')?'payroll_':(defined('COREFLUX_QREVIEW_FIXTURE')?'review_':''))))).($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
 $migrate=static function(string $file)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);};
-foreach(['147_quanta_time_integration.sql','148_quanta_worker_identity.sql','149_quanta_time_source_context.sql','159_quanta_workspace_binding.sql','165_quanta_time_workspace.sql','170_quanta_time_approval_evidence.sql']as$file)$migrate($file);
+foreach(['147_quanta_time_integration.sql','148_quanta_worker_identity.sql','149_quanta_time_source_context.sql','159_quanta_workspace_binding.sql','165_quanta_time_workspace.sql','170_quanta_time_approval_evidence.sql','191_quanta_time_revisions.sql']as$file)$migrate($file);
 $pdo->exec('CREATE TABLE tenants(id BIGINT PRIMARY KEY,parent_id BIGINT NULL,tenant_type VARCHAR(20),name VARCHAR(80),is_active INT)');
 $pdo->exec("INSERT INTO tenants VALUES(1,NULL,'master','Synthetic pilot',1),(2,NULL,'master','Other pilot',1)");
 $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(40),scope_mode VARCHAR(20))');
