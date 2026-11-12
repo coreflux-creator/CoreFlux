@@ -69,6 +69,15 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$re
         $check($refused(fn()=>$apply('chain',$data),409),'Changed '.$change.' evidence invalidates the saved review');
     },true);
     $check($state()===$baseline,'Rejected stale reviews preserve all unrelated placement state');
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$pid,$payload,$preview,$apply,$body,$match,$read,$check):void{
+        foreach([['placement_client_chain','portal_fee_pct','placement_chain_msp'],['placement_referrals','fee_flat','placement_referral']]as[$table,$column,$linked])
+            $pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,internal_field,external_field,source_path,target_module,target_table,target_column,linked_entity,transform,enabled) VALUES(?,"jobdiva","placement",?,"reviewValue","reviewValue","placements",?,?,?,"none",1)')->execute([$tenant,'ci_review_'.$column,$table,$column,$linked]);
+        mappingUpsert($tenant,'jobdiva','jobdiva_assignment','99190001',$pid,array_replace($payload,['reviewValue'=>0.04]));
+        $before=$read('placement_referrals');$p=$preview('chain');$mspProposal=array_values(array_filter($p['proposed'],static fn($r)=>$r['values']['party_role']==='msp'))[0];
+        $check($p['selectable']&&(float)$mspProposal['values']['portal_fee_pct']===0.04,'Review includes configured source mappings rather than only default fields');
+        $apply('chain',$body($p,$match($p)));
+        $check($read('placement_referrals')===$before,'Selected-table mapping replay leaves another rule set unchanged');
+    },true);
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$pid,$chain,$preview,$match,$body,$apply,$check,$refused):void{
         $pdo->prepare('UPDATE placement_economic_parties SET payment_terms="NET10",payment_terms_overridden=1 WHERE tenant_id=? AND placement_id=? AND source_ref=?')->execute([$tenant,$pid,'chain:'.$chain['msp']]);
         $p=$preview('chain');$m=$match($p);$new=$m;foreach($p['proposed']as$r)if($m[$r['key']]===$chain['msp'])$new[$r['key']]=0;
@@ -89,6 +98,10 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$re
     $check(!in_array('chain_rules',$owned,true)&&in_array('referral_rules',$owned,true)&&in_array('commission_rules',$owned,true)&&in_array('notes',$owned,true),'Only the selected rule-set hold is released');
     $check([$read('placement_commissions'),$read('placement_referrals')]===$otherBefore,'Replacing chain rules does not touch referrals or commissions');
     $retry=$apply('chain',$data);$check(!empty($retry['replayed'])&&$state()===$saved,'Lost-response retry returns the original receipt without duplicate writes');
+    JobdivaStoredReviewTransaction::run(static function()use($edit,$chain,$apply,$data,$check):void{
+        $edit('chain','update',$chain['msp'],['portal_fee_pct'=>'0.0500']);$retry=$apply('chain',$data);
+        $check(!empty($retry['replayed'])&&$retry['currently_follows_source']===false,'Historical receipt replay does not claim a later Core-owned edit still follows the source');
+    },true);
     $different=$data;$different['matches']=array_fill_keys(array_keys($matches),0);
     $check($refused(fn()=>$apply('chain',$different),409),'Request ID cannot be reused for a different replacement');
     $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE event="placement.source_rules.replaced" AND target_id=? ORDER BY id DESC LIMIT 1');$q->execute([$pid]);$audit=(string)$q->fetchColumn();

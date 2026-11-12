@@ -130,10 +130,11 @@ function placementSourceRuleReplacementPlan(PDO $pdo,array $parent,string $kind)
         $proposed[$index]=['key'=>'proposal-'.($index+1),'values'=>$values,'identity'=>placementSourceRuleIdentity($kind,$values)];
     }
     $byRef=array_column($parties,null,'source_ref');$publicCurrent=[];
-    foreach($current as $row){$party=$byRef[$kind.':'.$row['id']]??[];$flags=[];
+    foreach($current as $row){$party=$byRef[$kind.':'.$row['id']]??[];$flags=[];$retained=[];
         foreach(['payment_terms_overridden','pwp_overridden','cycle_overridden']as$flag)if(!empty($party[$flag]))$flags[]=$flag;
+        foreach(['payment_terms_overridden'=>'payment_terms','pwp_overridden'=>'pwp_enabled','cycle_overridden'=>'operating_cycle_id']as$flag=>$field)if(!empty($party[$flag]))$retained[$field]=$party[$field]??null;
         $publicCurrent[]=['id'=>(int)$row['id'],'values'=>array_intersect_key($row,array_flip(placementSourceRuleSourceFields($kind))),
-            'identity'=>placementSourceRuleIdentity($kind,$row),'has_linked_records'=>placementSourceRuleHasLinks($kind,$row),'retained_participant_settings'=>$flags];
+            'identity'=>placementSourceRuleIdentity($kind,$row),'has_linked_records'=>placementSourceRuleHasLinks($kind,$row),'retained_participant_settings'=>$flags,'retained_participant_values'=>$retained];
     }
     $token=hash('sha256',serialize(['v'=>1,'parent'=>$parent,'kind'=>$kind,'source'=>$source['__row_token'],
         'current'=>$current,'parties'=>$parties,'proposed'=>$proposed,'references'=>$references,'issues'=>$issues]));
@@ -180,7 +181,7 @@ function placementSourceRuleReplace(int $tenant,int $placement,string $kind,arra
     return JobdivaStoredReviewTransaction::run(static fn()=>placementWithLockedRecord($tenant,$placement,
         static function(array $parent,PDO $pdo)use($tenant,$placement,$kind,$definition,$token,$request,$matches,$fingerprint,$user):array{
         $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="placement.source_rules.replaced" AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,"$.request_id"))=? ORDER BY id DESC LIMIT 1');$q->execute([currentTenantId(),$placement,$request]);$prior=$q->fetchColumn();
-        if($prior!==false){$receipt=json_decode($prior,true,512,JSON_THROW_ON_ERROR);if(!hash_equals($receipt['request_fingerprint']??'',$fingerprint))throw new RuntimeException('This request already belongs to a different replacement.',409);return $receipt['result']+['replayed'=>true];}
+        if($prior!==false){$receipt=json_decode($prior,true,512,JSON_THROW_ON_ERROR);if(!hash_equals($receipt['request_fingerprint']??'',$fingerprint))throw new RuntimeException('This request already belongs to a different replacement.',409);return $receipt['result']+['replayed'=>true,'currently_follows_source'=>!in_array($definition['field'],placementOwnershipFields($parent['coreflux_overridden_fields']??null),true)];}
         $plan=placementSourceRuleReplacementPlan($pdo,$parent,$kind);
         if(!hash_equals($plan['review_token'],$token))throw new RuntimeException('The source, rule values, identities or linked records changed. Load a new review.',409);
         $selected=placementSourceRuleMatchPlan($plan,$matches);$table=$definition['table'];$current=array_column($plan['__raw_current'],null,'id');

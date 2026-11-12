@@ -84,7 +84,7 @@ $a('per-entity applyAll iterates extracted sub-payloads through canonical aliase
     && str_contains($sync, 'jobdivaCanonicalApplyEntityTypes($joinedEntity)')
     && str_contains($sync, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
     && str_contains($sync, '$apply($mapEntityType, $payloadForApply, $ctx)')
-    && str_contains($sync, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx)"));
+    && str_contains($sync, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx, \$options)"));
 $a('joined applyAll wrapped in try/catch',
     preg_match('/\$apply = static function .*?try \{.*?integrationFieldMapApplyAll.*?catch \(\\\\Throwable \$e\)/s', $sync) === 1);
 $a('placement payload is canonicalized before upsert/apply',

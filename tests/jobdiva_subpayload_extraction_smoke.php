@@ -160,7 +160,7 @@ $a('payload with no joined data returns empty array', $ext3 === []);
 
 // 4) Backfill function is declared + uses extractor.
 echo "\n4. jobdivaBackfillJoinedIndexes wired\n";
-$syncSrc = file_get_contents("$root/core/jobdiva/sync.php");
+$syncSrc = str_replace("\r\n", "\n", file_get_contents("$root/core/jobdiva/sync.php"));
 $projectorSrc = file_get_contents("$root/core/jobdiva/projector.php");
 $a('jobdivaBackfillJoinedIndexes function declared',
     str_contains($syncSrc, 'function jobdivaBackfillJoinedIndexes(int $tenantId): array'));
@@ -219,7 +219,7 @@ $a('joined applyAll iterates extracted sub-payloads',
 $a('joined applyAll invokes integrationFieldMapApplyAll per canonical/native entity',
     str_contains($syncSrc, 'jobdivaCanonicalApplyEntityTypes($joinedEntity)')
     && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($joinedEntity, $mapEntityType, $subPayload)')
-    && str_contains($syncSrc, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx)")
+    && str_contains($syncSrc, "integrationFieldMapApplyAll(\$tenantId, 'jobdiva', \$entityType, \$payloadForApply, \$ctx, \$options)")
     && str_contains($syncSrc, '$apply($mapEntityType, $payloadForApply, $ctx)')
     && str_contains($syncSrc, "'staffing_job'       => \$baseCtx['staffing_job'],")
     && str_contains($syncSrc, "'contact'            => \$baseCtx['contact'],"));

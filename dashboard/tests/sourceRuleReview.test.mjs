@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 const require=createRequire(import.meta.url),React=require('react'),{create,act}=require('react-test-renderer');
 const compiled=await build({entryPoints:[fileURLToPath(new URL('../../modules/placements/ui/SourceRuleReview.jsx',import.meta.url))],bundle:true,platform:'node',format:'cjs',write:false,external:['react'],plugins:[{name:'review-fixture',setup(b){b.onResolve({filter:/lib\/api$/},()=>({path:'fixture-api',external:true}));}}]});
 const review={label:'Vendor chain',source_start_id:'9919',source_updated_at:'2026-11-12 12:00:00',review_token:'a'.repeat(64),selectable:true,can_apply:true,issues:[],references:{'company:17':{name:'Synthetic MSP'}},
-  current:[{id:44,identity:'company:17',has_linked_records:true,retained_participant_settings:['payment_terms_overridden'],values:{position:4,party_name:'Synthetic MSP',portal_fee_pct:'0.0300',is_payable:0}}],
+  current:[{id:44,identity:'company:17',has_linked_records:true,retained_participant_settings:['payment_terms_overridden'],retained_participant_values:{payment_terms:'NET10'},values:{position:4,party_name:'Synthetic MSP',portal_fee_pct:'0.0300',is_payable:0}}],
   proposed:[{key:'proposal-1',identity:'company:17',values:{position:1,party_name:'Synthetic MSP',portal_fee_pct:'0.0200',is_payable:1}}]};
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 const button=(f,label)=>f.tree.root.findAllByType('button').find(n=>text(n)===label);
@@ -27,7 +27,7 @@ test('review requires an explicit compatible match and shows changed values and 
   const f=await fixture();try{
     await f.click('Review JobDiva replacement');assert.equal(button(f,applyLabel).props.disabled,true);
     assert.equal(f.tree.root.findByType('select').props.value,'');assert.ok(text(f.tree.root).includes('must be preserved'));
-    await f.select();const t=text(f.tree.root);assert.ok(t.includes('3.00%'));assert.ok(t.includes('2.00%'));assert.ok(t.includes('No'));assert.ok(t.includes('Yes'));assert.ok(t.includes('payment terms'));
+    await f.select();const t=text(f.tree.root);assert.ok(t.includes('3.00%'));assert.ok(t.includes('2.00%'));assert.ok(t.includes('No'));assert.ok(t.includes('Yes'));assert.ok(t.includes('payment terms'));assert.ok(t.includes('Contract participant retains Payment terms: NET10'));
     assert.equal(button(f,applyLabel).props.disabled,false);assert.equal(f.calls.filter(c=>c.method==='post').length,0);
   }finally{f.close();}
 });
@@ -70,4 +70,8 @@ test('placement or rule-kind navigation discards stale review responses',async()
 });
 test('parent refresh failure does not misreport an applied replacement as failed',async()=>{
   const f=await fixture(undefined,{onApplied:()=>{throw new Error('Unavailable');}});try{await f.click('Review JobDiva replacement');await f.select();await f.click(applyLabel);assert.ok(text(f.tree.root).includes('Reviewed rules saved. Refresh'));assert.equal(button(f,applyLabel),undefined);}finally{f.close();}
+});
+test('retry receipt discloses when a later edit reclaimed Core ownership',async()=>{
+  const f=await fixture(async method=>method==='get'?structuredClone(review):{replayed:true,currently_follows_source:false});
+  try{await f.click('Review JobDiva replacement');await f.select();await f.click(applyLabel);assert.ok(text(f.tree.root).includes('A later Core edit has taken ownership again'));assert.equal(text(f.tree.root).includes('now follows JobDiva'),false);}finally{f.close();}
 });

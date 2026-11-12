@@ -10,6 +10,7 @@ const labels = {
   fee_basis: 'Calculation', duration_months: 'Duration in months', start_date: 'Start', end_date: 'End', notes: 'Notes',
   role: 'Role', user_id: 'User ID', split_pct: 'Split', basis: 'Calculation', flat_amount: 'Flat amount',
   effective_from: 'Effective from', effective_to: 'Effective to',
+  payment_terms: 'Payment terms', operating_cycle_id: 'Schedule reference',
 };
 const settings = { payment_terms_overridden: 'payment terms', pwp_overridden: 'paid when paid', cycle_overridden: 'schedule' };
 function display(field, value) {
@@ -61,10 +62,12 @@ export default function SourceRuleReview({ placementId, kind, disabled = false, 
     const request = ++generation.current;
     setPending(body); setBusy(true); setError(''); setNotice('');
     try {
-      await api.post(endpoint, body);
+      const result = await api.post(endpoint, body);
       if (request !== generation.current) return;
       setReview(null); setMatches({}); setPending(null);
-      setNotice('Reviewed rules saved. This rule set now follows JobDiva. Approved rates and financial history are unchanged.');
+      setNotice(result.currently_follows_source === false
+        ? 'This replacement was already saved. A later Core edit has taken ownership again. Refresh the Contract tab to review the current rules.'
+        : 'Reviewed rules saved. This rule set now follows JobDiva. Approved rates and financial history are unchanged.');
       try { await onApplied?.(); }
       catch { if (request === generation.current) setNotice('Reviewed rules saved. Refresh the Contract tab to see the updated rules.'); }
     } catch (e) {
@@ -96,6 +99,7 @@ export default function SourceRuleReview({ placementId, kind, disabled = false, 
           </label>
           {chosen?.has_linked_records && <p>Linked documents, credentials, portal and plan references stay with rule #{chosen.id}.</p>}
           {!!chosen?.retained_participant_settings?.length && <p>Separately reviewed participant settings stay in Core: {chosen.retained_participant_settings.map(key => settings[key] || key).join(', ')}.</p>}
+          {Object.entries(chosen?.retained_participant_values || {}).map(([field, value]) => <p key={field}>Contract participant retains {labels[field] || field}: <strong>{display(field, value)}</strong>.</p>)}
           <Values current={chosen?.values} proposed={proposal.values} />
         </div>;
       })}
