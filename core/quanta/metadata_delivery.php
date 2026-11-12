@@ -160,6 +160,9 @@ function quantaMetadataSend(int $tenantId,int $actorId,int $id,string $reviewHas
     if ((int)$snapshot['context']['entity_tenant_id']!==(int)$row['entity_tenant_id']
         || $snapshot['context']['operation']!==$row['operation']
         || integrationDeliveryHash($snapshot['payload'])!==integrationDeliveryHash($payload)) throw new RuntimeException('The directory, identity or proposed change has changed. Preview again.');
+    // Local validation must not turn an unattempted request into an uncertain delivery.
+    quantaContractWriteRequest($snapshot['verified']['api_key'],$snapshot['verified']['context']['workspace']['id'],
+        $row['operation'],$payload['body'],$payload['expected'],$row['idempotency_key']);
     if ($row['state']==='preview') integrationDeliveryApprove($pdo,$tenantId,$id,$actorId,$reviewHash);
     $claim=integrationDeliveryClaim($pdo,$tenantId,$id,array_intersect_key($snapshot['context'],array_flip(['binding_hash','source_hash','remote_hash'])));
     try {

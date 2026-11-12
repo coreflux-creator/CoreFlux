@@ -120,6 +120,22 @@ $check(quantaWriteContract('fixture-key','a','assignment.create',$desired,$desir
 $http=200;$response=array_replace($remote,$changed,['version'=>2,'delivery_id'=>$receipt]);
 $check(quantaWriteContract('fixture-key','a','assignment.update',$update['body'],$update['expected'],$idem)['version']===2,'conditional update response verifies full assignment');
 $last=$calls[count($calls)-1];$check($last[0]==='PATCH' && str_ends_with($last[1],'/assignments/'.$plan['remote_id']),'update route cannot target another assignment');
+$contextUpdate=quantaAssignmentPlan('a',array_replace($contextual,['assignment_context'=>$newContext]),$contextRemote);
+$storedContextUpdate=integrationDeliveryCanonical($contextUpdate);
+$response=array_replace($contextRemote,['assignment_context'=>$newContext,'version'=>4,'delivery_id'=>$receipt]);
+$check(quantaWriteContract('fixture-key','a','assignment.update',$storedContextUpdate['body'],$storedContextUpdate['expected'],$idem)['version']===4,
+    'canonical encrypted-envelope ordering preserves a reviewed reporting-field update');
+$beforeContext=count($calls);
+foreach ([array_replace($newContext,['department'=>'Unreviewed']),array_replace($newContext,['cost_center'=>1]),array_diff_key($newContext,['department'=>true])] as $badContext) {
+    $badBody=array_replace($storedContextUpdate['body'],['assignment_context'=>$badContext]);
+    $check($fails(fn()=>quantaWriteContract('fixture-key','a','assignment.update',$badBody,$storedContextUpdate['expected'],$idem)),
+        'reordered objects cannot conceal changed, mistyped or missing reporting values');
+}
+$check(count($calls)===$beforeContext,'reporting-value mismatch is rejected before provider IO');
+$storedLocationUpdate=integrationDeliveryCanonical($locationUpdate);
+$response=array_replace($remoteLocated,['version'=>2,'delivery_id'=>$receipt]);
+$check(quantaWriteContract('fixture-key','a','assignment.update',$storedLocationUpdate['body'],$storedLocationUpdate['expected'],$idem)['work_location']===$located['work_location'],
+    'canonical encrypted-envelope ordering also preserves location updates');
 $response=array_replace($remote,['worksite_id'=>'site-2','version'=>2,'delivery_id'=>$receipt]);
 $check(quantaWriteContract('fixture-key','a','assignment.update',$worksiteUpdate['body'],$worksiteUpdate['expected'],$idem)['worksite_id']==='site-2',
     'worksite revision confirms the complete assignment and preserves identity');

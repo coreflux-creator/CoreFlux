@@ -208,8 +208,8 @@ function quantaContractRecord(string $key,string $workspaceId,array $reference):
     return $row;
 }
 
-/** Validate the complete request again at the IO boundary; only the explicit operations below can write. */
-function quantaWriteContract(string $key,string $workspaceId,string $operation,array $body,array $expected,string $idempotencyKey): array
+/** Prepare a complete request without IO so local validation can finish before a durable send claim. */
+function quantaContractWriteRequest(string $key,string $workspaceId,string $operation,array $body,array $expected,string $idempotencyKey): array
 {
     if ($key==='' || preg_match('/[\r\n]/',$key) || !preg_match('/^[a-f0-9]{64}$/D',$idempotencyKey)) throw new InvalidArgumentException('A scoped key and durable delivery identity are required');
     $method='POST';
@@ -229,7 +229,13 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
             || ($expected['version']??null)!==$body['expected_version']+1) throw new InvalidArgumentException('A conditional assignment revision is required');
         $version=$expected['version']; unset($expected['version']);
         $expected=quantaAssignmentPayloadValidate($expected,false)+['version'=>$version];
-        foreach ($body as $field=>$value) if ($field!=='expected_version' && $expected[$field]!==$value) throw new InvalidArgumentException('Assignment confirmation differs from the request');
+        foreach ($body as $field=>$value) {
+            if ($field==='expected_version') continue;
+            if (!array_key_exists($field,$expected)
+                || integrationDeliveryHash([$expected[$field]])!==integrationDeliveryHash([$value])) {
+                throw new InvalidArgumentException('Assignment confirmation differs from the request');
+            }
+        }
         $id=quantaCoreRemoteId($workspaceId,$expected['placement']); $path='/assignments/'.$id; $codes=[200]; $method='PATCH';
     } elseif ($operation==='onboarding.publish') {
         require_once __DIR__.'/onboarding_contract.php';
@@ -256,6 +262,14 @@ function quantaWriteContract(string $key,string $workspaceId,string $operation,a
     $url=quantaApiBase().QUANTA_CORE_CONTRACT_PATH.$path;
     $json=json_encode($body,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
     $headers=['Authorization: Bearer '.$key,'Accept: application/json','Content-Type: application/json','Idempotency-Key: '.$idempotencyKey];
+    return compact('id','method','url','json','headers','expected','codes');
+}
+
+/** Validate again at the IO boundary; only the explicit reviewed operations above can write. */
+function quantaWriteContract(string $key,string $workspaceId,string $operation,array $body,array $expected,string $idempotencyKey): array
+{
+    ['id'=>$id,'method'=>$method,'url'=>$url,'json'=>$json,'headers'=>$headers,'expected'=>$expected,'codes'=>$codes]
+        = quantaContractWriteRequest($key,$workspaceId,$operation,$body,$expected,$idempotencyKey);
     try {
         if (isset($GLOBALS['__quanta_core_write_transport']) && is_callable($GLOBALS['__quanta_core_write_transport'])) {
             $result=($GLOBALS['__quanta_core_write_transport'])($method,$url,$headers,$json);

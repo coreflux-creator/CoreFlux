@@ -140,13 +140,27 @@ $check(quantaMetadataReceipt(11,7,$aid,$p['delivery']['review_hash'])['delivery'
     &&integrationDeliveryGet($pdo,11,$aid)===$originalCompanyReceipt&&count($writes)===2,
     'original receipt reads preserve company identity, delivery bytes and provider write count');
 $check(quantaMetadataPreview(11,7,'placement',201,'site-1')['status']==='unchanged','assignment readback agrees with Core');
-$pdo->exec("UPDATE placements SET title='Second reviewed title' WHERE id=201");
+$pdo->exec("UPDATE placements SET title='Second reviewed title',department=NULL,remote_policy='remote' WHERE id=201");
 $p=quantaMetadataPreview(11,7,'placement',201,'site-1');$aid=(int)$p['delivery']['id'];
 $providerRows[$remoteId]['version']=2;
 $check($fails(fn()=>quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash'])) && count($writes)===2,'remote edit invalidates the reviewed assignment version');
 $p=quantaMetadataPreview(11,7,'placement',201,'site-1');$aid=(int)$p['delivery']['id'];
+$reviewedRow=integrationDeliveryGet($pdo,11,$aid);
+$pdo->prepare('UPDATE integration_deliveries SET idempotency_key=? WHERE id=?')->execute([str_repeat('z',64),$aid]);
+$invalidEnvelope=integrationDeliveryGet($pdo,11,$aid);
+$check($fails(fn()=>quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash']))&&count($writes)===2,
+    'invalid durable request identity is rejected without provider IO');
+$check(integrationDeliveryGet($pdo,11,$aid)===$invalidEnvelope,
+    'local request validation leaves the reviewed envelope unclaimed and unchanged');
+$pdo->prepare('UPDATE integration_deliveries SET idempotency_key=? WHERE id=?')->execute([$reviewedRow['idempotency_key'],$aid]);
 quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash']);
 $check($providerRows[$remoteId]['version']===3 && count($writes)===3,'fresh conditional update increments the provider version once');
+$check($providerRows[$remoteId]['assignment_context']['department']===null
+    &&$providerRows[$remoteId]['assignment_context']['remote_policy']==='remote'
+    &&$providerRows[$remoteId]['assignment_context']['cost_center']==='001',
+    'encrypted delivery updates and clears only the reviewed reporting fields');
+$check(quantaMetadataSend(11,7,$aid,$p['delivery']['review_hash'])['state']==='delivered'&&count($writes)===3,
+    'repeating the reporting update returns its receipt without another revision');
 $pdo->exec("UPDATE placements SET status='ended',actual_end_date='2026-10-20' WHERE id=201");
 $p=quantaMetadataPreview(11,7,'placement',201,'site-1');$aid=(int)$p['delivery']['id'];
 $mode='timeout_after';
