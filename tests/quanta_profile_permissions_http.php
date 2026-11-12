@@ -205,27 +205,27 @@ try {
     $financialRead='/api/staffing_reconciliation.php';$evidence='/api/staffing_financial_evidence.php';
     $financialCalls=[[$financialContext,null],[$financialRead,[]],[$evidence.'?action=history',[]],[$evidence.'?action=download',[]],[$evidence.'?action=preview',[]],[$evidence.'?action=save',[]]];
     foreach($financialCalls as[$path,$body])$expect($request($path,$body,false)[0]===401,'Anonymous financial review denied: '.$path);
-    $expect($request($financialContext)[0]===403,'A people/time reviewer alone cannot read financial evidence');
+    $expect($request($financialContext,null)[0]===403,'A people/time reviewer alone cannot read financial evidence');
     $financialModules=['accounting','ap','billing','placements','people','time','payroll'];
     foreach($financialModules as$module)RBACResolver::grantModule($membership,$module,'read',[$tenant],$actor);
-    [$status,$context]=$request($financialContext);
+    [$status,$context]=$request($financialContext,null);
     $expect($status===200&&$context['tenant_id']===$tenant&&$context['permissions']['workbook_manage']===false,'Financial reader gets scoped report access without bank administration');
     foreach($financialModules as$module){
         RBACResolver::revokeModule($membership,$module,$actor);
-        $expect($request($financialContext)[0]===403,'Financial context requires the underlying '.$module.' read grant');
+        $expect($request($financialContext,null)[0]===403,'Financial context requires the underlying '.$module.' read grant');
         RBACResolver::grantModule($membership,$module,'read',[$tenant],$actor);
     }
     foreach([[$financialRead,[]],[$evidence.'?action=history',[]],[$evidence.'?action=download',[]]]as[$path,$body])
         $expect($request($path,$body)[0]===422,'Reader reaches input validation for read-only evidence: '.$path);
     foreach(['preview','save']as$action)$expect($request($evidence.'?action='.$action,[])[0]===403,'Reader cannot change workbook support: '.$action);
-    $expect($request('/api/purepay_connection.php?action=status')[0]===403,'Financial report access does not grant connection administration');
+    $expect($request('/api/purepay_connection.php?action=status',null)[0]===403,'Financial report access does not grant connection administration');
     foreach($financialCalls as[$path,$body])$expect($request($path,$body,true,999)[0]===403,'Foreign company pin cannot use financial review: '.$path);
     RBACResolver::grantModule($membership,'accounting','admin',[$tenant],$actor);
-    [$status,$context]=$request($financialContext);
+    [$status,$context]=$request($financialContext,null);
     $expect($status===200&&$context['permissions']['workbook_manage']===true,'Existing authorized evidence manager retains review controls');
     foreach(['preview','save']as$action)$expect($request($evidence.'?action='.$action,[])[0]===422,'Manager reaches evidence input validation: '.$action);
     RBACResolver::grantModule($membership,'accounting','read',[$tenant],$actor);
-    [$status,$context]=$request($financialContext);
+    [$status,$context]=$request($financialContext,null);
     $expect($status===200&&$context['permissions']['workbook_manage']===false,'Same session loses evidence management after downgrade');
     $request('/logout.php',null,true);
     $expect($call('profile_return_list')[0]===401,'Native logout invalidates the session');
