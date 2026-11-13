@@ -494,7 +494,8 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
     if (function_exists('jobdivaBackfillJoinedIndexes')) {
         $backfill = jobdivaBackfillJoinedIndexes($tenantId, $userId, $limit);
         $summary['failed'] = (int) ($backfill['failed'] ?? 0);
-        $summary['payloads_refreshed'] = (int) ($backfill['enrichment_ran_for'] ?? 0);
+        $summary['payloads_refreshed'] = (int) ($backfill['snapshots_refreshed'] ?? 0);
+        $summary['checked'] = (int) ($backfill['placements_walked'] ?? 0) + $summary['failed'];
         foreach ((array) ($backfill['sub_records_indexed'] ?? []) as $count) {
             $summary['subpayload_indexes_refreshed'] += (int) $count;
         }
@@ -509,8 +510,7 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
     // contract terms, classification, rates, and participant rules. A normal
     // JobDiva Sync applies current source values through ownership checks;
     // Repair only refreshes source snapshots/indexes and fixes graph links.
-    $summary['checked'] = $summary['payloads_refreshed'];
-    $summary['skipped'] = $summary['checked'];
+    $summary['skipped'] = $summary['checked'] - $summary['failed'];
 
     if (function_exists('jobdivaAudit')) {
         try {

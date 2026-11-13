@@ -49,6 +49,7 @@ if ((int) ($summary['failed'] ?? 0) > 0) {
 api_ok([
     'ok'                   => true,
     'placements_walked'    => (int) ($summary['placements_walked'] ?? 0),
+    'snapshots_refreshed'   => (int) ($summary['snapshots_refreshed'] ?? 0),
     'sub_records_indexed'  => $summary['sub_records_indexed'] ?? [],
     'enrichment_ran_for'   => (int) ($summary['enrichment_ran_for'] ?? 0),
     'enrichment_errors'    => $summary['enrichment_errors'] ?? [],

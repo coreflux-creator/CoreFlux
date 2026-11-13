@@ -28,6 +28,7 @@ try{
     finally{$pdo->exec('DROP TRIGGER cf_http_joined_audit');}
     [$status,$refreshed]=$request('POST',$indexPath,[],true,$indexTenant);
     $expect($status===200&&(int)$refreshed['placements_walked']===1&&!empty($refreshed['sub_records_indexed']['person']),'Native source-field refresh indexes original-workspace fields for a shared placement: '.json_encode([$status,$refreshed],JSON_THROW_ON_ERROR));
+    $expect((int)$refreshed['enrichment_ran_for']===0&&(int)$refreshed['snapshots_refreshed']<=1,'Local source-field refresh reports completed snapshots separately from remote lookups');
     $expect($snapshot(['people','placements','placement_rates','placement_economic_parties','core_record_numbers','entity_sync_history'])===$nativeBefore,'Native field refresh preserves business rows, approved history and permanent numbers');
     $q=$pdo->prepare('SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="jobdiva.source_fields.refreshed"');$q->execute([$indexTenant,$indexMappingId]);$receipt=$q->fetch(PDO::FETCH_ASSOC);$meta=json_decode($receipt['meta_json'],true,512,JSON_THROW_ON_ERROR);
     $expect((int)$receipt['actor_user_id']===$actor&&$meta['directory_owner_id']===$tenant&&$meta['source_external_id']==='jd:99199001','Native refresh receipt retains authenticated actor, owner and original source pair');

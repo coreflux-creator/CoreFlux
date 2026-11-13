@@ -95,7 +95,7 @@ function jobdivaRefreshJoinedIndexes(int $workspace,?int $actor=null,int $limit=
     $pdo=getDB();
     if($pdo->inTransaction())throw new RuntimeException('Start source-field refresh outside an existing transaction.',409);
     $limit=max(1,min(5000,$limit));
-    $summary=['placements_walked'=>0,'sub_records_indexed'=>array_fill_keys(['placement','staffing_job','person','company','job','jobdiva_customer','contact','assignment'],0),'enrichment_ran_for'=>0,'enrichment_errors'=>[],'failed'=>0,'endpoint_diagnostics'=>[]];
+    $summary=['placements_walked'=>0,'snapshots_refreshed'=>0,'sub_records_indexed'=>array_fill_keys(['placement','staffing_job','person','company','job','jobdiva_customer','contact','assignment'],0),'enrichment_ran_for'=>0,'enrichment_errors'=>[],'failed'=>0,'endpoint_diagnostics'=>[]];
     $q=$pdo->prepare("SELECT id FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='placement' AND sync_status='ok' AND payload_snapshot IS NOT NULL ORDER BY id LIMIT {$limit}");$q->execute([$workspace]);
     foreach($q->fetchAll(PDO::FETCH_COLUMN)as$id){
         try{
@@ -111,6 +111,7 @@ function jobdivaRefreshJoinedIndexes(int $workspace,?int $actor=null,int $limit=
                 }
             }
             $result=jobdivaJoinedIndexApply($expected,$payload,$actor);$summary['placements_walked']++;
+            $summary['snapshots_refreshed']+=(int)$result['snapshot_changed'];
             foreach($result['sub_records_indexed']as$type=>$count)$summary['sub_records_indexed'][$type]=($summary['sub_records_indexed'][$type]??0)+$count;
         }catch(Throwable $e){$summary['failed']++;if(count($summary['enrichment_errors'])<10)$summary['enrichment_errors'][]='Source link '.$id.': '.$e->getMessage();}
     }
