@@ -10,16 +10,17 @@ $nativeTimeState=static function()use($pdo):array {
 $nativeInsert=static function(string $table,array $row)use($pdo):int {
     $pdo->prepare('INSERT INTO '.$table.' (`'.implode('`,`',array_keys($row)).'`) VALUES('.implode(',',array_fill(0,count($row),'?')).')')->execute(array_values($row));return(int)$pdo->lastInsertId();
 };
-$nativeSeed=static function(string $suffix)use($pdo,$nativeInsert,$tenant,$actor):array {
-    $person=$nativeInsert('people',['tenant_id'=>$tenant,'first_name'=>'Synthetic','last_name'=>'Native time race '.$suffix,'classification'=>'w2','status'=>'active']);
+$nativeSeed=static function(string $suffix,?int $timeOwner=null)use($pdo,$nativeInsert,$tenant,$actor):array {
+    $timeOwner=$timeOwner??$tenant;
+    $person=$nativeInsert('people',['tenant_id'=>$tenant,'first_name'=>'Synthetic','last_name'=>'Native time race '.$suffix,'email_primary'=>'native-race-'.substr(hash('sha256',$suffix),0,20).'@example.invalid','classification'=>'w2','status'=>'active']);
     $placement=$nativeInsert('placements',['tenant_id'=>$tenant,'person_id'=>$person,'title'=>'Native time race '.$suffix,'status'=>'active','engagement_type'=>'w2','start_date'=>'2026-10-01','worksite_country'=>'US']);
-    $q=$pdo->prepare('SELECT id FROM time_periods WHERE tenant_id=? AND start_date="2026-10-05" AND end_date="2026-10-11"');$q->execute([$tenant]);
-    $period=(int)$q->fetchColumn()?:$nativeInsert('time_periods',['tenant_id'=>$tenant,'start_date'=>'2026-10-05','end_date'=>'2026-10-11','label'=>'Native time race']);
-    $sheet=$nativeInsert('staffing_timesheets',['tenant_id'=>$tenant,'person_id'=>$person,'period_start'=>'2026-10-05','period_end'=>'2026-10-11','status'=>'submitted','total_hours'=>8]);
-    $entry=$nativeInsert('time_entries',['tenant_id'=>$tenant,'person_id'=>$person,'placement_id'=>$placement,'period_id'=>$period,'timesheet_id'=>$sheet,'work_date'=>'2026-10-05','hour_type'=>'regular','category'=>'regular_billable','hours'=>8,'status'=>'pending_review','created_by_user_id'=>$actor]);
+    $q=$pdo->prepare('SELECT id FROM time_periods WHERE tenant_id=? AND start_date="2026-10-05" AND end_date="2026-10-11"');$q->execute([$timeOwner]);
+    $period=(int)$q->fetchColumn()?:$nativeInsert('time_periods',['tenant_id'=>$timeOwner,'start_date'=>'2026-10-05','end_date'=>'2026-10-11','label'=>'Native time race']);
+    $sheet=$nativeInsert('staffing_timesheets',['tenant_id'=>$timeOwner,'person_id'=>$person,'period_start'=>'2026-10-05','period_end'=>'2026-10-11','status'=>'submitted','total_hours'=>8]);
+    $entry=$nativeInsert('time_entries',['tenant_id'=>$timeOwner,'person_id'=>$person,'placement_id'=>$placement,'period_id'=>$period,'timesheet_id'=>$sheet,'work_date'=>'2026-10-05','hour_type'=>'regular','category'=>'regular_billable','hours'=>8,'status'=>'pending_review','created_by_user_id'=>$actor]);
     return compact('person','placement','period','sheet','entry');
 };
-foreach(['COMMIT','ROLLBACK']as$decision)foreach(['approve','supersede','source_link','archive','merge','person_archive','daily_total']as$change) {
+foreach(['COMMIT','ROLLBACK']as$decision)foreach(['approve','supersede','source_link','archive','merge','person_archive','period_lock','daily_total']as$change) {
     $fixture=$nativeSeed($change.' '.$decision);extract($fixture,EXTR_PREFIX_ALL,'nt');
     $survivor=null;
     if($change==='merge')$survivor=$nativeInsert('placements',['tenant_id'=>$tenant,'person_id'=>$nt_person,'title'=>'Native race current placement','status'=>'active','engagement_type'=>'w2','start_date'=>'2026-10-01','worksite_country'=>'US']);
@@ -29,6 +30,7 @@ foreach(['COMMIT','ROLLBACK']as$decision)foreach(['approve','supersede','source_
     elseif($change==='source_link')$nativeInsert('quanta_time_imports',['tenant_id'=>$tenant,'quanta_entry_id'=>'native-race-'.$nt_entry,'component'=>'regular','time_entry_id'=>$nt_entry,'timesheet_id'=>$nt_sheet,'source_hash'=>str_repeat('b',64),'source_timesheet_status'=>'approved']);
     elseif($change==='archive')$pdo->prepare('UPDATE placements SET deleted_at=NOW() WHERE id=?')->execute([$nt_placement]);
     elseif($change==='person_archive')$pdo->prepare('UPDATE people SET deleted_at=NOW() WHERE id=?')->execute([$nt_person]);
+    elseif($change==='period_lock')$pdo->prepare('UPDATE time_periods SET status="locked" WHERE id=?')->execute([$nt_period]);
     elseif($change==='merge') {
         coreRecordNumbersMerge($pdo,$tenant,'placement',$survivor,$nt_placement,$actor);
         $pdo->prepare('UPDATE placements SET deleted_at=NOW() WHERE id=?')->execute([$nt_placement]);
@@ -39,6 +41,29 @@ foreach(['COMMIT','ROLLBACK']as$decision)foreach(['approve','supersede','source_
     $before=$nativeTimeState();$result=$finish($worker);
     if($decision==='COMMIT')$check(!$result['ok']&&$nativeTimeState()===$before,'Committed '.$change.' refuses stale native time edit without changing time or receipts: '.json_encode($result));
     else $check($result['ok']&&(float)$result['result']['entry']['hours']===7.0&&$result['result']['timesheet']['status']==='draft','Rolled-back '.$change.' permits the unchanged original time to be edited: '.json_encode($result));
+    if($change==='period_lock')$pdo->prepare('UPDATE time_periods SET status="open" WHERE id=?')->execute([$nt_period]);
+}
+foreach(['people','placements']as$directoryModule)foreach(['COMMIT','ROLLBACK']as$decision) {
+    $priorPolicies=[];
+    foreach(['people','placements','staffing']as$module) {
+        $q=$pdo->prepare('SELECT scope_mode FROM tenant_module_scope WHERE tenant_id=? AND module_key=?');$q->execute([$child,$module]);$priorPolicies[$module]=$q->fetchColumn();
+        $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,"shared") ON DUPLICATE KEY UPDATE scope_mode="shared"')->execute([$child,$module]);
+    }
+    try {
+        $fixture=$nativeSeed('directory '.$directoryModule.' '.$decision,$child);extract($fixture,EXTR_PREFIX_ALL,'nt');
+        $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$directoryModule]);
+        $worker=$spawn(['mode'=>'native','entity'=>'native_time','workspace'=>$child,'actor'=>$actor,'payload'=>['id'=>$nt_entry,'hours'=>7]]);
+        $check($waiting($worker),'Native time edit waits for its '.$directoryModule.' directory policy '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$nativeTimeState();$result=$finish($worker);
+        if($decision==='COMMIT')$check(!$result['ok']&&$nativeTimeState()===$before,'Committed '.$directoryModule.' isolation refuses the obsolete shared directory without writes');
+        else $check($result['ok']&&(int)$result['result']['entry']['tenant_id']===$child&&(float)$result['result']['entry']['hours']===7.0,'Rolled-back '.$directoryModule.' policy keeps time in the original child workspace');
+    } finally {
+        if($pdo->inTransaction())$pdo->rollBack();
+        foreach($priorPolicies as$module=>$mode) {
+            if($mode===false)$pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=? AND module_key=?')->execute([$child,$module]);
+            else $pdo->prepare('UPDATE tenant_module_scope SET scope_mode=? WHERE tenant_id=? AND module_key=?')->execute([$mode,$child,$module]);
+        }
+    }
 }
 // Two individually valid new entries cannot exceed the worker's daily capacity together.
 foreach(['COMMIT','ROLLBACK']as$decision) {

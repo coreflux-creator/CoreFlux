@@ -41,6 +41,12 @@
         RBACResolver::grantModule($member,'staffing','admin',[$workspace],$actor);
         [$status,$weekData]=$request('GET',$week,null,true,$workspace);
         $expect($status===200&&(int)$weekData['timesheet']['id']===$sheet&&count($weekData['entries'])===2,'Native week reads original workspace time despite shared staffing catalog');
+        foreach(['locked','closed']as$periodStatus) {
+            $pdo->prepare('UPDATE time_periods SET status=? WHERE id=?')->execute([$periodStatus,$period]);$before=$snapshot($tables);
+            foreach([['entry_save',['id'=>$pending,'hours'=>7]],['entry_delete',['id'=>$pending]],['reopen',['id'=>$sheet]],['entry_save',['timesheet_id'=>$sheet,'placement_id'=>$placement,'work_date'=>'2026-10-06','hours'=>1]]]as[$action,$body])
+                $expect($request('POST',$api.$action,$body,true,$workspace)[0]===409&&$snapshot($tables)===$before,'Native time respects the '.$periodStatus.' original period: '.$action);
+            $pdo->prepare('UPDATE time_periods SET status="open" WHERE id=?')->execute([$period]);
+        }
         foreach([
             ['placement_id'=>$foreign['placement']],['placement_id'=>$ended],['work_date'=>'2026-10-12'],['hours'=>23],['hours'=>'invalid'],['timesheet_id'=>$parentSheet],
         ]as$invalid) {
@@ -96,6 +102,13 @@
         $q=$pdo->prepare("SELECT payload FROM artifact_events WHERE tenant_id=? AND event_type='timesheet.entry_deleted' ORDER BY id DESC LIMIT 1");$q->execute([$workspace]);$receipt=json_decode((string)$q->fetchColumn(),true);
         $expect((int)$receipt['before']['id']===$pending&&(float)$receipt['before']['hours']===6.0,'Deleted editable time retains its complete prior row in the audit receipt');
         $expect($snapshot([...$graphTables,...$financialTables])===$protected,'Native time edits preserve all identities, rates, provider mappings and financial records');
+        $retainedEntry=$entry($workspace,$sheet,$period,1,'draft','2026-10-07');
+        $current=$insert('placements',['tenant_id'=>$tenant,'person_id'=>$person,'title'=>'Synthetic surviving time placement','status'=>'active','engagement_type'=>'w2','start_date'=>'2026-10-01','worksite_country'=>'US']);
+        $pdo->beginTransaction();coreRecordNumbersMerge($pdo,$tenant,'placement',$current,$placement,$actor);
+        $pdo->prepare('UPDATE placements SET deleted_at=NOW() WHERE id=?')->execute([$placement]);$pdo->commit();
+        $before=$snapshot($tables);
+        foreach([['entry_save',['id'=>$retainedEntry,'placement_id'=>$current,'hours'=>1]],['entry_delete',['id'=>$retainedEntry]],['reopen',['id'=>$sheet]]]as[$action,$body])
+            $expect($request('POST',$api.$action,$body,true,$workspace)[0]===409&&$snapshot($tables)===$before,'Retained-placement time cannot be silently retargeted, removed or reopened: '.$action);
         RBACResolver::revokeModule($member,'staffing',$actor);$before=$snapshot($tables);
         $expect($request('POST',$api.'reopen',['id'=>$sheet],true,$workspace)[0]===403&&$snapshot($tables)===$before,'Same session immediately loses native time write access after revocation');
     } finally {

@@ -635,27 +635,7 @@ function staffingTimesheetBulkSaveLocked(int $userId, array $payload): array {
             staffingTimesheetValidatePlacement($placementId, $personId, $workDate);
             staffingTimesheetAssertDailyHours($personId, $workDate, $hours, $entryId);
 
-            // Resolve period_id (legacy NOT-NULL column on time_entries).
-            // Distinct :wd_lo/:wd_hi to satisfy PDO_MYSQL native prepares.
-            $period = staffingTimeFind(
-                "SELECT id FROM time_periods
-                  WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi AND status != 'closed'
-                  ORDER BY start_date DESC LIMIT 1",
-                ['wd_lo' => $workDate, 'wd_hi' => $workDate]
-            );
-            if (!$period) {
-                // Auto-create a weekly period if missing — keeps the UX flowing
-                // for tenants who haven't pre-seeded periods.
-                $pid = staffingTimeInsert('time_periods', [
-                    'period_type' => 'weekly',
-                    'start_date'  => $periodStart,
-                    'end_date'    => $periodEnd,
-                    'label'       => "Week of {$periodStart}",
-                    'status'      => 'open',
-                ]);
-            } else {
-                $pid = (int) $period['id'];
-            }
+            $periodId=staffingTimeResolveOpenPeriod($workDate,$periodStart,$periodEnd);
 
             $category = STAFFING_HOUR_TYPE_TO_CATEGORY[$hourType] ?? 'regular_billable';
             $billable = in_array($hourType, ['regular','overtime','doubletime'], true) ? 1 : 0;
@@ -664,7 +644,7 @@ function staffingTimesheetBulkSaveLocked(int $userId, array $payload): array {
             $base = [
                 'placement_id' => $placementId,
                 'person_id'    => $personId,
-                'period_id'    => $pid,
+                'period_id'    => $periodId,
                 'timesheet_id' => $headerId,
                 'work_date'    => $workDate,
                 'hour_type'    => $hourType,
@@ -1636,20 +1616,7 @@ function staffingTimeEntrySaveLocked(int $userId, array $payload): array {
     // siblings retain their status and immutable approval evidence.
     if ($header['status'] !== 'draft') $header = staffingTimesheetReopen($userId, $tsId, 'edited inline');
 
-    // Period resolution (same logic as bulk_save).
-    $period = staffingTimeFind(
-        "SELECT id FROM time_periods
-          WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi AND status != 'closed'
-          ORDER BY start_date DESC LIMIT 1",
-        ['wd_lo' => $workDate, 'wd_hi' => $workDate]
-    );
-    $periodId = $period ? (int) $period['id'] : (int) staffingTimeInsert('time_periods', [
-        'period_type' => 'weekly',
-        'start_date'  => (string) $header['period_start'],
-        'end_date'    => (string) $header['period_end'],
-        'label'       => 'Week of ' . $header['period_start'],
-        'status'      => 'open',
-    ]);
+    $periodId=staffingTimeResolveOpenPeriod($workDate,(string)$header['period_start'],(string)$header['period_end']);
 
     $category = STAFFING_HOUR_TYPE_TO_CATEGORY[$hourType] ?? 'regular_billable';
     $billable = in_array($hourType, ['regular','overtime','doubletime'], true) ? 1 : 0;

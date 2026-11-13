@@ -751,6 +751,7 @@ try{
     foreach($createdTenants as$createdTenant){
         $pdo->prepare('DELETE ma FROM membership_module_access ma JOIN tenant_memberships tm ON tm.id=ma.membership_id WHERE tm.tenant_id=?')->execute([$createdTenant]);
         foreach(['tenant_memberships','jobdiva_connections','payroll_profiles','people_employment_links','people_employees']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+        foreach(['quanta_time_imports','time_entries','staffing_timesheets','time_periods','artifact_events','artifact_relationships','artifact_objects']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     }
     foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','ap_vendors_index','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','jobdiva_sync_audit','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);

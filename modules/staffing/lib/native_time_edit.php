@@ -57,10 +57,28 @@ function staffingTimeAssertEditableEntry(array $entry): void
 {
     if (!in_array($entry['status']??'', ['draft','pending_review','rejected'],true)) throw new RuntimeException('Approved, superseded or downstream time must retain its original evidence. Use the correction workflow.',409);
     staffingTimesheetAssertEntryNotSettled($entry);
+    staffingTimeAssertOpenEntryPeriod($entry);
     staffingTimeCurrentPlacement((int)$entry['placement_id'],(int)$entry['person_id']);
     $q=getDB()->prepare('SELECT id FROM quanta_time_imports WHERE tenant_id=? AND time_entry_id=? FOR UPDATE');
     $q->execute([staffingTimeWorkspace(),$entry['id']]);
     if ($q->fetchColumn()) throw new RuntimeException('Use source-time correction review to change imported Quanta time.',409);
+}
+
+function staffingTimeAssertOpenEntryPeriod(array $entry): void
+{
+    $period=staffingTimeFind('SELECT id,status FROM time_periods WHERE tenant_id=:tenant_id AND id=:id',['id'=>$entry['period_id']]);
+    if (!$period || $period['status']!=='open') throw new RuntimeException('The original time period is locked, closed or unavailable. Review its correction workflow.',409);
+}
+
+function staffingTimeResolveOpenPeriod(string $workDate,string $periodStart,string $periodEnd): int
+{
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected native time edit is required.');
+    $period=staffingTimeFind('SELECT id,status FROM time_periods WHERE tenant_id=:tenant_id AND start_date<=:day_lo AND end_date>=:day_hi ORDER BY start_date DESC,id DESC LIMIT 1',['day_lo'=>$workDate,'day_hi'=>$workDate]);
+    if ($period) {
+        if ($period['status']!=='open') throw new RuntimeException('The time period for this date is locked or closed. Review its correction workflow.',409);
+        return (int)$period['id'];
+    }
+    return staffingTimeInsert('time_periods',['period_type'=>'weekly','start_date'=>$periodStart,'end_date'=>$periodEnd,'label'=>'Week of '.$periodStart,'status'=>'open']);
 }
 
 function staffingTimeAssertEditableHeader(array $header,bool $reopening=false): void
@@ -74,6 +92,6 @@ function staffingTimeAssertEditableHeader(array $header,bool $reopening=false): 
         // Reopening changes workflow state only; it never permits changing a
         // source value or replacing an already approved sibling.
         staffingTimeCurrentPlacement((int)$entry['placement_id'],(int)$header['person_id']);
-        if ($reopening) staffingTimesheetAssertEntryNotSettled($entry);
+        if ($reopening) {staffingTimesheetAssertEntryNotSettled($entry);staffingTimeAssertOpenEntryPeriod($entry);}
     }
 }
