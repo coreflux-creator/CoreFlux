@@ -47,7 +47,7 @@ try{
         $check($before===$state(),'Preview changes no business row, identity, rate or audit');
         $check(!str_contains(json_encode($r),'example.invalid')&&!str_contains(json_encode($r),'password_enc'),'Review exposes decisions without private source or credentials');
         $request=$body($r);
-        foreach(['pending_no_detail','fabricated_contract','stale_source','disconnected','native_status','inactive_worker','missing_rate','overlap_rate','disabled_payroll','dates','archived','actual_end','wrong_person','wrong_raw_candidate','policy','revoked_actor','revoked_membership','revoked_grant','active_count','missing_client','retired_company','disabled_cycle','duplicate_source','contradictory_mirror','missing_number']as$case)JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$membership,$grant,$profile,$pending,$person,$mapping,$rate,$payload,$ids,$preview,$request,$state,$failure,$check,$insert,$case):void{
+        foreach(['pending_no_detail','fabricated_contract','stale_source','disconnected','native_status','inactive_worker','missing_rate','overlap_rate','disabled_payroll','dates','archived','actual_end','wrong_person','wrong_raw_candidate','policy','revoked_actor','revoked_membership','revoked_grant','active_count','missing_client','retired_company','disabled_cycle','duplicate_source','contradictory_mirror','mirror_closed_financials','missing_number']as$case)JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$membership,$grant,$profile,$pending,$person,$mapping,$rate,$payload,$ids,$preview,$request,$state,$failure,$check,$insert,$case):void{
             if(in_array($case,['pending_no_detail','fabricated_contract','wrong_raw_candidate'],true)){
                 $bad=$payload;if($case==='pending_no_detail')unset($bad['_jd_assignment_detail']);
                 if($case==='fabricated_contract')$bad['_jd_contract']['salary_approved']=false;
@@ -60,6 +60,10 @@ try{
             // The normal stable mapper deliberately retains the old pair. Construct a legacy duplicate directly.
             if($case==='duplicate_source')$insert('external_entity_mappings',['tenant_id'=>$workspace,'source_system'=>'jobdiva','internal_entity_type'=>'placement','external_id'=>'99320001','internal_entity_id'=>$pending,'payload_snapshot'=>json_encode($payload),'content_hash'=>mappingHash($payload),'sync_status'=>'ok']);
             if($case==='contradictory_mirror')mappingUpsert($workspace,'jobdiva','jobdiva_assignment','99320001',99320001,['startId'=>'99320001','candidateId'=>'99320002','jobId'=>'99320003','startDate'=>'2026-10-01','status'=>'Ended']);
+            if($case==='mirror_closed_financials'){
+                $mirror=$payload;$mirror['_jd_assignment_detail'][0]['BILLING'][0]['Actual End']=true;
+                mappingUpsert($workspace,'jobdiva','jobdiva_assignment','99320001',99320001,$mirror);
+            }
             if($case==='missing_number')$pdo->prepare('DELETE FROM core_record_numbers WHERE tenant_id=? AND entity_type="placement" AND record_id=?')->execute([$owner,$pending]);
             if($case==='stale_source')$pdo->prepare('UPDATE external_entity_mappings SET last_seen_at=DATE_SUB(NOW(),INTERVAL 3 DAY) WHERE id=?')->execute([$mapping]);
             if($case==='disconnected')$pdo->prepare('UPDATE jobdiva_connections SET status="disconnected" WHERE tenant_id=?')->execute([$workspace]);
