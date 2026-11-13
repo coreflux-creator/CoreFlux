@@ -7,7 +7,7 @@ $mergeFixture=static function(string $label)use($pdo,$tenant,$child,$actor,&$mer
     $q=$pdo->prepare('SELECT id FROM tenant_memberships WHERE user_id=? AND tenant_id=?');$q->execute([$actor,$child]);$membership=(int)$q->fetchColumn();
     if(!$membership){$pdo->prepare('INSERT INTO tenant_memberships(user_id,tenant_id,persona_type,status) VALUES(?,?,"admin","active")')->execute([$actor,$child]);$membership=(int)$pdo->lastInsertId();}
     $pdo->prepare('UPDATE tenant_memberships SET status="active",persona_type="admin" WHERE id=?')->execute([$membership]);
-    $pdo->prepare('INSERT INTO membership_module_access(membership_id,module_key,access_level) VALUES(?,"placements","write") ON DUPLICATE KEY UPDATE access_level="write"')->execute([$membership]);
+    $pdo->prepare('INSERT INTO membership_module_access(membership_id,module_key,access_level) VALUES(?,"placements","admin") ON DUPLICATE KEY UPDATE access_level="admin"')->execute([$membership]);
     $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary,status,classification) VALUES(?,"Synthetic","Merge race",?,"active","w2")')->execute([$tenant,'merge-'.$serial.'@example.invalid']);$person=(int)$pdo->lastInsertId();
     $ids=[];$rates=[];$bindings=[];
     foreach(['survivor','retired']as$side){
@@ -26,7 +26,7 @@ foreach(['COMMIT','ROLLBACK']as$decision){
     foreach(['policy','permission','native_choice','approved_rate','source_binding','new_history']as$change){
         [$a,$b,$rate,$binding,$membership,$input]=$mergeFixture($change.'-'.$decision);$pdo->beginTransaction();
         if($change==='policy')$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="placements"')->execute([$child]);
-        if($change==='permission')$pdo->prepare('UPDATE membership_module_access SET access_level="read" WHERE membership_id=? AND module_key="placements"')->execute([$membership]);
+        if($change==='permission')$pdo->prepare('UPDATE membership_module_access SET access_level="write" WHERE membership_id=? AND module_key="placements"')->execute([$membership]);
         if($change==='native_choice')$pdo->prepare('UPDATE placements SET title="Intervening native choice",coreflux_overridden_fields=\'["title"]\' WHERE id=?')->execute([$a]);
         if($change==='approved_rate')$pdo->prepare('UPDATE placement_rates SET pay_rate=55 WHERE id=?')->execute([$rate]);
         if($change==='source_binding')$pdo->prepare('UPDATE external_entity_mappings SET sync_status="error" WHERE id=?')->execute([$binding]);

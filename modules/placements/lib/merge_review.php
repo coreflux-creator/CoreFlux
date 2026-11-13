@@ -15,7 +15,10 @@ function placementMergeFields(): array
 function placementMergeActor(PDO $pdo,int $workspace,int $actor): array
 {
     $auth=jobdivaActiveRestoreActor($pdo,$workspace,$actor);
-    if(!RBAC::hasPermission($auth['user'],'placements.financials.manage'))
+    $membership=$auth['membership'];$grantWorkspace=(int)($membership['tenant_id']??$workspace);
+    if(!RBAC::hasPermission($auth['user'],'placements.financials.manage')
+        ||!RBACResolver::can($auth['user'],$grantWorkspace,'placements','admin',
+            $grantWorkspace!==$workspace?$workspace:null,$membership?(int)$membership['id']:null))
         throw new RuntimeException('Placement consolidation requires current placement and financial management access.',403);
     return $auth;
 }

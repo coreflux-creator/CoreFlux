@@ -26,7 +26,7 @@ try{
         foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
         $actor=$insert('users',['tenant_id'=>$owner,'name'=>'Synthetic merge reviewer','email'=>'placement-merge-review@example.invalid','password'=>'disabled-fixture','password_hash'=>'disabled-fixture','role'=>'admin','is_active'=>1]);
         $membership=$insert('tenant_memberships',['user_id'=>$actor,'tenant_id'=>$workspace,'persona_type'=>'admin','status'=>'active']);
-        $grant=$insert('membership_module_access',['membership_id'=>$membership,'module_key'=>'placements','access_level'=>'write']);
+        $grant=$insert('membership_module_access',['membership_id'=>$membership,'module_key'=>'placements','access_level'=>'admin']);
         $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Merge worker','email_primary'=>'placement-merge-worker@example.invalid','classification'=>'w2','status'=>'active']);
         $make=static fn(string $title,string $external):int=>$insert('placements',['tenant_id'=>$owner,'person_id'=>$person,'title'=>$title,'status'=>'active','engagement_type'=>'w2','start_date'=>'2026-10-01','worksite_country'=>'US','external_id'=>$external]);
         $a=$make('Current assignment','retained-current-number');$b=$make('Historical assignment','retained-history-number');$c=$make('Next current assignment','retained-next-number');
@@ -57,6 +57,11 @@ try{
         $check(count($review['rates']['survivor'])===1&&count($review['rates']['retired'])===1
             &&(float)$review['rates']['retired'][0]['bill_rate']===100.0,'Merge comparison exposes the separate original rate histories');
         $check($before===$state()&&$review['dry_run'],'Merge preview changes no identities, activity, rates or audit');
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,$grant,$preview,$request,$check,$fails,$state):void{
+            $pdo->prepare('UPDATE membership_module_access SET access_level="write" WHERE id=?')->execute([$grant]);$unchanged=$state();
+            $check($fails($preview)&&$fails(fn()=>placementMergeApply($workspace,$actor,$request))&&$unchanged===$state(),
+                'Fresh merge preview and apply both require financial administration beyond ordinary placement editing');
+        },true);
         $check($review['placement_owner_id']===$owner&&$review['provider_pairs_retained']===2&&count(array_filter($review['source_options'],static fn($s)=>$s['eligible']))===2,'Shared-directory preview exposes both exact retained source choices');
         $check($review['retained_history']['time_entries']['count']===2&&$review['retained_history']['placement_rates']['count']===2,'Review includes downstream activity on both placements without moving it');
         $check(!str_contains(json_encode($review),'password')&&!str_contains(json_encode($review),'payload_snapshot'),'Public review omits authentication and raw provider snapshots');
