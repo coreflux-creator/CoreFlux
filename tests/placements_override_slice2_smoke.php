@@ -55,8 +55,8 @@ $assert('sync reads coreflux_overridden_fields before UPDATE',
         $syncSrc
     ) === 1);
 $assert('sync distinguishes JSON ownership lists from objects',
-    str_contains($syncSrc, 'json_decode($rawOverride)') &&
-    str_contains($syncSrc, '!is_array($overrides) || !array_is_list($overrides)'));
+    str_contains((string)file_get_contents($root.'/core/jobdiva/placement_write_context.php'), 'placementOwnershipFields(') &&
+    str_contains((string)file_get_contents($root.'/modules/placements/lib/ownership.php'), '!is_array($fields) || !array_is_list($fields)'));
 $assert('sync builds UPDATE assignments dynamically',
     preg_match('/\$assignments\s*=\s*\[\];/', $syncSrc) === 1);
 $assert('sync skips overridden fields with in_array',

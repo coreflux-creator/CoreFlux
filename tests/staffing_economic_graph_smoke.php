@@ -178,7 +178,7 @@ $assert('JobDiva projects vendor-chain economics and referrals into canonical so
     && str_contains($jobdiva, "'is_payable' => \$isPayable"));
 $assert('Save and apply mapping reconciles the economic graph',
     str_contains($fieldApply, "\$integration === 'jobdiva' && \$entityType === 'placement'")
-    && str_contains($fieldApply, 'placementEconomicsReconcile($tid, $placementId)'));
+    && str_contains($fieldApply, 'placementEconomicsReconcile($placementOwner, $placementId)'));
 $assert('JobDiva mappings can write staffing payment terms and PWP controls',
     str_contains($fieldMap, 'client_payment_terms_override')
     && str_contains($fieldMap, 'vendor_payment_terms_override')

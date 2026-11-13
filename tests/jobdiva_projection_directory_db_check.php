@@ -50,9 +50,13 @@ try{
     $check($rateOwners&&array_unique($rateOwners)===[$parent],'Related rate rows follow the placement owner');
     $link=mappingFindInternal($child,'jobdiva','placement','99160000');
     $check((int)$link['internal_entity_id']===$id&&!mappingFindInternal($parent,'jobdiva','placement','99160000'),'Provider mapping stays in the original source workspace');
-    $numbers=$all('core_record_numbers');$counts=array_map('count',$snapshot());
+    $numbers=$all('core_record_numbers');$replayBefore=$snapshot();$counts=array_map('count',$replayBefore);
     $again=$project($p);$check($again['projected']&&(int)$again['placement_id']===$id&&$numbers===$all('core_record_numbers'),'Replay retains the same person and placement numbers');
-    $check($counts===array_map('count',$snapshot()),'Replay adds no duplicate business records, mappings or audit evidence');
+    $replayAfter=$snapshot();$afterCounts=array_map('count',$replayAfter);
+    if($counts!==$afterCounts){
+        foreach($afterCounts as$table=>$count)if($count!==$counts[$table])echo 'REPLAY_DIFF '.json_encode(['table'=>$table,'before_count'=>$counts[$table],'after_count'=>$count,'added'=>array_slice($replayAfter[$table],$counts[$table])],JSON_THROW_ON_ERROR)."\n";
+    }
+    $check($counts===$afterCounts,'Replay adds no duplicate business records, mappings or audit evidence');
     // Every dependent stage belongs to one unit, including late field mappings.
     $pdo->prepare('UPDATE tenant_integration_field_map SET target_column=? WHERE id=?')->execute(['fixture_missing_column',$map]);
     $before=$snapshot();$failed=$project($payload(99160100));

@@ -4767,6 +4767,13 @@ function jobdivaSyncUpsertPlacementChain(
 
     $endClientEvidence = jobdivaAssignmentEndClientEvidence($jd);
     if ($endClientEvidence['status'] === 'ambiguous') throw new RuntimeException('Review conflicting JobDiva end-client identities.',409);
+    $q=getDB()->prepare('SELECT coreflux_overridden_fields FROM placements WHERE tenant_id=? AND id=? FOR UPDATE');
+    $q->execute([$tid,$placementId]);
+    if(array_intersect(['end_client_company_id','end_client_name'],placementOwnershipFields($q->fetchColumn()?:null))){
+        // A Core-cleared recipient is still an owned decision. Do not recreate
+        // its source company through a secondary chain row.
+        $endClientEvidence=['name'=>(string)$endClientName,'external_id'=>''];
+    }
     $endClientName = trim((string) ($endClientName === null ? $endClientEvidence['name'] : $endClientName));
     if ($endClientName !== '' || $endClientCompanyId || $endClientEvidence['external_id'] !== '') {
         $id = jobdivaSyncUpsertPlacementChainRow(
