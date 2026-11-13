@@ -22,6 +22,9 @@
         $expect($request('GET',$endpoint.'?action=candidates',null,true,$workspace)[0]===403
             &&$request('POST',$endpoint.'?action=preview',$pair,true,$workspace)[0]===403,'Read-only module access cannot review or merge placements');
         RBACResolver::grantModule($member,'placements','write',[$workspace],$actor);
+        $expect($request('POST',$endpoint.'?action=preview',$pair,true,$workspace)[0]===403&&$snapshot($tables)===$before,
+            'General placement editing does not grant financial consolidation access');
+        RBACResolver::grantModule($member,'placements','admin',[$workspace],$actor);
         [$status,$candidates]=$request('GET',$endpoint.'?action=candidates',null,true,$workspace);
         $expect($status===200&&$candidates['placements_archived']===0&&count(array_filter($candidates['candidates'],static fn($g)=>in_array($a,array_column($g['rows'],'id'),true)&&in_array($b,array_column($g['rows'],'id'),true)))===1,
             'Native candidate queue exposes exact duplicate records without selecting a survivor: '.json_encode([$status,$candidates]));
@@ -64,7 +67,10 @@
         $expect($request('GET',$placementEndpoint.'?id='.$b,null,true,$workspace)[0]===403,'Same native session loses original-history access immediately after revocation');
     }finally{
         $pdo->exec('DROP TRIGGER IF EXISTS cf_http_placement_merge_audit');
-        if($member)$pdo->prepare('UPDATE tenant_memberships SET status="revoked" WHERE id=?')->execute([$member]);
+        if($member){
+            $pdo->prepare('DELETE FROM membership_module_access WHERE membership_id=?')->execute([$member]);
+            deactivateMembership($actor,$workspace);
+        }
         $pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$workspace]);
         RBACResolver::resetCache();
     }
