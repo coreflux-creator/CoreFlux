@@ -457,7 +457,8 @@ function entitySyncHistoryRecord(
     string $payloadAfter,
     ?string $hashBefore,
     string $hashAfter,
-    ?int $actorUserId
+    ?int $actorUserId,
+    bool $required = false
 ): void {
     try {
         $pdo = getDB();
@@ -474,6 +475,7 @@ function entitySyncHistoryRecord(
             'hb' => $hashBefore, 'ha' => $hashAfter, 'u' => $actorUserId,
         ]);
     } catch (\Throwable $e) {
+        if ($required) throw $e;
         error_log('entitySyncHistoryRecord failed (non-fatal): ' . $e->getMessage());
     }
 }

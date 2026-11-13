@@ -62,14 +62,14 @@ function placementJobdivaSourceFamily(PDO $pdo,int $owner,int $id): array
 }
 
 /** Refresh the selected source snapshot while preserving its original physical binding. */
-function jobdivaPlacementBindRetained(int $workspace,string $external,int $canonical,array $payload,?int $actor): array
+function jobdivaPlacementBindRetained(int $workspace,string $external,int $canonical,array $payload,?int $actor,bool $requiredObservation=false): array
 {
     $pdo=getDB();$context=jobdivaPlacementWriteContext($pdo,$workspace);
     $identity=jobdivaPlacementWriteIdentity($pdo,$context,str_starts_with($external,'jd:')?substr($external,3):$external,$canonical);
     $mapping=$identity['mapping'];
     if((int)($identity['placement']['id']??0)!==$canonical||($mapping&&$mapping['external_id']!==$external))
         throw new RuntimeException('The reviewed placement source changed before its snapshot could be saved.',409);
-    if(!$identity['source_owner'])return mappingBindStable($workspace,'jobdiva','placement',$external,$canonical,$payload,'pull',$actor);
+    if(!$identity['source_owner'])return mappingBindStable($workspace,'jobdiva','placement',$external,$canonical,$payload,'pull',$actor,$requiredObservation);
     // All family pairs were locked and checked against the merge receipt. Refresh
     // only this exact pair; every other historical pair in the family is retained.
     $snapshot=json_encode($payload,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);$hash=mappingHash($payload);

@@ -117,6 +117,7 @@ try{
             'Atomic receipt retains the chosen physical source binding and encrypted original rows');
         require __DIR__.'/fixtures/placement_merge_source_checks.php';
         require __DIR__.'/fixtures/placement_terminal_census_checks.php';
+        require __DIR__.'/fixtures/placement_merge_review_contract_checks.php';
         $pdo->prepare('UPDATE placements SET title="Later native edit" WHERE id=?')->execute([$a]);$later=$state();
         $check(placementMergeApply($workspace,$actor,$request)['replayed']&&$later===$state(),'Lost-response retry returns the receipt without repeating the merge or reversing later edits');
         $changed=$request;$changed['reason']='Different merge intent';$check($fails(fn()=>placementMergeApply($workspace,$actor,$changed))&&$later===$state(),'Request ID cannot be reused for a different merge instruction');

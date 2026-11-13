@@ -14,6 +14,8 @@ $state=static fn():array=>array_map($all,$tables);
 $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
 try{
     $pdo->exec("CREATE TRIGGER {$trigger} BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF BINARY NEW.event=BINARY 'placement.live_contract.refreshed' AND @fixture_live_contract_audit=1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic live contract audit failure'; END IF; END");
+    $pdo->exec("CREATE TRIGGER fixture_review_contract_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF BINARY NEW.event=BINARY 'jobdiva.contract_review.applied' AND @fixture_review_contract_failure='receipt' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic review contract failure'; END IF; END");
+    $pdo->exec("CREATE TRIGGER fixture_review_contract_history BEFORE INSERT ON entity_sync_history FOR EACH ROW BEGIN IF NEW.tenant_id=990707 AND BINARY NEW.internal_entity_type=BINARY @fixture_review_contract_failure THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic review contract failure'; END IF; END");
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$check,$failure,$insert,$all,$state,$read):void{
         $insert('tenants',['id'=>$workspace,'parent_id'=>$owner,'tenant_type'=>'sub','name'=>'Synthetic live contracts','is_active'=>1,'is_simulation'=>1]);
         foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
@@ -31,6 +33,7 @@ try{
         $rows=[['Start ID'=>'99310001','Candidate ID'=>'99310002','Job ID'=>'99310003','Employment Category'=>'Hourly Employee','W2'=>true,'Bill Rate'=>100,'Pay Rate'=>50,'Bill Rate Unit'=>'hour','Pay Rate Unit'=>'hour','Currency'=>'USD','Start Date'=>'2026-10-01',
             'BILLING'=>[['Approved'=>true,'Actual Start'=>false,'COMPANY'=>[['ID'=>'99310004','Name'=>'Synthetic contract client']]]],'SALARY'=>[['Approved'=>true]]]];
         $fresh=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($input,'99310001'),'99310001')];
+        require __DIR__.'/fixtures/review_contract_checks.php';
         $check(jobdivaLiveContractValidate($expected,$exact,$fresh)===$fresh,'Exact raw financial evidence rebuilds the supplied contract');
         $check(empty($fresh['_jd_contract']['overheads']['per_diem']),'Related job financial fields cannot fill missing assignment overheads');
         foreach(['bill_rate','pay_rate']as$missing){
@@ -112,5 +115,5 @@ try{
         $check(str_contains($failure(fn()=>jobdivaRefreshLiveContract($workspace,$mappingId,$actor)),'outside an existing transaction'),'Remote lookup refuses an existing transaction');
     },true);
     $check(!$pdo->inTransaction()&&!JobdivaStoredReviewTransaction::inScope(),'All synthetic live-contract data rolls back');
-}finally{if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP TRIGGER IF EXISTS '.$trigger);}
+}finally{if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP TRIGGER IF EXISTS '.$trigger);$pdo->exec('DROP TRIGGER IF EXISTS fixture_review_contract_receipt');$pdo->exec('DROP TRIGGER IF EXISTS fixture_review_contract_history');}
 echo "$checks live contract checks passed.\n";

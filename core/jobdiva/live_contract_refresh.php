@@ -9,6 +9,12 @@ require_once __DIR__.'/joined_index_refresh.php';
 function jobdivaLiveContractSnapshot(int $workspace, int $mappingId, string $corporationId = ''): array
 {
     $base = jobdivaAssignmentRepairSnapshot($workspace, $mappingId);
+    return jobdivaContractRelatedSnapshot($workspace,$base,$corporationId);
+}
+
+/** Related decisions shared by mapped contracts and the uncertain-Start queue. */
+function jobdivaContractRelatedSnapshot(int $workspace,array $base,string $corporationId=''): array
+{
     $pdo = getDB(); $context = $base['context'];
     $config = empty($base['connection']['sync_config']) ? [] : json_decode($base['connection']['sync_config'],true,512,JSON_THROW_ON_ERROR);
     $policy = $config['placement'] ?? JOBDIVA_SYNC_DEFAULTS['placement'];
@@ -25,7 +31,7 @@ function jobdivaLiveContractSnapshot(int $workspace, int $mappingId, string $cor
     $q->execute([$context['people_owner'], $personLink['internal_entity_id'] ?? 0]);
     $sourcePerson = $q->fetch(PDO::FETCH_ASSOC) ?: null;
     $q = $pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=? ORDER BY id FOR UPDATE');
-    $q->execute([$context['placement_owner'], $base['placement']['id']]);
+    $q->execute([$context['placement_owner'], $base['placement']['id'] ?? 0]);
     $rates = $q->fetchAll(PDO::FETCH_ASSOC);
     $q = $pdo->prepare('SELECT * FROM tenant_integration_field_map WHERE tenant_id=? AND integration="jobdiva" ORDER BY id FOR UPDATE');
     $q->execute([$workspace]); $fieldMaps = $q->fetchAll(PDO::FETCH_ASSOC);
@@ -48,7 +54,7 @@ function jobdivaLiveContractSnapshot(int $workspace, int $mappingId, string $cor
     $corporationId = jobdivaAssignmentCompanyId($corporationId);
     $company = $corporationId === '' ? null : jobdivaStoredSubcontractCompanyEvidence($workspace, $corporationId);
     return ['base'=>$base, 'joined_payload'=>$payload, 'person_source'=>$personLink, 'source_person'=>$sourcePerson,
-        'graph'=>jobdivaPlacementProjectionAuditSnapshot($context['placement_owner'], (int)$base['placement']['id'], true),
+        'graph'=>jobdivaPlacementProjectionAuditSnapshot($context['placement_owner'], (int)($base['placement']['id'] ?? 0), true),
         'rates'=>$rates, 'field_maps'=>$fieldMaps, 'related_links'=>$links,
         'corporation_id'=>$corporationId, 'company_evidence'=>$company];
 }
@@ -102,6 +108,30 @@ function jobdivaLiveContractFetchCompany(int $workspace, string $external): arra
     return $matches[0];
 }
 
+/** Corporate identity is resolved only inside the checked assignment write. */
+function jobdivaContractResolveCompany(array $current,array $payload,?array $companyPayload,?int $actor): void
+{
+    $base=$current['base'];$workspace=(int)$base['context']['workspace'];
+    $corporation = jobdivaAssignmentSubcontractCompanyId($payload);
+    if ($corporation !== '' && !in_array('corp_identity',$base['owned_fields'],true)) {
+        if ($corporation !== $current['corporation_id']) throw new RuntimeException('The corporate payee was not included in the protected review.',409);
+        if (empty($current['company_evidence']['available'])) {
+            $name = is_array($companyPayload) ? jobdivaPluckField($companyPayload,['name','companyName','company_name','company name','legalName','legal_name']) : '';
+            $returnedId = is_array($companyPayload) ? jobdivaAssignmentCompanyId(jobdivaPluckField($companyPayload,['id','companyId','company_id','company id'])) : '';
+            if ($returnedId !== $corporation || jobdivaCompanyNameIsPlaceholder($name,$corporation,$companyPayload ?? [])) throw new RuntimeException('The corporate payee evidence does not match this contract.',409);
+            $attributes = ['created_by_user_id'=>$actor];
+            foreach (['legal_name'=>['legalName','legal_name','legal name'], 'website'=>['website','url','homepage'],
+                'phone'=>['phone','phoneNumber','phone_number'], 'address_line1'=>['address1','address','street1'],
+                'address_line2'=>['address2','street2','suite'], 'city'=>['city','town'], 'state'=>['state','region','province'],
+                'postal_code'=>['zip','postal_code','postalCode'], 'country'=>['country','countryCode','country_code']] as $field=>$aliases) {
+                $value = jobdivaPluckField($companyPayload,$aliases);
+                if ($value !== '') $attributes[$field] = $value;
+            }
+            jobdivaUpsertCompanyMapped($workspace,$corporation,$name,$attributes,$companyPayload,$actor,['vendor']);
+        }
+    }
+}
+
 /** All native writes, retained mappings, and the required receipt commit together. */
 function jobdivaLiveContractApply(array $expected, array $exact, ?array $payload, ?array $companyPayload, ?int $actor): array
 {
@@ -132,24 +162,7 @@ function jobdivaLiveContractApply(array $expected, array $exact, ?array $payload
             jobdivaPlacementBindRetained($workspace,$base['mapping']['external_id'],$placementId,$snapshot,$actor);
             $result = ['projected'=>0,'restored'=>0,'skipped_not_current'=>1,'review_required'=>(int)($held || !$workerCurrent)];
         } else {
-            $corporation = jobdivaAssignmentSubcontractCompanyId($payload);
-            if ($corporation !== '' && !in_array('corp_identity',$base['owned_fields'],true)) {
-                if ($corporation !== $current['corporation_id']) throw new RuntimeException('The corporate payee was not included in the protected review.',409);
-                if (empty($current['company_evidence']['available'])) {
-                    $name = is_array($companyPayload) ? jobdivaPluckField($companyPayload,['name','companyName','company_name','company name','legalName','legal_name']) : '';
-                    $returnedId = is_array($companyPayload) ? jobdivaAssignmentCompanyId(jobdivaPluckField($companyPayload,['id','companyId','company_id','company id'])) : '';
-                    if ($returnedId !== $corporation || jobdivaCompanyNameIsPlaceholder($name,$corporation,$companyPayload ?? [])) throw new RuntimeException('The corporate payee evidence does not match this contract.',409);
-                    $attributes = ['created_by_user_id'=>$actor];
-                    foreach (['legal_name'=>['legalName','legal_name','legal name'], 'website'=>['website','url','homepage'],
-                        'phone'=>['phone','phoneNumber','phone_number'], 'address_line1'=>['address1','address','street1'],
-                        'address_line2'=>['address2','street2','suite'], 'city'=>['city','town'], 'state'=>['state','region','province'],
-                        'postal_code'=>['zip','postal_code','postalCode'], 'country'=>['country','countryCode','country_code']] as $field=>$aliases) {
-                        $value = jobdivaPluckField($companyPayload,$aliases);
-                        if ($value !== '') $attributes[$field] = $value;
-                    }
-                    jobdivaUpsertCompanyMapped($workspace,$corporation,$name,$attributes,$companyPayload,$actor,['vendor']);
-                }
-            }
+            jobdivaContractResolveCompany($current,$payload,$companyPayload,$actor);
             $projection = jobdivaProjectorProjectPlacement($workspace,jobdivaCanonicalPlacementPayload($payload,jobdivaExtractJoinedSubPayloads($payload)),$actor,[
                 'payload_is_enriched'=>true,'external_id'=>$base['external'],'existing_placement_id'=>$placementId,
                 'person_id'=>0,'force_source_contract'=>true,

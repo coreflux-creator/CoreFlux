@@ -4,6 +4,9 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $live = (string) file_get_contents($root . '/core/jobdiva/live_contract_refresh.php');
+$review = (string) file_get_contents($root . '/core/jobdiva/review_contract_refresh.php');
+$sync .= $review;
+
 $projector = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $api = (string) file_get_contents($root . '/api/jobdiva.php');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
@@ -32,8 +35,8 @@ $assert('ordinary placement sync excludes the per-Start financial fan-out',
     str_contains($sync, "'enrich_financial' => \$enrichFinancial")
     && str_contains($sync, ": false;"));
 $assert('the enricher supports an explicit financial-only run',
-    str_contains($sync, "'kinds' => ['financial']")
-    && str_contains($sync, "'enrich_financial' => true"));
+    str_contains($review, "'kinds'=>['financial']")
+    && str_contains($review, "'enrich_financial'=>true"));
 $assert('contract batches are cursor-based and capped below the PHP timeout',
     str_contains($sync, 'function jobdivaSyncAssignmentContractsBatch')
     && str_contains($sync, 'id > :cursor')
@@ -63,10 +66,10 @@ $assert('returned contracts cannot overwrite edits made during provider lookup',
     str_contains($live, 'hash_equals(jobdivaAssignmentRepairFingerprint($expected),jobdivaAssignmentRepairFingerprint($current))')
     && str_contains($live, 'placement.live_contract.refreshed'));
 $assert('archived rows restore only from an explicit current contract lifecycle',
-    str_contains($sync, "\$contractStatus !== ''")
-    && str_contains($sync, "['active', 'pending_start', 'on_hold']")
-    && str_contains($sync, "'person_id' => 0")
-    && str_contains($sync, "'force_source_contract' => true"));
+    str_contains($review, "\$status!==''")
+    && str_contains($review, "['active','pending_start','on_hold']")
+    && str_contains($review, "'person_id'=>0")
+    && str_contains($review, "'force_source_contract'=>true"));
 $assert('candidate-scoped discovery stages census omissions for exact review',
     str_contains($sync, 'function jobdivaSyncCandidateAssignmentsBatch')
     && str_contains($sync, "'candidateid' => (int) \$candidateId")
@@ -89,7 +92,7 @@ $assert('review candidates contribute their Job and Candidate IDs to the bulk mi
     && str_contains($sync, "'review_candidates_scanned'"));
 $assert('review candidates project only after an explicit current contract lifecycle',
     str_contains($sync, "EmployeeAssignmentRecordsDetail:contract_review")
-    && str_contains($sync, "['active', 'pending_start', 'on_hold']")
+    && str_contains($review, "['active','pending_start','on_hold']")
     && str_contains($sync, "'unavailable' => 0"));
 $assert('review candidates discard stale current contracts before exact validation',
     str_contains($sync, "\$payload['__cf_jobdiva_census_scope'] = 'review';")
@@ -101,7 +104,7 @@ $assert('financial detail retries by exact employee and filters to the requested
     && str_contains($sync, 'jobdivaAssignmentContractRowsForStart'));
 $assert('review contracts demote stale source-bound placements when exact lifecycle is not current',
     str_contains($sync, "'demoted' => 0")
-    && str_contains($sync, "['draft', 'ended', 'cancelled']")
+    && str_contains($review, "['draft','ended','cancelled']")
     && str_contains($sync, "assignment_contract_lifecycle"));
 $assert('financial detail lookup prefers the verified Start identity',
     str_contains($sync, "['__cf_jobdiva_assignment_id', 'startId', 'start_id', 'placementId', 'id']"));

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /** Bind or refresh an exact pair. A competing identity is never an upsert. */
-function mappingBindStable(int $tenant, string $source, string $type, string $external, int $internal, ?array $payload, string $direction, ?int $actor): array
+function mappingBindStable(int $tenant, string $source, string $type, string $external, int $internal, ?array $payload, string $direction, ?int $actor, bool $requiredObservation = false): array
 {
     $pdo = getDB();
     $own = !$pdo->inTransaction();
@@ -28,13 +28,13 @@ function mappingBindStable(int $tenant, string $source, string $type, string $ex
             $s->execute(['t'=>$tenant,'s'=>$source,'k'=>$type,'e'=>$external,'i'=>$internal,'p'=>$snapshot,'h'=>$hash,'d'=>$direction]);
         }
         if ($changed && $snapshot !== null) {
-            entitySyncHistoryRecord($tenant,$source,$type,$internal,$external,$direction,$old['payload_snapshot']??null,$snapshot,$old['content_hash']??null,$hash,$actor);
+            entitySyncHistoryRecord($tenant,$source,$type,$internal,$external,$direction,$old['payload_snapshot']??null,$snapshot,$old['content_hash']??null,$hash,$actor,$requiredObservation);
         }
         if ($payload !== null) {
             try {
                 require_once __DIR__.'/payload_field_index.php';
-                integrationPayloadFieldIndexRecord($tenant,$source,$type,$payload);
-            } catch (Throwable $e) { error_log('[mappingBindStable] source field indexing unavailable: '.$e->getMessage()); }
+                integrationPayloadFieldIndexRecord($tenant,$source,$type,$payload,$requiredObservation);
+            } catch (Throwable $e) { if($requiredObservation)throw $e; error_log('[mappingBindStable] source field indexing unavailable: '.$e->getMessage()); }
         }
         $result = mappingFindInternal($tenant,$source,$type,$external);
         if ($own) $pdo->commit();
