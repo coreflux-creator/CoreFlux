@@ -5,6 +5,9 @@ if (PHP_SAPI !== 'cli' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('CI') !=
     || getenv('COREFLUX_ENV') !== 'staging' || getenv('DB_NAME') !== 'coreaccounting_ci'
     || !extension_loaded('curl') || !function_exists('proc_open')) exit(2);
 putenv('CF_RBAC_BRIDGE_MODE=dual');
+// This guarded disposable process and its child server share an ephemeral
+// key for the invented provider credential. No hosted key is read or changed.
+putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));
 require_once __DIR__ . '/../core/jobdiva/sync.php';
 require_once __DIR__ . '/../modules/placements/lib/economics_edit.php';
 require_once __DIR__ . '/../modules/placements/lib/commercial_ownership.php';

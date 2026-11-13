@@ -58,4 +58,8 @@ try{
     [$status,$disabled]=$request('POST',$livePath,[],true,$liveTenant);
     $expect($status===200&&(int)$disabled['failed']===1&&$snapshot($liveTables)===$before&&(string)file_get_contents($directory.'/jobdiva-live.log')===$calls,'Disabled source ownership policy prevents provider reads and native writes');
     $expect($snapshot($financialTables)===$financialBefore,'Live contract refresh never executes payroll, payments or financial postings');
-}finally{RBACResolver::revokeModule($liveMembership,'integrations',$actor);deactivateMembership($actor,$liveTenant);}
+}finally{
+    $pdo->prepare('DELETE FROM jobdiva_connections WHERE tenant_id=?')->execute([$liveTenant]);
+    RBACResolver::revokeModule($liveMembership,'integrations',$actor);deactivateMembership($actor,$liveTenant);
+    $pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$liveTenant]);
+}
