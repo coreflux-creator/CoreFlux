@@ -122,6 +122,12 @@ try{
         $check($second['survivor_id']===$c&&placementIdentityResolve($pdo,$owner,$b,true)['id']===$c&&placementIdentityResolve($pdo,$owner,$a,true)['id']===$c,'Successive reviewed merge flattens every retained placement number');
         $finalSource=jobdivaPlacementWriteIdentity($pdo,jobdivaPlacementWriteContext($pdo,$workspace),'99510001',$b);
         $check((int)$finalSource['placement']['id']===$c&&(int)$finalSource['mapping']['internal_entity_id']===$b,'Successive merges refresh the newest survivor through the unchanged original source pair');
+        $q=$pdo->prepare('SELECT '.placementsSafeFields('p').' FROM placements p WHERE p.tenant_id=? AND p.id=?');$q->execute([$owner,$c]);$screen=$q->fetch(PDO::FETCH_ASSOC);
+        $check((int)$screen['jobdiva_linked']===1,'The native placement screen recognizes source links retained only on archived family members');
+        require_once __DIR__.'/../modules/placements/lib/edit.php';
+        setRequestTenantId($workspace);$_SESSION['tenant_id']=$workspace;setRequestModuleScope('placements');$identityBefore=$state();
+        $check($fails(fn()=>placementApplyNativeEdit($c,['external_id'=>'silently-replaced-source'],['id'=>$actor,'role'=>'admin'],'patch_status'))&&$identityBefore===$state(),
+            'Native identity editing cannot bypass links retained on an archived family member');
         $pdo->prepare('UPDATE membership_module_access SET access_level="none" WHERE id=?')->execute([$grant]);$revoked=$state();
         $check($fails(fn()=>placementMergeApply($workspace,$actor,$request))&&$revoked===$state(),'Receipt recovery requires current management access');
     },true);

@@ -24,6 +24,9 @@ foreach(['COMMIT','ROLLBACK']as$decision){
     }
     [$a,$b,$rate,$binding,$membership,$mergeInput]=$mergeFixture('source-remerge-'.$decision);
     placementMergeApply($child,$actor,$mergeInput['body']);$primary=$mergeInput['body']['primary_jobdiva_mapping_id'];
+    $beforeSkip=$identityRaceState();$skipWorker=$spawn(['mode'=>'native','entity'=>'historical_contract_refresh','workspace'=>$child,'actor'=>$actor,'placement_id'=>$a,'mapping_id'=>$binding]);$skipped=$finish($skipWorker);
+    $check($skipped['ok']&&$skipped['result']['skipped_not_current']===1&&$skipped['result']['review_required']===0&&$beforeSkip===$identityRaceState(),
+        'Live contract refresh retains a secondary source without a provider call or writes before '.$decision);
     $expected=JobdivaStoredReviewTransaction::run(static fn()=>jobdivaAssignmentRepairSnapshot($child,$primary),true);
     $payload=json_decode($expected['mapping']['payload_snapshot'],true,512,JSON_THROW_ON_ERROR);
     $exact=['status'=>'verified','row'=>jobdivaAssignmentMarkVerified($payload+['sourceRefreshNote'=>'After another merge'],$expected['external'],'searchStart:criteria_exact')];

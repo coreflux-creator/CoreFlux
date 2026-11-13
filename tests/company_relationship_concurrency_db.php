@@ -155,6 +155,7 @@ if(($argv[1]??'')==='worker'){
                 'live_contract'=>liveContractRaceWrite($input),
                 'active_restore'=>activeRestoreRaceWrite($input),
                 'placement_merge'=>placementMergeRaceWrite($input),
+                'historical_contract_refresh'=>['id'=>$input['placement_id']]+jobdivaRefreshLiveContract($input['workspace'],$input['mapping_id'],$input['actor']),
                 'placement_history'=>JobdivaStoredReviewTransaction::run(static fn():array=>
                     ['id'=>$input['placement_id']]+purepayCorePlacementHistorySource($pdo,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',$input['workspace'],$input['placement_id'],true)),
                 'alignment_report'=>jobdivaMappingAlignmentReport($input['workspace'],['sample_limit'=>1]),

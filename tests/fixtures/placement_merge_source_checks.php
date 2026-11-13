@@ -2,6 +2,7 @@
 /** Runs after an actual reviewed merge inside the rollback-only canonical fixture. */
 require_once __DIR__.'/../../core/jobdiva/live_contract_refresh.php';
 require_once __DIR__.'/../../modules/placements/lib/jobdiva_csv_write.php';
+require_once __DIR__.'/../../core/jobdiva/source_rate_repair.php';
 $context=jobdivaPlacementWriteContext($pdo,$workspace);$sourceState=$state();
 $selected=jobdivaPlacementWriteIdentity($pdo,$context,'99510001',$b);
 $check((int)$selected['placement']['id']===$a&&(int)$selected['mapping']['id']===(int)$mb['id']
@@ -20,6 +21,10 @@ $check($csvSource['status']==='matched'&&$csvSource['ids']===[$a]&&(int)$csvSour
     'CSV reconciliation targets the current placement and retains the physical source pair');
 $check($fails(fn()=>jobdivaAssignmentRepairSnapshot($workspace,(int)$ma['id']))&&$sourceState===$state(),
     'A retained secondary mapping cannot be submitted as the current source owner');
+$primaryRate=jobdivaRepairPlacementSourceRate($workspace,$b,$actor,(int)$mb['id']);
+$secondaryRate=jobdivaRepairPlacementSourceRate($workspace,$a,$actor,(int)$ma['id']);
+$check($primaryRate['id']===$a&&$primaryRate['reason']==='approved_rate_covers_start'&&$secondaryRate['reason']==='historical_source_not_current_owner'&&$sourceState===$state(),
+    'Rate repair resolves historical input to the survivor, preserves approved rates and skips secondary sources');
 $pdo->exec('SET @fixture_placement_merge_source_history=1');
 $historyBefore=$state();
 $check($fails(fn()=>JobdivaStoredReviewTransaction::run(static fn()=>jobdivaPlacementBindRetained($workspace,'jd:99510001',$a,$payload+['sourceRefreshNote'=>'History must commit'],$actor)))&&$historyBefore===$state(),
