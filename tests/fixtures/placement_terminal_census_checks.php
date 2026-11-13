@@ -1,5 +1,6 @@
 <?php
 /** Actual terminal census behavior on the reviewed shared placement family. */
+require_once __DIR__.'/../../core/jobdiva/terminal_lifecycle.php';
 $terminal=array_replace($payload,['status'=>'Ended','endDate'=>'2026-11-01','__cf_jobdiva_canonical_status'=>'ended']);
 $beforeBaseline=$state();$baseline=jobdivaTerminalCensusBaseline($workspace);
 $check(isset($baseline['states']['99510001']['hash'])&&!str_contains(json_encode($baseline),'payload_snapshot')&&$beforeBaseline===$state(),
