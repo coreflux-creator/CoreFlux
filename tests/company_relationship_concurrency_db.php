@@ -68,6 +68,12 @@ function assignmentRepairRaceWrite(array $input): array
     return ['id'=>$input['placement_id']]+jobdivaAssignmentRepairApply($input['expected'],$input['exact'],$input['actor']);
 }
 
+function placementLifecycleRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    return jobdivaRepairPlacementLifecycle($input['workspace'],$input['mapping_id'],$input['actor'],false);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -78,8 +84,8 @@ if(($argv[1]??'')==='worker'){
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
-        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold','assignment_repair_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
-            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),'assignment_repair_hold'=>assignmentRepairRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
+        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold','assignment_repair_hold','lifecycle_repair_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
+            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),'assignment_repair_hold'=>assignmentRepairRaceWrite($input),'lifecycle_repair_hold'=>placementLifecycleRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
             echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
             stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
             if($decision!=='COMMIT')$pdo->exec('ROLLBACK TO SAVEPOINT fixture_rule_hold');
@@ -105,6 +111,7 @@ if(($argv[1]??'')==='worker'){
                 'stored_assignment'=>storedAssignmentRaceWrite($input),
                 'csv_assignment'=>csvAssignmentRaceWrite($input),
                 'assignment_repair'=>assignmentRepairRaceWrite($input),
+                'lifecycle_repair'=>placementLifecycleRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -607,6 +614,31 @@ try{
         fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
         $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="placement.assignment_source_repaired" AND target_id=?');$q->execute([$tenant,$placement]);
         $check($written['ok']&&($decision==='COMMIT'?!$again['ok']:$again['ok'])&&(int)$q->fetchColumn()===1,'Concurrent source repairs commit exactly one result after '.$decision);
+    }
+    $lifecycleFixture=static function(string $label,int $workspace)use($repairFixture,$pdo,$actor):array{
+        [$placement,$input]=$repairFixture('lifecycle-'.$label,$workspace);$mapping=$input['expected']['mapping'];
+        $payload=json_decode($mapping['payload_snapshot'],true,512,JSON_THROW_ON_ERROR);$payload['status']='Completed';
+        mappingBindStable($workspace,'jobdiva','placement',$mapping['external_id'],$placement,$payload,'pull',$actor);
+        $pdo->prepare('UPDATE placements SET status="active" WHERE tenant_id=? AND id=?')->execute([$input['expected']['context']['placement_owner'],$placement]);
+        return[$placement,['mode'=>'native','entity'=>'lifecycle_repair','workspace'=>$workspace,'actor'=>$actor,'placement_id'=>$placement,'mapping_id'=>(int)$mapping['id']]];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['companies','placements','ownership','source']as$change){
+            [$placement,$input]=$lifecycleFixture($change.'-'.$decision,$child);$pdo->beginTransaction();
+            if(in_array($change,['companies','placements'],true))$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$change]);
+            if($change==='ownership')$pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["status"]\' WHERE tenant_id=? AND id=?')->execute([$tenant,$placement]);
+            if($change==='source')$pdo->prepare('UPDATE external_entity_mappings SET sync_status="error" WHERE tenant_id=? AND id=?')->execute([$child,$input['mapping_id']]);
+            $worker=$spawn($input);$check($waiting($worker),'Lifecycle repair waits for current '.$change.' '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$projectionRows();$result=$finish($worker);
+            $blocked=$decision==='COMMIT';$expectedFailure=$blocked&&in_array($change,['companies','placements'],true);
+            $check($expectedFailure?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&($blocked?($result['result']['status']==='skipped'&&$projectionRows()===$before):($result['result']['status']==='updated'&&$read('placements',$placement)['status']==='ended'))),'Lifecycle repair respects committed '.$change.' and rolled-back evidence after '.$decision);
+        }
+        [$placement,$input]=$lifecycleFixture('duplicate-'.$decision,$tenant);
+        $worker=$spawn(array_replace($input,['mode'=>'lifecycle_repair_hold']));$saved=$line($workers[$worker]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Lifecycle repair holds status, graph and audit before '.$decision);
+        $retry=$spawn($input);$check($waiting($retry),'Concurrent lifecycle repair waits for first status change '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
+        $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="placement.status_repaired_from_jobdiva_lifecycle" AND target_id=?');$q->execute([$tenant,$placement]);
+        $check($written['ok']&&$again['ok']&&$again['result']['status']===($decision==='COMMIT'?'skipped':'updated')&&(int)$q->fetchColumn()===1&&$read('placements',$placement)['status']==='ended','Concurrent lifecycle repairs commit exactly one transition after '.$decision);
     }
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
