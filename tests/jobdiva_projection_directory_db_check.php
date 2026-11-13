@@ -82,6 +82,8 @@ try{
     $check($result['projected'],'Core-owned related identities allow unrelated source fields to refresh: '.json_encode($result['errors']));
     foreach(['person_id','end_client_company_id','client_id','staffing_job_id']as$field)$check($current[$field]===$row[$field],'Core-owned '.$field.' is retained');
     $check($current['external_id']==='placements-xlsx-retained','Retained legacy external identifier is not rewritten');
+    $q=$pdo->prepare('SELECT source_system,source_external_id FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND active=1 AND source_type IN("placement","worker","chain","corp","commission","referral")');$q->execute([$parent,$id]);$provenance=$q->fetchAll(PDO::FETCH_ASSOC);
+    $check($provenance&&count(array_filter($provenance,static fn(array $r):bool=>$r['source_system']==='jobdiva'&&$r['source_external_id']==='99160000'))===count($provenance),'Legacy display number retains the saved JobDiva identity on every derived economic participant');
     foreach(['people','companies','staffing_clients','staffing_jobs']as$table)$check(count($before[$table])===count($all($table)),'Held identities create no extra '.$table);
     $check(!mappingFindInternal($child,'jobdiva','person','99160301')&&!mappingFindInternal($child,'jobdiva','staffing_job','99160302'),'Held identities do not claim new provider identities');
     // Retired people require an explicit Core lifecycle decision.

@@ -17,6 +17,7 @@ require_once __DIR__ . '/placements.php';
 require_once __DIR__ . '/commission_input.php';
 require_once __DIR__ . '/commission_identity.php';
 require_once __DIR__ . '/payroll_recipients.php';
+require_once __DIR__ . '/source_identity.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
 {
@@ -551,8 +552,9 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
 
         placementEconomicsEnsureDerivedCycles($tenantId, $placement);
 
-        $sourceSystem = str_starts_with((string) ($placement['external_id'] ?? ''), 'jd:') ? 'jobdiva' : 'coreflux';
-        $sourceExternal = $sourceSystem === 'jobdiva' ? substr((string) $placement['external_id'], 3) : null;
+        $sourceIdentity = placementJobdivaSourceIdentity($pdo, $placement);
+        $sourceSystem = $sourceIdentity ? 'jobdiva' : 'coreflux';
+        $sourceExternal = $sourceIdentity['start_id'] ?? null;
         $placementEffectiveTo = $placement['actual_end_date'] ?: ($placement['end_date'] ?? null);
         $apCycleId = !empty($placement['ap_operating_cycle_id']) ? (int) $placement['ap_operating_cycle_id'] : null;
         $billingCycleId = !empty($placement['billing_operating_cycle_id']) ? (int) $placement['billing_operating_cycle_id'] : null;

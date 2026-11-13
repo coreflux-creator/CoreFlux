@@ -11,6 +11,7 @@ require_once __DIR__.'/../core/jobdiva/sync_placements.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
 require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 require_once __DIR__.'/../modules/placements/lib/edit.php';
+require_once __DIR__.'/../modules/placements/lib/source_rule_review.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 
 function nativePlacementRaceWrite(array $input): array
@@ -40,6 +41,12 @@ function assignmentSourceRaceWrite(array $input): array
     return ['id'=>$result['placement_id']]+$result;
 }
 
+function sourceRuleRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    return ['id'=>$input['placement_id']]+placementSourceRuleReplace($input['workspace'],$input['placement_id'],'chain',$input['body'],['id'=>$input['actor'],'role'=>'admin']);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -50,6 +57,13 @@ if(($argv[1]??'')==='worker'){
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
+        elseif($input['mode']==='rule_hold')$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
+            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=sourceRuleRaceWrite($input);
+            echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
+            stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
+            if($decision!=='COMMIT')$pdo->exec('ROLLBACK TO SAVEPOINT fixture_rule_hold');
+            $pdo->exec('RELEASE SAVEPOINT fixture_rule_hold');return$result;
+        });
         else{
             if($input['mode']==='hold')$pdo->beginTransaction();
             if(!empty($input['snapshot'])){
@@ -66,6 +80,7 @@ if(($argv[1]??'')==='worker'){
                 'native_placement'=>nativePlacementRaceWrite($input),
                 'assignment_source'=>assignmentSourceRaceWrite($input),
                 'economic_graph'=>['id'=>$input['placement_id']]+placementEconomicsReconcile($input['workspace'],$input['placement_id']),
+                'source_rules'=>sourceRuleRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -430,6 +445,53 @@ try{
         &&(int)$parties['referral:'.$referral]['company_id']===$a&&(float)$parties['referral:'.$referral]['fee_flat']===3.0,
         'Derived graph uses current corporation, chain and referral identities and terms despite an older snapshot');
 
+    $ruleFixture=static function(string $label,int $workspace)use($pdo,$projectionFixture,$read,$tenant,$actor):array{
+        [$msp,$survivor,$placement,$input]=$projectionFixture('rule-'.$label,$workspace);$payload=$input['payload'];$start=$payload['startId'];
+        $payload['mspName']=$read('companies',$msp)['name'];$payload['mspCompanyId']='race-projection-survivor-'.$start;$payload['mspFeePct']=2;
+        $payload['_jd_contract']+=['client_bill_cycle'=>'monthly','vendor_pay_cycle'=>'biweekly','client_payment_terms'=>'NET30','vendor_payment_terms'=>'NET30','paid_when_paid'=>false];
+        mappingUpsert($workspace,'jobdiva','jobdiva_assignment',$start,$placement,$payload);
+        $parent=$read('placements',$placement);
+        $chain=jobdivaSyncUpsertPlacementChain($tenant,$placement,(int)$parent['end_client_company_id'],$parent['end_client_name'],$payload,$actor,$workspace)['rows'];
+        placementSourceRuleEdit($tenant,$placement,'chain','update',$chain['msp'],['portal_fee_pct'=>'0.0300'],['id'=>$actor,'role'=>'admin']);
+        $review=placementSourceRuleReview($workspace,$placement,'chain');
+        if(!$review['selectable'])throw new RuntimeException('Rule race source blocked: '.implode('; ',$review['issues']));
+        $matches=[];foreach($review['proposed']as$p){$same=array_values(array_filter($review['current'],static fn($c)=>$c['identity']===$p['identity']));$matches[$p['key']]=$same[0]['id']??0;}
+        $body=['confirm'=>'REPLACE_REVIEWED_SOURCE_RULES','review_token'=>$review['review_token'],'request_id'=>'99200000-0000-4000-8000-'.sprintf('%012d',(int)$start),'matches'=>$matches];
+        return[$survivor,$msp,$placement,$chain['msp'],['mode'=>'native','entity'=>'source_rules','workspace'=>$workspace,'actor'=>$actor,'placement_id'=>$placement,'body'=>$body],$payload];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['companies','placements']as$module){
+            [$a,$b,$placement,$msp,$input]=$ruleFixture('policy-'.$module.'-'.$decision,$child);$before=$projectionRows();
+            $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$module]);
+            $worker=$spawn($input);$check($waiting($worker),'Reviewed source handback waits for '.$module.' policy '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+            $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.02),'Reviewed handback respects current '.$module.' scope after '.$decision);
+        }
+        [$a,$b,$placement,$msp,$input,$payload]=$ruleFixture('source-first-'.$decision,$tenant);
+        $pdo->beginTransaction();mappingUpsert($tenant,'jobdiva','jobdiva_assignment',$payload['startId'],$placement,array_replace($payload,['mspFeePct'=>4]));
+        $worker=$spawn($input);$check($waiting($worker),'Reviewed handback waits for the saved source mirror '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&(int)$result['code']===409&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.03):($result['ok']&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.02),'Committed new evidence invalidates handback; rolled-back evidence preserves the review: '.$decision);
+        [$a,$b,$placement,$msp,$input]=$ruleFixture('merge-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+        $worker=$spawn($input);$check($waiting($worker),'Reviewed handback waits for the recipient merge '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&(int)$result['code']===409&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.03):($result['ok']&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.02),'Handback never silently accepts a changed recipient review after '.$decision);
+        [$a,$b,$placement,$msp,$input]=$ruleFixture('review-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        foreach($input['body']['matches']as$key=>$id)if($id===$msp)$input['body']['matches'][$key]=0;
+        $worker=$spawn(array_replace($input,['mode'=>'rule_hold']));$saved=$line($workers[$worker]['pipes'][1]);$check(!empty($saved['saved']),'Reviewed handback holds matched choices, source ownership and receipt before '.$decision);
+        $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+        $check($waiting($merger),'Recipient merge waits for reviewed rule replacement '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$merged=$finish($merger);
+        $check($written['ok']&&($decision==='COMMIT'?(!$merged['ok']&&(int)$merged['code']===409&&$read('placement_client_chain',$msp)===[]):($merged['ok']&&(int)$read('placement_client_chain',$msp)['company_id']===$a)), 'Merge rechecks committed replacement IDs and ignores rolled-back choices: '.$decision);
+        [$a,$b,$placement,$msp,$input]=$ruleFixture('retry-'.$decision,$tenant);
+        $worker=$spawn(array_replace($input,['mode'=>'rule_hold']));$saved=$line($workers[$worker]['pipes'][1]);$check(!empty($saved['saved']),'First handback holds its receipt before concurrent retry '.$decision);
+        $retry=$spawn($input);$check($waiting($retry),'Identical handback retry waits for first request '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
+        $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND target_id=? AND event="placement.source_rules.replaced"');$q->execute([$tenant,$placement]);
+        $check($written['ok']&&$again['ok']&&(int)$q->fetchColumn()===1&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.02
+            &&(!empty($again['result']['replayed'])===($decision==='COMMIT')),'Concurrent retry records exactly one replacement after '.$decision);
+    }
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);

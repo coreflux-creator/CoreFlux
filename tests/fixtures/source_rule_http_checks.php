@@ -103,6 +103,23 @@ $q=$pdo->prepare("SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=
 $expect(count($ruleAudits)===3&&count(array_filter($ruleAudits,static fn($r)=>(int)$r['actor_user_id']===$actor))===3,'Each native rule-set replacement audits the authenticated actor exactly once');
 $expect($snapshot($financialTables)===$financialBefore,'Native rule review and replacement do not execute accounting, payroll or payment operations');
 
+// A reviewed source link is authoritative even when the retained placement
+// number came from a spreadsheet. Exercise the actual authenticated endpoint.
+mappingUpsert($tenant,'jobdiva','placement',$ruleStart,$rulePlacement,$rulePayload);
+$pdo->prepare('UPDATE placements SET external_id="http-retained-placement-number" WHERE tenant_id=? AND id=?')->execute([$tenant,$rulePlacement]);
+[$status,$legacyReview]=$request('GET',$rulePaths['chain']);
+$expect($status===200&&$legacyReview['selectable']&&$legacyReview['source_start_id']===$ruleStart,'Native handback reviews a mapped placement with a retained legacy external number');
+$legacyMatches=[];foreach($legacyReview['proposed']as$p){$same=array_values(array_filter($legacyReview['current'],static fn($c)=>$c['identity']===$p['identity']));$legacyMatches[$p['key']]=$same[0]['id'];}
+$legacyBody=['confirm'=>'REPLACE_REVIEWED_SOURCE_RULES','request_id'=>'99190100-0000-4000-8000-000000000010','review_token'=>$legacyReview['review_token'],'matches'=>$legacyMatches];
+[$status,$legacySaved]=$request('POST',$rulePaths['chain'],$legacyBody);
+$q=$pdo->prepare('SELECT external_id FROM placements WHERE tenant_id=? AND id=?');$q->execute([$tenant,$rulePlacement]);
+$expect($status===200&&$legacySaved['applied']===$legacyMatches&&$q->fetchColumn()==='http-retained-placement-number','Native handback preserves both the legacy number and explicitly matched rule IDs');
+$q=$pdo->prepare('SELECT COUNT(*) FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? AND active=1 AND (source_system<>"jobdiva" OR source_external_id<>?)');$q->execute([$tenant,$rulePlacement,$ruleStart]);
+$expect((int)$q->fetchColumn()===0,'Native legacy-number handback retains JobDiva economic provenance');
+$before=$snapshot($ruleTables);[$status,$legacyAgain]=$request('POST',$rulePaths['chain'],$legacyBody);
+$expect($status===200&&!empty($legacyAgain['replayed'])&&$snapshot($ruleTables)===$before,'Native legacy-number handback retries return the existing receipt');
+$expect($snapshot($financialTables)===$financialBefore,'Native legacy-number handback changes no accounting, payroll, payment or time operation');
+
 // The same native PATCH used by the company chooser resolves an unlinked source row.
 $choicePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unresolved company choice','status'=>'on_hold','engagement_type'=>'1099','start_date'=>'2026-10-01']);
 $choiceChain=jobdivaSyncUpsertPlacementChainRow($tenant,$choicePlacement,1,'msp','Unresolved source MSP',null,['portal_fee_pct'=>0.02]);

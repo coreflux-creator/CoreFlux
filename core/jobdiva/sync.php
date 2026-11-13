@@ -3644,7 +3644,8 @@ function jobdivaStoredAssignmentProjectionPlan(
     int $limit = 5000,
     array $onlyStartIds = [],
     bool $includeProjectionPayloads = true,
-    int $offset = 0
+    int $offset = 0,
+    ?array $directoryContext = null
 ): array {
     require_once __DIR__ . '/../integrations/field_map.php';
     tenantIntegrationFieldMapFlushCache();
@@ -3680,6 +3681,14 @@ function jobdivaStoredAssignmentProjectionPlan(
     }
 
     $pdo = getDB();
+    // Reviewed rule handback carries its original source workspace while the
+    // business graph can live in a shared directory. Recheck, never trust a
+    // caller-supplied owner or a cached policy.
+    if($directoryContext!==null){
+        $fresh=jobdivaPlacementWriteContext($pdo,$tenantId);
+        if($fresh!==$directoryContext)throw new RuntimeException('Assignment sharing changed. Load a new source review.',409);
+    }
+    $placementOwner=$directoryContext['placement_owner']??$tenantId;
     $fieldMapRevision = mappingHash(tenantIntegrationFieldMapList($tenantId, 'jobdiva'));
     $countStmt = $pdo->prepare(
         "SELECT COUNT(*)
@@ -3843,7 +3852,8 @@ function jobdivaStoredAssignmentProjectionPlan(
             $warnings[] = "Company {$companyId} is referenced but its canonical company mirror is unavailable.";
         }
 
-        $placementMapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId);
+        $placementMapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId)
+            ?: mappingFindInternal($tenantId, 'jobdiva', 'placement', 'jd:'.$startId);
         $mappedPlacementId = (int) ($placementMapping['internal_entity_id'] ?? 0);
         $placementId = $mappedPlacementId;
         $current = [];
@@ -3856,7 +3866,7 @@ function jobdivaStoredAssignmentProjectionPlan(
               ORDER BY id ASC'
         );
         $exactPlacementStmt->execute([
-            't' => $tenantId,
+            't' => $placementOwner,
             'canonical' => 'jd:' . $startId,
             'raw' => $startId,
         ]);
@@ -3896,12 +3906,12 @@ function jobdivaStoredAssignmentProjectionPlan(
                   WHERE tenant_id = :t AND id = :id
                   LIMIT 1'
             );
-            $placementStmt->execute(['t' => $tenantId, 'id' => $placementId]);
+            $placementStmt->execute(['t' => $placementOwner, 'id' => $placementId]);
             $current = $placementStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
             if (!$current) {
                 $errors[] = "Placement mapping points to missing CoreFlux placement {$placementId}.";
             } else {
-                $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+                $currentGraph = jobdivaPlacementProjectionAuditSnapshot($placementOwner, $placementId, $directoryContext!==null);
                 try {
                     $timeStmt = $pdo->prepare(
                         'SELECT COUNT(*) AS row_count, COALESCE(SUM(hours), 0) AS total_hours,
@@ -3909,7 +3919,7 @@ function jobdivaStoredAssignmentProjectionPlan(
                            FROM time_entries
                           WHERE tenant_id = :t AND placement_id = :p'
                     );
-                    $timeStmt->execute(['t' => $tenantId, 'p' => $placementId]);
+                    $timeStmt->execute(['t' => $placementOwner, 'p' => $placementId]);
                     $currentGraph['time_summary'] = $timeStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
                 } catch (\Throwable $e) {
                     $currentGraph['time_summary'] = [];
@@ -3922,7 +3932,7 @@ function jobdivaStoredAssignmentProjectionPlan(
                            FROM time_downstream_feed
                           WHERE tenant_id = :t AND placement_id = :p'
                     );
-                    $feedStmt->execute(['t' => $tenantId, 'p' => $placementId]);
+                    $feedStmt->execute(['t' => $placementOwner, 'p' => $placementId]);
                     $currentGraph['downstream_summary'] = $feedStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
                 } catch (\Throwable $e) {
                     $currentGraph['downstream_summary'] = [];
@@ -3938,10 +3948,10 @@ function jobdivaStoredAssignmentProjectionPlan(
         $subcontractId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contractProjection['source_contract'] ?? []]);
         $contractFields = array_column($contractProjection['fields'] ?? [], null, 'field');
         $retainsCorporateIdentity = !empty($contractFields['corp_identity']['core_owned']);
-        $currentCorporateIdentity = $placementId > 0 ? jobdivaCorporateIdentityRecord($tenantId,(int)$placementId) : null;
+        $currentCorporateIdentity = $placementId > 0 ? jobdivaCorporateIdentityRecord($placementOwner,(int)$placementId) : null;
         if ($subcontractId !== '' || $retainsCorporateIdentity) {
             $subcontractEvidence = $retainsCorporateIdentity
-                ? jobdivaStoredCoreSubcontractCompanyEvidence($tenantId, (int)$placementId, $subcontractId)
+                ? jobdivaStoredCoreSubcontractCompanyEvidence($placementOwner, (int)$placementId, $subcontractId)
                 : jobdivaStoredSubcontractCompanyEvidence($tenantId, $subcontractId, $contractProjection['source_contract'] ?? []);
             if (!$retainsCorporateIdentity && !empty($currentCorporateIdentity['has_private_records'])
                 && (int)($subcontractEvidence['company_id'] ?? 0) !== (int)$currentCorporateIdentity['company_id']) {
@@ -4122,6 +4132,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         );
         $rowToken = hash('sha256', json_encode([
             'start_id' => $startId,
+            'directory_context' => $directoryContext,
             'field_map_revision' => $fieldMapRevision,
             'source_updated_at' => (string) ($sourceRow['updated_at'] ?? ''),
             'financial_updated_at' => $financialUpdatedAt,
@@ -5004,7 +5015,7 @@ function jobdivaStoredCoreSubcontractCompanyEvidence(int $tid, int $placementId,
           AND ep.role="c2c_vendor" AND ep.settlement_channel="ap"
         LEFT JOIN ap_vendors_index v ON v.tenant_id=pcd.tenant_id AND v.id=pcd.ap_vendor_id
         WHERE pcd.tenant_id=? AND pcd.placement_id=?');
-    $q->execute([companiesDirectoryTenantId($tid),$tid,$placementId]);
+    $q->execute([jobdivaPartyDirectoryScope(getDB(),$tid,getDB()->inTransaction())['owner'],$tid,$placementId]);
     $row = $q->fetch(PDO::FETCH_ASSOC);
     if (!$row || (int)$row['party_active'] !== 1 || (int)$row['company_id'] !== (int)$row['party_company_id']
         || (int)$row['company_id'] !== (int)$row['vendor_company_id']

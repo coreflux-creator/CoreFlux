@@ -9,7 +9,7 @@ if(!in_array($kind,['chain','referral','commission'],true)||$placement<=0)api_er
 rbac_legacy_require($user,'placements.view');
 if($kind==='commission')rbac_legacy_require($user,'placements.commissions.view');
 $permission=match($kind){'chain'=>'placements.manage','referral'=>'placements.referrals.manage','commission'=>'placements.commissions.manage'};
-$tenant=(int)placementsGraphTenantId((int)$ctx['tenant_id']);
+$tenant=(int)$ctx['tenant_id'];
 try{
     if($method==='GET')api_ok(placementSourceRuleReview($tenant,$placement,$kind)+['can_apply'=>rbac_legacy_can($user,$permission)]);
     if($method==='POST'){rbac_legacy_require($user,$permission);api_ok(placementSourceRuleReplace($tenant,$placement,$kind,api_json_body(),$user));}
