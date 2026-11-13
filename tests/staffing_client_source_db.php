@@ -65,13 +65,31 @@ try{
         $after=$read('staffing_clients',$id);unset($before['coreflux_source_state'],$after['coreflux_source_state'],$before['updated_at'],$after['updated_at']);
         $check($before===$after&&$companyBefore===$read('companies',$company)&&count(staffingClientSourceReview($child,$id)['observations'])===2,$mode.': another provider retains its own proposals without changing the primary profile or source pair');
         if($owner===$parent)$check(staffingClientSourceReview($parent,$id)['observations']===[],$mode.': shared directory does not disclose another workspace source IDs');
+        $review=staffingClientSourceReview($child,$id);$secondaryKey=mappingHash(['system'=>QBO_SOURCE,'workspace_id'=>$child,'external_id'=>$secondaryId]);
+        staffingClientSourceAccept($child,$id,$secondaryKey,['primary_contact_phone'],$review['review_token'],$actor);
+        jobdivaCompanyUpsertStable($child,$external,$name,['primary_contact_phone'=>'Primary refresh'],['id'=>$external,'revision'=>3],$actor,['client']);
+        qboUpsertCustomer($child,['Id'=>$secondaryId,'DisplayName'=>'Secondary proposal '.$mode,'PrimaryPhone'=>['FreeFormNumber'=>'Secondary refresh']]);
+        $check($read('staffing_clients',$id)['primary_contact_phone']==='Secondary phone'&&$read('companies',$company)['primary_contact_phone']==='Secondary phone'&&staffingClientSourceState($read('staffing_clients',$id))['source']['system']==='jobdiva',$mode.': accepting a secondary value once preserves the original authority and survives refreshes from both providers');
+
+        $active=['Id'=>'qb-active-'.$mode,'DisplayName'=>'Source active client '.$mode,'PrimaryPhone'=>['FreeFormNumber'=>'Original phone'],'Active'=>true];
+        $activeId=qboUpsertCustomer($child,$active)['internal_id'];
+        qboUpsertCustomer($child,['Id'=>$active['Id'],'DisplayName'=>$active['DisplayName']]);
+        $check($read('staffing_clients',$activeId)['primary_contact_phone']==='Original phone',$mode.': an omitted incoming phone preserves the previous source-owned value');
+        qboUpsertCustomer($child,['Id'=>$active['Id'],'DisplayName'=>$active['DisplayName'],'PrimaryPhone'=>['FreeFormNumber'=>'']]);
+        $check($read('staffing_clients',$activeId)['primary_contact_phone']==='',$mode.': an explicit incoming blank clears an unowned phone');
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Synthetic source","Worker",?)')->execute([$owner,'client-source-'.$activeId.'@example.invalid']);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date,client_id) VALUES(?,?,"Synthetic source assignment","active","W2","2026-11-01",?)')->execute([$owner,$person,$activeId]);
+        $active['Active']=false;$held=qboUpsertCustomer($child,$active);
+        $check($read('staffing_clients',$activeId)['status']==='active'&&in_array('status',$held['held_fields'],true)&&staffingClientSourceState($read('staffing_clients',$activeId))['proposed']['status']==='inactive',$mode.': an active billing placement holds incoming deactivation for review');
         $before=[$all('staffing_clients'),$all('companies'),$all('external_entity_mappings')];
         $check($fails(fn()=>qboUpsertCustomer($child,['Id'=>'unmapped-'.$mode,'DisplayName'=>$read('companies',$company)['name']]))&&[$all('staffing_clients'),$all('companies'),$all('external_entity_mappings')]===$before,$mode.': unmapped QBO namesake requires review and leaves every identity intact');
     }
-    $before=[$all('staffing_clients'),$all('companies'),$all('external_entity_mappings')];
+    $graph=static fn():array=>[$all('staffing_clients'),$all('companies'),$all('company_roles'),$all('core_record_numbers'),$all('external_entity_mappings'),$all('entity_sync_history')];
+    $before=$graph();
     $ddl=$pdo->query('SHOW CREATE TABLE audit_log')->fetch(PDO::FETCH_NUM)[1];$ddl=preg_replace('/^CREATE TABLE /','CREATE TEMPORARY TABLE ',$ddl,1);$ddl=str_replace('`audit_log` (','`audit_log` (`required_fixture_value` INT NOT NULL,',$ddl);$pdo->exec($ddl);$auditShadow=true;
     $check($fails(fn()=>qboUpsertCustomer($child,['Id'=>'audit-failure','DisplayName'=>'Audit failure new client'])),'Required source audit failure refuses a new company/client/mapping');
-    $check($pdo->inTransaction()&&[$all('staffing_clients'),$all('companies'),$all('external_entity_mappings')]===$before,'Source audit failure rolls back the complete identity graph inside its caller transaction');
+    $check($pdo->inTransaction()&&$graph()===$before,'Source audit failure rolls back the complete identity graph inside its caller transaction');
+    $check($fails(fn()=>jobdivaCompanyUpsertStable($child,'jd-audit-failure','JD audit failure company',[],['id'=>'jd-audit-failure'],$actor,['client']))&&$graph()===$before,'JobDiva company-to-client bridge failure rolls back companies, roles, numbers, clients and mappings together');
     $pdo->exec('DROP TEMPORARY TABLE audit_log');$auditShadow=false;
     $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key="placements"')->execute([$child]);
     $check($fails(fn()=>qboUpsertCustomer($child,['Id'=>'private-shared','DisplayName'=>'Refused private company'])),'Shared client cannot acquire a private child company');

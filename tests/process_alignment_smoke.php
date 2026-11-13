@@ -39,7 +39,10 @@ $a('placement create applies explicitly selected company roles', str_contains($p
 
 $staffingLib = $c('modules/staffing/lib/clients.php');
 $a('staffing bridge helper exists', str_contains($staffingLib, 'function staffingClientEnsureForCompany'));
-$a('staffing bridge treats companies as canonical', str_contains($staffingLib, 'companiesUpsertByName') && str_contains($staffingLib, 'companiesAddRole'));
+$sourceBridge = $c('modules/staffing/lib/client_source.php');
+$a('staffing bridge resolves canonical company identity under independent directory ownership', str_contains($staffingLib, 'staffingClientProjectSource(')
+    && str_contains($sourceBridge, 'companyIdentityResolve($pdo,$companyOwner,$companyId,true)')
+    && str_contains($sourceBridge, "jobdivaPartyDirectoryScope(\$pdo,\$owner,true)['owner']!==\$companyOwner"));
 
 $staffingMigration = $c('modules/staffing/migrations/005_company_bridge.sql');
 $a('staffing clients bridge migration adds company_id', str_contains($staffingMigration, 'ADD COLUMN company_id'));
