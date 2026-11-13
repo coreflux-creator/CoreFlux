@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 company/contact acceptance and subcontract roles — current checkpoint
+
+The installed runtime is `075ca260`, with all eleven jobs in [CI 43360490711](https://github.com/coreflux-creator/CoreFlux/actions/runs/43360490711) passing. Company/contact source ownership and native review controls are installed. Hosted functional acceptance passed 18 assertions covering stale review rejection, selected phone-only updates, preserved native names/provider links, reader denial and replay after later native edits. Test account 107 is retired, its membership/grants/passwords are removed, and synthetic CO-2016 is retired. Browser screenshot capture timed out; native controls, rendered content and desktop overflow were verified.
+
+Mapped subcontract roles now honor the same ownership controls in both stored and ordinary source resolution, including shared company directories. A role-ownership change invalidates the assignment review. The native company/contact suite passed 44 database checks and stored subcontract review passed 34. The corrected two-file installer and independent verification preserved all 35,304 current rows across 378 tables and verified 358 runtime fingerprints. Its initial cache-helper typo, exact recovery and successful separate v2 receipt are recorded in [the release note](thunderhawk-subcontract-role-ownership.md) and [manifest](../deploy/thunderhawk-subcontract-roles-20261112.json).
+
+The refreshed metadata-only inventory contains **2,127 fields with 245 native dispositions undecided**, including all visible custom-field registries (empty). Next company work is the remaining placement-chain/referral role writers, name-only reviewed links and source-aware merge/alias handling. Existing merge behavior does not yet preserve source ownership and provider aliases as a complete reviewed identity workflow. The broader portal, onboarding/documents, assignment/time, payroll and financial acceptance below remains required. No production, provider, Arabella or real financial execution changes were made.
+
 ## November 13 vendor/company directory alignment - installed checkpoint
 
 Runtime `698983a0` passed all eleven CI jobs and is installed in isolated Core. Native vendor reads, creates and settings now use the AP owner, while company references resolve through the independently configured Companies directory. Invalid, foreign or retired selections are refused; replay preserves the existing vendor/company identity. Required audit failure rolls back company creation and vendor changes together. Existing unresolved links remain stored and return a review status.
