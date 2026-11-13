@@ -23,7 +23,7 @@ try{
     $placement=scopedInsert('placements',['person_id'=>$person,'status'=>'active','start_date'=>'2026-11-01','end_date'=>'2026-12-01','engagement_type'=>'w2','title'=>'CI census lifecycle','external_id'=>'jd:99120001','notes'=>'Core-owned note']);
     scopedInsert('placement_rates',['placement_id'=>$placement,'effective_from'=>'2026-11-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-11-01 12:00:00']);
     $rates=$read('placement_rates');$people=$read('people');
-    $terminal=['startId'=>'99120001','__cf_jobdiva_canonical_status'=>'ended','endDate'=>'2026-11-10'];
+    $terminal=['startId'=>'99120001','candidateId'=>'99120002','jobId'=>'99120003','startDate'=>'2026-11-01','status'=>'Ended','__cf_jobdiva_canonical_status'=>'ended','endDate'=>'2026-11-10'];
     foreach(['status','end_date','actual_end_date'] as $field){
         scopedUpdate('placements',$placement,['status'=>'active','end_date'=>'2026-12-01','coreflux_overridden_fields'=>json_encode([$field,'notes'])]);
         $before=placementAuditRow($placement);$audits=$read('jobdiva_sync_audit');$graph=$read('placement_economic_parties');

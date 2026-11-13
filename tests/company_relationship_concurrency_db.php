@@ -13,6 +13,7 @@ require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 require_once __DIR__.'/../core/jobdiva/joined_index_refresh.php';
 require_once __DIR__.'/../core/jobdiva/live_contract_refresh.php';
 require_once __DIR__.'/../core/jobdiva/active_status_review.php';
+require_once __DIR__.'/../core/jobdiva/terminal_lifecycle.php';
 require_once __DIR__.'/../core/integrations/purepay_links.php';
 require_once __DIR__.'/../modules/placements/lib/merge_review.php';
 require_once __DIR__.'/../modules/placements/lib/edit.php';
@@ -156,6 +157,7 @@ if(($argv[1]??'')==='worker'){
                 'active_restore'=>activeRestoreRaceWrite($input),
                 'placement_merge'=>placementMergeRaceWrite($input),
                 'historical_contract_refresh'=>['id'=>$input['placement_id']]+jobdivaRefreshLiveContract($input['workspace'],$input['mapping_id'],$input['actor']),
+                'terminal_census'=>['id'=>$input['placement_id']]+jobdivaTerminalCensusApply($input['workspace'],$input['row'],$input['actor']),
                 'placement_history'=>JobdivaStoredReviewTransaction::run(static fn():array=>
                     ['id'=>$input['placement_id']]+purepayCorePlacementHistorySource($pdo,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',$input['workspace'],$input['placement_id'],true)),
                 'alignment_report'=>jobdivaMappingAlignmentReport($input['workspace'],['sample_limit'=>1]),
@@ -724,6 +726,7 @@ try{
     require __DIR__.'/fixtures/placement_identity_concurrency_checks.php';
     require __DIR__.'/fixtures/placement_merge_concurrency_checks.php';
     require __DIR__.'/fixtures/placement_merge_source_concurrency_checks.php';
+    require __DIR__.'/fixtures/placement_terminal_census_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
