@@ -112,6 +112,29 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
             $expect($status===200&&$replay['replayed'],$mode.': lost source acceptance response recovers the original receipt');
             [$status,$detail]=$request($url.'get&id='.$id,null,true,$child);$detail=$detail['client'];
             $expect(!array_key_exists('coreflux_source_state',$detail),$mode.': ordinary client details do not expose another workspace source state');
+            $repairUrl='/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_client_links';
+            $repairExternal='http-repair-'.$id;$repairName='Synthetic repair billing '.$mode;
+            $repairCompany=jobdivaCompanyUpsertStable($child,$repairExternal,$repairName,[],[],$actor,['client']);$companies[]=$repairCompany;
+            $repairClient=(int)mappingFindInternal($child,'jobdiva','staffing_client',$repairExternal)['internal_entity_id'];$clients[]=$repairClient;
+            $repairStart=(string)(900000+$placement);$repairPayload=['startId'=>$repairStart,'candidateId'=>'81001','jobId'=>'82001','_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>$repairStart,'client_company_id'=>$repairExternal,'client_company_name'=>$repairName]];
+            mappingUpsert($child,'jobdiva','placement',$repairStart,$placement,$repairPayload,'pull',$actor);
+            $expect($request($repairUrl,[],false,$child)[0]===401,$mode.': anonymous billing-link repair is denied');
+            RBACResolver::grantModule($membership,'integrations','read',[$child],$actor);
+            $expect($request($repairUrl,[],true,$child)[0]===403,$mode.': integration reader cannot repair billing links');
+            RBACResolver::grantModule($membership,'integrations','admin',[$child],$actor);
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE id=?')->execute(['["client_id"]',$placement]);
+            [$status,$held]=$request($repairUrl,[],true,$child);
+            $expect($status===200&&($held['repair']['reasons']['core_owned']??0)>=1&&(int)$read('placements',$placement)['client_id']===$id,$mode.': authorized billing repair honors a native client choice');
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=NULL WHERE id=?')->execute([$placement]);$beforeRepair=$read('placements',$placement);
+            $pdo->exec("CREATE TRIGGER client_native_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.client_link_repaired' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic repair audit failure'; END IF; END");$trigger=true;
+            [$status,$failed]=$request($repairUrl,[],true,$child);
+            $expect($status===200&&$failed['ok']===false&&$failed['repair']['failed']>=1&&$read('placements',$placement)===$beforeRepair,$mode.': repair reports required audit failure and rolls back the placement reference');
+            $pdo->exec('DROP TRIGGER client_native_audit_failure');$trigger=false;
+            [$status,$repaired]=$request($repairUrl,[],true,$child);
+            $expect($status===200&&$repaired['ok']===true&&$repaired['repair']['repaired']>=1&&(int)$read('placements',$placement)['client_id']===$repairClient,$mode.': actual repair API links the exact billing client in the resolved placement directory');
+            $repairBefore=$read('placements',$placement);[$status,$replayed]=$request($repairUrl,[],true,$child);
+            $expect($status===200&&$replayed['repair']['repaired']===0&&$read('placements',$placement)===$repairBefore,$mode.': actual repair API replay preserves the same placement and client numbers');
+            foreach(['external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id=?')->execute([$child,$repairStart]);
             $pdo->prepare('INSERT INTO companies(tenant_id,name) VALUES(?,?)')->execute([$companyOwner,'Native client survivor '.$mode]);$survivor=(int)$pdo->lastInsertId();$companies[]=$survivor;
             $review=companyMergePreview($child,['id'=>$actor,'role'=>'admin'],$survivor,$company);
             companyMergeApply($child,['id'=>$actor,'role'=>'admin'],$review['review_token'],['fields'=>array_fill_keys($review['fields'],'survivor'),'custom_fields'=>[],'primary_contact_id'=>0,'primary_addresses'=>[]]);
@@ -131,7 +154,8 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
         foreach($clients as$id){$pdo->prepare('DELETE FROM staffing_clients WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="client" AND record_id=?')->execute([$id]);}
         foreach($clients as$id){$pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=? AND source_system=? AND internal_entity_type="customer" AND internal_entity_id=?')->execute([$child,QBO_SOURCE,$id]);$pdo->prepare('DELETE FROM entity_sync_history WHERE tenant_id=? AND source_system=? AND internal_entity_type="customer" AND internal_entity_id=?')->execute([$child,QBO_SOURCE,$id]);}
         foreach($companies as$id){$pdo->prepare('DELETE FROM companies WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="company" AND record_id=?')->execute([$id]);}
-        if($membership!==null){RBACResolver::revokeModule($membership,'placements',$actor);deactivateMembership($actor,$child);}
+        if($created)foreach(['external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=? AND source_system="jobdiva"')->execute([$child]);
+        if($membership!==null){RBACResolver::revokeModule($membership,'placements',$actor);RBACResolver::revokeModule($membership,'integrations',$actor);deactivateMembership($actor,$child);}
         if($created){$pdo->prepare('DELETE FROM audit_log WHERE tenant_id=?')->execute([$child]);$pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=?')->execute([$child]);$pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$child]);}
     }
 }
