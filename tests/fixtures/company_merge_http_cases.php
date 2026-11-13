@@ -44,6 +44,8 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             }
             [$status,$created]=$request($jobUrl.'create',$jobBody,true,$child);$job=(int)($created['job']['id']??0);$jobIds[]=$job;
             $expect($status===200&&$job>0&&(int)$created['job']['tenant_id']===$child&&(int)$created['job']['client_id']===$client,"$mode: job and client use their independently configured owners");
+            [$status,$jobDetail]=$request($jobUrl.'get&id='.$job,null,true,$child);
+            $expect($status===200&&$jobDetail['job']['client_name']==='Job client '.$mode,"$mode: job detail reads the client name from its independently owned directory");
             $beforeJob=$read('staffing_jobs',$job);
             $expect($request($jobUrl.'update',['id'=>$job,'company_id'=>$other],true,$child)[0]===422&&$read('staffing_jobs',$job)===$beforeJob,"$mode: rejected job reference preserves the saved row");
             $pdo->exec("CREATE TRIGGER company_merge_http_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='staffing.job.native_saved' AND NEW.tenant_id=990662 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic job audit failure'; END IF; END");$trigger=true;

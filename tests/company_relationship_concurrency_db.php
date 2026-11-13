@@ -22,7 +22,7 @@ if(($argv[1]??'')==='worker'){
             if($input['mode']==='hold')$pdo->beginTransaction();
             $result=staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']);
             if($input['mode']==='hold'){
-                echo json_encode(['saved'=>true,'id'=>$result['id']]).PHP_EOL;flush();
+                echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
                 stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
                 if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();
             }
@@ -41,7 +41,7 @@ $spawn=static function(array $input)use(&$workers,&$files,$directory,$line):int{
     $error=$directory.'/error-'.$index.'.txt';$files[]=$error;
     $handle=proc_open([PHP_BINARY,__FILE__,'worker',$path],[0=>['pipe','r'],1=>['pipe','w'],2=>['file',$error,'w']],$pipes,dirname(__DIR__));
     if(!is_resource($handle))throw new RuntimeException('Unable to start independent writer');
-    $workers[$index]=['handle'=>$handle,'pipes'=>$pipes,'closed'=>false];$ready=$line($pipes[1]);
+    $workers[$index]=['handle'=>$handle,'pipes'=>$pipes,'error_file'=>$error,'closed'=>false];$ready=$line($pipes[1]);
     if(!($ready['ready']??false))throw new RuntimeException('Writer connection not ready');$workers[$index]['connection']=$ready['connection'];return$index;
 };
 $finish=static function(int $index)use(&$workers,$line):array{
@@ -51,7 +51,14 @@ $finish=static function(int $index)use(&$workers,$line):array{
 $waiting=static function(int $index)use($pdo,&$workers):bool{
     $q=$pdo->prepare('SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS w JOIN information_schema.INNODB_TRX t ON t.trx_id=w.requesting_trx_id WHERE t.trx_mysql_thread_id=?');
     $deadline=microtime(true)+8;
-    do{$q->execute([$workers[$index]['connection']]);if((int)$q->fetchColumn()>0)return true;if(!proc_get_status($workers[$index]['handle'])['running'])return false;usleep(50000);}while(microtime(true)<$deadline);
+    do{$q->execute([$workers[$index]['connection']]);if((int)$q->fetchColumn()>0)return true;if(!proc_get_status($workers[$index]['handle'])['running'])break;usleep(50000);}while(microtime(true)<$deadline);
+    // CI-only synthetic connections: retain enough evidence to distinguish a
+    // coordination error from an actual write/merge locking failure.
+    $connections=array_column($workers,'connection');$marks=implode(',',array_fill(0,count($connections),'?'));
+    $p=$pdo->prepare('SELECT ID,COMMAND,TIME,STATE,INFO FROM information_schema.PROCESSLIST WHERE ID IN ('.$marks.')');$p->execute($connections);
+    $t=$pdo->prepare('SELECT trx_mysql_thread_id,trx_state,trx_query FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id IN ('.$marks.')');$t->execute($connections);
+    stream_set_blocking($workers[$index]['pipes'][1],false);$output=stream_get_contents($workers[$index]['pipes'][1],4000);stream_set_blocking($workers[$index]['pipes'][1],true);
+    fwrite(STDERR,json_encode(['wait_failed'=>$workers[$index]['connection'],'processes'=>$p->fetchAll(PDO::FETCH_ASSOC),'transactions'=>$t->fetchAll(PDO::FETCH_ASSOC),'worker_output'=>$output,'worker_error'=>substr((string)file_get_contents($workers[$index]['error_file']),0,4000)],JSON_THROW_ON_ERROR).PHP_EOL);
     return false;
 };
 $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
@@ -84,7 +91,7 @@ try{
     foreach(['COMMIT','ROLLBACK']as$decision){
         [$a,$b]=$pair($decision);$review=companyMergePreview($tenant,$user,$a,$b);
         $writer=$spawn(['mode'=>'hold','workspace'=>$tenant,'actor'=>$actor,'company_id'=>$b,'title'=>'Held '.$decision.' job']);
-        $saved=$line($workers[$writer]['pipes'][1]);$check(!empty($saved['saved']),'Independent writer holds its saved job before '.$decision);
+        $saved=$line($workers[$writer]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Independent writer holds its saved job before '.$decision);
         $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
         $check($waiting($merger),'Merge is observed waiting for the independent '.$decision.' writer');
         fwrite($workers[$writer]['pipes'][0],$decision.PHP_EOL);fflush($workers[$writer]['pipes'][0]);

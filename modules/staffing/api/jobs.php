@@ -69,7 +69,7 @@ if ($method === 'GET' && $action === 'list') {
                    c.name AS client_name,
                    COALESCE(p.placement_count, 0) AS placement_count
               FROM staffing_jobs sj
-         LEFT JOIN staffing_clients c ON c.id = sj.client_id AND c.tenant_id = sj.tenant_id
+         LEFT JOIN staffing_clients c ON c.id = sj.client_id AND c.tenant_id = :client_tenant
          LEFT JOIN (
                    SELECT staffing_job_id, COUNT(*) AS placement_count
                      FROM placements
@@ -79,7 +79,7 @@ if ($method === 'GET' && $action === 'list') {
              WHERE ' . implode(' AND ', $where) . '
           ORDER BY ' . $orderSql . '
              LIMIT ' . $limit;
-    api_ok(['rows' => scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId]))]);
+    api_ok(['rows' => scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId,'client_tenant'=>$placementsTenantId]))]);
 }
 
 if ($method === 'GET' && $action === 'get') {
@@ -89,9 +89,9 @@ if ($method === 'GET' && $action === 'get') {
     $job = scopedFind(
         'SELECT sj.*, c.name AS client_name
            FROM staffing_jobs sj
-      LEFT JOIN staffing_clients c ON c.id = sj.client_id AND c.tenant_id = sj.tenant_id
+      LEFT JOIN staffing_clients c ON c.id = sj.client_id AND c.tenant_id = :client_tenant
           WHERE sj.tenant_id = :tenant_id AND sj.id = :id',
-        ['id' => $id]
+        ['id' => $id,'client_tenant'=>$placementsTenantId]
     );
     if (!$job) api_error('Not found', 404);
     $stmt = getDB()->prepare(
