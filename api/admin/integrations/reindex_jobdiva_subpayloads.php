@@ -38,7 +38,14 @@ $tid  = (int) $ctx['tenant_id'];
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 rbac_legacy_require($user, 'tenant_admin.integrations');
 
-$summary = jobdivaBackfillJoinedIndexes($tid);
+try {
+    $summary = jobdivaBackfillJoinedIndexes($tid, (int) $user['id']);
+} catch (Throwable $e) {
+    api_error($e->getMessage(), in_array((int)$e->getCode(), [409,422,503], true) ? (int)$e->getCode() : 503);
+}
+if ((int) ($summary['failed'] ?? 0) > 0) {
+    api_error('Refreshed '.(int)$summary['placements_walked'].' placements; '.(int)$summary['failed'].' source links need review. '.implode('; ', $summary['enrichment_errors']), 409);
+}
 api_ok([
     'ok'                   => true,
     'placements_walked'    => (int) ($summary['placements_walked'] ?? 0),

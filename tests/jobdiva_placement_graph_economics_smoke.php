@@ -161,12 +161,11 @@ $a('normal placement sync enriches Start/Assignment details by default',
     && str_contains($sync, ': true;')
     && str_contains($sync, '$items = jobdivaSyncEnrichRelatedEntities')
     && str_contains($sync, "'enrich_start' => \$enrichStart"));
-$a('backfill treats missing _jd_start as requiring enrichment',
-    str_contains($sync, "empty(\$jd['_jd_start'])"));
-$a('backfill reattaches enriched payloads to the original placement snapshot',
-    str_contains($sync, "'placement_index' => count(\$placements)")
-    && str_contains($sync, '$needsEnrichment = array_values(array_filter($placements')
-    && str_contains($sync, "\$placements[\$p['placement_index']]['payload'] = \$newPayload"));
+$refresh = file_get_contents("{$ROOT}/core/jobdiva/joined_index_refresh.php");
+$a('backfill treats missing exact Start as requiring enrichment', str_contains($refresh, "empty(\$payload['_jd_start'])"));
+$a('backfill associates returned evidence with its exact locked mapping',
+    str_contains($refresh, 'jobdivaJoinedIndexApply($expected,$payload,$actor)')
+    && str_contains($refresh, 'jobdivaJoinedIndexSnapshot($workspace,$mappingId)'));
 $a('assignment mirror rows must echo the requested Start ID before storage',
     str_contains($sync, '$appendAssignmentRecord = static function (')
     && str_contains($sync, "if (\$rowId === '' || \$rowId !== jobdivaAssignmentIdentityNormaliseId(\$startId))")
@@ -184,7 +183,7 @@ $a('full sync performs final canonical replay after mirror evidence is stored',
     && str_contains($sync, '$finalProjection = $safeRun(')
     && str_contains($sync, "'jobdiva_final_projection' => \$finalProjection"));
 $a('canonical projection repair refreshes stored joined payloads before reprojecting',
-    str_contains($service = (string) file_get_contents("{$ROOT}/core/jobdiva/mapping_alignment.php"), 'jobdivaBackfillJoinedIndexes($tenantId)')
+    str_contains($service = (string) file_get_contents("{$ROOT}/core/jobdiva/mapping_alignment.php"), 'jobdivaBackfillJoinedIndexes($tenantId, $userId, $limit)')
     && str_contains($service, "'payloads_refreshed'")
     && str_contains($service, "'subpayload_indexes_refreshed'"));
 

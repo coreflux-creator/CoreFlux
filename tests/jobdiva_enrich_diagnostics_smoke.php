@@ -71,14 +71,11 @@ $a('diagnostics assigned to caller via ref when passed',
 
 // 2) Backfill passes enrich_start=1 + collects diagnostics.
 echo "\n2. jobdivaBackfillJoinedIndexes uses enrich_start + diagnostics\n";
-$a('declares $enrichDiag = null pre-enrichment',
-    str_contains($sync, '$enrichDiag = null;'));
-$a('passes enrich_start=1 to enricher',
-    str_contains($sync, "['enrich_start' => 1]"));
-$a('passes $enrichDiag by reference as 5th arg',
-    preg_match('/jobdivaSyncEnrichRelatedEntities\(\s*\$tenantId,\s*\$items,\s*null,\s*\[\'enrich_start\' => 1\],\s*\$enrichDiag\s*\)/', $sync) === 1);
-$a('summary.endpoint_diagnostics surfaced when diag is non-empty',
-    str_contains($sync, "\$summary['endpoint_diagnostics'] = \$enrichDiag"));
+$refresh = file_get_contents("$root/core/jobdiva/joined_index_refresh.php");
+$a('diagnostic output starts with an array so the enricher returns it', str_contains($refresh, '$diag=[];'));
+$a('refresh requests exact Start enrichment', str_contains($refresh, "['enrich_start'=>1]"));
+$a('refresh passes diagnostics by reference', str_contains($refresh, "['enrich_start'=>1],\$diag)"));
+$a('per-record diagnostics aggregate into the response', str_contains($refresh, "\$summary['endpoint_diagnostics'][\$kind]=\$prior"));
 
 // 3) API endpoint bubbles diagnostics.
 echo "\n3. reindex_jobdiva_subpayloads.php\n";

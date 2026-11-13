@@ -492,7 +492,8 @@ function jobdivaMappingRepairCanonicalProjection(int $tenantId, ?int $userId = n
     $limit = max(1, min(5000, $limit));
 
     if (function_exists('jobdivaBackfillJoinedIndexes')) {
-        $backfill = jobdivaBackfillJoinedIndexes($tenantId);
+        $backfill = jobdivaBackfillJoinedIndexes($tenantId, $userId, $limit);
+        $summary['failed'] = (int) ($backfill['failed'] ?? 0);
         $summary['payloads_refreshed'] = (int) ($backfill['enrichment_ran_for'] ?? 0);
         foreach ((array) ($backfill['sub_records_indexed'] ?? []) as $count) {
             $summary['subpayload_indexes_refreshed'] += (int) $count;

@@ -109,7 +109,8 @@ function integrationPayloadFieldIndexRecord(
     int $tenantId,
     string $integration,
     string $entityType,
-    array $payload
+    array $payload,
+    bool $required = false
 ): int {
     if ($tenantId <= 0 || $integration === '' || $entityType === '') return 0;
     $rows = integrationPayloadFlatten($payload);
@@ -118,6 +119,7 @@ function integrationPayloadFieldIndexRecord(
     try {
         $pdo = getDB();
     } catch (\Throwable $e) {
+        if ($required) throw $e;
         return 0;
     }
 
@@ -138,6 +140,7 @@ function integrationPayloadFieldIndexRecord(
                 last_seen_at     = NOW()'
         );
     } catch (\Throwable $e) {
+        if ($required) throw $e;
         // Migration not applied — silently skip; the UI will show an
         // empty picker until the index is built.
         return 0;
@@ -155,6 +158,7 @@ function integrationPayloadFieldIndexRecord(
             ]);
             $upserted++;
         } catch (\Throwable $e) {
+            if ($required) throw $e;
             // Single-row failure shouldn't tank the rest. Log + continue.
             error_log('[payload_field_index] insert failed: ' . $e->getMessage());
         }

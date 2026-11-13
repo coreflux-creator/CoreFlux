@@ -162,45 +162,28 @@ $a('payload with no joined data returns empty array', $ext3 === []);
 echo "\n4. jobdivaBackfillJoinedIndexes wired\n";
 $syncSrc = str_replace("\r\n", "\n", file_get_contents("$root/core/jobdiva/sync.php"));
 $projectorSrc = file_get_contents("$root/core/jobdiva/projector.php");
-$a('jobdivaBackfillJoinedIndexes function declared',
-    str_contains($syncSrc, 'function jobdivaBackfillJoinedIndexes(int $tenantId): array'));
-$a('backfill queries existing placement payloads',
-    str_contains($syncSrc, "AND source_system = 'jobdiva'")
-    && str_contains($syncSrc, "AND internal_entity_type = 'placement'")
-    && str_contains($syncSrc, "AND payload_snapshot IS NOT NULL"));
-$a('backfill decodes JSON payload + skips invalid',
-    str_contains($syncSrc, 'json_decode($snap, true)')
-    && str_contains($syncSrc, 'if (!is_array($payload)) continue'));
-$a('backfill calls extractor + canonical/native indexer per row',
-    str_contains($syncSrc, 'jobdivaExtractJoinedSubPayloads($payload)')
-    && str_contains($syncSrc, 'jobdivaCanonicalFieldIndexEntityTypes($entityType)')
-    && str_contains($syncSrc, 'jobdivaCanonicalPayloadForEntity($entityType, $indexEntityType, $sub)')
-    && str_contains($syncSrc, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$indexEntityType, \$payloadForIndex)"));
-$a('backfill returns placements_walked + sub_records_indexed counters',
-    str_contains($syncSrc, "'placements_walked'")
-    && str_contains($syncSrc, "'sub_records_indexed'")
-    && str_contains($syncSrc, "'staffing_job'     => 0"));
-
-// 4.5) Backfill now also pulls full joined records via the JobDiva
-// enrichment endpoints (searchJob / searchCandidate / CompaniesDetail /
-// searchContact). Operator complaint: "once I link the job I want to be
-// able to pull from the job fields and keep mapping" — the V2 BI
-// placement payload only carries flat ref-number stubs (jobRefNo,
-// candidateRefNo) so we have to hit the per-id search endpoints to
-// surface the full schema.
-echo "\n4.5 Backfill calls enricher + re-saves payload_snapshot\n";
-$a('backfill detects placements missing _jd_* enrichment',
-    str_contains($syncSrc, "empty(\$jd['_jd_job']) || empty(\$jd['_jd_candidate'])")
-    && str_contains($syncSrc, "empty(\$jd['_jd_customer'])"));
-$a('backfill invokes jobdivaSyncEnrichRelatedEntities on the missing batch',
-    str_contains($syncSrc, "jobdivaSyncEnrichRelatedEntities(\n                \$tenantId, \$items, null,\n                ['enrich_start' => 1],\n                \$enrichDiag\n            )"));
-$a('backfill persists the enriched payload back to external_entity_mappings',
-    str_contains($syncSrc, 'UPDATE external_entity_mappings')
-    && str_contains($syncSrc, 'SET payload_snapshot = :p')
-    && str_contains($syncSrc, 'jobdivaAssignmentCompactSnapshotPayload($newPayload, $externalId)'));
-$a('summary surfaces enrichment_ran_for + enrichment_errors',
-    str_contains($syncSrc, "\$summary['enrichment_ran_for'] = \$enrichmentRanFor")
-    && str_contains($syncSrc, "\$summary['enrichment_errors']  = \$enrichmentBroken"));
+$refresh = file_get_contents("$root/core/jobdiva/joined_index_refresh.php");
+$a('backfill passes source workspace, actor and bound to protected service',
+    str_contains($syncSrc, 'return jobdivaRefreshJoinedIndexes($tenantId, $actor, $limit);'));
+$a('refresh captures exact source and joined mirrors before lookup',
+    str_contains($refresh, 'jobdivaAssignmentRepairSnapshot($workspace,$mappingId)')
+    && str_contains($refresh, "jobdivaPlacementPayloadWithMirrors(\$workspace,\$payload,\$stats,\$evidence['external'],true)"));
+$a('refresh revalidates the complete evidence before writing',
+    str_contains($refresh, 'jobdivaAssignmentRepairFingerprint($expected)')
+    && str_contains($refresh, 'jobdivaAssignmentRepairFingerprint($current)'));
+$a('refresh rejects unexpected roots and related identities',
+    str_contains($refresh, 'jobdivaJoinedIndexValidatePayload($current,$payload)')
+    && str_contains($refresh, 'jobdivaAssignmentContractRowsForStart'));
+$a('index and required actor receipt share a protected transaction',
+    str_contains($refresh, 'JobdivaStoredReviewTransaction::run(')
+    && str_contains($refresh, "integrationPayloadFieldIndexRecord(\$workspace,'jobdiva',\$type,\$indexPayload,true)")
+    && str_contains($refresh, 'companySourceAudit($pdo,$workspace'));
+$a('snapshot refresh updates its hash without replacing provider identity',
+    str_contains($refresh, 'SET payload_snapshot=?,content_hash=?,updated_at=NOW()')
+    && !str_contains($refresh, 'SET external_id='));
+$a('batch reports failed records and retains endpoint diagnostics',
+    str_contains($refresh, "'failed'=>0,'endpoint_diagnostics'=>[]")
+    && str_contains($refresh, "['enrichment_errors'][]"));
 
 // 5) Sync site uses extractor for applyAll fan-out (covers flat + nested).
 echo "\n5. Placement sync uses extractor for applyAll fan-out\n";
@@ -238,7 +221,7 @@ $a('endpoint enforces POST',
 $a('endpoint guarded by tenant_admin.integrations',
     str_contains($ep, "rbac_legacy_require(\$user, 'tenant_admin.integrations')"));
 $a('endpoint calls jobdivaBackfillJoinedIndexes($tid)',
-    str_contains($ep, 'jobdivaBackfillJoinedIndexes($tid)'));
+    str_contains($ep, 'jobdivaBackfillJoinedIndexes($tid, (int) $user[\'id\'])'));
 $a('endpoint returns ok + counters',
     str_contains($ep, "'placements_walked'")
     && str_contains($ep, "'sub_records_indexed'")
