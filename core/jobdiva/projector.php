@@ -762,11 +762,17 @@ function jobdivaProjectorResolvePartyCompany(int $tenantId, array $payload, arra
     $externalId = trim((string) $evidence['external_id']);
     $name = trim((string) $evidence['name']);
     $pdo = getDB();
-    $owner = jobdivaPartyDirectoryScope($pdo,$tenantId)['owner'];
-    $mapping = $externalId !== '' ? mappingFindInternal($tenantId, 'jobdiva', 'company', $externalId) : null;
+    $lock = $pdo->inTransaction();
+    $suffix = $lock ? ' FOR UPDATE' : '';
+    $owner = jobdivaPartyDirectoryScope($pdo,$tenantId,$lock)['owner'];
+    $mapping = null;
+    if ($externalId !== '') {
+        $q = $pdo->prepare("SELECT * FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='company' AND external_id=?".$suffix);
+        $q->execute([$tenantId,$externalId]);$mapping=$q->fetch(PDO::FETCH_ASSOC)?:null;
+    }
     if ($mapping) {
         if ((string) $mapping['external_id'] !== $externalId) throw new RuntimeException('Company source identity needs exact review.');
-        $identity = companyIdentityResolve($pdo,$owner,(int)$mapping['internal_entity_id']);
+        $identity = companyIdentityResolve($pdo,$owner,(int)$mapping['internal_entity_id'],$lock);
         $company = $identity['source_company']??null;
         $authority=$company?companySourceState($company,'companies')['source']:null;
         $confirmed=$authority!==null&&mappingHash($authority)===mappingHash(['system'=>'jobdiva','workspace_id'=>$tenantId,'external_id'=>$externalId]);
@@ -778,7 +784,7 @@ function jobdivaProjectorResolvePartyCompany(int $tenantId, array $payload, arra
     }
     // Name-only evidence remains unresolved; it cannot establish a provider identity.
     if ($name === '' || $externalId === '') return null;
-    $s = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND name = :n AND deleted_at IS NULL LIMIT 2');
+    $s = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND name = :n AND deleted_at IS NULL LIMIT 2'.$suffix);
     $s->execute(['t' => $owner, 'n' => $name]);
     $matches = $s->fetchAll(PDO::FETCH_COLUMN);
     if (count($matches) > 1) throw new RuntimeException('Multiple companies have this source name; review their identities.');

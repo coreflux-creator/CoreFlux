@@ -56,7 +56,7 @@ $a('helper no longer scopedUpdate()s staffing_clients',
 $a('helper no longer scopedInsert()s staffing_clients',
     !str_contains($clients, "scopedInsert('staffing_clients'"));
 $a('helper update is guarded by tenant_id and id',
-    str_contains($clients, 'WHERE tenant_id = :tenant_id AND id = :id'));
+    str_contains(file_get_contents(__DIR__.'/../modules/staffing/lib/client_source.php'), 'WHERE tenant_id=? AND id=?'));
 $a('helper insert explicitly sets tenant_id from argument',
     str_contains($clients, 'staffingClientProjectSource($tenantId,$companyId,$name,$extra)')
     && str_contains(file_get_contents(__DIR__.'/../modules/staffing/lib/client_source.php'), "'tenant_id'=>$"."owner"));
@@ -80,25 +80,22 @@ $a('report flags placements missing staffing client',
     str_contains($service, 'placement_missing_staffing_client'));
 $a('report flags placements missing canonical end-client company',
     str_contains($service, 'placement_missing_end_client_company'));
+$linkRepair = $read($root . '/core/jobdiva/client_link_repair.php');
 $a('repair function exists and uses staffing bridge',
-    str_contains($service, 'function jobdivaMappingRepairStaffingClientLinks')
-    && str_contains($service, 'staffingClientEnsureForCompany($tenantId, $companyId, $name'));
-$a('repair selects billing links without requiring an end client',
-    str_contains($service, 'SELECT p.id, p.client_id, p.coreflux_overridden_fields')
-    && str_contains($service, 'jobdivaProjectorResolveBillingClientCompany($tenantId, $payload, $userId)'));
-$a('repair rebuilds exact assignment billing evidence from stored mirrors',
-    str_contains($service, 'm.payload_snapshot')
-    && str_contains($service, 'jobdivaPlacementPayloadWithMirrors(')
-    && str_contains($service, "(string) (\$row['mapping_external_id'] ?? '')")
-    && str_contains($service, 'jobdivaProjectorAssignmentClientEvidence($payload)'));
+    str_contains($service, "'/client_link_repair.php'") && str_contains($linkRepair, 'function jobdivaMappingRepairStaffingClientLinks')
+    && str_contains($linkRepair, 'staffingClientEnsureForCompany($workspace, $companyId'));
+$a('repair selects source mappings in original workspace and locks the current placement owner',
+    str_contains($linkRepair, '$q->execute([$tenantId])') && str_contains($linkRepair, '$q->execute([$owner, $id])'));
+$a('repair rebuilds exact assignment billing evidence from locked stored mirrors',
+    str_contains($linkRepair, "$"."mapping['payload_snapshot']")
+    && str_contains($linkRepair, 'jobdivaPlacementPayloadWithMirrors($workspace, $payload, $stats, $external, true)')
+    && str_contains($linkRepair, 'jobdivaProjectorAssignmentClientEvidence($payload)'));
 $a('billing repair never rewrites the end-client fields',
-    !str_contains($service, 'end_client_name = :end_client_name')
-    && !str_contains($service, 'end_client_company_id = :end_client_company_id'));
-$a('repair resolves the billing company through exact assignment evidence',
-    str_contains($service, 'jobdivaProjectorResolveBillingClientCompany($tenantId, $payload, $userId)'));
-$a('repair uses the established billing company and preserves manual choice',
-    str_contains($service, "\$companyId = !empty(\$row['existing_client_company_id'])")
-    && str_contains($service, "in_array('client_id', \$overrides, true)"));
+    !str_contains($linkRepair, 'end_client_name =') && !str_contains($linkRepair, 'end_client_company_id ='));
+$a('repair resolves billing company through exact evidence after native ownership',
+    strpos($linkRepair, 'placementOwnershipFields(')<strpos($linkRepair, 'jobdivaProjectorResolveBillingClientCompany('));
+$a('repair preserves manual choice and requires stable client source identity',
+    str_contains($linkRepair, "'client_id', placementOwnershipFields(") && str_contains($linkRepair, 'exact_billing_identity_required'));
 $a('duplicate placement detector and repair function exist',
     str_contains($service, 'duplicate_jobdiva_placement_rows')
     && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')

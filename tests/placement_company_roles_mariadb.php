@@ -86,7 +86,7 @@ try{
     $after=$snapshot();
     $check($repair['repaired']===1&&(int)$after[0]['client_id']===1&&(int)$after[0]['end_client_company_id']===11&&$after[1]===$before[1],'Exact billing repair changes only debtor and preserves recipient and foreign tenant');
     $pdo->exec('UPDATE placements SET client_id=4,coreflux_overridden_fields=\'["client_id"]\' WHERE id=901');
-    $before=$snapshot();jobdivaMappingRepairStaffingClientLinks(1);staffingClientRelinkCanonicalPlacements(1);
+    $before=$snapshot();jobdivaMappingRepairStaffingClientLinks(1);
     $check($snapshot()===$before,'Source and catalog repairs preserve a manual bill-to override');
     $pdo->exec('UPDATE placements SET client_id=1,coreflux_overridden_fields=NULL WHERE id=901');
     $history=$pdo->query('SELECT * FROM placement_rates ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);

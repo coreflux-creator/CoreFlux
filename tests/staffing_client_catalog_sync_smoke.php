@@ -57,7 +57,7 @@ $assert('client bridge preserves existing commercial terms when a source omits t
 $assert('client catalog helpers never re-resolve an already resolved tenant',
     str_contains($clientLib, 'function staffingClientCatalogQuery(')
     && str_contains($clientLib, "\$params['tenant_id'] = \$tenantId")
-    && str_contains($clientLib, 'function staffingClientCatalogUpdate('));
+    && !str_contains($clientLib, 'function staffingClientCatalogUpdate('));
 
 $clientsUi = $read($root . '/modules/staffing/ui/Clients.jsx');
 $assert('client UI surfaces API failures instead of reporting an empty catalog',

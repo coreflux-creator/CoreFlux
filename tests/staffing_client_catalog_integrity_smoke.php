@@ -51,42 +51,38 @@ $assert('reconciliation preview does not fall back to requisition/customer label
 $assert('client placement counts follow the explicit bill-to profile',
     str_contains($api, 'GROUP BY client_id')
     && str_contains($api, 'p.client_id = c.id'));
-$assert('QuickBooks sub-customers are not promoted as active top-level clients',
-    str_contains($qbo, "if(!empty($"."qbo['Job'])||!empty($"."qbo['ParentRef']['value']))$"."payload['status']='inactive'")
-    && str_contains($clients, 'function staffingClientRetireQboSubcustomers'));
-$assert('catalog repair relinks before retiring unsupported promotions',
-    strpos($repair, 'staffingClientRelinkCanonicalPlacements')
-        < strpos($repair, 'staffingClientRetireUnsupportedJobDivaPromotions'));
-$assert('company lookup and canonical relink prefer the active consumer row',
-    str_contains($clients, "CASE WHEN status = 'active' THEN 0 ELSE 1 END")
-    && str_contains($clients, "MIN(CASE WHEN status = \\'active\\' THEN id END)")
-    && str_contains($clients, 'current_client.id <> canonical.id'));
-$assert('active placements can only reactivate clients with durable provenance',
-    str_contains($clients, 'function staffingClientReactivateProvenActivePlacementClients')
-    && str_contains($clients, "sc.name NOT REGEXP '^JobDiva Company [0-9]+$'")
-    && str_contains($clients, "COALESCE(NULLIF(TRIM(sc.source_system), ''), 'manual') <> 'manual'")
-    && str_contains($clients, "manual_audit.event IN ('staffing.client.created', 'staffing.client.updated', 'staffing.client.imported')"));
-$assert('catalog repair restores proven active-placement clients after cleanup and relinks again',
-    strpos($repair, 'staffingClientReactivateProvenActivePlacementClients')
-        > strpos($repair, 'staffingClientRetireJobDivaPlaceholders')
-    && substr_count($repair, 'staffingClientRelinkCanonicalPlacements') === 2
-    && str_contains($repair, 'active_placement_client_issues'));
-$assert('exact JobDiva assignment clients carry integration provenance',
-    str_contains($read($root . '/modules/staffing/lib/client_source.php'), "'source_system'=>$"."system")
-    && str_contains($sync, "'source_external_id' => $"."clientEvidence['external_id']")
-    && str_contains($repair, 'staffingClientRetireUnsupportedLegacyRows')
-    && str_contains($repair, 'staffingClientRetireJobDivaPlaceholders'));
-$assert('catalog integrity rejects synthetic and unsupported active clients',
-    str_contains($clients, 'active_unproven_clients')
-    && str_contains($clients, 'active_placements_with_inactive_client')
-    && str_contains($repair, "after['active_unproven_clients']"));
+$source = $read($root . '/modules/staffing/lib/client_source.php');
+$review = $read($root . '/modules/staffing/lib/client_catalog_review.php');
+$links = $read($root . '/core/jobdiva/client_link_repair.php');
+$assert('QuickBooks subcustomer status obeys source ownership and active placement holds',
+    str_contains($qbo, "$"."payload['status']='inactive'")
+    && str_contains($source, "in_array($"."field,$"."state['owned'],true)")
+    && str_contains($source, "in_array($"."apply['status'],['closed','inactive'],true)"));
+$assert('catalog command defaults to read-only and requires an exact write flag',
+    str_contains($repair, "'--apply-source-links'") && str_contains($repair, "'read_only'")
+    && str_contains($repair, '$repair = $apply ? jobdivaMappingRepairStaffingClientLinks'));
+$assert('report resolves both independent directories without lifecycle mutation',
+    str_contains($review, 'companyRelationshipScope(') && str_contains($review, "'company_owner_id'")
+    && !str_contains($review, 'UPDATE staffing_clients') && !str_contains($review, 'DELETE FROM'));
+$assert('repair never canonicalizes retained client numbers or removes company roles',
+    !str_contains($clients, 'function staffingClientRelinkCanonicalPlacements')
+    && !str_contains($clients, 'DELETE FROM company_roles')
+    && !str_contains($clients, 'function staffingClientReactivateProvenActivePlacementClients'));
+$assert('exact repair locks scope and ownership before resolving its company',
+    strpos($links, 'placementOwnershipFields(') < strpos($links, 'jobdivaProjectorResolveBillingClientCompany(')
+    && str_contains($links, 'companyRelationshipScope(') && str_contains($links, 'FOR UPDATE'));
+$assert('repair refuses name-only identity and does not force active client status',
+    str_contains($links, 'exact_billing_identity_required') && !str_contains($links, 'staffingClientFindForCompany(')
+    && !str_contains($links, "'status'=>'active'"));
+$assert('catalog concerns are review evidence rather than deletion criteria',
+    str_contains($review, 'companies_with_multiple_clients') && str_contains($review, 'active_placeholder_names')
+    && str_contains($review, 'active_placements_needing_client_review'));
 $assert('explicit CSV client imports retain audit provenance',
     str_contains($read($root . '/modules/staffing/api/csv_import.php'), 'staffingClientImportNative(')
     && str_contains($read($root . '/modules/staffing/lib/client_write.php'), "'staffing.client.imported'"));
-$assert('cleanup preserves source graphs and only inactivates consumer rows',
-    str_contains($clients, "SET sc.status = 'inactive'")
-    && !str_contains($clients, 'DELETE FROM companies')
-    && !str_contains($clients, 'DELETE FROM placements'));
+$assert('client-link repair requires an atomic audit receipt',
+    str_contains($links, 'companyRelationshipAtomic(') && str_contains($links, 'companySourceAudit(')
+    && str_contains($links, 'placement.client_link_repaired'));
 
 echo "\n{$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

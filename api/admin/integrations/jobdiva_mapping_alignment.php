@@ -4,7 +4,7 @@
  *
  * GET  -> report canonical mappings, native payload mirrors, graph issues.
  * POST action=repair_client_links -> backfill placements.client_id from the
- * canonical end-client company/staffing client bridge.
+ * exact assignment billing company/staffing client bridge.
  * POST action=repair_source_rate_drafts -> create missing draft rate rows
  * from JobDiva source payload snapshots.
  * POST action=repair_stale_placements -> mark active JobDiva placements

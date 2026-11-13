@@ -3273,10 +3273,11 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     return $summary;
 }
 
-function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, string $externalId): ?array
+function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, string $externalId, bool $lock = false): ?array
 {
     $externalId = trim($externalId);
     if ($tenantId <= 0 || $entityType === '' || $externalId === '') return null;
+    if ($lock && !getDB()->inTransaction()) throw new LogicException('A locked mirror read requires a transaction.');
     try {
         $payloadSelect = $entityType === 'jobdiva_assignment'
             ? jobdivaAssignmentCompactSnapshotSql('payload_snapshot')
@@ -3290,14 +3291,15 @@ function jobdivaMirrorPayloadByExternalId(int $tenantId, string $entityType, str
                 AND external_id = :eid
                 AND sync_status = 'ok'
                 AND payload_snapshot IS NOT NULL
-              LIMIT 1"
+              LIMIT 1" . ($lock ? ' FOR UPDATE' : '')
         );
         $st->execute(['t' => $tenantId, 'et' => $entityType, 'eid' => $externalId]);
         $snap = $st->fetchColumn();
         if (!is_string($snap) || $snap === '') return null;
-        $decoded = json_decode($snap, true);
+        $decoded = json_decode($snap, true, 512, JSON_THROW_ON_ERROR);
         return is_array($decoded) ? $decoded : null;
     } catch (\Throwable $e) {
+        if ($lock) throw $e;
         error_log('[jobdiva mirror payload lookup] ' . $entityType . ' failed: ' . $e->getMessage());
         return null;
     }
@@ -3361,7 +3363,8 @@ function jobdivaPlacementPayloadWithMirrors(
     int $tenantId,
     array $payload,
     array &$stats = [],
-    ?string $expectedStartId = null
+    ?string $expectedStartId = null,
+    bool $lock = false
 ): array
 {
     $stats += [
@@ -3432,7 +3435,7 @@ function jobdivaPlacementPayloadWithMirrors(
     );
 
     if ($jobId !== '') {
-        $job = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_job', $jobId);
+        $job = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_job', $jobId, $lock);
         if ($job) {
             $payload['_jd_job'] = $job;
             $payload['job'] = $job;
@@ -3479,7 +3482,7 @@ function jobdivaPlacementPayloadWithMirrors(
             ['id', 'companyId', 'company_id', 'company id', 'companyID', 'COMPANYID'],
             $stats
         );
-        $company = jobdivaMirrorPayloadByExternalId($tenantId, 'company', $companyId);
+        $company = jobdivaMirrorPayloadByExternalId($tenantId, 'company', $companyId, $lock);
         if (!$company) {
             $company = jobdivaAssignmentEmbeddedSectionRow(
                 $payload,
@@ -3496,7 +3499,7 @@ function jobdivaPlacementPayloadWithMirrors(
     }
 
     if ($candidateId !== '') {
-        $candidate = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_candidate', $candidateId);
+        $candidate = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_candidate', $candidateId, $lock);
         if ($candidate) {
             $payload['_jd_candidate'] = $candidate;
             $stats['candidates_joined']++;
@@ -3504,7 +3507,7 @@ function jobdivaPlacementPayloadWithMirrors(
     }
 
     if ($contactId !== '') {
-        $contact = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_contact', $contactId);
+        $contact = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_contact', $contactId, $lock);
         if (!$contact) $contact = jobdivaAssignmentEmbeddedContact($payload, $contactId);
         if ($contact) {
             $payload['_jd_contact'] = $contact;
@@ -3515,7 +3518,7 @@ function jobdivaPlacementPayloadWithMirrors(
 
     $startId = $expectedStartId;
     if ($startId !== '') {
-        $assignment = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_assignment', $startId);
+        $assignment = jobdivaMirrorPayloadByExternalId($tenantId, 'jobdiva_assignment', $startId, $lock);
         if ($assignment) {
             $identity = jobdivaAssignmentValidate($assignment, $startId);
             $context = jobdivaAssignmentContextEvidence($assignment, $payload);

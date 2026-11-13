@@ -8,6 +8,7 @@ require_once __DIR__.'/../modules/staffing/lib/job_write.php';
 require_once __DIR__.'/../modules/staffing/lib/client_write.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
+require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 
 function clientSourceRaceWrite(array $input): array
@@ -45,6 +46,7 @@ if(($argv[1]??'')==='worker'){
                 'client_csv'=>['id'=>staffingClientImportNative($input['workspace'],$input['row'],$input['actor'],true)],
                 'client_source'=>clientSourceRaceWrite($input),
                 'client_accept'=>staffingClientSourceAccept($input['workspace'],$input['client_id'],$input['source_key'],$input['fields'],$input['review_token'],$input['actor']),
+                'client_repair'=>jobdivaRepairPlacementClientLink($input['workspace'],$input['mapping_id'],$input['actor']),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -255,11 +257,54 @@ try{
             }
         }
     }
+    $repairFixture=static function(string $label,int $workspace)use($pdo,$pair,$tenant,$child,$actor,$read,&$companies):array{
+        static $sequence=62000;$start=(string)++$sequence;
+        $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared") ON DUPLICATE KEY UPDATE scope_mode="shared"')->execute([$child]);
+        $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"placements","shared") ON DUPLICATE KEY UPDATE scope_mode="shared"')->execute([$child]);
+        [$a,$b]=$pair($label);$external='race-B-'.$label;$name=$read('companies',$b)['name'];
+        if($workspace!==$tenant){$external.='-child';$name.=' child';$b=jobdivaCompanyUpsertStable($workspace,$external,$name,[],[],$actor,[]);$companies[]=$b;}
+        $client=staffingClientEnsureForCompany($workspace,$b,$name,['source_system'=>'jobdiva','source_external_id'=>$external,'created_by_user_id'=>$actor])['client_id'];
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name) VALUES(?,"Synthetic","Repair race")')->execute([$tenant]);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date) VALUES(?,?,"Repair race","draft","W2","2026-11-01")')->execute([$tenant,$person]);$placement=(int)$pdo->lastInsertId();
+        $payload=['startId'=>$start,'candidateId'=>'71001','jobId'=>'81001','_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>$start,'client_company_id'=>$external,'client_company_name'=>$name]];
+        mappingUpsert($workspace,'jobdiva','placement',$start,$placement,$payload,'pull',$actor);$mapping=mappingFindInternal($workspace,'jobdiva','placement',$start);
+        return[$a,$b,$client,$placement,['mode'=>'native','entity'=>'client_repair','workspace'=>$workspace,'actor'=>$actor,'mapping_id'=>(int)$mapping['id']]];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        [$a,$b,$client,$placement,$input]=$repairFixture('repair-native-'.$decision,$tenant);
+        $pdo->beginTransaction();$pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE id=?')->execute(['["client_id"]',$placement]);
+        $worker=$spawn($input);$check($waiting($worker),'Billing repair waits for the native placement ownership '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $check($result['ok']&&($decision==='COMMIT'?($result['result']['reason']==='core_owned'&&$read('placements',$placement)['client_id']===null):((int)$read('placements',$placement)['client_id']===$client)),'Billing repair observes the current ownership after '.$decision);
+        [$a,$b,$client,$placement,$input]=$repairFixture('repair-policy-'.$decision,$child);
+        $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="placements"')->execute([$child]);
+        $worker=$spawn($input);$check($waiting($worker),'Billing repair waits for the placement-sharing policy '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&$read('placements',$placement)['client_id']===null):($result['ok']&&(int)$read('placements',$placement)['client_id']===$client),'Billing repair uses fresh placement scope after '.$decision);
+        [$a,$b,$client,$placement,$input]=$repairFixture('repair-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $writer=$spawn(array_replace($input,['mode'=>'hold']));$saved=$line($workers[$writer]['pipes'][1]);$check(!empty($saved['saved']),'Billing repair holds its complete source/client/placement transaction');
+        $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+        $check($waiting($merger),'Company merge waits for the billing repair '.$decision);
+        fwrite($workers[$writer]['pipes'][0],$decision.PHP_EOL);fflush($workers[$writer]['pipes'][0]);$written=$finish($writer);$merged=$finish($merger);
+        $check($written['ok']&&($decision==='COMMIT'?(!$merged['ok']&&(int)$read('placements',$placement)['client_id']===$client&&$read('companies',$b)['deleted_at']===null):($merged['ok']&&$read('placements',$placement)['client_id']===null)),'Company merge respects the committed or rolled-back billing reference: '.$decision);
+    }
+    [$a,$b,$client,$placement,$input]=$repairFixture('repair-after-merge',$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+    $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));$worker=$spawn($input);$check($waiting($worker),'Billing repair waits for the company merge to finish');$pdo->commit();$result=$finish($worker);
+    $check($result['ok']&&(int)$read('placements',$placement)['client_id']===$client&&(int)$read('staffing_clients',$client)['company_id']===$a,'Billing repair links the retained CL after the committed company alias');
+    [$a,$b,$client,$placement,$input]=$repairFixture('repair-old-snapshot',$tenant);
+    $worker=$spawn($input+['snapshot'=>true]);$snapshot=$line($workers[$worker]['pipes'][1]);$check(!empty($snapshot['snapshot']),'Billing repair holds a snapshot predating the native ownership decision');
+    $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE id=?')->execute(['["client_id"]',$placement]);
+    fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
+    $check($result['ok']&&$result['result']['reason']==='core_owned'&&$read('placements',$placement)['client_id']===null,'Billing repair does not overwrite native ownership from an older transaction snapshot');
+    $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
+    $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
+    fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
+    $check(in_array($exit,[0,1],true)&&$stderr===''&&$report['mode']==='read_only'&&$report['assignment_client_links']===null&&$snapshotGraph()===$before,'Actual catalog CLI defaults to reporting and leaves assignments, client lifecycle, companies, mappings and audit unchanged');
     echo json_encode(['passed'=>true,'checks'=>count($checks),'labels'=>$checks,'provider_calls'=>0,'financial_execution'=>false],JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR).PHP_EOL;
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
-    foreach($createdTenants as$createdTenant)foreach(['staffing_jobs','staffing_clients','external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+    foreach($createdTenants as$createdTenant)foreach(['placements','people','staffing_jobs','staffing_clients','external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($companies as$id)$pdo->prepare('DELETE FROM companies WHERE tenant_id=? AND id=?')->execute([$tenant,$id]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);
