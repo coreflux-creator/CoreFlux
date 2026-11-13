@@ -56,4 +56,16 @@ $check($mapped('placements.end_client_company_id',$contract)===$roles['end_clien
 $check($mapped('placements.end_client_company_id',$weak['_jd_contract'])===null
     &&$mapped('placements.end_client_name',$weak['_jd_contract'])===null,
     'field dictionary cannot relabel billing-only evidence as a work recipient');
+$refused=static function(callable $f):bool{try{$f();return false;}catch(RuntimeException $e){return $e->getCode()===409;}};
+foreach(['msp'=>'mspCompanyId','prime_vendor'=>'primeVendorCompanyId','sub_vendor'=>'subVendorCompanyId','referrer'=>'referrerCompanyId'] as $role=>$key){
+    $check(jobdivaAssignmentRoleCompanyId(['_jd_start'=>[$key=>'0007-X']],$role)==='0007-X','Selected '.$role.' company ID stays opaque');
+    $check($refused(fn()=>jobdivaAssignmentRoleCompanyId([$key=>'A','_jd_start'=>[$key=>'B']],$role)),'Contradictory '.$role.' IDs need review');
+    $check(jobdivaAssignmentRoleCompanyId(['Starts'=>[[$key=>'Other']], '_jd_job'=>[$key=>'Other'], 'vendorId'=>'Other','referrerId'=>'Other'],$role)==='','Unrelated records and unqualified IDs cannot identify '.$role);
+}
+$check(jobdivaAssignmentRoleCompanyId(['msp_company'=>['company_id'=>'M-001']],'msp')==='M-001','Explicit company object supplies only its own ID');
+$check($refused(fn()=>jobdivaAssignmentRoleCompanyId(['mspCompanyId'=>true],'msp')),'Boolean IDs are refused rather than coerced');
+$check(jobdivaAssignmentRoleCompanyId(['mspCompanyId'=>0],'msp')==='','Provider zero remains an absent identity');
+$check(jobdivaAssignmentPartyName(['_jd_start'=>['msp'=>'Selected'],'Starts'=>[['msp'=>'Unrelated']], '_jd_job'=>['msp'=>'Job']],['msp'])==='Selected','Company label excludes unrelated Starts and job enrichment');
+$check(jobdivaAssignmentPartyName(['msp_company'=>['id'=>'M-001','name'=>'Selected']],['msp company'])==='Selected','Explicit company object retains its display name');
+$check($refused(fn()=>jobdivaAssignmentPartyName(['msp'=>'A','_jd_start'=>['mspName'=>'B']],['msp','mspName'])),'Contradictory selected names require review');
 echo "Assignment party evidence: {$passed} checks passed\n";

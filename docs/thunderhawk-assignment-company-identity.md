@@ -1,0 +1,13 @@
+# Assignment chain and referral company identity
+
+The preceding reply supplied standalone accounting access and made no integration progress. Current source and the installed pilot were revalidated: runtime `86bf59ea`, 363 file hashes, 378 tables and 35,304 existing rows unchanged. The prior documentation commit's eleven CI jobs also passed.
+
+Assignment-chain and referral imports previously called name-based company creation and direct role assignment. That could adopt a namesake or restore a role that staff removed. These paths now resolve exact JobDiva company IDs and propose roles through the existing company ownership controls. Existing provider mapping rows, payloads and timestamps are preserved during role refresh. Replays increment company usage only when establishing a new relationship.
+
+Company-qualified IDs and company names are read only from the current payload, selected Start and normalized contract. Generic vendor/referrer IDs, unrelated Starts, job and contact enrichment cannot establish identity. Conflicting aliases require review. One company can hold separate end-client and fee-bearing MSP roles; equal names no longer suppress a role. Referral contracts use their canonical corporation ID and reject a conflicting explicit referral company ID.
+
+Name-only rows retain names and economics with no company adoption; the native placement screen marks their company identity for review. A missing ID retains a prior company relationship only while the name is unchanged and the company remains in the current active directory. It does not create source ownership or restore roles. A changed name without identity, unavailable directory company, competing source authority or mismatched explicit binding is refused. Existing whole-rule Core ownership is checked before company side effects. Companies directory policy is freshly read under lock, including in longer source imports.
+
+Local evidence: 36 assignment evidence checks and 19 contract projection checks pass. The frontend build passes with 64 existing hook warnings and zero errors. Native database coverage exercises actual source writers, role holds, provider preservation, replay, unresolved rows, exact new identities, legacy relationships, name collisions, cross-directory refusal, set-level rollback, canonical referral payout, shared-directory changes and whole-rule holds. CI and hosted release acceptance remain pending until recorded below. No production, provider or Arabella changes and no financial execution are part of this release.
+
+Source-aware company merges, wider real-source cohorts and the remaining integration acceptance checklist are still open. This change does not establish completion of the full integration.

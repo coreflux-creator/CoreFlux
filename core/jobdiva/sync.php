@@ -4625,16 +4625,18 @@ function jobdivaSyncUpsertPlacementChainRow(
     ?string $partyName,
     ?int $companyId = null,
     array $extras = [],
-    ?int $userId = null
+    ?int $userId = null,
+    string $sourceCompanyId = ''
 ): int {
     if ($tid<=0 || $placementId<=0) return 0;
-    return placementWithSourceRuleWrite($tid,$placementId,'chain',static function() use ($tid,$placementId,$position,$partyRole,$partyName,$companyId,$extras,$userId) {
+    return placementWithSourceRuleWrite($tid,$placementId,'chain',static function() use ($tid,$placementId,$position,$partyRole,$partyName,$companyId,$extras,$userId,$sourceCompanyId) {
+    require_once __DIR__.'/party_sync.php';
     $partyName = trim((string) $partyName);
     if ($tid <= 0 || $placementId <= 0 || $position < 0 || $partyRole === '') return 0;
 
     $pdo = getDB();
     $existing = $pdo->prepare(
-        'SELECT id, party_name
+        'SELECT id, party_name, company_id
            FROM placement_client_chain
           WHERE tenant_id = :t AND placement_id = :p AND position = :pos
           LIMIT 1'
@@ -4645,34 +4647,19 @@ function jobdivaSyncUpsertPlacementChainRow(
     if ($partyName === '' && $existingRow) {
         $partyName = (string) ($existingRow['party_name'] ?? '');
     }
-    if ($partyName === '' && $companyId !== null && $companyId > 0 && function_exists('companiesGet')) {
-        $company = companiesGet($companyId);
-        $partyName = trim((string) ($company['name'] ?? ''));
-    }
-    if ($partyName === '') return 0;
-
     $roleForCompany = $partyRole === 'end_client'
         ? 'client'
         : ($partyRole === 'direct' ? 'client' : $partyRole);
-    if (($companyId === null || $companyId <= 0) && function_exists('companiesUpsertByName')) {
-        try {
-            $companyId = companiesUpsertByName($tid, $partyName, [
-                'created_by_user_id' => $userId,
-            ], [$roleForCompany]);
-        } catch (\Throwable $e) {
-            error_log('[jobdiva placement chain] company upsert skipped: ' . $e->getMessage());
-            $companyId = null;
-        }
-    } elseif ($companyId !== null && $companyId > 0 && function_exists('companiesAddRole')) {
-        try {
-            companiesAddRole($companyId, $roleForCompany);
-        } catch (\Throwable $e) {
-            error_log('[jobdiva placement chain] company role skipped: ' . $e->getMessage());
-        }
+    $previousId = !empty($existingRow['company_id']) ? (int) $existingRow['company_id'] : null;
+    $companyId = jobdivaAssignmentPartyCompany($tid,$partyName,$sourceCompanyId,$companyId,
+        $previousId,(string) ($existingRow['party_name'] ?? ''),[$roleForCompany],$userId);
+    if ($partyName === '' && $companyId) {
+        $owner = jobdivaPartyDirectoryScope($pdo,$tid,true)['owner'];
+        $company = companiesGet($companyId,$owner);
+        $partyName = trim((string) ($company['name'] ?? ''));
     }
-    if ($companyId !== null && $companyId > 0 && function_exists('companiesBumpUsage')) {
-        try { companiesBumpUsage($companyId); } catch (\Throwable $e) { /* non-fatal */ }
-    }
+    if ($partyName === '') return 0;
+    if ($companyId && $companyId !== $previousId) companiesBumpUsage($companyId);
 
     $payload = [
         'party_name' => $partyName,
@@ -4690,7 +4677,7 @@ function jobdivaSyncUpsertPlacementChainRow(
 
     if ($existingRow) {
         $sets = [];
-        $params = ['id' => (int) $existingRow['id']];
+        $params = ['id' => (int) $existingRow['id'], 'tenant' => $tid, 'placement' => $placementId];
         foreach ($payload as $col => $value) {
             $sets[] = "{$col} = :{$col}";
             $params[$col] = $value;
@@ -4698,7 +4685,7 @@ function jobdivaSyncUpsertPlacementChainRow(
         $pdo->prepare(
             'UPDATE placement_client_chain
                 SET ' . implode(', ', $sets) . '
-              WHERE id = :id'
+              WHERE id = :id AND tenant_id = :tenant AND placement_id = :placement'
         )->execute($params);
         return (int) $existingRow['id'];
     }
@@ -4743,8 +4730,10 @@ function jobdivaSyncUpsertPlacementChain(
     $summary = ['written' => 0, 'rows' => []];
     if ($tid <= 0 || $placementId <= 0) return $summary;
 
-    $endClientName = trim((string) ($endClientName === null ? jobdivaAssignmentEndClientEvidence($jd)['name'] : $endClientName));
-    if ($endClientName !== '') {
+    $endClientEvidence = jobdivaAssignmentEndClientEvidence($jd);
+    if ($endClientEvidence['status'] === 'ambiguous') throw new RuntimeException('Review conflicting JobDiva end-client identities.',409);
+    $endClientName = trim((string) ($endClientName === null ? $endClientEvidence['name'] : $endClientName));
+    if ($endClientName !== '' || $endClientCompanyId || $endClientEvidence['external_id'] !== '') {
         $id = jobdivaSyncUpsertPlacementChainRow(
             $tid,
             $placementId,
@@ -4753,7 +4742,8 @@ function jobdivaSyncUpsertPlacementChain(
             $endClientName,
             $endClientCompanyId,
             [],
-            $userId
+            $userId,
+            (string) $endClientEvidence['external_id']
         );
         if ($id > 0) {
             $summary['written']++;
@@ -4843,9 +4833,9 @@ function jobdivaSyncUpsertPlacementChain(
     ];
 
     foreach ($defs as $def) {
-        $name = trim((string) jobdivaPluckFieldDeep($jd, $def['name_keys']));
-        if ($name === '') continue;
-        if ($endClientName !== '' && strtolower($name) === strtolower($endClientName)) continue;
+        $name = jobdivaAssignmentPartyName($jd,array_merge($def['name_keys'],[$def['role'].' company']));
+        $sourceCompanyId = jobdivaAssignmentRoleCompanyId($jd,(string) $def['role']);
+        if ($name === '' && $sourceCompanyId === '') continue;
 
         $feePctRaw = jobdivaPluckFieldDeep($jd, $def['fee_keys']);
         $feePct = jobdivaParsePercent($feePctRaw);
@@ -4900,7 +4890,8 @@ function jobdivaSyncUpsertPlacementChain(
                 'submittal_id' => $submittalId !== '' ? $submittalId : null,
                 'vms_job_id' => $vmsJobId !== '' ? $vmsJobId : null,
             ],
-            $userId
+            $userId,
+            $sourceCompanyId
         );
         if ($id > 0) {
             $summary['written']++;
@@ -5930,6 +5921,7 @@ function jobdivaSyncUpsertPlacementReferral(
 ): int {
     if ($tid<=0 || $placementId<=0) return 0;
     return placementWithSourceRuleWrite($tid,$placementId,'referral',static function() use ($tid,$placementId,$placementStartDate,$jd,$createdByUserId) {
+    require_once __DIR__.'/party_sync.php';
     if ($tid <= 0 || $placementId <= 0) return 0;
     $contract = jobdivaContractProjectionContract($jd);
     $engagement = jobdivaClassificationRequire($jd);
@@ -5954,11 +5946,12 @@ function jobdivaSyncUpsertPlacementReferral(
     $feeFlat = $feeFlat > 0 ? $feeFlat : null;
     if ($feePct === null && $feeFlat === null) return 0;
 
-    $name = trim(jobdivaPluckFieldDeep($jd, [
+    $name = jobdivaAssignmentPartyName($jd, [
         'referrer name', 'referrerName', 'referrer', 'referred by', 'referredBy',
         'referral source', 'referralSource', 'referral partner', 'referralPartner',
         'referral vendor', 'referralVendor', 'referral agency', 'referralAgency',
-    ]));
+        'referrer company', 'referral vendor company',
+    ]);
     if ($isReferralEngagement) {
         $contractVendorName = trim((string) ($contract['referral_vendor'] ?? $contract['corporation_name'] ?? ''));
         if ($contractVendorName !== '') $name = $contractVendorName;
@@ -5967,12 +5960,20 @@ function jobdivaSyncUpsertPlacementReferral(
         'referrer email', 'referrerEmail', 'referral email', 'referralEmail',
         'referral source email', 'referralSourceEmail',
     ]));
-    $referrerUserId = $isReferralEngagement ? null : jobdivaResolvePlacementCommissionUserId(
+    $sourceCompanyId = jobdivaAssignmentRoleCompanyId($jd,'referrer');
+    if ($isReferralEngagement) {
+        $corporationId = jobdivaAssignmentCompanyId($contract['corporation_id'] ?? null);
+        if ($sourceCompanyId !== '' && $corporationId !== '' && $sourceCompanyId !== $corporationId) {
+            throw new RuntimeException('The referral company IDs disagree. Review the source assignment.',409);
+        }
+        if ($corporationId !== '') $sourceCompanyId = $corporationId;
+    }
+    $referrerUserId = $isReferralEngagement || $sourceCompanyId !== '' ? null : jobdivaResolvePlacementCommissionUserId(
         $tid,
         $email !== '' ? $email : null,
         $name !== '' ? $name : null
     );
-    if ($referrerUserId === null && $name === '') return 0;
+    if ($referrerUserId === null && $name === '' && $sourceCompanyId === '') return 0;
 
     $basis = $isReferralEngagement
         ? 'per_hour'
@@ -6012,24 +6013,29 @@ function jobdivaSyncUpsertPlacementReferral(
         $pwp = !empty($contract['paid_when_paid']);
     }
 
-    $companyId = null;
-    $type = $referrerUserId !== null ? 'user' : 'vendor';
-    if ($type === 'vendor') {
-        $companyId = companiesUpsertByName($tid, $name, [
-            'created_by_user_id' => $createdByUserId,
-        ], ['referrer', 'vendor']);
-    }
-
     $pdo = getDB();
     $existing = $pdo->prepare(
-        'SELECT id
+        'SELECT id, referrer_company_id, referrer_vendor_name
            FROM placement_referrals
           WHERE tenant_id = :t AND placement_id = :p
             AND notes LIKE "Source: JobDiva referral projection%"
           ORDER BY id ASC LIMIT 1'
     );
     $existing->execute(['t' => $tid, 'p' => $placementId]);
-    $id = (int) $existing->fetchColumn();
+    $existingRow = $existing->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $id = (int) ($existingRow['id'] ?? 0);
+    $previousId = !empty($existingRow['referrer_company_id']) ? (int) $existingRow['referrer_company_id'] : null;
+    if ($previousId && $referrerUserId !== null) throw new RuntimeException('The referral recipient changed from a company to an account. Review its identity.',409);
+    $type = $referrerUserId !== null ? 'user' : 'vendor';
+    $companyId = $type === 'vendor'
+        ? jobdivaAssignmentPartyCompany($tid,$name,$sourceCompanyId,null,$previousId,
+            (string) ($existingRow['referrer_vendor_name'] ?? ''),['referrer','vendor'],$createdByUserId)
+        : null;
+    if ($name === '' && $companyId) {
+        $owner = jobdivaPartyDirectoryScope($pdo,$tid,true)['owner'];
+        $name = (string) companiesGet($companyId,$owner)['name'];
+    }
+    if ($companyId && $companyId !== $previousId) companiesBumpUsage($companyId);
     $values = [
         'type' => $type,
         'vendor_name' => $type === 'vendor' ? $name : null,
@@ -6046,7 +6052,7 @@ function jobdivaSyncUpsertPlacementReferral(
         'notes' => 'Source: JobDiva referral projection',
     ];
     if ($id > 0) {
-        $values += ['id' => $id, 't' => $tid];
+        $values += ['id' => $id, 't' => $tid, 'p' => $placementId];
         $pdo->prepare(
             'UPDATE placement_referrals
                 SET referrer_type = :type, referrer_vendor_name = :vendor_name,
@@ -6055,7 +6061,7 @@ function jobdivaSyncUpsertPlacementReferral(
                     fee_basis = :basis, payment_terms_override = COALESCE(:terms, payment_terms_override),
                     pwp_enabled = COALESCE(:pwp, pwp_enabled), duration_months = :duration,
                     start_date = :start_date, end_date = :end_date, notes = :notes
-              WHERE id = :id AND tenant_id = :t'
+              WHERE id = :id AND tenant_id = :t AND placement_id = :p'
         )->execute($values);
         return $id;
     }
