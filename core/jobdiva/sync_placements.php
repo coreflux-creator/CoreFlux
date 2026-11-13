@@ -632,7 +632,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
     $pdo = getDB();
     require_once __DIR__.'/person_directory.php';
     $owner=jobdivaPersonDirectoryCheck($pdo,$tid,true);
-    $mapping = mappingFindInternal($tid, 'jobdiva', 'person', $candidateExtId);
+    $mapping = jobdivaPlacementSourceLink($pdo,$tid,'person',$candidateExtId);
     if ($mapping) {
         $mappedPersonId = (int) $mapping['internal_entity_id'];
         $identityStmt = $pdo->prepare(
@@ -646,8 +646,27 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
         }
         jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$mappedPersonId);
         if($mappedPerson['deleted_at']!==null||$mappedPerson['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $mappedPersonId, $personSnapshot, 'pull', $userId);
+        mappingUpsert($tid, 'jobdiva', 'person', (string)$mapping['external_id'], $mappedPersonId, $personSnapshot, 'pull', $userId);
         return $mappedPersonId;
+    }
+
+    // Exact retained identity does not require a repeated profile payload.
+    $stmt = $pdo->prepare(
+        'SELECT id FROM people
+          WHERE tenant_id = :t AND external_id = :ext
+          ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
+          LIMIT 2 FOR UPDATE'
+    );
+    $stmt->execute(['t' => $owner, 'ext' => $canonicalPersonExternalId]);
+    $exactIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (count($exactIds)>1) throw new RuntimeException('More than one Core person carries this JobDiva candidate ID. Review the duplicate identities.');
+    $existingId = (int) ($exactIds[0]??0);
+    if ($existingId > 0) {
+        jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$existingId);
+        $q=$pdo->prepare('SELECT status,deleted_at FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$owner,$existingId]);$person=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$person||$person['deleted_at']!==null||$person['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $personSnapshot, 'pull', $userId);
+        return $existingId;
     }
 
     // Slice 4 wiring — each person field consults the tenant registry
@@ -693,26 +712,6 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
     if ($lastName  === '') $lastName  = 'Candidate-' . $candidateExtId;
     if ($email     === '') $email     = sprintf('jd-emp-%s@no-email.invalid', $candidateExtId);
     $classification = jobdivaPersonClassificationFromPlacementPayload($tid, $jd);
-
-    $pdo = getDB();
-    // Channel 2: a person already carrying this exact JobDiva candidate ID.
-    $stmt = $pdo->prepare(
-        'SELECT id FROM people
-          WHERE tenant_id = :t AND external_id = :ext
-          ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
-          LIMIT 2 FOR UPDATE'
-    );
-    $stmt->execute(['t' => $owner, 'ext' => $canonicalPersonExternalId]);
-    $exactIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    if (count($exactIds)>1) throw new RuntimeException('More than one Core person carries this JobDiva candidate ID. Review the duplicate identities.');
-    $existingId = (int) ($exactIds[0]??0);
-    if ($existingId > 0) {
-        jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$existingId);
-        $q=$pdo->prepare('SELECT status,deleted_at FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$owner,$existingId]);$person=$q->fetch(PDO::FETCH_ASSOC);
-        if(!$person||$person['deleted_at']!==null||$person['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $personSnapshot, 'pull', $userId);
-        return $existingId;
-    }
 
     // Email is collision evidence, never permission to adopt or overwrite a person.
     $stmt = $pdo->prepare(

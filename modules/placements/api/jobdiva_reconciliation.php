@@ -40,20 +40,20 @@ rbac_legacy_require($user, 'placements.manage');
 
 $body = api_json_body();
 $pdo = getDB();
-$tenantId = placementsGraphTenantId() ?? currentTenantId();
-$peopleTenantId = effectiveTenantIdForModule('people') ?? $tenantId;
+$sourceWorkspace = (int)$ctx['tenant_id'];
 
 if ($action === 'stored_preview') {
     rbac_legacy_require($user, 'placements.financials.view');
     $page = max(1, (int) ($body['page'] ?? 1));
     $perPage = max(1, min(20, (int) ($body['per_page'] ?? 20)));
-    $plan = jobdivaStoredAssignmentProjectionPlan(
-        $tenantId,
+    try{$plan = jobdivaStoredAssignmentProjectionPlan(
+        $sourceWorkspace,
         $perPage,
         [],
         false,
         ($page - 1) * $perPage
-    );
+    );}catch(PDOException $e){error_log('[stored JobDiva preview] '.$e->getMessage());api_error('The source records are busy or changed. Refresh the preview.',409);}
+    catch(RuntimeException $e){api_error($e->getMessage(),409);}
     api_ok([
         'summary' => $plan['summary'],
         'rows' => $plan['public_rows'],
@@ -76,7 +76,7 @@ if ($action === 'stored_apply') {
     $perPage = max(1, min(20, (int) ($body['per_page'] ?? 20)));
     try {
         $result = jobdivaApplyStoredAssignmentProjection(
-            $tenantId,
+            $sourceWorkspace,
             isset($user['id']) ? (int) $user['id'] : null,
             $selected,
             (string) ($body['dry_run_token'] ?? ''),
@@ -99,6 +99,8 @@ if ($action === 'stored_apply') {
     }
 }
 
+$tenantId = placementsGraphTenantId() ?? currentTenantId();
+$peopleTenantId = effectiveTenantIdForModule('people') ?? $tenantId;
 $csv = (string) ($body['csv'] ?? '');
 if ($csv === '') api_error('No CSV body received', 400);
 if (strlen($csv) > 25 * 1024 * 1024) api_error('CSV exceeds the 25 MB limit', 413);

@@ -267,7 +267,10 @@ function jobdivaProjectorProjectPlacementInTransaction(int $tenantId, array $pay
         $snapshotPayload = function_exists('jobdivaAssignmentCompactSnapshotPayload')
             ? jobdivaAssignmentCompactSnapshotPayload($writePayload, $externalId)
             : $writePayload;
-        mappingBindStable($tenantId, 'jobdiva', 'placement', $externalId, $placementId, $snapshotPayload, 'pull', $userId);
+        // A legacy prefixed provider pair is an existing identity, not a reason
+        // to create a second raw-ID mapping during reviewed reconciliation.
+        $mappingExternalId=(string)($identity['mapping']['external_id']??$externalId);
+        mappingBindStable($tenantId, 'jobdiva', 'placement', $mappingExternalId, $placementId, $snapshotPayload, 'pull', $userId);
         $summary['mapping_writes']++;
 
         if (function_exists('jobdivaIndexJoinedSubPayloads')) {
@@ -386,7 +389,10 @@ function jobdivaProjectorBindPlacementSourceIdentities(
         $externalId = trim($externalId);
         if ($externalId === '' || $internalId <= 0) return;
         try {
-            $existing = mappingFindInternal($tenantId, 'jobdiva', $entityType, $externalId);
+            $existing = $entityType==='person'
+                ? jobdivaPlacementSourceLink(getDB(),$tenantId,'person',$externalId)
+                : mappingFindInternal($tenantId, 'jobdiva', $entityType, $externalId);
+            if($entityType==='person'&&$existing)$externalId=(string)$existing['external_id'];
             if($entityType==='company'&&$existing){
                 if(jobdivaCompanyCanonicalId($tenantId,(int)$existing['internal_entity_id'])!==$internalId){
                     throw new RuntimeException('Source company identity belongs to a different canonical Core company.');

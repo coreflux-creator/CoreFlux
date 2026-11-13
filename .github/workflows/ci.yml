@@ -680,7 +680,9 @@ jobs:
       - name: Verify reviewed commercial ownership release
         run: php tests/placement_commercial_ownership_db_check.php --confirm-disposable-fixture
       - name: Verify stored-review transaction isolation
-        run: php tests/jobdiva_stored_review_transaction_db_check.php --confirm-disposable-fixture
+        run: |
+          php tests/jobdiva_stored_review_transaction_db_check.php --confirm-disposable-fixture
+          php tests/jobdiva_stored_directory_db_check.php --confirm-disposable-fixture
       - name: Verify saved subcontract company preview and apply evidence
         run: php tests/jobdiva_subcontract_review_evidence_db_check.php --confirm-disposable-fixture
       - name: Verify atomic native participant creation and removal

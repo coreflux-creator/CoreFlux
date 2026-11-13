@@ -3648,6 +3648,10 @@ function jobdivaStoredAssignmentProjectionPlan(
     int $offset = 0,
     ?array $directoryContext = null
 ): array {
+    if(!JobdivaStoredReviewTransaction::active()){
+        return JobdivaStoredReviewTransaction::run(static fn()=>jobdivaStoredAssignmentProjectionPlan(
+            $tenantId,$limit,$onlyStartIds,$includeProjectionPayloads,$offset,$directoryContext),true);
+    }
     require_once __DIR__ . '/../integrations/field_map.php';
     tenantIntegrationFieldMapFlushCache();
     $limit = max(1, min(5000, $limit));
@@ -3682,14 +3686,11 @@ function jobdivaStoredAssignmentProjectionPlan(
     }
 
     $pdo = getDB();
-    // Reviewed rule handback carries its original source workspace while the
-    // business graph can live in a shared directory. Recheck, never trust a
-    // caller-supplied owner or a cached policy.
-    if($directoryContext!==null){
-        $fresh=jobdivaPlacementWriteContext($pdo,$tenantId);
-        if($fresh!==$directoryContext)throw new RuntimeException('Assignment sharing changed. Load a new source review.',409);
-    }
-    $placementOwner=$directoryContext['placement_owner']??$tenantId;
+    $fresh=jobdivaPlacementWriteContext($pdo,$tenantId);
+    if($directoryContext!==null&&$fresh!==$directoryContext)throw new RuntimeException('Assignment sharing changed. Load a new source review.',409);
+    $directoryContext=$fresh;$placementOwner=$fresh['placement_owner'];
+    $policy=$pdo->prepare('SELECT tenant_id,module_key,scope_mode FROM tenant_module_scope WHERE tenant_id IN(?,?) AND module_key IN("people","placements","companies","staffing","accounting") ORDER BY tenant_id,module_key FOR UPDATE');
+    $policy->execute([$tenantId,$placementOwner]);$directoryPolicies=$policy->fetchAll(PDO::FETCH_ASSOC);
     $fieldMapRevision = mappingHash(tenantIntegrationFieldMapList($tenantId, 'jobdiva'));
     $countStmt = $pdo->prepare(
         "SELECT COUNT(*)
@@ -3853,8 +3854,10 @@ function jobdivaStoredAssignmentProjectionPlan(
             $warnings[] = "Company {$companyId} is referenced but its canonical company mirror is unavailable.";
         }
 
-        $placementMapping = mappingFindInternal($tenantId, 'jobdiva', 'placement', $startId)
-            ?: mappingFindInternal($tenantId, 'jobdiva', 'placement', 'jd:'.$startId);
+        $links=$pdo->prepare('SELECT id,tenant_id,external_id,internal_entity_id,sync_status,content_hash FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id IN(?,?) ORDER BY id FOR UPDATE');
+        $links->execute([$tenantId,$startId,'jd:'.$startId]);$placementMappings=$links->fetchAll(PDO::FETCH_ASSOC);
+        if(count($placementMappings)>1)$errors[]='Multiple saved links claim this JobDiva Start. Review the retained source identities.';
+        $placementMapping=$placementMappings[0]??null;
         $mappedPlacementId = (int) ($placementMapping['internal_entity_id'] ?? 0);
         $placementId = $mappedPlacementId;
         $current = [];
@@ -3888,9 +3891,10 @@ function jobdivaStoredAssignmentProjectionPlan(
             $errors[] = 'More than one active CoreFlux placement has this exact JobDiva external identity: '
                 . implode(', ', $activeExactIds) . '.';
         } elseif (count($activeExactIds) === 1) {
-            $placementId = $activeExactIds[0];
-            if ($mappedPlacementId !== $placementId) {
-                $warnings[] = "Exact active placement {$placementId} will replace the stale or missing JobDiva binding.";
+            if ($mappedPlacementId > 0 && $mappedPlacementId !== $activeExactIds[0]) {
+                $errors[] = 'The saved JobDiva link and exact placement number identify different records. Review their source identity before projection.';
+            } else {
+                $placementId = $activeExactIds[0];
             }
         } elseif ($mappedPlacementId <= 0 && count($archivedExactIds) === 1) {
             $placementId = $archivedExactIds[0];
@@ -3899,6 +3903,8 @@ function jobdivaStoredAssignmentProjectionPlan(
             $errors[] = 'More than one archived CoreFlux placement has this exact JobDiva external identity: '
                 . implode(', ', $archivedExactIds) . '.';
         }
+        if(count(array_unique(array_filter([$mappedPlacementId,...$activeExactIds,...$archivedExactIds])))>1)$errors[]='Multiple Core placements claim this Start, including archived records. Review the retained identities.';
+        $sourceIdentityEvidence=null;
         if ($placementId > 0) {
             $placementStmt = $pdo->prepare(
                 'SELECT id, external_id, title, status, engagement_type, start_date, end_date,
@@ -3912,6 +3918,10 @@ function jobdivaStoredAssignmentProjectionPlan(
             if (!$current) {
                 $errors[] = "Placement mapping points to missing CoreFlux placement {$placementId}.";
             } else {
+                try{
+                    $sourceIdentityEvidence=placementJobdivaSourceIdentity($pdo,$current+['tenant_id'=>$placementOwner]);
+                    if($sourceIdentityEvidence&&($sourceIdentityEvidence['start_id']!==$startId||($sourceIdentityEvidence['source_workspace_id']!==null&&$sourceIdentityEvidence['source_workspace_id']!==$tenantId)))$errors[]='This placement belongs to a different JobDiva source pair. Open its originating workspace to review the exact link.';
+                }catch(RuntimeException $e){if($e->getCode()!==409)throw$e;$errors[]=$e->getMessage();}
                 $currentGraph = jobdivaPlacementProjectionAuditSnapshot($placementOwner, $placementId, $directoryContext!==null);
                 try {
                     $timeStmt = $pdo->prepare(
@@ -3923,7 +3933,7 @@ function jobdivaStoredAssignmentProjectionPlan(
                     $timeStmt->execute(['t' => $placementOwner, 'p' => $placementId]);
                     $currentGraph['time_summary'] = $timeStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
                 } catch (\Throwable $e) {
-                    $currentGraph['time_summary'] = [];
+                    throw $e;
                 }
                 try {
                     $feedStmt = $pdo->prepare(
@@ -3936,7 +3946,7 @@ function jobdivaStoredAssignmentProjectionPlan(
                     $feedStmt->execute(['t' => $placementOwner, 'p' => $placementId]);
                     $currentGraph['downstream_summary'] = $feedStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
                 } catch (\Throwable $e) {
-                    $currentGraph['downstream_summary'] = [];
+                    throw $e;
                 }
             }
         }
@@ -3945,6 +3955,25 @@ function jobdivaStoredAssignmentProjectionPlan(
         $contractProjection = $enriched
             ? jobdivaContractProjectionBuild($enriched, $currentGraph, $startId)
             : jobdivaContractProjectionBuild([], $currentGraph, $startId);
+        // Candidate identity and lifecycle are part of the review, even when
+        // the placement's own fields did not change between preview and apply.
+        $candidateLinks=$pdo->prepare('SELECT id,tenant_id,external_id,internal_entity_id,content_hash,sync_status FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="person" AND external_id IN(?,?) ORDER BY id FOR UPDATE');
+        $candidateLinks->execute([$tenantId,$candidateId,'jd:'.$candidateId]);$candidateMappings=$candidateLinks->fetchAll(PDO::FETCH_ASSOC);
+        $candidateIssues=[];
+        if(count($candidateMappings)>1)$candidateIssues[]='Multiple saved links claim this JobDiva candidate. Review the retained person identities.';
+        $candidateMapping=$candidateMappings[0]??null;
+        $candidatePeople=$pdo->prepare('SELECT id,external_id,status,deleted_at,classification,first_name,last_name,email_primary,updated_at FROM people WHERE tenant_id=? AND (id IN(?,?) OR external_id=?) ORDER BY id LIMIT 4 FOR UPDATE');
+        $candidatePeople->execute([$directoryContext['people_owner'],$candidateMapping['internal_entity_id']??0,$current['person_id']??0,'jd:'.$candidateId]);$candidatePersonRows=$candidatePeople->fetchAll(PDO::FETCH_ASSOC);
+        $candidateExact=array_values(array_filter($candidatePersonRows,static fn($p)=>$p['external_id']==='jd:'.$candidateId));
+        if(count($candidateExact)>1)$candidateIssues[]='Multiple Core people carry this candidate ID. Review the retained person identities.';
+        $candidatePersonId=(int)($candidateMapping['internal_entity_id']??($candidateExact[0]['id']??0));
+        $candidatePerson=array_column($candidatePersonRows,null,'id')[$candidatePersonId]??null;
+        if($candidateMapping&&(!$candidatePerson||(str_starts_with((string)$candidatePerson['external_id'],'jd:')&&substr((string)$candidatePerson['external_id'],3)!==$candidateId)))$candidateIssues[]='The saved candidate link conflicts with its current People directory record.';
+        $personHeld=false;
+        try{$personHeld=in_array('person_id',placementOwnershipFields($currentGraph['placement']['coreflux_overridden_fields']??null),true);}catch(InvalidArgumentException $e){$errors[]=$e->getMessage();}
+        if(!$personHeld)$errors=array_merge($errors,$candidateIssues);
+        $resolvedPerson=$personHeld?(array_column($candidatePersonRows,null,'id')[(int)($current['person_id']??0)]??null):$candidatePerson;
+        if($resolvedPerson&&($resolvedPerson['deleted_at']!==null||$resolvedPerson['status']!=='active'))$errors[]='Review and reactivate the linked Core person before importing this assignment.';
         $subcontractEvidence = null;
         $subcontractId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contractProjection['source_contract'] ?? []]);
         $contractFields = array_column($contractProjection['fields'] ?? [], null, 'field');
@@ -4079,6 +4108,11 @@ function jobdivaStoredAssignmentProjectionPlan(
 
         $isArchived = !empty($current['deleted_at'])
             && $current['deleted_at'] !== '0000-00-00 00:00:00';
+        if($isArchived){
+            $held=jobdivaContractOwnedFields($currentGraph,(string)($current['engagement_type']??''));
+            if(array_intersect(['status','end_date','actual_end_date'],$held))$errors[]='Review the Core-owned lifecycle before restoring this archived placement.';
+            if(!in_array((string)($contractProjection['placement']['status']??''),['active','pending_start','on_hold'],true))$errors[]='The saved source lifecycle does not support restoring this archived placement.';
+        }
         $outcome = $isArchived ? 'restore' : ($placementId > 0 ? 'update' : 'create');
         if ($isArchived) {
             $warnings[] = "Placement {$placementId} is archived. It will be restored only if this exact Start ID is selected.";
@@ -4134,6 +4168,12 @@ function jobdivaStoredAssignmentProjectionPlan(
         $rowToken = hash('sha256', json_encode([
             'start_id' => $startId,
             'directory_context' => $directoryContext,
+            'directory_policies' => $directoryPolicies,
+            'source_identity' => $sourceIdentityEvidence,
+            'placement_mapping_rows' => $placementMappings,
+            'exact_placement_rows' => $exactPlacementRows,
+            'candidate_mapping_rows' => $candidateMappings,
+            'candidate_people' => $candidatePersonRows,
             'field_map_revision' => $fieldMapRevision,
             'source_updated_at' => (string) ($sourceRow['updated_at'] ?? ''),
             'financial_updated_at' => $financialUpdatedAt,
@@ -4180,7 +4220,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         'row_token' => $row['__row_token'],
     ], $rows);
     $dryRunToken = hash('sha256', json_encode(
-        ['tenant_id' => $tenantId, 'rows' => $tokenRows],
+        ['tenant_id' => $tenantId, 'directory_context'=>$directoryContext, 'directory_policies'=>$directoryPolicies, 'rows' => $tokenRows],
         JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
     ) ?: '');
 
@@ -4230,6 +4270,8 @@ function jobdivaApplyStoredAssignmentProjection(
     if (count($selected) > 500) throw new \InvalidArgumentException('Apply is limited to 500 Start IDs at a time.');
 
     return JobdivaStoredReviewTransaction::run(static function () use ($tenantId, $userId, $selected, $expectedToken, $limit, $offset): array {
+    $context=jobdivaPlacementWriteContext(getDB(),$tenantId);
+    $placementOwner=$context['placement_owner'];
     // Validate against the same compact all-assignment plan returned to the
     // browser, then load full joined payloads only for the selected Start IDs.
     $previewPlan = jobdivaStoredAssignmentProjectionPlan($tenantId, $limit, [], false, $offset);
@@ -4294,7 +4336,7 @@ function jobdivaApplyStoredAssignmentProjection(
             }
             $binding = mappingFindInternal($tenantId, 'jobdiva', 'company', $companyExternalId);
             if ($binding && $evidence['company_id'] === null) {
-                $owner = companiesDirectoryTenantId($tenantId);
+                $owner = $context['company_owner'];
                 $oldId = (int)$binding['internal_entity_id'];
                 $q = $pdo->prepare('SELECT tenant_id FROM companies WHERE id=? FOR UPDATE');
                 $q->execute([$oldId]);
@@ -4328,18 +4370,8 @@ function jobdivaApplyStoredAssignmentProjection(
         foreach (array_keys($selected) as $startId) {
             $row = $rowsByStart[$startId];
             $before = !empty($row['placement_id'])
-                ? jobdivaPlacementProjectionAuditSnapshot($tenantId, (int) $row['placement_id'])
+                ? jobdivaPlacementProjectionAuditSnapshot($placementOwner, (int) $row['placement_id'], true)
                 : [];
-            if ($row['outcome'] === 'restore' && !empty($row['placement_id'])) {
-                $pdo->prepare(
-                    'UPDATE placements
-                        SET deleted_at = NULL
-                      WHERE tenant_id = :t AND id = :id'
-                )->execute([
-                    't' => $tenantId,
-                    'id' => (int) $row['placement_id'],
-                ]);
-            }
             $projection = jobdivaProjectorProjectPlacement(
                 $tenantId,
                 (array) $row['__payload'],
@@ -4348,7 +4380,9 @@ function jobdivaApplyStoredAssignmentProjection(
                     'payload_is_enriched' => true,
                     'external_id' => $startId,
                     'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
-                    'person_id' => (int) ($row['current']['person_id'] ?? 0),
+                    // Resolve the exact source candidate again. The projector
+                    // itself preserves a Core-owned person choice.
+                    'person_id' => 0,
                     'force_source_contract' => true,
                 ]
             );
@@ -4359,7 +4393,8 @@ function jobdivaApplyStoredAssignmentProjection(
                 );
             }
             $placementId = (int) ($projection['placement_id'] ?? 0);
-            $after = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+            $after = jobdivaPlacementProjectionAuditSnapshot($placementOwner, $placementId, true);
+            if($row['outcome'] === 'restore'&&!empty($after['placement']['deleted_at']))throw new RuntimeException('The reviewed lifecycle did not restore this placement. Review its retained ownership.',409);
             jobdivaAudit($tenantId, 'stored_assignment_reconciliation', [
                 'entity_type' => 'placement',
                 'direction' => 'pull',
@@ -4369,6 +4404,8 @@ function jobdivaApplyStoredAssignmentProjection(
                 'detail' => [
                     'start_id' => $startId,
                     'placement_id' => $placementId,
+                    'source_workspace_id' => $tenantId,
+                    'placement_owner_id' => $placementOwner,
                     'mode' => $row['outcome'],
                     'join_stats' => $projection['join_stats'] ?? [],
                     'readiness' => $projection['readiness'] ?? [],
@@ -4430,37 +4467,20 @@ function jobdivaReprojectStoredAssignmentGraphs(int $tenantId, ?int $userId, int
             }
         }
         try {
-            $pdo->beginTransaction();
-            $projection = jobdivaProjectorProjectPlacement(
-                $tenantId,
-                (array) $row['__payload'],
-                $userId,
-                [
-                    'payload_is_enriched' => true,
-                    'external_id' => (string) $row['start_id'],
-                    'existing_placement_id' => (int) ($row['placement_id'] ?? 0),
-                    // Re-resolve the candidate while restoring so the same
-                    // transaction also revives the exact mapped person.
-                    'person_id' => $isRestore ? 0 : (int) ($row['current']['person_id'] ?? 0),
-                    'force_source_contract' => true,
-                ]
-            );
-            if (empty($projection['projected'])) {
-                throw new \RuntimeException(implode(
-                    '; ',
-                    array_map('strval', $projection['errors'] ?? ['projection failed'])
-                ));
-            }
-            $pdo->commit();
+            $projection=JobdivaStoredReviewTransaction::run(static function()use($tenantId,$userId,$limit,$row):array{
+                $fresh=jobdivaStoredAssignmentProjectionPlan($tenantId,$limit,[],false);
+                $match=null;foreach($fresh['rows']as$next)if((string)$next['start_id']===(string)$row['start_id']){$match=$next;break;}
+                if(!$match||!$match['selectable'])throw new RuntimeException('Stored assignment is no longer available for source replay. Refresh its review.',409);
+                return jobdivaApplyStoredAssignmentProjection($tenantId,$userId,[(string)$row['start_id']],$fresh['dry_run_token'],$limit);
+            });
             $summary['placements_projected']++;
             if ($isRestore) {
                 $summary['placements_restored']++;
                 $summary['restores_pending_selection'] = max(0, $summary['restores_pending_selection'] - 1);
             }
             $summary['mapping_writes'] += (int) ($projection['mapping_writes'] ?? 0);
-            $summary['field_map_writes'] += (int) ($projection['field_map']['written'] ?? 0);
+            $summary['field_map_writes'] += (int) ($projection['field_map_writes'] ?? 0);
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
             if (count($summary['errors']) < 50) {
                 $summary['errors'][] = [
                     'start_id' => (string) ($row['start_id'] ?? ''),
@@ -5038,11 +5058,11 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
             . ' in JobDiva settings, then refresh this preview.'];
     if ($tid <= 0 || $externalId === '') return $result;
     $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $externalId);
-    $owner = jobdivaPartyDirectoryScope(getDB(),$tid)['owner'];
+    $owner = jobdivaPartyDirectoryScope(getDB(),$tid,getDB()->inTransaction())['owner'];
     $bindingEvidence = ['directory_owner_id'=>$owner,'mapping_id'=>$mapped['id']??null,
         'internal_entity_id'=>$mapped['internal_entity_id']??null];
     if ((int) ($mapped['internal_entity_id'] ?? 0) > 0) {
-        $identity=companyIdentityResolve(getDB(),$owner,(int)$mapped['internal_entity_id']);
+        $identity=companyIdentityResolve(getDB(),$owner,(int)$mapped['internal_entity_id'],getDB()->inTransaction());
         $company=$identity?array_intersect_key($identity['company'],array_flip(['id','name','coreflux_source_state'])):null;
         $bindingEvidence['canonical_company_id']=$identity['id']??null;
         $bindingEvidence['source_number']=$identity['source_number']??null;
@@ -6207,7 +6227,7 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
         if (is_array($row)) {
             $snapshot['placement'] = $pick($row, [
                 'id', 'tenant_id', 'external_id', 'person_id', 'end_client_company_id', 'client_id', 'staffing_job_id',
-                'title', 'start_date', 'end_date', 'actual_end_date', 'due_date', 'status', 'engagement_type',
+                'title', 'start_date', 'end_date', 'actual_end_date', 'due_date', 'status', 'engagement_type', 'deleted_at',
                 'worksite_city', 'worksite_state', 'worksite_country', 'remote_policy', 'notes', 'end_client_name',
                 'branch', 'service_line', 'workers_comp_class', 'department', 'cost_center', 'accounting_entity_id',
                 'client_approver_name', 'client_approver_email', 'jobdiva_job_id',
@@ -6217,7 +6237,8 @@ function jobdivaPlacementProjectionAuditSnapshot(int $tenantId, int $placementId
                 'vendor_pwp_enabled', 'coreflux_overridden_fields',
             ]);
             $client = $pdo->prepare('SELECT id, company_id, name FROM staffing_clients WHERE tenant_id = :t AND id = :c');
-            $client->execute(['t' => $tenantId, 'c' => $row['client_id'] ?? 0]);
+            $clientOwner=$strict?companyRelationshipScope($pdo,$tenantId,'staffing')['owner']:$tenantId;
+            $client->execute(['t' => $clientOwner, 'c' => $row['client_id'] ?? 0]);
             $snapshot['billing_client'] = $client->fetch(\PDO::FETCH_ASSOC) ?: null;
         }
     } catch (\Throwable $e) {

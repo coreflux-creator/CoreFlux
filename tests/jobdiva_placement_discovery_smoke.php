@@ -124,7 +124,8 @@ $assert('resolves candidate ID via multiple shapes',
 $assert('returns null when no candidate ID at all',
     strpos($src, "if (\$candidateExtId === '') return null;") !== false);
 $assert('reuses existing person mapping when present',
-    strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'person', \$candidateExtId)") !== false
+    str_contains($src, "jobdivaPlacementSourceLink(\$pdo,\$tid,'person',\$candidateExtId)")
+    && str_contains($src, "(string)\$mapping['external_id'], \$mappedPersonId")
     && strpos($src, 'return $mappedPersonId;') !== false);
 $assert('rejects a candidate mapping bound to another JobDiva person identity',
     strpos($src, 'jobdivaPersonExternalIdConflicts') !== false

@@ -62,8 +62,9 @@ $assert(
     str_contains($sync, "jobdivaProjectorProjectPlacement(\n                \$tenantId,\n                (array) \$row['__payload']")
 );
 $assert(
-    'stored apply preserves the exact placement person identity',
-    str_contains($sync, "'person_id' => (int) (\$row['current']['person_id'] ?? 0)")
+    'stored apply resolves the retained candidate under current ownership',
+    str_contains($sync, "'person_id' => 0")
+    && str_contains($sync, "'candidate_mapping_rows' => \$candidateMappings")
 );
 $assert(
     'stored reconciliation retains Core contract ownership',
@@ -113,7 +114,7 @@ $assert(
     str_contains($sync, "\$sourceStatus !== ''")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
     && str_contains($sync, "'restores_skipped_not_current'")
-    && str_contains($sync, "'person_id' => \$isRestore ? 0")
+    && str_contains($sync, 'return jobdivaApplyStoredAssignmentProjection($tenantId,$userId,[(string)$row[\'start_id\']],$fresh[\'dry_run_token\'],$limit);')
 );
 
 echo "\n4. API and UI make stored reconciliation primary\n";

@@ -7,6 +7,16 @@ require_once __DIR__.'/contract_projection.php';
 require_once __DIR__.'/../integrations/entity_mappings.php';
 require_once __DIR__.'/../integrations/stable_mapping.php';
 
+/** Preserve the physical provider pair, including an existing legacy prefix. */
+function jobdivaPlacementSourceLink(PDO $pdo,int $workspace,string $type,string $external): ?array
+{
+    if(!$pdo->inTransaction()||!in_array($type,['person','placement'],true))throw new LogicException('A locked staffing source identity is required.');
+    $q=$pdo->prepare('SELECT id,tenant_id,source_system,internal_entity_type,external_id,internal_entity_id,content_hash,sync_status FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type=? AND external_id IN(?,?) ORDER BY id FOR UPDATE');
+    $q->execute([$workspace,$type,$external,'jd:'.$external]);$links=$q->fetchAll(PDO::FETCH_ASSOC);
+    if(count($links)>1)throw new RuntimeException('Multiple saved links claim this JobDiva '.$type.'. Review the retained source identities.',409);
+    return$links[0]??null;
+}
+
 function jobdivaPlacementWriteContext(PDO $pdo,int $workspace): array
 {
     if(!$pdo->inTransaction())throw new LogicException('Assignment projection requires its complete write transaction.');
@@ -32,8 +42,7 @@ function jobdivaPlacementWriteIdentity(PDO $pdo,array $context,string $external,
     if(!$pdo->inTransaction()||trim($external)==='')throw new LogicException('A locked exact assignment identity is required.');
     $workspace=$context['workspace'];$owner=$context['placement_owner'];
     $selected=companyRelationshipId($selected);
-    $q=$pdo->prepare("SELECT * FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='placement' AND external_id=? FOR UPDATE");
-    $q->execute([$workspace,$external]);$mapping=$q->fetch(PDO::FETCH_ASSOC)?:null;
+    $mapping=jobdivaPlacementSourceLink($pdo,$workspace,'placement',$external);
     $mapped=$mapping?(int)$mapping['internal_entity_id']:null;
     if($selected&&$mapped&&$selected!==$mapped)throw new RuntimeException('The selected assignment conflicts with its retained JobDiva link.',409);
     $q=$pdo->prepare('SELECT id FROM placements WHERE tenant_id=? AND external_id IN(?,?) ORDER BY id FOR UPDATE');
@@ -44,6 +53,7 @@ function jobdivaPlacementWriteIdentity(PDO $pdo,array $context,string $external,
     if($candidates){
         $q=$pdo->prepare('SELECT * FROM placements WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$owner,$candidates[0]]);$placement=$q->fetch(PDO::FETCH_ASSOC);
         if(!$placement)throw new RuntimeException('The linked placement is unavailable in its current directory.',409);
+        if(str_starts_with((string)$placement['external_id'],'jd:')&&substr((string)$placement['external_id'],3)!==$external)throw new RuntimeException('The retained placement number conflicts with its JobDiva link. Review the exact source identity.',409);
         if($selected&&!$mapped&&!in_array($selected,$exact,true))throw new RuntimeException('Review and link this placement to the exact JobDiva Start before refreshing it.',409);
         // Internal IDs are globally stable; the accessible placement constrains
         // this conflict query without disclosing another workspace's source IDs.
