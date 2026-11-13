@@ -137,7 +137,7 @@ $a('custom_field_values target bucketed separately',
     str_contains($apply, "if (\$table === 'custom_field_values')")
     && str_contains($apply, "\$bucket[\$key]['cf'][\$col][]"));
 $a('custom mappings use their typed destination and preserve existing Core values',
-    str_contains($apply, 'integrationCustomFieldApply($pdo,$tid,$integration,$entry[\'mapping\'],(int)$b[\'id\'],$entry[\'value\'])'));
+    str_contains($apply, 'integrationCustomFieldApply($pdo,$tid,$integration,$entry[\'mapping\'],(int)$b[\'id\'],$entry[\'value\'],$directoryContext)'));
 $a('skip + error log when linked_entity has no context row',
     str_contains($apply, 'no_context_row for linked_entity'));
 $a('protected identity targets are hidden and skipped',
