@@ -77,6 +77,10 @@
             $before=$snapshot($tables);
             $expect($request('POST',$api.$action,['id'=>$imported,'hours'=>3],true,$workspace)[0]===409&&$snapshot($tables)===$before,'Imported Quanta time keeps its source correction workflow: '.$action);
         }
+        $pdo->prepare('UPDATE staffing_timesheets SET status="submitted" WHERE id=?')->execute([$sheet]);
+        $pdo->prepare('UPDATE time_entries SET status="pending_review" WHERE id=?')->execute([$pending]);$importedRow=$read('time_entries',$imported);
+        [$status,$reopened]=$request('POST',$api.'reopen',['id'=>$sheet],true,$workspace);
+        $expect($status===200&&$reopened['timesheet']['status']==='draft'&&$read('time_entries',$pending)['status']==='draft'&&$read('time_entries',$imported)===$importedRow&&$read('time_entries',$approved)===$approvedRow,'Reopening a mixed week preserves imported source review state and approved evidence');
         $newWeek=['person_id'=>$person,'period_start'=>'2026-10-12','period_end'=>'2026-10-18','rows'=>[['placement_id'=>$foreign['placement'],'work_date'=>'2026-10-12','hours'=>1]]];
         $before=$snapshot($tables);
         $expect($request('POST',$api.'bulk_save',$newWeek,true,$workspace)[0]===404&&$snapshot($tables)===$before,'Failed new-week save leaves no header, period or orphan artifact');

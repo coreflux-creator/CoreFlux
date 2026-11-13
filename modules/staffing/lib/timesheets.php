@@ -1491,6 +1491,7 @@ function staffingTimesheetReopenLocked(int $userId, int $timesheetId, string $re
     if (!$header) throw new \RuntimeException("timesheet #{$timesheetId} not found");
     staffingTimeAssertEditableHeader($header,true);
     if ($header['status'] === 'draft') return $header; // already editable, no-op
+    $beforeEntries=staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id ORDER BY id',['id'=>$timesheetId]);
     if (in_array($header['status'], ['approved','payroll_ready','billing_ready','locked'], true)) {
         throw new \RuntimeException(
             "This timesheet is {$header['status']} and may already affect payroll, billing, or accounting. "
@@ -1533,10 +1534,14 @@ function staffingTimesheetReopenLocked(int $userId, int $timesheetId, string $re
             "UPDATE time_entries
                 SET status = 'draft', rejected_reason = NULL
               WHERE tenant_id = :t AND timesheet_id = :tid
-                AND status IN ('pending_review','rejected')"
+                AND status IN ('pending_review','rejected')
+                AND NOT EXISTS (SELECT 1 FROM quanta_time_imports qi
+                    WHERE qi.tenant_id=time_entries.tenant_id AND qi.time_entry_id=time_entries.id)"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $timesheetId]);
         staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.reopened', $userId, [
+            'before_entries'=>$beforeEntries,
+            'after_entries'=>staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id ORDER BY id',['id'=>$timesheetId]),
             'reason' => $reason !== '' ? $reason : null,
         ]);
         cf_tx_commit($pdo, $ownsTxn);

@@ -172,8 +172,12 @@ if (substr_count($rf, ':today2') >= 2) ok("AR/AP reports use :today + :today2");
 else                                    bad("AR/AP reports still re-use :today");
 
 $ts = file_get_contents('/app/modules/staffing/lib/timesheets.php');
-if (strpos($ts, ':wd_lo') !== false && strpos($ts, ':wd_hi') !== false) ok("timesheets period lookup uses :wd_lo/:wd_hi");
-else                                                                    bad("timesheets period lookup still re-uses :wd");
+$timeEdit = file_get_contents('/app/modules/staffing/lib/native_time_edit.php');
+if (str_contains($ts, 'staffingTimeResolveOpenPeriod(')
+    && substr_count($timeEdit, ':day_lo') === 1 && substr_count($timeEdit, ':day_hi') === 1
+    && str_contains($timeEdit, "'day_lo'=>\$workDate") && str_contains($timeEdit, "'day_hi'=>\$workDate")) {
+    ok('timesheets delegated period lookup binds distinct date placeholders');
+} else bad('timesheets period lookup has missing or repeated date placeholders');
 
 $emp = file_get_contents('/app/modules/people/lib/employees.php');
 if (strpos($emp, ':tenant_id2') !== false && strpos($emp, ':emp2') !== false) ok("peopleActiveStateTaxes uses :tenant_id2/:emp2");
