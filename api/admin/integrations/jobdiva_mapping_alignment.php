@@ -9,8 +9,8 @@
  * from JobDiva source payload snapshots.
  * POST action=repair_stale_placements -> mark active JobDiva placements
  * with source lifecycle drift as ended, cancelled, pending, or on hold.
- * POST action=repair_stale_people -> mark JobDiva-owned People records
- * inactive when they no longer have a live placement.
+ * POST action=repair_stale_people -> review and explicitly save directory
+ * availability for linked people; employment and portal access stay separate.
  * POST action=repair_duplicate_placements -> archive duplicate placement
  * rows created by damaged source identity mappings.
  * POST action=repair_workflow -> run the ordered, safe alignment repair flow.
@@ -87,20 +87,27 @@ if ($method === 'POST' && $action === 'repair_stale_placements') {
 }
 
 if ($method === 'POST' && $action === 'repair_stale_people') {
-    rbac_legacy_require_any($user, [
-        'tenant_admin.integrations',
-        'integrations.jobdiva.manage',
-    ]);
     $body = api_json_body();
-    $limit = isset($body['limit']) ? (int) $body['limit'] : 5000;
-    $dryRun = array_key_exists('dry_run', $body) ? (bool) $body['dry_run'] : true;
-    $result = jobdivaMappingRepairSourcePeopleLifecycle(
-        $tid,
-        isset($user['id']) ? (int) $user['id'] : null,
-        $limit,
-        $dryRun
-    );
-    api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
+    if(array_key_exists('dry_run',$body)&&!is_bool($body['dry_run']))api_error('Choose preview or apply.',422);
+    $dryRun=$body['dry_run']??true;
+    rbac_legacy_require_any($user,['tenant_admin.integrations',$dryRun?'integrations.jobdiva.view':'integrations.jobdiva.manage']);
+    rbac_legacy_require($user,'people.view');
+    if(!$dryRun){
+        rbac_legacy_require($user,'people.manage');
+        if(in_array('inactive',(array)($body['decisions']??[]),true))rbac_legacy_require($user,'people.terminate');
+    }
+    try{
+        $result=$dryRun
+            ? jobdivaPeopleLifecycleReview($tid,(int)$user['id'],(int)($body['limit']??5000))
+            : jobdivaPeopleLifecycleApply($tid,(int)$user['id'],$body);
+        if($dryRun){
+            $result['can_manage']=rbac_legacy_can_any($user,['tenant_admin.integrations','integrations.jobdiva.manage'])&&rbac_legacy_can($user,'people.manage');
+            $result['can_inactivate']=$result['can_manage']&&rbac_legacy_can($user,'people.terminate');
+        }
+        api_ok(['ok'=>true,'repair'=>$result]);
+    }catch(PDOException $e){api_error('The availability review could not be saved. No changes were committed.',503);}
+    catch(InvalidArgumentException $e){api_error($e->getMessage(),422);}
+    catch(RuntimeException $e){api_error($e->getMessage(),409);}
 }
 
 if ($method === 'POST' && $action === 'repair_duplicate_placements') {

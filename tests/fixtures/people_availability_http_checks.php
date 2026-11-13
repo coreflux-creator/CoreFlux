@@ -1,0 +1,51 @@
+<?php
+/** Actual authenticated availability review: separate People grants and durable retry. */
+$availabilityPath='/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_stale_people';
+$availabilityTables=array_values(array_unique(array_merge($ruleTables,['core_record_numbers','people_employees','people_employment_links','users'])));
+$previewBody=['dry_run'=>true,'limit'=>5000];
+RBACResolver::grantModule($childMembership,'integrations','read',[$childTenant],$actor);
+RBACResolver::revokeModule($childMembership,'people',$actor);
+$before=$snapshot($availabilityTables);
+$expect($request('POST',$availabilityPath,$previewBody,false,$childTenant)[0]===401&&$snapshot($availabilityTables)===$before,'Anonymous availability preview requires native sign-in');
+$expect($request('POST',$availabilityPath,$previewBody,true,$childTenant)[0]===403&&$snapshot($availabilityTables)===$before,'Integration visibility alone cannot expose People availability');
+RBACResolver::grantModule($childMembership,'people','read',[$childTenant],$actor);
+[$status,$review]=$request('POST',$availabilityPath,$previewBody,true,$childTenant);
+$expect($status===200&&in_array($sharedRulePerson,array_column($review['repair']['rows'],'id'),true)&&!$review['repair']['can_manage']&&!$review['repair']['can_inactivate']&&$snapshot($availabilityTables)===$before,'Native read-only review resolves child source into shared People without writes');
+$availabilityBody=['dry_run'=>false,'limit'=>5000,'confirm'=>'APPLY_REVIEWED_PEOPLE_AVAILABILITY','review_token'=>$review['repair']['review_token'],'request_id'=>'ee63c490-7c4a-4e27-8be7-1eddd6a1a101','reason'=>'Reviewed synthetic bench availability','decisions'=>[$sharedRulePerson=>'bench']];
+$expect($request('POST',$availabilityPath,$availabilityBody,true,$childTenant)[0]===403&&$snapshot($availabilityTables)===$before,'Read-only integration and People access cannot apply availability');
+RBACResolver::grantModule($childMembership,'integrations','admin',[$childTenant],$actor);
+$expect($request('POST',$availabilityPath,$availabilityBody,true,$childTenant)[0]===403&&$snapshot($availabilityTables)===$before,'Integration management still requires People management');
+RBACResolver::grantModule($childMembership,'people','write',[$childTenant],$actor);
+[$status,$review]=$request('POST',$availabilityPath,$previewBody,true,$childTenant);
+$expect($status===200&&$review['repair']['can_manage']&&!$review['repair']['can_inactivate'],'Native People write grant permits bench decisions but not retirement');
+$expect($request('POST',$availabilityPath,array_replace($availabilityBody,['decisions'=>[$sharedRulePerson=>'inactive']]),true,$childTenant)[0]===403&&$snapshot($availabilityTables)===$before,'People write grant cannot bypass the separate inactive permission');
+$expect($request('POST',$availabilityPath,array_replace($availabilityBody,['confirm'=>'']),true,$childTenant)[0]===422&&$snapshot($availabilityTables)===$before,'Native apply requires explicit confirmation rather than a legacy bulk apply');
+$pdo->prepare('UPDATE placements SET status="active" WHERE tenant_id=? AND id=?')->execute([$tenant,$sharedRulePlacement]);$before=$snapshot($availabilityTables);
+$expect($request('POST',$availabilityPath,$availabilityBody,true,$childTenant)[0]===409&&$snapshot($availabilityTables)===$before,'A new live assignment invalidates native availability review');
+$pdo->prepare('UPDATE placements SET status="ended" WHERE tenant_id=? AND id=?')->execute([$tenant,$sharedRulePlacement]);
+[$status,$review]=$request('POST',$availabilityPath,$previewBody,true,$childTenant);$availabilityBody['review_token']=$review['repair']['review_token'];$before=$snapshot($availabilityTables);
+$pdo->exec("CREATE TRIGGER cf_http_availability_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='jobdiva.people_availability_applied' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic native availability receipt failure'; END IF; END");
+try{$expect($request('POST',$availabilityPath,$availabilityBody,true,$childTenant)[0]===503&&$snapshot($availabilityTables)===$before,'Native late receipt failure rolls back availability and its per-person audit');}
+finally{$pdo->exec('DROP TRIGGER cf_http_availability_receipt');}
+$retained=$snapshot(['placements','placement_rates','core_record_numbers','external_entity_mappings','people_employees','people_employment_links','users']);
+[$status,$saved]=$request('POST',$availabilityPath,$availabilityBody,true,$childTenant);
+$q=$pdo->prepare('SELECT status FROM people WHERE tenant_id=? AND id=?');$q->execute([$tenant,$sharedRulePerson]);
+$expect($status===200&&$saved['repair']['benched']===1&&!$saved['repair']['replayed']&&$q->fetchColumn()==='bench','Native selected availability changes the shared worker to bench');
+$expect($retained===$snapshot(['placements','placement_rates','core_record_numbers','external_entity_mappings','people_employees','people_employment_links','users']),'Native availability preserves employment, sign-in, historical assignments, rates, numbers and source identities');
+$q=$pdo->prepare('SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=? AND event="people.availability_reviewed" AND target_id=?');$q->execute([$childTenant,$sharedRulePerson]);$audit=$q->fetch(PDO::FETCH_ASSOC);$meta=json_decode($audit['meta_json'],true,512,JSON_THROW_ON_ERROR);
+$expect((int)$audit['actor_user_id']===$actor&&$meta['directory_owner_id']===$tenant&&$meta['reason']===$availabilityBody['reason']&&$meta['before']['status']==='active'&&$meta['after']['status']==='bench','Native availability audit retains authenticated actor, original workspace, shared owner and decision');
+$before=$snapshot($availabilityTables);[$status,$again]=$request('POST',$availabilityPath,$availabilityBody,true,$childTenant);
+$expect($status===200&&$again['repair']['replayed']&&$snapshot($availabilityTables)===$before,'Native retry recovers the saved availability receipt without duplicate writes');
+$pdo->prepare('UPDATE people SET status="active" WHERE tenant_id=? AND id=?')->execute([$tenant,$sharedRulePerson]);$before=$snapshot($availabilityTables);
+[$status,$again]=$request('POST',$availabilityPath,$availabilityBody,true,$childTenant);
+$expect($status===200&&$again['repair']['replayed']&&$snapshot($availabilityTables)===$before,'Native receipt recovery preserves a later independently edited availability');
+RBACResolver::grantModule($childMembership,'people','admin',[$childTenant],$actor);
+[$status,$review]=$request('POST',$availabilityPath,$previewBody,true,$childTenant);
+$expect($status===200&&$review['repair']['can_inactivate'],'Native People admin grant exposes explicit retirement');
+$retireBody=array_replace($availabilityBody,['review_token'=>$review['repair']['review_token'],'request_id'=>'ee63c490-7c4a-4e27-8be7-1eddd6a1a102','decisions'=>[$sharedRulePerson=>'inactive']]);
+[$status,$retired]=$request('POST',$availabilityPath,$retireBody,true,$childTenant);
+$expect($status===200&&$retired['repair']['inactivated']===1,'Native privileged review can explicitly retire a selected worker');
+RBACResolver::revokeModule($childMembership,'people',$actor);$before=$snapshot($availabilityTables);
+$expect($request('POST',$availabilityPath,$retireBody,true,$childTenant)[0]===403&&$snapshot($availabilityTables)===$before,'Revoked People access cannot recover even a previously authorized receipt');
+RBACResolver::revokeModule($childMembership,'integrations',$actor);
+$expect($snapshot($financialTables)===$financialBefore,'Native availability performs no payroll, payment or accounting execution');

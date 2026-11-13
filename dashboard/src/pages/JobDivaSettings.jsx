@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import JobDivaPersonReview from './JobDivaPersonReview';
+import JobDivaPeopleLifecycleReview from './JobDivaPeopleLifecycleReview';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, Database, GitBranch, Link2,
   PlugZap, RefreshCw, ShieldCheck, Sparkles, Wrench, X, XCircle,
@@ -33,6 +34,7 @@ export default function JobDivaSettings() {
   const [alignmentError, setAlignmentError] = useState(null);
   const [repairResult, setRepairResult] = useState(null);
   const [expandedAudit, setExpandedAudit] = useState({});
+  const [reviewPeople, setReviewPeople] = useState(false);
 
   const set = (k, v) => setForm(s => ({ ...s, [k]: v }));
   const clear = () => { setMsg(null); setErr(null); };
@@ -56,7 +58,7 @@ export default function JobDivaSettings() {
 
   const onRepairWorkflow = async () => {
     clear(); setRepairResult(null);
-    if (!window.confirm('Run the ordered JobDiva alignment repair? This archives safe duplicate shells, repairs client links, corrects placement lifecycle states, retires source-owned People with no live placement, and creates source-backed draft rates. Rate approval remains a separate approval step.')) {
+    if (!window.confirm('Run the ordered JobDiva alignment repair? This archives safe duplicate shells, repairs client links, corrects placement lifecycle states, identifies People availability for separate review, and creates source-backed draft rates. Rate approval remains a separate approval step.')) {
       return;
     }
     setBusy(b => ({ ...b, repairWorkflow: true }));
@@ -148,27 +150,7 @@ export default function JobDivaSettings() {
     }
   };
 
-  const onRepairStalePeople = async (dryRun = true) => {
-    clear(); setRepairResult(null); setBusy(b => ({ ...b, repairStalePeople: true }));
-    try {
-      if (!dryRun && !window.confirm('Mark former JobDiva workers inactive when they have placement history but no live placement? Historical records remain available; candidates who have never been placed and manual People records are not changed.')) {
-        return;
-      }
-      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_stale_people', {
-        dry_run: dryRun,
-      });
-      setRepairResult(r.repair || r);
-      await loadAlignment();
-      const inactivated = r.repair?.inactivated ?? 0;
-      setMsg(dryRun
-        ? `People lifecycle preview: ${inactivated} source-owned record(s) would become inactive.`
-        : `People lifecycle repair marked ${inactivated} source-owned record(s) inactive.`);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(b => ({ ...b, repairStalePeople: false }));
-    }
-  };
+  const onRepairStalePeople = () => { clear(); setReviewPeople(true); };
 
   const onConnect = async (e) => {
     e?.preventDefault?.();
@@ -517,6 +499,8 @@ export default function JobDivaSettings() {
       {err     && <p data-testid="jobdiva-settings-err"  style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: 10, borderRadius: 8, color: '#7f1d1d', fontSize: 13 }}>{err}</p>}
 
       {data?.connected && <JobDivaPersonReview key={data.tenant_id} workspaceId={data.tenant_id} />}
+
+      {reviewPeople && <JobDivaPeopleLifecycleReview key={data?.tenant_id} onClose={() => setReviewPeople(false)} onSaved={loadAlignment} />}
 
       <JobDivaMappingAlignmentCard
         data={alignment}
@@ -1326,14 +1310,9 @@ function JobDivaMappingAlignmentCard({
                   data-testid="jobdiva-mapping-alignment-preview-stale-people" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            {repairingStalePeople ? 'Checking...' : 'Preview stale People'}
+            {repairingStalePeople ? 'Checking...' : 'Review People availability'}
           </button>
-          <button type="button" className="btn btn--danger" onClick={() => onRepairStalePeople?.(false)}
-                  data-testid="jobdiva-mapping-alignment-repair-stale-people" disabled={anyRepairing}
-                  style={{ fontSize: 12 }}>
-            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            {repairingStalePeople ? 'Repairing...' : 'Retire stale People'}
-          </button>
+
         </div>
       </details>
 
@@ -1432,7 +1411,7 @@ function JobDivaWorkflowRepairResult({ repair }) {
       return `updated ${step.updated ?? 0}; ended ${step.ended ?? 0}; cancelled ${step.cancelled ?? 0}; pending ${step.pending_start ?? 0}; on hold ${step.on_hold ?? 0}; failed ${step.failed ?? 0}`;
     }
     if (key === 'source_people_lifecycle') {
-      return `inactivated ${step.inactivated ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
+      return `availability review required ${step.review_required ?? 0}; updated ${step.updated ?? 0}; failed ${step.failed ?? 0}`;
     }
     if (key === 'source_rate_drafts') {
       return `drafted ${step.drafted ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
@@ -1542,9 +1521,9 @@ function operatorIssueView(issue) {
       next: 'Preview the source-backed changes, then apply ended, cancelled, pending, or on-hold states.',
     },
     jobdiva_person_without_live_placement: {
-      title: 'Retire stale People records',
-      impact: 'These former JobDiva workers have placement history but no current or upcoming placement.',
-      next: 'Preview first, then mark them inactive while retaining their history and source identity.',
+      title: 'Review People availability',
+      impact: 'These linked people have placement history and no current assignment.',
+      next: 'Keep their current availability, or explicitly choose Bench or Inactive. Employment and portal access are reviewed separately.',
     },
   })[code] || fallback;
 }

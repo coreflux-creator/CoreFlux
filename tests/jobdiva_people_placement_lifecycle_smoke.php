@@ -62,23 +62,24 @@ $sync = (string) file_get_contents($root . '/core/jobdiva/sync_placements.php');
 $placementSync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $directory = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
 $settings = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
+$review = (string) file_get_contents($root . '/core/jobdiva/people_lifecycle_review.php');
+$reviewUi = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaPeopleLifecycleReview.jsx');
 
-$assert('repair orders People retirement after placement lifecycle correction',
+$assert('repair discovers People review after placement lifecycle correction',
     strpos($alignment, "\$steps['stale_active_placements']")
         < strpos($alignment, "\$steps['source_people_lifecycle']"));
-$assert('People repair is limited to source-owned records',
-    str_contains($alignment, "p.source = 'jobdiva'")
-        && str_contains($alignment, "p.external_id LIKE 'jd:%'")
-        && !str_contains($alignment, "OR pm.id IS NOT NULL"));
+$assert('People review requires exact original-workspace candidate mappings',
+    str_contains($review, "source_system='jobdiva' AND internal_entity_type='person'")
+        && str_contains($review, 'jobdivaPeopleLifecycleScope')
+        && str_contains($review, 'competing_links'));
 $assert('candidate-only People are preserved until they have placement history',
-    str_contains($alignment, 'FROM placements historical_source')
-        && str_contains($alignment, 'historical_source.person_id = p.id'));
+    str_contains($review, '||!$history)continue;'));
 $assert('People with any live placement are preserved',
-    str_contains($alignment, "live.status IN ('draft', 'pending_start', 'active', 'on_hold')")
-        && str_contains($alignment, 'live.end_date >= :today'));
-$assert('repair inactivates rather than deletes historical People',
-    str_contains($alignment, "SET p.status = 'inactive'")
-        && !str_contains($alignment, 'mapping_alignment_repair_source_people_lifecycle_delete'));
+    str_contains($review, "['draft','pending_start','active','on_hold']")&&str_contains($review, 'if($live)continue;'));
+$assert('People availability requires selected decisions and a required receipt',
+    str_contains($review, 'APPLY_REVIEWED_PEOPLE_AVAILABILITY')
+        && str_contains($review, 'jobdiva.people_availability_applied')
+        && str_contains($alignment, 'jobdivaMappingRepairSourcePeopleLifecycle($tenantId, $userId, $limit, true)'));
 $assert('later JobDiva Starts hold retired Core people for reviewed reactivation',
     str_contains($sync, 'Review and reactivate the linked Core person')
     && !str_contains($sync, "SET status = 'active', deleted_at = NULL, updated_at = NOW()"));
@@ -104,14 +105,16 @@ $assert('People directory defaults to current records but retains All statuses',
         && str_contains($directory, '{STATUS_LABELS[s]}'));
 $assert('dedicated People lifecycle API is wired',
     str_contains($api, "\$action === 'repair_stale_people'")
-        && str_contains($api, 'jobdivaMappingRepairSourcePeopleLifecycle('));
-$assert('operator UI exposes preview and apply actions',
+        && str_contains($api, 'jobdivaPeopleLifecycleApply(')&&str_contains($api,"'people.terminate'"));
+$assert('operator UI opens explicit decisions instead of bulk automatic retirement',
     str_contains($settings, 'jobdiva-mapping-alignment-preview-stale-people')
-        && str_contains($settings, 'jobdiva-mapping-alignment-repair-stale-people'));
+        && !str_contains($settings, 'jobdiva-mapping-alignment-repair-stale-people')
+        && str_contains($reviewUi, 'Keep current')&&str_contains($reviewUi,'Retry original save'));
 
 foreach ([
     $root . '/core/jobdiva/assignment_identity.php',
     $root . '/core/jobdiva/mapping_alignment.php',
+    $root . '/core/jobdiva/people_lifecycle_review.php',
     $root . '/core/jobdiva/sync.php',
     $root . '/core/jobdiva/sync_placements.php',
     $root . '/api/admin/integrations/jobdiva_mapping_alignment.php',

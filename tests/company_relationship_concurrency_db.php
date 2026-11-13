@@ -74,6 +74,11 @@ function placementLifecycleRaceWrite(array $input): array
     return jobdivaRepairPlacementLifecycle($input['workspace'],$input['mapping_id'],$input['actor'],false);
 }
 
+function peopleAvailabilityRaceWrite(array $input): array
+{
+    return ['id'=>$input['person_id']]+jobdivaPeopleLifecycleApply($input['workspace'],$input['actor'],$input['body']);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -84,8 +89,8 @@ if(($argv[1]??'')==='worker'){
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
-        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold','assignment_repair_hold','lifecycle_repair_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
-            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),'assignment_repair_hold'=>assignmentRepairRaceWrite($input),'lifecycle_repair_hold'=>placementLifecycleRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
+        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold','assignment_repair_hold','lifecycle_repair_hold','availability_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
+            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),'assignment_repair_hold'=>assignmentRepairRaceWrite($input),'lifecycle_repair_hold'=>placementLifecycleRaceWrite($input),'availability_hold'=>peopleAvailabilityRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
             echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
             stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
             if($decision!=='COMMIT')$pdo->exec('ROLLBACK TO SAVEPOINT fixture_rule_hold');
@@ -112,6 +117,7 @@ if(($argv[1]??'')==='worker'){
                 'csv_assignment'=>csvAssignmentRaceWrite($input),
                 'assignment_repair'=>assignmentRepairRaceWrite($input),
                 'lifecycle_repair'=>placementLifecycleRaceWrite($input),
+                'people_availability'=>peopleAvailabilityRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -639,6 +645,35 @@ try{
         fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
         $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="placement.status_repaired_from_jobdiva_lifecycle" AND target_id=?');$q->execute([$tenant,$placement]);
         $check($written['ok']&&$again['ok']&&$again['result']['status']===($decision==='COMMIT'?'skipped':'updated')&&(int)$q->fetchColumn()===1&&$read('placements',$placement)['status']==='ended','Concurrent lifecycle repairs commit exactly one transition after '.$decision);
+    }
+    $availabilityFixture=static function(string $label,int $workspace)use($projectionFixture,$pdo,$actor,$read):array{
+        [$a,$b,$placement,$source]=$projectionFixture('availability-'.$label,$workspace);
+        $row=$read('placements',$placement);$person=(int)$row['person_id'];
+        $pdo->prepare('UPDATE placements SET status="ended" WHERE id=?')->execute([$placement]);
+        $review=jobdivaPeopleLifecycleReview($workspace,$actor);
+        if(!in_array($person,array_column($review['rows'],'id'),true))throw new RuntimeException('Concurrent availability fixture is not reviewable');
+        $body=['confirm'=>'APPLY_REVIEWED_PEOPLE_AVAILABILITY','review_token'=>$review['review_token'],'request_id'=>bin2hex(random_bytes(4)).'-0000-4000-8000-'.bin2hex(random_bytes(6)),'reason'=>'Synthetic concurrent availability review','decisions'=>[$person=>'bench'],'limit'=>5000];
+        return[$placement,['mode'=>'native','entity'=>'people_availability','workspace'=>$workspace,'actor'=>$actor,'person_id'=>$person,'body'=>$body]];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['people','placements','person','mapping','live_placement','new_placement']as$change){
+            [$placement,$input]=$availabilityFixture($change.'-'.$decision,$child);$person=$input['person_id'];$pdo->beginTransaction();
+            if(in_array($change,['people','placements'],true))$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$change]);
+            if($change==='person')$pdo->prepare('UPDATE people SET status="inactive" WHERE id=?')->execute([$person]);
+            if($change==='mapping')$pdo->prepare('UPDATE external_entity_mappings SET last_error="Concurrent availability evidence" WHERE tenant_id=? AND internal_entity_type="person" AND internal_entity_id=?')->execute([$child,$person]);
+            if($change==='live_placement')$pdo->prepare('UPDATE placements SET status="active" WHERE id=?')->execute([$placement]);
+            if($change==='new_placement')$pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date,worksite_country) VALUES(?,?,"New concurrent assignment","active","w2","2026-11-01","US")')->execute([$tenant,$person]);
+            $worker=$spawn($input);$check($waiting($worker),'Availability review waits for concurrent '.$change.' '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$projectionRows();$result=$finish($worker);
+            $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$result['result']['benched']===1&&$read('people',$person)['status']==='bench'),'Availability revalidates '.$change.' after '.$decision);
+        }
+        [$placement,$input]=$availabilityFixture('duplicate-'.$decision,$tenant);
+        $worker=$spawn(array_replace($input,['mode'=>'availability_hold']));$saved=$line($workers[$worker]['pipes'][1]);
+        $check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Availability holds selected decision and receipt before '.$decision);
+        $retry=$spawn($input);$check($waiting($retry),'Concurrent identical availability request waits for first receipt '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
+        $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="jobdiva.people_availability_applied" AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,"$.request_id"))=?');$q->execute([$tenant,$input['body']['request_id']]);
+        $check($written['ok']&&$again['ok']&&$again['result']['replayed']===($decision==='COMMIT')&&(int)$q->fetchColumn()===1&&$read('people',$input['person_id'])['status']==='bench','Concurrent availability retry commits one decision and one receipt after '.$decision);
     }
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));

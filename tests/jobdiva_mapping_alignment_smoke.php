@@ -156,11 +156,10 @@ $a('source-backed placement lifecycle repair is exposed from alignment service',
     && str_contains(file_get_contents($root.'/core/jobdiva/placement_lifecycle_repair.php'), 'function jobdivaMappingRepairStaleActivePlacements')
     && str_contains(file_get_contents($root.'/core/jobdiva/placement_lifecycle_repair.php'), 'placement.status_repaired_from_jobdiva_lifecycle')
     && str_contains(file_get_contents($root.'/core/jobdiva/placement_lifecycle_repair.php'), 'jobdivaAssignmentPlacementStatusForWrite'));
-$a('source-owned People lifecycle repair preserves history by inactivating rows',
-    str_contains($service, 'function jobdivaMappingRepairSourcePeopleLifecycle')
-    && str_contains($service, 'function _jobdivaMappingStaleSourcePeopleRows')
-    && str_contains($service, "SET p.status = 'inactive'")
-    && str_contains($service, "live.status IN ('draft', 'pending_start', 'active', 'on_hold')"));
+$a('source-linked People availability requires a separate review',
+    str_contains($service, "'/people_lifecycle_review.php'")
+    && str_contains($service, 'jobdivaMappingRepairSourcePeopleLifecycle($tenantId, $userId, $limit, true)')
+    && !str_contains($service, "SET p.status = 'inactive'"));
 $a('alignment report includes projector readiness drift',
     str_contains($service, 'jobdivaProjectorReadinessCounts($tenantId)')
     && str_contains($service, 'placement_missing_staffing_job')
@@ -224,7 +223,7 @@ $a('POST repair_stale_placements action is wired',
     && str_contains($api, 'jobdivaMappingRepairStaleActivePlacements('));
 $a('POST repair_stale_people action is wired',
     str_contains($api, "repair_stale_people")
-    && str_contains($api, 'jobdivaMappingRepairSourcePeopleLifecycle('));
+    && str_contains($api, 'jobdivaPeopleLifecycleReview(')&&str_contains($api, 'jobdivaPeopleLifecycleApply('));
 $a('API uses integration RBAC gates',
     str_contains($api, 'rbac_legacy_require_any')
     && str_contains($api, 'integrations.jobdiva.view')
@@ -251,10 +250,10 @@ $a('settings has stale active preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-stale-placements"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-placements"')
     && str_contains($ui, "repair_stale_placements"));
-$a('settings has source-owned People lifecycle preview + repair buttons',
+$a('settings opens explicit People availability review',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-stale-people"')
-    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-people"')
-    && str_contains($ui, "repair_stale_people"));
+    && str_contains($ui, '<JobDivaPeopleLifecycleReview')
+    && !str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-people"'));
 $a('settings has source rate draft repair button and issue action',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-rate-drafts"')
     && str_contains($ui, "repair_source_rate_drafts")

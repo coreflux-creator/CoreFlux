@@ -394,6 +394,7 @@ try {
     require __DIR__.'/fixtures/person_document_audit_http_checks.php';
     require __DIR__.'/fixtures/source_rule_http_checks.php';
     require __DIR__.'/fixtures/assignment_lifecycle_repair_http_checks.php';
+    require __DIR__.'/fixtures/people_availability_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
