@@ -79,13 +79,24 @@ function jobdivaActiveRestoreSnapshot(int $workspace,int $actor,array $ids): arr
             || !jobdivaAssignmentObservedInLatestSync($validation,$base['mapping']['last_seen_at'],$base['last_sync_at'])
             || $observed===false || $observed<time()-86400 || $observed>time()+300) $blocked[]='refresh_source_evidence';
         // A generated active label cannot substitute for the retained raw Start and financial sections.
-        jobdivaJoinedIndexValidatePayload(['joined_payload'=>$root,'external'=>$base['external']],$stored);
         $detail=$stored['_jd_assignment_detail']??[];
-        $contract=is_array($detail) && $detail ? jobdivaAssignmentContractBuild($detail,$root,$base['external']) : [];
+        // Stripping cached facets adds trusted-context metadata. Compare the
+        // financial rows to the exact Start tuple, not that metadata to the
+        // unnormalised stored root. Every supplied detail row must match.
+        $exactDetail=is_array($detail) && $detail && jobdivaAssignmentContractRowsForStart($detail,$root,$base['external'])===$detail;
+        $contract=$exactDetail ? jobdivaAssignmentContractBuild($detail,$root,$base['external']) : [];
         if (!$contract || mappingHash($contract)!==mappingHash($stored['_jd_contract']??[])
             || !jobdivaAssignmentContractSnapshotIsStronglyActive(['_jd_contract'=>$contract])) $blocked[]='review_exact_active_contract';
         if ($contract && (jobdivaNormaliseDate($contract['start_date']??null)!==$p['start_date']
             || jobdivaNormaliseDate($contract['end_date']??null)!==($p['end_date']?:null))) $blocked[]='review_source_dates';
+        foreach ($base['mirrors'] as $mirror) {
+            $mirrorPayload=json_decode((string)$mirror['payload_snapshot'],true,512,JSON_THROW_ON_ERROR);
+            if (!is_array($mirrorPayload) || array_is_list($mirrorPayload)) throw new RuntimeException('Review the saved assignment mirror.',409);
+            $mirrorRoot=jobdivaAssignmentStripDerivedFacets($mirrorPayload,$base['external']);
+            $mirrorStatus=jobdivaAssignmentCanonicalPlacementStatus(jobdivaAssignmentIdentityPluck($mirrorRoot,['startStatus','start_status','status','assignmentStatus']),jobdivaNormaliseDate(jobdivaAssignmentIdentityPluck($mirrorRoot,['endDate','end_date','end date'])));
+            if (empty(jobdivaAssignmentValidate($mirrorRoot,$base['external'])['valid']) || empty(jobdivaAssignmentContextEvidence($mirrorRoot,$root)['matches'])
+                || in_array($mirrorStatus['status']??'',['ended','cancelled','on_hold'],true)) $blocked[]='review_conflicting_assignment_mirror';
+        }
 
         $coverage=[];
         foreach (array_unique([$p['start_date'],$today]) as $date) {

@@ -47,13 +47,19 @@ try{
         $check($before===$state(),'Preview changes no business row, identity, rate or audit');
         $check(!str_contains(json_encode($r),'example.invalid')&&!str_contains(json_encode($r),'password_enc'),'Review exposes decisions without private source or credentials');
         $request=$body($r);
-        foreach(['pending_no_detail','fabricated_contract','stale_source','disconnected','native_status','inactive_worker','missing_rate','overlap_rate','disabled_payroll','dates','archived','actual_end','wrong_person','wrong_raw_candidate','policy','revoked_actor','revoked_membership','revoked_grant','active_count']as$case)JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$membership,$grant,$profile,$pending,$person,$mapping,$rate,$payload,$ids,$preview,$request,$state,$failure,$check,$insert,$case):void{
+        foreach(['pending_no_detail','fabricated_contract','stale_source','disconnected','native_status','inactive_worker','missing_rate','overlap_rate','disabled_payroll','dates','archived','actual_end','wrong_person','wrong_raw_candidate','policy','revoked_actor','revoked_membership','revoked_grant','active_count','missing_client','retired_company','disabled_cycle','duplicate_source','contradictory_mirror','missing_number']as$case)JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$membership,$grant,$profile,$pending,$person,$mapping,$rate,$payload,$ids,$preview,$request,$state,$failure,$check,$insert,$case):void{
             if(in_array($case,['pending_no_detail','fabricated_contract','wrong_raw_candidate'],true)){
                 $bad=$payload;if($case==='pending_no_detail')unset($bad['_jd_assignment_detail']);
                 if($case==='fabricated_contract')$bad['_jd_contract']['salary_approved']=false;
                 if($case==='wrong_raw_candidate')$bad['_jd_assignment_detail'][0]['Candidate ID']='99329999';
                 $pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=? WHERE id=?')->execute([json_encode($bad),$mapping]);
             }
+            if($case==='missing_client')$pdo->prepare('UPDATE placements SET client_id=NULL WHERE id=?')->execute([$pending]);
+            if($case==='retired_company')$pdo->prepare('UPDATE companies c JOIN placements p ON p.end_client_company_id=c.id SET c.deleted_at=NOW() WHERE p.id=?')->execute([$pending]);
+            if($case==='disabled_cycle')$pdo->prepare('UPDATE staffing_operating_cycles c JOIN placement_economic_parties ep ON ep.operating_cycle_id=c.id SET c.active=0 WHERE ep.placement_id=?')->execute([$pending]);
+            if($case==='duplicate_source')mappingUpsert($workspace,'jobdiva','placement','99320001',$pending,$payload);
+            if($case==='contradictory_mirror')mappingUpsert($workspace,'jobdiva','jobdiva_assignment','99320001',99320001,['startId'=>'99320001','candidateId'=>'99320002','jobId'=>'99320003','startDate'=>'2026-10-01','status'=>'Ended']);
+            if($case==='missing_number')$pdo->prepare('DELETE FROM core_record_numbers WHERE tenant_id=? AND entity_type="placement" AND record_id=?')->execute([$owner,$pending]);
             if($case==='stale_source')$pdo->prepare('UPDATE external_entity_mappings SET last_seen_at=DATE_SUB(NOW(),INTERVAL 3 DAY) WHERE id=?')->execute([$mapping]);
             if($case==='disconnected')$pdo->prepare('UPDATE jobdiva_connections SET status="disconnected" WHERE tenant_id=?')->execute([$workspace]);
             if($case==='native_status')$pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["status"]\' WHERE id=?')->execute([$pending]);
