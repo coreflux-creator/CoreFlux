@@ -13,6 +13,7 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/assignment_identity.php';
 require_once __DIR__ . '/contract_projection.php';
 require_once __DIR__ . '/classification_mapping.php';
+require_once __DIR__ . '/party_sync.php';
 require_once __DIR__ . '/canonical_graph.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
@@ -762,31 +763,24 @@ function jobdivaProjectorResolvePartyCompany(int $tenantId, array $payload, arra
     $mapping = $externalId !== '' ? mappingFindInternal($tenantId, 'jobdiva', 'company', $externalId) : null;
     if ($mapping) {
         if ((string) $mapping['external_id'] !== $externalId) throw new RuntimeException('Company source identity needs exact review.');
-        $s = $pdo->prepare('SELECT id, name FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
+        $s = $pdo->prepare('SELECT id, name, coreflux_source_state FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
         $s->execute(['t' => $owner, 'i' => $mapping['internal_entity_id']]);
         $company = $s->fetch(PDO::FETCH_ASSOC);
-        if (!$company || ($name !== '' && !jobdivaProjectorCompanyNameCompatible($company['name'], $name))) {
+        $authority=$company?companySourceState($company,'companies')['source']:null;
+        $confirmed=$authority!==null&&mappingHash($authority)===mappingHash(['system'=>'jobdiva','workspace_id'=>$tenantId,'external_id'=>$externalId]);
+        if (!$company || (!$confirmed && $name !== '' && !jobdivaProjectorCompanyNameCompatible($company['name'], $name))) {
             throw new RuntimeException('Mapped company is missing, outside this directory, or has a conflicting source name. Review the existing identity.');
         }
         return (int) $company['id'];
     }
-    if ($name === '') return null;
+    // Name-only evidence remains unresolved; it cannot establish a provider identity.
+    if ($name === '' || $externalId === '') return null;
     $s = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND name = :n AND deleted_at IS NULL LIMIT 2');
     $s->execute(['t' => $owner, 'n' => $name]);
     $matches = $s->fetchAll(PDO::FETCH_COLUMN);
     if (count($matches) > 1) throw new RuntimeException('Multiple companies have this source name; review their identities.');
-    $companyId = $matches ? (int) $matches[0] : 0;
-    if ($companyId && $externalId !== '') {
-        $reverse = mappingFindExternal($tenantId, 'jobdiva', 'company', $companyId);
-        if ($reverse && (string) $reverse['external_id'] !== $externalId) {
-            throw new RuntimeException('Company already has a different provider identity; no mapping was changed.');
-        }
-    }
-    if (!$companyId) $companyId = companiesUpsertByName($owner, $name, ['created_by_user_id' => $userId], []);
-    if ($companyId && $externalId !== '') {
-        mappingUpsert($tenantId, 'jobdiva', 'company', $externalId, $companyId, $payload, 'pull', $userId);
-    }
-    return $companyId ?: null;
+    if ($matches) throw new RuntimeException('A Core company already uses this source name. Open its client or vendor detail and review the JobDiva identity link before importing.',409);
+    return jobdivaUpsertCompanyMapped($tenantId,$externalId,$name,[],$payload,$userId,[]);
 }
 
 function jobdivaProjectorEndClientNestOrder(): array

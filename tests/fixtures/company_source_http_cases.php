@@ -11,6 +11,24 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic company source child",1,1,"sub",?)')->execute([$child,$parent]);
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(?,"Synthetic company source foreign",1,1,"master")')->execute([$foreign]);
         $membership=(int)provisionMembership($actor,$child,'admin',['status'=>'active'])['membership_id'];
+        $identity='/api/admin/integrations/jobdiva_party_review.php';
+        $identityBody=['record_type'=>'companies','record_id'=>1,'source_id'=>'1001'];
+        $expect($request($identity.'?action=preview',$identityBody,false,$child)[0]===401,'Anonymous company identity preview is denied');
+        RBACResolver::grantModule($membership,'people','write',[$child],$actor);
+        RBACResolver::grantModule($membership,'integrations','read',[$child],$actor);
+        foreach(['preview','apply','status']as$action)$expect($request($identity.'?action='.$action,$identityBody,true,$child)[0]===403,'Integration reader cannot '.$action.' company links');
+        RBACResolver::grantModule($membership,'integrations','admin',[$child],$actor);
+        RBACResolver::grantModule($membership,'people','read',[$child],$actor);
+        foreach(['preview','apply','status']as$action)$expect($request($identity.'?action='.$action,$identityBody,true,$child)[0]===403,'People reader cannot '.$action.' company links');
+        RBACResolver::grantModule($membership,'people','write',[$child],$actor);
+        $expect($request($identity.'?action=preview',null,true,$child)[0]===405,'Identity review refuses GET even with both permissions');
+        $expect($request($identity.'?action=preview',$identityBody+['owner'=>$foreign],true,$child)[0]===422,'Identity endpoint refuses a caller-supplied directory owner');
+        $expect($request($identity.'?action=preview',$identityBody,true,$child)[0]===409,'Authorized preview requires an actual JobDiva connection before provider transport');
+        $expect($request($identity.'?action=apply',['review_token'=>'invalid'],true,$child)[0]===422,'Identity commit requires explicit confirmation');
+        $expect($request($identity.'?action=apply',['review_token'=>'invalid','confirm_review'=>true],true,$child)[0]===422,'Identity commit refuses an invalid review token');
+        $expect($request($identity.'?action=status',['review_token'=>'invalid'],true,$child)[0]===422,'Identity status cannot inspect an invented review');
+        RBACResolver::revokeModule($membership,'integrations',$actor);
+        $expect($request($identity.'?action=status',['review_token'=>'invalid'],true,$child)[0]===403,'Same native session loses link access immediately after integration grant removal');
         foreach(['shared','isolated']as$mode){
             $owner=$mode==='shared'?$parent:$child;
             $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies",?) ON DUPLICATE KEY UPDATE scope_mode=VALUES(scope_mode)')->execute([$child,$mode]);
@@ -73,7 +91,7 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
                 RBACResolver::grantModule($membership,'people','write',[$child],$actor);
             }
             [$status,$detail]=$request($route.'?id='.$company,null,true,$child);
-            $expect($status===200&&$detail['can_review_source']&&!array_key_exists('coreflux_source_state',$detail['company'])
+            $expect($status===200&&$detail['can_review_source']&&!$detail['can_link_source']&&!array_key_exists('coreflux_source_state',$detail['company'])
                 &&!array_key_exists('coreflux_source_state',$detail['company']['contacts'][0]),"$mode: ordinary detail excludes private ownership state and exposes review permission");
             $expect(count($detail['company']['contacts'])===1&&(int)$detail['company']['contacts'][0]['id']===$contact
                 &&$detail['company']['addresses']===[],"$mode: inconsistent foreign contacts and addresses are omitted from company detail");
@@ -92,7 +110,7 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
         $pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=?')->execute([$child]);
         $pdo->prepare('DELETE FROM entity_sync_history WHERE tenant_id=?')->execute([$child]);
         if($companyIds){$ids=implode(',',array_map('intval',$companyIds));$pdo->exec('DELETE FROM companies WHERE id IN('.$ids.')');$pdo->exec("DELETE FROM core_record_numbers WHERE entity_type='company' AND record_id IN(".$ids.')');}
-        if($membership!==null){RBACResolver::revokeModule($membership,'people',$actor);deactivateMembership($actor,$child);}
+        if($membership!==null){RBACResolver::revokeModule($membership,'integrations',$actor);RBACResolver::revokeModule($membership,'people',$actor);deactivateMembership($actor,$child);}
         $pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=?')->execute([$child]);
         $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN(990611,990612)');
     }

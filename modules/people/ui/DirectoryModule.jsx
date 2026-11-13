@@ -10,6 +10,7 @@ import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
 import CustomFields from './CustomFields';
 import CompanySourceReview from './CompanySourceReview';
+import CompanySourceLink from './CompanySourceLink';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -398,10 +399,13 @@ const SectionTitle = ({ children }) => (
 function DirectoryDetail({ cfg, mode }) {
   const { id } = useParams();
   const { data, loading, error, reload } = useApi(`/modules/people/api/companies.php?id=${id}`);
-  const c = data?.company;
+  const [sourceRevision, setSourceRevision] = useState(0);
+  // useApi retains the last response while a new route is loading.
+  const c = Number(data?.company?.id) === Number(id) ? data.company : null;
 
-  if (loading) return <p>Loading…</p>;
-  if (error || !c) return <p className="error" data-testid="company-detail-error">{error?.message || 'Not found'}</p>;
+  if (loading && !c) return <p>Loading…</p>;
+  if (!c) return <p className="error" data-testid="company-detail-error">{error?.message || 'Not found'}</p>;
+  const refreshSource = () => { setSourceRevision(value => value + 1); reload(); };
 
   const toggleRole = async (role) => {
     const action = c.roles?.includes(role) ? 'remove-role' : 'add-role';
@@ -411,6 +415,7 @@ function DirectoryDetail({ cfg, mode }) {
 
   return (
     <div data-testid={`${mode}-detail`}>
+      {error && <p role="alert" className="error">Could not refresh this record: {error.message}</p>}
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← {cfg.label}</Link>
       <h1 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }} data-testid={`${mode}-detail-name`}>
         <span>{c.name}</span>
@@ -422,9 +427,10 @@ function DirectoryDetail({ cfg, mode }) {
         {' · used '}{c.use_count}{' times'}
       </p>
       <div style={{ margin: '4px 0 8px' }}>
-        <ConnectedSourcesBadge entityType="company" internalId={c.id} />
+        <ConnectedSourcesBadge key={`sources-${c.id}-${sourceRevision}`} entityType="company" internalId={c.id} />
       </div>
-      {data.can_review_source && <CompanySourceReview key={c.id} id={c.id} onAccepted={reload} />}
+      {data.can_review_source && <CompanySourceReview key={`review-${c.id}-${sourceRevision}`} id={c.id} onAccepted={reload} />}
+      {data.can_link_source && <CompanySourceLink key={`link-${c.id}`} id={c.id} onLinked={refreshSource} />}
 
       {/* Cross-link badge: if this record also acts as the OTHER role, show a link to the other directory */}
       {(c.roles || []).some(r => cfg.crossRoles.includes(r)) && (
@@ -504,14 +510,14 @@ function DirectoryDetail({ cfg, mode }) {
             <tr key={ct.id}>
               <td>{ct.name}</td><td>{ct.title || '—'}</td><td><span className="badge">{ct.contact_role}</span></td>
               <td>{ct.email || '—'}</td><td>{ct.phone || '—'}</td><td>{Number(ct.is_primary) ? '✓' : ''}</td>
-              {data.can_review_source && <td><CompanySourceReview key={ct.id} id={ct.id} recordType="company_contacts" onAccepted={reload} /></td>}
+              {data.can_review_source && <td><CompanySourceReview key={`review-${ct.id}-${sourceRevision}`} id={ct.id} recordType="company_contacts" onAccepted={reload} />{data.can_link_source && <CompanySourceLink key={`link-${ct.id}`} id={ct.id} recordType="company_contacts" onLinked={refreshSource} />}</td>}
             </tr>
           ))}
         </tbody>
       </table>
 
       <div style={{ marginTop: 24 }}>
-        <LinkedExternalSystemsPanel entityType="company" internalId={c.id} />
+        <LinkedExternalSystemsPanel key={`linked-${c.id}-${sourceRevision}`} entityType="company" internalId={c.id} />
       </div>
     </div>
   );
