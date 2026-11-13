@@ -1127,12 +1127,14 @@
     "index.html": "4e008fb66bafa6e570c7091766d183abccb4496141f2cdf5fd79199d39821ad1"
   },
   "browser_acceptance": {
-    "status": "pending",
-    "observed": "Installed pilot login page opens in BrowserOS neo. No test user or new fixture has been created.",
-    "page_url": "https://phpstack-1516771-6707602.cloudwaysapps.com/login.html?next=%2F"
+    "status": "passed_functional_browser_and_native_session_acceptance",
+    "evidence": "deploy/thunderhawk-company-source-browser-20261112.json",
+    "test_account_retired": true,
+    "original_rows_preserved": 35206,
+    "pixel_screenshot": "Unavailable: BrowserOS full-page and bounded-viewport captures both timed out. Rendered DOM, native controls and desktop overflow measurement verified; pixel inspection remains unverified."
   },
   "remaining": [
-    "Hosted company/contact review and native-edit browser walkthrough with synthetic records and cleanup",
+    "Pixel screenshot inspection (capture tool timed out); functional hosted company/contact acceptance and cleanup passed",
     "Broader source role writers and configured/default source clear semantics",
     "Company/contact reviewed link and merge/alias workflows that preserve all provider identities",
     "Full field disposition inventory and wider Thunderhawk operational, onboarding, time, payroll and financial reconciliation acceptance"
