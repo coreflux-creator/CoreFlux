@@ -44,6 +44,7 @@ try{
     [$status,$replay]=$request('POST',$livePath,[],true,$liveTenant);
     foreach($counts as$table=>$count)$expect((int)$pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn()===$count,'Live replay does not duplicate '.$table);
     $expect($status===200&&(int)$replay['failed']===0,'A fresh live replay succeeds');
+    require __DIR__.'/review_contract_http_checks.php';
     $liveWrite(array_replace($liveFixture,['mode'=>'stale']));$linkBefore=$snapshot(['external_entity_mappings','entity_sync_history','placement_rates']);
     [$status,$stale]=$request('POST',$livePath,[],true,$liveTenant);
     $q=$pdo->prepare('SELECT title FROM placements WHERE id=?');$q->execute([$livePlacement]);

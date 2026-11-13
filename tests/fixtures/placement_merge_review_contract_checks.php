@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/../../core/jobdiva/review_contract_refresh.php';
 JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,$a,$b,$mb,$payload,$state,$check,$read,$fails):void{
+    mappingUpsert($workspace,'jobdiva','person',$payload['candidateId'],(int)$read($a)['person_id'],['candidateId'=>$payload['candidateId']]);
     $pdo->prepare('UPDATE placements SET status="on_hold",coreflux_overridden_fields=? WHERE id=?')->execute(['["title","rates"]',$a]);
     $root=array_replace($payload,['status'=>'Offer accepted']);
     $review=mappingUpsert($workspace,'jobdiva','jobdiva_assignment_review','jd:99510001',99510001,$root);

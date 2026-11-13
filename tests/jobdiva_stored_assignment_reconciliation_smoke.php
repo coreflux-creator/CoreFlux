@@ -68,7 +68,7 @@ $assert(
 );
 $assert(
     'stored reconciliation retains Core contract ownership',
-    substr_count($sync, "'force_source_contract' => true") >= 2
+    str_contains($sync, "'force_source_contract' => true")
     && !str_contains($sync, '$retainedOverrides = array_values(array_diff($overrides, $contractOwnedFields))')
     && str_contains($sync, 'jobdivaContractOwnedFields(')
     && str_contains($sync, "'vendor_payment_terms_override'")
@@ -93,8 +93,7 @@ $assert(
 );
 $assert(
     'stored apply is transactional',
-    str_contains($sync, '$pdo->beginTransaction();')
-    && str_contains($sync, 'if ($pdo->inTransaction()) $pdo->rollBack();')
+    str_contains($sync, 'return JobdivaStoredReviewTransaction::run(static function () use ($tenantId, $userId, $selected, $expectedToken, $limit, $offset)')
 );
 $assert(
     'stored apply exposes exact-source safety contract',

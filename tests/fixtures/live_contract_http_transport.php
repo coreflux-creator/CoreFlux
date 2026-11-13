@@ -15,6 +15,7 @@ $GLOBALS['__jobdiva_transport']=static function($method,$path,$body,$query,$with
         if(($liveFixture['mode']??'')==='wrong_start')$rows[0]['startId']='99329999';
     }elseif($path==='/apiv2/bi/EmployeeAssignmentRecordsDetail'&&$method==='GET'){
         $rows=$liveFixture['rows'];
+        if(($liveFixture['mode']??'')==='missing_contract')$rows=[];
         if(($liveFixture['mode']??'')==='stale'){
             getDB()->prepare('UPDATE placements SET title="Later committed native title" WHERE tenant_id=900012 AND id=?')->execute([$liveFixture['placement']]);
         }
