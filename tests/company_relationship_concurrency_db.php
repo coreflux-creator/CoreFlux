@@ -286,7 +286,9 @@ try{
         $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
         $check($waiting($merger),'Company merge waits for the billing repair '.$decision);
         fwrite($workers[$writer]['pipes'][0],$decision.PHP_EOL);fflush($workers[$writer]['pipes'][0]);$written=$finish($writer);$merged=$finish($merger);
-        $check($written['ok']&&($decision==='COMMIT'?(!$merged['ok']&&(int)$read('placements',$placement)['client_id']===$client&&$read('companies',$b)['deleted_at']===null):($merged['ok']&&$read('placements',$placement)['client_id']===null)),'Company merge respects the committed or rolled-back billing reference: '.$decision);
+        $check($written['ok']&&$merged['ok']&&(int)$read('staffing_clients',$client)['company_id']===$a
+            &&($decision==='COMMIT'?(int)$read('placements',$placement)['client_id']===$client:$read('placements',$placement)['client_id']===null),
+            'Company merge retains the exact client number and the committed or rolled-back billing reference: '.$decision);
     }
     [$a,$b,$client,$placement,$input]=$repairFixture('repair-after-merge',$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
     $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));$worker=$spawn($input);$check($waiting($worker),'Billing repair waits for the company merge to finish');$pdo->commit();$result=$finish($worker);

@@ -16,7 +16,7 @@ $assert = static function (string $label, bool $condition) use (&$pass, &$fail, 
     $failures[] = $label;
     echo "  FAIL - {$label}\n";
 };
-$read = static fn(string $path): string => (string) file_get_contents($path);
+$read = static fn(string $path): string => str_replace("\r\n", "\n", (string) file_get_contents($path));
 
 echo "JobDiva stored assignment reconciliation smoke\n";
 echo "==============================================\n";
