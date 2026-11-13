@@ -47,6 +47,7 @@ try{
     $fixture=purepayAssignmentFixtureRows();
     $placement=array_diff_key($fixture['placement'],['billing_company_id'=>true])+['tenant_id'=>1,'deleted_at'=>null,'updated_at'=>'2026-10-01 00:00:00','coreflux_overridden_fields'=>null,
         'client_bill_cycle'=>'monthly','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>null,'client_payment_terms_override'=>null,'vendor_pwp_enabled'=>0,'recruiter_name'=>null,'recruiter_email'=>null,'account_manager_name'=>null,'account_manager_email'=>null];
+    $placement['external_id']='jd:101';
     $table('placements',$placement);$insert('placements',$placement);
     $insert('placements',array_replace($placement,['id'=>902,'tenant_id'=>2,'client_id'=>3,'end_client_company_id'=>12]));
     $person=$fixture['person']+['tenant_id'=>1,'email_primary'=>'synthetic@example.invalid','pay_frequency'=>'biweekly','entity_id'=>9,'deleted_at'=>null];$table('people',$person);$insert('people',$person);
@@ -96,6 +97,11 @@ try{
     $manual=placementEconomicsUpsertParty(1,901,['source_ref'=>'placement:manual_note','source_type'=>'placement','role'=>'review_note','display_name'=>'Manual retained','source_managed'=>0]);
     $pdo->exec('INSERT INTO placement_economic_obligations(tenant_id,placement_id,economic_party_id,source_type,source_ref_id,amount,currency,status) VALUES(1,901,'.$legacy.',"manual",101,25,"USD","paid")');
     $obligations=$pdo->query('SELECT * FROM placement_economic_obligations')->fetchAll(PDO::FETCH_ASSOC);
+    $before=$pdo->query('SELECT * FROM placement_economic_parties ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    $pdo->exec('UPDATE placements SET external_id="jd:conflicting-start" WHERE tenant_id=1 AND id=901');
+    $rejected=placementEconomicsReconcile(1,901);
+    $check(!$rejected['available']&&$rejected['errors']&&$pdo->query('SELECT * FROM placement_economic_parties ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'Conflicting displayed Start and saved provider link cannot rewrite economic provenance');
+    $pdo->exec('UPDATE placements SET external_id="jd:101" WHERE tenant_id=1 AND id=901');
     $result=placementEconomicsReconcile(1,901);
     $check($result['available']&&$result['errors']===[],'Production economic reconciliation completes with distinct roles');
     $parties=placementEconomicsParties(1,901);$byRef=array_column($parties,null,'source_ref');
