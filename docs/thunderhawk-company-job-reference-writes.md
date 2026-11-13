@@ -1,0 +1,32 @@
+# Native job company references and concurrent merge checks
+
+The pending company-merge implementation now validates native job company/client links within one database transaction. These changes are source-only; the isolated pilot still runs `4bc10bb0`. This closes the identified native job gap, not the remaining client, placement, source-review and hosted acceptance gates.
+
+## Resulting behavior
+
+- Create and update resolve Staffing, Placements and Companies ownership independently from current locked policies. Jobs belong to Staffing; their client directory belongs to Placements. The company-merge reference registry now uses Staffing for jobs instead of assuming Placements owns them.
+- A selected company must be current in the accessible Companies directory. A merged company number requires a refresh; a missing, malformed or foreign ID is rejected. A shared job cannot acquire a company private to one child workspace.
+- A selected client must belong to the independently resolved client directory. New selections must be active, and the client's company is validated in that directory. A job company and a bill-to company remain distinct roles; the save does not force them to be identical.
+- The reference checks, row write and required audit share a transaction/savepoint. Audit failure rolls the edit back. An unchanged legacy reference can remain when unrelated fields are edited; historical references are not silently rewritten by ordinary job edits.
+- Job lists and details read client names from the client owner rather than assuming client and job rows have the same tenant. Switching Staffing ownership cannot edit or reveal a job in the previous directory.
+- JobDiva acquires company-policy locks before its first consistent read. When a merge commits first, the waiting source write follows the canonical company and reparented client while preserving the original provider mapping. The native stale choice is rejected instead.
+
+## Independent sessions and native API evidence
+
+`tests/company_relationship_concurrency_db.php` starts separate PHP processes with separate native MariaDB connections. It requires observable InnoDB lock waits before releasing a held operation, then checks actual saved rows and results. Its 29 checks cover merge-first native/source writes, writer-first commit and rollback, and committed/rolled-back directory-policy changes while native saves or merges wait. Committing a newly added reference invalidates an earlier merge review; rolling it back permits the reviewed merge. The fixture has no provider calls or financial execution, and cleanup is restricted to tenants it created.
+
+The first two candidates stopped in the wait observer. Diagnostics showed the merge executing its locked tenant read while the transaction metadata retained an older snapshot. MariaDB 10.11 only refreshes that shared cache after more than 100 ms without a reader; the test's 50 ms polling prevented refresh. The correction uses 200 ms polling and retains the native lock-wait requirement, commit/rollback checks and failure diagnostics. See the [MariaDB implementation](https://github.com/MariaDB/server/blob/10.11/storage/innobase/trx/trx0i_s.cc#L898-L914). No application lock was removed or test expectation relaxed.
+
+The native login/session/API suite now passes 674 checks. Added coverage includes anonymous/read-only denial, invalid and foreign references, independent directories, shared parent jobs, list/detail names, audit failure, changed ownership, merged-reference rejection and preserving the client number during consolidation. It retired the synthetic operator and connection, stopped its owned server and removed its private sessions. The existing 44 native merge and 34 alias checks also pass. Local validation includes 30 staffing job checks, five tenant-leak checks, PHP syntax and whitespace checks.
+
+Source candidate `d4b02ac99ea5065b58d53731a0b018275019e39a` passed all eleven jobs in [CI 43381120120](https://github.com/coreflux-creator/CoreFlux/actions/runs/43381120120), including the guarded upgrade/recovery, empty-install and standalone-package lanes. [Preparation evidence](../deploy/thunderhawk-company-job-concurrency-preparation-20261113.json) records exact runtime-source hashes, the concurrency results, native-session cleanup and unchanged installed state. These are source checks, not an installation or signed-in hosted acceptance receipt.
+
+## Remaining implementation
+
+1. Correct the remaining client writers before enabling merge. `staffingClientEnsureForCompany` still assumes company and client owners match, can fall back from an invalid company ID to name matching, and does not lock through every caller's final write. Native create/update/bulk and CSV paths can separately patch the company/client/audit. `staffingClientApplyCompanyPatch` bypasses company field ownership; QuickBooks also invokes this helper. Preserve the original CL identity and distinguish native decisions from incoming source proposals when correcting these paths.
+2. Audit native placement, client-chain, economic-party, corporate, referral, AP and import writers for current identity locks and fresh sharing policies. Independent job tests do not prove every writer or every transaction ordering. Retain financial snapshots and approval identities on their historical records.
+3. Complete native job field ownership across subsequent JobDiva refreshes. The source job writer still addresses its source workspace directly; explicitly shared Staffing configurations need an exact source-workspace mapping contract, not an assumption that equal provider IDs across workspaces identify one job.
+4. Finish survivor-side secondary-source and typed-custom apply-once review, retired-number/history navigation, and the complete signed-in pilot merge journey. Then install the verified candidate with schema, configuration and rollback evidence.
+5. Continue the broader integration acceptance list, including undecided field mappings, portal/onboarding/documents, time approval/corrections, payroll-result provenance and financial reconciliation. This job/merge work does not establish those outcomes.
+
+Read-only verification at `2026-11-13T06:42:58Z` confirmed the installed pilot's 367 runtime hashes, 378 tables and all 35,304 rows were unchanged. Configuration was preserved; temporary access, credentials and probes were absent. Production, provider applications, Arabella and real financial execution were unchanged. The full integration goal remains active.

@@ -1,0 +1,150 @@
+{
+  "status": "source_verified_not_installed",
+  "previous_goal_turn": "No integration progress: answered standalone accounting access. Revalidated current source, failed concurrency evidence and the installed pilot before continuing.",
+  "source_commit": "d4b02ac99ea5065b58d53731a0b018275019e39a",
+  "ci": {
+    "run_id": 43381120120,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43381120120",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "runtime_source_sha256_lf": {
+    "modules/people/lib/company_merge_review.php": "2725f6c8059ca825c833a63f3c55530452b3b1a3cf6daf0deddae28366d9c5a3",
+    "modules/people/lib/company_relationships.php": "8b49b882267d16a90995cfbcc0fa5c764f168ebde126c7e99e165c43dc0258c2",
+    "modules/staffing/api/jobs.php": "67136cf4a704856992fa11eb7f294899b3e645bb0c39b75d342da0b038c49616",
+    "modules/staffing/lib/job_write.php": "0fc313e721f094da04bda7f97d11b3dbd0e4d0c4459686a32e01a1c1ba07ee9d",
+    "modules/staffing/lib/jobs.php": "571657c16b4b94c24c66d7960fcdf129c6afbcc13aaf85fcab81ca79060f66e7"
+  },
+  "native_independent_connection_checks": {
+    "passed": true,
+    "checks": 29,
+    "labels": [
+      "native writer is observed waiting on the uncommitted merge through native InnoDB lock metadata",
+      "Stale native company choice is rejected after the merge commits",
+      "Rejected stale native writer creates no job",
+      "source writer is observed waiting on the uncommitted merge through native InnoDB lock metadata",
+      "Waiting source writer resolves the committed alias before saving the job",
+      "Waiting source writer reads the reparented client rather than an obsolete transaction snapshot",
+      "Concurrent source save preserves the original provider binding",
+      "Independent writer holds its saved job before COMMIT",
+      "Merge is observed waiting for the independent COMMIT writer",
+      "Writer completes its COMMIT decision",
+      "Committed reference changes invalidate the waiting merge review",
+      "Stale merge preserves the active company and independently committed job",
+      "Independent writer holds its saved job before ROLLBACK",
+      "Merge is observed waiting for the independent ROLLBACK writer",
+      "Writer completes its ROLLBACK decision",
+      "Rolled-back reference does not falsely invalidate the waiting merge",
+      "Rolled-back writer leaves no job behind",
+      "native waits for the independent directory-policy COMMIT",
+      "Committed company-directory change rejects the old native choice",
+      "Policy conflict leaves no job or retired company: native",
+      "merge waits for the independent directory-policy COMMIT",
+      "Committed company-directory change rejects the old merge choice",
+      "Policy conflict leaves no job or retired company: merge",
+      "native waits for the independent directory-policy ROLLBACK",
+      "Rolled-back company-directory change allows the reviewed native operation",
+      "Waiting job uses its own Staffing owner and the restored shared company",
+      "merge waits for the independent directory-policy ROLLBACK",
+      "Rolled-back company-directory change allows the reviewed merge operation",
+      "Waiting merge completes only after the original sharing policy is restored"
+    ],
+    "provider_calls": 0,
+    "financial_execution": false
+  },
+  "native_http": {
+    "passed": true,
+    "checks_passed": 674,
+    "synthetic_actor_retired": true,
+    "synthetic_connection_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "local_checks": {
+    "staffing_jobs_graph_smoke": 30,
+    "tenant_leak_static_analyzer": 5,
+    "php_syntax": "passed",
+    "diff_whitespace": "passed"
+  },
+  "observer_correction": {
+    "failed_runs": [
+      43379370769,
+      43380483695
+    ],
+    "cause": "50 ms metadata polling kept MariaDB 10.11 transaction-cache last-read age below its 100 ms refresh threshold; processlist showed the merge waiting while the cached transaction list omitted it.",
+    "fix": "Poll every 200 ms; retain the exact native InnoDB wait assertion and bounded diagnostics. Independent commit and rollback results remain required.",
+    "upstream_source": "https://github.com/MariaDB/server/blob/10.11/storage/innobase/trx/trx0i_s.cc#L898-L914"
+  },
+  "installed_pilot": {
+    "runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+    "unchanged_read_only_verification": {
+      "checked_at": "2026-11-13T06:42:58+00:00",
+      "passed": true,
+      "runtime_pins_verified": 367,
+      "tables_verified": 378,
+      "rows_preserved": 35304,
+      "configuration_preserved": true,
+      "synthetic_reviewer_retired": true,
+      "temporary_credentials_absent": true,
+      "temporary_probe_absent": true,
+      "synthetic_company_retired": true
+    }
+  },
+  "next_required": [
+    "Complete client/native/source/CSV and remaining placement/AP/current-reference writer audit and corrections, including independent directory ownership.",
+    "Preserve native job-field ownership across subsequent JobDiva refresh and resolve explicitly shared source-job directory contracts without collapsing source workspaces.",
+    "Expose secondary-source and typed custom proposals with explicit apply-once review and Core ownership.",
+    "Render retired company-number links and retained financial history correctly.",
+    "Install only the complete verified merge workflow in the isolated pilot and perform signed-in acceptance.",
+    "Complete all wider integration field, portal/onboarding/document, time, payroll-result and financial reconciliation acceptance requirements."
+  ],
+  "production_changed": false,
+  "provider_changed": false,
+  "arabella_changed": false,
+  "financial_execution": false
+}
