@@ -140,6 +140,7 @@ if(($argv[1]??'')==='worker'){
                 'source_rate','rate_approval'=>sourceRateRaceWrite($input),
                 'joined_index'=>joinedIndexRaceWrite($input),
                 'live_contract'=>liveContractRaceWrite($input),
+                'alignment_report'=>jobdivaMappingAlignmentReport($input['workspace'],['sample_limit'=>1]),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -700,6 +701,7 @@ try{
     require __DIR__.'/fixtures/source_rate_concurrency_checks.php';
     require __DIR__.'/fixtures/joined_index_concurrency_checks.php';
     require __DIR__.'/fixtures/live_contract_concurrency_checks.php';
+    require __DIR__.'/fixtures/alignment_report_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
