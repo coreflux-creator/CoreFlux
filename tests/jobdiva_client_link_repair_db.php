@@ -34,6 +34,14 @@ try{
         $check($result['status']==='repaired'&&(int)$after['client_id']===$client&&(int)$after['tenant_id']===$owner,$mode.': repair writes the independently resolved placement owner');
         unset($before['client_id'],$after['client_id'],$before['updated_at'],$after['updated_at']);
         $check($before===$after&&$read('external_entity_mappings',$mapping)===$providerBefore,$mode.': exact repair preserves provider mapping, recipient, person and other placement fields');
+        mappingUpsert($parent,'jobdiva','placement','conflicting-'.$start,$placement,$payload,'pull',$actor);
+        $conflict=(int)mappingFindInternal($parent,'jobdiva','placement','conflicting-'.$start)['id'];$beforeConflict=$graph();
+        $check($fails(fn()=>jobdivaRepairPlacementClientLink($child,$mapping,$actor))&&$graph()===$beforeConflict,$mode.': another workspace source cannot compete for the same accessible placement identity');
+        $pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=? AND id=?')->execute([$parent,$conflict]);
+        $pdo->prepare('DELETE FROM entity_sync_history WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id=?')->execute([$parent,'conflicting-'.$start]);
+        $pdo->prepare('UPDATE external_entity_mappings SET sync_status="error" WHERE tenant_id=? AND id=?')->execute([$child,$mapping]);$beforeConflict=$graph();
+        $check(jobdivaRepairPlacementClientLink($child,$mapping,$actor)['reason']==='source_needs_review'&&$graph()===$beforeConflict,$mode.': errored source evidence stays held without any billing change');
+        $pdo->prepare('UPDATE external_entity_mappings SET sync_status="ok" WHERE tenant_id=? AND id=?')->execute([$child,$mapping]);
         $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND event="placement.client_link_repaired" AND target_id=?');$q->execute([$child,$placement]);$receipt=json_decode($q->fetchColumn(),true);
         $check((int)$receipt['directory_owner_id']===$owner&&(int)$receipt['before']['client_id']===$otherClient&&(int)$receipt['after']['client_id']===$client,$mode.': required audit records original workspace, owning directory and both client IDs');
         $before=$graph();$again=jobdivaRepairPlacementClientLink($child,$mapping,$actor);
