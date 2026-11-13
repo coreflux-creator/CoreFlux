@@ -102,3 +102,24 @@ function jobdivaAlignmentExcludeOtherSources(PDO $pdo, int $workspace, array $ro
     }
     return array_values(array_filter($rows, static fn(array $row): bool => !isset($excluded[(int)$row['id']])));
 }
+
+function jobdivaAlignmentCompanies(PDO $pdo, int $workspace, array $scope): array
+{
+    $q = $pdo->prepare("SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='company'");
+    $q->execute([$workspace]);
+    $sourceIds = $q->fetchAll(PDO::FETCH_COLUMN);
+    $missing = 0; $canonical = [];
+    foreach ($sourceIds as $sourceId) {
+        $identity = (int)$sourceId > 0 ? companyIdentityResolve($pdo, $scope['companies'], (int)$sourceId) : null;
+        if ($identity === null) { $missing++; continue; }
+        $canonical[$identity['id']] = true;
+    }
+    $withoutClient = 0;
+    $q = $pdo->prepare("SELECT EXISTS (SELECT 1 FROM company_roles WHERE company_id=? AND role='client')
+        AND NOT EXISTS (SELECT 1 FROM staffing_clients WHERE tenant_id=? AND company_id=?)");
+    foreach (array_keys($canonical) as $id) {
+        $q->execute([$id, $scope['staffing'], $id]);
+        $withoutClient += (int)$q->fetchColumn();
+    }
+    return ['missing_company'=>$missing, 'current_companies'=>count($canonical), 'clients_without_staffing_client'=>$withoutClient];
+}

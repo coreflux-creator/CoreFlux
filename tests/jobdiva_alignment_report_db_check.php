@@ -37,6 +37,14 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,
     $check($result['relationships']['end_client_consumer_bridge']['jobdiva_customers_without_staffing_client']===0,'Raw customer mirror IDs are never treated as canonical company IDs');
     $check($result['relationships']['placement_graph']['person_without_jobdiva_mapping']===0,'Person source links are read from the original workspace');
     $check($state()===$before,'Reading the full report preserves all source pairs, native data, rates, histories and audit rows');
+    $retired=$insert('companies',['tenant_id'=>$owner,'name'=>'Synthetic retained source company','deleted_at'=>'2026-10-01 00:00:00']);
+    coreRecordNumbersMerge($pdo,$owner,'company',$bill,$retired,null);
+    $pdo->prepare('UPDATE external_entity_mappings SET internal_entity_id=? WHERE tenant_id=? AND internal_entity_type="company" AND external_id="99330004"')->execute([$retired,$workspace]);
+    $before=$state();$merged=$report();
+    $check($merged['relationships']['company_graph']['current_companies']===1&&$merged['relationships']['company_graph']['missing_company']===0,'Retained company source pair follows its reviewed number alias to the survivor');
+    $check($merged['relationships']['end_client_consumer_bridge']['jobdiva_customers_without_staffing_client']===0&&$state()===$before,'Alias-aware client diagnostics preserve the original source pair and both permanent company numbers');
+    mappingUpsert($workspace,'jobdiva','company','99330007',999999997,[]);
+    $check($report()['relationships']['company_graph']['missing_company']===1,'Unavailable canonical company links are counted rather than omitted');
     foreach(['person_id'=>'missing_person','staffing_job_id'=>'missing_staffing_job','client_id'=>'missing_staffing_client','end_client_company_id'=>'missing_end_client_company']as$field=>$key){
         $pdo->prepare('UPDATE placements SET '.$field.'=999999999 WHERE id=?')->execute([$placement]);
         $check($report()['relationships']['projector']['workflow_readiness'][$key]===1,'A non-null but unavailable '.$field.' is a readiness failure');

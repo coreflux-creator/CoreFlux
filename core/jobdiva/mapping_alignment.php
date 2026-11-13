@@ -323,14 +323,10 @@ function jobdivaMappingAlignmentReportSnapshot(int $tenantId, array $opts = []):
     }
 
     if (_jobdivaMappingTableExists($pdo, 'staffing_clients') && _jobdivaMappingColumnExists($pdo, 'staffing_clients', 'company_id')) {
-        $customersWithoutClient = _jobdivaMappingScalar($pdo,
-            "SELECT COUNT(*) FROM external_entity_mappings m
-              JOIN companies c ON c.id=m.internal_entity_id AND c.tenant_id={$companyOwner} AND c.deleted_at IS NULL
-              WHERE m.tenant_id=:t AND m.source_system='jobdiva' AND m.internal_entity_type='company'
-                AND EXISTS (SELECT 1 FROM company_roles cr WHERE cr.company_id=c.id AND cr.role='client')
-                AND NOT EXISTS (SELECT 1 FROM staffing_clients sc WHERE sc.tenant_id={$staffingOwner} AND sc.company_id=c.id)",
-            ['t'=>$tenantId]
-        );
+        $relationships['company_graph'] = jobdivaAlignmentCompanies($pdo, $tenantId, $scope);
+        $customersWithoutClient = $relationships['company_graph']['clients_without_staffing_client'];
+        _jobdivaMappingAddIssue($issues, 'critical', 'company_source_link_unavailable', 'company', $relationships['company_graph']['missing_company'],
+            'Some retained company links cannot resolve in the current directory.', 'Review company sharing and retained merge aliases.');
         $relationships['end_client_consumer_bridge'] = [
             'jobdiva_customers_without_staffing_client' => $customersWithoutClient,
         ];
@@ -1955,6 +1951,9 @@ function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $
     $out = [];
     foreach ($rows as $row) {
         if ($scope !== null && !empty($row['mapping_external_id'])) {
+            $root = json_decode((string)$row['payload_snapshot'], true);
+            // Invalid roots are counted by source checks; they cannot propose lifecycle changes.
+            if (!is_array($root)) continue;
             $plan = jobdivaPlacementLifecycleRepairPlan([
                 'placement'=>$row,
                 'mapping'=>['sync_status'=>$row['mapping_sync_status'], 'payload_snapshot'=>$row['payload_snapshot']],
