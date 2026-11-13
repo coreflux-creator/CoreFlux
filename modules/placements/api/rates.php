@@ -144,7 +144,7 @@ if ($method === 'POST' && $action === 'approve') {
         $msg = $e->getMessage();
         if (str_contains($msg, 'not found'))    api_error('Rate not found', 404);
         if (str_contains($msg, 'already approved')) api_error('Already approved (snapshot is locked; create a correction)', 409);
-        api_error($msg, 422);
+        api_error($msg, in_array($e->getCode(),[403,404,409,422,503],true)?$e->getCode():422);
     } catch (\Throwable $e) {
         api_error('Approve failed: ' . $e->getMessage(), 500);
     }

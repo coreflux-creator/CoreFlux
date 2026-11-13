@@ -43,3 +43,16 @@ $expect($request('POST',$ratesPath,$rateBody,true,$childTenant)[0]===409&&$snaps
 $foreignRate=(int)$pdo->query('SELECT id FROM placement_rates WHERE tenant_id='.$foreignTenant.' LIMIT 1')->fetchColumn();
 $expect($request('POST','/modules/placements/api/rates.php?action=approve&id='.$foreignRate,[],true,$childTenant)[0]===404&&$snapshot($httpRateTables)===$before,'Rate approval cannot cross into an unrelated tenant');
 RBACResolver::revokeModule($childMembership,'integrations',$actor);
+
+// Actual placement promotion must share source repair, approval and its late audit rollback.
+$pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date,external_id,worksite_country,client_id,end_client_company_id) VALUES(?,?,"Synthetic HTTP promotion","draft","w2","2026-10-01","retained-http-rate-promotion","US",?,?)')->execute([$tenant,$httpRatePerson,$own['client'],$own['company']]);$promotePlacement=(int)$pdo->lastInsertId();
+$promotePayload=$httpRatePayload;$promotePayload['startId']='99197004';$promotePayload['_jd_contract']['start_id']='99197004';
+mappingUpsert($childTenant,'jobdiva','placement','jd:99197004',$promotePlacement,$promotePayload);
+$promotePath='/modules/placements/api/placements.php?id='.$promotePlacement;
+$before=$snapshot($httpRateTables);
+$pdo->exec("CREATE TRIGGER cf_http_rate_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.rate.approved' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic HTTP rate approval failure'; END IF; END");
+try{$expect($request('PATCH',$promotePath,['status'=>'on_hold'],true,$childTenant)[0]===503&&$snapshot($httpRateTables)===$before,'Late native approval audit failure rolls back placement promotion, source draft, graph and ownership');}
+finally{$pdo->exec('DROP TRIGGER cf_http_rate_audit_failure');}
+[$status,$promoted]=$request('PATCH',$promotePath,['status'=>'on_hold'],true,$childTenant);
+$q=$pdo->prepare('SELECT p.status,r.tenant_id,r.approved_at,r.approved_by_user_id FROM placements p JOIN placement_rates r ON r.placement_id=p.id AND r.tenant_id=p.tenant_id WHERE p.tenant_id=? AND p.id=?');$q->execute([$tenant,$promotePlacement]);$promotion=$q->fetch(PDO::FETCH_ASSOC);
+$expect($status===200&&$promotion['status']==='on_hold'&&$promotion['approved_at']!==null&&(int)$promotion['approved_by_user_id']===$actor,'Native placement promotion repairs and approves the exact source rate in its shared owner');

@@ -4,6 +4,12 @@ declare(strict_types=1);
 require_once __DIR__.'/company_references.php';
 require_once __DIR__.'/ownership.php';
 
+function placementRateAudit(PDO $pdo,array $scope,int $placementId,string $event,int $actor,array $receipt): void
+{
+    try{companySourceAudit($pdo,$scope['workspace'],$scope['owner'],'placements',$placementId,$event,['rates'],$actor,$receipt);}
+    catch(PDOException $e){throw new RuntimeException('The rate change could not be recorded. Please try again.',503,$e);}
+}
+
 function placementRateWithLockedRows(int $workspace, ?int $placementId, ?int $rateId, callable $write): mixed
 {
     return placementNativeDirectoryWrite($workspace,(int)placementsGraphTenantId($workspace),static function(array $scope,PDO $pdo)use($placementId,$rateId,$write):mixed{
@@ -49,7 +55,7 @@ function placementRateDraftNative(int $workspace,int $placementId,array $data,in
         $owned=placementOwnershipFields($placement['coreflux_overridden_fields']??null);$owned=array_values(array_unique([...$owned,'rates']));
         $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE tenant_id=? AND id=?')->execute([json_encode($owned,JSON_THROW_ON_ERROR),$scope['owner'],$placement['id']]);
         $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$scope['owner'],$id]);$after=$q->fetch(PDO::FETCH_ASSOC);
-        companySourceAudit($pdo,$scope['workspace'],$scope['owner'],'placements',(int)$placement['id'],$replaceId!==null?'placement.rate.draft_updated':'placement.rate.drafted',['rates'],$actor,['rate_id'=>$id,'before'=>$before,'after'=>$after,'ownership_before'=>placementOwnershipFields($placement['coreflux_overridden_fields']??null),'ownership_after'=>$owned]);
+        placementRateAudit($pdo,$scope,(int)$placement['id'],$replaceId!==null?'placement.rate.draft_updated':'placement.rate.drafted',$actor,['rate_id'=>$id,'before'=>$before,'after'=>$after,'ownership_before'=>placementOwnershipFields($placement['coreflux_overridden_fields']??null),'ownership_after'=>$owned]);
         return ['id'=>$id,'updated'=>$replaceId!==null];
     });
 }
@@ -73,8 +79,8 @@ function placementRateApproveLocked(int $workspace,int $rateId,array $user,bool 
         if($q->rowCount()!==1)throw new RuntimeException('The rate changed before approval. Refresh and review it again.',409);
         $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=? ORDER BY id FOR UPDATE');$q->execute([$scope['owner'],$placement['id']]);$after=$q->fetchAll(PDO::FETCH_ASSOC);
         $receipt=['rate_id'=>$rateId,'effective_from'=>$rate['effective_from'],'is_correction'=>$isCorrection,'correction_reason'=>$reason,'superseded_count'=>$closed,'before'=>$rates,'after'=>$after];
-        companySourceAudit($pdo,$scope['workspace'],$scope['owner'],'placements',(int)$placement['id'],'placement.rate.approved',['rates'],(int)$user['id'],$receipt);
-        if($closed>0)companySourceAudit($pdo,$scope['workspace'],$scope['owner'],'placements',(int)$placement['id'],'placement.rate.superseded',['rates'],(int)$user['id'],$receipt);
+        placementRateAudit($pdo,$scope,(int)$placement['id'],'placement.rate.approved',(int)$user['id'],$receipt);
+        if($closed>0)placementRateAudit($pdo,$scope,(int)$placement['id'],'placement.rate.superseded',(int)$user['id'],$receipt);
         return ['margin'=>$margin,'superseded_count'=>$closed,'auto_correction'=>$autoCorrection];
     });
 }

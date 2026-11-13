@@ -64,7 +64,7 @@ try{
         },true);
         $native=['effective_from'=>'2026-10-01','effective_to'=>null,'bill_rate'=>110,'pay_rate'=>60,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD'];
         $before=$state();$pdo->exec("SET @fixture_source_rate_fail='placement.rate.draft_updated'");$error=$failure(fn()=>placementRateDraftNative($workspace,$placement,$native,$actor,$rateId));$pdo->exec('SET @fixture_source_rate_fail=NULL');
-        $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Native edit audit failure rolls back draft values and ownership');
+        $check(str_contains($error,'rate change could not be recorded')&&$state()===$before,'Native edit audit failure rolls back draft values and ownership');
         $edit=placementRateDraftNative($workspace,$placement,$native,$actor,$rateId);$edited=$read('placement_rates',$rateId);
         $check($edit['updated']&&(int)$edited['created_by_user_id']===$actor&&(float)$edited['bill_rate']===110.0&&in_array('rates',json_decode($read('placements',$placement)['coreflux_overridden_fields'],true),true),'Editing a source draft records native ownership and the editor');
         $before=$state();$check(!jobdivaSyncUpsertPlacementRates($owner,$placement,'2026-10-01',$payload,false,$workspace)&&$state()===$before,'Later source refresh cannot overwrite the edited draft or its timestamps');
@@ -78,7 +78,7 @@ try{
         $held=jobdivaContractOwnedFields(['placement'=>$read('placements',$placement),'rates'=>[$read('placement_rates',$rateId)]]);
         $check(in_array('bill_rate',$held,true)&&in_array('pay_rate',$held,true)&&in_array('currency',$held,true),'Stored contract reviews recognize the complete native rate ownership decision');
         $pdo->exec("SET @fixture_source_rate_fail='placement.rate.approved'");$error=$failure(fn()=>placementsRateApproveOne($rateId,$user,false,null));$pdo->exec('SET @fixture_source_rate_fail=NULL');
-        $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Approval audit failure rolls back approval and rebuilt economics together');
+        $check(str_contains($error,'rate change could not be recorded')&&$state()===$before,'Approval audit failure rolls back approval and rebuilt economics together');
         $approved=placementsRateApproveOne($rateId,$user,false,null);$stored=$read('placement_rates',$rateId);
         $check($stored['approved_at']!==null&&(int)$stored['approved_by_user_id']===$actor&&(int)$stored['tenant_id']===$owner&&$stored['economics_snapshot_json']!==null,'Shared-view approval stores the actor and locked economics on the owning row');
         $before=$state();$check(str_contains($failure(fn()=>placementsRateApproveOne($rateId,$user,false,null)),'already approved')&&$state()===$before,'Repeated approval cannot restamp the immutable snapshot');
@@ -91,7 +91,7 @@ try{
         },true);
         $next=placementRateDraftNative($workspace,$placement,array_replace($native,['effective_from'=>'2026-11-01','bill_rate'=>120]),$actor);$before=$state();
         $pdo->exec("SET @fixture_source_rate_fail='placement.rate.superseded'");$error=$failure(fn()=>placementsRateApproveOne($next['id'],$user,false,null));$pdo->exec('SET @fixture_source_rate_fail=NULL');
-        $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Late supersede audit failure restores both old history and new approval');
+        $check(str_contains($error,'rate change could not be recorded')&&$state()===$before,'Late supersede audit failure restores both old history and new approval');
         $r=placementsRateApproveOne($next['id'],$user,false,null);$old=$read('placement_rates',$rateId);$new=$read('placement_rates',$next['id']);
         $check($r['superseded_count']===1&&$r['auto_correction']&&$old['effective_to']==='2026-10-31'&&(int)$old['superseded_by']===$next['id']&&(int)$new['is_correction']===1,'Shared approval closes prior coverage and records a correction from locked history');
         $check($old['economics_snapshot_json']===$stored['economics_snapshot_json']&&$old['approved_at']===$stored['approved_at'],'Superseding preserves the previous approval snapshot and original approval stamp');
