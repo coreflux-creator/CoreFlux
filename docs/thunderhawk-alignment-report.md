@@ -1,0 +1,11 @@
+# JobDiva alignment report
+
+The report now resolves Placements, People, Staffing and Companies ownership independently from current sharing policies. Provider links and imported time stay in the original workspace. Readiness checks validate referenced records in their actual directories, including non-null but missing references; mappings to unavailable placements no longer disappear from the counts. Bill-to clients and work-recipient companies remain distinct. Raw JobDiva customer mirror IDs are not interpreted as Core company IDs.
+
+The report runs in a protected rollback-only snapshot and has no provider calls or business writes. Query failures, missing required schema and invalid connection settings produce `complete:false` with no readiness counters. The screen hides stale counters and repair controls while checking or when the report is unavailable. A successful check describes source-link and rate coverage; individual workflows retain their setup and approval checks.
+
+Diagnostic source, duplicate and lifecycle scans no longer use the sample limit as the total count. Shared native rows whose JobDiva links belong only to another workspace are excluded from source-derived duplicate/lifecycle proposals. Mapped lifecycle proposals use the same exact-root and native-ownership rules as the reviewed lifecycle repair. People without live placements remain review candidates, never automatic deactivations. Existing duplicate mutation paths are not widened by the diagnostic scope option; reviewed consolidation still requires separate implementation.
+
+Local PHP syntax, the existing 72 alignment, 32 projector and 35 hardening smoke checks, five rendered UI cases and the production frontend build passed. The new canonical-database and signed-in HTTP checks are pending CI. Do not treat source preparation as installed behavior.
+
+The earlier live-contract source `93fd151b` separately passed all eleven jobs in CI 43488642153, now recorded in its pinned evidence. The installed isolated pilot remains on the previously verified `4bc10bb0`; this work has made no hosted release, provider writes, real payroll, payments or financial postings. Arabella is unchanged. Full integration acceptance, the remaining writers, reviewed duplicate consolidation and guarded hosted validation are still open.

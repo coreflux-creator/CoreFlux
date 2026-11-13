@@ -588,97 +588,10 @@ function jobdivaProjectorPlacementReadiness(int $tenantId, int $placementId): ar
 
 function jobdivaProjectorReadinessCounts(int $tenantId): array
 {
-    $counts = [
-        'missing_person' => 0,
-        'missing_staffing_job' => 0,
-        'missing_end_client_company' => 0,
-        'missing_staffing_client' => 0,
-        'client_company_mismatch' => 0,
-        'missing_rate_row' => 0,
-        'active_missing_approved_rate' => 0,
-    ];
-    if ($tenantId <= 0) return $counts;
-
-    try {
-        $pdo = getDB();
-        if (!jobdivaProjectorTableExists($pdo, 'placements')) return $counts;
-        $base = "FROM external_entity_mappings m
-                 JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-                WHERE m.tenant_id = :t
-                  AND m.source_system = 'jobdiva'
-                  AND m.internal_entity_type = 'placement'
-                  AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')";
-        foreach ([
-            'missing_person' => 'p.person_id IS NULL OR p.person_id = 0',
-            'missing_staffing_job' => 'p.staffing_job_id IS NULL OR p.staffing_job_id = 0',
-            'missing_end_client_company' => 'p.end_client_company_id IS NULL OR p.end_client_company_id = 0',
-            'missing_staffing_client' => 'p.client_id IS NULL OR p.client_id = 0',
-        ] as $key => $where) {
-            if (str_contains($where, 'staffing_job_id') && !jobdivaProjectorColumnExists($pdo, 'placements', 'staffing_job_id')) continue;
-            if (str_contains($where, 'end_client_company_id') && !jobdivaProjectorColumnExists($pdo, 'placements', 'end_client_company_id')) continue;
-            if (str_contains($where, 'client_id') && !jobdivaProjectorColumnExists($pdo, 'placements', 'client_id')) continue;
-            if (str_contains($where, 'person_id') && !jobdivaProjectorColumnExists($pdo, 'placements', 'person_id')) continue;
-            $counts[$key] = jobdivaProjectorScalar($pdo, "SELECT COUNT(*) {$base} AND ({$where})", ['t' => $tenantId]);
-        }
-
-        if (jobdivaProjectorTableExists($pdo, 'staffing_clients')
-            && jobdivaProjectorColumnExists($pdo, 'placements', 'client_id')
-            && jobdivaProjectorColumnExists($pdo, 'placements', 'end_client_company_id')
-            && jobdivaProjectorColumnExists($pdo, 'staffing_clients', 'company_id')) {
-            $counts['client_company_mismatch'] = jobdivaProjectorScalar($pdo,
-                "SELECT COUNT(*)
-                   FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-                   JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
-                  WHERE m.tenant_id = :t
-                    AND m.source_system = 'jobdiva'
-                    AND m.internal_entity_type = 'placement'
-                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-                    AND (sc.company_id IS NULL OR NOT EXISTS (
-                        SELECT 1 FROM companies bc WHERE bc.id = sc.company_id
-                          AND bc.tenant_id = sc.tenant_id AND bc.deleted_at IS NULL
-                    ))",
-                ['t' => $tenantId]
-            );
-        }
-
-        if (jobdivaProjectorTableExists($pdo, 'placement_rates')) {
-            $counts['missing_rate_row'] = jobdivaProjectorScalar($pdo,
-                "SELECT COUNT(*)
-                   FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-              LEFT JOIN placement_rates pr ON pr.tenant_id = p.tenant_id AND pr.placement_id = p.id
-                  WHERE m.tenant_id = :t
-                    AND m.source_system = 'jobdiva'
-                    AND m.internal_entity_type = 'placement'
-                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-                    AND pr.id IS NULL",
-                ['t' => $tenantId]
-            );
-            $counts['active_missing_approved_rate'] = jobdivaProjectorScalar($pdo,
-                "SELECT COUNT(*)
-                   FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-              LEFT JOIN placement_rates pr
-                     ON pr.tenant_id = p.tenant_id
-                    AND pr.placement_id = p.id
-                    AND pr.approved_at IS NOT NULL
-                    AND pr.effective_from <= p.start_date
-                    AND (pr.effective_to IS NULL OR pr.effective_to >= p.start_date)
-                  WHERE m.tenant_id = :t
-                    AND m.source_system = 'jobdiva'
-                    AND m.internal_entity_type = 'placement'
-                    AND p.status = 'active'
-                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-                    AND pr.id IS NULL",
-                ['t' => $tenantId]
-            );
-        }
-    } catch (\Throwable $e) {
-        error_log('[jobdiva projector] readiness counts failed: ' . $e->getMessage());
-    }
-
-    return $counts;
+    require_once __DIR__.'/alignment_readiness.php';
+    $pdo = getDB();
+    if (!$pdo || $tenantId <= 0) throw new RuntimeException('Readiness requires an active workspace and database.', 503);
+    return jobdivaAlignmentReadiness($pdo, $tenantId);
 }
 
 function jobdivaProjectorCompanyNameKey(string $name): string

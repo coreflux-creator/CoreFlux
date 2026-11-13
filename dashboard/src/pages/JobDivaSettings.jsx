@@ -42,10 +42,13 @@ export default function JobDivaSettings() {
   const loadAlignment = useCallback(async () => {
     setAlignmentLoading(true);
     setAlignmentError(null);
+    setAlignment(null);
     try {
       const r = await api.get('/api/admin/integrations/jobdiva_mapping_alignment.php');
+      if (r.complete !== true) throw new Error(r.issues?.[0]?.message || 'The alignment check could not finish. Please retry.');
       setAlignment(r);
     } catch (e) {
+      setAlignment(null);
       setAlignmentError(e.message || 'Failed to load JobDiva mapping alignment');
     } finally {
       setAlignmentLoading(false);
@@ -1036,7 +1039,7 @@ function AuditJsonBlock({ label, value, testid }) {
   );
 }
 
-function JobDivaMappingAlignmentCard({
+export function JobDivaMappingAlignmentCard({
   data,
   loading,
   error,
@@ -1077,7 +1080,8 @@ function JobDivaMappingAlignmentCard({
   const totalMirrors = layers.native_payload_mirrors ?? layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + Number(rawCounts[k] || 0), 0);
   const fieldPathTotal = layers.field_map_paths ?? layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0);
   const identityBlockers =
-    Number(readiness.missing_person || 0)
+    Number(readiness.missing_placement || 0)
+    + Number(readiness.missing_person || 0)
     + Number(readiness.missing_staffing_job || 0)
     + Number(readiness.missing_end_client_company || 0)
     + Number(readiness.missing_staffing_client || 0)
@@ -1085,12 +1089,26 @@ function JobDivaMappingAlignmentCard({
   const rateBlockers =
     Number(readiness.missing_rate_row || 0)
     + Number(readiness.active_missing_approved_rate || 0);
-  const isWorkflowReady = critical === 0;
+  const isWorkflowReady = data?.complete === true && data?.ok === true && critical === 0;
   const topIssues = issues.slice(0, 6).map(issue => ({
     ...issue,
     view: operatorIssueView(issue),
   }));
   const anyRepairing = !!(repairingWorkflow || repairing || repairingRates || repairingDuplicates || repairingStale || repairingStalePeople);
+
+  if (loading || error || data?.complete !== true) {
+    return (
+      <div data-testid="jobdiva-mapping-alignment-card" style={{ padding: 16, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+        <h3>JobDiva alignment</h3>
+        <p role={error || data?.complete === false ? 'alert' : 'status'} data-testid="jobdiva-mapping-alignment-unavailable">
+          {loading ? 'Checking JobDiva alignment…' : (error || data?.issues?.[0]?.message || 'Refresh to check the current JobDiva alignment.')}
+        </p>
+        <button type="button" className="btn btn--ghost" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Checking…' : 'Refresh'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="jobdiva-mapping-alignment-card"
@@ -1157,11 +1175,11 @@ function JobDivaMappingAlignmentCard({
             : <AlertTriangle size={18} color="#dc2626" />}
           <div>
             <strong style={{ color: isWorkflowReady ? '#065f46' : '#991b1b', fontSize: 14 }}>
-              {isWorkflowReady ? 'JobDiva data is workflow-ready' : `${affectedRows} JobDiva-linked row${affectedRows === 1 ? '' : 's'} need attention`}
+              {isWorkflowReady ? 'Source link and rate checks passed' : `${affectedRows} JobDiva alignment finding${affectedRows === 1 ? '' : 's'} need attention`}
             </strong>
             <div style={{ color: isWorkflowReady ? '#047857' : '#7f1d1d', fontSize: 12, marginTop: 2 }}>
               {isWorkflowReady
-                ? 'Placements can move through activation, billing, payroll, AP, and reporting.'
+                ? 'Each workflow also checks its required setup and approvals before continuing.'
                 : `${critical} blocker type${critical === 1 ? '' : 's'} must be cleared before the affected records are fully usable.`}
             </div>
           </div>
@@ -1194,7 +1212,7 @@ function JobDivaMappingAlignmentCard({
         <WorkflowStep
           label="4. Processes"
           value={isWorkflowReady ? 'Ready' : `${critical} blockers`}
-          detail={isWorkflowReady ? 'Activation, billing, payroll, AP, and reporting can consume the graph' : 'Clear blockers below, then refresh'}
+          detail={isWorkflowReady ? 'Link checks passed; workflow setup and approval checks still apply' : 'Clear blockers below, then refresh'}
           tone={isWorkflowReady ? 'ok' : 'bad'}
         />
       </div>

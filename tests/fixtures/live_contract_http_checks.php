@@ -58,6 +58,19 @@ try{
     [$status,$disabled]=$request('POST',$livePath,[],true,$liveTenant);
     $expect($status===200&&(int)$disabled['failed']===1&&$snapshot($liveTables)===$before&&(string)file_get_contents($directory.'/jobdiva-live.log')===$calls,'Disabled source ownership policy prevents provider reads and native writes');
     $expect($snapshot($financialTables)===$financialBefore,'Live contract refresh never executes payroll, payments or financial postings');
+    $alignmentPath='/api/admin/integrations/jobdiva_mapping_alignment.php?sample_limit=1';
+    $expect($request('GET',$alignmentPath,null,false,$liveTenant)[0]===401,'Alignment report requires native sign-in');
+    RBACResolver::grantModule($liveMembership,'integrations','read',[$liveTenant],$actor);
+    $before=$snapshot($liveTables);$providerCalls=(string)file_get_contents($directory.'/jobdiva-live.log');
+    [$status,$report]=$request('GET',$alignmentPath,null,true,$liveTenant);
+    $expect($status===200&&($report['complete']??false)===true&&(int)$report['directory_owners']['placements']===$tenant
+        &&(int)$report['relationships']['projector']['workflow_readiness']['missing_placement']===0,'Native read-only alignment follows current shared directories: '.json_encode([$status,$report['issues']??[]]));
+    $expect($snapshot($liveTables)===$before&&(string)file_get_contents($directory.'/jobdiva-live.log')===$providerCalls,'Alignment HTTP read changes no records and contacts no provider');
+    $pdo->prepare('UPDATE jobdiva_connections SET sync_config=? WHERE tenant_id=?')->execute(['{"placement":{"source":"invalid","direction":"pull"}}',$liveTenant]);
+    [$status,$unavailable]=$request('GET',$alignmentPath,null,true,$liveTenant);
+    $expect($status===200&&($unavailable['complete']??null)===false&&!isset($unavailable['relationships']),'Native failed alignment returns unavailable without zero readiness counters');
+    RBACResolver::revokeModule($liveMembership,'integrations',$actor);
+    $expect($request('GET',$alignmentPath,null,true,$liveTenant)[0]===403,'Alignment permission removal takes effect on the next request');
 }finally{
     $pdo->prepare('DELETE FROM jobdiva_connections WHERE tenant_id=?')->execute([$liveTenant]);
     RBACResolver::revokeModule($liveMembership,'integrations',$actor);deactivateMembership($actor,$liveTenant);

@@ -27,7 +27,25 @@ function jobdivaMappingCanonicalObjectMap(): array
     return $catalog;
 }
 
+require_once __DIR__.'/alignment_readiness.php';
+
 function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
+{
+    try {
+        return JobdivaStoredReviewTransaction::run(
+            static fn(): array => jobdivaMappingAlignmentReportSnapshot($tenantId, $opts), true
+        );
+    } catch (Throwable $e) {
+        error_log('[jobdiva alignment] Report unavailable: '.$e->getMessage());
+        return ['ok'=>false, 'complete'=>false, 'issues'=>[
+            ['severity'=>'critical', 'code'=>'alignment_unavailable', 'entity'=>'integration', 'count'=>null,
+             'message'=>'The alignment check could not finish. No readiness result is available.',
+             'action'=>'Retry the check. If it still fails, review database access, migrations and directory configuration.'],
+        ], 'generated_at'=>gmdate('c')];
+    }
+}
+
+function jobdivaMappingAlignmentReportSnapshot(int $tenantId, array $opts = []): array
 {
     $limit = max(1, min(100, (int) ($opts['sample_limit'] ?? 25)));
     $objectMap = jobdivaMappingCanonicalObjectMap();
@@ -39,41 +57,20 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
     $samples = [];
 
     $pdo = getDB();
-    if (!$pdo) {
-        _jobdivaMappingAddIssue($issues, 'critical', 'no_database', 'database', 1, 'No database connection is available.', 'Restore database connectivity before checking JobDiva alignment.');
-        return [
-            'ok' => false,
-            'object_map' => $objectMap,
-            'sync_config' => $syncConfig,
-            'mapping_counts' => $mappingCounts,
-            'field_coverage' => $fieldCoverage,
-            'relationships' => $relationships,
-            'issues' => $issues,
-            'samples' => $samples,
-            'generated_at' => gmdate('c'),
-        ];
+    $scope = jobdivaAlignmentScope($pdo, $tenantId);
+    $placementOwner = (int) $scope['placements'];
+    $peopleOwner = (int) $scope['people'];
+    $staffingOwner = (int) $scope['staffing'];
+    $companyOwner = (int) $scope['companies'];
+    // Missing schema is an unavailable check, never a healthy zero.
+    foreach (['external_entity_mappings','placements','people','companies','company_contacts',
+        'company_roles','staffing_clients','staffing_jobs','placement_rates','time_entries','integration_payload_field_index','jobdiva_connections'] as $table) {
+        if (!_jobdivaMappingTableExists($pdo, $table)) throw new RuntimeException('Required alignment schema is unavailable.');
     }
-
-    if (!_jobdivaMappingTableExists($pdo, 'external_entity_mappings')) {
-        _jobdivaMappingAddIssue($issues, 'critical', 'missing_external_mapping_table', 'mapping', 1, 'external_entity_mappings is missing.', 'Run core migrations before attempting integration sync.');
-        return [
-            'ok' => false,
-            'object_map' => $objectMap,
-            'sync_config' => $syncConfig,
-            'mapping_counts' => $mappingCounts,
-            'field_coverage' => $fieldCoverage,
-            'relationships' => $relationships,
-            'issues' => $issues,
-            'samples' => $samples,
-            'generated_at' => gmdate('c'),
-        ];
+    if (!_jobdivaMappingColumnExists($pdo, 'placement_rates', 'created_by_user_id')) {
+        throw new RuntimeException('Rate ownership schema is unavailable.');
     }
-
-    try {
-        $syncConfig = function_exists('jobdivaSyncConfigRead') ? jobdivaSyncConfigRead($tenantId) : [];
-    } catch (\Throwable $_) {
-        $syncConfig = [];
-    }
+    $syncConfig = jobdivaAlignmentSyncConfig($pdo, $tenantId);
 
     $mappingCounts = _jobdivaMappingCountsByType($pdo, $tenantId);
     $fieldCoverage = _jobdivaMappingFieldCoverage($pdo, $tenantId);
@@ -95,8 +92,12 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         'native_payload_mirrors' => $mirrorTotal,
         'field_map_paths'  => array_sum(array_map('intval', $canonicalFieldCoverage)),
     ];
-    $projectorContract = function_exists('jobdivaProjectorContract') ? jobdivaProjectorContract() : [];
-    $projectorReadiness = function_exists('jobdivaProjectorReadinessCounts') ? jobdivaProjectorReadinessCounts($tenantId) : [];
+    $projectorContract = jobdivaProjectorContract();
+    $projectorReadiness = jobdivaProjectorReadinessCounts($tenantId);
+    foreach (['missing_placement'=>'Some source links do not resolve to a placement in the current directory.',
+        'missing_person'=>'Some mapped placements do not resolve to a person in the current People directory.'] as $key=>$message) {
+        _jobdivaMappingAddIssue($issues, 'critical', 'placement_'.$key, 'placement', $projectorReadiness[$key], $message, 'Review sharing and the retained source links before continuing.');
+    }
     $relationships['projector'] = [
         'contract_stages' => array_keys($projectorContract['stages'] ?? []),
         'workflow_readiness' => $projectorReadiness,
@@ -122,7 +123,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         ] as $readinessKey => $issueCode) {
             $relationships['placement_graph'][$readinessKey] = (int) ($projectorReadiness[$readinessKey] ?? 0);
         }
-        $invalidAssignmentSources = _jobdivaMappingInvalidPlacementSources($pdo, $tenantId, 5000);
+        $invalidAssignmentSources = _jobdivaMappingInvalidPlacementSources($pdo, $tenantId, 0, $scope);
         $relationships['placement_graph']['locally_disqualified_assignment_sources'] = count($invalidAssignmentSources);
         if ($invalidAssignmentSources) {
             $samples['locally_disqualified_assignment_sources'] = array_slice(
@@ -150,7 +151,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
                 "SELECT COUNT(*)
                    FROM external_entity_mappings m
                    JOIN placements p
-                     ON p.tenant_id = m.tenant_id
+                     ON p.tenant_id = {$placementOwner}
                     AND p.id = m.internal_entity_id
                   WHERE m.tenant_id = :t
                     AND m.source_system = 'jobdiva'
@@ -195,7 +196,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             $unsafeAutoDraftRates = _jobdivaMappingScalar($pdo,
                 "SELECT COUNT(*)
                    FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
+                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = {$placementOwner}
                    JOIN placement_rates pr ON pr.tenant_id = p.tenant_id AND pr.placement_id = p.id
                   WHERE m.tenant_id = :t
                     AND m.source_system = 'jobdiva'
@@ -217,7 +218,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             'JobDiva auto-drafted rates have identical bill and pay values.',
             'Run Repair rates so CoreFlux can rebuild from a real JobDiva pay field or remove unsafe auto-drafts before approval.'
         );
-        $duplicatePlacementGroups = _jobdivaMappingDuplicatePlacementGroups($pdo, $tenantId, $limit);
+        $duplicatePlacementGroups = _jobdivaMappingDuplicatePlacementGroups($pdo, $tenantId, 0, $scope);
         $relationships['placement_graph']['duplicate_jobdiva_external_id_groups'] = count($duplicatePlacementGroups);
         $relationships['placement_graph']['duplicate_legacy_spreadsheet_groups'] = count(array_filter(
             $duplicatePlacementGroups,
@@ -236,7 +237,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             'Preview duplicates, then consolidate spreadsheet and JobDiva rows that have no conflicting downstream activity.'
         );
 
-        $staleActiveRows = _jobdivaMappingStaleActivePlacementRows($pdo, $tenantId, 5000);
+        $staleActiveRows = _jobdivaMappingStaleActivePlacementRows($pdo, $tenantId, 0, $scope);
         $relationships['placement_graph']['active_past_end_date'] = count(array_filter(
             $staleActiveRows,
             static fn($row) => (string) ($row['lifecycle_reason'] ?? '') === 'past_end_date'
@@ -256,54 +257,20 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         );
 
         if (_jobdivaMappingColumnExists($pdo, 'placements', 'end_client_company_id')) {
-            $missingEndClient = _jobdivaMappingScalar($pdo,
-                "SELECT COUNT(*)
-                   FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-                  WHERE m.tenant_id = :t
-                    AND m.source_system = 'jobdiva'
-                    AND m.internal_entity_type = 'placement'
-                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-                    AND (p.end_client_company_id IS NULL OR p.end_client_company_id = 0)",
-                ['t' => $tenantId]
-            );
+            $missingEndClient = $projectorReadiness['missing_end_client_company'];
             $relationships['placement_graph']['missing_end_client_company'] = $missingEndClient;
             _jobdivaMappingAddIssue($issues, 'critical', 'placement_missing_end_client_company', 'placement', $missingEndClient, 'JobDiva-mapped placements are missing the canonical end-client company link.', 'Re-run JobDiva placement sync or repair client links so billing/AP/payroll have the same company identity.');
         }
 
         if (_jobdivaMappingColumnExists($pdo, 'placements', 'client_id')) {
-            $missingClientId = _jobdivaMappingScalar($pdo,
-                "SELECT COUNT(*)
-                   FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-                  WHERE m.tenant_id = :t
-                    AND m.source_system = 'jobdiva'
-                    AND m.internal_entity_type = 'placement'
-                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-                    AND (p.client_id IS NULL OR p.client_id = 0)",
-                ['t' => $tenantId]
-            );
+            $missingClientId = $projectorReadiness['missing_staffing_client'];
             $relationships['placement_graph']['missing_staffing_client'] = $missingClientId;
             _jobdivaMappingAddIssue($issues, 'critical', 'placement_missing_staffing_client', 'placement', $missingClientId, 'JobDiva-mapped placements are missing placements.client_id.', 'Run Repair client links; billing and payroll readiness group by placements.client_id.');
         }
 
         if (_jobdivaMappingTableExists($pdo, 'staffing_clients') && _jobdivaMappingColumnExists($pdo, 'staffing_clients', 'company_id')
             && _jobdivaMappingColumnExists($pdo, 'placements', 'client_id') && _jobdivaMappingColumnExists($pdo, 'placements', 'end_client_company_id')) {
-            $clientMismatch = _jobdivaMappingScalar($pdo,
-                "SELECT COUNT(*)
-                   FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
-                   JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
-                  WHERE m.tenant_id = :t
-                    AND m.source_system = 'jobdiva'
-                    AND m.internal_entity_type = 'placement'
-                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
-                    AND (sc.company_id IS NULL OR NOT EXISTS (
-                        SELECT 1 FROM companies bc WHERE bc.id = sc.company_id
-                          AND bc.tenant_id = sc.tenant_id AND bc.deleted_at IS NULL
-                    ))",
-                ['t' => $tenantId]
-            );
+            $clientMismatch = $projectorReadiness['client_company_mismatch'];
             $relationships['placement_graph']['client_company_mismatch'] = $clientMismatch;
             _jobdivaMappingAddIssue($issues, 'critical', 'placement_client_company_mismatch', 'placement', $clientMismatch, 'Some JobDiva bill-to clients have no valid company in the selected directory.', 'Review the exact assignment billing identity; end clients may legitimately differ.');
         }
@@ -312,9 +279,9 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             $missingPersonMapping = _jobdivaMappingScalar($pdo,
                 "SELECT COUNT(*)
                    FROM external_entity_mappings m
-                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = m.tenant_id
+                   JOIN placements p ON p.id = m.internal_entity_id AND p.tenant_id = {$placementOwner}
               LEFT JOIN external_entity_mappings pm
-                     ON pm.tenant_id = p.tenant_id
+                     ON pm.tenant_id = m.tenant_id
                     AND pm.source_system = 'jobdiva'
                     AND pm.internal_entity_type = 'person'
                     AND pm.internal_entity_id = p.person_id
@@ -322,6 +289,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
                     AND m.source_system = 'jobdiva'
                     AND m.internal_entity_type = 'placement'
                     AND p.person_id IS NOT NULL
+                    AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
                     AND pm.id IS NULL",
                 ['t' => $tenantId]
             );
@@ -331,7 +299,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
     }
 
     if (_jobdivaMappingTableExists($pdo, 'people')) {
-        $staleSourcePeople = _jobdivaMappingStaleSourcePeopleRows($pdo, $tenantId, 5000);
+        $staleSourcePeople = jobdivaAlignmentPeople($pdo, $tenantId, $scope);
         $relationships['people_graph'] = array_merge(
             (array) ($relationships['people_graph'] ?? []),
             ['jobdiva_people_without_live_placement' => count($staleSourcePeople)]
@@ -356,29 +324,25 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
 
     if (_jobdivaMappingTableExists($pdo, 'staffing_clients') && _jobdivaMappingColumnExists($pdo, 'staffing_clients', 'company_id')) {
         $customersWithoutClient = _jobdivaMappingScalar($pdo,
-            "SELECT COUNT(*)
-               FROM external_entity_mappings m
-          LEFT JOIN staffing_clients sc
-                 ON sc.tenant_id = m.tenant_id
-                AND sc.company_id = m.internal_entity_id
-              WHERE m.tenant_id = :t
-                AND m.source_system = 'jobdiva'
-                AND m.internal_entity_type = 'jobdiva_customer'
-                AND sc.id IS NULL",
-            ['t' => $tenantId]
+            "SELECT COUNT(*) FROM external_entity_mappings m
+              JOIN companies c ON c.id=m.internal_entity_id AND c.tenant_id={$companyOwner} AND c.deleted_at IS NULL
+              WHERE m.tenant_id=:t AND m.source_system='jobdiva' AND m.internal_entity_type='company'
+                AND EXISTS (SELECT 1 FROM company_roles cr WHERE cr.company_id=c.id AND cr.role='client')
+                AND NOT EXISTS (SELECT 1 FROM staffing_clients sc WHERE sc.tenant_id={$staffingOwner} AND sc.company_id=c.id)",
+            ['t'=>$tenantId]
         );
         $relationships['end_client_consumer_bridge'] = [
             'jobdiva_customers_without_staffing_client' => $customersWithoutClient,
         ];
-        _jobdivaMappingAddIssue($issues, 'warn', 'jobdiva_customer_without_staffing_client', 'staffing', $customersWithoutClient, 'Some JobDiva end-client/customer company mappings do not have a staffing_clients consumer row.', 'Run Repair client links so staffing workflows consume the company graph instead of drifting.');
+        _jobdivaMappingAddIssue($issues, 'warn', 'jobdiva_customer_without_staffing_client', 'staffing', $customersWithoutClient, 'Some mapped companies with a client role have no staffing client record. Raw customer mirrors are not Core company identities.', 'Run Repair client links so staffing workflows consume the company graph instead of drifting.');
     }
 
     if (_jobdivaMappingTableExists($pdo, 'company_contacts') && _jobdivaMappingTableExists($pdo, 'companies')) {
         $contactsMissingCompany = _jobdivaMappingScalar($pdo,
             "SELECT COUNT(*)
                FROM external_entity_mappings m
-          LEFT JOIN company_contacts cc ON cc.id = m.internal_entity_id AND cc.tenant_id = m.tenant_id
-          LEFT JOIN companies c ON c.id = cc.company_id AND c.tenant_id = m.tenant_id AND c.deleted_at IS NULL
+          LEFT JOIN company_contacts cc ON cc.id = m.internal_entity_id AND cc.tenant_id = {$companyOwner}
+          LEFT JOIN companies c ON c.id = cc.company_id AND c.tenant_id = {$companyOwner} AND c.deleted_at IS NULL
               WHERE m.tenant_id = :t
                 AND m.source_system = 'jobdiva'
                 AND m.internal_entity_type = 'contact'
@@ -395,16 +359,16 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
         $timeWithoutPlacementMap = _jobdivaMappingScalar($pdo,
             "SELECT COUNT(*)
                FROM external_entity_mappings m
-               JOIN time_entries te ON te.id = m.internal_entity_id AND te.tenant_id = m.tenant_id
+               LEFT JOIN time_entries te ON te.id = m.internal_entity_id AND te.tenant_id = m.tenant_id
           LEFT JOIN external_entity_mappings pm
-                 ON pm.tenant_id = te.tenant_id
+                 ON pm.tenant_id = m.tenant_id
                 AND pm.source_system = 'jobdiva'
                 AND pm.internal_entity_type = 'placement'
                 AND pm.internal_entity_id = te.placement_id
               WHERE m.tenant_id = :t
                 AND m.source_system = 'jobdiva'
                 AND m.internal_entity_type = 'time_entry'
-                AND pm.id IS NULL",
+                AND (te.id IS NULL OR pm.id IS NULL OR NOT EXISTS (SELECT 1 FROM placements tp WHERE tp.id=te.placement_id AND tp.tenant_id={$placementOwner}))",
             ['t' => $tenantId]
         );
         $relationships['time_graph'] = [
@@ -437,6 +401,8 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
     });
 
     return [
+        'complete' => true,
+        'directory_owners' => $scope,
         'ok' => count(array_filter($issues, static fn($i) => ($i['severity'] ?? '') === 'critical')) === 0,
         'object_map' => $objectMap,
         'sync_config' => $syncConfig,
@@ -454,7 +420,7 @@ function jobdivaMappingAlignmentReport(int $tenantId, array $opts = []): array
             ],
             [
                 'code' => 'customer_id_semantics',
-                'summary' => 'JobDiva customer/customerId fields are normalized into the company/end-client bridge; native jobdiva_customer rows may remain only to avoid source-id collisions.',
+                'summary' => 'Raw customer mirrors retain provider IDs. Canonical company links resolve separately; bill-to clients and end-client work recipients may be different companies.',
             ],
             [
                 'code' => 'staffing_consumes_company_graph',
@@ -576,7 +542,7 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
     ));
 
     $summary = [
-        'ok' => $failed === 0,
+        'ok' => $failed === 0 && ($after['complete'] ?? false),
         'started_at' => $startedAt,
         'finished_at' => gmdate('c'),
         'steps' => $steps,
@@ -585,12 +551,13 @@ function jobdivaMappingRepairWorkflow(int $tenantId, array $user, int $limit = 5
             'failed' => $failed,
         ],
         'remaining' => [
+            'complete' => $after['complete'] ?? false,
             'critical_issue_types' => count($remainingCritical),
-            'critical_rows' => array_reduce(
+            'critical_rows' => ($after['complete'] ?? false) ? array_reduce(
                 $remainingCritical,
                 static fn($sum, $issue) => $sum + (int) ($issue['count'] ?? 0),
                 0
-            ),
+            ) : null,
             'issues' => $remainingCritical,
         ],
     ];
@@ -1439,25 +1406,25 @@ function _jobdivaMappingRehomeLegacyBridgePeople(
     return $summary;
 }
 
-function _jobdivaMappingInvalidPlacementSources(\PDO $pdo, int $tenantId, int $limit = 5000): array
+function _jobdivaMappingInvalidPlacementSources(\PDO $pdo, int $tenantId, int $limit = 5000, ?array $scope = null): array
 {
-    $limit = max(1, min(5000, $limit));
+    $owner = (int) ($scope['placements'] ?? $tenantId);
+    $limitSql = $scope !== null && $limit === 0 ? '' : ' LIMIT '.max(1, min(5000, $limit));
     $rows = _jobdivaMappingRows(
         $pdo,
         "SELECT m.internal_entity_id AS placement_id, m.external_id, m.payload_snapshot,
                 p.title
            FROM external_entity_mappings m
            JOIN placements p
-             ON p.tenant_id = m.tenant_id
+             ON p.tenant_id = {$owner}
             AND p.id = m.internal_entity_id
           WHERE m.tenant_id = :t
             AND m.source_system = 'jobdiva'
             AND m.internal_entity_type = 'placement'
             AND m.sync_status = 'ok'
-            AND m.payload_snapshot IS NOT NULL
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
           ORDER BY m.id ASC
-          LIMIT {$limit}",
+          {$limitSql}",
         ['t' => $tenantId]
     );
 
@@ -1554,11 +1521,14 @@ function _jobdivaMappingNormalisePlacementExternalId(?string $externalId): strin
     return str_starts_with($externalId, 'jd:') ? substr($externalId, 3) : $externalId;
 }
 
-function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $limit = 100): array
+function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $limit = 100, ?array $scope = null): array
 {
     if (!_jobdivaMappingTableExists($pdo, 'placements')) {
         return [];
     }
+    $all = $scope !== null && $limit === 0;
+    $owner = (int) ($scope['placements'] ?? $tenantId);
+    $peopleOwner = (int) ($scope['people'] ?? $tenantId);
     $limit = max(1, min(500, $limit));
     $mapped = [];
     $mappedByInternalId = [];
@@ -1590,7 +1560,7 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
     $hasJobDivaJobId = _jobdivaMappingColumnExists($pdo, 'placements', 'jobdiva_job_id');
     $mappingJoin = $hasMappings
         ? "LEFT JOIN external_entity_mappings m
-                 ON m.tenant_id = p.tenant_id
+                 ON m.tenant_id = {$tenantId}
                 AND m.internal_entity_type = 'placement'
                 AND m.internal_entity_id = p.id
                 AND m.source_system = 'jobdiva'"
@@ -1605,7 +1575,7 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
     $jobIdGroup = $hasJobDivaJobId ? 'p.jobdiva_job_id' : 'NULL';
     $hasPeople = _jobdivaMappingTableExists($pdo, 'people');
     $peopleJoin = $hasPeople
-        ? 'LEFT JOIN people pe ON pe.tenant_id = p.tenant_id AND pe.id = p.person_id'
+        ? "LEFT JOIN people pe ON pe.tenant_id = {$peopleOwner} AND pe.id = p.person_id AND pe.deleted_at IS NULL"
         : '';
     $personSelect = $hasPeople
         ? 'pe.first_name AS person_first_name, pe.last_name AS person_last_name, pe.email_primary AS person_email'
@@ -1619,15 +1589,18 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
            FROM placements p
            {$mappingJoin}
            {$peopleJoin}
-          WHERE p.tenant_id = :t
+          WHERE p.tenant_id = {$owner}
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND (" . implode(' OR ', $sourceWhere) . ")
        GROUP BY p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date,
                 p.end_client_name, p.end_client_company_id, {$jobIdGroup}, p.status,
                 p.created_at, p.updated_at{$personGroup}
        ORDER BY p.id ASC",
-        ['t' => $tenantId]
+        []
     );
+    if ($scope !== null) {
+        $placementRows = jobdivaAlignmentExcludeOtherSources($pdo, $tenantId, $placementRows);
+    }
     $groups = [];
     $rowsGroupedByStartId = [];
     $startIdByPlacementId = [];
@@ -1708,11 +1681,12 @@ function _jobdivaMappingDuplicatePlacementGroups(\PDO $pdo, int $tenantId, int $
         $tenantId,
         $mapped,
         $mappedByInternalId,
-        $alreadyGrouped
+        $alreadyGrouped,
+        $scope
     ));
     usort($out, static fn($a, $b) => ((int) ($b['count'] ?? 0) <=> (int) ($a['count'] ?? 0))
         ?: strcmp((string) ($a['external_id'] ?? ''), (string) ($b['external_id'] ?? '')));
-    return array_slice($out, 0, $limit);
+    return $all ? $out : array_slice($out, 0, $limit);
 }
 
 /**
@@ -1727,8 +1701,11 @@ function _jobdivaMappingLegacySpreadsheetDuplicateGroups(
     int $tenantId,
     array $mapped,
     array $mappedByInternalId,
-    array $excludedIds = []
+    array $excludedIds = [],
+    ?array $scope = null
 ): array {
+    $owner = (int) ($scope['placements'] ?? $tenantId);
+    $limitSql = $scope === null ? ' LIMIT 5000' : '';
     $approvedRateSelect = _jobdivaMappingTableExists($pdo, 'placement_rates')
         ? '(SELECT COUNT(*) FROM placement_rates pr
               WHERE pr.tenant_id = p.tenant_id
@@ -1738,14 +1715,15 @@ function _jobdivaMappingLegacySpreadsheetDuplicateGroups(
     $rows = _jobdivaMappingRows($pdo,
         "SELECT p.*, {$approvedRateSelect} AS approved_rate_count
            FROM placements p
-          WHERE p.tenant_id = :t
+          WHERE p.tenant_id = {$owner}
             AND p.status IN ('pending_start', 'active', 'on_hold')
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
        ORDER BY p.person_id, p.id
-          LIMIT 5000",
-        ['t' => $tenantId]
+          {$limitSql}",
+        []
     );
 
+    if ($scope !== null) $rows = jobdivaAlignmentExcludeOtherSources($pdo, $tenantId, $rows);
     $byPerson = [];
     foreach ($rows as $row) {
         $id = (int) ($row['id'] ?? 0);
@@ -1933,18 +1911,20 @@ function _jobdivaMappingLegacyPlacementBridgePairs(array $rows, array $startIdBy
     return $pairs;
 }
 
-function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $limit = 500): array
+function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $limit = 500, ?array $scope = null): array
 {
     if (!_jobdivaMappingTableExists($pdo, 'placements')) return [];
+    $all = $scope !== null && $limit === 0;
+    $owner = (int) ($scope['placements'] ?? $tenantId);
     $limit = max(1, min(5000, $limit));
-    $scanLimit = 5000;
+    $limitSql = $all ? '' : ' LIMIT 5000';
     $hasMappings = _jobdivaMappingTableExists($pdo, 'external_entity_mappings');
     $mappingJoin = $hasMappings
         ? "LEFT JOIN external_entity_mappings m
                  ON m.id = (
                     SELECT MAX(m2.id)
                       FROM external_entity_mappings m2
-                     WHERE m2.tenant_id = p.tenant_id
+                     WHERE m2.tenant_id = {$tenantId}
                        AND m2.internal_entity_type = 'placement'
                        AND m2.internal_entity_id = p.id
                        AND m2.source_system = 'jobdiva'
@@ -1954,24 +1934,38 @@ function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $
         ? "(p.external_id LIKE 'jd:%' OR p.title LIKE 'JobDiva Placement %' OR m.id IS NOT NULL)"
         : "(p.external_id LIKE 'jd:%' OR p.title LIKE 'JobDiva Placement %')";
     $mappingFields = $hasMappings
-        ? 'm.external_id AS mapping_external_id, m.payload_snapshot'
-        : 'NULL AS mapping_external_id, NULL AS payload_snapshot';
+        ? 'm.external_id AS mapping_external_id, m.payload_snapshot, m.sync_status AS mapping_sync_status'
+        : 'NULL AS mapping_external_id, NULL AS payload_snapshot, NULL AS mapping_sync_status';
     $rows = _jobdivaMappingRows($pdo,
         "SELECT p.id, p.external_id, p.title, p.person_id, p.start_date, p.end_date, p.status, p.updated_at,
+                p.deleted_at, p.actual_end_date, p.coreflux_overridden_fields,
                 {$mappingFields}
            FROM placements p
            {$mappingJoin}
-          WHERE p.tenant_id = :t
+          WHERE p.tenant_id = {$owner}
             AND p.status = 'active'
             AND (p.deleted_at IS NULL OR p.deleted_at = '0000-00-00 00:00:00')
             AND {$sourceWhere}
        ORDER BY p.id ASC
-          LIMIT {$scanLimit}",
-        ['t' => $tenantId]
+          {$limitSql}",
+        []
     );
 
+    if ($scope !== null) $rows = jobdivaAlignmentExcludeOtherSources($pdo, $tenantId, $rows);
     $out = [];
     foreach ($rows as $row) {
+        if ($scope !== null && !empty($row['mapping_external_id'])) {
+            $plan = jobdivaPlacementLifecycleRepairPlan([
+                'placement'=>$row,
+                'mapping'=>['sync_status'=>$row['mapping_sync_status'], 'payload_snapshot'=>$row['payload_snapshot']],
+                'external'=>jobdivaAssignmentIdentityNormaliseId($row['mapping_external_id']),
+                'owned_fields'=>placementOwnershipFields($row['coreflux_overridden_fields']),
+            ]);
+            if ($plan['status'] !== 'updated') continue;
+            unset($row['payload_snapshot'], $row['coreflux_overridden_fields']);
+            $out[] = array_replace($row, ['desired_status'=>$plan['desired_status'], 'lifecycle_reason'=>$plan['reason'], 'source_status'=>$plan['source_status']]);
+            continue;
+        }
         $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
         if (!is_array($payload)) $payload = [];
         if ($payload && function_exists('jobdivaAssignmentStripDerivedFacets')) {
@@ -1998,7 +1992,7 @@ function _jobdivaMappingStaleActivePlacementRows(\PDO $pdo, int $tenantId, int $
         $row['source_status'] = (string) ($lifecycle['source_status'] ?? '');
         unset($row['payload_snapshot']);
         $out[] = $row;
-        if (count($out) >= $limit) break;
+        if (!$all && count($out) >= $limit) break;
     }
     return $out;
 }
@@ -2181,7 +2175,7 @@ function _jobdivaMappingScalar(\PDO $pdo, string $sql, array $params = []): int
         return (int) $stmt->fetchColumn();
     } catch (\Throwable $e) {
         error_log('[jobdivaMappingAlignment] scalar failed: ' . $e->getMessage());
-        return 0;
+        throw $e;
     }
 }
 
@@ -2193,7 +2187,7 @@ function _jobdivaMappingRows(\PDO $pdo, string $sql, array $params = []): array
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     } catch (\Throwable $e) {
         error_log('[jobdivaMappingAlignment] rows failed: ' . $e->getMessage());
-        return [];
+        throw $e;
     }
 }
 
@@ -2211,13 +2205,8 @@ function _jobdivaMappingTableExists(\PDO $pdo, string $table): bool
         );
         $stmt->execute(['n' => $table]);
         return (int) $stmt->fetchColumn() > 0;
-    } catch (\Throwable $_) {
-        try {
-            $pdo->query('SELECT 1 FROM ' . preg_replace('/[^A-Za-z0-9_]/', '', $table) . ' LIMIT 1');
-            return true;
-        } catch (\Throwable $_) {
-            return false;
-        }
+    } catch (\Throwable $e) {
+        throw $e;
     }
 }
 
@@ -2237,7 +2226,7 @@ function _jobdivaMappingColumnExists(\PDO $pdo, string $table, string $column): 
         );
         $stmt->execute(['t' => $table, 'c' => $column]);
         return (int) $stmt->fetchColumn() > 0;
-    } catch (\Throwable $_) {
-        return false;
+    } catch (\Throwable $e) {
+        throw $e;
     }
 }

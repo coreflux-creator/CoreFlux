@@ -1,0 +1,165 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "Standalone accounting access reply changed no integration state. Revalidated the current worktree and completed prior CI before implementing the normal live contract refresh.",
+  "source_commit": "93fd151b3aa83cb2c4391b681cf767d209f4a6a9",
+  "base_commit": "f2995ee7d23287f00616fe2b47f15b9f5fa574cb",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "b4f842e0af68ee8cee9cc219be0cebb5ddf88fd49e67550fe56db6e6f179e63f",
+    "core/jobdiva/client.php": "8bf52a9f4a3d0aa36907b1a17acab754cd7e544eadc48fc4e105e6acc2d17a2f",
+    "core/jobdiva/live_contract_refresh.php": "e8c9ba70436b1ad78264469d5998d3f43113187aab0e0ad142bf95fa35248434",
+    "core/jobdiva/sync.php": "bcc9ba48d5824a1ba3aed83f8081a0aea4a052c23827eabc41bef56033cad41a",
+    "tests/company_relationship_concurrency_db.php": "3847e21fb2818a6fba3642580c8e58a1515dd998242533d31e544aeb0c62a528",
+    "tests/fixtures/live_contract_concurrency_checks.php": "7c174890c19a245485820fdc16f96c3cfff21fd4322dcb4e40d89ed74215005f",
+    "tests/fixtures/live_contract_http_checks.php": "325c475c9052cd354fcfc2ed266d33f93f375021065ee4add90feb2d38bb7995",
+    "tests/fixtures/live_contract_http_transport.php": "fd8eca1f0edbc612777d4dbefb199ff29e8fcf474fea81570ad3156ddeb79b33",
+    "tests/fixtures/placement_contract_http_router.php": "7e8cc615ed881a77608f38280ee141f3d9abf50a053c357d7491b4a6dff4aa17",
+    "tests/jobdiva_assignment_contract_batch_smoke.php": "8916bbfcc59fe63d57828fbefbd98e4877cfd20d0bbf360c0466055c71484602",
+    "tests/jobdiva_live_contract_db_check.php": "35a4c26b1aed040c298f371a69f6d544edcf67d142046f766dee67b13547aea8",
+    "tests/jobdiva_placement_rates_smoke.php": "cd5d037eef5799481c5b2ffecce51a9640db5ffae1eb92fba6c4038bd23966a9",
+    "tests/placement_contract_permissions_http.php": "88393a5ecb1f4787da25308a3e57a628310f40ab8cfed4fe4940f5e707da05d1"
+  },
+  "ci": {
+    "run_id": 43488642153,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43488642153",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132103645948,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646409,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646443,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646491,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646548,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646553,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646613,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646616,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646719,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103646833,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132103647081,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "live_assignment_contract": 35,
+    "joined_source_refresh": 26,
+    "source_rate_ownership_and_approval": 41,
+    "independent_connections": 349,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 516
+  },
+  "concurrency_labels": [
+    "Live contract waits for policy COMMIT",
+    "Live contract revalidates current policy after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Review People and Placements sharing before importing this assignment.\"}",
+    "Live contract waits for mapping COMMIT",
+    "Live contract revalidates current mapping after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Live contract waits for placement COMMIT",
+    "Live contract revalidates current placement after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Live contract waits for rate COMMIT",
+    "Live contract revalidates current rate after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Live refresh holds its complete write before COMMIT: {\"saved\":true,\"id\":130,\"in_transaction\":true}",
+    "Concurrent live contract retry waits for COMMIT",
+    "Concurrent live contract retries save one required receipt after COMMIT",
+    "Live contract waits for policy ROLLBACK",
+    "Live contract revalidates current policy after ROLLBACK: {\"ok\":true,\"result\":{\"id\":131,\"projected\":1,\"restored\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Live contract waits for mapping ROLLBACK",
+    "Live contract revalidates current mapping after ROLLBACK: {\"ok\":true,\"result\":{\"id\":132,\"projected\":1,\"restored\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Live contract waits for placement ROLLBACK",
+    "Live contract revalidates current placement after ROLLBACK: {\"ok\":true,\"result\":{\"id\":133,\"projected\":1,\"restored\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Live contract waits for rate ROLLBACK",
+    "Live contract revalidates current rate after ROLLBACK: {\"ok\":true,\"result\":{\"id\":134,\"projected\":1,\"restored\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Live refresh holds its complete write before ROLLBACK: {\"saved\":true,\"id\":135,\"in_transaction\":true}",
+    "Concurrent live contract retry waits for ROLLBACK",
+    "Concurrent live contract retries save one required receipt after ROLLBACK"
+  ],
+  "http_labels": [
+    "Read-only integration access cannot run the live contract batch",
+    "Live contract sync requires native sign-in",
+    "Live contract sync cannot mutate on GET",
+    "Native live-contract audit failure rolls back all business and mapping writes: [200,{\"processed\":1,\"projected\":0,\"restored\":0,\"skipped_not_current\":0,\"failed\":1,\"errors\":[{\"mapping_id\":978,\"error\":\"SQLSTATE[45000]: <<Unknown error>>: 1644 Synthetic live contract audit failure\"}],\"cursor\":978,\"done\":false}]",
+    "Native live batch refreshes a shared-owner placement through the original workspace: [200,{\"processed\":1,\"projected\":1,\"restored\":0,\"skipped_not_current\":0,\"failed\":0,\"errors\":[],\"cursor\":978,\"done\":false}]",
+    "Live API preserves native title, person identity and permanent placement number",
+    "Live API retains the exact provider pair and consistent source fingerprint",
+    "Live API receipt records the authenticated actor and actual directory owner",
+    "Live replay does not duplicate people",
+    "Live replay does not duplicate placements",
+    "Live replay does not duplicate placement_rates",
+    "Live replay does not duplicate external_entity_mappings",
+    "A fresh live replay succeeds",
+    "A native edit committed during lookup defeats the stale API save",
+    "A different returned Start cannot trigger contract lookup or native financial projection",
+    "Disabled source ownership policy prevents provider reads and native writes",
+    "Live contract refresh never executes payroll, payments or financial postings"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T18:04:23+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "legacy alignment reporting with current directory owners",
+    "reviewed duplicate consolidation preserving source pairs and permanent aliases",
+    "active-status maintenance and generic placement CSV",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider fields, portal, onboarding, documents, original time approvals and corrections, payroll results and financial reconciliation remain incomplete"
+}
