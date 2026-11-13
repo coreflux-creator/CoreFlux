@@ -5,7 +5,7 @@ $identityRaceState=static function()use($pdo,$tenant,$projectionRows):array{
     return [$projectionRows(),$q->fetchAll(PDO::FETCH_ASSOC)];
 };
 foreach(['COMMIT','ROLLBACK']as$decision)foreach(['merge','target_archive','merge_again']as$change){
-    $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,status,classification) VALUES(?,"Synthetic","Placement history race","active","w2")')->execute([$tenant]);$person=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary,status,classification) VALUES(?,"Synthetic","Placement history race",?,"active","w2")')->execute([$tenant,'placement-history-'.$change.'-'.$decision.'@example.invalid']);$person=(int)$pdo->lastInsertId();
     $ids=[];foreach(['Historical','Current','Next']as$label){
         $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date,worksite_country) VALUES(?,?,?,"active","w2","2026-10-01","US")')->execute([$tenant,$person,$label.' placement identity race']);$ids[]=(int)$pdo->lastInsertId();
     }

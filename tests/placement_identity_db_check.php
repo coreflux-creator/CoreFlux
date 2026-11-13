@@ -16,7 +16,7 @@ $check($fails(fn()=>placementIdentityResolve($pdo,$owner,1,true)),'Locked identi
 try{
     $pdo->beginTransaction();
     $insert('tenants',['id'=>$foreign,'name'=>'Synthetic foreign placement directory','tenant_type'=>'master','is_active'=>1,'is_simulation'=>1]);
-    $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Placement history','status'=>'active','classification'=>'w2']);
+    $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Placement history','email_primary'=>'placement-history@example.invalid','status'=>'active','classification'=>'w2']);
     $make=static fn(int $tenant,string $title):int=>$insert('placements',['tenant_id'=>$tenant,'person_id'=>$person,'title'=>$title,'status'=>'active','engagement_type'=>'w2','start_date'=>'2026-10-01','worksite_country'=>'US']);
     $a=$make($owner,'Historical assignment');$b=$make($owner,'Current assignment');$c=$make($owner,'Next current assignment');$other=$make($foreign,'Foreign assignment');
     $rate=$insert('placement_rates',['tenant_id'=>$owner,'placement_id'=>$a,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-10-01 12:00:00']);
