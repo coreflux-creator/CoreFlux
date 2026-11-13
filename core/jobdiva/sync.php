@@ -4651,8 +4651,24 @@ function jobdivaSyncUpsertPlacementChainRow(
         ? 'client'
         : ($partyRole === 'direct' ? 'client' : $partyRole);
     $previousId = !empty($existingRow['company_id']) ? (int) $existingRow['company_id'] : null;
+    $retainedId = $previousId;
+    $retainedName = (string) ($existingRow['party_name'] ?? '');
+    if (!$previousId && $partyRole === 'end_client' && $companyId && $sourceCompanyId === '') {
+        // The parent may already carry a native-selected end client without a provider
+        // binding. Retain that exact relation; it grants no source company authority.
+        $q = $pdo->prepare('SELECT end_client_company_id,end_client_name FROM placements WHERE tenant_id=? AND id=?');
+        $q->execute([$tid,$placementId]);$parent = $q->fetch(\PDO::FETCH_ASSOC);
+        if ((int) ($parent['end_client_company_id'] ?? 0) === $companyId) {
+            $retainedId = $companyId;
+            $retainedName = trim((string) ($parent['end_client_name'] ?? ''));
+            if ($retainedName === '') {
+                $owner = jobdivaPartyDirectoryScope($pdo,$tid,true)['owner'];
+                $retainedName = (string) (companiesGet($companyId,$owner)['name'] ?? '');
+            }
+        }
+    }
     $companyId = jobdivaAssignmentPartyCompany($tid,$partyName,$sourceCompanyId,$companyId,
-        $previousId,(string) ($existingRow['party_name'] ?? ''),[$roleForCompany],$userId);
+        $retainedId,$retainedName,[$roleForCompany],$userId);
     if ($partyName === '' && $companyId) {
         $owner = jobdivaPartyDirectoryScope($pdo,$tid,true)['owner'];
         $company = companiesGet($companyId,$owner);

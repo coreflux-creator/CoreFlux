@@ -12,6 +12,7 @@ import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import BillToClientPicker from './BillToClientPicker';
 import CommercialOwnershipReview from './CommercialOwnershipReview';
 import SourceRuleReview from './SourceRuleReview';
+import PartyCompanyReview from './PartyCompanyReview';
 import OneTimeItems from './OneTimeItems';
 import PlacementDocumentsTab from './PlacementDocumentsTab';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
@@ -967,7 +968,7 @@ function ChainTab({ pid, chain, reload, canManage = false, canReveal = false, so
           {chain.map(c => (
             <tr key={c.id} data-testid={`chain-row-${c.id}`}>
               <td>{c.position}</td>
-              <td>{c.party_name}{!c.company_id && <div className="muted" data-testid={`chain-identity-${c.id}`}>Company identity needs review</div>}</td>
+              <td>{c.party_name}{!c.company_id && <div className="muted" data-testid={`chain-identity-${c.id}`}>Company identity needs review{canManage && <PartyCompanyReview key={`${pid}-chain-${c.id}`} kind="chain" id={c.id} onSaved={reload} />}</div>}</td>
               <td>{c.party_role}</td>
               <td>{c.portal_fee_pct ? `${(c.portal_fee_pct * 100).toFixed(2)}%` : '—'}</td>
               <td>
@@ -1510,7 +1511,7 @@ function ReferralsTab({ pid, rows, reload, canManage = false, sourceLinked = fal
           {rows.length === 0 && <tr><td colSpan={6} className="empty" data-testid="referrals-empty">No referrals.</td></tr>}
           {rows.map(r => (
             <tr key={r.id} data-testid={`referral-row-${r.id}`}>
-              <td>{r.referrer_name || r.referrer_vendor_name || `#${r.referrer_person_id || r.referrer_user_id}`}{r.referrer_type === 'vendor' && !r.referrer_company_id && <div className="muted" data-testid={`referral-identity-${r.id}`}>Company identity needs review</div>}</td>
+              <td>{r.referrer_name || r.referrer_vendor_name || `#${r.referrer_person_id || r.referrer_user_id}`}{r.referrer_type === 'vendor' && !r.referrer_company_id && <div className="muted" data-testid={`referral-identity-${r.id}`}>Company identity needs review{canManage && <PartyCompanyReview key={`${pid}-referral-${r.id}`} kind="referral" id={r.id} onSaved={reload} />}</div>}</td>
               <td>{Number(r.fee_pct) ? `${(r.fee_pct * 100).toFixed(2)}%` : Number(r.fee_flat) ? r.fee_flat : '—'}</td>
               <td>{r.fee_basis}</td><td>{r.start_date}</td><td>{r.duration_months ? `${r.duration_months}mo` : '—'}</td>
               <td>{canManage && <button className="btn btn--ghost" onClick={() => del(r.id)} data-testid={`referral-delete-${r.id}`}>Remove</button>}</td>

@@ -17,4 +17,3 @@ function jobdivaPartyDirectoryScope(PDO $pdo,int $workspace,bool $lock=false): a
     if(!$directory||!(int)$directory['is_active'])throw new RuntimeException('The company directory is no longer active.',409);
     return ['workspace'=>$workspace,'owner'=>$owner,'tenant'=>$tenant,'mode'=>$mode,'directory'=>$directory];
 }
-

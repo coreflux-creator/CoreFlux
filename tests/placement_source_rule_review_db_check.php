@@ -17,14 +17,14 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$re
     $pdo->prepare('INSERT INTO tenant_memberships(tenant_id,user_id,persona_label,persona_type,is_primary,status) VALUES(?,?,"CI reviewed rules","tenant_admin",1,"active") ON DUPLICATE KEY UPDATE status="active"')->execute([$tenant,$uid]);
     $person=scopedInsert('people',['first_name'=>'CI Source','last_name'=>'Review','classification'=>'w2','external_id'=>'jd:99190002','email_primary'=>'source-rule-review@example.invalid']);
     $bill=companiesUpsertByName($tenant,'CI Source Review Billing',[],['client']);$client=staffingClientEnsureForCompany($tenant,$bill,'CI Source Review Billing')['client_id'];
-    $msp=companiesUpsertByName($tenant,'CI Source Review MSP',[],['msp']);
-    companiesUpsertByName($tenant,'CI Source Review Referrer',[],['referrer','vendor']);
+    $msp=jobdivaUpsertCompanyMapped($tenant,'99190004','CI Source Review MSP',[],['id'=>'99190004'],null,['msp']);
+    jobdivaUpsertCompanyMapped($tenant,'99190005','CI Source Review Referrer',[],['id'=>'99190005'],null,['referrer','vendor']);
     $pid=scopedInsert('placements',['person_id'=>$person,'title'=>'CI reviewed source rules','status'=>'on_hold','engagement_type'=>'w2','start_date'=>'2026-10-01',
         'external_id'=>'jd:99190001','coreflux_overridden_fields'=>'["notes","start_date"]','client_id'=>$client,'end_client_company_id'=>$bill,'end_client_name'=>'CI Source Review Billing',
         'client_bill_cycle'=>'weekly','client_payment_terms_override'=>'NET30','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>'NET30','vendor_pwp_enabled'=>0,'worksite_country'=>'US']);
     scopedInsert('placement_rates',['placement_id'=>$pid,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-10-01 12:00:00']);
     $payload=['startId'=>'99190001','candidateId'=>'99190002','jobId'=>'99190003','startDate'=>'2026-10-01','status'=>'on_hold','title'=>'CI source review',
-        'endClientName'=>'CI Source Review Billing','employmentType'=>'W2','worksiteCountry'=>'US','mspName'=>'CI Source Review MSP','mspFeePct'=>2,
+        'endClientName'=>'CI Source Review Billing','employmentType'=>'W2','worksiteCountry'=>'US','mspName'=>'CI Source Review MSP','mspCompanyId'=>'99190004','referralVendorCompanyId'=>'99190005','mspFeePct'=>2,
         'recruiterEmail'=>$user['email'],'recruiterCommissionPct'=>10,'referralVendor'=>'CI Source Review Referrer','referralFeeAmount'=>10,'referralFeeBasis'=>'one_time',
         '_jd_contract'=>['start_id'=>'99190001','engagement_type'=>'w2','placement_status'=>'on_hold','start_date'=>'2026-10-01','end_date'=>'2026-12-31',
             'client_company_name'=>'CI Source Review Billing','end_client_name'=>'CI Source Review Billing','client_bill_cycle'=>'weekly','vendor_pay_cycle'=>'biweekly',
