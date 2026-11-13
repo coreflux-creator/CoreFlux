@@ -24,7 +24,13 @@ $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SE
 $business=static function(array $r):array{unset($r['coreflux_source_state'],$r['updated_at']);return$r;};
 try{
     foreach(['tenants','tenant_module_scope','jobdiva_connections','companies','company_contacts','company_roles','core_record_numbers','external_entity_mappings','entity_sync_history','integration_payload_field_index','audit_log']as$t){
-        $pdo->exec('CREATE TEMPORARY TABLE `'.$t.'` LIKE `muzqvdvqbx`.`'.$t.'`');$temporary[]=$t;
+        $definition=$pdo->query('SHOW CREATE TABLE `'.$t.'`')->fetch(PDO::FETCH_NUM)[1];
+        if(!str_starts_with($definition,'CREATE TABLE `'.$t.'` ('))throw new RuntimeException('Unexpected fixture definition');
+        $definition=preg_replace('/^CREATE TABLE /','CREATE TEMPORARY TABLE ',$definition,1);
+        $definition=preg_replace('/^  CONSTRAINT [^\n]+FOREIGN KEY[^\n]*\n/m','',$definition);
+        $definition=preg_replace('/,\n\)/',"\n)",$definition);
+        if(str_contains($definition,'FOREIGN KEY'))throw new RuntimeException('Unreviewed temporary foreign key');
+        $pdo->exec($definition);$temporary[]=$t;
     }
     $pdo->exec('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(2002,"Synthetic installed identity fixture",1,1,"master")');
     $pdo->exec('INSERT INTO jobdiva_connections(tenant_id,client_id,username,password_enc,status) VALUES(2002,"synthetic","synthetic","opaque-synthetic","connected")');

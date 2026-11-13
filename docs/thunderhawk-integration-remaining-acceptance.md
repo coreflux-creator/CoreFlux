@@ -2,7 +2,15 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 13 company/contact acceptance and subcontract roles — current checkpoint
+## November 13 explicit company/contact identity review — current checkpoint
+
+Runtime `86bf59ea` is installed in the isolated pilot after all eleven jobs in [CI 43364967814](https://github.com/coreflux-creator/CoreFlux/actions/runs/43364967814) passed. Authorized staff can review an exact JobDiva company/contact link from client/vendor details, preserve native values and other provider IDs, and recover a saved receipt after a lost response. Assignment party projection no longer adopts an existing company solely by name; reviewed identities can retain independently owned Core names. Missing source phone/email values remain distinct from explicit blanks.
+
+The release passed 39 identity database checks, 587 native login/API checks and ten targeted UI cases. Thirteen checks against the installed libraries passed using temporary copies of actual hosted schemas. Independent readback verified 363 runtime hashes and all **35,304 existing rows across 378 tables unchanged**. Both new bundles were verified through the browser; signed-out preview/apply/status requests returned 401 and the test tab was closed. A signed-in hosted identity-link walkthrough and real-source cohort review remain open. [Detailed behavior and limits](thunderhawk-party-identity-review.md) and [release manifest](../deploy/thunderhawk-party-identity-20261113.json).
+
+The full goal is still incomplete. Next company work is the remaining placement-chain/referral role writers, legacy company resolution paths and source-aware merge/alias handling. The last metadata inventory remains 2,127 fields with 245 undecided dispositions. Wider receiving contracts/cohorts, portal/lifecycle/documents, normal AWS browser upload, time/payroll/financial provenance and reconciliation, and the full completion audit below remain required. Production, providers, Arabella and financial execution were unchanged.
+
+## November 13 company/contact acceptance and subcontract roles — prior checkpoint
 
 The installed runtime is `075ca260`, with all eleven jobs in [CI 43360490711](https://github.com/coreflux-creator/CoreFlux/actions/runs/43360490711) passing. Company/contact source ownership and native review controls are installed. Hosted functional acceptance passed 18 assertions covering stale review rejection, selected phone-only updates, preserved native names/provider links, reader denial and replay after later native edits. Test account 107 is retired, its membership/grants/passwords are removed, and synthetic CO-2016 is retired. Browser screenshot capture timed out; native controls, rendered content and desktop overflow were verified.
 
