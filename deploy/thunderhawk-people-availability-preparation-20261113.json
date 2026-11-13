@@ -1,0 +1,189 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Current worktree and successful checkpoint CI were revalidated; reviewed People availability was then completed and verified.",
+  "source_commit": "d840514a71d8dfc29fa65fa039a5a54d1a665887",
+  "base_commit": "a1c0d5f7655526f95cb6a90f6e8025425489ffe2",
+  "source_files_sha256_lf": {
+    ".deploy-version": "8e22ac90bebf1133eeb1d1f3091898337014d89b1d4f67833d0bb8041475ad86",
+    ".github/workflows/ci.yml": "f38d96f16114a646343e277c571046f0b10ef872ff9df95846e0f10d54dd8eba",
+    "api/admin/integrations/jobdiva_mapping_alignment.php": "da5dc39fb08b01793a975d066fd3894c34fedf0ce16b2c46baafaf1fdfabb578",
+    "core/jobdiva/mapping_alignment.php": "3eb8ae812ab14f36bf8c263c140442bfe8f3f1a94013c2075f52f14f0ac37c0b",
+    "core/jobdiva/people_lifecycle_review.php": "7e17557caa236bae696fa25528deed9a10402cbe6ae456f9a03fba8e8dc56700",
+    "dashboard/dist/index.html": "a7a6a3dd23cf8b628031512c73a2c47be5b50bf1eac406bc8d862186551284e5",
+    "dashboard/src/pages/JobDivaPeopleLifecycleReview.jsx": "4e33e153b2a32bf3f3f19600a43a170101e6328ea6646a0867e63dde8e3b54c0",
+    "dashboard/src/pages/JobDivaSettings.jsx": "ad0d444b7b421cf2d15f4da7bc2c78c202a65415afc77771d94f8a43efda820b",
+    "dashboard/tests/jobdivaPeopleAvailability.test.mjs": "45814ea7e352ff7810810c94f817cc607635e964ba598d9f77eb1d43714d450f",
+    "index.html": "a7a6a3dd23cf8b628031512c73a2c47be5b50bf1eac406bc8d862186551284e5",
+    "spa-assets/index-09W8zyaN.js": "09863f8f72ab9cc4a2181bcb221235096bb17ffca563c577207ac4e252177d20",
+    "spa-assets/index-Cr6v62Q_.js": "2c657a67c2b89eeea2d7b2130d5e2f12f655dd4020c299998b29f289b83dcd80",
+    "spa-assets/index.html": "a7a6a3dd23cf8b628031512c73a2c47be5b50bf1eac406bc8d862186551284e5",
+    "spa-assets/sw.js": "80f827e75bd0af8d4fa5ffd9a8f64634fa0fb21884ac7ae7faa6d7d0253a409b",
+    "tests/company_relationship_concurrency_db.php": "20cfb265f3bc4992c3fbb1a5d98633621924007ecfbb4b84da740346ad2bdf70",
+    "tests/fixtures/people_availability_http_checks.php": "ef6172c595a02238fa69e56f95c9e89bce67f81850dd5db959c8cfcc382e5c09",
+    "tests/jobdiva_mapping_alignment_smoke.php": "2bcd7189649180fb5975a2f9ff2da48ea69f5f6cedac38a5a0fc9c67b0a5349c",
+    "tests/jobdiva_people_availability_db_check.php": "490f315114cfd187fcc186d4f319eb7fe86961f9245f536832056a4f3f2a52e7",
+    "tests/jobdiva_people_placement_lifecycle_smoke.php": "f75485036dc4c9035306fef8b466e0429fa5ebf5fbe16d794d30c36a0ad75e6f",
+    "tests/placement_contract_permissions_http.php": "2a305f78da0d5dec9ebf21d2237a2a5ff30e38a2734ca6f4211bf201c15f96c7"
+  },
+  "ci": {
+    "run_id": 43474040385,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43474040385",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132053066542,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066693,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066833,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066864,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066874,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066900,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066909,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053066918,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053067007,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053067037,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132053067309,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "people_availability": 42,
+    "assignment_source_and_lifecycle_repair": 46,
+    "csv_assignment_directory": 38,
+    "stored_assignment_directory": 27,
+    "stored_review_transaction": 20,
+    "projection_directory": 40,
+    "independent_connections": 293,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 471
+  },
+  "availability_concurrency_labels": [
+    "Availability review waits for concurrent people COMMIT",
+    "Availability revalidates people after COMMIT",
+    "Availability review waits for concurrent placements COMMIT",
+    "Availability revalidates placements after COMMIT",
+    "Availability review waits for concurrent person COMMIT",
+    "Availability revalidates person after COMMIT",
+    "Availability review waits for concurrent mapping COMMIT",
+    "Availability revalidates mapping after COMMIT",
+    "Availability review waits for concurrent live_placement COMMIT",
+    "Availability revalidates live_placement after COMMIT",
+    "Availability review waits for concurrent new_placement COMMIT",
+    "Availability revalidates new_placement after COMMIT",
+    "Availability holds selected decision and receipt before COMMIT",
+    "Concurrent identical availability request waits for first receipt COMMIT",
+    "Concurrent availability retry commits one decision and one receipt after COMMIT",
+    "Availability review waits for concurrent people ROLLBACK",
+    "Availability revalidates people after ROLLBACK",
+    "Availability review waits for concurrent placements ROLLBACK",
+    "Availability revalidates placements after ROLLBACK",
+    "Availability review waits for concurrent person ROLLBACK",
+    "Availability revalidates person after ROLLBACK",
+    "Availability review waits for concurrent mapping ROLLBACK",
+    "Availability revalidates mapping after ROLLBACK",
+    "Availability review waits for concurrent live_placement ROLLBACK",
+    "Availability revalidates live_placement after ROLLBACK",
+    "Availability review waits for concurrent new_placement ROLLBACK",
+    "Availability revalidates new_placement after ROLLBACK",
+    "Availability holds selected decision and receipt before ROLLBACK",
+    "Concurrent identical availability request waits for first receipt ROLLBACK",
+    "Concurrent availability retry commits one decision and one receipt after ROLLBACK"
+  ],
+  "availability_http_labels": [
+    "Native legacy-number handback retries return the existing receipt",
+    "Anonymous availability preview requires native sign-in",
+    "Integration visibility alone cannot expose People availability",
+    "Native read-only review resolves child source into shared People without writes",
+    "Read-only integration and People access cannot apply availability",
+    "Integration management still requires People management",
+    "Native People write grant permits bench decisions but not retirement",
+    "People write grant cannot bypass the separate inactive permission",
+    "A new live assignment invalidates native availability review",
+    "Native late receipt failure rolls back availability and its per-person audit",
+    "Native selected availability changes the shared worker to bench",
+    "Native availability preserves employment, sign-in, historical assignments, rates, numbers and source identities",
+    "Native availability audit retains authenticated actor, original workspace, shared owner and decision",
+    "Native retry recovers the saved availability receipt without duplicate writes",
+    "Native receipt recovery preserves a later independently edited availability",
+    "Native People admin grant exposes explicit retirement",
+    "Revoked People access cannot recover even a previously authorized receipt",
+    "Native availability performs no payroll, payment or accounting execution"
+  ],
+  "native_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "contract_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T17:35:13+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "legacy alignment report, source-rate repair and joined-index refresh",
+    "reviewed duplicate consolidation preserving source pairs and permanent number aliases",
+    "active-status maintenance script and generic placement CSV",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field/portal/onboarding/document/time/approval/payroll-result/reconciliation acceptance remains incomplete"
+}
