@@ -21,6 +21,12 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
             $contact=(int)$pdo->lastInsertId();
             $pdo->prepare('INSERT INTO companies(tenant_id,name) VALUES(?,?)')->execute([$foreign,'Foreign '.$mode.' company source']);
             $foreignCompany=(int)$pdo->lastInsertId();$companyIds[]=$foreignCompany;
+            // Legacy inconsistent child rows must not leak through an otherwise
+            // valid parent ID, nor be silently moved to the current directory.
+            $pdo->prepare('INSERT INTO company_contacts(tenant_id,company_id,name,phone) VALUES(?,?,?,?)')->execute([$foreign,$company,'Foreign child contact','private foreign phone']);
+            $foreignContact=(int)$pdo->lastInsertId();
+            $pdo->prepare('INSERT INTO company_addresses(tenant_id,company_id,line1,city) VALUES(?,?,?,?)')->execute([$foreign,$company,'Private foreign address','Foreign city']);
+            $foreignAddress=(int)$pdo->lastInsertId();
             $sources=['companies'=>[$company,'company-'.$mode],'company_contacts'=>[$contact,'contact-'.$mode]];
             foreach($sources as$table=>[$id,$external]){
                 mappingUpsert($child,'jobdiva',$table==='companies'?'company':'contact',$external,$id,['id'=>$external],'pull',$actor);
@@ -69,6 +75,13 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
             [$status,$detail]=$request($route.'?id='.$company,null,true,$child);
             $expect($status===200&&$detail['can_review_source']&&!array_key_exists('coreflux_source_state',$detail['company'])
                 &&!array_key_exists('coreflux_source_state',$detail['company']['contacts'][0]),"$mode: ordinary detail excludes private ownership state and exposes review permission");
+            $expect(count($detail['company']['contacts'])===1&&(int)$detail['company']['contacts'][0]['id']===$contact
+                &&$detail['company']['addresses']===[],"$mode: inconsistent foreign contacts and addresses are omitted from company detail");
+            $expect($request($route.'?action=source_review&record_type=company_contacts&id='.$foreignContact,null,true,$child)[0]===404
+                &&$request($route.'?action=contact&id='.$foreignContact,['phone'=>'should not write'],true,$child,false,'PATCH')[0]===404,
+                "$mode: a valid parent cannot authorize a foreign contact review or edit");
+            $expect($read('company_contacts',$foreignContact)['phone']==='private foreign phone'
+                &&$read('company_addresses',$foreignAddress)['line1']==='Private foreign address',"$mode: foreign child records remain unchanged");
             $expect($request($route.'?action=source_review&id='.$foreignCompany,null,true,$child)[0]===404,"$mode: foreign company ID cannot reveal source values");
             $expect($request($route.'?action=source_accept&id='.$foreignCompany,['confirm_source'=>true,'fields'=>['phone'],'review_token'=>'foreign'],true,$child)[0]===404,"$mode: foreign company ID cannot accept source values");
             $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE id=?')->execute([$company]);

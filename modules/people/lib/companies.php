@@ -62,19 +62,19 @@ function companiesGet(int $id, ?int $directoryTenantId = null): ?array
         $row['tags'] = [];
     }
     $row['roles']     = companyRoles($id);
-    $row['contacts']  = companyContacts($id);
-    $row['addresses'] = companyAddresses($id);
+    $row['contacts']  = companyContacts($id, (int)$row['tenant_id']);
+    $row['addresses'] = companyAddresses($id, (int)$row['tenant_id']);
     return $row;
 }
 
-function companyAddresses(int $companyId): array
+function companyAddresses(int $companyId, ?int $directoryTenantId = null): array
 {
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $stmt = getDB()->prepare(
-        'SELECT * FROM company_addresses WHERE company_id = :id
-         ORDER BY is_primary DESC, kind ASC, id ASC'
+        'SELECT a.* FROM company_addresses a JOIN companies c ON c.id=a.company_id AND c.tenant_id=a.tenant_id
+         WHERE c.id=:id AND c.tenant_id=:owner AND c.deleted_at IS NULL
+         ORDER BY a.is_primary DESC, a.kind ASC, a.id ASC'
     );
-    $stmt->execute(['id' => $companyId]);
+    $stmt->execute(['id'=>$companyId,'owner'=>$directoryTenantId??companiesDirectoryTenantId()]);
     return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 }
 
@@ -85,11 +85,11 @@ function companyRoles(int $companyId): array
     return array_map(fn ($r) => $r['role'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
 }
 
-function companyContacts(int $companyId): array
+function companyContacts(int $companyId, ?int $directoryTenantId = null): array
 {
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-    $stmt = getDB()->prepare('SELECT * FROM company_contacts WHERE company_id = :id ORDER BY is_primary DESC, name ASC');
-    $stmt->execute(['id' => $companyId]);
+    $stmt = getDB()->prepare('SELECT cc.* FROM company_contacts cc JOIN companies c ON c.id=cc.company_id AND c.tenant_id=cc.tenant_id
+        WHERE c.id=:id AND c.tenant_id=:owner AND c.deleted_at IS NULL ORDER BY cc.is_primary DESC, cc.name ASC');
+    $stmt->execute(['id'=>$companyId,'owner'=>$directoryTenantId??companiesDirectoryTenantId()]);
     $rows=$stmt->fetchAll(\PDO::FETCH_ASSOC);
     foreach($rows as &$row)unset($row['coreflux_source_state']);
     unset($row);
