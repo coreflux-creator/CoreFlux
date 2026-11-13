@@ -59,7 +59,10 @@ try {
         $rows=coreRecordNumbersAttach($pdo,$tenant,$kind,[['id'=>$value]]);
         return integrationRecordReference('00000000-0000-4000-8000-000000000001',$tenant,$kind,$rows[0][coreRecordNumberDefinition($kind)['field']]);
     };
-    $exported=purepayAssignmentParty($snapParty,[], $resolve,[],true);
+    // Production reads the persisted JSON through the decimal-preserving parser.
+    $serialized=purepayAssignmentSnapshotJson(json_encode($snapshot['economics_snapshot'],JSON_THROW_ON_ERROR));
+    $serializedParty=current(array_filter($serialized['contract_parties'],static fn($p)=>$p['source_ref']==='commission:'.$id));
+    $exported=purepayAssignmentParty($serializedParty,[], $resolve,[],true);
     $check($exported['roots']['person']===$resolve('person',$recipient)&&$exported['source_user_id']===$uid&&$exported['currency']==='INR','Actual native snapshot exports its canonical recipient and independent commission terms');
     $check($read('placement_rates')===$rates,'Review does not rewrite any existing approved rate');
     $frozen=json_encode($snapshot['economics_snapshot'],JSON_THROW_ON_ERROR);
