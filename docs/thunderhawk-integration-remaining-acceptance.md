@@ -2,7 +2,15 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 13 explicit company/contact identity review — current checkpoint
+## November 13 assignment-chain/referral company identity — current checkpoint
+
+Runtime `4bc10bb0` is installed in the isolated pilot after all eleven jobs in [CI 43369502442](https://github.com/coreflux-creator/CoreFlux/actions/runs/43369502442) passed. Chain and referral source writes now use exact company identities and the existing role ownership controls. Namesakes are never silently adopted; unresolved names and fees remain visible, and authorized staff can choose an existing company through the native placement screen. Existing source mappings and other provider IDs are preserved. Missing source IDs retain unchanged legacy relationships; the canonical parent end client remains authoritative, including Core-owned conflicts. Repeated imports do not inflate company usage.
+
+Acceptance passed **29 native company database checks, 404 native placement HTTP checks, five targeted rendered-component cases, 36 assignment evidence checks, and 30 installed-library checks**. All 17 temporary tables were removed. Independent verification confirmed **367 runtime hashes and all 35,304 existing rows across 378 tables unchanged**. Both browser-served bundles match their expected hashes; signed-out chain/referral reads returned 401. The browser was signed out, so a signed-in hosted company-choice walkthrough remains open. No permanent fixture records, provider calls, production changes, Arabella changes or financial execution occurred. [Behavior and correction history](thunderhawk-assignment-company-identity.md), [release evidence](../deploy/thunderhawk-assignment-company-20261113.json).
+
+The saved pilot cohort contains only one assignment snapshot, with name-only MSP and referral evidence and existing linked relations; it cannot establish broader real-source company coverage. Next company work is reviewed merges with preserved provider aliases and permanent company-number aliases, plus the wider identity/cohort walkthrough. The latest metadata inventory remains 2,127 fields with 245 undecided dispositions. Remaining portal/lifecycle/document, normal AWS browser upload, original time approval/correction, payroll/financial allocation/provenance/reconciliation and the full completion audit are still required. The full goal remains incomplete.
+
+## November 13 explicit company/contact identity review — prior checkpoint
 
 Runtime `86bf59ea` is installed in the isolated pilot after all eleven jobs in [CI 43364967814](https://github.com/coreflux-creator/CoreFlux/actions/runs/43364967814) passed. Authorized staff can review an exact JobDiva company/contact link from client/vendor details, preserve native values and other provider IDs, and recover a saved receipt after a lost response. Assignment party projection no longer adopts an existing company solely by name; reviewed identities can retain independently owned Core names. Missing source phone/email values remain distinct from explicit blanks.
 

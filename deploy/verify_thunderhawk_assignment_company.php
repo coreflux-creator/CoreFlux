@@ -1,0 +1,119 @@
+<?php
+/** Installed-library acceptance using only connection-private temporary copies of actual schemas. */
+declare(strict_types=1);
+const PI_ROOT='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html';
+const PI_PRIVATE='/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030';
+if(PHP_SAPI!=='cli'||getcwd()!==PI_ROOT||getenv('COREFLUX_ENV')!=='staging'||posix_geteuid()!==1003
+ ||($argv[1]??'')!=='--verify-installed-assignment-company'||!preg_match('/^[a-f0-9]{64}$/D',$argv[2]??''))exit(2);
+$packagePath=__DIR__.'/assignment-company-package.json';
+if(is_link($packagePath)||hash_file('sha256',$packagePath)!==$argv[2])exit(2);
+$package=json_decode(file_get_contents($packagePath),true,64,JSON_THROW_ON_ERROR);
+$receipt=json_decode(file_get_contents(PI_PRIVATE.'/assignment-company-install-result.json'),true,64,JSON_THROW_ON_ERROR);
+if(!($receipt['passed']??false)||$receipt['source_commit']!==$package['source_commit'])exit(2);
+$pins=$package['dependencies'];foreach($package['files']as$f=>$entry)$pins[$f]=$entry['sha256'];
+foreach($pins as$f=>$hash){$path=PI_ROOT.'/'.$f;if(is_link($path)||hash('sha256',str_replace("\r\n","\n",file_get_contents($path)))!==$hash)throw new RuntimeException('Installed runtime differs');}
+require_once PI_ROOT.'/core/jobdiva/sync.php';require_once PI_ROOT.'/core/jobdiva/party_sync.php';require_once PI_ROOT.'/core/integrations/identity.php';
+$pdo=getDB();
+if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'||!COREFLUX_STAGING||integrationInstanceId()!=='9f4b6dfb-e52e-464c-9a9d-af7766928ddf'
+ ||COREFLUX_INTEGRATION_DELIVERY_TENANTS!=='2002'||(int)$pdo->query('SELECT is_simulation FROM tenants WHERE id=2002')->fetchColumn()!==1)exit(2);
+$snapshot=static function()use($pdo):array{$result=[];foreach($pdo->query("SHOW FULL TABLES WHERE Table_type='BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN)as$t){if(!preg_match('/^[A-Za-z0-9_]+$/D',$t))exit(2);$hashes=[];foreach($pdo->query('SELECT * FROM `'.$t.'`')as$r)$hashes[]=hash('sha256',serialize($r));sort($hashes);$result[$t]=['rows'=>count($hashes),'hash'=>hash('sha256',implode("\n",$hashes))];}ksort($result);return$result;};
+$permanentBefore=$snapshot();$temporary=[];
+try{
+    foreach(['tenants', 'tenant_module_scope', 'jobdiva_connections', 'people', 'placements', 'placement_client_chain', 'placement_referrals', 'companies', 'company_contacts', 'company_roles', 'staffing_clients', 'core_record_numbers', 'external_entity_mappings', 'entity_sync_history', 'integration_payload_field_index', 'tenant_integration_field_map', 'audit_log'] as $t){
+        $definition=$pdo->query('SHOW CREATE TABLE `'.$t.'`')->fetch(PDO::FETCH_NUM)[1];
+        if(!str_starts_with($definition,'CREATE TABLE `'.$t.'` ('))throw new RuntimeException('Unexpected fixture definition');
+        $definition=preg_replace('/^CREATE TABLE /','CREATE TEMPORARY TABLE ',$definition,1);
+        $definition=preg_replace('/^  CONSTRAINT [^\n]+FOREIGN KEY[^\n]*\n/m','',$definition);
+        $definition=preg_replace('/,\n\)/',"\n)",$definition);
+        if(str_contains($definition,'FOREIGN KEY'))throw new RuntimeException('Unreviewed temporary foreign key');
+        $pdo->exec($definition);$temporary[]=$t;
+    }
+$checks=[];$check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks[]=$label;};
+$fails=static function(callable $call):bool{try{$call();return false;}catch(RuntimeException $e){return in_array($e->getCode(),[404,409],true);}};
+$row=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
+$all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$tenant=990631;$child=990632;$foreign=990633;
+if($pdo->query('SELECT id FROM tenants WHERE id IN(990631,990632,990633)')->fetchColumn())throw new RuntimeException('Fixture tenants already exist');
+$financial=[$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries')];
+$pdo->beginTransaction();
+try{
+    foreach([$tenant,$foreign]as$t)$pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(? ,?,1,1,"master")')->execute([$t,'Synthetic assignment company '.$t]);
+    $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic shared assignment",1,1,"sub",?)')->execute([$child,$tenant]);
+    $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared")')->execute([$child]);
+    $makePlacement=static function(int $workspace)use($pdo):int{
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,classification,email_primary) VALUES(?,"Synthetic","Party Worker","w2",?)')->execute([$workspace,'synthetic-party-'.bin2hex(random_bytes(8)).'@example.invalid']);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date) VALUES(?,?,"Synthetic parties","on_hold","w2","2026-11-01")')->execute([$workspace,$person]);return(int)$pdo->lastInsertId();
+    };
+    $placement=$makePlacement($tenant);
+    $company=jobdivaUpsertCompanyMapped($tenant,'company-A','Source party',['phone'=>'Source phone'],['id'=>'company-A','name'=>'Source party','phone'=>'Source phone'],null,[]);
+    companyNativeFields($pdo,$tenant,$tenant,'companies',$company,['phone'=>'Core phone','roles'=>['partner']],null);
+    mappingUpsert($tenant,'purepay','company','provider-preserved',$company,['id'=>'provider-preserved'],'pull',null);
+    $mappings=$all('external_entity_mappings');
+    $chain=jobdivaSyncUpsertPlacementChainRow($tenant,$placement,1,'msp','Source party',null,['portal_fee_pct'=>0.02],null,'company-A');
+    $state=companySourceState($row('companies',$company),'companies');
+    $check((int)$row('placement_client_chain',$chain)['company_id']===$company&&companyRoles($company)===['partner'],'Exact chain identity links without restoring a Core-removed role');
+    $check(in_array('msp',$state['proposed']['roles'],true)&&$state['proposed']['phone']==='Source phone'&&$row('companies',$company)['phone']==='Core phone','Role evidence retains other source proposals and native values');
+    $check($all('external_entity_mappings')===$mappings,'Assignment role refresh preserves all provider IDs, payloads and mapping timestamps');
+    $useCount=$row('companies',$company)['use_count'];$chainBefore=$row('placement_client_chain',$chain);
+    $check(jobdivaSyncUpsertPlacementChainRow($tenant,$placement,1,'msp','Source party',null,['portal_fee_pct'=>0.02],null,'company-A')===$chain&&$row('companies',$company)['use_count']===$useCount&&$row('placement_client_chain',$chain)===$chainBefore,'Repeated chain import keeps one row and does not inflate company usage');
+    $companies=$all('companies');
+    $unlinked=jobdivaSyncUpsertPlacementChainRow($tenant,$placement,2,'prime_vendor','Source party',null,['portal_fee_flat'=>25]);
+    $check($row('placement_client_chain',$unlinked)['company_id']===null&&(float)$row('placement_client_chain',$unlinked)['portal_fee_flat']===25.0&&$all('companies')===$companies,'Name-only chain preserves economics without adopting a matching company');
+    $new=jobdivaSyncUpsertPlacementChainRow($tenant,$placement,3,'sub_vendor','New exact party',null,[],null,'company-new');
+    $newCompany=(int)$row('placement_client_chain',$new)['company_id'];
+    $check($newCompany>0&&companyRoles($newCompany)===['sub_vendor']&&(int)mappingFindInternal($tenant,'jobdiva','company','company-new')['internal_entity_id']===$newCompany,'New exact source identity creates one company with source-owned roles');
+    $before=[$all('companies'),$all('placement_client_chain'),$all('external_entity_mappings')];
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,4,'msp','Source party',null,[],null,'unreviewed-collision'))&&[$all('companies'),$all('placement_client_chain'),$all('external_entity_mappings')]===$before,'Name collision requires explicit review and rolls back every side effect');
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,4,'msp','Source party',$newCompany,[],null,'company-A')),'Caller company and exact source binding cannot disagree');
+    $pdo->prepare('INSERT INTO companies(tenant_id,name,country) VALUES(?,"Legacy party","US")')->execute([$tenant]);$legacy=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO placement_client_chain(tenant_id,placement_id,position,party_name,party_role,company_id) VALUES(?,?,4,"Legacy party","msp",?)')->execute([$tenant,$placement,$legacy]);$legacyChain=(int)$pdo->lastInsertId();$legacyBefore=$row('companies',$legacy);
+    $check(jobdivaSyncUpsertPlacementChainRow($tenant,$placement,4,'msp','Legacy party')===$legacyChain&&(int)$row('placement_client_chain',$legacyChain)['company_id']===$legacy&&$row('companies',$legacy)===$legacyBefore&&companyRoles($legacy)===[],'Omitted source ID retains legacy relation without claiming company ownership or roles');
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,4,'msp','Different party'))&&(int)$row('placement_client_chain',$legacyChain)['company_id']===$legacy,'A changed name cannot reuse the legacy company identity');
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,5,'msp','Legacy party',$legacy)),'An unbound company cannot be linked by a supplied local ID alone');
+    $nativePlacement=$makePlacement($tenant);
+    $pdo->prepare('UPDATE placements SET end_client_company_id=?,end_client_name="Legacy party" WHERE id=?')->execute([$legacy,$nativePlacement]);
+    $nativeChain=jobdivaSyncUpsertPlacementChain($tenant,$nativePlacement,$legacy,'Legacy party',[])['rows']['end_client'];
+    $check((int)$row('placement_client_chain',$nativeChain)['company_id']===$legacy&&companyRoles($legacy)===[]&&$row('companies',$legacy)['coreflux_source_state']===$legacyBefore['coreflux_source_state'],'Native parent end-client identity carries into its chain without claiming source authority or roles');
+    $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["end_client_company_id","end_client_name"]\' WHERE id=?')->execute([$nativePlacement]);
+    jobdivaSyncUpsertPlacementChain($tenant,$nativePlacement,$legacy,'Legacy party',['endClientCompanyId'=>'company-A']);
+    $check((int)$row('placement_client_chain',$nativeChain)['company_id']===$legacy&&companyRoles($legacy)===[],'Core-owned parent identity survives a different explicit source end-client ID');
+    $pdo->prepare('UPDATE placements SET end_client_company_id=?,end_client_name="New exact party",coreflux_overridden_fields=NULL WHERE id=?')->execute([$newCompany,$nativePlacement]);
+    jobdivaSyncUpsertPlacementChain($tenant,$nativePlacement,$newCompany,'New exact party',[]);
+    $check((int)$row('placement_client_chain',$nativeChain)['company_id']===$newCompany,'Existing chain follows the current canonical parent identity without a name-based lookup');
+    $pdo->prepare('INSERT INTO companies(tenant_id,name,country) VALUES(?,"Foreign party","US")')->execute([$foreign]);$other=(int)$pdo->lastInsertId();
+    mappingUpsert($tenant,'jobdiva','company','foreign-id',$other,null,'pull',null);$otherBefore=$row('companies',$other);
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,5,'msp','Foreign party',null,[],null,'foreign-id'))&&$row('companies',$other)===$otherBefore,'A foreign-company mapping cannot cross the current directory');
+    $setPlacement=$makePlacement($tenant);$before=[$all('companies'),$all('placement_client_chain'),$all('external_entity_mappings')];
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChain($tenant,$setPlacement,null,null,['msp'=>'First party','mspCompanyId'=>'first-party','primeVendor'=>'Conflicted party','primeVendorCompanyId'=>'A','_jd_start'=>['primeVendorCompanyId'=>'B']]))&&[$all('companies'),$all('placement_client_chain'),$all('external_entity_mappings')]===$before,'Later chain identity conflict rolls back earlier company and rule creation');
+    $sameNameSet=jobdivaSyncUpsertPlacementChain($tenant,$setPlacement,null,'Source party',['endClientCompanyId'=>'company-A','msp'=>'Source party','mspCompanyId'=>'company-A','mspFeePct'=>2]);
+    $check($sameNameSet['written']===2,'One company can retain distinct end-client and fee-bearing MSP roles');
+    $refPayload=['employmentType'=>'W2','referralVendor'=>'Source party','referralFeeAmount'=>10,'referralFeeBasis'=>'one_time'];
+    $referral=jobdivaSyncUpsertPlacementReferral($tenant,$placement,'2026-11-01',$refPayload);
+    $check($row('placement_referrals',$referral)['referrer_company_id']===null&&(float)$row('placement_referrals',$referral)['fee_flat']===10.0,'Name-only referral preserves its fee without company adoption');
+    $refPayload['referralVendorCompanyId']='company-A';$referralAgain=jobdivaSyncUpsertPlacementReferral($tenant,$placement,'2026-11-01',$refPayload);
+    $state=companySourceState($row('companies',$company),'companies');
+    $check($referralAgain===$referral&&(int)$row('placement_referrals',$referral)['referrer_company_id']===$company&&companyRoles($company)===['partner']&&in_array('referrer',$state['proposed']['roles'],true),'Exact referral linking preserves Core roles and proposes the source role');
+    $usage=$row('companies',$company)['use_count'];jobdivaSyncUpsertPlacementReferral($tenant,$placement,'2026-11-01',$refPayload);
+    $check($row('companies',$company)['use_count']===$usage,'Referral replay does not inflate usage');
+    unset($refPayload['referralVendorCompanyId']);jobdivaSyncUpsertPlacementReferral($tenant,$placement,'2026-11-01',$refPayload);
+    $check((int)$row('placement_referrals',$referral)['referrer_company_id']===$company,'A later omitted referral ID does not clear the stored relationship');
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementReferral($tenant,$placement,'2026-11-01',array_replace($refPayload,['referralVendor'=>'Changed vendor']))),'Changed referral name without identity requires review');
+    $canonical=['_jd_contract'=>['engagement_type'=>'referral','employment_category'=>'Referral','corporation_id'=>'ref-company','corporation_name'=>'Exact referral company','pay_rate'=>3]];
+    $canonicalPlacement=$makePlacement($tenant);$canonicalId=jobdivaSyncUpsertPlacementReferral($tenant,$canonicalPlacement,'2026-11-01',$canonical);
+    $check($canonicalId>0&&(int)$row('placement_referrals',$canonicalId)['referrer_company_id']>0&&$row('placement_referrals',$canonicalId)['fee_basis']==='per_hour','Canonical referral contract uses its exact corporation ID and payout basis');
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementReferral($tenant,$canonicalPlacement,'2026-11-01',$canonical+['referrerCompanyId'=>'different'])),'Canonical and role-specific referral company IDs cannot conflict');
+    $childPlacement=$makePlacement($child);$shared=jobdivaUpsertCompanyMapped($child,'shared-id','Shared party',[],['id'=>'shared-id'],null,[]);
+    $childChain=jobdivaSyncUpsertPlacementChainRow($child,$childPlacement,1,'msp','Shared party',null,[],null,'shared-id');
+    $check((int)$row('companies',$shared)['tenant_id']===$tenant&&(int)$row('placement_client_chain',$childChain)['company_id']===$shared,'Shared directory company remains separate from the assignment workspace');
+    companiesDirectoryTenantId($child); // Deliberately populate the old directory cache.
+    $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="companies"')->execute([$child]);$before=$row('companies',$shared);
+    $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($child,$childPlacement,1,'msp','Shared party',null,[],null,'shared-id'))&&$row('companies',$shared)===$before,'A mid-session sharing change is re-read and cannot write the former directory');
+    $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["chain_rules","referral_rules"]\' WHERE tenant_id=? AND id=?')->execute([$tenant,$placement]);$before=[$all('companies'),$all('placement_client_chain'),$all('placement_referrals'),$all('external_entity_mappings')];
+    $check(jobdivaSyncUpsertPlacementChainRow($tenant,$placement,1,'msp','Held',null,[],null,'held-id')===0&&jobdivaSyncUpsertPlacementReferral($tenant,$placement,'2026-11-01',$refPayload+['referrerCompanyId'=>'held-referral'])===0&&[$all('companies'),$all('placement_client_chain'),$all('placement_referrals'),$all('external_entity_mappings')]===$before,'Core-owned whole rule sets stop identity and role side effects before resolution');
+    $check([$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries')]===$financial,'Company alignment creates no time or financial postings');
+    $check($pdo->inTransaction(),'All nested writers preserve the enclosing rollback transaction');
+}finally{if($pdo->inTransaction())$pdo->rollBack();}
+
+}finally{if($pdo->inTransaction())$pdo->rollBack();foreach(array_reverse($temporary)as$t)$pdo->exec('DROP TEMPORARY TABLE `'.$t.'`');}
+$permanentAfter=$snapshot();$check($permanentAfter===$permanentBefore,'Every permanent row is unchanged after temporary acceptance cleanup');
+echo json_encode(['checked_at'=>gmdate('c'),'passed'=>true,'checks_passed'=>count($checks),'checks'=>$checks,'installed_runtime_pins'=>count($pins),'tables_verified'=>count($permanentAfter),'rows_preserved'=>array_sum(array_column($permanentAfter,'rows')),'temporary_tables_removed'=>count($temporary),'provider_calls'=>0,'permanent_fixture_records'=>0],JSON_THROW_ON_ERROR)."\n";
