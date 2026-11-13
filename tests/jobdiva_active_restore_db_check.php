@@ -57,7 +57,8 @@ try{
             if($case==='missing_client')$pdo->prepare('UPDATE placements SET client_id=NULL WHERE id=?')->execute([$pending]);
             if($case==='retired_company')$pdo->prepare('UPDATE companies c JOIN placements p ON p.end_client_company_id=c.id SET c.deleted_at=NOW() WHERE p.id=?')->execute([$pending]);
             if($case==='disabled_cycle')$pdo->prepare('UPDATE staffing_operating_cycles c JOIN placement_economic_parties ep ON ep.operating_cycle_id=c.id SET c.active=0 WHERE ep.placement_id=?')->execute([$pending]);
-            if($case==='duplicate_source')mappingUpsert($workspace,'jobdiva','placement','99320001',$pending,$payload);
+            // The normal stable mapper deliberately retains the old pair. Construct a legacy duplicate directly.
+            if($case==='duplicate_source')$insert('external_entity_mappings',['tenant_id'=>$workspace,'source_system'=>'jobdiva','internal_entity_type'=>'placement','external_id'=>'99320001','internal_entity_id'=>$pending,'payload_snapshot'=>json_encode($payload),'content_hash'=>mappingHash($payload),'sync_status'=>'ok']);
             if($case==='contradictory_mirror')mappingUpsert($workspace,'jobdiva','jobdiva_assignment','99320001',99320001,['startId'=>'99320001','candidateId'=>'99320002','jobId'=>'99320003','startDate'=>'2026-10-01','status'=>'Ended']);
             if($case==='missing_number')$pdo->prepare('DELETE FROM core_record_numbers WHERE tenant_id=? AND entity_type="placement" AND record_id=?')->execute([$owner,$pending]);
             if($case==='stale_source')$pdo->prepare('UPDATE external_entity_mappings SET last_seen_at=DATE_SUB(NOW(),INTERVAL 3 DAY) WHERE id=?')->execute([$mapping]);

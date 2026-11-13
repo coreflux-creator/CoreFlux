@@ -96,6 +96,12 @@ function jobdivaActiveRestoreSnapshot(int $workspace,int $actor,array $ids): arr
             $mirrorStatus=jobdivaAssignmentCanonicalPlacementStatus(jobdivaAssignmentIdentityPluck($mirrorRoot,['startStatus','start_status','status','assignmentStatus']),jobdivaNormaliseDate(jobdivaAssignmentIdentityPluck($mirrorRoot,['endDate','end_date','end date'])));
             if (empty(jobdivaAssignmentValidate($mirrorRoot,$base['external'])['valid']) || empty(jobdivaAssignmentContextEvidence($mirrorRoot,$root)['matches'])
                 || in_array($mirrorStatus['status']??'',['ended','cancelled','on_hold'],true)) $blocked[]='review_conflicting_assignment_mirror';
+            if (isset($mirrorPayload['_jd_assignment_detail'])) {
+                $mirrorDetail=$mirrorPayload['_jd_assignment_detail'];
+                $mirrorContract=is_array($mirrorDetail) && $mirrorDetail && jobdivaAssignmentContractRowsForStart($mirrorDetail,$mirrorRoot,$base['external'])===$mirrorDetail
+                    ? jobdivaAssignmentContractBuild($mirrorDetail,$mirrorRoot,$base['external']) : [];
+                if (!$mirrorContract || !jobdivaAssignmentContractSnapshotIsStronglyActive(['_jd_contract'=>$mirrorContract])) $blocked[]='review_conflicting_assignment_mirror';
+            }
         }
 
         $coverage=[];
