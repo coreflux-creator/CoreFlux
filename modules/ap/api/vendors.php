@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/vendor_projection.php';
 require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
@@ -83,12 +84,14 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     if (!$row) api_error('Not found', 404);
     $row = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', [$row])[0];
     $row = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', [$row], 'company_id')[0];
+    $revealedTaxId = null;
     if (!empty($_GET['reveal_pii']) && !empty($row['tax_id_full_ct'])) {
         rbac_legacy_require($user, 'ap.vendor.view_pii');
-        $row['tax_id_full'] = decryptField($row['tax_id_full_ct']);
+        $revealedTaxId = decryptField($row['tax_id_full_ct']);
         apAudit('ap.vendor.tax_id_viewed', ['vendor_id' => $id, 'vendor_name' => $row['vendor_name']], $id);
     }
-    unset($row['tax_id_full_ct']);
+    $row = apVendorPublicRecord($row);
+    if ($revealedTaxId !== null) $row['tax_id_full'] = $revealedTaxId;
     api_ok(['vendor' => $row]);
 }
 

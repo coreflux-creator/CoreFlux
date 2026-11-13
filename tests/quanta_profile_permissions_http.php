@@ -39,7 +39,7 @@ $actions=array_merge($actions,$timeControls);
 $counts = static function() use ($pdo): array {
     $out = [];
     foreach (['people','placements','quanta_profile_baselines','quanta_profile_decisions','quanta_profile_returns',
-        'time_entries','quanta_time_revisions','payroll_runs','ap_payments','billing_payments','accounting_journal_entries'] as $table) {
+        'time_entries','quanta_time_revisions','payroll_runs','ap_vendors_index','ap_payments','billing_payments','accounting_journal_entries'] as $table) {
         $out[$table] = (int)$pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
     return $out;
@@ -255,11 +255,29 @@ try {
     foreach ($actions as $action) $expect($call($action)[0]===403,'Same session loses integration access after revocation: ' . $action);
     $financialContext='/api/staffing_reconciliation.php?action=context';
     $financialRead='/api/staffing_reconciliation.php';$evidence='/api/staffing_financial_evidence.php';
+    $pdo->prepare('INSERT INTO ap_vendors_index(tenant_id,vendor_name,tax_id_last4,tax_id_full_ct,payment_account_ct,payment_account_last4,payment_routing_ct,payment_routing_last4,kms_key_version,kms_key_version_payment,default_remit_to_json) VALUES(?,"Synthetic private vendor","3333",?, ?,"0000",?,"1111","synthetic","synthetic",?)')
+        ->execute([$tenant,encryptField('111223333'),encryptField('0000000000'),encryptField('011000111'),'{"unknown_secret":"must-not-leak"}']);
+    $privateVendor=(int)$pdo->lastInsertId();$vendorRoute='/modules/ap/api/vendors.php?id='.$privateVendor;
+    $vendorBefore=$pdo->query('SELECT * FROM ap_vendors_index WHERE id='.$privateVendor)->fetch(PDO::FETCH_ASSOC);
+    $expect($request($vendorRoute,null,false)[0]===401,'Anonymous vendor detail is denied');
+    $expect($request($vendorRoute,null)[0]===403,'People and time grants do not reveal vendor details');
     $financialCalls=[[$financialContext,null],[$financialRead,[]],[$evidence.'?action=history',[]],[$evidence.'?action=download',[]],[$evidence.'?action=preview',[]],[$evidence.'?action=save',[]]];
     foreach($financialCalls as[$path,$body])$expect($request($path,$body,false)[0]===401,'Anonymous financial review denied: '.$path);
     $expect($request($financialContext,null)[0]===403,'A people/time reviewer alone cannot read financial evidence');
     $financialModules=['accounting','ap','billing','placements','people','time','payroll'];
     foreach($financialModules as$module)RBACResolver::grantModule($membership,$module,'read',[$tenant],$actor);
+    [$status,$vendorView]=$request($vendorRoute,null);
+    $expect($status===200&&($vendorView['vendor']['vendor_number']??null)==='V-'.$privateVendor&&$vendorView['vendor']['payment_account_last4']==='0000'&&$vendorView['vendor']['tax_id_last4']==='3333','AP reader retains canonical vendor identity and permitted masked values');
+    foreach(['tax_id_full_ct','tax_id_full','payment_account_ct','payment_routing_ct','kms_key_version','kms_key_version_payment','default_remit_to_json']as$field)
+        $expect(!array_key_exists($field,$vendorView['vendor']??[]),'Vendor detail excludes private or opaque field: '.$field);
+    $expect($request($vendorRoute.'&reveal_pii=1',null)[0]===403,'AP read alone cannot reveal a full tax identifier');
+    $expect($request($vendorRoute,null,true,999)[0]===403,'Foreign company cannot access vendor detail');
+    RBACResolver::grantModule($membership,'ap','admin',[$tenant],$actor);
+    [$status,$privateVendorView]=$request($vendorRoute.'&reveal_pii=1',null);
+    $expect($status===200&&($privateVendorView['vendor']['tax_id_full']??null)==='111223333'&&!array_intersect(['payment_account_ct','payment_routing_ct','tax_id_full_ct'],array_keys($privateVendorView['vendor'])),'Authorized tax reveal retains its separate path without exposing encrypted payment material');
+    RBACResolver::grantModule($membership,'ap','read',[$tenant],$actor);
+    $expect($pdo->query('SELECT * FROM ap_vendors_index WHERE id='.$privateVendor)->fetch(PDO::FETCH_ASSOC)===$vendorBefore,'Vendor reads and private reveal preserve the original vendor row');
+    $pdo->prepare('DELETE FROM ap_vendors_index WHERE tenant_id=? AND id=?')->execute([$tenant,$privateVendor]);
     [$status,$context]=$request($financialContext,null);
     $expect($status===200&&$context['tenant_id']===$tenant&&$context['permissions']['workbook_manage']===false,'Financial reader gets scoped report access without bank administration');
     foreach($financialModules as$module){

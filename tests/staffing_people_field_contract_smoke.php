@@ -32,5 +32,5 @@ foreach(['first_name','last_name','email_primary','phone_primary'] as $field){
 foreach(['middle_name','preferred_name','email_secondary','phone_secondary'] as $field)$check(staffingFieldContractRules('people',$field)['remote_contracts']['purepayroll']['status']==='unsupported_with_gap','Unimplemented receiving field stays visible: '.$field);
 foreach(['employment_type','hire_date'] as $field)$check(staffingFieldContractRules('people',$field)['owner']==='core_people_employment_setup','Mirrored employment facts retain their reviewed workflow');
 $check(staffingFieldContractRules('people','future_unreviewed_field')['disposition']==='review_required','Unknown future fields remain unresolved');
-$check(staffingFieldContractRules('companies','legal_name')['disposition']==='review_required','Unreviewed company fields are not relabeled');
+$check(staffingFieldContractRules('companies','future_unreviewed_field')['disposition']==='review_required','Unreviewed company fields are not relabeled');
 echo "Staffing person fields: {$passed} checks passed\n";
