@@ -28,6 +28,8 @@ try{
         $a=$make('Current assignment','retained-current-number');$b=$make('Historical assignment','retained-history-number');$c=$make('Next current assignment','retained-next-number');
         $rateA=$insert('placement_rates',['tenant_id'=>$owner,'placement_id'=>$a,'effective_from'=>'2026-10-01','bill_rate'=>110,'pay_rate'=>60,'approved_at'=>'2026-10-01 12:00:00']);
         $rateB=$insert('placement_rates',['tenant_id'=>$owner,'placement_id'=>$b,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-10-01 12:00:00']);
+        $custom=$insert('custom_fields',['tenant_id'=>$owner,'module'=>'placements','field_name'=>'synthetic_merge_private','field_label'=>'Synthetic private history','field_type'=>'text','pii'=>1]);
+        foreach([[$a,'sensitive-original-A'],[$b,'sensitive-original-B']]as[$id,$value])$insert('custom_values',['tenant_id'=>$owner,'field_id'=>$custom,'record_id'=>$id,'value'=>$value]);
         $period=$insert('time_periods',['tenant_id'=>$workspace,'start_date'=>'2026-10-01','end_date'=>'2026-10-07','label'=>'Synthetic merge period']);
         foreach([[$a,$rateA],[$b,$rateB]]as[$id,$rate])$insert('time_entries',['tenant_id'=>$workspace,'placement_id'=>$id,'person_id'=>$person,'period_id'=>$period,
             'work_date'=>'2026-10-05','category'=>'regular_billable','hours'=>8,'status'=>'approved','rate_snapshot_id'=>$rate,'approved_at'=>'2026-10-08 12:00:00','approved_by_user_id'=>$actor]);
@@ -46,12 +48,15 @@ try{
         $check($review['placement_owner_id']===$owner&&$review['provider_pairs_retained']===2&&count(array_filter($review['source_options'],static fn($s)=>$s['eligible']))===2,'Shared-directory preview exposes both exact retained source choices');
         $check($review['retained_history']['time_entries']['count']===2&&$review['retained_history']['placement_rates']['count']===2,'Review includes downstream activity on both placements without moving it');
         $check(!str_contains(json_encode($review),'password')&&!str_contains(json_encode($review),'payload_snapshot'),'Public review omits authentication and raw provider snapshots');
-        foreach(['title','approved_rate','new_rate','time','source_payload','source_workspace','permission','membership','actor','policy','different_person','archived','number_alias','missing_number','in_flight']as$case)
-            JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$actor,$membership,$grant,$person,$a,$b,$c,$rateA,$ma,$request,$check,$fails,$state,$insert,$case):void{
+        $check($review['custom_values_retained']===2&&!str_contains(json_encode($review),'sensitive-original'),'Private custom values participate without being exposed in merge choices');
+        foreach(['title','approved_rate','new_rate','time','custom_value','custom_definition','source_payload','source_workspace','permission','membership','actor','policy','different_person','archived','number_alias','missing_number','in_flight']as$case)
+            JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$actor,$membership,$grant,$person,$a,$b,$c,$rateA,$custom,$ma,$request,$check,$fails,$state,$insert,$case):void{
                 if($case==='title')$pdo->prepare('UPDATE placements SET title="Changed during review" WHERE id=?')->execute([$a]);
                 if($case==='approved_rate')$pdo->prepare('UPDATE placement_rates SET pay_rate=61 WHERE id=?')->execute([$rateA]);
                 if($case==='new_rate')$insert('placement_rates',['tenant_id'=>$owner,'placement_id'=>$b,'effective_from'=>'2026-11-01','bill_rate'=>120,'pay_rate'=>70]);
                 if($case==='time')$pdo->prepare('UPDATE time_entries SET hours=9 WHERE tenant_id=? AND placement_id=?')->execute([$workspace,$b]);
+                if($case==='custom_value')$pdo->prepare('UPDATE custom_values SET value="Changed private value" WHERE tenant_id=? AND field_id=? AND record_id=?')->execute([$owner,$custom,$b]);
+                if($case==='custom_definition')$pdo->prepare('UPDATE custom_fields SET is_active=0 WHERE id=?')->execute([$custom]);
                 if($case==='source_payload')$pdo->prepare('UPDATE external_entity_mappings SET content_hash=? WHERE id=?')->execute([str_repeat('c',64),$ma['id']]);
                 if($case==='source_workspace')$pdo->prepare('UPDATE external_entity_mappings SET tenant_id=? WHERE id=?')->execute([$owner,$ma['id']]);
                 if($case==='permission')$pdo->prepare('UPDATE membership_module_access SET access_level="read" WHERE id=?')->execute([$grant]);
@@ -69,6 +74,14 @@ try{
                 }
                 $beforeChanged=$state();$check($fails(fn()=>placementMergeApply($workspace,$actor,$request))&&$beforeChanged===$state(),'Changed '.$case.' rejects the merge atomically');
             },true);
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,$mb,$ma,$preview,$requestFor,$check,$fails,$state):void{
+            $pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=? WHERE id=?')->execute([json_encode(['candidateId'=>'99510001']),$mb['id']]);
+            $fresh=$preview();$candidate=array_values(array_filter($fresh['source_options'],static fn($s)=>$s['mapping_id']===(int)$mb['id']))[0];$unchanged=$state();
+            $check(!$candidate['eligible']&&$fails(fn()=>placementMergeApply($workspace,$actor,$requestFor($fresh,(int)$mb['id'])))&&$unchanged===$state(),
+                'A candidate-shaped source cannot become the future assignment owner through fresh merge review');
+            $accepted=placementMergeApply($workspace,$actor,$requestFor($fresh,(int)$ma['id']));
+            $check($accepted['provider_pairs_retained']===2,'Choosing the valid assignment owner retains the rejected historical source pair');
+        },true);
         foreach(['field','source','token','confirmation','configuration','history']as$bad){
             $body=$request;
             if($bad==='field')unset($body['fields']['title']);
@@ -84,6 +97,7 @@ try{
         $pdo->exec('SET @fixture_placement_merge_receipt=0');
         $originalA=$read($a);$originalB=$read($b);$result=placementMergeApply($workspace,$actor,$request);$after=$state();
         $check(!$result['replayed']&&$read($a)['title']==='Historical assignment'&&$read($b)['deleted_at']!==null,'Confirmed merge applies the chosen title and retires only the selected duplicate');
+        $check(!array_diff(placementMergeFields(),placementOwnershipFields($read($a)['coreflux_overridden_fields'])),'Explicit descriptive choices acquire Core ownership');
         $alias=placementIdentityResolve($pdo,$owner,$b,true);
         $check($alias['id']===$a&&$alias['source_id']===$b&&$alias['source_number']===$review['retired_number'],'Old permanent placement number remains a reviewed alias');
         $check(!array_diff_key(array_diff_assoc($originalA,$read($a)),array_flip(['title','coreflux_overridden_fields','updated_at']))
