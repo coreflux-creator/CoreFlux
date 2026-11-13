@@ -44,8 +44,7 @@ if($mode==='retire'){
   $s=$pdo->prepare('SELECT tenant_id,email FROM users WHERE id=?');$s->execute([$a['id']]);$u=$s->fetch(PDO::FETCH_ASSOC);cnNeed($u&&(int)$u['tenant_id']===2002&&$u['email']===$a['email'],'Actor identity changed');
   $pdo->beginTransaction();try{
    $pdo->prepare('DELETE FROM membership_module_access WHERE membership_id=?')->execute([$a['membership_id']]);
-   $pdo->prepare('UPDATE tenant_memberships SET status="revoked" WHERE id=? AND user_id=? AND tenant_id=2002')->execute([$a['membership_id'],$a['id']]);
-   $pdo->prepare('UPDATE user_tenants SET status="inactive" WHERE user_id=? AND tenant_id=2002')->execute([$a['id']]);
+   deactivateMembership((int)$a['id'],2002);
    $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE id=? AND tenant_id=2002')->execute([$a['id']]);$pdo->commit();
   }catch(Throwable$e){if($pdo->inTransaction())$pdo->rollBack();throw$e;}
  }

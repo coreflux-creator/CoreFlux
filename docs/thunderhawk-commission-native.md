@@ -12,6 +12,8 @@ The full comparison retained all 35,157 pre-case Core rows across 378 tables and
 
 Users 105/106 are disabled, their memberships revoked, module grants and password hashes removed, and their private credential file deleted. The provider test session was revoked and returned 401. The owned test tabs and local SSH tunnel were closed, and the coordinated provider hold released. These are separate test accounts, not independent human acceptance. Production, Arabella, real payroll, payments and postings were untouched. Structured evidence: [linked native acceptance](../deploy/thunderhawk-commission-linked-native-20261112.json).
 
+The later evidence-helper CI check rejected direct legacy membership writes in the retained cleanup scripts. Both helpers now call Core's transaction-aware `deactivateMembership()` function to revoke the canonical and legacy memberships together. This is a helper-source correction; the already-retired hosted accounts were not reprocessed. The runtime CI and hosted acceptance above remain separate from the evidence-helper CI result.
+
 The wider integration remains incomplete: 372 native field dispositions, broader cohort/source/portal/document/lifecycle acceptance, AWS browser upload, financial provenance and reconciliation, and the full requirements audit are still open. The sections below preserve the original failed fixture and correction evidence.
 
 ## Original unlinked fixture and projection correction
