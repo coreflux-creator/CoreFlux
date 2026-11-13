@@ -35,8 +35,8 @@ try{
             if($case==='invalid_json')$pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot="[]" WHERE id=?')->execute([$mappingId]);
             $before=$state();$check($failure($repair)!==''&&$state()===$before,'Rate repair rejects '.$case.' without writes');
         },true);
-        $before=$state();$pdo->exec("SET @fixture_source_rate_fail='placement.rate.auto_drafted_from_source'");$error=$failure($repair);$pdo->exec('SET @fixture_source_rate_fail=NULL');
-        $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Late source audit failure rolls back the new draft');
+        $before=$state();$attempt=null;$pdo->exec("SET @fixture_source_rate_fail='placement.rate.auto_drafted_from_source'");$error=$failure(static function()use($repair,&$attempt):void{$attempt=$repair();});$pdo->exec('SET @fixture_source_rate_fail=NULL');
+        $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Late source audit failure rolls back the new draft: '.json_encode(['error'=>$error,'attempt'=>$attempt,'state_unchanged'=>$state()===$before],JSON_THROW_ON_ERROR));
         $beforeMapping=$read('external_entity_mappings',$mappingId);$beforePlacement=$read('placements',$placement);$r=$repair();
         $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=?');$q->execute([$owner,$placement]);$rate=$q->fetch(PDO::FETCH_ASSOC);$rateId=(int)$rate['id'];
         $check($r['status']==='drafted'&&(int)$rate['tenant_id']===$owner&&(float)$rate['bill_rate']===100.0&&(float)$rate['pay_rate']===50.0&&$rate['approved_at']===null,'Exact saved assignment creates an unapproved rate in the shared owner');
