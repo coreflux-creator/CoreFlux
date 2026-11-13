@@ -1,0 +1,154 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; reviewed placement merge service, not operator release or full integration completion",
+  "previous_goal_turn": "Progress: accepted and pushed historical placement identity consumers. This continuation revalidated source and installed pilot, implemented explicit survivor, field and source-owner choices with immutable history and an atomic encrypted receipt, then exercised canonical schema and independent-session races.",
+  "source_commit": "03c17155d14519139133d4df6b75b092743cb42d",
+  "base_commit": "faf60c56c8d623e072a5844895d18f8ae1630d28",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "b2f06b956e1d826e7f88f62420f3e806b02aee6bcca61af1dd21634b0cdb79a6",
+    "docs/thunderhawk-placement-consolidation.md": "e72a0aa357c8147ecd65333e532b814a3955886f67610fcbc50f41feec61f8ae",
+    "modules/placements/lib/merge_review.php": "08b23320589b877a0dbcbb5270ef36ff27a10a31ad3dc98f89c661718096ba31",
+    "tests/company_relationship_concurrency_db.php": "7a191a8f0fe205eec8b77cbf09024b19684f7e4623d9282f6b5fda0aed4b1345",
+    "tests/fixtures/placement_merge_concurrency_checks.php": "b131a3628b394582032109d5214a7f04670b9eec843e3930546f5c3080c2f0e2",
+    "tests/placement_merge_db_check.php": "72eb61745883b00761789973ac502a9e8d75f518efd201fe72267af16539ed33"
+  },
+  "ci": {
+    "run_id": 43506628415,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43506628415",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132165893163,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893285,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893286,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893294,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893297,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893313,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893366,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893374,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893423,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893518,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132165893669,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "placement_merge_canonical": 44,
+    "placement_identity_canonical": 30,
+    "independent_connections": 446,
+    "new_merge_concurrency": 30,
+    "native_core_session_api": 953,
+    "existing_native_placement_contract_http": 521
+  },
+  "merge_concurrency_labels": [
+    "Placement merge waits for policy COMMIT",
+    "Placement merge rechecks policy after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Review People and Placements sharing before importing this assignment.\"}",
+    "Placement merge waits for permission COMMIT",
+    "Placement merge rechecks permission after COMMIT: {\"ok\":false,\"code\":403,\"error\":\"The reviewer needs current placement management access in this workspace.\"}",
+    "Placement merge waits for native_choice COMMIT",
+    "Placement merge rechecks native_choice after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The placements, source bindings, permissions or retained activity changed. Review again.\"}",
+    "Placement merge waits for approved_rate COMMIT",
+    "Placement merge rechecks approved_rate after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The placements, source bindings, permissions or retained activity changed. Review again.\"}",
+    "Placement merge waits for source_binding COMMIT",
+    "Placement merge rechecks source_binding after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The placements, source bindings, permissions or retained activity changed. Review again.\"}",
+    "Placement merge waits for new_history COMMIT",
+    "Placement merge rechecks new_history after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The placements, source bindings, permissions or retained activity changed. Review again.\"}",
+    "Placement merge holds changes and required receipt before COMMIT",
+    "Placement merge retry waits for first receipt COMMIT",
+    "Concurrent placement merge retry commits exactly one receipt after COMMIT",
+    "Placement merge waits for policy ROLLBACK",
+    "Placement merge rechecks policy after ROLLBACK: {\"ok\":true,\"result\":{\"id\":185,\"survivor_id\":185,\"retired_id\":186,\"survivor_number\":\"PL-185\",\"retained_number\":\"PL-186\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}}",
+    "Placement merge waits for permission ROLLBACK",
+    "Placement merge rechecks permission after ROLLBACK: {\"ok\":true,\"result\":{\"id\":187,\"survivor_id\":187,\"retired_id\":188,\"survivor_number\":\"PL-187\",\"retained_number\":\"PL-188\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}}",
+    "Placement merge waits for native_choice ROLLBACK",
+    "Placement merge rechecks native_choice after ROLLBACK: {\"ok\":true,\"result\":{\"id\":189,\"survivor_id\":189,\"retired_id\":190,\"survivor_number\":\"PL-189\",\"retained_number\":\"PL-190\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}}",
+    "Placement merge waits for approved_rate ROLLBACK",
+    "Placement merge rechecks approved_rate after ROLLBACK: {\"ok\":true,\"result\":{\"id\":191,\"survivor_id\":191,\"retired_id\":192,\"survivor_number\":\"PL-191\",\"retained_number\":\"PL-192\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}}",
+    "Placement merge waits for source_binding ROLLBACK",
+    "Placement merge rechecks source_binding after ROLLBACK: {\"ok\":true,\"result\":{\"id\":193,\"survivor_id\":193,\"retired_id\":194,\"survivor_number\":\"PL-193\",\"retained_number\":\"PL-194\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}}",
+    "Placement merge waits for new_history ROLLBACK",
+    "Placement merge rechecks new_history after ROLLBACK: {\"ok\":true,\"result\":{\"id\":195,\"survivor_id\":195,\"retired_id\":196,\"survivor_number\":\"PL-195\",\"retained_number\":\"PL-196\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}}",
+    "Placement merge holds changes and required receipt before ROLLBACK",
+    "Placement merge retry waits for first receipt ROLLBACK",
+    "Concurrent placement merge retry commits exactly one receipt after ROLLBACK"
+  ],
+  "required_merge_labels": [
+    "Required receipt failure rolls back selected values, archive and permanent aliases together",
+    "Atomic receipt retains the chosen physical source binding and encrypted original rows",
+    "Lost-response retry returns the receipt without repeating the merge or reversing later edits",
+    "Successive reviewed merge flattens every retained placement number",
+    "Private custom values participate without being exposed in merge choices",
+    "A candidate-shaped source cannot become the future assignment owner through fresh merge review",
+    "Choosing the valid assignment owner retains the rejected historical source pair",
+    "Approved rates, time, provider pairs, custom values and financial records are unchanged"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T20:54:29+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_consolidation": [
+    "source-writer adoption of the reviewed primary binding while preserving physical provider pairs",
+    "remaining operational consumers and old-number history navigation",
+    "operator review screen and replacement of legacy automatic cleanup",
+    "native HTTP and hosted consolidation acceptance"
+  ],
+  "full_goal_status": "active; full integration and required pilot upgrade remain incomplete"
+}

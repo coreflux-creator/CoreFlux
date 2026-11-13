@@ -2,7 +2,15 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 13 historical placement identity — current source checkpoint
+## November 13 reviewed placement merge — current source checkpoint
+
+The preceding standalone-accounting access answer made no integration progress. This continuation verified the exact completed run for source `03c17155`: all eleven jobs in [CI 43506628415](https://github.com/coreflux-creator/CoreFlux/actions/runs/43506628415) succeeded, including **44 canonical merge checks**, **30 canonical identity checks**, **446 independent-connection checks (30 new merge races)**, **953 native-session checks** and **521 existing placement-contract HTTP checks** with verified cleanup. [Behavior and limits](thunderhawk-placement-consolidation.md), [pinned evidence](../deploy/thunderhawk-placement-merge-preparation-20261113.json).
+
+The service requires explicit survivor, descriptive-field and future JobDiva source choices. It preserves physical provider pairs and all historical rates, time, custom values and financial references, and commits selected values, archive, permanent aliases and an encrypted original-state receipt atomically. An exact retry recovers the original result. The service is not wired into the operator workflow or installed. Next make source writers honor the chosen retained source, complete remaining operational consumers and history navigation, replace automatic duplicate cleanup with the reviewed screen, then validate native HTTP and hosted behavior.
+
+Installed pilot remains `4bc10bb0`; the evidence includes the read-only check at **2026-11-13T20:54:29+00:00**, with 367 files, 378 tables and all 35,304 rows preserved. The full integration, required pilot upgrade and broader field, portal, onboarding, time, approvals and financial-result acceptance remain incomplete. No production, Arabella or real financial execution changed.
+
+## November 13 historical placement identity — earlier source checkpoint
 
 The preceding access-link reply made no integration progress. This continuation verified source `31107ebb` and its eleven successful release jobs, revalidated the installed pilot, then implemented the historical consumers needed for reviewed duplicate-placement consolidation. Source `8afa5af9` passed all eleven jobs in [CI 43502588749](https://github.com/coreflux-creator/CoreFlux/actions/runs/43502588749): **30 canonical identity checks**, **416 independent-connection checks including 18 new merge/archive/remerge cases**, **43 payroll-input checks in each of three fixture runs**, **111 financial/reconciliation/workbook checks**, plus the existing 953 native-session and 521 placement-contract HTTP checks with verified cleanup. [Behavior and limits](thunderhawk-placement-history-identity.md), [pinned evidence](../deploy/thunderhawk-placement-history-preparation-20261113.json).
 
