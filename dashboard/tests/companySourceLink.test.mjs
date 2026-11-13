@@ -35,7 +35,7 @@ test('linking requires exact identity preview and explicit confirmation, preserv
     await act(async () => f.confirm().props.onChange({ target: { checked: true } }));
     await act(async () => f.button('Confirm identity link').props.onClick());
     assert.deepEqual(f.calls[1].body, { review_token: 'opaque-review', confirm_review: true });
-    assert.equal(f.linked(), 1); assert.match(text(f.tree.toJSON()), /is linked/);
+    assert.equal(f.linked(), 1); assert.match(text(f.tree.toJSON()), /Identity review saved/);
   } finally { f.close(); }
 });
 test('changing the source ID clears the old review and confirmation', async () => {
@@ -81,6 +81,6 @@ test('lost response can recover the saved result without sending another link re
     await act(async () => f.button('Check saved result').props.onClick());
     assert.equal(f.calls.filter(c => c.path.endsWith('apply')).length, 1);
     assert.deepEqual(f.calls.at(-1).body, { review_token: 'opaque-review' });
-    assert.equal(f.linked(), 1); assert.match(text(f.tree.toJSON()), /is linked/);
+    assert.equal(f.linked(), 1); assert.match(text(f.tree.toJSON()), /Identity review saved/);
   } finally { f.close(); }
 });

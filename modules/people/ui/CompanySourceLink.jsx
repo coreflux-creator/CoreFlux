@@ -48,7 +48,7 @@ export default function CompanySourceLink({ id, recordType = 'companies', onLink
       <button type="button" className="btn btn--ghost" disabled={busy || !/^[1-9][0-9]{0,17}$/.test(sourceId.trim())} onClick={preview}>Preview identity link</button>
       {busy && <p role="status">Checking…</p>}
       {error && <p role="alert" className="error">{error}</p>}
-      {result && <p role="status">JobDiva {result.source_id} is linked. Core values and existing provider IDs were preserved.</p>}
+      {result && <p role="status">Identity review saved for JobDiva {result.source_id}. Core values and existing provider IDs were preserved.</p>}
       {review && <>
         <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>Identity</th><th>Current Core record</th><th>JobDiva record</th></tr></thead>
           <tbody>
