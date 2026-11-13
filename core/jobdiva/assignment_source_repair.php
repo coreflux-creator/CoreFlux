@@ -17,6 +17,7 @@ function jobdivaAssignmentRepairSnapshot(int $workspace, int $mappingId): array
     $external = jobdivaAssignmentIdentityNormaliseId($mapping['external_id']);
     if (!preg_match('/^[0-9]+$/D', $external)) throw new RuntimeException('Review the exact JobDiva Start ID.', 409);
     $identity = jobdivaPlacementWriteIdentity($pdo, $context, $external, (int)$mapping['internal_entity_id']);
+    if($identity['source_owner']&&(int)($identity['mapping']['id']??0)!==$mappingId)throw new JobdivaHistoricalPlacementSource();
     if ((int)($identity['mapping']['id'] ?? 0) !== $mappingId || !$identity['placement']) {
         throw new RuntimeException('The assignment source identity changed.', 409);
     }
@@ -36,7 +37,7 @@ function jobdivaAssignmentRepairSnapshot(int $workspace, int $mappingId): array
         'context'=>$context, 'policies'=>$q->fetchAll(PDO::FETCH_ASSOC),
         'external'=>$external, 'mapping'=>$mapping, 'mirrors'=>$mirrors,
         'connection'=>$connection, 'last_sync_at'=>$connection['last_sync_at'] ?? null,
-        'placement'=>$identity['placement'], 'owned_fields'=>$identity['owned_fields'], 'person'=>$person,
+        'placement'=>$identity['placement'], 'owned_fields'=>$identity['owned_fields'], 'source_owner'=>$identity['source_owner'], 'person'=>$person,
     ];
 }
 
@@ -152,7 +153,7 @@ function jobdivaAssignmentRepairApply(array $expected, array $exact, ?int $actor
         $result['mapping_changed'] = $payloadChanged || $mapping['sync_status'] !== $sourceStatus || $mapping['last_error'] !== $error;
         if ($result['mapping_changed']) {
             if ($payload !== null) {
-                mappingBindStable($workspace, 'jobdiva', 'placement', (string)$mapping['external_id'], $placementId, $payload, 'pull', $actor);
+                jobdivaPlacementBindRetained($workspace, (string)$mapping['external_id'], $placementId, $payload, $actor);
                 // Trusting a prior observation is not a new provider observation.
                 if ($action === 'trusted_stored') $pdo->prepare('UPDATE external_entity_mappings SET last_seen_at=? WHERE tenant_id=? AND id=?')->execute([$mapping['last_seen_at'],$workspace,$mappingId]);
             } else {

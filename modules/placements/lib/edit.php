@@ -25,8 +25,7 @@ function placementApplyNativeEdit(int $id, array $patch, array $user, string $vi
             if(is_bool($value)&&str_ends_with($field,'_id'))throw new InvalidArgumentException('Choose a valid record number for '.$field.'.',422);
             if (is_bool($value)) $patch[$field] = (int) $value;
         }
-        $q=$pdo->prepare("SELECT m.id FROM external_entity_mappings m JOIN placements p ON p.id=m.internal_entity_id AND p.tenant_id=? WHERE m.source_system='jobdiva' AND m.internal_entity_type='placement' AND p.id=? FOR UPDATE");
-        $q->execute([$scope['owner'],$id]);$sourceMapped=(bool)$q->fetchColumn();
+        $sourceFamily=placementJobdivaSourceFamily($pdo,$scope['owner'],$id);$sourceMapped=(bool)$sourceFamily['links'];
         $isJobDivaSourced = $sourceMapped || str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:');
         if ($isJobDivaSourced) {
             foreach (['external_id','person_id','jobdiva_job_id'] as $identityField) {

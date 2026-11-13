@@ -178,7 +178,7 @@ $assert('placement insert provides title (NOT NULL on placements table)',
     && strpos($src, "if (\$title === '') \$title = 'JobDiva Placement '") !== false);
 $assert('binds mapping (placement)',
     strpos($src, 'jobdivaProjectorProjectPlacement($tid, $jd, $userId') !== false
-    && strpos($projectorSrc, "mappingBindStable(\$tenantId, 'jobdiva', 'placement'") !== false);
+    && strpos($projectorSrc, "jobdivaPlacementBindRetained(\$tenantId,") !== false);
 
 echo "\njobdivaSyncAll — orchestration\n";
 $assert('runs all 3 drivers in order via safeRun isolator',

@@ -270,7 +270,7 @@ function jobdivaProjectorProjectPlacementInTransaction(int $tenantId, array $pay
         // A legacy prefixed provider pair is an existing identity, not a reason
         // to create a second raw-ID mapping during reviewed reconciliation.
         $mappingExternalId=(string)($identity['mapping']['external_id']??$externalId);
-        mappingBindStable($tenantId, 'jobdiva', 'placement', $mappingExternalId, $placementId, $snapshotPayload, 'pull', $userId);
+        jobdivaPlacementBindRetained($tenantId, $mappingExternalId, $placementId, $snapshotPayload, $userId);
         $summary['mapping_writes']++;
 
         if (function_exists('jobdivaIndexJoinedSubPayloads')) {

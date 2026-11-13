@@ -57,7 +57,7 @@ function jobdivaReconciliationApply(PDO $pdo,int $workspace,?int $actor,string $
             if(!is_array($snapshot))throw new RuntimeException('Review the saved assignment source snapshot.',409);
             $snapshot['__cf_jobdiva_source_object']='assignment';$snapshot['__cf_jobdiva_assignment_id']=$start;
             $snapshot['__cf_csv_reconciliation']=$row['source'];
-            mappingBindStable($workspace,'jobdiva','placement',$external,$id,$snapshot,'pull',$actor);$result['mapping_writes']++;
+            jobdivaPlacementBindRetained($workspace,$external,$id,$snapshot,$actor);$result['mapping_writes']++;
             if(!empty($row['source']['candidate_id'])&&$row['person']['matched_by']==='candidate_id'&&empty($row['person']['evidence']['link'])){
                 mappingBindStable($workspace,'jobdiva','person',$row['source']['candidate_id'],(int)$row['person']['id'],['candidateId'=>$row['source']['candidate_id']],'pull',$actor);$result['mapping_writes']++;
             }

@@ -9,7 +9,7 @@ function jobdivaReconciliationFetchExactPlacement(PDO $pdo,array $context,string
         $row=$identity['placement'];
         return ['status'=>$row?(empty($row['deleted_at'])?'matched':'archived'):'missing',
             'ids'=>$row?[(int)$row['id']]:[],'mapping_ids'=>$identity['mapping']?[(int)$identity['mapping']['id']]:[],
-            'mapping'=>$identity['mapping'],'row'=>$row,'owned_fields'=>$identity['owned_fields'],'error'=>null];
+            'mapping'=>$identity['mapping'],'row'=>$row,'owned_fields'=>$identity['owned_fields'],'source_owner'=>$identity['source_owner'],'error'=>null];
     }catch(RuntimeException $e){
         if(!in_array($e->getCode(),[409,422],true))throw$e;
         return ['status'=>'conflict','ids'=>[],'mapping_ids'=>[],'mapping'=>null,'row'=>null,'owned_fields'=>[],'error'=>$e->getMessage()];

@@ -129,7 +129,7 @@ function jobdivaLiveContractApply(array $expected, array $exact, ?array $payload
         $skip = $archived && ($held || !$workerCurrent || !empty($placement['actual_end_date']) || !in_array($lifecycle['status'],['active','pending_start','on_hold'],true));
         if ($skip) {
             $snapshot = jobdivaAssignmentCompactSnapshotPayload($payload,$base['external']);
-            mappingBindStable($workspace,'jobdiva','placement',$base['mapping']['external_id'],$placementId,$snapshot,'pull',$actor);
+            jobdivaPlacementBindRetained($workspace,$base['mapping']['external_id'],$placementId,$snapshot,$actor);
             $result = ['projected'=>0,'restored'=>0,'skipped_not_current'=>1,'review_required'=>(int)($held || !$workerCurrent)];
         } else {
             $corporation = jobdivaAssignmentSubcontractCompanyId($payload);
@@ -170,7 +170,8 @@ function jobdivaLiveContractApply(array $expected, array $exact, ?array $payload
 function jobdivaRefreshLiveContract(int $workspace, int $mappingId, ?int $actor): array
 {
     if (getDB()->inTransaction() || JobdivaStoredReviewTransaction::inScope()) throw new RuntimeException('Start live contract refresh outside an existing transaction.',409);
-    $expected = JobdivaStoredReviewTransaction::run(static fn()=>jobdivaLiveContractSnapshot($workspace,$mappingId),true);
+    try{$expected = JobdivaStoredReviewTransaction::run(static fn()=>jobdivaLiveContractSnapshot($workspace,$mappingId),true);}
+    catch(JobdivaHistoricalPlacementSource){return ['projected'=>0,'restored'=>0,'skipped_not_current'=>1,'review_required'=>0];}
     $exact = jobdivaFetchExactAssignmentById($workspace,$expected['base']['external'],$expected['joined_payload']);
     if (($exact['status'] ?? '') !== 'verified') return jobdivaLiveContractApply($expected,$exact,null,null,$actor);
     $input = jobdivaLiveContractInput($expected,$exact);

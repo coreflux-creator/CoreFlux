@@ -93,7 +93,7 @@ function placementsSafeFields(string $alias = 'p'): string
     // The outer placement query supplies the accessible directory. Expose only
     // whether this retained identity is linked, never another workspace's pair.
     return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols))
-        . ", EXISTS(SELECT 1 FROM external_entity_mappings jm WHERE jm.internal_entity_type='placement' AND jm.source_system='jobdiva' AND jm.internal_entity_id={$alias}.id) AS jobdiva_linked";
+        . ", EXISTS(SELECT 1 FROM external_entity_mappings jm JOIN placements jp ON jp.id=jm.internal_entity_id AND jp.tenant_id={$alias}.tenant_id LEFT JOIN core_record_numbers jn ON jn.tenant_id=jp.tenant_id AND jn.entity_type='placement' AND jn.record_id=jp.id WHERE jm.internal_entity_type='placement' AND jm.source_system='jobdiva' AND (jp.id={$alias}.id OR jn.canonical_record_id={$alias}.id)) AS jobdiva_linked";
 }
 
 function placementGet(int $id): ?array

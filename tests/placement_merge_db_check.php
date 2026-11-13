@@ -113,11 +113,14 @@ try{
         $check($receipt['primary_jobdiva_mapping_id']===(int)$mb['id']&&$receipt['field_choices']['title']==='retired'
             &&json_decode(decryptField(base64_decode($receipt['before_rows_ct'],true)),true,512,JSON_THROW_ON_ERROR)==[$a=>$originalA,$b=>$originalB],
             'Atomic receipt retains the chosen physical source binding and encrypted original rows');
+        require __DIR__.'/fixtures/placement_merge_source_checks.php';
         $pdo->prepare('UPDATE placements SET title="Later native edit" WHERE id=?')->execute([$a]);$later=$state();
         $check(placementMergeApply($workspace,$actor,$request)['replayed']&&$later===$state(),'Lost-response retry returns the receipt without repeating the merge or reversing later edits');
         $changed=$request;$changed['reason']='Different merge intent';$check($fails(fn()=>placementMergeApply($workspace,$actor,$changed))&&$later===$state(),'Request ID cannot be reused for a different merge instruction');
         $secondReview=placementMergeReview($workspace,$actor,$c,$a);$second=placementMergeApply($workspace,$actor,$requestFor($secondReview,(int)$mb['id']));
         $check($second['survivor_id']===$c&&placementIdentityResolve($pdo,$owner,$b,true)['id']===$c&&placementIdentityResolve($pdo,$owner,$a,true)['id']===$c,'Successive reviewed merge flattens every retained placement number');
+        $finalSource=jobdivaPlacementWriteIdentity($pdo,jobdivaPlacementWriteContext($pdo,$workspace),'99510001',$b);
+        $check((int)$finalSource['placement']['id']===$c&&(int)$finalSource['mapping']['internal_entity_id']===$b,'Successive merges refresh the newest survivor through the unchanged original source pair');
         $pdo->prepare('UPDATE membership_module_access SET access_level="none" WHERE id=?')->execute([$grant]);$revoked=$state();
         $check($fails(fn()=>placementMergeApply($workspace,$actor,$request))&&$revoked===$state(),'Receipt recovery requires current management access');
     },true);

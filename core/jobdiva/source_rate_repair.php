@@ -12,9 +12,13 @@ function jobdivaRepairPlacementSourceRate(int $workspace,int $placementId,?int $
     try{
         return companyRelationshipAtomic($pdo,static function()use($pdo,$workspace,$placementId,$actor,$expectedMapping):array{
             $context=jobdivaPlacementWriteContext($pdo,$workspace);$owner=$context['placement_owner'];
-            $q=$pdo->prepare('SELECT * FROM placements WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');$q->execute([$owner,$placementId]);$placement=$q->fetch(PDO::FETCH_ASSOC);
-            if(!$placement)throw new RuntimeException('The placement is unavailable in the current directory.',409);
+            $family=placementJobdivaSourceFamily($pdo,$owner,$placementId);$placement=$family['placement'];$placementId=(int)$placement['id'];
+            if($placement['deleted_at']!==null)throw new RuntimeException('The placement is unavailable in the current directory.',409);
             $skip=static fn(string $reason):array=>['id'=>$placementId,'status'=>'skipped','reason'=>$reason];
+            if($expectedMapping!==null&&$family['merged']&&(int)($family['primary']['id']??0)!==$expectedMapping){
+                if(!array_filter($family['links'],static fn($l)=>(int)$l['id']===$expectedMapping&&(int)$l['tenant_id']===$workspace))throw new RuntimeException('The selected source link changed.',409);
+                return $skip('historical_source_not_current_owner');
+            }
             $start=(string)$placement['start_date'];
             if($start===''||jobdivaContractProjectionDate($start)!==$start)throw new RuntimeException('Review the placement start date before repairing rates.',422);
             $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=? ORDER BY id FOR UPDATE');$q->execute([$owner,$placementId]);$before=$q->fetchAll(PDO::FETCH_ASSOC);
@@ -26,7 +30,8 @@ function jobdivaRepairPlacementSourceRate(int $workspace,int $placementId,?int $
                 if(!empty($rate['created_by_user_id']))return$skip('native_draft_requires_review');
                 if(abs((float)$rate['bill_rate']-(float)$rate['pay_rate'])>=0.0001)return$skip('existing_draft_requires_review');
             }
-            $q=$pdo->prepare("SELECT * FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='placement' AND internal_entity_id=? ORDER BY id FOR UPDATE");$q->execute([$workspace,$placementId]);$links=$q->fetchAll(PDO::FETCH_ASSOC);
+            $links=$family['merged']?($family['primary']?[$family['primary']]:[]):$family['links'];
+            foreach($links as$link)if((int)$link['tenant_id']!==$workspace)throw new RuntimeException('The assignment source belongs to another workspace.',409);
             if(!$links){if($expectedMapping!==null)throw new RuntimeException('The selected source link changed.',409);return$skip('missing_jobdiva_source_binding');}
             if(count($links)!==1)throw new RuntimeException('Review the competing assignment source identities before repairing rates.',409);
             $mapping=$links[0];if($expectedMapping!==null&&(int)$mapping['id']!==$expectedMapping)throw new RuntimeException('The selected source link changed.',409);

@@ -132,7 +132,7 @@ $assert('contacts preserve actor through the atomic stable writer',
 $projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('placements preserve saved provider ID and actor',
     str_contains($projectorSrc, "\$mappingExternalId=(string)(\$identity['mapping']['external_id']??\$externalId)")
-    && str_contains($projectorSrc, "mappingBindStable(\$tenantId, 'jobdiva', 'placement', \$mappingExternalId, \$placementId, \$snapshotPayload, 'pull', \$userId);"));
+    && str_contains($projectorSrc, "jobdivaPlacementBindRetained(\$tenantId, \$mappingExternalId, \$placementId, \$snapshotPayload, \$userId);"));
 $pSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync_placements.php");
 $assert('auto-create person upserts existing match with $userId',
     strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId, \$personSnapshot, 'pull', \$userId);") !== false);

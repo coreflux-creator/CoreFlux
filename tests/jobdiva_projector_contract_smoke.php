@@ -53,7 +53,7 @@ $a('end-client resolution requires explicit provider identity',
 $a('projector delegates placement/rate write to canonical sync writer',
     str_contains($projector, 'jobdivaSyncUpsertPlacement('));
 $a('projector binds canonical placement mapping',
-    str_contains($projector, "mappingBindStable(\$tenantId, 'jobdiva', 'placement'"));
+    str_contains($projector, "jobdivaPlacementBindRetained(\$tenantId,"));
 $a('projector reinforces adjacent canonical source mappings',
     str_contains($projector, 'function jobdivaProjectorBindPlacementSourceIdentities')
     && str_contains($projector, "\$bind('person', \$candidateExtId, \$personId")

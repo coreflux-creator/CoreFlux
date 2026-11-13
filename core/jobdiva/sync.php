@@ -3534,54 +3534,14 @@ function jobdivaStoredAssignmentProjectionPlan(
 
         $links=$pdo->prepare('SELECT id,tenant_id,external_id,internal_entity_id,sync_status,content_hash FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id IN(?,?) ORDER BY id FOR UPDATE');
         $links->execute([$tenantId,$startId,'jd:'.$startId]);$placementMappings=$links->fetchAll(PDO::FETCH_ASSOC);
-        if(count($placementMappings)>1)$errors[]='Multiple saved links claim this JobDiva Start. Review the retained source identities.';
-        $placementMapping=$placementMappings[0]??null;
-        $mappedPlacementId = (int) ($placementMapping['internal_entity_id'] ?? 0);
-        $placementId = $mappedPlacementId;
-        $current = [];
-        $currentGraph = [];
-        $exactPlacementStmt = $pdo->prepare(
-            'SELECT id, deleted_at
-               FROM placements
-              WHERE tenant_id = :t
-                AND external_id IN (:canonical, :raw)
-              ORDER BY id ASC'
-        );
-        $exactPlacementStmt->execute([
-            't' => $placementOwner,
-            'canonical' => 'jd:' . $startId,
-            'raw' => $startId,
-        ]);
-        $exactPlacementRows = $exactPlacementStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-        $activeExactIds = [];
-        $archivedExactIds = [];
-        foreach ($exactPlacementRows as $exactPlacementRow) {
-            $exactId = (int) ($exactPlacementRow['id'] ?? 0);
-            if ($exactId <= 0) continue;
-            $deletedAt = (string) ($exactPlacementRow['deleted_at'] ?? '');
-            if ($deletedAt === '' || $deletedAt === '0000-00-00 00:00:00') {
-                $activeExactIds[] = $exactId;
-            } else {
-                $archivedExactIds[] = $exactId;
-            }
-        }
-        if (count($activeExactIds) > 1) {
-            $errors[] = 'More than one active CoreFlux placement has this exact JobDiva external identity: '
-                . implode(', ', $activeExactIds) . '.';
-        } elseif (count($activeExactIds) === 1) {
-            if ($mappedPlacementId > 0 && $mappedPlacementId !== $activeExactIds[0]) {
-                $errors[] = 'The saved JobDiva link and exact placement number identify different records. Review their source identity before projection.';
-            } else {
-                $placementId = $activeExactIds[0];
-            }
-        } elseif ($mappedPlacementId <= 0 && count($archivedExactIds) === 1) {
-            $placementId = $archivedExactIds[0];
-            $warnings[] = "Exact archived placement {$placementId} was found without its JobDiva binding.";
-        } elseif ($mappedPlacementId <= 0 && count($archivedExactIds) > 1) {
-            $errors[] = 'More than one archived CoreFlux placement has this exact JobDiva external identity: '
-                . implode(', ', $archivedExactIds) . '.';
-        }
-        if(count(array_unique(array_filter([$mappedPlacementId,...$activeExactIds,...$archivedExactIds])))>1)$errors[]='Multiple Core placements claim this Start, including archived records. Review the retained identities.';
+        $placementMapping=null;$placementId=0;$current=[];$currentGraph=[];
+        $exactPlacementStmt=$pdo->prepare('SELECT id,deleted_at FROM placements WHERE tenant_id=? AND external_id IN(?,?) ORDER BY id FOR UPDATE');
+        $exactPlacementStmt->execute([$placementOwner,'jd:'.$startId,$startId]);$exactPlacementRows=$exactPlacementStmt->fetchAll(PDO::FETCH_ASSOC);
+        try{
+            $writeIdentity=jobdivaPlacementWriteIdentity($pdo,$directoryContext,$startId);
+            $placementMapping=$writeIdentity['mapping'];$placementId=(int)($writeIdentity['placement']['id']??0);
+            if($writeIdentity['placement']&&!$placementMapping&&!empty($writeIdentity['placement']['deleted_at']))$warnings[]="Exact archived placement {$placementId} was found without its JobDiva binding.";
+        }catch(RuntimeException $e){if(!in_array($e->getCode(),[409,422],true))throw$e;$errors[]=$e->getMessage();}
         $sourceIdentityEvidence=null;
         if ($placementId > 0) {
             $placementStmt = $pdo->prepare(
