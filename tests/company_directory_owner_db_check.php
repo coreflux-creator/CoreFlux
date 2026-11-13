@@ -79,10 +79,13 @@ try {
     $check(array_map('intval', array_column($listed['rows'], 'id')) === [$childCompany] && $listed['total'] === 1,
         'role-filtered typeahead and count use the isolated company owner');
     $sharedBefore = $row('companies', $created);
+    $addressBefore = $row('company_addresses', $address);
     $check(scopedUpdate('companies', $created, ['industry' => 'Wrong owner']) === 0
         && scopedDelete('company_addresses', $address) === 0, 'inverse policy blocks parent company edits and address deletion');
-    $check($row('companies', $created) === $sharedBefore && count(companyAddresses($created)) === 1,
+    $check($row('companies', $created) === $sharedBefore && $row('company_addresses', $address) === $addressBefore,
         'rejected writes preserve parent company and address rows');
+    $check(companyAddresses($created) === [] && companyContacts($created) === [],
+        'directory policy change hides the former shared contacts and addresses without deleting them');
     $isolatedCreated = scopedInsert('companies', ['tenant_id' => $owner, 'name' => 'CI directory owner child created']);
     $check((int) companiesGet($isolatedCreated)['tenant_id'] === 999, 'isolated create stays in the selected company directory');
     $s = $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE id=? AND tenant_id=?');
