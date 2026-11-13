@@ -445,6 +445,11 @@ function jobdivaCall(
  */
 function jobdivaRawRequest(string $method, string $path, ?array $body = null, ?array $query = null, bool $withAuth = true, ?string $token = null): array
 {
+    // Server-installed transport injection follows the other integration
+    // clients. No request parameter or environment URL can enable it.
+    if (isset($GLOBALS['__jobdiva_transport']) && is_callable($GLOBALS['__jobdiva_transport'])) {
+        return ($GLOBALS['__jobdiva_transport'])($method,$path,$body,$query,$withAuth,$token);
+    }
     $url = JOBDIVA_BASE_URL . $path;
     if ($query) $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query);
 
