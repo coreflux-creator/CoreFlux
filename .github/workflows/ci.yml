@@ -208,6 +208,9 @@ jobs:
       - name: Verify reviewed company merge, retained history and atomic audit
         run: php tests/company_merge_review_db.php
 
+      - name: Verify concurrent native company merges and job writers
+        run: php tests/company_relationship_concurrency_db.php
+
       - name: Verify typed staffing custom fields, directory scope and atomic edits
         run: |
           php tests/staffing_custom_fields_smoke.php

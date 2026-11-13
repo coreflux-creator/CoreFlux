@@ -7,6 +7,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/jobs.php';
+require_once __DIR__ . '/../lib/job_write.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -111,23 +112,8 @@ if ($method === 'GET' && $action === 'get') {
 if ($method === 'POST' && $action === 'create') {
     rbac_legacy_require($user, 'staffing.jobs.manage');
     $body = api_json_body();
-    $title = trim((string) ($body['title'] ?? ''));
-    if ($title === '') api_error('title required', 422);
-    $payload = [
-        'tenant_id' => $tenantId,
-        'title' => $title,
-        'status' => staffingJobNormalizeStatus((string) ($body['status'] ?? 'open')),
-        'source_system' => 'manual',
-        'created_by_user_id' => $actorUserId,
-    ];
-    foreach (staffingJobApiAllowedFields() as $field) {
-        if (!array_key_exists($field, $body) || $field === 'title' || $field === 'status') continue;
-        $payload[$field] = $body[$field];
-    }
-    $payload = array_filter($payload, static fn($value) => $value !== null && $value !== '');
-    $id = (int) scopedInsert('staffing_jobs', $payload);
-    $job = scopedFind('SELECT * FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    api_ok(['job' => $job]);
+    try{api_ok(['job'=>staffingJobSaveNative($tenantId,null,array_intersect_key($body,array_flip(staffingJobNativeFields())),(int)$actorUserId)]);}
+    catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
 }
 
 if ($method === 'POST' && $action === 'update') {
@@ -135,19 +121,8 @@ if ($method === 'POST' && $action === 'update') {
     $body = api_json_body();
     $id = (int) ($body['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    $existing = scopedFind('SELECT * FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    if (!$existing) api_error('Not found', 404);
-    $patch = [];
-    foreach (staffingJobApiAllowedFields() as $field) {
-        if (!array_key_exists($field, $body)) continue;
-        $patch[$field] = $body[$field];
-    }
-    if (isset($patch['title'])) $patch['title'] = trim((string) $patch['title']);
-    if (array_key_exists('status', $patch)) $patch['status'] = staffingJobNormalizeStatus((string) $patch['status']);
-    if (!$patch) api_error('No updatable fields supplied', 422);
-    scopedUpdate('staffing_jobs', $id, $patch);
-    $job = scopedFind('SELECT * FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    api_ok(['job' => $job]);
+    try{api_ok(['job'=>staffingJobSaveNative($tenantId,$id,array_intersect_key($body,array_flip(staffingJobNativeFields())),(int)$actorUserId)]);}
+    catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
 }
 
 if ($method === 'POST' && $action === 'close') {

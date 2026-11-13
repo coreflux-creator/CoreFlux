@@ -92,6 +92,9 @@ function staffingJobEnsureFromJobDivaPayload(int $tenantId, string $externalId, 
 function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $externalId, array $payload, ?int $actorUserId): array
 {
     if(!getDB()->inTransaction())throw new LogicException('A job company write requires an active transaction.');
+    // Acquire policy locks before the first consistent read. A merge that wins
+    // the lock must be visible to this job's company and client lookups.
+    jobdivaPartyDirectoryScope(getDB(),$tenantId,true);
     $externalId = trim($externalId);
     if ($externalId === '') throw new \InvalidArgumentException('job external id required');
 

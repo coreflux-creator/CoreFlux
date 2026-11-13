@@ -21,7 +21,7 @@ function companyMergeReferences(): array
     return [
         'ap_vendors_index'=>['company_id','ap','redirect'],
         'staffing_clients'=>['company_id','placements','redirect'],
-        'staffing_jobs'=>['company_id','placements','redirect'],
+        'staffing_jobs'=>['company_id','staffing','redirect'],
         'placements'=>['end_client_company_id','placements','redirect'],
         'placement_client_chain'=>['company_id','placements','redirect'],
         'placement_corp_details'=>['company_id','placements','redirect'],
@@ -66,8 +66,8 @@ function companyMergeScope(PDO $pdo,int $workspace,bool $lock): array
         $companyOwner=$t['tenant_type']==='sub'&&!empty($t['parent_id'])&&($modes['companies']??SUBTENANT_MODULE_SCOPE_DEFAULTS['companies'])==='shared'?(int)$t['parent_id']:$id;
         if(!(int)$t['is_active']||$companyOwner!==$owner)continue;
         $policies[]=['tenant'=>$t,'modes'=>$modes];
-        foreach(['ap','placements','billing','accounting','treasury','people']as$module){
-            $mode=$modes[$module]??SUBTENANT_MODULE_SCOPE_DEFAULTS[$module];
+        foreach(['ap','placements','staffing','billing','accounting','treasury','people']as$module){
+            $mode=$modes[$module]??(SUBTENANT_MODULE_SCOPE_DEFAULTS[$module]??'isolated');
             if(!in_array($mode,['shared','isolated'],true))throw new RuntimeException('Review the directory sharing policy before merging.',409);
             $moduleOwner=$t['tenant_type']==='sub'&&!empty($t['parent_id'])&&$mode==='shared'?(int)$t['parent_id']:$id;
             $owners[$module][]=$moduleOwner;
