@@ -1,5 +1,6 @@
 <?php
 /** Exercise the existing native queue endpoint with a lock-free synthetic provider. */
+(static function()use($pdo,$liveRoot,$liveTenant,$liveMappingId,$liveTables,$directory,$snapshot,$expect,$request,$liveMembership,$actor,$livePlacement,$tenant,$financialTables,$financialBefore,$liveWrite,$liveFixture):void{
 $reviewPath='/api/jobdiva.php?action=review_assignment_contracts_batch';$reviewToken='synthetic-http-review';
 $reviewRoot=array_replace($liveRoot,['status'=>'Offer accepted','__cf_jobdiva_review_run_token'=>$reviewToken]);
 $reviewMap=mappingUpsert($liveTenant,'jobdiva','jobdiva_assignment_review','jd:99320001',99320001,$reviewRoot);$reviewId=(int)$reviewMap['id'];
@@ -32,3 +33,4 @@ $liveWrite(array_replace($liveFixture,['mode'=>'missing_contract']));$before=$sn
 $expect($status===200&&(int)$missing['unavailable']===1&&(int)$missing['failed']===0&&(int)$missing['projected']===0&&$snapshot($liveTables)===$before,'Missing exact salary evidence remains unavailable without deletion or native writes');
 $liveWrite($liveFixture);
 $expect($snapshot($financialTables)===$financialBefore,'Queued contract review executes no payroll, payment or financial posting');
+})();
