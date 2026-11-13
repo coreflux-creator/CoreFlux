@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $sync = (string) file_get_contents($root . '/core/jobdiva/sync.php');
+$live = (string) file_get_contents($root . '/core/jobdiva/live_contract_refresh.php');
 $projector = (string) file_get_contents($root . '/core/jobdiva/projector.php');
 $api = (string) file_get_contents($root . '/api/jobdiva.php');
 $ui = (string) file_get_contents($root . '/dashboard/src/pages/JobDivaSettings.jsx');
@@ -38,22 +39,29 @@ $assert('contract batches are cursor-based and capped below the PHP timeout',
     && str_contains($sync, 'id > :cursor')
     && substr_count($sync, '$limit = 1;') >= 2);
 $assert('each enriched contract is persisted and projected immediately',
-    str_contains($sync, 'SET payload_snapshot = :payload')
-    && str_contains($sync, 'jobdivaProjectorProjectPlacement'));
+    str_contains($contractBatch, 'jobdivaRefreshLiveContract')
+    && str_contains($live, 'jobdivaProjectorProjectPlacement')
+    && str_contains($live, 'JobdivaStoredReviewTransaction::run'));
 $assert('projection audit snapshots the placement-keyed C2C corporation row',
     str_contains($sync, "\$orderColumn = \$table === 'placement_corp_details' ? 'placement_id' : 'id';")
     && str_contains($sync, "'placement_id', 'corp_legal_name', 'corp_name', 'placement_corp_id'")
     && str_contains($sync, "'company_id', 'ap_vendor_id', 'payment_terms_override', 'pwp_enabled'"));
 $assert('existing placement batches re-resolve the canonical source person identity',
-    str_contains($sync, 'p.person_id AS existing_person_id')
-    && str_contains($sync, "'person_id' => 0"));
+    str_contains($live, "'person_id'=>0")
+    && str_contains($live, 'jobdivaPlacementSourceLink'));
 $assert('ordinary contract batches traverse every mapped placement exactly once per cursor run',
     !str_contains($contractBatch, 'm.sync_status =')
     && !str_contains($contractBatch, 'm.sync_status <>')
     && !str_contains($contractBatch, "JSON_EXTRACT(m.payload_snapshot, '$._jd_contract.contract_version') IS NULL")
-    && str_contains($contractBatch, 'p.deleted_at AS placement_deleted_at'));
+    && !str_contains($contractBatch, 'JOIN placements')
+    && str_contains($live, 'jobdivaAssignmentRepairSnapshot'));
 $assert('ordinary reconciliation refreshes cached exact contracts before classification',
-    str_contains($contractBatch, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);"));
+    str_contains($live, 'jobdivaFetchExactAssignmentById')
+    && str_contains($live, "unset(\$input['_jd_assignment_detail'],\$input['_jd_contract']);")
+    && !str_contains($contractBatch, 'external_mapping:assignment_contract'));
+$assert('returned contracts cannot overwrite edits made during provider lookup',
+    str_contains($live, 'hash_equals(jobdivaAssignmentRepairFingerprint($expected),jobdivaAssignmentRepairFingerprint($current))')
+    && str_contains($live, 'placement.live_contract.refreshed'));
 $assert('archived rows restore only from an explicit current contract lifecycle',
     str_contains($sync, "\$contractStatus !== ''")
     && str_contains($sync, "['active', 'pending_start', 'on_hold']")
@@ -85,7 +93,7 @@ $assert('review candidates project only after an explicit current contract lifec
     && str_contains($sync, "'unavailable' => 0"));
 $assert('review candidates discard stale current contracts before exact validation',
     str_contains($sync, "\$payload['__cf_jobdiva_census_scope'] = 'review';")
-    && substr_count($sync, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);") >= 2
+    && str_contains($sync, "unset(\$payload['_jd_assignment_detail'], \$payload['_jd_contract']);")
     && !str_contains($sync, "AND JSON_EXTRACT(payload_snapshot, '$._jd_contract.contract_version') IS NULL"));
 $assert('financial detail retries by exact employee and filters to the requested Start',
     str_contains($sync, "'employeeId' => \$candidateId")

@@ -1925,172 +1925,31 @@ function jobdivaSyncAssignmentContractsBatch(
     ];
     if ($tenantId <= 0) return $result;
 
+    require_once __DIR__.'/live_contract_refresh.php';
     $pdo = getDB();
-    $compactSnapshotSql = jobdivaAssignmentCompactSnapshotSql('m.payload_snapshot');
-    $st = $pdo->prepare(
-        "SELECT m.id, m.external_id, m.internal_entity_id,
-                {$compactSnapshotSql} AS payload_snapshot,
-                m.sync_status, p.person_id AS existing_person_id,
-                p.deleted_at AS placement_deleted_at
-           FROM external_entity_mappings m
-           JOIN placements p
-             ON p.tenant_id = m.tenant_id
-            AND p.id = m.internal_entity_id
-          WHERE m.tenant_id = :tenant_id
-            AND m.source_system = 'jobdiva'
-            AND m.internal_entity_type = 'placement'
-            AND m.payload_snapshot IS NOT NULL
-            AND m.id > :cursor
-          ORDER BY m.id ASC
-          LIMIT {$limit}"
-    );
-    $st->execute(['tenant_id' => $tenantId, 'cursor' => $cursor]);
-    $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-    if ($rows === []) return $result;
-
-    $items = [];
-    $meta = [];
-    foreach ($rows as $row) {
-        $mappingId = (int) ($row['id'] ?? 0);
-        $result['cursor'] = max($result['cursor'], $mappingId);
-        $externalId = jobdivaAssignmentIdentityNormaliseId((string) ($row['external_id'] ?? ''));
-        $payload = json_decode((string) ($row['payload_snapshot'] ?? ''), true);
-        if ($mappingId <= 0 || $externalId === '' || !is_array($payload)) {
+    if ($pdo->inTransaction() || JobdivaStoredReviewTransaction::inScope()) throw new RuntimeException('Start live contract refresh outside an existing transaction.',409);
+    // Source links belong to the original workspace; their business records
+    // may belong to its shared directory. Resolve that owner in the protected
+    // snapshot, rather than excluding valid shared placements in this query.
+    $st = $pdo->prepare("SELECT id FROM external_entity_mappings
+        WHERE tenant_id = :tenant_id AND source_system = 'jobdiva'
+          AND internal_entity_type = 'placement' AND payload_snapshot IS NOT NULL
+          AND id > :cursor ORDER BY id ASC LIMIT {$limit}");
+    $st->execute(['tenant_id'=>$tenantId,'cursor'=>$cursor]);
+    $rows = $st->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($rows as $mappingId) {
+        $result['cursor'] = max($result['cursor'],(int)$mappingId);
+        $result['processed']++;
+        try {
+            $applied = jobdivaRefreshLiveContract($tenantId,(int)$mappingId,$userId);
+            foreach (['projected','restored','skipped_not_current'] as $key) $result[$key] += $applied[$key];
+            if (!empty($applied['review_required'])) {
+                $result['failed']++;
+                $result['errors'][] = ['mapping_id'=>(int)$mappingId,'error'=>'Assignment source or lifecycle requires review.'];
+            }
+        } catch (Throwable $e) {
             $result['failed']++;
-            $result['errors'][] = ['mapping_id' => $mappingId, 'error' => 'Invalid stored placement payload'];
-            continue;
-        }
-        $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
-        $payload = jobdivaAssignmentMarkVerified(
-            $payload,
-            $externalId,
-            'external_mapping:assignment_contract'
-        );
-        $mirrorStats = [];
-        $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $mirrorStats, $externalId);
-        // Reconciliation is an exact source refresh, not a cache replay. The
-        // assignment mirror can carry a contract from an older run; discard it
-        // so EmployeeAssignmentRecordsDetail is fetched and reclassified now.
-        unset($payload['_jd_assignment_detail'], $payload['_jd_contract']);
-        $meta[] = [
-            'mapping_id' => $mappingId,
-            'external_id' => $externalId,
-            'placement_id' => (int) ($row['internal_entity_id'] ?? 0),
-            'person_id' => (int) ($row['existing_person_id'] ?? 0),
-            'placement_deleted_at' => (string) ($row['placement_deleted_at'] ?? ''),
-        ];
-        $items[] = $payload;
-    }
-
-    if ($items !== []) {
-        $diagnostics = null;
-        $items = jobdivaSyncEnrichRelatedEntities(
-            $tenantId,
-            $items,
-            $userId,
-            [
-                'kinds' => ['financial'],
-                'enrich_start' => false,
-                'enrich_financial' => true,
-            ],
-            $diagnostics
-        );
-
-        // Resolve C2C payee identities before opening per-placement database
-        // transactions. CompaniesDetail can require a network round trip;
-        // keeping it outside the transaction avoids holding placement locks
-        // while JobDiva responds.
-        $subcontractCompanyIds = [];
-        foreach ($items as $payload) {
-            $companyExternalId = jobdivaAssignmentSubcontractCompanyId($payload);
-            if ($companyExternalId !== '') $subcontractCompanyIds[$companyExternalId] = true;
-        }
-        foreach (array_keys($subcontractCompanyIds) as $companyExternalId) {
-            jobdivaSyncResolveSubcontractCompany($tenantId, (string) $companyExternalId, $userId);
-        }
-
-        foreach ($items as $index => $payload) {
-            $rowMeta = $meta[$index] ?? null;
-            if (!is_array($rowMeta)) continue;
-            $result['processed']++;
-            $contract = $payload['_jd_contract'] ?? null;
-            if (!is_array($contract) || $contract === []) {
-                $result['failed']++;
-                $result['errors'][] = [
-                    'start_id' => $rowMeta['external_id'],
-                    'error' => 'JobDiva returned no assignment financial detail',
-                ];
-                continue;
-            }
-
-            try {
-                $payload = jobdivaCanonicalPlacementPayload(
-                    $payload,
-                    jobdivaExtractJoinedSubPayloads($payload)
-                );
-                $isArchived = $rowMeta['placement_deleted_at'] !== ''
-                    && $rowMeta['placement_deleted_at'] !== '0000-00-00 00:00:00';
-                $contractStatus = trim((string) ($contract['placement_status'] ?? ''));
-                $contractEndDate = jobdivaNormaliseDate($contract['end_date'] ?? null);
-                $contractLifecycle = $contractStatus !== ''
-                    ? jobdivaAssignmentCanonicalPlacementStatus($contractStatus, $contractEndDate)
-                    : ['status' => ''];
-                $canRestore = !$isArchived || in_array(
-                    (string) ($contractLifecycle['status'] ?? ''),
-                    ['active', 'pending_start', 'on_hold'],
-                    true
-                );
-                $pdo->beginTransaction();
-                $up = $pdo->prepare(
-                    'UPDATE external_entity_mappings
-                        SET payload_snapshot = :payload, updated_at = NOW()
-                      WHERE id = :mapping_id AND tenant_id = :tenant_id'
-                );
-                $snapshotPayload = jobdivaAssignmentCompactSnapshotPayload(
-                    $payload,
-                    $rowMeta['external_id']
-                );
-                $up->execute([
-                    'payload' => json_encode($snapshotPayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
-                    'mapping_id' => $rowMeta['mapping_id'],
-                    'tenant_id' => $tenantId,
-                ]);
-                if (!$canRestore) {
-                    $pdo->commit();
-                    $result['skipped_not_current']++;
-                    continue;
-                }
-                $projection = jobdivaProjectorProjectPlacement(
-                    $tenantId,
-                    $payload,
-                    $userId,
-                    [
-                        'payload_is_enriched' => true,
-                        'external_id' => $rowMeta['external_id'],
-                        'existing_placement_id' => $rowMeta['placement_id'],
-                        // Re-resolve the candidate on every source replay so
-                        // durable historical cross-person mappings are fixed.
-                        'person_id' => 0,
-                        'force_source_contract' => true,
-                    ]
-                );
-                if (empty($projection['projected'])) {
-                    throw new \RuntimeException(implode(
-                        '; ',
-                        array_map('strval', $projection['errors'] ?? ['projection failed'])
-                    ));
-                }
-                $pdo->commit();
-                $result['projected']++;
-                if ($isArchived) $result['restored']++;
-            } catch (\Throwable $e) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                $result['failed']++;
-                $result['errors'][] = [
-                    'start_id' => $rowMeta['external_id'],
-                    'error' => substr($e->getMessage(), 0, 300),
-                ];
-            }
+            $result['errors'][] = ['mapping_id'=>(int)$mappingId,'error'=>substr($e->getMessage(),0,300)];
         }
     }
 
