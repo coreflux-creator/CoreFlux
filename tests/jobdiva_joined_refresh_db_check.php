@@ -32,6 +32,11 @@ try{
         $expected=jobdivaJoinedIndexSnapshot($workspace,$mappingId);
         $check($expected['joined_payload']['_jd_candidate']['firstName']==='Original source worker','Related source fields come from the original workspace, not its shared business owner');
         $check($expected['context']['placement_owner']===$owner&&$expected['mapping']['external_id']==='jd:99198001','Source refresh retains the exact legacy provider pair and current shared directory');
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappingId,$actor,$state,$failure,$check):void{
+            $pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=? WHERE tenant_id=? AND internal_entity_type="jobdiva_candidate"')->execute([json_encode(['id'=>'99198999','firstName'=>'Cross-linked cached worker']),$workspace]);
+            $cached=jobdivaJoinedIndexSnapshot($workspace,$mappingId);$before=$state();
+            $check($failure(fn()=>jobdivaJoinedIndexApply($cached,$cached['joined_payload'],$actor))!==''&&$state()===$before,'An unchanged but cross-linked cached mirror cannot establish worker source identity');
+        },true);
         $fresh=$expected['joined_payload'];$fresh['_jd_candidate']=['id'=>'99198002','firstName'=>'Updated source worker','newField'=>'Useful field'];
         $fresh['_jd_contract']=['start_id'=>'99198001','candidate_id'=>'99198002','job_id'=>'99198003','bill_rate'=>100,'pay_rate'=>50,'currency'=>'USD'];
         foreach(['root','candidate','job','company','contact','contract','detail']as$case){
@@ -39,7 +44,7 @@ try{
             if($case==='root')$bad['startId']='99198999';
             elseif($case==='contract')$bad['_jd_contract']['candidate_id']='99198999';
             elseif($case==='detail')$bad['_jd_assignment_detail']=[['startId'=>'99198999','candidateId'=>'99198002','jobId'=>'99198003']];
-            else$bad['_jd_'.$case]=['id'=>'99198999'];
+            else$bad['_jd_'.($case==='company'?'customer':$case)]=['id'=>'99198999'];
             $before=$state();$error=$failure(fn()=>jobdivaJoinedIndexApply($expected,$bad,$actor));
             $check($error!==''&&$state()===$before,'Mismatched '.$case.' evidence cannot change snapshots or indexes');
         }

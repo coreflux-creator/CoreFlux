@@ -37,7 +37,14 @@ function jobdivaJoinedIndexValidatePayload(array $expected,array $payload): void
     if($relations['_jd_customer'][0]==='')$relations['_jd_customer'][0]=jobdivaPluckField((array)($original['_jd_job']??[]),['companyId','company_id','company id','COMPANYID','clientCompanyId']);
     if($relations['_jd_contact'][0]==='')$relations['_jd_contact'][0]=jobdivaPluckField((array)($original['_jd_job']??[]),['contactId','contact_id','contact id','CONTACTID','customerId','CUSTOMERID']);
     foreach($relations as$key=>[$id,$fields]){
-        if(!isset($payload[$key])||$payload[$key]===($original[$key]??null))continue;
+        if(!isset($payload[$key]))continue;
+        if($payload[$key]===($original[$key]??null)){
+            // A cached mirror can itself be cross-linked. Do not let equality
+            // with the old cache establish a different related source ID.
+            $savedId=is_array($payload[$key])?jobdivaPluckField($payload[$key],$fields):'';
+            if($id!==''&&$savedId!==''&&$savedId!==$id)throw new RuntimeException('Review the saved related source identity.',409);
+            continue;
+        }
         if(!is_array($payload[$key])||array_is_list($payload[$key])||$id===''||jobdivaPluckField($payload[$key],$fields)!==$id)throw new RuntimeException('The returned related record does not match the reviewed assignment.',409);
     }
     foreach(['_jd_start','_jd_contract']as$key){

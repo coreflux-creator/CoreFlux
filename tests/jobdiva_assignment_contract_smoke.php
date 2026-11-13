@@ -527,7 +527,7 @@ $assert('draft rate source snapshot retains the assignment contract and overhead
     str_contains($syncSource, "'assignment_contract' => \$sourceContract")
     && str_contains($syncSource, "'source_overheads' => \$sourceContract['overheads']"));
 $assert('repair replay refreshes the authoritative assignment contract',
-    str_contains($syncSource, "|| empty(\$jd['_jd_contract'])"));
+    str_contains(file_get_contents(__DIR__.'/../core/jobdiva/joined_index_refresh.php'), "empty(\$payload['_jd_contract'])"));
 $assert('economics API exposes source evidence before rate approval',
     str_contains($economicsSource, 'placementEconomicsLatestSourceEvidence')
     && str_contains($economicsSource, "'source_overheads' => \$sourceEvidence['source_overheads']")
