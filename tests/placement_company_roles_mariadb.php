@@ -31,11 +31,16 @@ try{
         }
     }
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/022_external_entity_mappings.sql'))as$sql)$pdo->exec($sql);
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/069_entity_sync_history.sql'))as$sql)$pdo->exec($sql);
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/097_audit_log_event_column.sql'))as$sql){
+        if(preg_match('/CREATE TABLE IF NOT EXISTS `audit_log`/',$sql))$pdo->exec($sql);
+    }
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/196_commission_terms.sql'))as$sql)$pdo->exec($sql);
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/198_company_source_ownership.sql'))as$sql)$pdo->exec($sql);
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/156_record_numbers.sql'))as$sql)$pdo->exec($sql);
     $pdo->exec('ALTER TABLE companies ADD industry VARCHAR(80), ADD payment_terms_days INT');
     $pdo->exec("ALTER TABLE staffing_clients ADD company_id BIGINT, ADD source_system VARCHAR(40) DEFAULT 'manual', ADD external_id VARCHAR(80)");
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/200_client_source_ownership.sql'))as$sql)$pdo->exec($sql);
     foreach([[10,1,'Billing Co',45],[11,1,'Work Recipient',90],[12,2,'Foreign Co',15],[13,1,'Another Bill-to',20]]as[$id,$tid,$name,$days])$insert('companies',['id'=>$id,'tenant_id'=>$tid,'name'=>$name,'payment_terms_days'=>$days]);
     $pdo->exec('INSERT INTO core_record_numbers(tenant_id,entity_type,record_id,record_number,canonical_record_id) SELECT tenant_id,"company",id,CONCAT("CO-",id),id FROM companies');
     foreach([[1,1,10,'Billing Co'],[2,1,11,'Work Recipient'],[3,2,12,'Foreign Co'],[4,1,13,'Another Bill-to']]as[$id,$tid,$co,$name])$insert('staffing_clients',['id'=>$id,'tenant_id'=>$tid,'company_id'=>$co,'name'=>$name,'source_system'=>'jobdiva','payment_terms_days'=>45]);
@@ -74,6 +79,7 @@ try{
     $check(placementsResolveCompanyRoles(1,['end_client_name'=>''],$placement)===['end_client_company_id'=>null,'end_client_name'=>null],'Clearing recipient does not clear debtor');
     $check($fails(fn()=>placementsResolveCompanyRoles(1,['client_id'=>3]))&&$fails(fn()=>placementsResolveCompanyRoles(1,['end_client_company_id'=>12])),'Manual role edits reject another directory');
     $before=$snapshot();$repair=jobdivaMappingRepairStaffingClientLinks(1);
+    if($repair['failed'])fwrite(STDERR,json_encode(['repair_failure'=>$repair],JSON_THROW_ON_ERROR).PHP_EOL);
     $check($repair['failed']===0&&$snapshot()===$before,'Repair accepts a valid bill-to/end-client difference without modifying placement');
     $pdo->exec('UPDATE placements SET client_id=2 WHERE id=901');
     $repair=jobdivaMappingRepairStaffingClientLinks(1);
