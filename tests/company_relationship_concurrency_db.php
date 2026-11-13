@@ -51,7 +51,9 @@ $finish=static function(int $index)use(&$workers,$line):array{
 $waiting=static function(int $index)use($pdo,&$workers):bool{
     $q=$pdo->prepare('SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS w JOIN information_schema.INNODB_TRX t ON t.trx_id=w.requesting_trx_id WHERE t.trx_mysql_thread_id=?');
     $deadline=microtime(true)+8;
-    do{$q->execute([$workers[$index]['connection']]);if((int)$q->fetchColumn()>0)return true;if(!proc_get_status($workers[$index]['handle'])['running'])break;usleep(50000);}while(microtime(true)<$deadline);
+    // InnoDB refreshes this shared metadata only after >100 ms without a
+    // reader. Polling every 50 ms indefinitely retained an obsolete snapshot.
+    do{$q->execute([$workers[$index]['connection']]);if((int)$q->fetchColumn()>0)return true;if(!proc_get_status($workers[$index]['handle'])['running'])break;usleep(200000);}while(microtime(true)<$deadline);
     // CI-only synthetic connections: retain enough evidence to distinguish a
     // coordination error from an actual write/merge locking failure.
     $connections=array_column($workers,'connection');$marks=implode(',',array_fill(0,count($connections),'?'));
