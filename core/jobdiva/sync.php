@@ -3970,7 +3970,7 @@ function jobdivaStoredAssignmentProjectionPlan(
         $candidatePerson=array_column($candidatePersonRows,null,'id')[$candidatePersonId]??null;
         if($candidateMapping&&(!$candidatePerson||(str_starts_with((string)$candidatePerson['external_id'],'jd:')&&substr((string)$candidatePerson['external_id'],3)!==$candidateId)))$candidateIssues[]='The saved candidate link conflicts with its current People directory record.';
         $personHeld=false;
-        try{$personHeld=in_array('person_id',placementOwnershipFields($currentGraph['placement']['coreflux_overridden_fields']??null),true);}catch(InvalidArgumentException $e){$errors[]=$e->getMessage();}
+        try{$personHeld=in_array('person_id',placementOwnershipFields($currentGraph['placement']['coreflux_overridden_fields']??null),true);}catch(RuntimeException $e){if($e->getCode()!==422)throw$e;$errors[]=$e->getMessage();}
         if(!$personHeld)$errors=array_merge($errors,$candidateIssues);
         $resolvedPerson=$personHeld?(array_column($candidatePersonRows,null,'id')[(int)($current['person_id']??0)]??null):$candidatePerson;
         if($resolvedPerson&&($resolvedPerson['deleted_at']!==null||$resolvedPerson['status']!=='active'))$errors[]='Review and reactivate the linked Core person before importing this assignment.';
@@ -4109,8 +4109,10 @@ function jobdivaStoredAssignmentProjectionPlan(
         $isArchived = !empty($current['deleted_at'])
             && $current['deleted_at'] !== '0000-00-00 00:00:00';
         if($isArchived){
-            $held=jobdivaContractOwnedFields($currentGraph,(string)($current['engagement_type']??''));
-            if(array_intersect(['status','end_date','actual_end_date'],$held))$errors[]='Review the Core-owned lifecycle before restoring this archived placement.';
+            try{
+                $held=jobdivaContractOwnedFields($currentGraph,(string)($current['engagement_type']??''));
+                if(array_intersect(['status','end_date','actual_end_date'],$held))$errors[]='Review the Core-owned lifecycle before restoring this archived placement.';
+            }catch(RuntimeException $e){if($e->getCode()!==422)throw$e;$errors[]=$e->getMessage();}
             if(!in_array((string)($contractProjection['placement']['status']??''),['active','pending_start','on_hold'],true))$errors[]='The saved source lifecycle does not support restoring this archived placement.';
         }
         $outcome = $isArchived ? 'restore' : ($placementId > 0 ? 'update' : 'create');

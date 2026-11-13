@@ -47,6 +47,10 @@ try{
     scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>'{}']);
     $bad=$reviewRow($preview());
     $check(!$bad['selectable']&&in_array('review_required',array_column($bad['contract']['fields'],'handling'),true),'Malformed ownership blocks that row and exposes the review requirement');
+    scopedUpdate('placements',$placement,['deleted_at'=>'2026-11-01 00:00:00']);
+    $badArchived=$reviewRow($preview());
+    $check(!$badArchived['selectable']&&in_array('review_required',array_column($badArchived['contract']['fields'],'handling'),true),'Malformed archived ownership remains a blocked row rather than failing the whole preview');
+    scopedUpdate('placements',$placement,['deleted_at'=>null]);
     scopedUpdate('placements',$placement,['coreflux_overridden_fields'=>json_encode($owned)]);
     $ready=$preview();$result=jobdivaApplyStoredAssignmentProjection($tenant,null,['99150001'],$ready['dry_run_token'],20);
     $check($result['projected']===1&&$result['retained_core_fields']===4,'Stored apply reports the actual retained-field count');

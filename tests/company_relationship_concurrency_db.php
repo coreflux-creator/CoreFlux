@@ -47,6 +47,12 @@ function sourceRuleRaceWrite(array $input): array
     return ['id'=>$input['placement_id']]+placementSourceRuleReplace($input['workspace'],$input['placement_id'],'chain',$input['body'],['id'=>$input['actor'],'role'=>'admin']);
 }
 
+function storedAssignmentRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    return ['id'=>$input['placement_id']]+jobdivaApplyStoredAssignmentProjection($input['workspace'],$input['actor'],[$input['start_id']],$input['review_token'],5000);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -57,8 +63,8 @@ if(($argv[1]??'')==='worker'){
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
-        elseif($input['mode']==='rule_hold')$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
-            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=sourceRuleRaceWrite($input);
+        elseif(in_array($input['mode'],['rule_hold','stored_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
+            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=$input['mode']==='rule_hold'?sourceRuleRaceWrite($input):storedAssignmentRaceWrite($input);
             echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
             stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
             if($decision!=='COMMIT')$pdo->exec('ROLLBACK TO SAVEPOINT fixture_rule_hold');
@@ -81,6 +87,7 @@ if(($argv[1]??'')==='worker'){
                 'assignment_source'=>assignmentSourceRaceWrite($input),
                 'economic_graph'=>['id'=>$input['placement_id']]+placementEconomicsReconcile($input['workspace'],$input['placement_id']),
                 'source_rules'=>sourceRuleRaceWrite($input),
+                'stored_assignment'=>storedAssignmentRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -383,7 +390,7 @@ try{
         return[$a,$b,(int)$placement['id'],$input];
     };
     $projectionRows=static function()use($pdo,$tenant,$child):array{
-        $rows=[];foreach(['people','companies','staffing_clients','staffing_jobs','placements','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','placement_economic_parties','external_entity_mappings','entity_sync_history','audit_log']as$table){
+        $rows=[];foreach(['people','companies','staffing_clients','staffing_jobs','placements','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','placement_economic_parties','external_entity_mappings','entity_sync_history','audit_log','jobdiva_sync_audit']as$table){
             $q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id IN(?,?) ORDER BY '.($table==='placement_corp_details'?'placement_id':'id'));$q->execute([$tenant,$child]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);
         }return$rows;
     };
@@ -492,6 +499,39 @@ try{
         $check($written['ok']&&$again['ok']&&(int)$q->fetchColumn()===1&&(float)$read('placement_client_chain',$msp)['portal_fee_pct']===0.02
             &&(!empty($again['result']['replayed'])===($decision==='COMMIT')),'Concurrent retry records exactly one replacement after '.$decision);
     }
+    $storedFixture=static function(string $label,int $workspace)use($ruleFixture,$actor):array{
+        [$a,$b,$placement,$msp,$ruleInput,$payload]=$ruleFixture('stored-'.$label,$workspace);
+        $payload['_jd_contract']['worksite_city']='Reviewed stored city';
+        mappingUpsert($workspace,'jobdiva','jobdiva_assignment',$payload['startId'],$placement,$payload);
+        $plan=jobdivaStoredAssignmentProjectionPlan($workspace,5000,[],false);$row=array_column($plan['rows'],null,'start_id')[$payload['startId']];
+        if(!$row['selectable'])throw new RuntimeException('Stored race source blocked: '.implode('; ',$row['errors']));
+        return[$a,$b,$placement,['mode'=>'native','entity'=>'stored_assignment','workspace'=>$workspace,'actor'=>$actor,'placement_id'=>$placement,'start_id'=>$payload['startId'],'review_token'=>$plan['dry_run_token']],$payload];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['companies','placements']as$module){
+            [$a,$b,$placement,$input]=$storedFixture('policy-'.$module.'-'.$decision,$child);$before=$projectionRows();
+            $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$module]);
+            $worker=$spawn($input);$check($waiting($worker),'Stored assignment waits for '.$module.' policy '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+            $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$result['result']['projected']===1&&$read('placements',$placement)['worksite_city']==='Reviewed stored city'),'Stored assignment respects current '.$module.' scope after '.$decision);
+        }
+        [$a,$b,$placement,$input,$payload]=$storedFixture('source-first-'.$decision,$tenant);
+        $pdo->beginTransaction();mappingUpsert($tenant,'jobdiva','jobdiva_assignment',$payload['startId'],$placement,array_replace($payload,['title'=>'Changed after stored review']));
+        $worker=$spawn($input);$check($waiting($worker),'Stored assignment waits for its saved source evidence '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$projectionRows();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$read('placements',$placement)['worksite_city']==='Reviewed stored city'),'Stored apply rejects changed evidence and accepts rolled-back evidence after '.$decision);
+        [$a,$b,$placement,$input]=$storedFixture('merge-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+        $worker=$spawn($input);$check($waiting($worker),'Stored assignment waits for its recipient merge '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$projectionRows();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$read('placements',$placement)['worksite_city']==='Reviewed stored city'),'Stored review never silently accepts a changed recipient after '.$decision);
+        [$a,$b,$placement,$input]=$storedFixture('concurrent-apply-'.$decision,$tenant);
+        $worker=$spawn(array_replace($input,['mode'=>'stored_hold']));$saved=$line($workers[$worker]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Stored apply holds its complete assignment and audit before '.$decision);
+        $retry=$spawn($input);$check($waiting($retry),'Concurrent stored apply waits for the first reviewed assignment '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
+        $q=$pdo->prepare('SELECT COUNT(*) FROM jobdiva_sync_audit WHERE tenant_id=? AND action="stored_assignment_reconciliation" AND JSON_UNQUOTE(JSON_EXTRACT(detail,"$.start_id"))=?');$q->execute([$tenant,$input['start_id']]);
+        $check($written['ok']&&($decision==='COMMIT'?!$again['ok']:$again['ok'])&&(int)$q->fetchColumn()===1&&$read('placements',$placement)['worksite_city']==='Reviewed stored city','Concurrent stored requests commit exactly one reviewed projection after '.$decision);
+    }
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -501,7 +541,7 @@ try{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
     foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','ap_vendors_index','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
-    foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+    foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','jobdiva_sync_audit','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);
     foreach($createdTenants as$createdTenant)$pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$createdTenant]);
     foreach($files as$file)if(is_file($file))unlink($file);if(is_dir($directory))rmdir($directory);

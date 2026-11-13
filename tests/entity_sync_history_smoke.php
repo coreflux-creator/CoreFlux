@@ -130,8 +130,9 @@ $assert('contacts preserve actor through the atomic stable writer',
     str_contains($syncSrc, 'jobdivaContactUpsertStable($tid,$companyId,$externalId,$jd,$name,$values,$userId)')
     && str_contains($partySrc, "mappingUpsert(\$workspace,'jobdiva','contact',\$external,\$id,\$payload,'pull',\$actor)"));
 $projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
-$assert('placements upsert passes $userId',
-    strpos($projectorSrc, "mappingBindStable(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$snapshotPayload, 'pull', \$userId);") !== false);
+$assert('placements preserve saved provider ID and actor',
+    str_contains($projectorSrc, "\$mappingExternalId=(string)(\$identity['mapping']['external_id']??\$externalId)")
+    && str_contains($projectorSrc, "mappingBindStable(\$tenantId, 'jobdiva', 'placement', \$mappingExternalId, \$placementId, \$snapshotPayload, 'pull', \$userId);"));
 $pSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync_placements.php");
 $assert('auto-create person upserts existing match with $userId',
     strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId, \$personSnapshot, 'pull', \$userId);") !== false);

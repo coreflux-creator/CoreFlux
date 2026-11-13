@@ -85,11 +85,11 @@ $assert('later JobDiva Starts hold retired Core people for reviewed reactivation
 $assert('person re-observation preserves identity and refreshes the same mapping',
     !str_contains($sync, "mappingDelete(\$tid, 'jobdiva', 'person', \$candidateExtId)")
         && str_contains($sync, "jobdivaPersonExternalIdConflicts(\$mappedExternalId, \$candidateExtId)")
-        && str_contains($sync, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$mappedPersonId"));
+        && str_contains($sync, "mappingUpsert(\$tid, 'jobdiva', 'person', (string)\$mapping['external_id'], \$mappedPersonId"));
 $assert('later current Starts restore source-owned archived placements while Core lifecycle remains held',
     str_contains($placementSync, "if (!array_intersect(['status','end_date','actual_end_date'],\$overrides) && in_array(\$status, ['active', 'pending_start', 'on_hold'], true))")
         && str_contains($placementSync, "\$assignments[] = 'deleted_at = NULL';")
-        && str_contains($placementSync, "'person_id' => \$isRestore ? 0")
+        && str_contains($placementSync, "'person_id' => 0")
         && str_contains($placementSync, "'placements_restored' => 0"));
 $assert('placement refresh protects an already-started active assignment from pending rollback',
     str_contains($placementSync, 'jobdivaAssignmentPlacementStatusForWrite(')

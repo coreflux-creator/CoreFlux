@@ -161,6 +161,39 @@ $before=$snapshot($ruleTables);[$status,$again]=$request('POST',$sharedRulePath,
 $expect($status===200&&!empty($again['replayed'])&&$again['currently_follows_source']&&$snapshot($ruleTables)===$before,'Shared native retry returns its original receipt without repeating writes');
 $expect($snapshot($financialTables)===$financialBefore,'Shared native source review and replacement execute no financial operations');
 
+// The complete stored-assignment route must use the same source workspace.
+$storedPath='/modules/placements/api/jobdiva_reconciliation.php';
+$pdo->prepare('UPDATE external_entity_mappings SET external_id=CONCAT("jd:",external_id) WHERE tenant_id=? AND source_system="jobdiva" AND ((internal_entity_type="placement" AND external_id=?) OR (internal_entity_type="person" AND external_id="99190122"))')->execute([$childTenant,$sharedRuleStart]);
+$sharedRulePayload['_jd_contract']['client_company_id']='99190126';$sharedRulePayload['_jd_contract']['end_client_company_id']='99190126';$sharedRulePayload['_jd_contract']['worksite_city']='Princeton';
+mappingUpsert($childTenant,'jobdiva','jobdiva_assignment',$sharedRuleStart,$sharedRulePlacement,$sharedRulePayload);
+$before=$snapshot($ruleTables);[$status,$storedReview]=$request('POST',$storedPath.'?action=stored_preview',['page'=>1,'per_page'=>20],true,$childTenant);
+$storedRows=array_column($storedReview['rows']??[],null,'start_id');
+$expect($status===200&&isset($storedRows[$sharedRuleStart])&&$storedRows[$sharedRuleStart]['selectable']&&$storedRows[$sharedRuleStart]['placement_id']===$sharedRulePlacement&&$snapshot($ruleTables)===$before,'Native stored preview follows the child source mirror and retained shared placement without writes');
+[$status,$parentStored]=$request('POST',$storedPath.'?action=stored_preview',['page'=>1,'per_page'=>20]);
+$expect($status===200&&!in_array($sharedRuleStart,array_column($parentStored['rows'],'start_id'),true),'Native parent stored catalog cannot borrow child assignment mirrors');
+$storedBody=['confirm'=>'APPLY_STORED_JOBDIVA_ASSIGNMENTS','dry_run_token'=>$storedReview['dry_run_token'],'selected_start_ids'=>[$sharedRuleStart],'page'=>1,'per_page'=>20];
+$wrongBody=$storedBody;$wrongBody['dry_run_token']=$parentStored['dry_run_token'];
+$expect($request('POST',$storedPath.'?action=stored_apply',$wrongBody,true,$childTenant)[0]===409&&$snapshot($ruleTables)===$before,'A different workspace preview cannot authorize native stored apply');
+RBACResolver::grantModule($childMembership,'placements','read',[$childTenant],$actor);
+$expect($request('POST',$storedPath.'?action=stored_apply',$storedBody,true,$childTenant)[0]===403&&$snapshot($ruleTables)===$before,'Read-only child cannot apply stored shared assignments');
+RBACResolver::grantModule($childMembership,'placements','admin',[$childTenant],$actor);
+$pdo->exec("CREATE TRIGGER cf_http_stored_directory_audit BEFORE INSERT ON jobdiva_sync_audit FOR EACH ROW BEGIN IF NEW.action='stored_assignment_reconciliation' AND NEW.tenant_id=900014 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic stored directory audit failure'; END IF; END");
+try{$expect($request('POST',$storedPath.'?action=stored_apply',$storedBody,true,$childTenant)[0]===409&&$snapshot($ruleTables)===$before,'Required native stored audit failure rolls back the complete shared projection');}
+finally{$pdo->exec('DROP TRIGGER cf_http_stored_directory_audit');}
+$storedPairs=$pdo->query('SELECT id,tenant_id,source_system,internal_entity_type,external_id,internal_entity_id FROM external_entity_mappings ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+[$status,$storedSaved]=$request('POST',$storedPath.'?action=stored_apply',$storedBody,true,$childTenant);
+$q=$pdo->prepare('SELECT tenant_id,external_id,person_id,worksite_city FROM placements WHERE id=?');$q->execute([$sharedRulePlacement]);$storedPlacement=$q->fetch(PDO::FETCH_ASSOC);
+$expect($status===200&&$storedSaved['projected']===1&&(int)$storedPlacement['tenant_id']===$tenant&&(int)$storedPlacement['person_id']===$sharedRulePerson&&$storedPlacement['external_id']==='http-shared-placement-legacy'&&$storedPlacement['worksite_city']==='Princeton','Native stored apply updates the existing shared assignment and preserves its worker and legacy number');
+$afterPairs=array_column($pdo->query('SELECT id,tenant_id,source_system,internal_entity_type,external_id,internal_entity_id FROM external_entity_mappings ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),null,'id');
+$expect(count(array_filter($storedPairs,static fn($p)=>($afterPairs[$p['id']]??null)!==$p))===0,'Native stored apply retains every original provider pair including prefixed person and placement IDs');
+$q=$pdo->prepare('SELECT tenant_id,actor_user_id,detail FROM jobdiva_sync_audit WHERE action="stored_assignment_reconciliation" AND tenant_id=? ORDER BY id DESC LIMIT 1');$q->execute([$childTenant]);$storedAudit=$q->fetch(PDO::FETCH_ASSOC);$storedDetail=json_decode($storedAudit['detail'],true,512,JSON_THROW_ON_ERROR);
+$expect((int)$storedAudit['actor_user_id']===$actor&&(int)$storedDetail['placement_owner_id']===$tenant&&(int)$storedDetail['before']['placement']['id']===$sharedRulePlacement&&(int)$storedDetail['after']['placement']['id']===$sharedRulePlacement,'Native stored audit identifies original workspace, authenticated actor and shared before/after graph');
+$before=$snapshot($ruleTables);$expect($request('POST',$storedPath.'?action=stored_apply',$storedBody,true,$childTenant)[0]===409&&$snapshot($ruleTables)===$before,'Old native stored preview cannot reapply after the first accepted projection');
+$numbers=$snapshot(['core_record_numbers']);[$status,$freshStored]=$request('POST',$storedPath.'?action=stored_preview',['page'=>1,'per_page'=>20],true,$childTenant);$storedBody['dry_run_token']=$freshStored['dry_run_token'];
+[$status,$replayed]=$request('POST',$storedPath.'?action=stored_apply',$storedBody,true,$childTenant);
+$expect($status===200&&$replayed['projected']===1&&$numbers===$snapshot(['core_record_numbers']),'Fresh native stored replay retains stable record numbers');
+$expect($snapshot($financialTables)===$financialBefore,'Native shared stored reconciliation executes no accounting, payroll or payment operations');
+
 // The same native PATCH used by the company chooser resolves an unlinked source row.
 $choicePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unresolved company choice','status'=>'on_hold','engagement_type'=>'1099','start_date'=>'2026-10-01']);
 $choiceChain=jobdivaSyncUpsertPlacementChainRow($tenant,$choicePlacement,1,'msp','Unresolved source MSP',null,['portal_fee_pct'=>0.02]);
