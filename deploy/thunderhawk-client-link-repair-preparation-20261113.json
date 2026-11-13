@@ -1,0 +1,138 @@
+{
+  "previous_goal_turn": "No integration progress: answered standalone accounting access. This continuation revalidated source and installed pilot, corrected exact billing-link repairs, removed heuristic lifecycle cleanup, and completed database, concurrency and authenticated checks.",
+  "scope": "Authorized Thunderhawk isolated pilot preparation; source only, not installed",
+  "source_commit": "b5967882f6c703cd0234e1c3521a20b35002053c",
+  "base_commit": "4c1abaad28a274e1a0fa4b75cc76daac62a3785e",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "7cf238790b2fb8fbcf5085638398885040018f027c787b1754c7459d457e9325",
+    "api/admin/integrations/jobdiva_mapping_alignment.php": "1b8713f6fa658b62c2e505f285facbd2f111c8f53ad30f9b7a76bd5f7507f0e5",
+    "core/jobdiva/client_link_repair.php": "e6aa7b1ca44029bc4ac6c79ae9c8fd19903c53a2f6f7fbdd61c11ab40e5c1177",
+    "core/jobdiva/mapping_alignment.php": "0124a3aab1995231501012e5ba832430ea5faf1354117d7693c75f30851bd680",
+    "core/jobdiva/projector.php": "23611b94772f1b43c6e7feda58092f9bf99b4cb51177719d4213baf23a6efee0",
+    "core/jobdiva/sync.php": "be27da9adb0d8dee9e8f272ccf20ece0784bc73d3bc1d16e8ad8f7d94e3880de",
+    "modules/staffing/lib/client_catalog_review.php": "5ac1d5ff8d0ec29519d74ab3ffc659b6af51ee6a130afb41adad89f1f595ddc5",
+    "modules/staffing/lib/clients.php": "94aef9753074b80975320e3b6aba723fd785f0a3a5d723b32289d55eda901358",
+    "scripts/repair_staffing_client_catalog.php": "ecb80184b3d3a400b9d91c85fbfc3a6b5a5564a2db5ccd361931b143b5b9f314",
+    "tests/company_relationship_concurrency_db.php": "fa095e39ca0e03f226c81e9bbe2570991a72d1d5d2c0c7e7710399748ddfb9e7",
+    "tests/fixtures/quanta_profile_http_router.php": "452028a61d0e3cdc36b961192bf568ebb1a83ca69822a0032daddcd3b2e3109a",
+    "tests/fixtures/staffing_client_native_http_cases.php": "c1783fe90404cfcff5435bcafbb0a6d10d73db25b44bec0a2322214961f0a8d3",
+    "tests/jobdiva_client_link_repair_db.php": "3935784e8bb01a9fbd5a1964efda0694465e405017eb445ffb1fe33ff8c7e621",
+    "tests/jobdiva_mapping_alignment_smoke.php": "36f06eaeb1c061a938b801014095d3d953f8c2a788885a628b3662c19c0dae66",
+    "tests/jobdiva_stored_assignment_reconciliation_smoke.php": "67775679dfa4b3ed0a330b3aa6c0c707a8e1175cae5cf6ee924497ddd0a1553e",
+    "tests/placement_company_roles_mariadb.php": "6e1836070dfeb0ee8703d497dbdfce98600ab1a4206a1c737d636f46c97677c6",
+    "tests/staffing_client_catalog_integrity_smoke.php": "f824e9183da5bd27668fba7e4afe86e2363c0bc006551775c45c517eb495da3d",
+    "tests/staffing_client_catalog_sync_smoke.php": "521b99d5b54dc2ac362178d5c009a2b5f0cf618d996ef0f8b1b15d0aeea1a59e"
+  },
+  "ci": {
+    "run_id": 43395077504,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43395077504",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "id": 131783920812,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "id": 131783921174,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "id": 131783921221,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "id": 131783921239,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "id": 131783921242,
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "id": 131783921274,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "id": 131783921330,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "id": 131783921340,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "id": 131783921500,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "id": 131783921547,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "id": 131783922159,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "billing_link_repair_full_schema": 47,
+    "independent_connection_concurrency": 102,
+    "native_login_session_api": 832,
+    "billing_roles": 23,
+    "tenant_isolation_sentry": "passed with explicit directory-restricted conflict query"
+  },
+  "local_checks": [
+    "Assignment identity contract",
+    "Assignment mirror",
+    "Projector contract",
+    "Projector postconditions",
+    "Client catalog integrity",
+    "Client source convergence",
+    "Mapping alignment",
+    "Stored assignment reconciliation",
+    "Five malformed CLI requests rejected before database access",
+    "PHP syntax",
+    "git diff whitespace"
+  ],
+  "native_log_sha256": "09b8ac6fd5367582ce675319760c8aadb503480661aa098e550ba7e6435404f9",
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T08:31:53+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "production_changed": false,
+  "provider_runtime_changed": false,
+  "arabella_changed": false,
+  "payroll_executed": false,
+  "payments_executed": false,
+  "financial_postings_executed": false,
+  "remaining": [
+    "Ordinary placement source/native write ownership and fresh directory references",
+    "Other alignment report/repair queries with source workspace equal to placement owner assumptions",
+    "AP/current-reference writers and native job ownership/shared source contract",
+    "Survivor source review and historical number navigation",
+    "Stable QuickBooks customer identity for outbound invoice routing",
+    "Guarded pilot installation and hosted acceptance",
+    "Full field/portal/onboarding/document/time/approval/payroll-result/financial-reconciliation acceptance audit"
+  ],
+  "full_integration_complete": false
+}
