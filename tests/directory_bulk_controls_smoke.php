@@ -90,11 +90,12 @@ $assert('client names, edit actions, and placement counts are interactive',
 $assert('bulk client updates are permissioned, validated, and audited',
     (bool) preg_match("/action === 'bulk_update'.*?placements\.manage/s", $clientApi)
     && str_contains($clientApi, "['status','payment_terms_days','industry','msa_status']")
-    && str_contains($clientApi, "'source' => 'bulk_update'"));
+    && str_contains($clientApi, 'staffingClientSaveNative('));
 $assert('bulk close cannot strand active placements',
-    str_contains($clientApi, 'Client has active placements'));
-$assert('payment terms stay aligned with the canonical company',
-    str_contains($clientLib, "'payment_terms_days' => 'payment_terms_days'"));
+    str_contains($clientApi, 'staffingClientSaveNative(')
+    && str_contains((string)file_get_contents($root.'/modules/staffing/lib/client_write.php'),'This billing client has active placements'));
+$assert('native client terms use the reviewed client profile workflow',
+    str_contains($clientApi, 'edit_revisions') && str_contains($clientApi, 'staffingClientSaveNative('));
 
 echo "\n4. PHP syntax\n";
 foreach ([

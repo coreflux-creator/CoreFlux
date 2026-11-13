@@ -47,8 +47,8 @@ $assert('client CSV read uses placements view, export uses dedicated permission,
     str_contains($csvImport, "api_require_legacy_permission(\$ctx, 'placements.manage')")
     && !str_contains($csvImport, "api_require_legacy_permission(\$ctx, 'staffing.view')")
     && str_contains($read($root . '/modules/staffing/api/csv_export.php'), "api_require_legacy_permission(\$ctx, 'staffing.export.run')"));
-$assert('client CSV import converges through company/client bridge',
-    str_contains($csvImport, 'staffingClientEnsureForCompany(')
+$assert('client CSV import uses atomic native company/client writes',
+    str_contains($csvImport, 'staffingClientImportNative(')
     && !str_contains($csvImport, "return scopedInsert('staffing_clients'"));
 $assert('client bridge preserves existing commercial terms when a source omits them',
     str_contains($clientLib, ': ($existing ? null : 30)'));

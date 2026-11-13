@@ -40,6 +40,14 @@ function staffingClientApiSave(int $workspace,?int $id,array $patch,int $actor,?
     }
 }
 
+function staffingClientApiId(mixed $value): int
+{
+    try{$id=companyRelationshipId($value);}
+    catch(InvalidArgumentException $e){api_error('Choose a valid client number.',422);}
+    if($id===null)api_error('id required',422);
+    return$id;
+}
+
 
 if ($method === 'GET' && $action === 'list') {
     api_require_legacy_permission($ctx, 'placements.view');
@@ -159,8 +167,7 @@ if ($method === 'GET' && $action === 'list') {
 if ($method === 'POST' && $action === 'bulk_update') {
     api_require_legacy_permission($ctx, 'placements.manage');
     $b = api_json_body();
-    $ids = is_array($b['ids'] ?? null) ? array_values(array_unique(array_map('intval', $b['ids']))) : [];
-    $ids = array_values(array_filter($ids, static fn($id) => $id > 0));
+    $ids = is_array($b['ids'] ?? null) ? array_values(array_unique(array_map('staffingClientApiId', $b['ids']))) : [];
     $field = (string) ($b['field'] ?? '');
     $value = $b['value'] ?? null;
     $allowed = ['status','payment_terms_days','industry','msa_status'];
@@ -177,9 +184,8 @@ if ($method === 'POST' && $action === 'bulk_update') {
         $msaStatuses = ['none','draft','executed','expired'];
         if (!in_array($value, $msaStatuses, true)) api_error('Invalid msa_status', 422, ['allowed' => $msaStatuses]);
     } elseif ($field === 'payment_terms_days') {
-        if (!is_numeric($value)) api_error('payment_terms_days must be numeric', 422);
-        $value = (int) $value;
-        if ($value < 0 || $value > 365) api_error('payment_terms_days must be between 0 and 365', 422);
+        try{$value=staffingClientValidateNative(['payment_terms_days'=>$value])['payment_terms_days'];}
+        catch(InvalidArgumentException $e){api_error($e->getMessage(),422);}
     } else {
         $value = trim((string) $value);
         if ($value === '') api_error('industry cannot be blank', 422);
@@ -208,8 +214,7 @@ if ($method === 'POST' && $action === 'bulk_update') {
 
 if ($method === 'GET' && $action === 'get') {
     api_require_legacy_permission($ctx, 'placements.view');
-    $id = (int) ($_GET['id'] ?? 0);
-    if ($id <= 0) api_error('id required', 422);
+    $id = staffingClientApiId($_GET['id'] ?? null);
     $row = staffingClientCatalogFind(
         $tenantId,
         'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
@@ -232,7 +237,7 @@ if ($method === 'POST' && $action === 'create') {
 
 if ($method === 'POST' && $action === 'update') {
     api_require_legacy_permission($ctx, 'placements.manage');
-    $b=api_json_body();$id=(int)($b['id']??0);if($id<=0)api_error('id required',422);
+    $b=api_json_body();$id=staffingClientApiId($b['id']??null);
     $patch=array_intersect_key($b,array_flip(staffingClientNativeFields()));
     $client=staffingClientApiSave($activeTenantId,$id,$patch,(int)$actorUserId,is_string($b['edit_revision']??null)?$b['edit_revision']:null);
     api_ok(['client'=>$client]);
@@ -240,15 +245,14 @@ if ($method === 'POST' && $action === 'update') {
 
 if ($method === 'POST' && $action === 'delete') {
     api_require_legacy_permission($ctx, 'placements.manage');
-    $b=api_json_body();$id=(int)($b['id']??0);if($id<=0)api_error('id required',422);
+    $b=api_json_body();$id=staffingClientApiId($b['id']??null);
     staffingClientApiSave($activeTenantId,$id,['status'=>'closed'],(int)$actorUserId,is_string($b['edit_revision']??null)?$b['edit_revision']:null,'staffing.client.closed');
     api_ok(['ok'=>true,'closed_id'=>$id]);
 }
 
 if ($method === 'GET' && $action === 'stats') {
     api_require_legacy_permission($ctx, 'placements.view');
-    $id = (int) ($_GET['id'] ?? 0);
-    if ($id <= 0) api_error('id required', 422);
+    $id = staffingClientApiId($_GET['id'] ?? null);
 
     $activeStmt = getDB()->prepare(
         "SELECT COUNT(*) AS c

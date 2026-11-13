@@ -36,7 +36,7 @@ function staffingClientRevision(PDO $pdo,array $scope,array $client,?array $comp
 function staffingClientValidateNative(array $patch): array
 {
     if(!$patch||array_diff(array_keys($patch),staffingClientNativeFields()))throw new InvalidArgumentException('Choose the client fields to save.');
-    foreach($patch as$field=>$value)if($value!==null&&!is_scalar($value))throw new InvalidArgumentException('Invalid client field: '.$field);
+    foreach($patch as$field=>$value)if($field!=='payment_terms_days'&&$value!==null&&!is_string($value))throw new InvalidArgumentException('Invalid client field: '.$field);
     if(array_key_exists('name',$patch)){$patch['name']=trim((string)$patch['name']);if($patch['name']==='')throw new InvalidArgumentException('A client name is required.');}
     foreach(['status'=>['active','prospect','on_hold','inactive','closed'],'msa_status'=>['none','draft','executed','expired']]as$field=>$allowed){
         if(array_key_exists($field,$patch)&&!in_array($patch[$field],$allowed,true))throw new InvalidArgumentException('Choose a valid '.$field.'.');
@@ -83,6 +83,10 @@ function staffingClientSaveNative(int $workspace,?int $id,array $patch,int $acto
             $company=companyRelationshipCurrent($pdo,$scope,$companyId);
         }
         $companyId=(int)$company['id'];
+        if(array_key_exists('name',$patch)){
+            $q=$pdo->prepare('SELECT id FROM companies WHERE tenant_id=? AND name=? AND id<>? AND deleted_at IS NULL FOR UPDATE');$q->execute([$companyOwner,$patch['name'],$companyId]);
+            if($q->fetchColumn())throw new RuntimeException('Another company already has this name. Review the company identity instead of renaming this client.',409);
+        }
         if(isset($patch['status'])&&in_array($patch['status'],['inactive','closed'],true)&&$id!==null){
             $q=$pdo->prepare('SELECT id FROM placements WHERE tenant_id=? AND client_id=? AND status="active" AND deleted_at IS NULL LIMIT 1 FOR UPDATE');$q->execute([$owner,$id]);
             if($q->fetchColumn())throw new RuntimeException('This billing client has active placements. Resolve those assignments before closing it.',409);
@@ -102,5 +106,53 @@ function staffingClientSaveNative(int $workspace,?int $id,array $patch,int $acto
         companySourceAudit($pdo,$owner,$owner,'staffing_clients',$id,$event?:($before?'staffing.client.updated':'staffing.client.created'),array_keys($patch),$actor,
             ['acting_workspace_id'=>$workspace,'before'=>staffingClientAuditSnapshot($before),'after'=>staffingClientAuditSnapshot($saved)]);
         $saved['edit_revision']=staffingClientRevision($pdo,$scope,$saved);return$saved;
+    });
+}
+
+/** Exact CL number, then an existing source pair; names cannot rebind source identities. */
+function staffingClientImportPlan(PDO $pdo,array $scope,array $row,bool $updateExisting,bool $lock=false): array
+{
+    if($lock&&!$pdo->inTransaction())throw new LogicException('Client import resolution requires a transaction.');
+    $owner=$scope['owner'];$suffix=$lock?' FOR UPDATE':'';
+    if(jobdivaPartyDirectoryScope($pdo,$owner,$lock)['owner']!==$scope['company_owner'])throw new RuntimeException('This shared client cannot use a private company directory.',409);
+    $patch=array_intersect_key($row,array_flip(staffingClientNativeFields()));
+    foreach(['status','payment_terms_days','msa_status']as$field)if(($patch[$field]??null)==='')unset($patch[$field]);
+    $patch=staffingClientValidateNative($patch);
+    $id=companyRelationshipId($row['client_id']??null);$external=trim((string)($row['external_id']??''));$system=trim((string)($row['source_system']??''))?:'manual';
+    if(strlen($external)>128||!in_array($system,['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other'],true))throw new InvalidArgumentException('Use a valid source system and external ID.');
+    $existing=null;$bound=null;
+    if($id!==null){$q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND id=?'.$suffix);$q->execute([$owner,$id]);$existing=$q->fetch(PDO::FETCH_ASSOC);if(!$existing)throw new RuntimeException('The client number is not in this directory.',404);}
+    if($external!==''){
+        $q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND source_system=? AND external_id=?'.$suffix);$q->execute([$owner,$system,$external]);$bound=$q->fetch(PDO::FETCH_ASSOC)?:null;
+        if($existing&&$bound&&(int)$existing['id']!==(int)$bound['id'])throw new RuntimeException('The client number and source ID identify different clients.',409);
+        $existing=$existing?:$bound;
+    }
+    if(!$existing){
+        $q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND name=?'.$suffix);$q->execute([$owner,$patch['name']??'']);$named=$q->fetch(PDO::FETCH_ASSOC)?:null;
+        if($named&&$external!=='')throw new RuntimeException('A namesake client exists. Supply its reviewed client number to add this source ID.',409);
+        $existing=$named;
+    }
+    if($existing&&!$updateExisting&&$external==='')throw new RuntimeException('This client exists. Enable updating existing rows to edit it.',409);
+    if($existing&&$external!==''&&!empty($existing['external_id'])
+        &&($existing['external_id']!==$external||$existing['source_system']!==$system))throw new RuntimeException('The existing source identity cannot be replaced by an import.',409);
+    if($existing&&!empty($existing['company_id'])){
+        $identity=companyIdentityResolve($pdo,$scope['company_owner'],(int)$existing['company_id'],$lock);
+        if(!$identity||$identity['merged'])throw new RuntimeException('Review the client company identity before importing changes.',409);
+    }
+    $legacy=[];
+    if(!$existing||($external!==''&&empty($existing['external_id'])))$legacy=['external_id'=>$external?:null,'source_system'=>$system];
+    return ['patch'=>$patch,'existing'=>$existing,'legacy'=>$legacy];
+}
+
+function staffingClientImportNative(int $workspace,array $row,int $actor,bool $updateExisting): int
+{
+    $pdo=getDB();return companyRelationshipAtomic($pdo,static function()use($pdo,$workspace,$row,$actor,$updateExisting):int{
+        $scope=companyRelationshipScope($pdo,$workspace,'placements');$plan=staffingClientImportPlan($pdo,$scope,$row,$updateExisting,true);$before=$plan['existing'];
+        $revision=$before?staffingClientRevision($pdo,$scope,$before):null;
+        $saved=staffingClientSaveNative($workspace,$before?(int)$before['id']:null,$plan['patch'],$actor,$revision);$id=(int)$saved['id'];
+        if($plan['legacy'])$pdo->prepare('UPDATE staffing_clients SET external_id=?,source_system=? WHERE tenant_id=? AND id=?')->execute([$plan['legacy']['external_id'],$plan['legacy']['source_system'],$scope['owner'],$id]);
+        companySourceAudit($pdo,$scope['owner'],$scope['owner'],'staffing_clients',$id,'staffing.client.imported',array_keys($plan['patch']),$actor,
+            ['acting_workspace_id'=>$workspace,'source'=>'staffing_clients_csv','source_identity_added'=>(bool)$plan['legacy']]);
+        return$id;
     });
 }

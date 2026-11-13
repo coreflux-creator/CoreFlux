@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../lib/clients.php';
+require_once __DIR__ . '/../lib/client_write.php';
 require_once __DIR__ . '/../lib/client_audit.php';
 
 use Core\CsvImportService;
@@ -56,7 +57,8 @@ CsvImportService::registerSchema('staffing_clients', [
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
-$tid    = staffingClientCatalogTenantId((int) $ctx['tenant_id']);
+$workspaceId=(int)$ctx['tenant_id'];
+$tid    = staffingClientCatalogTenantId($workspaceId);
 setRequestModuleScope('placements');
 $method = api_method();
 $action = $_GET['action'] ?? '';
@@ -134,28 +136,13 @@ if ($method === 'POST' && $action === 'dry_run') {
     $columnMap = CsvImportService::readRequestColumnMap();
     $result = CsvImportService::dryRun('staffing_clients', $csv, $columnMap);
 
-    // Flag collisions with existing client name rows in this tenant.
-    if ($result['rows']) {
-        $names = array_unique(array_filter(array_column($result['rows'], 'name')));
-        if ($names) {
-            $placeholders = implode(',', array_fill(0, count($names), '?'));
-            $pdo = getDB();
-            $stmt = $pdo->prepare(
-                "SELECT name FROM staffing_clients
-                  WHERE tenant_id = ? AND name IN ({$placeholders})"
-            );
-            $stmt->execute(array_merge([$tid], $names));
-            $existing = [];
-            foreach ($stmt as $r) $existing[$r['name']] = true;
-            foreach ($result['rows'] as $rn => $row) {
-                if (!empty($row['name']) && isset($existing[$row['name']])) {
-                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = "name: '{$row['name']}' already exists in tenant";
-                }
-            }
-            $result['error_count'] = count($result['errors']);
-        }
+    $scope=companyRelationshipScope(getDB(),$workspaceId,'placements',false);
+    foreach($result['rows'] as$number=>$row){
+        if(isset($result['errors'][$number]))continue;
+        try{staffingClientImportPlan(getDB(),$scope,$row,!empty($_GET['update_existing']));}
+        catch(Throwable $e){$result['errors'][$number][]=$e->getMessage();}
     }
+    $result['error_count']=count($result['errors']);
     api_ok($result);
 }
 
@@ -167,69 +154,9 @@ if ($method === 'POST' && $action === 'commit') {
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting, $tid, $user) {
-        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
-        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
-
-        // Existing-row resolution: prefer (source_system, external_id)
-        // when supplied; fall back to fuzzy (tenant, name) for legacy
-        // / manual rows without an external_id.
-        $existing = null;
-        if ($externalId !== null) {
-            $existing = staffingClientCatalogFind(
-                $tid,
-                'SELECT id, company_id FROM staffing_clients
-                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
-                ['s' => $sourceSystem, 'e' => $externalId]
-            );
-        }
-        if (!$existing) {
-            $existing = staffingClientCatalogFind(
-                $tid,
-                'SELECT id, company_id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
-                ['n' => $row['name']]
-            );
-        }
-        if ($existing && !$updateExisting && $externalId === null) {
-            // Manual import where we'd otherwise duplicate a same-named
-            // firm — surface a row error instead of silent upsert. With
-            // an external_id present we always upsert (idempotent feed).
-            throw new \RuntimeException("Client '{$row['name']}' already exists (id={$existing['id']}) — skipped");
-        }
-        $payload = [
-            'name'                  => $row['name'],
-            'external_id'           => $externalId,
-            'source_system'         => $sourceSystem,
-            'legal_name'            => $row['legal_name']            ?? null,
-            'industry'              => $row['industry']              ?? null,
-            'primary_contact_name'  => $row['primary_contact_name']  ?? null,
-            'primary_contact_email' => $row['primary_contact_email'] ?? null,
-            'primary_contact_phone' => $row['primary_contact_phone'] ?? null,
-            'billing_address_line1' => $row['billing_address_line1'] ?? null,
-            'billing_address_line2' => $row['billing_address_line2'] ?? null,
-            'billing_city'          => $row['billing_city']          ?? null,
-            'billing_state'         => $row['billing_state']         ?? null,
-            'billing_postal_code'   => $row['billing_postal_code']   ?? null,
-            'billing_country'       => $row['billing_country']       ?? 'US',
-            'payment_terms_days'    => isset($row['payment_terms_days']) ? (int) $row['payment_terms_days'] : 30,
-            'status'                => $row['status']                ?? 'active',
-            'notes'                 => $row['notes']                 ?? null,
-        ];
-        $clientRef = staffingClientEnsureForCompany(
-            $tid,
-            !empty($existing['company_id']) ? (int) $existing['company_id'] : null,
-            (string) $row['name'],
-            $payload + ['sync_company_patch' => true]
-        );
-        $clientId = (int) $clientRef['client_id'];
-        staffingClientCatalogUpdate($tid, $clientId, $payload + ['company_id' => $clientRef['company_id']]);
-        staffingClientAudit($tid, isset($user['id']) ? (int) $user['id'] : null, 'staffing.client.imported', $clientId, [
-            'source' => 'staffing_clients_csv',
-            'operation' => $existing ? 'updated' : 'created',
-            'fields' => array_keys(array_filter($payload, static fn($value) => $value !== null && $value !== '')),
-        ]);
-        return $clientId;
-    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
+    $result = CsvImportService::commit('staffing_clients',$csv,
+        static fn(array $row):int=>staffingClientImportNative($workspaceId,$row,(int)$user['id'],$updateExisting),
+        ['skip_invalid'=>$skipInvalid,'column_map'=>$columnMap,'atomic'=>true,'row_atomic'=>true]);
 
     api_ok($result);
 }
