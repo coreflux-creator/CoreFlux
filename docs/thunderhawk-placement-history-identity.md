@@ -12,9 +12,13 @@ Reviewed PurePay financial-line attribution similarly retains the original physi
 
 ## Verification
 
-Local syntax checks passed for all changed PHP files. Existing checks passed: 56 payload-field-index, 643 commercial-field-contract and 20 isolated PurePay endpoint checks. Database acceptance is pending the exact runtime commit's CI run; do not interpret fixture presence as a passed result.
+Source `8afa5af97d1746d359bc0ba9cfda39174769f725` passed all eleven jobs in [CI 43502588749](https://github.com/coreflux-creator/CoreFlux/actions/runs/43502588749). The run passed **30 canonical-schema identity checks**, **416 independent-connection checks including 18 new historical-identity cases**, **43 payroll-input checks in each of the input, authority and result fixture runs**, and **111 financial-observation/reconciliation/workbook checks**. Existing native-session and placement-contract suites passed 953 and 521 checks respectively; their cleanup evidence was verified. These existing HTTP checks are regression coverage, not proof of the future merge UI. [Exact source hashes and acceptance evidence](../deploy/thunderhawk-placement-history-preparation-20261113.json).
+
+Local syntax checks also passed for all changed PHP files, with 56 payload-field-index, 643 commercial-field-contract and 20 isolated PurePay endpoint checks.
 
 Added canonical-schema checks exercise original/current identity, number lookup, isolation, archive versus merge, missing or conflicting identity, flattened successive merges, preserved provider mappings/rates and rollback. Expanded real-MariaDB payroll and financial-observation fixtures exercise original assignment/rate retention, missing historical links, review invalidation and immutable association history. Independent-process checks wait on actual InnoDB locks during merge, survivor archive and a successive merge, for both commit and rollback.
+
+Earlier runs exposed two fixture defects, both corrected before acceptance: invented workers omitted the canonical schema's required email, and a later payroll case tried to reuse a review that the preceding merge test had correctly moved to `conflict`. The accepted fixture verifies that restoring old source values cannot revive that attempt, then creates a new review for the remaining cases. No delivery guard was weakened.
 
 The installed pilot was read-only verified at `2026-11-13T20:23:12+00:00`: 367 file pins, 378 tables and 35,304 rows match the installed baseline. Configuration is unchanged; temporary reviewer access, credentials and probes remain retired/absent. This work has not been deployed and performs no real payroll, payment or financial posting.
 

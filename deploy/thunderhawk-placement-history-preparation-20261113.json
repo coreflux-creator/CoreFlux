@@ -1,0 +1,156 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; historical placement identity readers, not merge workflow completion",
+  "previous_goal_turn": "No integration progress: answered standalone accounting access. This continuation revalidated source and installed pilot, implemented historical identity resolution and exercised payroll, financial attribution, reconciliation, workbook history and actual independent-session merge races.",
+  "source_commit": "8afa5af97d1746d359bc0ba9cfda39174769f725",
+  "base_commit": "31107ebbcedf791fd2568e6eea1b0f295141d6cc",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "9a1141f319d6616410fece748f5ce57765a5ac2ef45ae3c197c3bcee5adbf6ba",
+    "core/integrations/purepay_financial_line_links.php": "db87223c62e59d83e5a75bcf4baa0c2e1271e80dd70b434a241d0b4e8f23b002",
+    "core/integrations/purepay_links.php": "e86e0106bc2b9fb57130122e00efad39f8b7456544551ac2d021354b4c6f15cb",
+    "core/integrations/purepay_payroll_inputs.php": "eb431470e6c263c5b539608243e26da413f575169494b35bd5a8bfbe2c1a3e7d",
+    "core/integrations/staffing_workflow_fields.php": "bf841c8b3e35b6cf96ccee55e4a616d16a1f18380918b402982e760a5d9b0c81",
+    "docs/thunderhawk-placement-history-identity.md": "a267e4a3ac3e0c549f3efba7e715fbc662d45de374cdb841731303b7bd1b7621",
+    "modules/placements/lib/identity.php": "4d7ae160df653340c34a238f67754e55241ed508260b04b1f851cff8b5857980",
+    "tests/company_relationship_concurrency_db.php": "3e764d319baebe79a03b784ef2cc9ffd213497c7563026048ccbef070f4c6873",
+    "tests/fixtures/placement_identity_concurrency_checks.php": "9f66d2541f0f3a9ebfe62581e7894967206b0a746ba3e2d60d60dd889981a6ca",
+    "tests/fixtures/staffing_financial_evidence_checks.php": "46260f7d25142b526a34b6f8a55630a6f8030c40f62185ffcd61cab40827c8fc",
+    "tests/fixtures/staffing_reconciliation_checks.php": "83a2d80b234b0da8ab3805293cefe410d8eea27c7da0ef32eb7ec03f90078d78",
+    "tests/placement_identity_db_check.php": "7479555a038664456e62a5eda02ed8b660daac41ed10786de50fd2d0d9944935",
+    "tests/purepay_financial_observations_mariadb.php": "adc796c978df0fdee0391b7bfce2d9378d362889d294e5a925f92b2a73b6f609",
+    "tests/purepay_payroll_inputs_mariadb.php": "444ec5dc3decddca110d8005497f144abafda47b71717f7efd7c08ae3635cbf0"
+  },
+  "ci": {
+    "run_id": 43502588749,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43502588749",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132151935645,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935811,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935875,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935883,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935894,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935920,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935923,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151935953,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151936003,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151936113,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132151936130,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "placement_identity_canonical": 30,
+    "independent_connections": 416,
+    "new_identity_concurrency": 18,
+    "payroll_input_fixture_totals": [
+      43,
+      43,
+      43
+    ],
+    "financial_observation_fixture": 111,
+    "native_core_session_api": 953,
+    "existing_native_placement_contract_http": 521
+  },
+  "historical_identity_concurrency_labels": [
+    "Historical placement reader waits for merge COMMIT",
+    "Historical reader retains original identity and observes merge after COMMIT: {\"ok\":true,\"result\":{\"id\":153,\"entity_tenant_id\":990671,\"entity_id\":153,\"reference\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-153\"},\"record\":{\"id\":153,\"name\":\"Historical placement identity race\",\"person_id\":151,\"client_id\":null,\"engagement_type\":\"w2\",\"status\":\"active\",\"start_date\":\"2026-10-01\",\"end_date\":null},\"current_placement\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-154\"}}}",
+    "Historical reader leaves both identity and business history unchanged after merge COMMIT",
+    "Historical placement reader waits for target_archive COMMIT",
+    "Historical reader rejects a committed unavailable survivor",
+    "Historical reader leaves both identity and business history unchanged after target_archive COMMIT",
+    "Historical placement reader waits for merge_again COMMIT",
+    "Historical reader retains original identity and observes merge_again after COMMIT: {\"ok\":true,\"result\":{\"id\":159,\"entity_tenant_id\":990671,\"entity_id\":159,\"reference\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-159\"},\"record\":{\"id\":159,\"name\":\"Historical placement identity race\",\"person_id\":153,\"client_id\":null,\"engagement_type\":\"w2\",\"status\":\"active\",\"start_date\":\"2026-10-01\",\"end_date\":null},\"current_placement\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-161\"}}}",
+    "Historical reader leaves both identity and business history unchanged after merge_again COMMIT",
+    "Historical placement reader waits for merge ROLLBACK",
+    "Historical reader retains original identity and observes merge after ROLLBACK: {\"ok\":true,\"result\":{\"id\":162,\"entity_tenant_id\":990671,\"entity_id\":162,\"reference\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-162\"},\"record\":{\"id\":162,\"name\":\"Historical placement identity race\",\"person_id\":154,\"client_id\":null,\"engagement_type\":\"w2\",\"status\":\"active\",\"start_date\":\"2026-10-01\",\"end_date\":null}}}",
+    "Historical reader leaves both identity and business history unchanged after merge ROLLBACK",
+    "Historical placement reader waits for target_archive ROLLBACK",
+    "Historical reader retains original identity and observes target_archive after ROLLBACK: {\"ok\":true,\"result\":{\"id\":165,\"entity_tenant_id\":990671,\"entity_id\":165,\"reference\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-165\"},\"record\":{\"id\":165,\"name\":\"Historical placement identity race\",\"person_id\":155,\"client_id\":null,\"engagement_type\":\"w2\",\"status\":\"active\",\"start_date\":\"2026-10-01\",\"end_date\":null},\"current_placement\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-166\"}}}",
+    "Historical reader leaves both identity and business history unchanged after target_archive ROLLBACK",
+    "Historical placement reader waits for merge_again ROLLBACK",
+    "Historical reader retains original identity and observes merge_again after ROLLBACK: {\"ok\":true,\"result\":{\"id\":168,\"entity_tenant_id\":990671,\"entity_id\":168,\"reference\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-168\"},\"record\":{\"id\":168,\"name\":\"Historical placement identity race\",\"person_id\":156,\"client_id\":null,\"engagement_type\":\"w2\",\"status\":\"active\",\"start_date\":\"2026-10-01\",\"end_date\":null},\"current_placement\":{\"instance_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"directory_tenant_id\":990671,\"entity_type\":\"placement\",\"number\":\"PL-169\"}}}",
+    "Historical reader leaves both identity and business history unchanged after merge_again ROLLBACK"
+  ],
+  "required_historical_consumer_labels": [
+    "merged placement keeps original approved rate, permanent number and delivered assignment link",
+    "pre-merge unsent review cannot pass the changed identity evidence",
+    "merged financial line keeps original placement with separate current-number context",
+    "merge invalidates the pre-merge financial association review",
+    "merged placement reconciliation preserves original time, approved rates and financial-line evidence",
+    "survivor comparison does not double-count lines retained on a historical placement",
+    "placement merge invalidates a pending workbook association review without creating evidence",
+    "historical workbook receipts remain unchanged and readable after placement merge",
+    "merged placement comparison retains original workbook differences and approval limits"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T20:23:12+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_consolidation": [
+    "reviewed survivor and field-choice merge with atomic receipt replacing automatic cleanup",
+    "source-writer ownership across preserved provider pairs",
+    "remaining operational consumers and old-number history navigation",
+    "native HTTP and hosted consolidation acceptance"
+  ],
+  "full_goal_status": "active; full integration and required pilot upgrade remain incomplete"
+}
