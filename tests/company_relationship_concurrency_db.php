@@ -13,7 +13,7 @@ if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
     if(!str_starts_with($directory,sys_get_temp_dir().'/coreflux-company-race-')||realpath($path)!==$path||is_link($path))exit(2);
     $input=json_decode(file_get_contents($path),true,32,JSON_THROW_ON_ERROR);
-    if(($input['workspace']??0)!==990671)exit(2);
+    if(!in_array($input['workspace']??0,[990671,990672],true))exit(2);
     echo json_encode(['ready'=>true,'connection'=>(int)$pdo->query('SELECT CONNECTION_ID()')->fetchColumn()]).PHP_EOL;flush();
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
@@ -33,7 +33,7 @@ if(($argv[1]??'')==='worker'){
 }
 
 $directory=sys_get_temp_dir().'/coreflux-company-race-'.bin2hex(random_bytes(8));if(!mkdir($directory,0700))exit(2);
-$workers=[];$files=[];$companies=[];$actor=null;$tenant=990671;$checks=[];
+$workers=[];$files=[];$companies=[];$createdTenants=[];$actor=null;$tenant=990671;$child=990672;$checks=[];
 $check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks[]=$label;};
 $line=static function($pipe):array{stream_set_timeout($pipe,15);$raw=fgets($pipe);if(!is_string($raw))throw new RuntimeException('Native race worker did not respond.');return json_decode($raw,true,64,JSON_THROW_ON_ERROR);};
 $spawn=static function(array $input)use(&$workers,&$files,$directory,$line):int{
@@ -66,8 +66,10 @@ $waiting=static function(int $index)use($pdo,&$workers):bool{
 $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
 $reviewChoices=static fn(array $r):array=>['fields'=>array_fill_keys($r['fields'],'survivor'),'custom_fields'=>[],'primary_contact_id'=>0,'primary_addresses'=>[]];
 try{
-    if($pdo->query('SELECT id FROM tenants WHERE id=990671')->fetchColumn())throw new RuntimeException('Race fixture already exists');
-    $pdo->exec('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(990671,"Synthetic company race",1,1,"master")');
+    if($pdo->query('SELECT id FROM tenants WHERE id IN(990671,990672)')->fetchColumn())throw new RuntimeException('Race fixture already exists');
+    $pdo->exec('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(990671,"Synthetic company race",1,1,"master")');$createdTenants[]=$tenant;
+    $pdo->exec('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(990672,"Synthetic company race child",1,1,"sub",990671)');$createdTenants[]=$child;
+    foreach(['companies'=>'shared','placements'=>'isolated','staffing'=>'isolated']as$module=>$mode)$pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,?)')->execute([$child,$module,$mode]);
     $pdo->exec('INSERT INTO users(tenant_id,name,email,role,is_active,is_global_admin,password,password_hash) VALUES(990671,"Synthetic race actor","company-race@example.invalid","admin",1,0,NULL,NULL)');$actor=(int)$pdo->lastInsertId();$user=['id'=>$actor,'role'=>'admin'];
     $pair=static function(string $suffix)use($tenant,$actor,&$companies):array{
         $a=jobdivaUpsertCompanyMapped($tenant,'race-A-'.$suffix,'Race Alpha '.$suffix,[],['id'=>'race-A-'.$suffix],$actor,[]);
@@ -106,18 +108,33 @@ try{
             $check($read('staffing_jobs',(int)$saved['id'])===[],'Rolled-back writer leaves no job behind');
         }
     }
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['native','merge']as$mode){
+            $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key="companies"')->execute([$child]);
+            [$a,$b]=$pair('policy-'.$mode.'-'.$decision);$review=companyMergePreview($child,$user,$a,$b);
+            $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="companies"')->execute([$child]);
+            $worker=$spawn(['mode'=>$mode,'workspace'=>$child,'actor'=>$actor,'company_id'=>$b,'title'=>'Policy '.$decision.' job','review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+            $check($waiting($worker),$mode.' waits for the independent directory-policy '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+            if($decision==='COMMIT'){
+                $check(!$result['ok'],'Committed company-directory change rejects the old '.$mode.' choice');
+                $q=$pdo->prepare('SELECT COUNT(*) FROM staffing_jobs WHERE tenant_id=? AND title=?');$q->execute([$child,'Policy COMMIT job']);
+                $check((int)$q->fetchColumn()===0&&$read('companies',$b)['deleted_at']===null,'Policy conflict leaves no job or retired company: '.$mode);
+            }else{
+                $check($result['ok'],'Rolled-back company-directory change allows the reviewed '.$mode.' operation');
+                if($mode==='native')$check((int)$result['result']['tenant_id']===$child&&(int)$result['result']['company_id']===$b,'Waiting job uses its own Staffing owner and the restored shared company');
+                else $check($read('companies',$b)['deleted_at']!==null,'Waiting merge completes only after the original sharing policy is restored');
+            }
+        }
+    }
     echo json_encode(['passed'=>true,'checks'=>count($checks),'labels'=>$checks,'provider_calls'=>0,'financial_execution'=>false],JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR).PHP_EOL;
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
-    $pdo->prepare('DELETE FROM staffing_jobs WHERE tenant_id=?')->execute([$tenant]);
-    $pdo->prepare('DELETE FROM staffing_clients WHERE tenant_id=?')->execute([$tenant]);
-    $pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=?')->execute([$tenant]);
-    $pdo->prepare('DELETE FROM entity_sync_history WHERE tenant_id=?')->execute([$tenant]);
+    foreach($createdTenants as$createdTenant)foreach(['staffing_jobs','staffing_clients','external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($companies as$id)$pdo->prepare('DELETE FROM companies WHERE tenant_id=? AND id=?')->execute([$tenant,$id]);
-    $pdo->prepare('DELETE FROM core_record_numbers WHERE tenant_id=?')->execute([$tenant]);
-    $pdo->prepare('DELETE FROM audit_log WHERE tenant_id=?')->execute([$tenant]);
+    foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);
-    $pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$tenant]);
+    foreach($createdTenants as$createdTenant)$pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$createdTenant]);
     foreach($files as$file)if(is_file($file))unlink($file);if(is_dir($directory))rmdir($directory);
 }
