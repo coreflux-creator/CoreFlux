@@ -9,6 +9,18 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,
     $rid=(int)$review['id'];$expected=jobdivaReviewContractSnapshot($workspace,$rid);$input=jobdivaReviewContractInput($expected);
     $payload=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($input,'99310001'),'99310001')];
     $before=$state();$check(jobdivaReviewContractValidate($expected,$payload)===$payload&&$before===$state(),'Review queue validates exact financial evidence without writing or qualifying its workflow label alone');
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappingId,$rid,$actor,$payload,$read,$check):void{
+        $pdo->prepare('UPDATE external_entity_mappings SET last_seen_at=NULL WHERE id=?')->execute([$mappingId]);
+        $snapshot=jobdivaReviewContractSnapshot($workspace,$rid);$result=jobdivaReviewContractApply($snapshot,$payload,null,$actor);
+        $check($result['updated']===1&&$read('external_entity_mappings',$mappingId)['last_seen_at']===null,'Contract enrichment preserves an unknown primary census date instead of manufacturing one');
+    },true);
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$rid,$actor,$payload,$read,$check):void{
+        $compact=jobdivaAssignmentCompactSnapshotPayload($payload,'99310001');$hash=mappingHash($compact);
+        $pdo->prepare('UPDATE external_entity_mappings SET content_hash=? WHERE id=?')->execute([$hash,$rid]);
+        jobdivaReviewContractSaveSnapshot($workspace,$read('external_entity_mappings',$rid),$payload,$actor);
+        $saved=$read('external_entity_mappings',$rid);
+        $check(mappingHash(json_decode($saved['payload_snapshot'],true))===$hash&&$saved['content_hash']===$hash,'Legacy stale payload with a matching cached hash is repaired consistently');
+    },true);
     foreach(['root','detail','contract','worker_facet']as$case){
         $bad=$payload;if($case==='root')$bad['startId']='99319999';
         if($case==='detail')$bad['_jd_assignment_detail'][0]['Candidate ID']='99319999';

@@ -68,7 +68,7 @@ function jobdivaReviewContractSaveSnapshot(int $workspace,array $mapping,array $
 {
     $compact=jobdivaAssignmentCompactSnapshotPayload($payload,jobdivaAssignmentIdentityNormaliseId($mapping['external_id']));
     $snapshot=json_encode($compact,JSON_THROW_ON_ERROR);$hash=mappingHash($compact);$pdo=getDB();
-    if($hash!==$mapping['content_hash']){
+    if($hash!==$mapping['content_hash']||$hash!==mappingHash(json_decode($mapping['payload_snapshot'],true,512,JSON_THROW_ON_ERROR))){
         $pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=?,content_hash=?,updated_at=NOW() WHERE tenant_id=? AND id=?')->execute([$snapshot,$hash,$workspace,$mapping['id']]);
         entitySyncHistoryRecord($workspace,'jobdiva',$mapping['internal_entity_type'],(int)$mapping['internal_entity_id'],$mapping['external_id'],'pull',$mapping['payload_snapshot'],$snapshot,$mapping['content_hash'],$hash,$actor,true);
     }
@@ -117,7 +117,7 @@ function jobdivaReviewContractApply(array $expected,array $payload,?array $compa
                 $placementId=(int)$projection['placement_id'];
                 $primary=jobdivaPlacementWriteIdentity($pdo,$base['context'],$external)['mapping'];
                 // Restore the previously observed Start date; a new identity uses the queue's census date.
-                $observed=$base['primary_mapping']['last_seen_at']??$base['mapping']['last_seen_at'];
+                $observed=$base['primary_mapping']?$base['primary_mapping']['last_seen_at']:$base['mapping']['last_seen_at'];
                 $pdo->prepare('UPDATE external_entity_mappings SET last_seen_at=? WHERE tenant_id=? AND id=?')->execute([$observed,$workspace,$primary['id']]);
                 $result['projected']=1;$result[$placement?($archived?'restored':'updated'):'created']=1;
             }
