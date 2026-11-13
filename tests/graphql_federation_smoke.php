@@ -57,15 +57,19 @@ $assert('supergraph contains JobDivaAssignment type',  str_contains($super, 'typ
 $assert('supergraph contains Placement.jobDiva field', preg_match('/jobDiva\s*:\s*JobDivaAssignment/', $super) === 1);
 
 echo "\nGraphQL Federation — subgraphs serve queries\n";
-// Find two free ports.
-$findPort = function (): int {
+// Keep both reservations open while selecting ports. Closing the first
+// socket before selecting the second can assign the same port twice, so
+// both requests accidentally reach whichever subgraph starts first.
+$reservePort = function (): array {
     $s = stream_socket_server('tcp://127.0.0.1:0');
-    $name = stream_socket_get_name($s, false); fclose($s);
+    if($s===false)throw new RuntimeException('Cannot reserve a subgraph test port');
+    $name = stream_socket_get_name($s, false);
     $parts = explode(':', (string) $name);
-    return (int) end($parts);
+    return [$s,(int)end($parts)];
 };
-$portCF = $findPort();
-$portJD = $findPort();
+[$reservedCF,$portCF] = $reservePort();
+[$reservedJD,$portJD] = $reservePort();
+$assert('subgraphs have distinct reserved ports', $portCF!==$portJD);
 
 $baseEnv = getenv();
 if (!is_array($baseEnv)) $baseEnv = [];
@@ -98,7 +102,9 @@ $terminateProc = function (&$proc, ?array &$pipes = null): void {
     $proc = null;
 };
 
+fclose($reservedCF);
 $procCF = proc_open('node dist/index.js', $descr, $p1, "{$ROOT}/subgraph-coreflux", $envCF);
+fclose($reservedJD);
 $procJD = proc_open('node dist/index.js', $descr, $p2, "{$ROOT}/subgraph-jobdiva",  $envJD);
 register_shutdown_function(function () use (&$procCF, &$procJD, &$p1, &$p2, $terminateProc) {
     $terminateProc($procCF, $p1);
