@@ -46,6 +46,8 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             $expect($status===200&&$job>0&&(int)$created['job']['tenant_id']===$child&&(int)$created['job']['client_id']===$client,"$mode: job and client use their independently configured owners");
             [$status,$jobDetail]=$request($jobUrl.'get&id='.$job,null,true,$child);
             $expect($status===200&&$jobDetail['job']['client_name']==='Job client '.$mode,"$mode: job detail reads the client name from its independently owned directory");
+            [$status,$jobList]=$request($jobUrl.'list',null,true,$child);$listed=array_values(array_filter($jobList['rows']??[],static fn($row)=>(int)$row['id']===$job));
+            $expect($status===200&&count($listed)===1&&$listed[0]['client_name']==='Job client '.$mode,"$mode: job list includes the correctly scoped client name");
             $beforeJob=$read('staffing_jobs',$job);
             $expect($request($jobUrl.'update',['id'=>$job,'company_id'=>$other],true,$child)[0]===422&&$read('staffing_jobs',$job)===$beforeJob,"$mode: rejected job reference preserves the saved row");
             $pdo->exec("CREATE TRIGGER company_merge_http_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='staffing.job.native_saved' AND NEW.tenant_id=990662 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic job audit failure'; END IF; END");$trigger=true;
@@ -53,8 +55,14 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             $pdo->exec('DROP TRIGGER company_merge_http_audit_failure');$trigger=false;
             $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key="staffing"')->execute([$child]);
             $expect($request($jobUrl.'update',['id'=>$job,'title'=>'Wrong owner'],true,$child)[0]===404,"$mode: changed Staffing ownership cannot update the old directory");
+            $sharedJob=null;
             if($mode==='isolated')$expect($request($jobUrl.'create',$jobBody,true,$child)[0]===409,'Shared job cannot acquire a company private to one child workspace');
+            else{
+                [$status,$shared]=$request($jobUrl.'create',array_replace($jobBody,['title'=>'Shared job']),true,$child);$sharedJob=(int)($shared['job']['id']??0);$jobIds[]=$sharedJob;
+                $expect($status===200&&$sharedJob>0&&(int)$shared['job']['tenant_id']===$parent&&(int)$shared['job']['client_id']===$client,'Shared Staffing saves a job with the shared company and client in the parent directory');
+            }
             $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="staffing"')->execute([$child]);
+            if($sharedJob!==null)$expect($request($jobUrl.'get&id='.$sharedJob,null,true,$child)[0]===404,'Restoring isolated Staffing hides the parent job from the child directory');
             $pdo->prepare('INSERT INTO ap_vendors_index(tenant_id,vendor_name,company_id) VALUES(?,?,?)')->execute([$apOwner,'Merge vendor '.$mode,$b]);$vendor=(int)$pdo->lastInsertId();$vendorIds[]=$vendor;
             $pdo->prepare('INSERT INTO company_addresses(tenant_id,company_id,line1,city,kind,is_primary) VALUES(?,?,"Private foreign street","Foreign city","hq",1)')->execute([$foreign,$a]);$foreignAddress=(int)$pdo->lastInsertId();
             $addressUrl='/modules/people/api/companies.php?action=add-address&id='.$a;
@@ -92,6 +100,7 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             [$status,$result]=$request($applyUrl,$body,true,$child);
             $expect($status===200&&!$result['replayed']&&$read('companies',$b)['deleted_at']!==null&&(int)$read('ap_vendors_index',$vendor)['company_id']===$a,"$mode: reviewed merge updates the correct independently-owned vendor");
             $expect((int)$read('staffing_jobs',$job)['company_id']===$a&&$read('staffing_jobs',$job)['client_id']===$beforeJob['client_id'],"$mode: merge follows Staffing job scope and preserves the client identity");
+            if($sharedJob!==null)$expect((int)$read('staffing_jobs',$sharedJob)['company_id']===$a&&(int)$read('staffing_jobs',$sharedJob)['client_id']===$client,'Merge updates the independently owned parent job while retaining its client number');
             $jobAfter=$read('staffing_jobs',$job);
             $expect($request($jobUrl.'update',['id'=>$job,'company_id'=>$b],true,$child)[0]===409&&$read('staffing_jobs',$job)===$jobAfter,"$mode: stale job form cannot restore the retired company reference");
             $expect($read('companies',$a)['name']===$before[1]['name']&&$read('companies',$b)['name']===$before[1]['name'],"$mode: choosing the other name preserves retired history");
