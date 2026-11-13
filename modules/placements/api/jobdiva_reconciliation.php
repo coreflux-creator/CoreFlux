@@ -103,7 +103,10 @@ require_once __DIR__.'/../lib/jobdiva_csv_write.php';
 $csv=(string)($body['csv']??'');
 if($csv==='')api_error('No CSV body received',400);
 if(strlen($csv)>25*1024*1024||substr_count($csv,"\n")>5001)api_error('CSV is limited to 5,000 rows and 25 MB',413);
-if($action==='inspect')api_ok(jobdivaReconciliationInspect($csv));
+if($action==='inspect'){
+    try{api_ok(jobdivaReconciliationInspect($csv));}
+    catch(InvalidArgumentException $e){api_error($e->getMessage(),422);}
+}
 if($action==='dry_run')rbac_legacy_require($user,'placements.financials.view');
 elseif($action==='apply')rbac_legacy_require($user,'placements.financials.manage');
 else api_error('Unknown action',404);

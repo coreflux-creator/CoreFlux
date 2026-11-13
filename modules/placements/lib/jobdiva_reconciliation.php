@@ -109,6 +109,7 @@ function jobdivaReconciliationNormaliseHeader(string $value): string
 
 function jobdivaReconciliationInspect(string $csv): array
 {
+    if(preg_match('//u',$csv)!==1)throw new InvalidArgumentException('Save the CSV as UTF-8 before importing.',422);
     $schema = \Core\CsvImportService::inspect('jobdiva_placement_reconciliation', $csv);
     $aliases = [];
     foreach (jobdivaReconciliationHeaderAliases() as $field => $values) {
@@ -703,7 +704,7 @@ function jobdivaReconciliationFingerprint(int $tenantId, string $csv, array $col
     ];
     return hash('sha256', json_encode(
         jobdivaReconciliationCanonicalise($material),
-        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
     ));
 }
 

@@ -95,6 +95,12 @@ $scientific = jobdivaReconciliationParse($scientificCsv, $scientificInspection['
 $assert('scientific-notation Start IDs are blocked', $scientific['error_count'] === 1);
 
 echo "\nGuarded API and UI contract\n";
+$invalidEncoding=false;
+try{jobdivaReconciliationInspect("Start ID,Title\n101,Invalid\xFF\n");}catch(InvalidArgumentException $e){$invalidEncoding=$e->getCode()===422;}
+$assert('invalid CSV encoding is rejected before building a review token',$invalidEncoding);
+$invalidFingerprint=false;
+try{jobdivaReconciliationFingerprint(1,'CSV',[],[['value'=>"\xFF"]]);}catch(JsonException $e){$invalidFingerprint=true;}
+$assert('unserializable review evidence cannot collapse to a constant fingerprint',$invalidFingerprint);
 $api = (string) file_get_contents(__DIR__ . '/../modules/placements/api/jobdiva_reconciliation.php');
 $lib = (string) file_get_contents(__DIR__ . '/../modules/placements/lib/jobdiva_reconciliation.php');
 $writer=(string)file_get_contents(__DIR__.'/../modules/placements/lib/jobdiva_csv_write.php');
