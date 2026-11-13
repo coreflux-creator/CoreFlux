@@ -50,7 +50,7 @@ try{
             $check($result['projected']===1&&$saved&&$saved['external_id']===$corporation&&$saved['city']==='Hamilton','Fresh corporate company, profile, vendor and assignment commit together in their current directories');
         },true);
         foreach([false,true]as$coreOwned)JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$mappingId,$placement,$person,$actor,$exact,$fresh,$insert,$read,$check,$coreOwned):void{
-            $other=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Retained alternate worker','classification'=>'w2','status'=>'active','external_id'=>'retained-alternate-number']);
+            $other=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Retained alternate worker','email_primary'=>'alternate-live-worker@example.invalid','classification'=>'w2','status'=>'active','external_id'=>'retained-alternate-number']);
             $pdo->prepare('UPDATE placements SET person_id=?,coreflux_overridden_fields=? WHERE id=?')->execute([$other,$coreOwned?'["title","person_id"]':'["title"]',$placement]);
             $snapshot=jobdivaLiveContractSnapshot($workspace,$mappingId);$result=jobdivaLiveContractApply($snapshot,$exact,$fresh,null,$actor);
             $check($result['projected']===1&&(int)$read('placements',$placement)['person_id']===($coreOwned?$other:$person),'Live candidate reconciliation '.($coreOwned?'preserves the Core-owned person selection':'corrects a stale source-owned person selection'));
