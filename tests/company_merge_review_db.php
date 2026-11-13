@@ -4,6 +4,7 @@ declare(strict_types=1);
 if(PHP_SAPI!=='cli'||getenv('GITHUB_ACTIONS')!=='true'||getenv('CI')!=='true'||getenv('DB_NAME')!=='coreaccounting_ci')exit(2);
 putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));putenv('COREFLUX_INTEGRATION_INSTANCE_ID=c8ab4be7-836e-46e0-9d02-d18bb8f06fb8');
 require_once __DIR__.'/../modules/people/lib/company_merge_review.php';
+require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/jobdiva/party_sync.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 $checks=[];$check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks[]=$label;};

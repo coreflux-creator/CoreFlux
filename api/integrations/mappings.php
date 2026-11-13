@@ -146,6 +146,30 @@ rbac_legacy_require_any($user, [
 
 $action = strtolower(str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal')));
 
+if(trim((string)api_query('entity_type'))==='company'){
+    rbac_legacy_require($user,'people.view');
+    require_once __DIR__.'/../../modules/people/lib/company_mapping_views.php';
+    try{
+        if(!in_array($action,['list_for_internal','find_internal','find_external'],true))api_error('Unknown action',400);
+        $source=trim((string)api_query('source_system'));$external=trim((string)api_query('external_id'));
+        if($action!=='list_for_internal'&&$source==='')api_error('source_system required',422);
+        $id=(int)api_query('internal_id');
+        if($action==='find_internal'){
+            if($external==='')api_error('external_id required',422);
+            $raw=mappingFindInternal($tid,$source,'company',$external);
+            if(!$raw)api_ok(['mapping'=>null]);
+            $id=(int)$raw['internal_entity_id'];
+        }
+        if($id<=0)api_error('internal_id required',422);
+        $view=companyMappingViews(getDB(),$tid,$id);
+        if($action==='list_for_internal')api_ok($view);
+        $rows=array_values(array_filter($view['mappings'],static fn($r)=>$r['source_system']===$source&&($action!=='find_internal'||$r['external_id']===$external)));
+        // A merge can legitimately leave multiple IDs in one source. Do not
+        // choose one arbitrarily or rewrite any provider's reverse binding.
+        api_ok(['mapping'=>count($rows)===1?$rows[0]:null,'mappings'=>$rows,'requires_source_selection'=>count($rows)>1,'canonical_internal_id'=>$view['canonical_internal_id']]);
+    }catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:500);}
+}
+
 switch ($action) {
     case 'list_for_internal': {
         $entityType = trim((string) (api_query('entity_type') ?? ''));

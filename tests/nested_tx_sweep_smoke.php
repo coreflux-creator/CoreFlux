@@ -14,7 +14,8 @@
  *   /app/modules/engagements/lib/engagements.php  engagementsCreate
  *   /app/modules/payroll/lib/csv_import.php       payrollImportRunCsv
  *   /app/modules/payroll/lib/cycles.php           payrollCycleAdvance
- *   /app/modules/people/lib/companies.php         companiesMerge
+ * Reviewed company merges now use companyMergeAtomic savepoints; their actual
+ * nested success and rollback behavior is tested in company_merge_review_db.php.
  *   /app/modules/placements/lib/rate_approve.php  placementsRateApproveOne
  *   /app/modules/staffing/lib/timesheets.php      bulk_save, submit, reject, approve, reopen
  *   /app/modules/time/lib/settlement.php          extract, unExtract
@@ -63,7 +64,6 @@ $libGlob = [
     '/app/modules/engagements/lib/engagements.php',
     '/app/modules/payroll/lib/csv_import.php',
     '/app/modules/payroll/lib/cycles.php',
-    '/app/modules/people/lib/companies.php',
     '/app/modules/placements/lib/rate_approve.php',
     '/app/modules/staffing/lib/timesheets.php',
     '/app/modules/time/lib/settlement.php',

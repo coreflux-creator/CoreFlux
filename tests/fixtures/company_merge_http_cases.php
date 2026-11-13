@@ -63,6 +63,25 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             $bad=$body;$bad['choices']['fields']['phone']='retired';$expect($request($applyUrl,$bad,true,$child)[0]===409,"$mode: used review cannot apply changed choices");
             $q=$pdo->prepare('SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="purepay" AND internal_entity_type="company" AND external_id=?');$q->execute([$child,'merge-http-'.$mode]);
             $expect((int)$q->fetchColumn()===$b&&companyIdentityResolve($pdo,$owner,$b)['id']===$a,"$mode: source mapping remains original while permanent number resolves to survivor");
+            $mappingUrl='/api/integrations/mappings.php?entity_type=company';
+            foreach([$a,$b]as$id){
+                [$status,$linked]=$request($mappingUrl.'&internal_id='.$id,null,true,$child);
+                $expect($status===200&&$linked['canonical_internal_id']===$a&&count($linked['mappings'])===1
+                    &&$linked['mappings'][0]['internal_entity_id']===$b&&!isset($linked['mappings'][0]['payload_snapshot'])
+                    &&!str_contains(json_encode($linked),'private-other-workspace'),"$mode: company mapping view follows either number without exposing another workspace or source payload");
+            }
+            $expect($request($mappingUrl.'&internal_id='.$other,null,true,$child)[0]===404,"$mode: source-list access cannot reveal a foreign company");
+            [$status,$reverse]=$request($mappingUrl.'&action=find_internal&source_system=purepay&external_id=merge-http-'.$mode,null,true,$child);
+            $expect($status===200&&$reverse['mapping']['internal_entity_id']===$b&&$reverse['mapping']['canonical_internal_id']===$a,"$mode: reverse mapping distinguishes original source record from canonical company");
+            mappingUpsert($child,'purepay','company','merge-http-second-'.$mode,$a,['private'=>'never return'],'pull',$actor);
+            [$status,$forward]=$request($mappingUrl.'&action=find_external&source_system=purepay&internal_id='.$a,null,true,$child);
+            $expect($status===200&&$forward['mapping']===null&&$forward['requires_source_selection']&&count($forward['mappings'])===2,"$mode: multiple source identities require a choice instead of selecting an arbitrary ID");
+            RBACResolver::revokeModule($membership,'people',$actor);
+            $expect($request($mappingUrl.'&internal_id='.$a,null,true,$child)[0]===403,"$mode: integration access alone cannot inspect company source identities");
+            RBACResolver::grantModule($membership,'people','write',[$child],$actor);
+            RBACResolver::revokeModule($membership,'integrations',$actor);
+            $expect($request($mappingUrl.'&internal_id='.$a,null,true,$child)[0]===403,"$mode: company access alone cannot inspect source identities");
+            RBACResolver::grantModule($membership,'integrations','admin',[$child],$actor);
         }
     }finally{
         if($trigger)$pdo->exec('DROP TRIGGER company_merge_http_audit_failure');
