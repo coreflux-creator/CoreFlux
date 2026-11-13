@@ -1,7 +1,6 @@
 <?php
 /**
- * Companies Merge duplicates + New-Hire Wizard backlog — contract smoke.
- * Static contract checks on the lib + API + React wiring.
+ * Legacy merge refusal and remaining People route/editor wiring smoke.
  */
 declare(strict_types=1);
 
@@ -10,56 +9,13 @@ $a = function ($n, $c) use (&$pass, &$fail) {
     if ($c) { echo "  \u{2713} {$n}\n"; $pass++; } else { echo "  \u{2717} {$n}\n"; $fail++; }
 };
 
-echo "companies.lib merge helpers\n";
-$lib = (string) file_get_contents(__DIR__ . '/../modules/people/lib/companies.php');
-$a('companiesNormalizeName() exists',          strpos($lib, 'function companiesNormalizeName') !== false);
-$a('strips inc/llc/corp/company',              strpos($lib, 'inc|incorporated|llc|l l c|ltd|limited|co|corp|corporation|company') !== false);
-$a('companiesDuplicateCandidates() exists',    strpos($lib, 'function companiesDuplicateCandidates') !== false);
-$a('candidates returns groups ≥2',             strpos($lib, 'if (count($rows) < 2) continue') !== false);
-$a('companiesMerge() exists',                  strpos($lib, 'function companiesMerge(int $tenantId, int $survivorId, int $victimId') !== false);
-$a('merge blocks self-merge',                  strpos($lib, 'Cannot merge a company into itself') !== false);
-$a('merge blocks cross-tenant',                strpos($lib, 'Cross-tenant merge blocked') !== false);
-$a('merge refuses already-deleted',            strpos($lib, 'is already soft-deleted') !== false);
-$a('merge wrapped in transaction',             strpos($lib, '$pdo->beginTransaction()') !== false && strpos($lib, 'rollBack()') !== false);
-foreach ([
-    'ap_vendors_index'        => 'company_id',
-    'ap_bills'                => 'vendor_company_id',
-    'ap_payments'             => 'vendor_company_id',
-    'ap_1099_ledger'          => 'vendor_company_id',
-    'billing_invoices'        => 'client_company_id',
-    'placements'              => 'end_client_company_id',
-    'placement_client_chain'  => 'company_id',
-    'placement_referrals'     => 'referrer_company_id',
-] as $tbl => $col) {
-    $a("merge redirects {$tbl}.{$col}", strpos($lib, "_cfMergeRedirect") !== false
-                                         && strpos($lib, "'{$tbl}'") !== false
-                                         && strpos($lib, "'{$col}'") !== false);
-}
-$a('roles union via INSERT IGNORE',            strpos($lib, 'INSERT IGNORE INTO company_roles') !== false);
-$a('contacts reparented',                      strpos($lib, "_cfMergeReparent(\$pdo, 'company_contacts'") !== false);
-$a('addresses reparented',                     strpos($lib, "_cfMergeReparent(\$pdo, 'company_addresses'") !== false);
-$a('victim soft-deleted',                      strpos($lib, 'UPDATE companies SET deleted_at = NOW()') !== false);
-$a('survivor use_count bumped',                strpos($lib, 's.use_count = s.use_count + v.use_count') !== false);
-$a('audit row written',                        strpos($lib, "companiesAudit('company.merged'") !== false);
-
-echo "\ncompanies API endpoints\n";
-$api = (string) file_get_contents(__DIR__ . '/../modules/people/api/companies.php');
-$a('GET ?action=duplicates route',             strpos($api, "GET' && \$action === 'duplicates'") !== false);
-$a('POST ?action=merge route',                 strpos($api, "POST' && \$action === 'merge'") !== false);
-$a('merge requires people.manage',             strpos($api, "rbac_legacy_require(\$user, 'people.manage')") !== false);
-$a('merge validates both ids',                 strpos($api, 'survivor id (query) and victim_id (body) required') !== false);
-$a('merge returns 409 on error',               strpos($api, "api_error(\$e->getMessage(), 409)") !== false);
-
-echo "\nCompaniesMerge React page\n";
-$ui = (string) file_get_contents(__DIR__ . '/../modules/people/ui/CompaniesMerge.jsx');
-$a('page testid',                              strpos($ui, 'companies-merge-page') !== false);
-$a('fetches duplicates endpoint',              strpos($ui, 'action=duplicates') !== false);
-$a('posts merge endpoint',                     strpos($ui, 'action=merge&id=') !== false);
-$a('confirm before merge',                     strpos($ui, 'confirm(`Merge company') !== false);
-$a('group contains radio survivor picker',     strpos($ui, 'companies-merge-pick-') !== false);
-$a('merge button per row',                     strpos($ui, 'companies-merge-into-survivor-') !== false);
-$a('empty state testid',                       strpos($ui, 'companies-merge-empty') !== false);
-$a('notice rendering',                         strpos($ui, 'companies-merge-notice') !== false);
+putenv('COREFLUX_DISABLE_DATABASE=1');
+require_once __DIR__.'/../modules/people/lib/companies.php';
+$a('normalization groups suggestions without changing stored identities', companiesNormalizeName('Acme, LLC')===companiesNormalizeName('ACME Inc.'));
+$blocked=false;try{companiesMerge(1,2,3,4);}catch(RuntimeException $e){$blocked=$e->getCode()===409;}
+$a('legacy unreviewed merge is disabled', $blocked);
+// Merge behavior is exercised by company_merge_review_db.php and native HTTP;
+// rendered choice/confirmation behavior is covered by companyMergeReview.test.mjs.
 
 echo "\nPeopleModule routes merge\n";
 $pm = (string) file_get_contents(__DIR__ . '/../modules/people/ui/PeopleModule.jsx');

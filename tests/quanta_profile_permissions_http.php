@@ -282,6 +282,8 @@ try {
     apVendorDirectoryHttpCases($pdo,$tenant,$actor,$request,$expect);
     require_once __DIR__ . '/fixtures/company_source_http_cases.php';
     companySourceHttpCases($pdo,$tenant,$actor,$request,$expect);
+    require_once __DIR__ . '/fixtures/company_merge_http_cases.php';
+    companyMergeHttpCases($pdo,$tenant,$actor,$request,$expect);
     [$status,$context]=$request($financialContext,null);
     $expect($status===200&&$context['tenant_id']===$tenant&&$context['permissions']['workbook_manage']===false,'Financial reader gets scoped report access without bank administration');
     foreach($financialModules as$module){

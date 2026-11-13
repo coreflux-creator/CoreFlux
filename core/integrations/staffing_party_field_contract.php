@@ -6,6 +6,7 @@ function staffingPartyFieldDefinitions(): array
 {
     $d=[
         'companies'=>[
+            'active_name_key'=>['Database-derived active-name uniqueness key. Retired company names remain unchanged; this is never a user or provider field.','system-derived'],
             'coreflux_source_state'=>['Internal source authority, observed proposals and explicit Core field ownership; private review metadata, never a provider-mapped business field.','restricted-source-ownership'],
             'name'=>['Company directory display name; not a provider ID or proof of the employing legal entity.','text'],
             'legal_name'=>['Recorded legal name, separate from the display name and placement-specific employer or bill-to role.','nullable-text'],

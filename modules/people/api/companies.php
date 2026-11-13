@@ -25,6 +25,22 @@ $tid    = companiesUseDirectoryScope();
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+if(in_array($action,['merge_preview','merge'],true)){
+    rbac_legacy_require($user,'people.manage');
+    rbac_legacy_require_any($user,['tenant_admin.integrations','integrations.jobdiva.manage']);
+    if($method!=='POST')api_error('Method not allowed',405);
+    require_once __DIR__.'/../lib/company_merge_review.php';
+    try{
+        $body=api_json_body();
+        if($action==='merge_preview'){
+            if(array_diff(array_keys($body),['survivor_id','retired_id'])||!is_int($body['survivor_id']??null)||!is_int($body['retired_id']??null))api_error('Choose the two current company records.',422);
+            api_ok(['review'=>companyMergePreview((int)$ctx['tenant_id'],$user,$body['survivor_id'],$body['retired_id'])]);
+        }
+        if(array_diff(array_keys($body),['review_token','choices','confirm_merge'])||!is_string($body['review_token']??null)||!is_array($body['choices']??null)||($body['confirm_merge']??null)!==true)api_error('Preview the companies and confirm the reviewed merge choices.',422);
+        api_ok(companyMergeApply((int)$ctx['tenant_id'],$user,$body['review_token'],$body['choices']));
+    }catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409,422,503],true)?$code:($e instanceof InvalidArgumentException?422:500));}
+}
+
 $requireCompany = static function (int $companyId): array {
     if ($companyId <= 0) api_error('id required', 400);
     $company = companiesGet($companyId);
@@ -62,7 +78,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 
 if ($method === 'GET' && $action === 'duplicates') {
     rbac_legacy_require($user, 'people.manage');
-    api_ok(['groups' => companiesDuplicateCandidates($tid)]);
+    api_ok(['groups' => companiesDuplicateCandidates($tid),'can_merge'=>rbac_legacy_can($user,'tenant_admin.integrations')||rbac_legacy_can($user,'integrations.jobdiva.manage')]);
 }
 
 if ($method === 'GET') {
@@ -78,20 +94,6 @@ if ($method === 'GET') {
         'per_page' => $_GET['per_page'] ?? 50,
     ]);
     api_ok($res + ['available_roles' => COMPANY_ROLES]);
-}
-
-if ($method === 'POST' && $action === 'merge') {
-    rbac_legacy_require($user, 'people.manage');
-    $survivorId = (int) ($_GET['id'] ?? 0);
-    $body = api_json_body();
-    $victimId = (int) ($body['victim_id'] ?? 0);
-    if ($survivorId <= 0 || $victimId <= 0) api_error('survivor id (query) and victim_id (body) required', 422);
-    try {
-        $res = companiesMerge($tid, $survivorId, $victimId, $user['id'] ?? null);
-    } catch (\Throwable $e) {
-        api_error($e->getMessage(), 409);
-    }
-    api_ok($res);
 }
 
 if ($method === 'POST' && $action === 'upsert') {
