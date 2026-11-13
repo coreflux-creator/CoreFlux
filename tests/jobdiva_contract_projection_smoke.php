@@ -230,7 +230,8 @@ $reconciliationUi = (string) file_get_contents($root . '/modules/placements/ui/J
 $contractReviewUi = (string) file_get_contents($root . '/modules/placements/ui/JobDivaContractReview.jsx');
 $assert('stored reconciliation rejoins the exact financial placement mirror',
     str_contains($syncSource, "internal_entity_type = 'placement'")
-    && str_contains($syncSource, "AND external_id IN (:raw, :canonical)")
+    && str_contains($syncSource, 'jobdivaPlacementResolvedIdentity($pdo,$directoryContext,$startId)')
+    && str_contains($syncSource, 'AND id = :mapping_id')
     && str_contains($syncSource, "foreach (['_jd_contract', '_jd_assignment_detail'] as \$financialKey)")
     && str_contains($syncSource, 'jobdivaContractProjectionBuild'));
 $projectorSource = (string) file_get_contents($root . '/core/jobdiva/projector.php');

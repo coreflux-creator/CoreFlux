@@ -71,7 +71,7 @@ function jobdivaPlacementBindRetained(int $workspace,string $external,int $canon
         throw new RuntimeException('The reviewed placement source changed before its snapshot could be saved.',409);
     if(!$identity['source_owner'])return mappingBindStable($workspace,'jobdiva','placement',$external,$canonical,$payload,'pull',$actor);
     // All family pairs were locked and checked against the merge receipt. Refresh
-    // only this exact pair; another historical pair on the same row is retained.
+    // only this exact pair; every other historical pair in the family is retained.
     $snapshot=json_encode($payload,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);$hash=mappingHash($payload);
     $changed=$hash!==$mapping['content_hash'];
     $q=$pdo->prepare('UPDATE external_entity_mappings SET payload_snapshot=?,content_hash=?,direction="pull",sync_status="ok",last_error=NULL,last_seen_at=NOW(),last_synced_at=IF(?=1,NOW(),last_synced_at) WHERE tenant_id=? AND id=? AND external_id=? AND internal_entity_id=?');
@@ -81,6 +81,6 @@ function jobdivaPlacementBindRetained(int $workspace,string $external,int $canon
         $q->execute([$workspace,$mapping['internal_entity_id'],$external,$mapping['payload_snapshot'],$snapshot,$mapping['content_hash'],$hash,$actor]);
     }
     require_once __DIR__.'/../../../core/integrations/payload_field_index.php';
-    integrationPayloadFieldIndexRecord($workspace,'jobdiva','placement',$payload);
+    integrationPayloadFieldIndexRecord($workspace,'jobdiva','placement',$payload,true);
     return mappingFindInternal($workspace,'jobdiva','placement',$external)+['changed'=>$changed];
 }

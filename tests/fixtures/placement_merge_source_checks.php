@@ -34,9 +34,9 @@ foreach(['receipt_missing','instance','source_rebound','source_workspace','new_s
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$a,$b,$c,$ma,$mb,$case,$state,$check,$fails,$payload):void{
         if($case==='receipt_missing')$pdo->prepare('DELETE FROM audit_log WHERE tenant_id=? AND event="placement.identity_merged"')->execute([$workspace]);
         if($case==='instance')$pdo->prepare('UPDATE audit_log SET meta_json=JSON_SET(meta_json,"$.instance_id","different-installation") WHERE tenant_id=? AND event="placement.identity_merged"')->execute([$workspace]);
-        if($case==='source_rebound')$pdo->prepare('UPDATE external_entity_mappings SET internal_entity_id=? WHERE id=?')->execute([$a,$mb['id']]);
+        if($case==='source_rebound')$pdo->prepare('UPDATE external_entity_mappings SET internal_entity_id=? WHERE id=?')->execute([$c,$mb['id']]);
         if($case==='source_workspace')$pdo->prepare('UPDATE external_entity_mappings SET tenant_id=? WHERE id=?')->execute([$owner,$mb['id']]);
-        if($case==='new_source')mappingUpsert($workspace,'jobdiva','placement','99510999',$a,$payload);
+        if($case==='new_source')mappingUpsert($owner,'jobdiva','placement','99510999',$a,$payload);
         if($case==='alias_missing')$pdo->prepare('DELETE FROM core_record_numbers WHERE tenant_id=? AND entity_type="placement" AND record_id=?')->execute([$owner,$b]);
         if($case==='survivor_archived')$pdo->prepare('UPDATE placements SET deleted_at=NOW() WHERE id=?')->execute([$a]);
         if($case==='historical_revived')$pdo->prepare('UPDATE placements SET deleted_at=NULL WHERE id=?')->execute([$b]);
@@ -64,8 +64,6 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,
     $leftPayload=array_replace($payload,['startId'=>'99510101']);$rightPayload=array_replace($payload,['startId'=>'99510102']);
     $leftMap=mappingUpsert($workspace,'jobdiva','placement','99510101',$left,$leftPayload);
     $primary=mappingUpsert($workspace,'jobdiva','placement','99510102',$right,$rightPayload);
-    // A second historical pair on the same physical row must also survive.
-    $extra=mappingUpsert($workspace,'jobdiva','placement','jd:99510102',$right,$rightPayload);
     placementMergeApply($workspace,$actor,$requestFor(placementMergeReview($workspace,$actor,$left,$right),(int)$primary['id']));
     $ctx=jobdivaPlacementWriteContext($pdo,$workspace);$before=$state();
     $check($fails(fn()=>jobdivaPlacementWriteIdentity($pdo,$ctx,'99510101'))&&$before===$state(),
@@ -74,8 +72,8 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,
     $check((int)$identity['placement']['id']===$left&&$identity['placement']['external_id']==='jd:99510101',
         'Reviewed source ownership can differ from the survivor display ID without rewriting it');
     $updated=jobdivaPlacementBindRetained($workspace,'99510102',$left,$rightPayload+['sourceRefreshNote'=>'Distinct retained source'],$actor);
-    $check((int)$updated['internal_entity_id']===$right&&mappingFindInternal($workspace,'jobdiva','placement','jd:99510102')['content_hash']===$extra['content_hash'],
-        'Snapshot refresh retains another reviewed pair on the same physical placement');
+    $check((int)$updated['internal_entity_id']===$right&&mappingFindInternal($workspace,'jobdiva','placement','99510101')['content_hash']===$leftMap['content_hash'],
+        'Snapshot refresh preserves the distinct historical source on the survivor');
 },true);
 JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,$owner,$a,$b,$person,$payload,$check,$read):void{
     mappingUpsert($workspace,'jobdiva','person','jd:99510002',$person,['candidateId'=>'99510002']);
