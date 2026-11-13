@@ -12,6 +12,7 @@ require_once __DIR__.'/../core/qbo/sync_in.php';
 require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 require_once __DIR__.'/../core/jobdiva/joined_index_refresh.php';
 require_once __DIR__.'/../core/jobdiva/live_contract_refresh.php';
+require_once __DIR__.'/../core/jobdiva/active_status_review.php';
 require_once __DIR__.'/../modules/placements/lib/edit.php';
 require_once __DIR__.'/../modules/placements/lib/source_rule_review.php';
 require_once __DIR__.'/../core/CsvImportService.php';
@@ -98,6 +99,11 @@ function liveContractRaceWrite(array $input): array
     return ['id'=>$input['placement_id']]+jobdivaLiveContractApply($input['expected'],$input['exact'],$input['payload'],null,$input['actor']);
 }
 
+function activeRestoreRaceWrite(array $input): array
+{
+    return ['id'=>$input['placement_id']]+jobdivaActiveRestoreApply($input['workspace'],$input['actor'],$input['body']);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -108,8 +114,8 @@ if(($argv[1]??'')==='worker'){
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
-        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold','assignment_repair_hold','lifecycle_repair_hold','availability_hold','index_hold','live_contract_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
-            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'live_contract_hold'=>liveContractRaceWrite($input),'index_hold'=>joinedIndexRaceWrite($input),'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),'assignment_repair_hold'=>assignmentRepairRaceWrite($input),'lifecycle_repair_hold'=>placementLifecycleRaceWrite($input),'availability_hold'=>peopleAvailabilityRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
+        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold','assignment_repair_hold','lifecycle_repair_hold','availability_hold','index_hold','live_contract_hold','active_restore_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
+            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'active_restore_hold'=>activeRestoreRaceWrite($input),'live_contract_hold'=>liveContractRaceWrite($input),'index_hold'=>joinedIndexRaceWrite($input),'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),'assignment_repair_hold'=>assignmentRepairRaceWrite($input),'lifecycle_repair_hold'=>placementLifecycleRaceWrite($input),'availability_hold'=>peopleAvailabilityRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
             echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
             stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
             if($decision!=='COMMIT')$pdo->exec('ROLLBACK TO SAVEPOINT fixture_rule_hold');
@@ -140,6 +146,7 @@ if(($argv[1]??'')==='worker'){
                 'source_rate','rate_approval'=>sourceRateRaceWrite($input),
                 'joined_index'=>joinedIndexRaceWrite($input),
                 'live_contract'=>liveContractRaceWrite($input),
+                'active_restore'=>activeRestoreRaceWrite($input),
                 'alignment_report'=>jobdivaMappingAlignmentReport($input['workspace'],['sample_limit'=>1]),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
@@ -702,6 +709,7 @@ try{
     require __DIR__.'/fixtures/joined_index_concurrency_checks.php';
     require __DIR__.'/fixtures/live_contract_concurrency_checks.php';
     require __DIR__.'/fixtures/alignment_report_concurrency_checks.php';
+    require __DIR__.'/fixtures/active_restore_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -710,6 +718,10 @@ try{
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
+    foreach($createdTenants as$createdTenant){
+        $pdo->prepare('DELETE ma FROM membership_module_access ma JOIN tenant_memberships tm ON tm.id=ma.membership_id WHERE tm.tenant_id=?')->execute([$createdTenant]);
+        foreach(['tenant_memberships','jobdiva_connections','payroll_profiles','people_employment_links','people_employees']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+    }
     foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','ap_vendors_index','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','jobdiva_sync_audit','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);
