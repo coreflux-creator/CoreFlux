@@ -68,6 +68,17 @@ try{
         $check(!$bad['rows'][0]['selectable'],'A company namesake requires exact source review before CSV adoption');
         $bad=$preview($csv([array_diff_key(array_replace($source,['end_client_name'=>'Changed name without ID']),['end_client_source_id'=>true])]));
         $check(!$bad['rows'][0]['selectable'],'A company name change without source ID cannot silently retarget the assignment');
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$placement,$source,$csv,$preview,$check):void{
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["notes","pay_rate","end_date"]\' WHERE tenant_id=? AND id=?')->execute([$owner,$placement]);
+            $lifecycle=$preview($csv([array_replace($source,['status'=>'Active','end_date'=>'2020-01-01'])]));
+            $check($lifecycle['rows'][0]['selectable']&&$lifecycle['rows'][0]['placement_patch']['status']==='active'&&!isset($lifecycle['rows'][0]['placement_patch']['end_date']),'Core-owned end date remains authoritative when CSV status is normalized');
+        },true);
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$placement,$company,$source,$csv,$preview,$check,$insert):void{
+            $pdo->prepare('UPDATE placements SET engagement_type="c2c" WHERE tenant_id=? AND id=?')->execute([$owner,$placement]);
+            $insert('placement_corp_details',['tenant_id'=>$owner,'placement_id'=>$placement,'company_id'=>$company,'corp_legal_name'=>'Synthetic retained corporation','corp_ein_ct'=>'synthetic-presence-only']);
+            $private=$preview($csv([array_replace($source,['engagement_type'=>'W2'])]));
+            $check(!$private['rows'][0]['selectable']&&str_contains(implode(' ',$private['rows'][0]['errors']),'corporate tax record'),'CSV cannot remove the employment model supporting linked corporate private records');
+        },true);
         $initialPairs=$pairs();$approved=$read('placement_rates',$rate);$people=$all('people');$result=$apply($body,$plan['dry_run_token']);$saved=$read('placements',$placement);
         $check($result['updated']===1&&$result['rate_drafts']===1&&$saved['title']==='Reviewed CSV title'&&$saved['worksite_city']==='Hamilton'&&$saved['notes']==='Retained Core note','CSV updates source-owned fields on the existing shared assignment');
         $check($saved['external_id']==='csv-placement-legacy'&&(int)$saved['person_id']===$person&&(int)$saved['tenant_id']===$owner&&$people===$all('people'),'CSV preserves both canonical person and placement records and their legacy numbers');

@@ -478,6 +478,11 @@ function jobdivaReconciliationBuildRowPlan(
     $currentGraph=$placement?jobdivaPlacementProjectionAuditSnapshot($placementOwner,(int)$placement['id'],true):[];
     $overrides=$identity['owned_fields']??[];
     if($placement)$overrides=jobdivaContractOwnedFields($currentGraph,(string)($source['engagement_type']??$placement['engagement_type']));
+    $corporateIdentity=$placement?jobdivaCorporateIdentityRecord($placementOwner,(int)$placement['id']):null;
+    if(!empty($corporateIdentity['has_private_records'])&&isset($source['engagement_type'])
+        &&!in_array('engagement_type',$overrides,true)&&$source['engagement_type']!==$placement['engagement_type']){
+        $errors[]='Review the linked corporate tax record and documents before changing the assignment worker type.';
+    }
     $person=jobdivaReconciliationResolvePerson($pdo,$context,$source,$placement,$overrides);
     if($person['error'])$errors[]=$person['error'];
     $company=jobdivaReconciliationCompanyProposal($pdo,$context,$source,$placement,$overrides);
@@ -500,8 +505,8 @@ function jobdivaReconciliationBuildRowPlan(
     $protected = [];
     if(isset($source['status'])&&$source['status']!=='draft'){
         $source['status']=jobdivaAssignmentPlacementStatusForWrite($source['status'],
-            (string)($source['start_date']??$placement['start_date']??''),
-            $source['end_date']??$placement['end_date']??null,$placement['status']??null)['status'];
+            (string)(in_array('start_date',$overrides,true)?($placement['start_date']??''):($source['start_date']??$placement['start_date']??'')),
+            in_array('end_date',$overrides,true)?($placement['end_date']??null):($source['end_date']??$placement['end_date']??null),$placement['status']??null)['status'];
     }
     if($isCreate){
         $q=$pdo->prepare('SELECT id,code,active FROM accounting_entities WHERE tenant_id=? AND active=1 ORDER BY id LIMIT 1 FOR UPDATE');$q->execute([$context['accounting_owner']]);$entity=$q->fetch(PDO::FETCH_ASSOC);
@@ -672,7 +677,7 @@ function jobdivaReconciliationBuildRowPlan(
         'source' => $source,
         'mapping_present' => $mappingPresent,
         'is_create' => $isCreate,
-        '__review_evidence'=>['context'=>$context,'identity'=>$identity,'graph'=>$currentGraph,'rate'=>$currentRate,'candidate'=>$person['evidence'],'company'=>$company],
+        '__review_evidence'=>['context'=>$context,'identity'=>$identity,'graph'=>$currentGraph,'rate'=>$currentRate,'candidate'=>$person['evidence'],'company'=>$company,'corporate_identity'=>$corporateIdentity],
         '__company'=>$company,
         '__mapping'=>$identity['mapping']??null,
     ];
