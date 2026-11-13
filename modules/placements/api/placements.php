@@ -46,7 +46,10 @@ if ($method === 'GET') {
         catch(PDOException $e){api_error('Placement history is temporarily unavailable.',503);}
         catch(InvalidArgumentException|RuntimeException $e){api_error($e->getMessage(),in_array($e->getCode(),[409,422],true)?$e->getCode():409);}
         if(!$identity)api_error('Not found',404);
-        $identity['can_view_source_history']=rbac_legacy_can_any($user,['tenant_admin.integrations','integrations.jobdiva.view']);
+        $identity['can_view_source_history']=rbac_legacy_can($user,'integrations.read')&&rbac_legacy_can_any($user,
+            ['integrations.jobdiva.view','integrations.airtable.view','integrations.qbo.view','integrations.zoho.view','integrations.connecteam.view']);
+        $identity['can_view_documents']=rbac_legacy_can($user,'placements.docs.view');
+        $identity['can_view_time_history']=rbac_legacy_can($user,'staffing.time.approve');
         // Historical URLs never return a current record's edit controls under an old ID.
         if($identity['merged'])api_ok(['placement'=>null,'identity'=>$identity]);
         $id=$identity['source']['id'];

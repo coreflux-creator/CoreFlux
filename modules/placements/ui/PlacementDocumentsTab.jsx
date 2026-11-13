@@ -11,12 +11,12 @@ const options = context => ({ headers: { 'X-CoreFlux-Tenant-Id': String(context.
 const digest = async file => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())), byte => byte.toString(16).padStart(2, '0')).join('');
 
 // A separate instance prevents an old placement request from updating a newly selected placement.
-export default function PlacementDocumentsTab({ pid }) {
+export default function PlacementDocumentsTab({ pid, readOnly = false }) {
   const pin = getPinnedTenantId();
-  return <DocumentWorkspace key={`${pid}:${pin || 'session'}`} pid={Number(pid)} pin={pin} />;
+  return <DocumentWorkspace key={`${pid}:${pin || 'session'}:${readOnly}`} pid={Number(pid)} pin={pin} readOnly={readOnly} />;
 }
 
-function DocumentWorkspace({ pid, pin }) {
+function DocumentWorkspace({ pid, pin, readOnly }) {
   const [context, setContext] = useState(null);
   const [rows, setRows] = useState([]);
   const [pending, setPending] = useState(null);
@@ -63,7 +63,7 @@ function DocumentWorkspace({ pid, pin }) {
   };
   const requireManage = async expected => {
     const next = await load(expected);
-    if (!next.permissions.manage) throw new Error('You have read-only access to these documents.');
+    if (readOnly || !next.permissions.manage) throw new Error('You have read-only access to these documents.');
     return next;
   };
   const remember = receipt => {
@@ -75,6 +75,7 @@ function DocumentWorkspace({ pid, pin }) {
   useEffect(() => {
     mounted.current = true;
     load().then(next => {
+      if (readOnly || !next.permissions.manage) return;
       const raw = window.sessionStorage.getItem(pendingKey(next));
       if (!raw) return;
       const saved = JSON.parse(raw);
@@ -89,11 +90,11 @@ function DocumentWorkspace({ pid, pin }) {
     return () => { mounted.current = false; };
     // The keyed workspace owns this one-time initial load and its pending receipt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pid, pin]);
+  }, [pid, pin, readOnly]);
 
   const upload = async event => {
     event.preventDefault();
-    if (busyRef.current || !contextRef.current?.permissions.manage || !here()) return;
+    if (readOnly || busyRef.current || !contextRef.current?.permissions.manage || !here()) return;
     busyRef.current = true; setBusy(true); setMessage(null);
     try {
       let receipt = pendingRef.current;
@@ -178,8 +179,8 @@ function DocumentWorkspace({ pid, pin }) {
   return <div data-testid="tab-documents">
     <h3>Documents</h3>
     {loading && <p>Checking document access…</p>}
-    {context && !context.permissions.manage && <p>Read-only document access.</p>}
-    {context?.permissions.manage && <form onSubmit={upload} data-testid="placement-document-upload">
+    {context && (readOnly || !context.permissions.manage) && <p>Read-only document access.</p>}
+    {!readOnly && context?.permissions.manage && <form onSubmit={upload} data-testid="placement-document-upload">
       <fieldset disabled={busy || !!pending} className="filter-bar" style={{ border: 0, padding: 0, alignItems: 'end' }}>
         <label>Type<select className="input" aria-label="Document type" value={shown.doc_type} onChange={e => setForm(current => ({ ...current, doc_type: e.target.value }))}>{types.map(type => <option key={type} value={type}>{label(type)}</option>)}</select></label>
         <label>Effective from<input className="input" aria-label="Document effective from" type="date" value={shown.effective_from || ''} onChange={e => setForm(current => ({ ...current, effective_from: e.target.value }))} /></label>

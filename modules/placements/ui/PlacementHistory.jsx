@@ -2,6 +2,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import SyncHistoryDrawer from '../../../dashboard/src/components/SyncHistoryDrawer';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
+import PlacementDocumentsTab from './PlacementDocumentsTab';
+import PlacementTimeHistory from './PlacementTimeHistory';
 
 export function PlacementHistoryLinks({ identity }) {
   if (!identity || identity.family.length < 2) return null;
@@ -31,6 +33,12 @@ export default function PlacementHistory({ identity }) {
           <td>{rate.approved_at ? 'Approved' : 'Draft'}</td></tr>)}</tbody></table>
       {!identity.source_rates.length && <p>No rate records are stored under this placement number.</p>}
     </div> : <p>Financial history requires placement financial access.</p>}
+    {identity.can_view_time_history && <details style={{ marginTop: 16 }}><summary>Original recorded time</summary>
+      <PlacementTimeHistory pid={p.id} />
+    </details>}
+    {identity.can_view_documents && <details style={{ marginTop: 16 }}><summary>Original placement documents</summary>
+      <PlacementDocumentsTab pid={p.id} readOnly />
+    </details>}
     {identity.can_view_source_history && <details style={{ marginTop: 16 }}><summary>Original source links and changes</summary>
       <LinkedExternalSystemsPanel entityType="placement" internalId={p.id} readOnly />
       <SyncHistoryDrawer entityType="placement" internalId={p.id} readOnly />

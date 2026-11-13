@@ -2,6 +2,8 @@
 /** Placement-private documents. Authorization is enforced by the calling route. */
 declare(strict_types=1);
 require_once __DIR__.'/../../../core/storage/document_ownership.php';
+require_once __DIR__.'/identity.php';
+require_once __DIR__.'/../../../core/jobdiva/stored_review.php';
 
 class PlacementDocumentConflict extends RuntimeException {}
 const PLACEMENT_DOCUMENT_TYPES = ['msa','sow','work_order','rate_sheet','timesheet_template','poc','noc','other'];
@@ -38,6 +40,16 @@ function placementDocumentPlacement(PDO $pdo, int $owner, int $placement, bool $
     $q=$pdo->prepare('SELECT id FROM placements WHERE tenant_id=? AND id=? AND deleted_at IS NULL'.($lock?' FOR UPDATE':''));
     $q->execute([$owner,$placement]);
     if (!$q->fetchColumn()) throw new PlacementDocumentConflict('Placement is unavailable in this directory.');
+}
+
+/** A reviewed alias permits original evidence reads; it never changes storage ownership. */
+function placementDocumentReadablePlacement(PDO $pdo, int $owner, int $placement): array
+{
+    if ($owner<=0 || $placement<=0) throw new InvalidArgumentException('Choose an existing placement.');
+    try { $identity=placementIdentityResolve($pdo,$owner,$placement,$pdo->inTransaction()); }
+    catch (RuntimeException $e) { throw new PlacementDocumentConflict($e->getMessage()); }
+    if (!$identity) throw new PlacementDocumentConflict('Placement is unavailable in this directory.');
+    return $identity;
 }
 
 function placementDocumentKey(int $owner, int $placement, mixed $key): string
@@ -114,13 +126,14 @@ function placementDocumentPublic(array $row): array
     return array_intersect_key($row,array_flip(['id','placement_id','doc_type','storage_object_id','file_name','effective_from','effective_to','uploaded_by_user_id','created_at']));
 }
 
-function placementDocumentGet(PDO $pdo, array $scope, int $id): array
+function placementDocumentGet(PDO $pdo, array $scope, int $id, bool $historical=false): array
 {
     $owner=placementDocumentScope($pdo,$scope);
     $q=$pdo->prepare('SELECT * FROM placement_documents WHERE tenant_id=? AND id=? AND deleted_at IS NULL');
     $q->execute([$owner,$id]); $row=$q->fetch(PDO::FETCH_ASSOC);
     if (!$row) throw new PlacementDocumentConflict('Document is unavailable in this directory.');
-    placementDocumentPlacement($pdo,$owner,(int)$row['placement_id']);
+    if ($historical) placementDocumentReadablePlacement($pdo,$owner,(int)$row['placement_id']);
+    else placementDocumentPlacement($pdo,$owner,(int)$row['placement_id']);
     return $row;
 }
 

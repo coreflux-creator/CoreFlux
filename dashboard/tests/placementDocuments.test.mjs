@@ -14,7 +14,7 @@ const original = () => new File(['Synthetic agreement only'], 'synthetic.txt', {
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 async function fixture(settings = {}) {
   const storage = settings.storage || new Map();
-  const f = { storage, pin: '2002', calls: [], transfers: [], rows: [], present: false, context: { tenant_id: 2002, placements_tenant_id: 2002, actor_user_id: 95, placement_id: 902, permissions: { manage: settings.manage ?? true } }, props: { pid: 902 } };
+  const f = { storage, pin: '2002', calls: [], transfers: [], rows: settings.rows || [], present: false, context: { tenant_id: 2002, placements_tenant_id: 2002, actor_user_id: 95, placement_id: 902, permissions: { manage: settings.manage ?? true } }, props: { pid: 902, readOnly: settings.readOnly ?? false } };
   if (!globalThis.crypto) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
   globalThis.window = { sessionStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => { if (settings.storageFailure) throw new Error('Session storage unavailable'); storage.set(key, value); }, removeItem: key => storage.delete(key) }, open: (...args) => { f.opened = args; } };
   globalThis.fetch = async (url, init) => { f.transfers.push({ url, init }); if (settings.transfer) return settings.transfer(f); f.present = true; return { ok: true, status: 204 }; };
@@ -48,6 +48,20 @@ async function fixture(settings = {}) {
   f.posts = () => f.calls.filter(call => call.method === 'POST');
   return f;
 }
+
+test('historical view lists and opens originals without resuming a pending upload or offering management', async () => {
+  const storage = new Map([['coreflux:pending-placement-document:2002:2002:95:902', 'unreadable pending upload']]);
+  const f = await fixture({ readOnly: true, manage: true, storage, rows: [{ id: 3, placement_id: 902, doc_type: 'sow', file_name: 'original.txt' }] });
+  try {
+    assert.equal(f.tree.root.findAllByType('form').length, 0);
+    assert.equal(f.tree.root.findAllByProps({ 'data-testid': 'placement-document-message' }).length, 0);
+    assert.match(text(f.tree.root), /Read-only document access/);
+    await act(async () => f.tree.root.findByProps({ 'aria-label': 'Open original.txt' }).props.onClick());
+    assert.equal(f.opened[0], 'https://private-storage.invalid/download');
+    assert.equal(f.posts().length, 0); assert.equal(f.transfers.length, 0); assert.equal(storage.size, 1);
+    assert.ok(f.calls.every(call => !call.url.includes('upload')));
+  } finally { f.close(); }
+});
 
 test('a lost registration response retries one exact file and metadata without transferring again', async () => {
   const f = await fixture({ post: async count => { if (count === 1) throw new Error('Response lost after commit'); } });

@@ -41,18 +41,26 @@ try {
         api_ok(['storage_key'=>$key,'upload'=>['url'=>$post['form_action'],'fields'=>$post['fields']],'context'=>$context]);
     }
     if ($method==='GET' && $id>0) {
-        $document=placementDocumentGet($pdo,$scope,$id);
-        if ($placement>0 && (int)$document['placement_id']!==$placement) throw new PlacementDocumentConflict('Document belongs to a different placement.');
-        $object=placementDocumentObject($pdo,$owner,(int)$document['placement_id'],(int)$document['storage_object_id']);
-        placementDocumentVerifyObject($object,$head,null); placementDocumentScope($pdo,$scope);
-        api_ok(['document'=>placementDocumentPublic($document),'signed_url'=>StorageService::getInstance()->get_signed_url($object['s3_key'])]);
+        $result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$scope,$id,$placement,$head):array{
+            $owner=placementDocumentScope($pdo,$scope,true);
+            $document=placementDocumentGet($pdo,$scope,$id,true);
+            if ($placement>0 && (int)$document['placement_id']!==$placement) throw new PlacementDocumentConflict('Document belongs to a different placement.');
+            $object=placementDocumentObject($pdo,$owner,(int)$document['placement_id'],(int)$document['storage_object_id'],true);
+            placementDocumentVerifyObject($object,$head,null);
+            return ['document'=>placementDocumentPublic($document),'signed_url'=>StorageService::getInstance()->get_signed_url($object['s3_key'])];
+        },true);
+        api_ok($result);
     }
     if ($method==='GET') {
-        placementDocumentPlacement($pdo,$owner,$placement);
-        $q=$pdo->prepare('SELECT * FROM placement_documents WHERE tenant_id=? AND placement_id=? AND deleted_at IS NULL ORDER BY id');
-        $q->execute([$owner,$placement]); $documents=array_map('placementDocumentPublic',$q->fetchAll(PDO::FETCH_ASSOC));
-        placementDocumentScope($pdo,$scope);
-        api_ok(['documents'=>$documents,'context'=>$context]);
+        $result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$scope,$placement,$context):array{
+            $owner=placementDocumentScope($pdo,$scope,true);
+            $identity=placementDocumentReadablePlacement($pdo,$owner,$placement);
+            $q=$pdo->prepare('SELECT * FROM placement_documents WHERE tenant_id=? AND placement_id=? AND deleted_at IS NULL ORDER BY id FOR UPDATE');
+            $q->execute([$owner,$placement]); $documents=array_map('placementDocumentPublic',$q->fetchAll(PDO::FETCH_ASSOC));
+            if ($identity['merged']) $context['permissions']['manage']=false;
+            return ['documents'=>$documents,'context'=>$context];
+        },true);
+        api_ok($result);
     }
     $audit=static function(string $event,int $id,array $meta):void { placementRequiredAudit($event,$meta,$id); };
     if ($method==='POST') {

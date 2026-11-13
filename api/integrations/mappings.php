@@ -146,6 +146,24 @@ rbac_legacy_require_any($user, [
 
 $action = strtolower(str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal')));
 
+if (trim((string)api_query('entity_type'))==='placement') {
+    rbac_legacy_require($user,'placements.view');
+    require_once __DIR__.'/../../modules/placements/lib/source_views.php';
+    try {
+        $raw=(string)api_query('internal_id','0');
+        if ($action!=='find_internal'&&(!preg_match('/^[1-9][0-9]*$/D',$raw)||(string)(int)$raw!==$raw))
+            throw new InvalidArgumentException('Use a complete placement ID.',422);
+        $view=JobdivaStoredReviewTransaction::run(static function()use($tid,$action,$raw):array{
+            $result=placementSourceMappingViews($tid,$action,(int)$raw,trim((string)api_query('source_system')),trim((string)api_query('external_id')));
+            if (isset($result['mappings'])) $result['mappings']=array_map(static fn($row)=>_integrationMappingsJobDivaCanonicalizeRowPayload($tid,$row),$result['mappings']);
+            if (!empty($result['mapping'])) $result['mapping']=_integrationMappingsJobDivaCanonicalizeRowPayload($tid,$result['mapping']);
+            return $result;
+        },true);
+        api_ok($view);
+    } catch (PDOException $e) { error_log('[placement source view] '.$e->getCode());api_error('Placement source links are temporarily unavailable.',503); }
+    catch (InvalidArgumentException|RuntimeException $e) { api_error($e->getMessage(),in_array($e->getCode(),[403,404,409,422],true)?$e->getCode():409); }
+}
+
 if(trim((string)api_query('entity_type'))==='company'){
     rbac_legacy_require($user,'people.view');
     require_once __DIR__.'/../../modules/people/lib/company_mapping_views.php';

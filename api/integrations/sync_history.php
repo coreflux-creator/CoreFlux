@@ -41,7 +41,13 @@ $limit      = (int) (api_query('limit') ?? 50);
 
 if ($entityType === '') api_error('entity_type required', 422);
 if ($internalId <= 0)   api_error('internal_id required', 422);
+if ($entityType==='placement') {
+    $raw=(string)api_query('internal_id','');
+    if (!preg_match('/^[1-9][0-9]*$/D',$raw)||(string)(int)$raw!==$raw) api_error('Use a complete placement ID.',422);
+}
 
+$limit=max(1,min(500,$limit));
+$readHistory=static function()use($tid,$entityType,$internalId,$limit):array{
 // Graceful handling for the deploy-window gap where the endpoint code is
 // live but migration 069 hasn't applied yet (e.g. PHP-FPM workers still
 // holding a stale $ranOnce cache). Return empty rows + a hint flag so
@@ -50,12 +56,12 @@ try {
     $rows = entitySyncHistoryList($tid, $entityType, $internalId, $limit);
 } catch (\PDOException $e) {
     if (str_contains($e->getMessage(), 'entity_sync_history') && str_contains($e->getMessage(), "doesn't exist")) {
-        api_ok([
+        return [
             'rows' => [],
             'migration_pending' => true,
             'hint' => 'Migration 069_entity_sync_history.sql has not applied yet. '
                 . 'Master admin can POST /api/admin/migrate.php to force-rerun.',
-        ]);
+        ];
     }
     throw $e;
 }
@@ -132,7 +138,8 @@ if (isset($AUDIT_EVENT_MAP[$entityType])) {
         $stmt->execute($params);
         $auditRows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     } catch (\PDOException $e) {
-        // audit_log absent? Don't break the drawer; just skip the merge.
+        if ($entityType==='placement') throw $e;
+        // Other legacy entities retain their existing partial-history behavior.
         error_log('sync_history: audit_log read failed (non-fatal): ' . $e->getMessage());
     }
 }
@@ -200,4 +207,14 @@ usort($merged, static function ($a, $b) {
 });
 $merged = array_slice($merged, 0, $limit);
 
-api_ok(['rows' => $merged]);
+return ['rows' => $merged];
+
+};
+if ($entityType==='placement') {
+    rbac_legacy_require($user,'placements.view');
+    require_once __DIR__.'/../../modules/placements/lib/source_views.php';
+    try { api_ok(placementSourceRead($tid,$internalId,static fn()=>$readHistory())); }
+    catch (PDOException $e) { error_log('[placement source history] '.$e->getCode());api_error('Placement source history is temporarily unavailable.',503); }
+    catch (InvalidArgumentException|RuntimeException $e) { api_error($e->getMessage(),in_array($e->getCode(),[403,404,409,422],true)?$e->getCode():409); }
+}
+api_ok($readHistory());
