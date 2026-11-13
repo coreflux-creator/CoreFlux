@@ -83,7 +83,7 @@ function staffingClientSaveNative(int $workspace,?int $id,array $patch,int $acto
             $company=companyRelationshipCurrent($pdo,$scope,$companyId);
         }
         $companyId=(int)$company['id'];
-        if(array_key_exists('name',$patch)){
+        if(array_key_exists('name',$patch)&&(!$before||$before['name']!==$patch['name'])){
             $q=$pdo->prepare('SELECT id FROM companies WHERE tenant_id=? AND name=? AND id<>? AND deleted_at IS NULL FOR UPDATE');$q->execute([$companyOwner,$patch['name'],$companyId]);
             if($q->fetchColumn())throw new RuntimeException('Another company already has this name. Review the company identity instead of renaming this client.',409);
         }
@@ -91,7 +91,14 @@ function staffingClientSaveNative(int $workspace,?int $id,array $patch,int $acto
             $q=$pdo->prepare('SELECT id FROM placements WHERE tenant_id=? AND client_id=? AND status="active" AND deleted_at IS NULL LIMIT 1 FOR UPDATE');$q->execute([$owner,$id]);
             if($q->fetchColumn())throw new RuntimeException('This billing client has active placements. Resolve those assignments before closing it.',409);
         }
-        $companyPatch=[];foreach(staffingClientCompanyFields()as$field=>$target)if(array_key_exists($field,$patch))$companyPatch[$target]=$patch[$field];
+        // Full forms and CSV exports repeat unchanged client values. After a
+        // company merge/source edit those copies may differ from the current
+        // company; only an actual client edit may replace the shared value.
+        $companyPatch=[];foreach(staffingClientCompanyFields()as$field=>$target){
+            if(!array_key_exists($field,$patch))continue;
+            if($before&&array_key_exists($field,$before)&&$before[$field]===$patch[$field])continue;
+            $companyPatch[$target]=$patch[$field];
+        }
         if($id===null){$q=$pdo->prepare('SELECT role FROM company_roles WHERE company_id=? ORDER BY role FOR UPDATE');$q->execute([$companyId]);$companyPatch['roles']=array_values(array_unique([...$q->fetchAll(PDO::FETCH_COLUMN),'client']));}
         if($companyPatch)companyNativeFields($pdo,$workspace,$companyOwner,'companies',$companyId,$companyPatch,$actor);
         $patch['company_id']=$companyId;

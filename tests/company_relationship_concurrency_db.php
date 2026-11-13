@@ -21,9 +21,11 @@ if(($argv[1]??'')==='worker'){
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
         else{
             if($input['mode']==='hold')$pdo->beginTransaction();
-            $result=($input['entity']??'job')==='client'
-                ?staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision'])
-                :staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']);
+            $result=match($input['entity']??'job'){
+                'client'=>staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision']),
+                'client_csv'=>['id'=>staffingClientImportNative($input['workspace'],$input['row'],$input['actor'],true)],
+                default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
+            };
             if($input['mode']==='hold'){
                 echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
                 stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
@@ -133,6 +135,26 @@ try{
         $check($writerResult['ok'],'Native client completes its '.$decision.' decision');
         if($decision==='COMMIT')$check(!$result['ok']&&(int)$result['code']===409&&$read('companies',$b)['deleted_at']===null,'Committed native company/client edit invalidates the waiting merge review');
         else$check($result['ok']&&(int)$read('staffing_clients',$client)['company_id']===$a&&$read('staffing_clients',$client)['primary_contact_phone']===null,'Rolled-back client edit leaves no value and permits the reviewed merge');
+    }
+    [$a,$b]=$pair('csv-after-merge');
+    $pdo->prepare('INSERT INTO staffing_clients(tenant_id,name,company_id) VALUES(?,?,?)')->execute([$tenant,'Concurrent CSV client',$b]);$client=(int)$pdo->lastInsertId();
+    $review=companyMergePreview($tenant,$user,$a,$b);
+    $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));$survivorBefore=$read('companies',$a);
+    $worker=$spawn(['mode'=>'native','entity'=>'client_csv','workspace'=>$tenant,'actor'=>$actor,'row'=>['client_id'=>$client,'name'=>'Concurrent CSV client','notes'=>'Imported after merge']]);
+    $check($waiting($worker),'CSV client import is observed waiting on the uncommitted merge');$pdo->commit();$result=$finish($worker);
+    $check($result['ok']&&(int)$result['result']['id']===$client&&(int)$read('staffing_clients',$client)['company_id']===$a&&$read('companies',$a)===$survivorBefore,'Waiting CSV import uses the retained client and committed survivor without replacing its profile');
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        [$a,$b]=$pair('csv-'.$decision);$name='Held CSV client '.$decision;
+        $pdo->prepare('INSERT INTO staffing_clients(tenant_id,name,company_id) VALUES(?,?,?)')->execute([$tenant,$name,$b]);$client=(int)$pdo->lastInsertId();
+        $review=companyMergePreview($tenant,$user,$a,$b);
+        $writer=$spawn(['mode'=>'hold','entity'=>'client_csv','workspace'=>$tenant,'actor'=>$actor,'row'=>['client_id'=>$client,'name'=>$name,'primary_contact_phone'=>'CSV change']]);
+        $saved=$line($workers[$writer]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'CSV writer holds company and client before '.$decision);
+        $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+        $check($waiting($merger),'Merge waits for the independent CSV '.$decision);
+        fwrite($workers[$writer]['pipes'][0],$decision.PHP_EOL);fflush($workers[$writer]['pipes'][0]);$writerResult=$finish($writer);$result=$finish($merger);
+        $check($writerResult['ok'],'CSV writer completes its '.$decision.' decision');
+        if($decision==='COMMIT')$check(!$result['ok']&&(int)$result['code']===409&&$read('companies',$b)['deleted_at']===null,'Committed CSV company/client edits invalidate the waiting merge review');
+        else$check($result['ok']&&(int)$read('staffing_clients',$client)['company_id']===$a&&$read('staffing_clients',$client)['primary_contact_phone']===null,'Rolled-back CSV leaves no value and permits the reviewed merge');
     }
     foreach(['COMMIT','ROLLBACK']as$decision){
         foreach(['native','merge']as$mode){

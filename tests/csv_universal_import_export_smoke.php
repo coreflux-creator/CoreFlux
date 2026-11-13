@@ -67,7 +67,9 @@ foreach (['name','legal_name','industry','primary_contact_email','billing_city',
 $a('client template action',                 str_contains($cli, "action === 'template'") && str_contains($cli, 'clients_template.csv'));
 $a('client dry_run action',                  str_contains($cli, "action === 'dry_run'") && str_contains($cli, "dryRun('staffing_clients'"));
 $a('client commit action',                   str_contains($cli, "action === 'commit'") && str_contains($cli, "commit('staffing_clients'"));
-$a('client duplicate-name rejection',        str_contains($cli, "already exists"));
+$a('client duplicate-name review uses the shared import resolver', str_contains($cli, 'staffingClientImportPlan(')
+    && str_contains($cli, 'staffingClientImportNative(')
+    && str_contains($read(__DIR__ . '/../modules/staffing/lib/client_write.php'), 'A namesake client exists.'));
 $a('client RBAC gate placements catalog',    str_contains($cli, "'placements.view'") && str_contains($cli, "'placements.manage'"));
 
 echo "\nCSV export endpoints\n";

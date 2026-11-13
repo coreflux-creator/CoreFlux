@@ -67,6 +67,9 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
             $bindCsv="client_number,name,source_system,external_id\n".$detail['client_number'].','.$detail['name'].",jobdiva,native-csv-".$id."\n";
             [$status,$import]=$request($csvUrl.'commit&update_existing=1',['csv'=>$bindCsv],true,$child);
             $expect($status===200&&$import['imported_count']===1&&$read('staffing_clients',$id)['external_id']==='native-csv-'.$id,$mode.': explicit client number may add its first retained source pair');
+            $feedCsv="name,source_system,external_id\n".$detail['name'].",jobdiva,native-csv-".$id."\n";
+            [$status,$import]=$request($csvUrl.'commit',['csv'=>$feedCsv],true,$child);
+            $expect($status===200&&$import['imported_count']===1&&(int)$import['ids'][2]===$id&&(int)$read('staffing_clients',$id)['company_id']===$company,$mode.': an exact source-keyed replay retains the original client without an update-existing flag');
             $beforeImport=[$read('staffing_clients',$id),$read('companies',$company)];
             $wrongCsv=str_replace('native-csv-'.$id,'different-source-'.$id,$bindCsv);
             [$status,$import]=$request($csvUrl.'commit&update_existing=1',['csv'=>$wrongCsv],true,$child);
@@ -93,6 +96,9 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
             $review=companyMergePreview($child,['id'=>$actor,'role'=>'admin'],$survivor,$company);
             companyMergeApply($child,['id'=>$actor,'role'=>'admin'],$review['review_token'],['fields'=>array_fill_keys($review['fields'],'survivor'),'custom_fields'=>[],'primary_contact_id'=>0,'primary_addresses'=>[]]);
             $expect($request($url.'update',['id'=>$id,'name'=>'Stale pre-merge name','edit_revision'=>$detail['edit_revision']],true,$child)[0]===409&&(int)$read('staffing_clients',$id)['company_id']===$survivor,$mode.': a pre-merge client form cannot overwrite the surviving company');
+            $survivorBefore=$read('companies',$survivor);
+            [$status,$import]=$request($csvUrl.'commit&update_existing=1',['csv'=>$csv],true,$child);
+            $expect($status===200&&$import['imported_count']===1&&(int)$import['ids'][2]===$id&&(int)$read('staffing_clients',$id)['company_id']===$survivor&&$read('companies',$survivor)===$survivorBefore,$mode.': replaying unchanged client values after a merge preserves the surviving company profile and ownership');
             $pdo->prepare('UPDATE tenant_module_scope SET scope_mode=? WHERE tenant_id=? AND module_key="placements"')->execute([$clientMode==='shared'?'isolated':'shared',$child]);
             $expect($request($url.'update',['id'=>$id,'notes'=>'Wrong directory','edit_revision'=>$detail['edit_revision']],true,$child)[0]!==200,$mode.': changed client ownership cannot edit the former directory');
         }

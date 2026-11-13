@@ -72,15 +72,16 @@ $a("scopedInsert writes external_id + source_system",
 // ----------------------------------------------------------------- Staffing
 echo "\nmodules/staffing/api/csv_import.php\n";
 $st = (string) file_get_contents($ROOT . '/modules/staffing/api/csv_import.php');
+$clientWrite = (string) file_get_contents($ROOT . '/modules/staffing/lib/client_write.php');
 $a("registers external_id field",                 $c($st, "'external_id'           => ['label' => 'External ID"));
 $a("registers source_system enum field",          $c($st, "'source_system'         => ['label' => 'Source system',"));
 $a("unique_within_batch includes external_id",    $c($st, "'unique_within_batch' => ['external_id', 'name']"));
-$a("resolver prefers (src,ext) over fuzzy name",  $c($st, 'AND source_system = :s AND external_id = :e'));
-$a("idempotent feed bypasses already-exists guard",
-                                                  $c($st, '!$updateExisting && $externalId === null'));
-$a("scopedInsert writes external_id + source_system",
-                                                  $c($st, "'external_id'           => \$externalId,")
-                                               && $c($st, "'source_system'         => \$sourceSystem,"));
+$a("resolver delegates exact client/source identity checks", $c($st, 'staffingClientImportNative(')
+    && $c($clientWrite, 'AND source_system=? AND external_id=?'));
+$a("source-keyed feed retains replay handling", $c($clientWrite, "\$existing&&!\$updateExisting&&\$external===''")
+    && $c($clientWrite, '$existing=$existing?:$bound;'));
+$a("source pair is persisted inside the atomic client import", $c($clientWrite, 'UPDATE staffing_clients SET external_id=?,source_system=? WHERE tenant_id=? AND id=?')
+    && $c($clientWrite, 'companyRelationshipAtomic('));
 
 // ----------------------------------------------------------------- Treasury
 echo "\nmodules/treasury/lib/csv_import.php\n";

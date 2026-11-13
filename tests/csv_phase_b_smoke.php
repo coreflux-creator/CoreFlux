@@ -85,8 +85,8 @@ $a('people audit includes update flag',      str_contains($pc, "'update_existing
 
 $cc = $read(__DIR__ . '/../modules/staffing/api/csv_import.php');
 $a('clients supports ?update_existing=1',    str_contains($cc, "_GET['update_existing']"));
-$a('clients upserts on duplicate when flag', str_contains($cc, '$existing && !$updateExisting')
-                                            && str_contains($cc, 'staffingClientCatalogUpdate('));
+$a('clients delegates update-existing handling to atomic save', str_contains($cc, 'staffingClientImportNative($workspaceId,$row,(int)$user[\'id\'],$updateExisting)')
+    && str_contains($read(__DIR__ . '/../modules/staffing/lib/client_write.php'), '$existing&&!$updateExisting'));
 
 echo "\nBulk CSV import wizard (React)\n";
 $bulk = $read(__DIR__ . '/../dashboard/src/pages/CsvBulkImport.jsx');
