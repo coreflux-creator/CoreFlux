@@ -10,6 +10,10 @@ $fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable 
 $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
 $all=static fn(string $t):array=>$pdo->query('SELECT * FROM '.$t.' ORDER BY 1')->fetchAll(PDO::FETCH_ASSOC);
 $parent=990691;$child=990692;$auditShadow=false;
+require_once __DIR__.'/../core/migrate.php';
+$ddlBefore=$pdo->query('SHOW CREATE TABLE staffing_clients')->fetch(PDO::FETCH_NUM)[1];
+foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/200_client_source_ownership.sql'))as$sql)$pdo->exec($sql);
+$check($pdo->query('SHOW CREATE TABLE staffing_clients')->fetch(PDO::FETCH_NUM)[1]===$ddlBefore,'Client source migration replays without changing the installed schema');
 if($pdo->query('SELECT id FROM tenants WHERE id IN(990691,990692)')->fetchColumn())throw new RuntimeException('Client source fixture already exists');
 $protected=[$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries')];$pdo->beginTransaction();
 try{
@@ -23,7 +27,7 @@ try{
         $company=jobdivaCompanyUpsertStable($child,$external,$name,['primary_contact_phone'=>'Source phone'],['id'=>$external],$actor,['client']);
         $opts=['source_system'=>'jobdiva','source_external_id'=>$external,'created_by_user_id'=>$actor,'status'=>'active','payment_terms_days'=>30];
         $result=staffingClientEnsureForCompany($child,$company,$name,$opts);$id=$result['client_id'];$row=$read('staffing_clients',$id);
-        $check($result['created']&&(int)$row['tenant_id']===$owner&&(int)$read('companies',$company)['tenant_id']===$companyOwner,$mode.': JobDiva creates the client and company in their independent directory owners');
+        $check(!$result['created']&&(int)$row['tenant_id']===$owner&&(int)$read('companies',$company)['tenant_id']===$companyOwner&&staffingClientSourceState($row)['owned']===[],$mode.': JobDiva company import creates a source-owned client in its independent directory and assignment import reuses it');
         $check($row['billing_country']==='US'&&$row['primary_contact_phone']==='Source phone',$mode.': source client preserves country defaults and canonical company profile');
         $check((int)mappingFindInternal($child,'jobdiva','staffing_client',$external)['internal_entity_id']===$id&&!mappingFindInternal($parent,'jobdiva','staffing_client',$external),$mode.': exact source mapping remains in the connected workspace');
         $revision=staffingClientSourceState($row)['revision'];$again=staffingClientEnsureForCompany($child,$company,$name,$opts);

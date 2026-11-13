@@ -539,16 +539,13 @@ function jobdivaCompanyNameIsPlaceholder(string $name, string $externalId = '', 
         && strcasecmp($name, 'JobDiva Company ' . $externalId) === 0;
 }
 
-function jobdivaEnsureStaffingClientForCompany(int $tid, int $companyId, string $name, ?int $userId): void
+function jobdivaEnsureStaffingClientForCompany(int $tid, int $companyId, string $name, ?int $userId, string $externalId): void
 {
-    if ($companyId <= 0 || trim($name) === '') return;
-    try {
-        staffingClientEnsureForCompany($tid, $companyId, $name, [
-            'created_by_user_id' => $userId,
-        ]);
-    } catch (\Throwable $e) {
-        error_log('[jobdiva company sync] staffing client bridge failed: ' . $e->getMessage());
-    }
+    staffingClientEnsureForCompany($tid, $companyId, $name, [
+        'created_by_user_id' => $userId,
+        'source_system' => 'jobdiva',
+        'source_external_id' => $externalId,
+    ]);
 }
 
 function jobdivaBridgeStaffingJobFromPayload(int $tid, string $jobdivaJobId, array $payload, ?int $userId): ?int

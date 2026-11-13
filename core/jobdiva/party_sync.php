@@ -118,7 +118,7 @@ function jobdivaCompanyUpsertStable(int $workspace,string $external,string $name
             $canonicalId=(int)$current['_canonical_company_id'];
             if(empty($current['_merged_source'])&&in_array('client',$roles,true)&&in_array('client',companyRoles($id),true)){
                 $q=$pdo->prepare('SELECT name FROM companies WHERE tenant_id=? AND id=?');$q->execute([$owner,$id]);
-                jobdivaEnsureStaffingClientForCompany($workspace,$id,(string)$q->fetchColumn(),$actor);
+                jobdivaEnsureStaffingClientForCompany($workspace,$id,(string)$q->fetchColumn(),$actor,$external);
             }
             return$canonicalId;
         },false,true);

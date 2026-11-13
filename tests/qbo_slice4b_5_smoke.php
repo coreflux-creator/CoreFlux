@@ -83,8 +83,9 @@ $a('alerts find tenant admin recipient',         $c($alerts, "role IN ('master_a
 echo "\nSlice 3 ↔ Slice 5 wiring\n";
 $si = (string) file_get_contents($ROOT . '/core/qbo/sync_in.php');
 $a('sync_in.php requires conflict_rules',        $c($si, "require_once __DIR__ . '/conflict_rules.php'"));
-$a('customer upsert calls qboDetectConflict',    $c($si, "qboDetectConflict(\$tenantId, 'customer'"));
-$a('customer respects coreflux winner',          $c($si, "'conflict_coreflux_wins'"));
+$clientSource = (string) file_get_contents($ROOT . '/modules/staffing/lib/client_source.php');
+$a('customer upsert delegates exact identity and field ownership', $c($si, 'staffingClientEnsureForCompany($tenantId,null,$name,$payload+') && $c($si, "'source_external_id'=>trim((string)\$qboId)"));
+$a('customer protects Core-owned fields and exposes held values', $c($clientSource, "if(in_array(\$field,\$state['owned'],true))continue;") && $c($si, "'held_fields' => \$r['held_fields'] ?? []"));
 
 // ----------------------------------------------------------------- api
 echo "\napi/qbo.php — Slice 4b + 5 dispatch\n";

@@ -7,7 +7,21 @@ require_once __DIR__.'/../modules/people/lib/company_merge_review.php';
 require_once __DIR__.'/../modules/staffing/lib/job_write.php';
 require_once __DIR__.'/../modules/staffing/lib/client_write.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
+require_once __DIR__.'/../core/qbo/sync_in.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
+
+function clientSourceRaceWrite(array $input): array
+{
+    return companyRelationshipAtomic(getDB(),static function()use($input):array{
+        if($input['source_system']==='qbo'){
+            $result=qboUpsertCustomer($input['workspace'],['Id'=>$input['source_external'],'DisplayName'=>$input['source_name'],'PrimaryPhone'=>['FreeFormNumber'=>$input['phone']]]);
+            return ['id'=>$result['internal_id']]+$result;
+        }
+        $company=jobdivaCompanyUpsertStable($input['workspace'],$input['source_external'],$input['source_name'],['primary_contact_phone'=>$input['phone']],['phone'=>$input['phone']],$input['actor'],[]);
+        $result=staffingClientEnsureForCompany($input['workspace'],$company,$input['source_name'],['source_system'=>'jobdiva','source_external_id'=>$input['source_external'],'created_by_user_id'=>$input['actor']]);
+        return ['id'=>$result['client_id']]+$result;
+    });
+}
 
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
@@ -24,6 +38,7 @@ if(($argv[1]??'')==='worker'){
             $result=match($input['entity']??'job'){
                 'client'=>staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision']),
                 'client_csv'=>['id'=>staffingClientImportNative($input['workspace'],$input['row'],$input['actor'],true)],
+                'client_source'=>clientSourceRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -155,6 +170,49 @@ try{
         $check($writerResult['ok'],'CSV writer completes its '.$decision.' decision');
         if($decision==='COMMIT')$check(!$result['ok']&&(int)$result['code']===409&&$read('companies',$b)['deleted_at']===null,'Committed CSV company/client edits invalidate the waiting merge review');
         else$check($result['ok']&&(int)$read('staffing_clients',$client)['company_id']===$a&&$read('staffing_clients',$client)['primary_contact_phone']===null,'Rolled-back CSV leaves no value and permits the reviewed merge');
+    }
+    // Actual source writers use independent connections in both directions:
+    // a merge/native edit can win first, or a source update can win first.
+    foreach(['jobdiva','qbo']as$system){
+        $sourceFixture=static function(string $suffix)use($system,$pair,$tenant,$actor,&$companies):array{
+            [$a,$b]=$pair('client-source-'.$system.'-'.$suffix);
+            $external='source-client-'.$system.'-'.$suffix;$name='Source client '.$system.' '.$suffix;
+            if($system==='qbo'){
+                $created=qboUpsertCustomer($tenant,['Id'=>$external,'DisplayName'=>$name,'PrimaryPhone'=>['FreeFormNumber'=>'Original source phone']]);
+                $id=$created['internal_id'];$q=getDB()->prepare('SELECT company_id FROM staffing_clients WHERE tenant_id=? AND id=?');$q->execute([$tenant,$id]);$b=(int)$q->fetchColumn();$companies[]=$b;
+            }else{
+                // Use the exact company already created by the fixture, with
+                // its provider ID retained throughout the concurrency test.
+                $external='race-B-client-source-'.$system.'-'.$suffix;$name='Race Beta client-source-'.$system.'-'.$suffix;
+                $created=staffingClientEnsureForCompany($tenant,$b,$name,['source_system'=>'jobdiva','source_external_id'=>$external,'created_by_user_id'=>$actor]);$id=$created['client_id'];
+            }
+            return [$a,$b,$id,['entity'=>'client_source','workspace'=>$tenant,'actor'=>$actor,'source_system'=>$system,'source_external'=>$external,'source_name'=>$name,'phone'=>'Concurrent source phone']];
+        };
+        [$a,$b,$id,$input]=$sourceFixture('merge-first');
+        $review=companyMergePreview($tenant,$user,$a,$b);
+        $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));$survivor=$read('companies',$a);$clientBefore=$read('staffing_clients',$id);
+        $worker=$spawn($input+['mode'=>'native']);$check($waiting($worker),$system.' client source waits on the uncommitted company merge');$pdo->commit();$result=$finish($worker);
+        $clientAfter=$read('staffing_clients',$id);
+        $check($result['ok']&&(int)$result['result']['id']===$id&&(int)$clientAfter['company_id']===$a&&$clientAfter['primary_contact_phone']===$clientBefore['primary_contact_phone']&&$read('companies',$a)===$survivor,$system.' client source retains the CL, committed survivor and reviewed profile');
+        $mapping=mappingFindInternal($tenant,$system==='qbo'?QBO_SOURCE:'jobdiva',$system==='qbo'?'customer':'company',$input['source_external']);
+        $check((int)$mapping['internal_entity_id']===($system==='qbo'?$id:$b),$system.' source cannot retarget its original provider binding after a concurrent merge');
+
+        [$a,$b,$id,$input]=$sourceFixture('native-first');$before=$read('staffing_clients',$id);
+        $pdo->beginTransaction();staffingClientSaveNative($tenant,$id,['primary_contact_phone'=>'Native choice'],$actor,staffingClientRevision($pdo,companyRelationshipScope($pdo,$tenant,'placements',false),$before));
+        $worker=$spawn($input+['mode'=>'native']);$check($waiting($worker),$system.' source waits on the uncommitted native client edit');$pdo->commit();$result=$finish($worker);
+        $check($result['ok']&&$read('staffing_clients',$id)['primary_contact_phone']==='Native choice'&&$read('companies',$b)['primary_contact_phone']==='Native choice',$system.' waiting source respects newly committed company and client field ownership');
+
+        foreach(['COMMIT','ROLLBACK']as$decision){
+            [$a,$b,$id,$input]=$sourceFixture('source-'.$decision);$before=$read('staffing_clients',$id);
+            $review=companyMergePreview($tenant,$user,$a,$b);$writer=$spawn($input+['mode'=>'hold']);$saved=$line($workers[$writer]['pipes'][1]);
+            $check(!empty($saved['saved'])&&!empty($saved['in_transaction']),$system.' source holds its complete company/client update before '.$decision);
+            $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+            $check($waiting($merger),'Merge waits for the independent '.$system.' source '.$decision);
+            fwrite($workers[$writer]['pipes'][0],$decision.PHP_EOL);fflush($workers[$writer]['pipes'][0]);$writerResult=$finish($writer);$merged=$finish($merger);
+            $check($writerResult['ok'],$system.' source completes its '.$decision.' decision');
+            if($decision==='COMMIT')$check(!$merged['ok']&&(int)$merged['code']===409&&$read('companies',$b)['deleted_at']===null&&$read('staffing_clients',$id)['primary_contact_phone']==='Concurrent source phone',$system.' committed source profile invalidates a stale merge review');
+            else$check($merged['ok']&&(int)$read('staffing_clients',$id)['company_id']===$a&&$read('staffing_clients',$id)['primary_contact_phone']===$before['primary_contact_phone'],$system.' rolled-back source leaves no value and permits the reviewed merge');
+        }
     }
     foreach(['COMMIT','ROLLBACK']as$decision){
         foreach(['native','merge']as$mode){
