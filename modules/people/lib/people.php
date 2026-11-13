@@ -280,9 +280,10 @@ function peopleLogPIIAccess(int $actorUserId, ?int $targetPersonId, string $even
     $names=$fields['fields']??(array_is_list($fields)?$fields:array_keys($fields));
     if(!is_array($names))throw new InvalidArgumentException('Private access field names required.');
     foreach($names as$name)if(!is_string($name)||!preg_match('/^[a-zA-Z0-9_.]{1,80}$/D',$name))throw new InvalidArgumentException('Private access field names required.');
-    $meta=['record_kind'=>'person','people_tenant_id'=>$owner,'workspace_tenant_id'=>currentTenantId(),'event_type'=>$eventType,'fields'=>array_values(array_unique($names))];
-    $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,request_id,created_at) VALUES(?,?,"people.private_access",?,?,?,?,NOW())')
-        ->execute([$owner,$actorUserId,$targetPersonId,json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null,substr((string)($_SERVER['HTTP_X_REQUEST_ID']??''),0,64)?:null]);
+    $meta=['record_kind'=>'person','people_tenant_id'=>$owner,'workspace_tenant_id'=>currentTenantId(),'event_type'=>$eventType,'fields'=>array_values(array_unique($names)),
+        'request_id'=>substr((string)($_SERVER['HTTP_X_REQUEST_ID']??''),0,64)?:null];
+    $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at) VALUES(?,?,"people.private_access",?,?,?,NOW())')
+        ->execute([$owner,$actorUserId,$targetPersonId,json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null]);
 }
 
 /** Read original legacy history alongside new person-qualified receipts without rekeying either. */
