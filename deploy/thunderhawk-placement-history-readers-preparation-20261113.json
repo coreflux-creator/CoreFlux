@@ -1,0 +1,207 @@
+{
+  "scope": "Original placement document, time, timesheet and source-history readers; isolated source acceptance, not hosted release or full integration completion",
+  "previous_goal_turn": "No integration progress: standalone accounting production timing answered. Revalidated the pending run, fixed read-permission mapping, completed native placement timesheet readers and verified original-history presentation.",
+  "source_commit": "63c965833434b99980b63501b4c48344866d30c6",
+  "base_commit": "115770c15aa74218b510b1f720c22c39e5f4c112",
+  "source_files_sha256_lf": {
+    "api/integrations/mappings.php": "d2730a243dcd4ac07cb7dbf61fef12cb526cfb0a487c7071d4f9c50fe74194c8",
+    "api/integrations/sync_history.php": "ec6d79923f6161aaa06043ab829e538b65ffd274945bf092460b42de60a9a98f",
+    "core/rbac/legacy_map.php": "cc9877f0a372fa8a3c00667ece77eb3c4dcc97275be75131b6ec3cddde03bfa7",
+    "dashboard/tests/placementDocuments.test.mjs": "8d5936e161b625b4b7d935fad538e026a5ed87bc864f1e0208d461fc739f3a1a",
+    "dashboard/tests/placementTimeHistory.test.mjs": "84bf08fdc931314591b92caa71a02289d2706b3d000ce5c252361ba30e8f083a",
+    "dashboard/tests/placementTimesheetViews.test.mjs": "0c06c0b434062f3fa162889e047b34db18c1029db40fd8e86fcf0ce19d602ea7",
+    "modules/placements/api/documents.php": "763aeab71de29af60bc7de9dbe3f92bb29e6d9e0d1668ffdfc49a5366650ba08",
+    "modules/placements/api/placements.php": "67335b7dded8fc000832d0958c3feddb2cc2872ac3d4bf9ea7486c66b29a53a9",
+    "modules/placements/api/time_history.php": "52d705f92542aab9eeed5d96d3199c2b44a1e98c477bd79fdf9ccc433d35a7ef",
+    "modules/placements/lib/documents.php": "953e2bc68d25c7c42dd990f80f80a17409e81944beb605f7df06a9bc86ca2609",
+    "modules/placements/lib/source_views.php": "1140f657b3061750523e84b90744719e54f5afa93f9ab7ec5385f384e50f59b0",
+    "modules/placements/lib/time_history.php": "0a5ca121be1e7686d502ad9af69fdb34d21f4b6f5897a489aff589dafa16fd99",
+    "modules/placements/ui/PlacementDocumentsTab.jsx": "629bf3f770458d5c04db8af74e4c866a7937962cb3b0a89fa3efe60ad338fa2b",
+    "modules/placements/ui/PlacementHistory.jsx": "5054834b79a93e935706bf7948c2546f7199cbbfe230858d5a1037d67c2a24c2",
+    "modules/placements/ui/PlacementTimeHistory.jsx": "212c0a091e8aac52068f8210d770c75e6b257c3cb8b70e7eaa360d76f7d60f77",
+    "modules/placements/ui/PlacementTimesheetsTab.jsx": "8a6042d9ec60007134de5ca94c36ffa2c363545e52f2532483453ef9b163213a",
+    "modules/staffing/api/timesheets.php": "66d62dd0b18c367154cd028dbb66b5b2692126d068c5fe803e226ee7a9e321a9",
+    "modules/staffing/lib/placement_timesheets.php": "38a5b02ed4486eebddb07aee97e39783e2f70ee007f85d59bff4ecc01bdcbfb0",
+    "modules/staffing/ui/TimesheetDetail.jsx": "fc3685a08ef23601a744681da9fcca933ba0584ecc30c7d46316b8fc0dcf0f43",
+    "tests/billing_suggest_invoice_smoke.php": "5d23917b6131704d9df9e7512f0d0fed6f605a3d7455cf5129b252c707aa3369",
+    "tests/fixtures/placement_contract_http_router.php": "1a0010e4cc83763ffaa284f3dcd978846ac583b5f43ca3330e7bb76dc750a5cd",
+    "tests/fixtures/placement_merge_http_checks.php": "b33a5006eb3f98201789c5644b6f46cebd7313da807cfd6133ccc68c179f8148",
+    "tests/timesheets_drill_in_and_placement_smoke.php": "e59f54a71963ef0f6b5697b1c1dbee20de7c42b7073619d5eeeb60c643a83e10",
+    "tests/workflow_graph_alignment_smoke.php": "517ed31d023d3a69354753ac71ea7e2110d88314b77d2b5804001399b5b474c9"
+  },
+  "ci": {
+    "run_id": 43524669873,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43524669873",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132227338757,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227338949,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227338994,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339032,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339073,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339109,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339117,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339122,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339165,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339186,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132227339310,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "placement_merge_and_source_canonical": 129,
+    "placement_identity_canonical": 30,
+    "independent_connections": 532,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 592,
+    "required_history_http_cases": 38,
+    "rendered_history_reader_cases": 16
+  },
+  "required_native_http_labels": [
+    "Placement management alone does not grant provider link or source history access",
+    "Placement management alone does not grant original time-history access",
+    "Placement management alone cannot list or read placement timesheets",
+    "Native merge fixture registers its original document before consolidation",
+    "Historical source view reads the original workspace and physical provider pair",
+    "Current source view includes retained family links without rewriting their original identities",
+    "Multiple retained provider IDs require source selection instead of an arbitrary reverse link",
+    "Exact provider reverse lookup preserves physical identity alongside the current placement",
+    "Historical source timeline keeps original observations and excludes another workspace",
+    "Provider link and source-history readers both refuse a foreign placement directory",
+    "Provider source readers reject partially parsed placement IDs",
+    "Historical time preserves original and superseded rows while excluding other placements and workspaces",
+    "Original time history exposes recorded approval evidence without inventing rates",
+    "Original time history paginates without repeating or silently dropping earlier entries",
+    "Time history refuses mutations and malformed cursors",
+    "Original time history refuses foreign placements and ordinary archives",
+    "Placement timesheet list retains the original workspace and excludes superseded hours from operational totals",
+    "Placement timesheet detail retains original entries without substituting current or foreign-workspace time",
+    "Current placement timesheet totals exclude time retained on its historical placement",
+    "Placement timesheet detail refuses a header without original-workspace placement entries: 3",
+    "Placement timesheet detail refuses a header without original-workspace placement entries: 2",
+    "Placement timesheet period filters preserve an empty matching result",
+    "Placement timesheets reject invalid periods and partially parsed header IDs",
+    "Operational timesheet list refuses a foreign or ordinary archived placement: 285",
+    "Operational timesheet list refuses a foreign or ordinary archived placement: 298",
+    "Historical placement lists its original document with management disabled",
+    "Historical download verifies original physical evidence without transferring storage ownership",
+    "Current placement does not relabel historical documents as its own",
+    "Historical document download cannot substitute the current placement identity",
+    "Historical documents cannot be uploaded, rebound or retired through the original placement",
+    "An ordinary archive does not acquire historical document access",
+    "Historical document list and download both recheck the current directory policy",
+    "Original time history rechecks the current placement directory",
+    "Both placement timesheet readers recheck current directory ownership",
+    "Historical source links and observations follow current placement directory policy",
+    "Same native session loses original provider links and source history after integration access is revoked",
+    "Same native session loses original time history after staffing access is revoked",
+    "Both placement timesheet readers deny the same session after staffing access is revoked"
+  ],
+  "rendered_ui_labels": [
+    "original time includes corrections and actual approval evidence without editing or invoice actions",
+    "older pages retain their original placement and workspace while appending exactly once",
+    "a wrong-placement response is refused without displaying another record",
+    "a permission failure on an older page removes stale time data",
+    "an in-flight response is ignored after the selected workspace changes",
+    "historical placement tab keeps original rows and omits invoice and new-time actions",
+    "current placement tab retains invoice and weekly-grid actions",
+    "current placement without approved unbilled hours cannot prepare an invoice",
+    "placement tab conceals stale rows and actions after wrong-placement",
+    "placement tab conceals stale rows and actions after wrong-workspace",
+    "placement tab conceals stale rows and actions after revoked",
+    "historical draft timesheet cannot edit, add, submit or approve",
+    "historical submitted timesheet cannot edit, add, submit or approve",
+    "historical rejected timesheet cannot edit, add, submit or approve",
+    "placement timesheet detail rejects a response for a different workspace",
+    "historical view lists and opens originals without resuming a pending upload or offering management"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "initial_run": {
+    "id": 43522658846,
+    "source_commit": "f72b0f428bfa5ae6f902c50d7fa30577e90fcfba",
+    "failure": "The shared integrations.read permission fell back to write access. Added an explicit read mapping and verified native permission revocation; database failures retain the controlled storage error boundary."
+  },
+  "accepted_intermediate": {
+    "id": 43523508183,
+    "source_commit": "a57019fc9dc68348dd13227be940e5549863c3e8",
+    "native_http_checks": 580
+  },
+  "superseded_timesheet_run": {
+    "id": 43524227707,
+    "source_commit": "4e049f8a11a5c9f0f489fc57eae69c0d36758a12",
+    "source_assertions_updated": [
+      "An invoice-button assertion required the old expression and did not account for the new scope and historical guards; a rendered zero-unbilled-hours regression also proves continued denial.",
+      "A graph-scope assertion counted SQL parameters only in the API after its queries moved into the protected reader; it now verifies both current scope resolution and the original legacy query bindings."
+    ]
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T23:04:20+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining": [
+    "Generic placement CSV must adopt current directory/identity and field ownership, including ambiguous or retired source matches.",
+    "Native time mutation paths require atomic original-placement validation: inline save reopens submitted headers before placement validation; delete/reopen need retained-history review and concurrency coverage.",
+    "Remaining AP/current references and native job ownership/lifecycle; stable outbound QuickBooks customer identity.",
+    "Guarded pilot upgrade with required migrations, signed-in hosted consolidation acceptance and complete integration round trip."
+  ],
+  "full_goal_status": "active; full integration remains incomplete"
+}

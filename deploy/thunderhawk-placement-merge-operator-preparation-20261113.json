@@ -1,0 +1,188 @@
+{
+  "scope": "Reviewed placement merge operator API/UI and original-number navigation; isolated preparation, not hosted release or full integration completion",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Revalidated source, completed the pending merge API/UI, removed automatic duplicate mutation and verified original-number history.",
+  "source_commit": "115770c15aa74218b510b1f720c22c39e5f4c112",
+  "base_commit": "771ec3f5d370b3ea37aea4aae0345e15aa779fe3",
+  "source_files_sha256_lf": {
+    "api/admin/integrations/jobdiva_mapping_alignment.php": "040dc5a50f90bee5b8aa00d7e670bc81f4cdab2c38ba513628c947b08d485218",
+    "core/jobdiva/mapping_alignment.php": "9356a371f1945c21e07602dbdb4ad534a5dc380f20ab7ca78fa2b76a83da2781",
+    "dashboard/src/components/LinkedExternalSystemsPanel.jsx": "f4d54d799094ba61dc3aabf9da839243642e2cc0bd29c0db048aa3491dddbf2f",
+    "dashboard/src/components/SyncHistoryDrawer.jsx": "c129a570c3e537a868ce57109d2a5dc904207ab990897fbb19d3f7c1ef1d5502",
+    "dashboard/src/pages/JobDivaSettings.jsx": "29d6c716fde247a1c9c8f7a3f3da8c10e4cbe073eafcdd5e0857a505aabb5f62",
+    "dashboard/tests/placementMergeReview.test.mjs": "42746b17a9bf46da5a984aeb5e4d60760bc03029d196ae8c386f65c4eee67e1a",
+    "modules/placements/api/merge.php": "71828d1a6d20666b7851f3371007649d498f9bbd44f2082094193719f39b7e46",
+    "modules/placements/api/placements.php": "f19627754b4e0a7b2d331dfdbeb713e3e52589e2ca59b0aed144262220ad1cf6",
+    "modules/placements/lib/merge_review.php": "a8563dc082bfc5a863bcd50aee0bdd5973ca5f6a694b80e96af9fd6bfc6038c0",
+    "modules/placements/lib/navigation.php": "e32718dec47de0cddb3119b3d193a822bc1a3d9f68ac93234a20d25a2e9edde4",
+    "modules/placements/ui/List.jsx": "f6bc7b4fde6b47623423df3d12e49c6c3c53f27196b7931767b8cb6b1ab59c4d",
+    "modules/placements/ui/PlacementDetail.jsx": "db4318d3b6ed539c773e0b7c4d0dd5554eeea8efcd488abebf458f7b0d729af4",
+    "modules/placements/ui/PlacementHistory.jsx": "e4c61a799f357cfb5a2c4d41ee4d23ffcb2b6a45c1d6d75b3187234cea570b3a",
+    "modules/placements/ui/PlacementMergeReview.jsx": "028255aef06788e695fb9a8ef4a504d9553caaf1ff4072e802becd43bbbb6c35",
+    "modules/placements/ui/PlacementPicker.jsx": "07a8949ee984a7352b9dc69c6adb26e6b664dcb3897d80774db0d1239403628a",
+    "modules/placements/ui/PlacementsModule.jsx": "9e1c7b2c28fc73eb27fba0f3dfedb0ed6c93459c04eda22e254df28534aa43d3",
+    "tests/field_map_inline_editor_smoke.php": "a155f5080fd4f3e98f7721dc0bb689f946ca017257e80ca99174862d2634647f",
+    "tests/fixtures/placement_contract_http_router.php": "ea6c77c6b2e2b3fee93024d1b38963f874553a3d35dded3146d46e02ef74d028",
+    "tests/fixtures/placement_merge_concurrency_checks.php": "09a990576dbf9abccf3d7522ae814cfd22bfccd31ae6069c86cb7639cf85e1f2",
+    "tests/fixtures/placement_merge_http_checks.php": "4448e150d490f9f56a21324854232606bab8b4e88730b41bcef50077cc640a99",
+    "tests/fixtures/placement_navigation_checks.php": "d25eba9005b9d99cab5b9ba44d8460af677e0e47cddb8de72fc6d46cc50ccc5b",
+    "tests/jobdiva_legacy_placement_bridge_smoke.php": "8bee036dc9a14177447ffd1bb8b6b2d63b78d41f99d97b00248f5edd43a1fc6e",
+    "tests/jobdiva_mapping_alignment_smoke.php": "7cb466c4e1f5b3317ed1da39a32a49a1d0f2e2e4d84da489f08eae738817da67",
+    "tests/placement_contract_permissions_http.php": "a3a9e9fe0bc503369b23334423494e9466423834003c500677282bcaefc39772",
+    "tests/placement_merge_db_check.php": "46669c05d15a7c8b5695e596d935de9671facce471deb74b625ef9f3f9401ebe"
+  },
+  "ci": {
+    "run_id": 43521147240,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43521147240",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132215423432,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423615,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423760,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423771,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423773,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423827,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423868,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423915,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423930,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215423966,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132215424088,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "placement_merge_and_source_canonical": 129,
+    "placement_identity_canonical": 30,
+    "independent_connections": 532,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 554,
+    "new_merge_navigation_http": 21,
+    "rendered_merge_and_history_cases": 6
+  },
+  "required_canonical_labels": [
+    "Fresh merge preview and apply both require financial administration beyond ordinary placement editing",
+    "Duplicate queue finds both exact source-linked rows without choosing, archiving or moving anything",
+    "Legacy automatic duplicate repair cannot bypass the reviewed merge",
+    "Merge comparison exposes the separate original rate histories",
+    "Old ID opens original placement details with a separate current placement and complete number family",
+    "Historical rate view retains the original approved amount rather than the current rate",
+    "Stored permanent number and physical ID open the same historical record",
+    "History without financial access exposes no rate amounts",
+    "Current placement has its own rate history and links to earlier numbers",
+    "Current and historical navigation are fully read-only",
+    "Ordinary archived placement does not become a current alias",
+    "Fresh placement ownership prevents access through a formerly shared directory",
+    "Inconsistent history alias is refused instead of guessing a current record"
+  ],
+  "new_native_http_labels": [
+    "Placement merge candidates require native sign-in",
+    "Read-only module access cannot review or merge placements",
+    "General placement editing does not grant financial consolidation access",
+    "Native candidate queue exposes exact duplicate records without selecting a survivor: [200,{\"dry_run\":true,\"groups_checked\":1,\"total_groups\":1,\"truncated\":false,\"review_required\":1,\"groups_repaired\":0,\"placements_archived\":0,\"failed\":0,\"candidates\":[{\"basis\":\"jobdiva_start_id\",\"source_external_id\":\"99430001\",\"rows\":[{\"id\":296,\"placement_number\":\"PL-296\",\"title\":\"Current HTTP placement\",\"person_id\":236,\"person_name\":\"Synthetic HTTP Merged worker\",\"status\":\"on_hold\",\"start_date\":\"2026-10-01\",\"end_date\":null,\"end_client_name\":null},{\"id\":297,\"placement_number\":\"PL-297\",\"title\":\"Original HTTP placement\",\"person_id\":236,\"person_name\":\"Synthetic HTTP Merged worker\",\"status\":\"on_hold\",\"start_date\":\"2026-10-01\",\"end_date\":null,\"end_client_name\":null}],\"person_review_required\":false}],\"review_url\":\"\\/modules\\/placements\\/merge\",\"reason\":\"explicit_survivor_fields_and_source_required\"}]",
+    "Native reviewed merge resolves shared ownership and changes no business records",
+    "Native merge requires an explicit choice for every field",
+    "Native stale merge refuses all changes after an intervening edit",
+    "Native merge can refresh its review after an intervening edit",
+    "Native required receipt failure rolls back the entire merge",
+    "Native reviewed merge succeeds with the authenticated reviewer: [200,{\"survivor_id\":296,\"retired_id\":297,\"survivor_number\":\"PL-296\",\"retained_number\":\"PL-297\",\"provider_pairs_retained\":2,\"history_rows_retained\":2,\"replayed\":false}]",
+    "Native merge preserves every provider pair, approved rate, time record and financial result",
+    "Native lost-response retry returns the original receipt with no repeated writes",
+    "Historical link returns original placement and rates separately from the editable current record: id=297",
+    "Historical link returns original placement and rates separately from the editable current record: number=PL-297",
+    "Current placement exposes related retained placement numbers",
+    "Historical navigation cannot disclose a foreign directory",
+    "Ordinary archives are not restored through history navigation",
+    "Navigation refuses malformed permanent numbers",
+    "Placement history requests are fully read-only",
+    "Same native session cannot recover a merge receipt after write permission is removed",
+    "Same native session loses original-history access immediately after revocation"
+  ],
+  "rendered_ui_labels": [
+    "review requires all field choices, an exact source, reason and explicit confirmation",
+    "lost-response retry submits the same reviewed request and recovers its receipt",
+    "stale review errors require fresh choices before a new merge request",
+    "a permission failure never exposes merge controls",
+    "old placement route is read-only with financial access true",
+    "old placement route is read-only with financial access false"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "initial_run": {
+    "id": 43520152686,
+    "source_commit": "f68ed8a8a20ade2ee31fff172af7e7901fc5c34f",
+    "regressions": [
+      "One older source-text assertion required every source-link row to be editable; corrected to preserve current editing and require historical read-only behavior.",
+      "Native HTTP required financial administration beyond ordinary placement editing; fixture now verifies that denial before granting the required access, and the service enforces the same fresh financial grant.",
+      "New synthetic workspace grants remained after failure; fixture cleanup now removes every grant and deactivates its membership."
+    ]
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T22:33:10+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_consolidation": [
+    "Historical documents still use active-only placement readers; add read-only original-document access with exact storage ownership and mutation denials.",
+    "Placement-scoped time lists need current-directory identity validation and historical read-only presentation without invoice/create actions.",
+    "Shared-workspace mapping views currently use the placement directory owner rather than original source workspace; fix and verify original source/history permissions.",
+    "Remaining current-reference consumers, generic placement CSV, AP and native job ownership/lifecycle.",
+    "Guarded pilot upgrade, required migrations, and signed-in hosted consolidation acceptance."
+  ],
+  "full_goal_status": "active; complete integration, hosted upgrade and full round-trip acceptance remain incomplete"
+}
