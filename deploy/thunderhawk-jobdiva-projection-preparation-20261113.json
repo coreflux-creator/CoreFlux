@@ -1,0 +1,143 @@
+{
+  "previous_goal_turn": "No integration progress: answered standalone accounting access. This continuation inspected unfinished source, implemented atomic ownership-aware JobDiva assignment projection, and verified its actual database behavior.",
+  "scope": "Authorized isolated pilot preparation; source only, not installed",
+  "source_commit": "7c7e0f94d693d738ca51d7cca2509992a179b1cb",
+  "base_commit": "7039e247241ef9ce321c912899cafb374771ee06",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "1b77b4226993842366bef9ae12f5d164e9b3258be00b9feddf659496f21c7326",
+    "core/integrations/custom_fields.php": "ceaf5abc37e377d3bf2c60669c03db290cc0819ca0de4f441523dd46ebd95229",
+    "core/integrations/field_map_apply.php": "468869bb30132c5a188740b744407a5d1dcb10cc4a33b06fa7023b9e388e1412",
+    "core/jobdiva/person_directory.php": "9c2546d62f90af5c04fa4fe01963a51897a2f95251fc76df1ce6eeafa759be48",
+    "core/jobdiva/person_review.php": "45c70ae30b1e1ee4ac58043caf0838ec3f9d61e3df6397f9aa3add082633f0f4",
+    "core/jobdiva/placement_write_context.php": "a1f0fb4c6287109236f4e5f8e0a3915325874fca73d133fa6db0adf4a6d9dccd",
+    "core/jobdiva/projector.php": "a0532722baef6366153b009ee1735aa4666d4a28371773bf1838721116ec7595",
+    "core/jobdiva/sync.php": "d26f5a9cf2e526f3eb02dcf4e7a24ae0f7356f72c1d55c86711eb4abc88a5ffb",
+    "core/jobdiva/sync_placements.php": "cc733406395c8107a31de747e880cb0c8c2e0688d1fd925898c8d9748eb20c38",
+    "modules/people/lib/company_relationships.php": "34fa3b2157c85e3f544926c1e04946b7060f9970c99c0a846dd35a7957828a0c",
+    "modules/staffing/lib/client_source.php": "6bd974837d1148daa69637d6d62d7c6c139aaacbfa40f35b298dcd6eacb31d7e",
+    "modules/staffing/lib/jobs.php": "8c9a89d537ec16fb77cad11de288e169e3cfc19a4b6854e417aa0b6b2f6f2944",
+    "tests/entity_sync_history_smoke.php": "e47d6d8e25125a3480e003287a9ffc5fff939e87f8bfabaf167f6c7255ea5825",
+    "tests/field_mapping_phase2_smoke.php": "531c10e97b473d51d23c0d6009dc0754f826f6cf411257b4b70102496638899f",
+    "tests/field_mapping_phase3_studio_smoke.php": "4f8b582ede945145579c09da49b1bf6d3a77d15f98989c7bf620b10854a4bdcd",
+    "tests/jobdiva_assignment_identity_contract_smoke.php": "749db923ce3f58337b142e6c90e4d2a86300683ca4c290b98cabaf2ca2108b2d",
+    "tests/jobdiva_joined_entity_indexing_smoke.php": "5476533e4ade08e02fcaf116f095a3b08175cd7c2e5fb3da85277cab49a3b038",
+    "tests/jobdiva_people_placement_lifecycle_smoke.php": "bed850ca7bbdc06dd749e57a3b10865c1cf603a871979e22fc8ed987eb95da8f",
+    "tests/jobdiva_placement_discovery_smoke.php": "5443137038daeae092981ddbe61513aff6d5f0c706e8d63458b1a854bf2fe2ae",
+    "tests/jobdiva_placement_graph_economics_smoke.php": "34786a3d89187896cfb001ed9b35975603784aa7200127960fc410021692dff9",
+    "tests/jobdiva_placement_rates_smoke.php": "9e7dd96574005eb1f7d15ea7c6376441cf500dc8b466bcc4187673859723e464",
+    "tests/jobdiva_projection_directory_db_check.php": "57a19a519fbc03fd70aa5ce9784bd8fa680e79485f5f706ad7c39f01fdac44c1",
+    "tests/jobdiva_projector_contract_smoke.php": "d4f0abf91f2fc938b0212349a12052aff9013c364a8b7233fd108e79d059c56f",
+    "tests/jobdiva_source_values_mariadb.php": "6bc2e9a0db6deba7c96e918b94057e124060b01cd0e110344e8940259d9098d7",
+    "tests/jobdiva_subpayload_extraction_smoke.php": "f7b72014534e631b3f21def9cdc97fcfb6ab5aa45befb54351e1f012ce65fea9",
+    "tests/placements_override_slice2_smoke.php": "99d60942c706ef7dbe7fd2b86a48a53815975e563990b0c8e1e835298de103e4",
+    "tests/sprint8a_a3_jobdiva_sync_smoke.php": "0e4f3a80add6938f6308052c3f9c3cf16dbe45bb76381ac88fb4268f473f792b",
+    "tests/staffing_economic_graph_smoke.php": "2da5e6756e8cf59fedeccf02deee6ec5e59cf18ab5ba07af05c7032b304e69bb",
+    "tests/staffing_jobs_graph_smoke.php": "f40cc6774bc101cf8d6af77cddba5aac443ba60268f9bd78d6eb5dd7bed8ebe3"
+  },
+  "ci": {
+    "run_id": 43449383568,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43449383568",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 131967235055,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235122,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235218,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235311,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235337,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235351,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235390,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235529,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235622,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235792,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 131967235810,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "new_database_checks": 34,
+  "verified_behaviors": [
+    "shared/isolated business-owner and original-source-workspace routing",
+    "stable person and placement numbers and mapping replay",
+    "Core-held people/client/recipient/job choices checked before side effects",
+    "late field mapping, participant cleanup and required audit rollback",
+    "custom field routing after changed sharing in the same process",
+    "inactive worker and missing legal-entity refusal",
+    "no journals, payroll runs or payments"
+  ],
+  "corrections_found_by_checks": [
+    "candidate snapshots alternated with whole assignment snapshots during replay",
+    "client observations emitted no-change audit rows",
+    "minimal rate-only fixture needed explicit reconciliation scope; complete graph tested separately",
+    "isolated projection fixture required explicit legal-entity setup",
+    "obsolete source-text checks updated for moved ownership and source-owner contracts"
+  ],
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T14:51:27+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "financial_execution_performed": false,
+  "remaining_release_gates": [
+    "concurrent source-policy and merge tests",
+    "cached company-owner reads inside derived economics",
+    "standalone mapping and reviewed ownership handback scope",
+    "CSV, legacy reconciliation and alignment/report/repair paths",
+    "native job profile ownership and source lifecycle provenance",
+    "AP/current-reference writers and stable QuickBooks customer routing",
+    "survivor-side source review and historical-number navigation",
+    "guarded pilot installation and signed-in hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field/onboarding/document/time/payroll-result/reconciliation acceptance incomplete"
+}
