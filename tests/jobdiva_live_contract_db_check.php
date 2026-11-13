@@ -33,6 +33,13 @@ try{
         $fresh=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($input,'99310001'),'99310001')];
         $check(jobdivaLiveContractValidate($expected,$exact,$fresh)===$fresh,'Exact raw financial evidence rebuilds the supplied contract');
         $check(empty($fresh['_jd_contract']['overheads']['per_diem']),'Related job financial fields cannot fill missing assignment overheads');
+        foreach(['bill_rate','pay_rate']as$missing){
+            $incomplete=$fresh;$incomplete['_jd_contract'][$missing]=0;
+            if($missing==='bill_rate')$incomplete['_jd_contract']['net_bill_rate']=0;
+            $incomplete['_jd_job']['bill_rate']=999;$incomplete['_jd_job']['pay_rate']=888;
+            $before=$state();
+            $check(!jobdivaSyncUpsertPlacementRates($owner,$placement,'2026-10-01',$incomplete,true,$workspace)&&$state()===$before,'Missing exact '.$missing.' cannot fall back to related job pricing');
+        }
         $check($expected['base']['context']['placement_owner']===$owner&&$expected['base']['mapping']['external_id']==='jd:99310001','Live refresh resolves a shared placement from its original workspace and retained provider pair');
         JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappingId,$exact,$rows,$actor,$state,$check,$failure,$read,$placement):void{
             $corporation='99310009';$company=['id'=>$corporation,'name'=>'Synthetic live corporate payee','city'=>'Hamilton','country'=>'US'];

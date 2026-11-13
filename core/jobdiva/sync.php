@@ -7022,7 +7022,7 @@ function jobdivaSyncUpsertPlacementRatesLocked(int $tid,int $placementId,string 
     $contractBillRate = jobdivaCanonicalContractPositiveRate($jd, ['bill_rate', 'net_bill_rate']);
     // The exact EmployeeAssignmentRecordsDetail contract owns transaction
     // pricing; broad tenant mappings are an enrichment fallback only.
-    if ($contractBillRate > 0) $billRate = $contractBillRate;
+    if ($sourceContract !== []) $billRate = $contractBillRate;
     $contractNetBillRate = jobdivaParseRateAmount(
         $sourceContract['net_bill_rate'] ?? $sourceContract['bill_rate'] ?? null
     );
@@ -7076,7 +7076,9 @@ function jobdivaSyncUpsertPlacementRatesLocked(int $tid,int $placementId,string 
     // not create/refresh the rate row.
     $payRate = jobdivaParseRateAmount($payRateRaw);
     $contractPayRate = jobdivaCanonicalContractPositiveRate($jd, ['pay_rate', 'pay_rate_to_vendor']);
-    if ($contractPayRate > 0) $payRate = $contractPayRate;
+    // An exact contract with missing pay must remain incomplete. A related
+    // requisition or candidate's rate cannot silently fill the assignment.
+    if ($sourceContract !== []) $payRate = $contractPayRate;
     if ($isReferralEngagement) {
         // Referral economics settle through placement_referrals. Keeping the
         // source payout in pay_rate would fabricate worker labor and count the
