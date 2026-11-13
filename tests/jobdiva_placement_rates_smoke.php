@@ -43,13 +43,13 @@ foreach (['bill_rate', 'bill_rate_unit', 'pay_rate', 'pay_rate_unit',
 
 echo "\njobdivaSyncUpsertPlacementRates — declaration\n";
 $assert('writer supports a preflight before placement mutation',
-    strpos($sync, 'bool $validateOnly = false): bool') !== false
+    strpos($sync, 'bool $validateOnly = false,') !== false
     && strpos($sync, "jobdivaSyncUpsertPlacementRates(\$tid, 0, '', \$jd, true);") !== false);
 $assert('called from the INSERT branch (newly-created placement gets rates)',
-    preg_match('/\$placementId = \(int\) \$pdo->lastInsertId\(\);\s*jobdivaSyncUpsertPlacementRates\(\$tid, \$placementId, \$startDate, \$jd\);/', $sync) === 1);
+    preg_match('/\$placementId = \(int\) \$pdo->lastInsertId\(\);\s*jobdivaSyncUpsertPlacementRates\(\$owner, \$placementId, \$startDate, \$jd, false, \$tid\);/', $sync) === 1);
 $assert('UPDATE refreshes rates from the retained canonical start date when employment models agree',
     str_contains($sync, "\$effectiveStart = (string) \$canonical['start_date'];")
-    && preg_match('/if \(!\$modelConflict\) \{\s*jobdivaSyncUpsertPlacementRates\(\$tid, \$existingId, \$effectiveStart, \$jd\);/', $sync) === 1);
+    && preg_match('/if \(!\$modelConflict\) \{\s*jobdivaSyncUpsertPlacementRates\(\$owner, \$existingId, \$effectiveStart, \$jd, false, \$tid\);/', $sync) === 1);
 
 echo "\njobdivaSyncUpsertPlacementRates — registry resolution\n";
 foreach (['bill_rate', 'pay_rate', 'bill_rate_unit', 'pay_rate_unit',

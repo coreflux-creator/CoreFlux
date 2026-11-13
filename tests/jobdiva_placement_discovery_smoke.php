@@ -196,10 +196,10 @@ $assert('Upsert repairs the placement person after candidate identity correction
     && strpos($syncSrc, "'person_id' => \$personId > 0") !== false);
 $assert('Upsert pluck-resolves title across JobDiva key shapes',
     strpos($syncSrc, "'jobTitle', 'job_title', 'job title', 'title'") !== false);
-$assert('Upsert recovers raw Start IDs that were written into placements.external_id',
-    strpos($syncSrc, "\$canonicalExternalId = 'jd:' . \$extId;") !== false
-    && strpos($syncSrc, 'AND external_id = :raw') !== false
-    && strpos($syncSrc, 'SET external_id = :ext') !== false);
+$assert('Upsert resolves raw and prefixed Start IDs without rewriting retained identity',
+    str_contains($syncSrc, 'jobdivaPlacementWriteIdentity(')
+    && str_contains((string)file_get_contents(dirname(__DIR__).'/core/jobdiva/placement_write_context.php'), 'external_id IN(?,?)')
+    && str_contains((string)file_get_contents(dirname(__DIR__).'/core/jobdiva/placement_write_context.php'), "'jd:'.\$external,\$external"));
 
 // Slice 4 expansion regression — registry-aware writes for the new
 // allow-listed columns. Catches the "user can pick the column from the

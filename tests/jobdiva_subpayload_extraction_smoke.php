@@ -211,7 +211,7 @@ $a('JOINED_CTX map present',
     && str_contains($syncSrc, "'contact'          => 'contact'"));
 $a('placement sync delegates projection to shared projector',
     str_contains($syncSrc, 'jobdivaProjectorProjectPlacement($tid, $jd, $userId')
-    && str_contains($projectorSrc, 'jobdivaPlacementStaffingJobId($tenantId, $placementId)')
+    && str_contains($projectorSrc, "jobdivaPlacementStaffingJobId(\$context['placement_owner'], \$placementId)")
     && str_contains($projectorSrc, 'jobdivaApplyPlacementFieldMappings('));
 $a('joined applyAll iterates extracted sub-payloads',
     str_contains($syncSrc, 'function jobdivaApplyPlacementFieldMappings(')

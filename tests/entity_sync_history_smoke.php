@@ -131,12 +131,12 @@ $assert('contacts preserve actor through the atomic stable writer',
     && str_contains($partySrc, "mappingUpsert(\$workspace,'jobdiva','contact',\$external,\$id,\$payload,'pull',\$actor)"));
 $projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('placements upsert passes $userId',
-    strpos($projectorSrc, "mappingUpsert(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$snapshotPayload, 'pull', \$userId);") !== false);
+    strpos($projectorSrc, "mappingBindStable(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$snapshotPayload, 'pull', \$userId);") !== false);
 $pSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync_placements.php");
 $assert('auto-create person upserts existing match with $userId',
-    strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId, \$jd, 'pull', \$userId);") !== false);
+    strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$existingId, \$personSnapshot, 'pull', \$userId);") !== false);
 $assert('auto-create person upserts new person with $userId',
-    strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$newId, \$jd, 'pull', \$userId);") !== false);
+    strpos($pSrc, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$newId, \$personSnapshot, 'pull', \$userId);") !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

@@ -141,12 +141,12 @@ function staffingClientProjectSource(int $workspace,?int $companyId,string $name
             $q=$pdo->prepare('SELECT id FROM placements WHERE tenant_id=? AND client_id=? AND status="active" AND deleted_at IS NULL LIMIT 1 FOR UPDATE');$q->execute([$owner,$id]);if($q->fetchColumn())unset($apply['status']);
         }
         if($apply){$q=$pdo->prepare('UPDATE staffing_clients SET '.implode(',',array_map(static fn($f)=>'`'.$f.'`=?',array_keys($apply))).' WHERE tenant_id=? AND id=?');$q->execute([...array_values($apply),$owner,$id]);}
-        if(mappingHash($state)!==mappingHash($beforeState)||$apply)$state['revision']++;
-        staffingClientSourcePersist($pdo,$owner,$id,$state);
+        $observationChanged=$new||mappingHash($state)!==mappingHash($beforeState)||(bool)$apply;
+        if($observationChanged){$state['revision']++;staffingClientSourcePersist($pdo,$owner,$id,$state);}
         if($source)mappingBindStable($workspace,$source['system'],$type,$external,$id,$extra['source_payload']??$proposed,'pull',$actor);
         $saved=array_replace($existing,$apply);$held=[];
         foreach($proposed as$field=>$value)if($secondary||in_array($field,$state['owned'],true)||($saved[$field]??null)!==$value)$held[]=$field;
-        companySourceAudit($pdo,$workspace,$owner,'staffing_clients',$id,'staffing.client.source_observed',array_keys($apply),$actor,['source'=>$source,'created'=>$new,'held_fields'=>$held]);
+        if($observationChanged)companySourceAudit($pdo,$workspace,$owner,'staffing_clients',$id,'staffing.client.source_observed',array_keys($apply),$actor,['source'=>$source,'created'=>$new,'held_fields'=>$held]);
         return['client_id'=>$id,'company_id'=>$companyId,'name'=>$saved['name'],'created'=>$new,'changed'=>$new||(bool)$apply,'held_fields'=>$held];
     });
 }

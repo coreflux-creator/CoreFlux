@@ -25,17 +25,18 @@ $payload=static function(int $n):array{return[
     'startDate'=>'2026-11-01','title'=>'Synthetic source assignment '.$n,'status'=>'on_hold','worksiteCountry'=>'US',
     'sourceNote'=>'Original workspace note '.$n,'pilotFlag'=>true,
     '_jd_job'=>['jobId'=>(string)($n+2),'title'=>'Synthetic job '.$n],
-    '_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>(string)$n,'engagement_type'=>'w2','placement_status'=>'on_hold','start_date'=>'2026-11-01',
+    '_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>(string)$n,'engagement_type'=>'w2','placement_status'=>'on_hold','start_date'=>'2026-11-01','primary_recruiter'=>'99169999',
         'client_company_id'=>(string)($n+3),'client_company_name'=>'Synthetic bill-to '.$n,
         'end_client_company_id'=>(string)($n+4),'end_client_name'=>'Synthetic work recipient '.$n,
         'bill_rate'=>100,'pay_rate'=>50,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD','worksite_country'=>'US'],
 ];};
 $project=static fn(array $p,array $opts=[])=>jobdivaProjectorProjectPlacement($child,$p,null,['payload_is_enriched'=>true]+$opts);
 $financial=[$all('accounting_journal_entries'),$all('accounting_journal_entry_lines'),$all('accounting_events'),$all('payroll_runs'),$all('billing_payments'),$all('ap_payments')];
-$trigger=false;
+$trigger=false;$participantTrigger=false;
 try{
     if($pdo->query('SELECT id FROM tenants WHERE id=990699')->fetchColumn())throw new RuntimeException('Projection directory fixture already exists.');
     $pdo->exec("CREATE TRIGGER fixture_projection_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF COALESCE(@fixture_projection_fail,0)=1 AND NEW.event='placement.jobdiva.projected' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic projection audit failure'; END IF; END");$trigger=true;
+    $pdo->exec("CREATE TRIGGER fixture_projection_participant_failure BEFORE UPDATE ON placement_economic_parties FOR EACH ROW BEGIN IF COALESCE(@fixture_participant_fail,0)=1 AND OLD.role='source_recruiter_allocation' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic participant cleanup failure'; END IF; END");$participantTrigger=true;
     $pdo->beginTransaction();setRequestTenantId($child);$_SESSION['tenant_id']=$child;
     $insert('tenants',['id'=>$child,'name'=>'Synthetic JobDiva source child','is_active'=>1,'is_simulation'=>1,'tenant_type'=>'sub','parent_id'=>$parent]);
     foreach(['companies','people','placements','staffing','accounting']as$module)$scope($module,'shared');
@@ -61,6 +62,9 @@ try{
         foreach($afterCounts as$table=>$count)if($count!==$counts[$table])echo 'REPLAY_DIFF '.json_encode(['table'=>$table,'before_count'=>$counts[$table],'after_count'=>$count,'added'=>array_slice($replayAfter[$table],$counts[$table])],JSON_THROW_ON_ERROR)."\n";
     }
     $check($counts===$afterCounts,'Replay adds no duplicate business records, mappings or audit evidence');
+    $withoutRecruiter=$p;unset($withoutRecruiter['_jd_contract']['primary_recruiter']);
+    $before=$snapshot();$pdo->exec('SET @fixture_participant_fail=1');$failed=$project($withoutRecruiter);$pdo->exec('SET @fixture_participant_fail=0');
+    $check(!$failed['projected']&&$before===$snapshot(),'Participant cleanup failure cannot leave a partly refreshed assignment');
     // Every dependent stage belongs to one unit, including late field mappings.
     $pdo->prepare('UPDATE tenant_integration_field_map SET target_column=? WHERE id=?')->execute(['fixture_missing_column',$map]);
     $before=$snapshot();$failed=$project($payload(99160100));
@@ -102,7 +106,9 @@ try{
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     $pdo->exec('SET @fixture_projection_fail=0');
+    $pdo->exec('SET @fixture_participant_fail=0');
     if($trigger)$pdo->exec('DROP TRIGGER fixture_projection_audit_failure');
+    if($participantTrigger)$pdo->exec('DROP TRIGGER fixture_projection_participant_failure');
     setRequestTenantId(null);
 }
 echo "$checks JobDiva projection directory checks passed.\n";

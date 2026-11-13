@@ -79,15 +79,15 @@ $assert('People with any live placement are preserved',
 $assert('repair inactivates rather than deletes historical People',
     str_contains($alignment, "SET p.status = 'inactive'")
         && !str_contains($alignment, 'mapping_alignment_repair_source_people_lifecycle_delete'));
-$assert('later verified JobDiva Starts restore the mapped person in place',
-    str_contains($sync, "SET status = 'active', deleted_at = NULL, updated_at = NOW()")
-        && str_contains($sync, "AND (status <> 'active' OR deleted_at IS NOT NULL)"));
+$assert('later JobDiva Starts hold retired Core people for reviewed reactivation',
+    str_contains($sync, 'Review and reactivate the linked Core person')
+    && !str_contains($sync, "SET status = 'active', deleted_at = NULL, updated_at = NOW()"));
 $assert('person re-observation preserves identity and refreshes the same mapping',
     !str_contains($sync, "mappingDelete(\$tid, 'jobdiva', 'person', \$candidateExtId)")
         && str_contains($sync, "jobdivaPersonExternalIdConflicts(\$mappedExternalId, \$candidateExtId)")
         && str_contains($sync, "mappingUpsert(\$tid, 'jobdiva', 'person', \$candidateExtId, \$mappedPersonId"));
-$assert('later verified current Starts restore archived placement rows in place',
-    str_contains($placementSync, "if (in_array(\$status, ['active', 'pending_start', 'on_hold'], true))")
+$assert('later current Starts restore source-owned archived placements while Core lifecycle remains held',
+    str_contains($placementSync, "if (!array_intersect(['status','end_date','actual_end_date'],\$overrides) && in_array(\$status, ['active', 'pending_start', 'on_hold'], true))")
         && str_contains($placementSync, "\$assignments[] = 'deleted_at = NULL';")
         && str_contains($placementSync, "'person_id' => \$isRestore ? 0")
         && str_contains($placementSync, "'placements_restored' => 0"));

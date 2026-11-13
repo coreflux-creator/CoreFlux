@@ -5923,7 +5923,7 @@ function jobdivaSyncUpsertSourceAllocationParties(
                 ]);
             }
         } catch (\Throwable $e) {
-            error_log('[jobdiva source participants] subcontract-company evidence failed: ' . $e->getMessage());
+        throw $e;
         }
     }
 
@@ -5943,7 +5943,7 @@ function jobdivaSyncUpsertSourceAllocationParties(
         if ($keep !== []) $sql .= ' AND source_ref NOT IN (' . implode(',', $keep) . ')';
         getDB()->prepare($sql)->execute($params);
     } catch (\Throwable $e) {
-        error_log('[jobdiva source allocations] stale-party cleanup failed: ' . $e->getMessage());
+        throw $e;
     }
     return $summary;
 }
@@ -6412,26 +6412,6 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
     }
     $jd = jobdivaClassificationPayloadForTenant($tid, $jd);
     $engagement = jobdivaClassificationRequire($jd);
-    require_once __DIR__.'/placement_write_context.php';
-    $context=jobdivaPlacementWriteContext($pdo,$tid);
-    $owner=$context['placement_owner'];
-    $identity=jobdivaPlacementWriteIdentity($pdo,$context,$extId,$jd['__cf_existing_placement_id']??null);
-    $existingPlacement=$identity['placement']??[];
-    $existingId=(int)($existingPlacement['id']??0);
-    $overrides=$identity['owned_fields'];
-    if(in_array('person_id',$overrides,true))$personId=(int)$existingPlacement['person_id'];
-    if(in_array('end_client_company_id',$overrides,true))$endClientCompanyId=$existingPlacement['end_client_company_id']?(int)$existingPlacement['end_client_company_id']:null;
-    $q=$pdo->prepare('SELECT id,deleted_at FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$context['people_owner'],$personId]);$person=$q->fetch(PDO::FETCH_ASSOC);
-    if(!$person||(!$existingId&&$person['deleted_at']!==null))throw new RuntimeException('Resolve the assignment worker in the current People directory before importing.',409);
-    $resolveDefaultAccountingEntityId = static function () use ($pdo,$context): int {
-        $id=(int)accountingDefaultEntity($context['accounting_owner'])['id'];
-        $q=$pdo->prepare('SELECT id FROM accounting_entities WHERE tenant_id=? AND id=? AND active=1 FOR UPDATE');$q->execute([$context['accounting_owner'],$id]);
-        if(!$q->fetchColumn())throw new RuntimeException('Review the active assignment legal entity before importing.',409);
-        return$id;
-    };
-    if($endClientCompanyId&&!in_array('end_client_company_id',$overrides,true))$endClientCompanyId=jobdivaCompanyCanonicalId($tid,$endClientCompanyId,true);
-    $canonicalExternalId = 'jd:' . $extId;
-
     $assignmentContract = jobdivaContractProjectionContract($jd);
     if (jobdivaAssignmentEndClientEvidence($jd)['status'] === 'ambiguous') {
         throw new RuntimeException('Conflicting explicit end-client identities require review.');
@@ -6460,6 +6440,27 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
         throw new \RuntimeException('JobDiva placement needs review: corporation country is not recognized.');
     }
     $economicOptions = jobdivaSyncPlacementEconomicOptions($jd);
+    require_once __DIR__.'/placement_write_context.php';
+    $context=jobdivaPlacementWriteContext($pdo,$tid);
+    $owner=$context['placement_owner'];
+    $identity=jobdivaPlacementWriteIdentity($pdo,$context,$extId,$jd['__cf_existing_placement_id']??null);
+    $existingPlacement=$identity['placement']??[];
+    $existingId=(int)($existingPlacement['id']??0);
+    $overrides=$identity['owned_fields'];
+    if(in_array('person_id',$overrides,true))$personId=(int)$existingPlacement['person_id'];
+    if(in_array('end_client_company_id',$overrides,true))$endClientCompanyId=$existingPlacement['end_client_company_id']?(int)$existingPlacement['end_client_company_id']:null;
+    $q=$pdo->prepare('SELECT id,deleted_at FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$context['people_owner'],$personId]);$person=$q->fetch(PDO::FETCH_ASSOC);
+    if(!$person||(!$existingId&&$person['deleted_at']!==null))throw new RuntimeException('Resolve the assignment worker in the current People directory before importing.',409);
+    $resolveDefaultAccountingEntityId = static function () use ($pdo,$context): int {
+        $id=(int)accountingDefaultEntity($context['accounting_owner'])['id'];
+        $q=$pdo->prepare('SELECT id FROM accounting_entities WHERE tenant_id=? AND id=? AND active=1 FOR UPDATE');$q->execute([$context['accounting_owner'],$id]);
+        if(!$q->fetchColumn())throw new RuntimeException('Review the active assignment legal entity before importing.',409);
+        return$id;
+    };
+    if($endClientCompanyId&&!in_array('end_client_company_id',$overrides,true))$endClientCompanyId=jobdivaCompanyCanonicalId($tid,$endClientCompanyId,true);
+    $canonicalExternalId = 'jd:' . $extId;
+
+
     // Resolve each placement field via the tenant field-map registry,
     // falling back to the built-in candidate-key lookups when the
     // tenant hasn't configured an override. This is how Slice 4 wires
@@ -6492,7 +6493,7 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
     if ($title === '') {
         $titleJobId = jobdivaPluckField($jd, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
         if ($titleJobId !== '') {
-            $titleJob = staffingJobFindBySource($tid, 'jobdiva', $titleJobId);
+            $titleJob = staffingJobFindBySource($context['staffing_owner'], 'jobdiva', $titleJobId);
             $staffingTitle = trim((string) ($titleJob['title'] ?? ''));
             if ($staffingTitle !== ''
                 && !preg_match('/^JobDiva (?:Job|Placement)\s+\S+$/i', $staffingTitle)) {
@@ -6508,21 +6509,8 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
     if ($title === '') $title = 'JobDiva Placement ' . $extId;
     $titleHasSourceEvidence = !preg_match('/^JobDiva Placement\s+\S+$/i', $title);
     if ($existingId > 0 && preg_match('/^JobDiva Placement\s+\S+$/i', $title)) {
-        try {
-            $existingTitleStmt = $pdo->prepare(
-                'SELECT title FROM placements
-                  WHERE tenant_id = :t AND id = :id
-                  LIMIT 1'
-            );
-            $existingTitleStmt->execute(['t' => $owner, 'id' => $existingId]);
-            $existingTitle = trim((string) ($existingTitleStmt->fetchColumn() ?: ''));
-            if ($existingTitle !== ''
-                && !preg_match('/^JobDiva Placement\s+\S+$/i', $existingTitle)) {
-                $title = $existingTitle;
-            }
-        } catch (\Throwable $e) {
-            error_log('[jobdiva placement sync] existing title protection failed: ' . $e->getMessage());
-        }
+        $existingTitle=trim((string)($existingPlacement['title']??''));
+        if($existingTitle!==''&&!preg_match('/^JobDiva (?:Job|Placement)\s+\S+$/i',$existingTitle))$title=$existingTitle;
     }
 
     $startDate = (string) tenantIntegrationFieldMapPluckInternal(
@@ -7225,7 +7213,7 @@ function jobdivaSyncRemoveUnsourcedAutoDraftRate(int $tid, int $placementId, flo
             'br' => $billRate,
         ]);
     } catch (\Throwable $e) {
-        error_log('[jobdiva placement rate cleanup] ' . $e->getMessage());
+        throw $e;
     }
 }
 

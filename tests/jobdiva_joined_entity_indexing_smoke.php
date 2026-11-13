@@ -65,7 +65,7 @@ $a('helper swallows errors so indexing failures never block sync',
 // 2) Placement projection wires the helper after mappingUpsert.
 echo "\n2. Placement projection invokes the helper\n";
 $a('helper invoked after placement mapping upsert',
-    str_contains($projector, "mappingUpsert(\$tenantId, 'jobdiva', 'placement'")
+    str_contains($projector, "mappingBindStable(\$tenantId, 'jobdiva', 'placement'")
     && str_contains($projector, 'jobdivaIndexJoinedSubPayloads($tenantId, $writePayload);'));
 $a('invocation wrapped in try/catch - best-effort',
     preg_match('/jobdivaIndexJoinedSubPayloads\(\$tenantId, \$writePayload\);.*?catch \(\\\\Throwable \$e\)/s', $projector) === 1);

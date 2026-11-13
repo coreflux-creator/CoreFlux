@@ -50,7 +50,7 @@ echo "\n2. Placement chain is projected\n";
 $a('chain writer exists', str_contains($sync, 'function jobdivaSyncUpsertPlacementChain('));
 $a('chain writer targets placement_client_chain', str_contains($sync, 'placement_client_chain'));
 $a('sync calls chain writer from update and insert paths',
-    substr_count($sync, 'jobdivaSyncUpsertPlacementChain($tid,') >= 2);
+    substr_count($sync, 'jobdivaSyncUpsertPlacementChain($owner,') >= 2);
 $a('chain writer creates MSP / prime vendor / sub-vendor tiers',
     str_contains($sync, "'role' => 'msp'")
     && str_contains($sync, "'role' => 'prime_vendor'")
@@ -104,7 +104,7 @@ $a('placement_rates mapping no longer falls through to placement id',
 echo "\n4. Placement commissions are projected and mappable\n";
 $a('commission writer exists', str_contains($sync, 'function jobdivaSyncUpsertPlacementCommissions('));
 $a('sync calls commission writer from update and insert paths',
-    substr_count($sync, 'jobdivaSyncUpsertPlacementCommissions($tid,') >= 2);
+    substr_count($sync, 'jobdivaSyncUpsertPlacementCommissions($owner,') >= 2);
 $a('commission writer targets placement_commissions',
     str_contains($sync, 'INSERT INTO placement_commissions')
     && str_contains($sync, 'UPDATE placement_commissions'));
@@ -142,10 +142,10 @@ $a('runtime has placement-keyed corp-details writer',
     str_contains($apply, 'function integrationFieldMapWritePlacementCorpDetails')
     && str_contains($apply, 'WHERE tenant_id = :t AND placement_id = :p')
     && str_contains($apply, '$tableLower === \'placement_corp_details\'')
-    && str_contains($apply, 'integrationFieldMapWritePlacementCorpDetails($tid, (int) $b[\'id\'], $b[\'set\'])'));
+    && str_contains($apply, 'integrationFieldMapWritePlacementCorpDetails($writeOwner, (int) $b[\'id\'], $b[\'set\'])'));
 $a('JobDiva projector writes safe C2C corp details by default',
     str_contains($sync, 'function jobdivaSyncUpsertPlacementCorpDetails')
-    && substr_count($sync, 'jobdivaSyncUpsertPlacementCorpDetails($tid,') >= 2
+    && substr_count($sync, 'jobdivaSyncUpsertPlacementCorpDetails($owner,') >= 2
     && str_contains($sync, "\$engagement !== 'c2c'")
     && str_contains($sync, 'placement.corp.cleared_non_c2c_jobdiva')
     && str_contains($sync, "'vendor legal name'")

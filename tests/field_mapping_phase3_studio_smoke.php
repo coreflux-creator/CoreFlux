@@ -101,7 +101,7 @@ $a('email collision cannot overwrite existing person fields',
     !str_contains($splp, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'person', \$jd, ['self' => \$existingId]);")
     && str_contains($splp, 'review the candidate/person link before syncing again'));
 $a('person sync (auto-create branch) calls applyAll',
-    str_contains($splp, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'person', \$jd, ['self' => \$newId]);"));
+    str_contains($splp, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'person', \$jd, ['self' => \$newId], ['source_owned_context'=>true]);"));
 
 echo "\n7. PHP syntax\n";
 foreach ([

@@ -348,7 +348,7 @@ $assert(
     'mirror reconstruction is rooted in the mapping Start ID',
     str_contains($sync, '?string $expectedStartId = null')
         && str_contains($sync, '$startId = $expectedStartId;')
-        && str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId)')
+        && str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId, true)')
 );
 $assert(
     'contact enrichment cannot mistake a customer id for a contact id',
@@ -359,9 +359,9 @@ $assert(
 );
 $assert(
     'force projection cannot replace a real title with a placeholder',
-    str_contains($sync, '[jobdiva placement sync] existing title protection failed:')
-        && str_contains($sync, '$title = $existingTitle;')
-        && str_contains($sync, 'staffingJobFindBySource($tid, \'jobdiva\', $titleJobId)')
+    str_contains($sync, "\$existingTitle=trim((string)(\$existingPlacement['title']??''));")
+        && str_contains($sync, '$title=$existingTitle;')
+        && str_contains($sync, "staffingJobFindBySource(\$context['staffing_owner'], 'jobdiva', \$titleJobId)")
 );
 $assert(
     'webhook path also requires assignment identity',
