@@ -67,7 +67,7 @@ try {
     $check($read('placement_rates')===$rates,'Review does not rewrite any existing approved rate');
     $frozen=json_encode($snapshot['economics_snapshot'],JSON_THROW_ON_ERROR);
     $pdo->prepare('UPDATE placement_rates SET economics_snapshot_json=? WHERE id=? AND tenant_id=?')->execute([$frozen,$rateId,$tenant]);
-    $duplicate=scopedInsert('people',['first_name'=>'CI','last_name'=>'Ambiguous account','classification'=>'w2','user_id'=>$uid]);
+    $duplicate=scopedInsert('people',['first_name'=>'CI','last_name'=>'Ambiguous account','classification'=>'w2','user_id'=>$uid,'email_primary'=>'commission-duplicate@example.invalid']);
     $check(placementCommissionPersonIdentity($pdo,$tenant,$uid)===null,'Two current account candidates are ambiguous, even when one lacks employment');
     placementEconomicsReconcile($tenant,$pid);
     $ambiguous=current(array_filter(placementEconomicsParties($tenant,$pid),static fn($p)=>$p['source_ref']==='commission:'.$id));
