@@ -1,0 +1,144 @@
+{
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. This continuation revalidated source and installed pilot, completed atomic native placement references and creation, and verified mapped legacy identity ownership and UI controls.",
+  "scope": "Authorized Thunderhawk isolated pilot preparation; source only, not installed",
+  "source_commit": "27c474e5cf503a6dc8dc8f2fa83e83c43a00f39f",
+  "base_commit": "96046c5f13095c607ae96a04d40132403b3742ed",
+  "source_files_sha256_lf": {
+    ".deploy-version": "3bbaa84b2c07ab123aedd21f00a2042dc82a055130dfb3f5c33b86c04d3e2fd2",
+    "dashboard/dist/index.html": "4764feedeb1be15bc07e8f94346948d9c2fc556e335f4545fa5d392c67efea7f",
+    "dashboard/tests/placementContractPermissions.test.mjs": "46da5aa497287e98fe5cb24173f3aaee15451969a270b3cb832c491543c3dedd",
+    "index.html": "4764feedeb1be15bc07e8f94346948d9c2fc556e335f4545fa5d392c67efea7f",
+    "modules/people/lib/company_relationships.php": "1396d267d74bb323987de240f9da2cb393287bf32d283a62a0f8ec6a4a95c976",
+    "modules/placements/api/placements.php": "053cd103720c161983139eaab476fd848f05ed102b74dcf1b5e8d98002c93c59",
+    "modules/placements/lib/company_references.php": "b3f0e9baa9bb5c91d517f9b497af3347b564df0fa5ef42cbf5cd2d12261e7789",
+    "modules/placements/lib/edit.php": "961d8dbe64777418d58a0c8a82e12e4d728cecdb4f7fe042526c5d7c3e8717aa",
+    "modules/placements/lib/placements.php": "3e79535fb7c6eff7f3b6d891bf126ad3935f83032139dc752fc7134cdcf04b10",
+    "modules/placements/ui/PlacementDetail.jsx": "ef780c594be1e31a9a09b93a75183267a46b61fd9df2489a74ed0423229d2d73",
+    "spa-assets/index-CTyhKL5j.js": "ed1109ab5568fc48c4c70d7267c43f41fff8d509954b2e7f12b62c0846a53639",
+    "spa-assets/index-CkTIeehY.js": "41620d358ba81b8b003db4b6a2577c7ea9650d5b19d52931606c266f1cb4cf8c",
+    "spa-assets/index.html": "4764feedeb1be15bc07e8f94346948d9c2fc556e335f4545fa5d392c67efea7f",
+    "spa-assets/sw.js": "258c43f5f33be4d9abd9b6f7b0b9de9064581b70dd69001604ec4510ed488726",
+    "tests/company_relationship_concurrency_db.php": "a31c4b821cdf286c2137a5c99dbb06599d67a60210c3d0caead5f4170177d603",
+    "tests/fixtures/placement_native_reference_http_cases.php": "8be1bb60446bf7c015c6c21bdff344dd39c122abc9a10321b18d7166f3797d90",
+    "tests/fixtures/quanta_profile_http_router.php": "7b38e60a03c934530f2454b96d60fb5c1f06c759fa1d00f7a94c9663d1cc026a",
+    "tests/placement_company_roles_mariadb.php": "03167c975a45eebe72e6a19f08f00bebcb2d29436ee0e58e54df2d3d4086f524",
+    "tests/placement_native_edit_db_check.php": "7ee8a28d4925945959688d7725f0c2b69d3f2bc62fb97b244a87127c7087d3de",
+    "tests/placement_person_one_step_smoke.php": "9faf00002428b6c60798918eea95b3f2dec5e3b6fcf833ebda9453f241a9fa6c",
+    "tests/placements_override_slice2_smoke.php": "5b4f94a6c786ddbc5a0572d79c70f76ae999bd79cb1803881e01979f9528f1e4",
+    "tests/quanta_integration_smoke.php": "d8f2eeca6a9258f85908f88dd75603cf29978526d0e61af1a1776836dfdcdb98",
+    "tests/quanta_profile_permissions_http.php": "ed479cde388ebf205ac14ac32d0f260dc418389060141c46d26e53690f1cc542"
+  },
+  "ci": {
+    "run_id": 43442455634,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43442455634",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "id": 131943255509,
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "id": 131943255736,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "id": 131943255770,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "id": 131943255838,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "id": 131943255848,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "id": 131943255884,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "id": 131943255892,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "id": 131943255964,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "id": 131943255987,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "id": 131943255999,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "id": 131943256102,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "independent_connection_concurrency": 118,
+    "native_login_session_api": 953,
+    "native_placement_edit_database": 46,
+    "billing_roles": 23,
+    "rendered_contract_and_ownership_components": 19
+  },
+  "local_checks": [
+    "Placement/client save contract",
+    "Company directory contract",
+    "Process alignment",
+    "Tenant isolation sentry",
+    "Placement ownership smoke (26 assertions)",
+    "Quanta integration (77 assertions)",
+    "One-step person/placement creation (14 assertions)",
+    "PHP syntax",
+    "Hook lint and frontend build",
+    "git diff whitespace"
+  ],
+  "native_log_sha256": "e30a69d831dd4ebb67895555b204b69ca2baf314e5c220aa2d9f7eae7f2856c1",
+  "install_log_sha256": "44b72859be04087f5ab14a13ca5356cb76858de99537a3ed36391aa6b614f9de",
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T14:29:51+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "production_changed": false,
+  "provider_runtime_changed": false,
+  "arabella_changed": false,
+  "payroll_executed": false,
+  "payments_executed": false,
+  "financial_postings_executed": false,
+  "remaining": [
+    "Ordinary JobDiva placement projector/write ownership before side effects with independent source and directory owners across rates, participants, mappings and postconditions",
+    "Placement CSV and legacy reconciliation, and remaining lifecycle/ownership-release paths under fresh directory scope",
+    "Other alignment report/repair queries with source workspace equal to placement owner assumptions",
+    "AP/current-reference writers and native job ownership/shared source contract",
+    "Survivor source review and historical number navigation",
+    "Stable QuickBooks customer identity for outbound invoice routing",
+    "Guarded pilot installation and hosted acceptance",
+    "Full field/portal/onboarding/document/time/approval/payroll-result/financial-reconciliation acceptance audit"
+  ],
+  "full_integration_complete": false
+}
