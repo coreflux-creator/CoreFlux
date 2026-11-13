@@ -1,0 +1,172 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; retained placement source ownership, not operator release or full integration completion",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. This continuation revalidated and accepted the merge service, implemented primary-source adoption in projection, review and refresh paths, corrected regressions, and exercised canonical records and independent-session source/merge races.",
+  "source_commit": "e74bde317f098001961c05d01d2e2d0eaba74808",
+  "base_commit": "5884703ca5be0112fe99a28a4360376cf18ff75a",
+  "source_files_sha256_lf": {
+    "core/jobdiva/assignment_source_repair.php": "79facf555c831ac56a50839ed19517ee0c4d33ddbf268df6948b0d360b880706",
+    "core/jobdiva/live_contract_refresh.php": "047fa6b42f0fac6495ef8141e2f86a2b0f5fb7798fe141b7cabd65469b6d5be3",
+    "core/jobdiva/placement_write_context.php": "cc5e660f8d0db9aef17be4835336a77bfab730da703e344b941527ab6e1d1a08",
+    "core/jobdiva/projector.php": "3d1b136f1ce73d520559d2ba748cf8972499f7cf6847aab95213be9e82e364c4",
+    "core/jobdiva/source_rate_repair.php": "5137aa41c75bd4006983b2c46992390d7c7e6be4b5d153467ff9ef408fcd0b55",
+    "core/jobdiva/sync.php": "4b0c3dda586c362e2a0c0f304949e2eafbcbd6b5a569fe26b9d1b382f1f0adad",
+    "docs/thunderhawk-placement-consolidation.md": "37212d149f9d7053fc4874671121a0dd4fa7b658d540b9f9f8322f557855774e",
+    "modules/placements/lib/edit.php": "e4fe187accd1acbf54b9229175effd0c4cf465027f0af66d887416335b9355d6",
+    "modules/placements/lib/jobdiva_csv_context.php": "6cac5f1d23fe4c7d573068bd04e554f783b00e003089cd558a6d86ba0953d3f7",
+    "modules/placements/lib/jobdiva_csv_write.php": "480cd7d7d9b5498862b789527c6bfbd76b9dda83380bd1bdaf02616ec8df0e31",
+    "modules/placements/lib/placements.php": "f4bbd5e3068e6883bb14cfaa621e1782b86de87cecb465745cbe2f1fde2374a2",
+    "modules/placements/lib/source_identity.php": "3e60d68dc51d9d7f01aef2582c3c83fc5c35f1422af5fc4246506d1c57ea087e",
+    "modules/placements/lib/source_owner.php": "99a13cf4fad5c878da625ec600ed3a6abce6ce3378820d44744bc2468bcaebd3",
+    "tests/company_relationship_concurrency_db.php": "455839a10af7ffd620216c2f2ca96db9e2a7a81a19c412b93f9f6898eb7520cf",
+    "tests/entity_sync_history_smoke.php": "5a12c306d3b257228e424d4c6431434de114d5eda1508110e8e0fd1d11801a0f",
+    "tests/fixtures/placement_merge_source_checks.php": "dd199b5470c321181ed6de311b2113f67d2c05b27c6d37a1e019f99f94aee806",
+    "tests/fixtures/placement_merge_source_concurrency_checks.php": "cb627f86c11636cc6313c30815f9f5e4d68a2fa02d73556b96dcf505f7b8c437",
+    "tests/jobdiva_contract_projection_smoke.php": "669ccc9a099a922f0460571cb4aaba07caac1a8ceaf50f5c71555cac8ec6f0ac",
+    "tests/jobdiva_joined_entity_indexing_smoke.php": "c099d65877d7a82d792b66eea2a01ba684d1745ea11ed364a55e45eee887ade9",
+    "tests/jobdiva_projector_contract_smoke.php": "b5c81e371aff872200e1f4d4702d0f3aee72a6b87a4dc1a62e6024153f631028",
+    "tests/placement_merge_db_check.php": "6c71b1e7347c6351da93cc2be3baffb773b6eacde2af23c676dcb1165e451079",
+    "tests/sprint8a_a3_jobdiva_sync_smoke.php": "b24249f3e294fe1f3bbf3272210e80109f711317636e3f43d044f8fb3c94507f"
+  },
+  "ci": {
+    "run_id": 43510478228,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43510478228",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132179102673,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102809,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102850,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102871,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102886,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102893,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102912,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102947,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179102981,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179103052,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132179103068,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "placement_merge_and_source_canonical": 76,
+    "placement_identity_canonical": 30,
+    "independent_connections": 478,
+    "new_source_owner_concurrency": 32,
+    "native_core_session_api": 953,
+    "existing_native_placement_contract_http": 521
+  },
+  "source_owner_concurrency_labels": [
+    "Retained source repair waits for policy COMMIT",
+    "Retained source repair rechecks policy after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Review People and Placements sharing before importing this assignment.\"}",
+    "Retained source repair waits for primary_choice COMMIT",
+    "Retained source repair rechecks primary_choice after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"This retained historical source is not the reviewed owner of current placement updates.\"}",
+    "Retained source repair waits for source_binding COMMIT",
+    "Retained source repair rechecks source_binding after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The retained source bindings changed after merge review.\"}",
+    "Retained source repair waits for new_source COMMIT",
+    "Retained source repair rechecks new_source after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The retained source bindings changed after merge review.\"}",
+    "Retained source repair waits for alias COMMIT",
+    "Retained source repair rechecks alias after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The reviewed placement family is incomplete. Review its permanent identities.\"}",
+    "Retained source repair waits for native_field COMMIT",
+    "Retained source repair rechecks native_field after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment evidence changed during source verification. Refresh and review again.\"}",
+    "Live contract refresh retains a secondary source without a provider call or writes before COMMIT",
+    "Another merge holds the entire source family before COMMIT",
+    "Retained source repair waits for another merge COMMIT",
+    "An in-flight source review cannot cross a committed second merge after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment evidence changed during source verification. Refresh and review again.\"}",
+    "Retained source repair waits for policy ROLLBACK",
+    "Retained source repair rechecks policy after ROLLBACK: {\"ok\":true,\"result\":{\"id\":215,\"action\":\"remote_verified\",\"placement_id\":215,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}",
+    "Retained source repair waits for primary_choice ROLLBACK",
+    "Retained source repair rechecks primary_choice after ROLLBACK: {\"ok\":true,\"result\":{\"id\":217,\"action\":\"remote_verified\",\"placement_id\":217,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}",
+    "Retained source repair waits for source_binding ROLLBACK",
+    "Retained source repair rechecks source_binding after ROLLBACK: {\"ok\":true,\"result\":{\"id\":219,\"action\":\"remote_verified\",\"placement_id\":219,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}",
+    "Retained source repair waits for new_source ROLLBACK",
+    "Retained source repair rechecks new_source after ROLLBACK: {\"ok\":true,\"result\":{\"id\":222,\"action\":\"remote_verified\",\"placement_id\":222,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}",
+    "Retained source repair waits for alias ROLLBACK",
+    "Retained source repair rechecks alias after ROLLBACK: {\"ok\":true,\"result\":{\"id\":224,\"action\":\"remote_verified\",\"placement_id\":224,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}",
+    "Retained source repair waits for native_field ROLLBACK",
+    "Retained source repair rechecks native_field after ROLLBACK: {\"ok\":true,\"result\":{\"id\":226,\"action\":\"remote_verified\",\"placement_id\":226,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}",
+    "Live contract refresh retains a secondary source without a provider call or writes before ROLLBACK",
+    "Another merge holds the entire source family before ROLLBACK",
+    "Retained source repair waits for another merge ROLLBACK",
+    "An in-flight source review cannot cross a committed second merge after ROLLBACK: {\"ok\":true,\"result\":{\"id\":228,\"action\":\"remote_verified\",\"placement_id\":228,\"mapping_changed\":true,\"placements_restored\":0,\"placements_archived\":0,\"archived_retained\":0,\"quarantined\":0,\"review_required\":0,\"reason\":\"exact_source_assignment\"}}"
+  ],
+  "required_source_owner_labels": [
+    "Reviewed primary source resolves the survivor while retaining its original physical provider binding",
+    "Required source observation failure rolls back the refreshed payload and mapping timestamps",
+    "Actual ordinary projection updates the survivor and preserves chosen Core-owned fields",
+    "Actual source repair uses the survivor without reviving its retired identity or changing Core-owned values",
+    "Rate repair resolves historical input to the survivor, preserves approved rates and skips secondary sources",
+    "A distinct secondary Start cannot overwrite the survivor selected for another primary Start",
+    "Successive merges refresh the newest survivor through the unchanged original source pair",
+    "Native identity editing cannot bypass links retained on an archived family member"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T21:21:39+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_consolidation": [
+    "terminal census and ambiguous-contract review batch adoption",
+    "remaining operational consumers and old-number history navigation",
+    "operator review screen and replacement of legacy automatic cleanup",
+    "native HTTP and hosted consolidation acceptance"
+  ],
+  "full_goal_status": "active; full integration and required pilot upgrade remain incomplete"
+}
