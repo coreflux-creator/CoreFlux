@@ -18,6 +18,8 @@ require_once __DIR__ . '/../../../core/ai/artifacts.php';
 require_once __DIR__ . '/../../time/lib/time.php';
 require_once __DIR__ . '/dimensions.php';
 require_once __DIR__ . '/dimension_snapshot.php';
+require_once __DIR__.'/time_workspace.php';
+require_once __DIR__.'/native_time_edit.php';
 
 const STAFFING_HOUR_TYPES = [
     'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
@@ -40,7 +42,7 @@ const STAFFING_HOUR_TYPE_TO_CATEGORY = [
 
 /** Resolve the staffing settings for the current tenant (with defaults). */
 function staffingSettings(): array {
-    $row = scopedFind('SELECT * FROM tenant_staffing_settings WHERE tenant_id = :tenant_id LIMIT 1');
+    $row = staffingTimeFind('SELECT * FROM tenant_staffing_settings WHERE tenant_id = :tenant_id LIMIT 1');
     return [
         'week_starts_on'             => (int) ($row['week_starts_on'] ?? 1),  // 0=Sun, 1=Mon
         'contracted_hours_per_week'  => (float) ($row['contracted_hours_per_week'] ?? 40.0),
@@ -50,6 +52,7 @@ function staffingSettings(): array {
 
 function staffingPeopleTenantId(?int $tenantId = null): ?int
 {
+    if (($tenantId===null || $tenantId===currentTenantId()) && StaffingNativeTimeEdit::active()) return StaffingNativeTimeEdit::owner('people');
     $tenantId = $tenantId ?? currentTenantId();
     if (!$tenantId) return null;
     try {
@@ -61,6 +64,7 @@ function staffingPeopleTenantId(?int $tenantId = null): ?int
 
 function staffingPlacementsTenantId(?int $tenantId = null): ?int
 {
+    if (($tenantId===null || $tenantId===currentTenantId()) && StaffingNativeTimeEdit::active()) return StaffingNativeTimeEdit::owner('placements');
     $tenantId = $tenantId ?? currentTenantId();
     if (!$tenantId) return null;
     try {
@@ -92,7 +96,7 @@ function staffingTimesheetValidateWeek(int $personId, string $periodStart, strin
 
     $peopleTenantId = staffingPeopleTenantId();
     $stmt = getDB()->prepare(
-        'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL LIMIT 1'
+        'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL LIMIT 1'.(StaffingNativeTimeEdit::active()?' FOR UPDATE':'')
     );
     $stmt->execute(['tenant_id' => $peopleTenantId, 'id' => $personId]);
     if (!$stmt->fetchColumn()) throw new \RuntimeException("Person #{$personId} was not found");
@@ -103,13 +107,14 @@ function staffingTimesheetValidatePlacement(int $placementId, int $personId, str
     if ($placementId <= 0) throw new \RuntimeException('placement_id required');
     staffingTimesheetDate($workDate, 'work_date');
     $stmt = getDB()->prepare(
-        'SELECT id, person_id, start_date, end_date
+        'SELECT id, person_id, start_date, end_date, actual_end_date
            FROM placements
           WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL
           LIMIT 1'
     );
     $stmt->execute(['tenant_id' => staffingPlacementsTenantId(), 'id' => $placementId]);
     $placement = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if (StaffingNativeTimeEdit::active()) $placement=staffingTimeCurrentPlacement($placementId,$personId);
     if (!$placement) throw new \RuntimeException("Placement #{$placementId} was not found");
     if ((int) $placement['person_id'] !== $personId) {
         throw new \RuntimeException("Placement #{$placementId} belongs to a different worker");
@@ -117,7 +122,8 @@ function staffingTimesheetValidatePlacement(int $placementId, int $personId, str
     if ($workDate < (string) $placement['start_date']) {
         throw new \RuntimeException("{$workDate} is before placement #{$placementId} starts");
     }
-    if (!empty($placement['end_date']) && $workDate > (string) $placement['end_date']) {
+    $effectiveEnd=$placement['actual_end_date'] ?: ($placement['end_date'] ?? null);
+    if ($effectiveEnd && $workDate > (string) $effectiveEnd) {
         throw new \RuntimeException("{$workDate} is after placement #{$placementId} ends");
     }
 }
@@ -158,7 +164,7 @@ function staffingTimesheetAssertDailyHours(
         $exclude = ' AND id != :exclude_id';
         $params['exclude_id'] = $excludeEntryId;
     }
-    $sum = scopedFind(
+    $sum = staffingTimeFind(
         "SELECT COALESCE(SUM(hours), 0) AS h
            FROM time_entries
           WHERE tenant_id = :tenant_id
@@ -494,7 +500,7 @@ function staffingTimesheetUpsert(
 
 function staffingTimesheetFind(int $personId, string $periodStart): ?array
 {
-    $row = scopedFind(
+    $row = staffingTimeFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
         ['pid' => $personId, 'ps' => $periodStart]
     );
@@ -513,7 +519,7 @@ function staffingTimesheetWeek(int $personId, string $periodStart, string $perio
         'total_hours' => 0.0,
     ];
 
-    $entries = scopedQuery(
+    $entries = staffingTimeQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
                 p.title AS placement_title,
@@ -558,6 +564,11 @@ function staffingTimesheetWeek(int $personId, string $periodStart, string $perio
  * Returns the refreshed week snapshot.
  */
 function staffingTimesheetBulkSave(int $userId, array $payload): array {
+    return StaffingNativeTimeEdit::run(static fn():array=>staffingTimesheetBulkSaveLocked($userId,$payload));
+}
+
+function staffingTimesheetBulkSaveLocked(int $userId, array $payload): array {
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected native time edit is required.');
     $personId    = (int) ($payload['person_id'] ?? 0);
     $periodStart = (string) ($payload['period_start'] ?? '');
     $periodEnd   = (string) ($payload['period_end'] ?? '');
@@ -574,6 +585,8 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
+        staffingTimeAssertEditableHeader($header);
+        $beforeEntries=staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id ORDER BY id',['id'=>$headerId]);
         if (($header['status'] ?? 'draft') !== 'draft') {
             $header = staffingTimesheetReopen($userId, $headerId, 'bulk edit');
         }
@@ -589,18 +602,18 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
             $entryId = (int) ($r['id'] ?? 0);
             $existing = null;
             if ($entryId > 0) {
-                $existing = scopedFind(
+                $existing = staffingTimeFind(
                     'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
                     ['id' => $entryId]
                 );
                 if (!$existing || (int) ($existing['timesheet_id'] ?? 0) !== $headerId || (int) ($existing['person_id'] ?? 0) !== $personId) {
                     throw new \RuntimeException("Time entry #{$entryId} does not belong to this timesheet");
                 }
-                staffingTimesheetAssertEntryNotSettled($existing);
+                staffingTimeAssertEditableEntry($existing);
             }
 
             if (!empty($r['_delete']) && $entryId > 0) {
-                scopedDelete('time_entries', $entryId);
+                staffingTimeDelete('time_entries', $entryId);
                 continue;
             }
 
@@ -609,7 +622,7 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
             if ($hours <= 0 && empty($r['id'])) continue;
             // Zero-hours on existing row = delete.
             if ($hours <= 0 && $entryId > 0) {
-                scopedDelete('time_entries', $entryId);
+                staffingTimeDelete('time_entries', $entryId);
                 continue;
             }
 
@@ -624,7 +637,7 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
 
             // Resolve period_id (legacy NOT-NULL column on time_entries).
             // Distinct :wd_lo/:wd_hi to satisfy PDO_MYSQL native prepares.
-            $period = scopedFind(
+            $period = staffingTimeFind(
                 "SELECT id FROM time_periods
                   WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi AND status != 'closed'
                   ORDER BY start_date DESC LIMIT 1",
@@ -633,7 +646,7 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
             if (!$period) {
                 // Auto-create a weekly period if missing — keeps the UX flowing
                 // for tenants who haven't pre-seeded periods.
-                $pid = scopedInsert('time_periods', [
+                $pid = staffingTimeInsert('time_periods', [
                     'period_type' => 'weekly',
                     'start_date'  => $periodStart,
                     'end_date'    => $periodEnd,
@@ -665,23 +678,25 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
             ];
 
             if ($entryId > 0) {
-                scopedUpdate('time_entries', $entryId, $base);
+                staffingTimeUpdate('time_entries', $entryId, $base);
             } else {
                 $base['created_by_user_id'] = $userId;
-                scopedInsert('time_entries', $base);
+                staffingTimeInsert('time_entries', $base);
             }
         }
 
         // Recompute total_hours on the header.
-        $sum = scopedFind(
+        $sum = staffingTimeFind(
             "SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
               WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
             ['tid' => $headerId]
         );
-        scopedUpdate('staffing_timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+        staffingTimeUpdate('staffing_timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
         staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.entries_saved', $userId, [
             'entry_count' => count($rows),
             'source' => 'manual_entry',
+            'before_entries'=>$beforeEntries,
+            'after_entries'=>staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id ORDER BY id',['id'=>$headerId]),
         ]);
 
         cf_tx_commit($pdo, $ownsTxn);
@@ -708,7 +723,7 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
-        scopedUpdate('staffing_timesheets', $headerId, [
+        staffingTimeUpdate('staffing_timesheets', $headerId, [
             'status'       => 'submitted',
             'submitted_at' => date('Y-m-d H:i:s'),
         ]);
@@ -744,7 +759,7 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
-        scopedUpdate('staffing_timesheets', $headerId, [
+        staffingTimeUpdate('staffing_timesheets', $headerId, [
             'status'              => 'rejected',
             'rejected_at'         => date('Y-m-d H:i:s'),
             'rejected_by_user_id' => $userId,
@@ -775,7 +790,7 @@ function staffingTimesheetPriorWeekTemplate(int $personId, string $periodStart, 
     // The "prior" week is the 7 days ending the day before period_start.
     $priorEnd   = date('Y-m-d', strtotime($periodStart . ' -1 day'));
     $priorStart = date('Y-m-d', strtotime($priorEnd      . ' -6 day'));
-    $rows = scopedQuery(
+    $rows = staffingTimeQuery(
         "SELECT placement_id, work_date, hour_type, hours, description
            FROM time_entries
           WHERE tenant_id = :tenant_id
@@ -1139,7 +1154,7 @@ function staffingTimesheetBulkReject(int $userId, array $ids, string $reason): a
                 AND status = 'pending_review'"
         );
         foreach ($ids as $headerId) {
-            scopedUpdate('staffing_timesheets', $headerId, [
+            staffingTimeUpdate('staffing_timesheets', $headerId, [
                 'status'              => 'rejected',
                 'rejected_at'         => date('Y-m-d H:i:s'),
                 'rejected_by_user_id' => $userId,
@@ -1475,21 +1490,26 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?st
 // the moment its first entry is touched, so the downstream
 // billing/payroll/journal pipeline re-evaluates on the next submission.
 //
-// Anyone with `staffing.timesheets.write` (enforced at the API layer)
-// may edit any timesheet — original worker OR a manager fixing it
-// in-place, per product direction (2026-02).
+// The API distinguishes worker editing from reviewer access. Approved,
+// superseded, imported and settled entries retain their correction workflows.
 
 /**
  * Re-open a timesheet header so its entries can be edited.  Cascades to
- * a flat re-stage of every non-superseded entry back to `draft` and
- * records an audit row so we can prove the manager touched it.
+ * pending/rejected entries return to draft; approved siblings stay unchanged.
+ * The original time facts and lifecycle event share one rollback boundary.
  */
 function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason = ''): array {
-    $header = scopedFind(
+    return StaffingNativeTimeEdit::run(static fn():array=>staffingTimesheetReopenLocked($userId,$timesheetId,$reason));
+}
+
+function staffingTimesheetReopenLocked(int $userId, int $timesheetId, string $reason = ''): array {
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected native time edit is required.');
+    $header = staffingTimeFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $timesheetId]
     );
     if (!$header) throw new \RuntimeException("timesheet #{$timesheetId} not found");
+    staffingTimeAssertEditableHeader($header,true);
     if ($header['status'] === 'draft') return $header; // already editable, no-op
     if (in_array($header['status'], ['approved','payroll_ready','billing_ready','locked'], true)) {
         throw new \RuntimeException(
@@ -1498,14 +1518,14 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
         );
     }
 
-    $settled = scopedQueryOne(
+    $settled = staffingTimeFind(
         'SELECT id, bill_extracted_at, bill_extracted_ref,
                 ap_extracted_at, ap_extracted_ref,
                 payroll_extracted_at, payroll_extracted_ref
            FROM time_entries
           WHERE tenant_id = :tenant_id
             AND timesheet_id = :tid
-            AND status != "superseded"
+            AND status IN ("draft","pending_review","rejected")
             AND (bill_extracted_at IS NOT NULL OR bill_extracted_ref IS NOT NULL
               OR ap_extracted_at IS NOT NULL OR ap_extracted_ref IS NOT NULL
               OR payroll_extracted_at IS NOT NULL OR payroll_extracted_ref IS NOT NULL)
@@ -1523,7 +1543,7 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
-        scopedUpdate('staffing_timesheets', $timesheetId, [
+        staffingTimeUpdate('staffing_timesheets', $timesheetId, [
             'status'           => 'draft',
             'rejection_reason' => $reason !== '' ? $reason : null,
             'rejected_at'      => $reason !== '' ? date('Y-m-d H:i:s') : null,
@@ -1533,7 +1553,7 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
             "UPDATE time_entries
                 SET status = 'draft', rejected_reason = NULL
               WHERE tenant_id = :t AND timesheet_id = :tid
-                AND status IN ('pending_review','approved','rejected','payroll_ready','billing_ready')"
+                AND status IN ('pending_review','rejected')"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $timesheetId]);
         staffingTimesheetRecordArtifactEvent($timesheetId, 'timesheet.reopened', $userId, [
@@ -1544,7 +1564,7 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
         cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
-    return scopedFind(
+    return staffingTimeFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $timesheetId]
     );
@@ -1558,6 +1578,11 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
  * @return array The updated/inserted row + the parent header.
  */
 function staffingTimeEntrySave(int $userId, array $payload): array {
+    return StaffingNativeTimeEdit::run(static fn():array=>staffingTimeEntrySaveLocked($userId,$payload));
+}
+
+function staffingTimeEntrySaveLocked(int $userId, array $payload): array {
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected native time edit is required.');
     $entryId   = (int) ($payload['id'] ?? 0);
     $tsId      = (int) ($payload['timesheet_id'] ?? 0);
     if ($entryId <= 0 && $tsId <= 0) {
@@ -1567,29 +1592,26 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
     // Resolve the parent timesheet so we can auto-reopen.
     $existing = null;
     if ($entryId > 0) {
-        $existing = scopedFind(
+        $existing = staffingTimeFind(
             'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
             ['id' => $entryId]
         );
         if (!$existing) throw new \RuntimeException("time_entry #{$entryId} not found");
+        if ($tsId>0 && $tsId!==(int)$existing['timesheet_id']) throw new RuntimeException('The entry belongs to a different timesheet.',409);
         $tsId = (int) $existing['timesheet_id'];
     }
     if ($tsId <= 0) throw new \RuntimeException('timesheet_id could not be resolved');
 
-    $header = scopedFind(
+    $header = staffingTimeFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $tsId]
     );
     if (!$header) throw new \RuntimeException("timesheet #{$tsId} not found");
 
-    if ($existing) staffingTimesheetAssertEntryNotSettled($existing);
-
-    // Per product direction (2026-02): anyone with timesheets.write can
-    // edit any timesheet, including ones already submitted/approved.
-    // We auto-reopen so the existing draft-only constraints below stay
-    // intact without forcing the operator to click twice.
-    if ($header['status'] !== 'draft') {
-        $header = staffingTimesheetReopen($userId, $tsId, 'edited inline');
+    staffingTimeAssertEditableHeader($header);
+    if ($existing) {
+        if ((int)$existing['person_id']!==(int)$header['person_id']) throw new RuntimeException('Review the original entry worker before editing.',409);
+        staffingTimeAssertEditableEntry($existing);
     }
 
     $hourType = $payload['hour_type'] ?? ($existing['hour_type'] ?? 'regular');
@@ -1610,15 +1632,18 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
     staffingTimesheetAssertWorkDateInWeek($workDate, (string) $header['period_start'], (string) $header['period_end']);
     staffingTimesheetValidatePlacement($placementId, $personId, $workDate);
     staffingTimesheetAssertDailyHours($personId, $workDate, $hours, $entryId);
+    // Validation and reopening share the same rollback boundary. Approved
+    // siblings retain their status and immutable approval evidence.
+    if ($header['status'] !== 'draft') $header = staffingTimesheetReopen($userId, $tsId, 'edited inline');
 
     // Period resolution (same logic as bulk_save).
-    $period = scopedFind(
+    $period = staffingTimeFind(
         "SELECT id FROM time_periods
           WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi AND status != 'closed'
           ORDER BY start_date DESC LIMIT 1",
         ['wd_lo' => $workDate, 'wd_hi' => $workDate]
     );
-    $periodId = $period ? (int) $period['id'] : (int) scopedInsert('time_periods', [
+    $periodId = $period ? (int) $period['id'] : (int) staffingTimeInsert('time_periods', [
         'period_type' => 'weekly',
         'start_date'  => (string) $header['period_start'],
         'end_date'    => (string) $header['period_end'],
@@ -1649,59 +1674,65 @@ function staffingTimeEntrySave(int $userId, array $payload): array {
     ];
 
     if ($entryId > 0) {
-        scopedUpdate('time_entries', $entryId, $row);
+        staffingTimeUpdate('time_entries', $entryId, $row);
         $finalId = $entryId;
     } else {
         $row['created_by_user_id'] = $userId;
-        $finalId = (int) scopedInsert('time_entries', $row);
+        $finalId = (int) staffingTimeInsert('time_entries', $row);
     }
 
     // Recompute header total_hours.
-    $sum = scopedFind(
+    $sum = staffingTimeFind(
         "SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
           WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
         ['tid' => $tsId]
     );
-    scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
-    $updatedHeader = staffingTimesheetRecordArtifactEvent($tsId, 'timesheet.entry_saved', $userId, [
-        'entry_id' => $finalId,
-        'source' => 'manual_entry',
-    ]);
-
-    $saved = scopedFind(
+    staffingTimeUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+    $saved = staffingTimeFind(
         'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $finalId]
     );
+    $updatedHeader = staffingTimesheetRecordArtifactEvent($tsId, 'timesheet.entry_saved', $userId, [
+        'entry_id'=>$finalId,'source'=>'manual_entry','before'=>$existing,'after'=>$saved,
+    ]);
     return ['entry' => $saved, 'timesheet' => $updatedHeader];
 }
 
 /** Delete a single time entry.  Auto-reopens the parent if needed. */
 function staffingTimeEntryDelete(int $userId, int $entryId): array {
-    $row = scopedFind(
+    return StaffingNativeTimeEdit::run(static fn():array=>staffingTimeEntryDeleteLocked($userId,$entryId));
+}
+
+function staffingTimeEntryDeleteLocked(int $userId, int $entryId): array {
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected native time edit is required.');
+    $row = staffingTimeFind(
         'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $entryId]
     );
     if (!$row) throw new \RuntimeException("time_entry #{$entryId} not found");
-    staffingTimesheetAssertEntryNotSettled($row);
+    staffingTimeAssertEditableEntry($row);
     $tsId = (int) $row['timesheet_id'];
-    $header = scopedFind(
+    $header = staffingTimeFind(
         'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $tsId]
     );
+    if (!$header || (int)$header['person_id']!==(int)$row['person_id']) throw new RuntimeException('Review the original entry timesheet and worker before deleting.',409);
+    staffingTimeAssertEditableHeader($header);
     if ($header && $header['status'] !== 'draft') {
         staffingTimesheetReopen($userId, $tsId, 'entry deleted inline');
     }
-    scopedDelete('time_entries', $entryId);
+    staffingTimeDelete('time_entries', $entryId);
 
     // Recompute header total_hours.
-    $sum = scopedFind(
+    $sum = staffingTimeFind(
         "SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
           WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
         ['tid' => $tsId]
     );
-    scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+    staffingTimeUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
     $updatedHeader = staffingTimesheetRecordArtifactEvent($tsId, 'timesheet.entry_deleted', $userId, [
         'entry_id' => $entryId,
+        'before'=>$row,
     ]);
     return ['deleted' => $entryId, 'timesheet_id' => $tsId, 'timesheet' => $updatedHeader];
 }

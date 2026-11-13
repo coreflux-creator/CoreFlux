@@ -68,13 +68,13 @@ $a('STAFFING_HOUR_TYPE_TO_CATEGORY map present', str_contains($lib, 'STAFFING_HO
 $a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains($lib, 'staffingTimesheetUpsert') && str_contains($lib, 'period_start = :ps') && str_contains($lib, 'staffing_timesheets'));
 $a('staffingTimesheetWeek joins placements + reads end_client_name', str_contains($lib, 'LEFT JOIN placements') && str_contains($lib, 'end_client_name'));
 $a('staffingTimesheetBulkSave wraps in transaction', str_contains($lib, '$pdo->beginTransaction()') || str_contains($lib, 'cf_tx_begin($pdo)'));
-$a('zero hours → delete existing row',           str_contains($lib, '$hours <= 0 && $entryId > 0') && str_contains($lib, "scopedDelete('time_entries'"));
+$a('zero hours → delete existing row',           str_contains($lib, '$hours <= 0 && $entryId > 0') && str_contains($lib, "staffingTimeDelete('time_entries'"));
 $a('submitted or rejected sheets can return to draft for correction',
-   str_contains($lib, "status IN ('pending_review','approved','rejected','payroll_ready','billing_ready')"));
+   str_contains($lib, "status IN ('pending_review','rejected')"));
 $a('approved, downstream-ready, and locked sheets require a downstream correction first',
    str_contains($lib, "['approved','payroll_ready','billing_ready','locked']")
    && str_contains($lib, 'Reverse or correct the downstream records'));
-$a('submit() flips header + cascades rows',      str_contains($lib, "scopedUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
+$a('submit() flips header + cascades rows',      str_contains($lib, "staffingTimeUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
 $a('approve() guards two-eye control',           str_contains($lib, 'Two-eye control'));
 $a('reject() requires reason on header',         str_contains($lib, "'rejection_reason'    => \$reason"));
 

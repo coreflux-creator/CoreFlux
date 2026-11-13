@@ -29,7 +29,8 @@ $check('daily total cannot exceed 24 hours',
 $check('existing row IDs cannot be moved across timesheets',
     str_contains($lib, 'does not belong to this timesheet'));
 $check('settled time cannot be edited or deleted silently',
-    substr_count($lib, 'staffingTimesheetAssertEntryNotSettled') >= 4);
+    substr_count($lib, 'staffingTimeAssertEditableEntry(') === 3
+    && str_contains($read('modules/staffing/lib/native_time_edit.php'), 'staffingTimesheetAssertEntryNotSettled($entry)'));
 $check('approved and downstream-ready timesheets cannot be casually reopened',
     str_contains($lib, "['approved','payroll_ready','billing_ready','locked']"));
 $check('reading an empty week does not create a database header',

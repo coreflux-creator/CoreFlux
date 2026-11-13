@@ -6,6 +6,7 @@ if(($argv[1]??'')!=='worker'){putenv('COREFLUX_DATA_KEY='.base64_encode(random_b
 require_once __DIR__.'/../modules/people/lib/company_merge_review.php';
 require_once __DIR__.'/../modules/staffing/lib/job_write.php';
 require_once __DIR__.'/../modules/staffing/lib/client_write.php';
+require_once __DIR__.'/../modules/staffing/lib/timesheets.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/jobdiva/sync_placements.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
@@ -28,6 +29,13 @@ function nativePlacementRaceWrite(array $input): array
 {
     setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
     return ['id'=>$input['placement_id']]+placementApplyNativeEdit($input['placement_id'],$input['patch'],['id'=>$input['actor'],'role'=>'admin'],'patch_status');
+}
+
+function nativeTimeRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('staffing');
+    $result=staffingTimeEntrySave($input['actor'],$input['payload']);
+    return ['id'=>$result['entry']['id']]+$result;
 }
 
 function clientSourceRaceWrite(array $input): array
@@ -144,6 +152,7 @@ if(($argv[1]??'')==='worker'){
                 'client_accept'=>staffingClientSourceAccept($input['workspace'],$input['client_id'],$input['source_key'],$input['fields'],$input['review_token'],$input['actor']),
                 'client_repair'=>jobdivaRepairPlacementClientLink($input['workspace'],$input['mapping_id'],$input['actor']),
                 'native_placement'=>nativePlacementRaceWrite($input),
+                'native_time'=>nativeTimeRaceWrite($input),
                 'assignment_source'=>assignmentSourceRaceWrite($input),
                 'economic_graph'=>['id'=>$input['placement_id']]+placementEconomicsReconcile($input['workspace'],$input['placement_id']),
                 'source_rules'=>sourceRuleRaceWrite($input),
@@ -730,6 +739,7 @@ try{
     require __DIR__.'/fixtures/placement_merge_source_concurrency_checks.php';
     require __DIR__.'/fixtures/placement_terminal_census_concurrency_checks.php';
     require __DIR__.'/fixtures/review_contract_concurrency_checks.php';
+    require __DIR__.'/fixtures/native_time_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);

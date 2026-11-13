@@ -73,7 +73,7 @@ function staffingApiRequirePersonWrite(array $ctx, int $personId, string $ownPer
 
 function staffingApiTimesheetPersonId(int $timesheetId): int
 {
-    $row = scopedFind(
+    $row = staffingTimeFind(
         'SELECT person_id FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $timesheetId]
     );
@@ -83,12 +83,23 @@ function staffingApiTimesheetPersonId(int $timesheetId): int
 
 function staffingApiEntryPersonId(int $entryId): int
 {
-    $row = scopedFind(
+    $row = staffingTimeFind(
         'SELECT person_id FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
         ['id' => $entryId]
     );
     if (!$row) api_error('time entry not found', 404);
     return (int) $row['person_id'];
+}
+
+/** Keep storage errors private while retaining actionable edit conflicts. */
+function staffingApiTimeEditError(Throwable $error, int $defaultStatus=400): array
+{
+    if ($error instanceof PDOException || !($error instanceof RuntimeException || $error instanceof InvalidArgumentException)) {
+        error_log('Native time edit failed: '.get_class($error).' '.$error->getMessage());
+        return ['message'=>'Time could not be saved. Reload and try again.', 'status'=>503];
+    }
+    $status=(int)$error->getCode();
+    return ['message'=>$error->getMessage(), 'status'=>in_array($status,[403,404,409,422,503],true)?$status:$defaultStatus];
 }
 
 /** Attach durable artifact and approval-token metadata without exposing secrets. */
@@ -230,7 +241,7 @@ if ($method === 'GET' && $action === 'list') {
     if (empty($_GET['include_empty']))  { $where[] = 't.total_hours > 0'; }
     $whereSql = implode(' AND ', $where);
 
-    $rows = scopedQuery(
+    $rows = staffingTimeQuery(
         "SELECT t.id, t.artifact_id, t.person_id, t.worker_user_id,
                 t.period_start, t.period_end, t.status,
                 t.origin_source, t.origin_system, t.created_by_user_id,
@@ -300,7 +311,7 @@ if ($method === 'GET' && $action === 'week_economics') {
     // Read from the staffing reports view if present — gives accurate
     // revenue / cost / GP per row with bill/pay rates joined.
     try {
-        $rows = scopedQuery(
+        $rows = staffingTimeQuery(
             "SELECT v.placement_id,
                     SUM(v.hours)        AS hours,
                     SUM(v.revenue)      AS revenue,
@@ -339,7 +350,7 @@ if ($method === 'GET' && $action === 'week_economics') {
 if ($method === 'GET' && $action === 'detail') {
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
-    $header = scopedFind(
+    $header = staffingTimeFind(
         'SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
                 t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
@@ -352,7 +363,7 @@ if ($method === 'GET' && $action === 'detail') {
     );
     if (!$header) api_error('timesheet not found', 404);
     staffingApiRequirePersonRead($ctx, (int) $header['person_id']);
-    $entries = scopedQuery(
+    $entries = staffingTimeQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
                 qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
@@ -402,7 +413,7 @@ if ($method === 'GET' && in_array($action, ['list_for_placement','detail_for_pla
 // Operators want to edit a single time entry from any drill-in (People,
 // Placement, or the timesheet detail page) without rebuilding the whole
 // week.  These endpoints back the inline edit row + delete button.
-// Auto-reopen handles the previously-submitted/approved case in
+// Auto-reopen handles submitted/rejected time while preserving approved entries in
 // `staffingTimeEntrySave()`.
 if ($method === 'POST' && $action === 'entry_save') {
     $body  = api_json_body();
@@ -416,7 +427,7 @@ if ($method === 'POST' && $action === 'entry_save') {
         $result = staffingTimeEntrySave((int) ($user['id'] ?? 0), $body);
         api_ok($result);
     } catch (\Throwable $e) {
-        api_error($e->getMessage(), 400);
+        $failure=staffingApiTimeEditError($e);api_error($failure['message'],$failure['status']);
     }
 }
 if ($method === 'POST' && $action === 'entry_delete') {
@@ -427,7 +438,7 @@ if ($method === 'POST' && $action === 'entry_delete') {
     try {
         api_ok(staffingTimeEntryDelete((int) ($user['id'] ?? 0), $entryId));
     } catch (\Throwable $e) {
-        api_error($e->getMessage(), 400);
+        $failure=staffingApiTimeEditError($e);api_error($failure['message'],$failure['status']);
     }
 }
 
@@ -441,7 +452,7 @@ if ($method === 'POST' && $action === 'reopen') {
     try {
         api_ok(['timesheet' => staffingTimesheetReopen((int) ($user['id'] ?? 0), $tsId, $reason)]);
     } catch (\Throwable $e) {
-        api_error($e->getMessage(), 400);
+        $failure=staffingApiTimeEditError($e);api_error($failure['message'],$failure['status']);
     }
 }
 
@@ -451,7 +462,7 @@ if ($method === 'GET' && $action === 'list_for_person') {
     if ($personId <= 0) api_error('person_id required', 400);
     staffingApiRequirePersonRead($ctx, $personId);
     $limit = max(1, min(200, (int) ($_GET['limit'] ?? 50)));
-    $rows = scopedQuery(
+    $rows = staffingTimeQuery(
         "SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
                 t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
@@ -489,7 +500,8 @@ if ($method === 'POST' && $action === 'entries_bulk_save') {
             staffingApiRequirePersonWrite($ctx, $personId, 'staffing.time.create');
             $results[] = staffingTimeEntrySave((int) ($user['id'] ?? 0), $row);
         } catch (\Throwable $e) {
-            $errors[] = ['index' => $i, 'error' => $e->getMessage(), 'row' => $row];
+            $failure=staffingApiTimeEditError($e);
+            $errors[] = ['index' => $i, 'error' => $failure['message'], 'row' => $row];
         }
     }
     api_ok([
@@ -523,7 +535,7 @@ if ($method === 'GET' && $action === 'approved_entries') {
     elseif ($purpose === 'billable') $where[] = 'te.billable = 1';
     $whereSql = implode(' AND ', $where);
 
-    $rows = scopedQuery(
+    $rows = staffingTimeQuery(
         "SELECT te.id, te.placement_id, te.person_id, te.work_date, te.hour_type,
                 te.hours, te.billable, te.payable, te.status, te.description,
                 pl.title AS placement_title,
@@ -636,9 +648,9 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
 
     try {
         $scopeParams = ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId];
-        $billing  = scopedQuery($billingSql, $scopeParams)[0]  ?? [];
-        $ap       = scopedQuery($apSql, $scopeParams)[0]       ?? [];
-        $payroll  = scopedQuery($payrollSql, $scopeParams)[0]  ?? [];
+        $billing  = staffingTimeQuery($billingSql, $scopeParams)[0]  ?? [];
+        $ap       = staffingTimeQuery($apSql, $scopeParams)[0]       ?? [];
+        $payroll  = staffingTimeQuery($payrollSql, $scopeParams)[0]  ?? [];
     } catch (\Throwable $e) { api_error($e->getMessage(), 500); }
 
     $estBilling = (float) ($billing['estimated_amount'] ?? 0);
@@ -681,7 +693,7 @@ if ($method === 'POST' && $action === 'bulk_save') {
         $snap = staffingTimesheetBulkSave((int) ($user['id'] ?? 0), $body);
         api_ok(['ok' => true, 'timesheet' => $snap['timesheet'], 'entries' => $snap['entries']]);
     } catch (\Throwable $e) {
-        api_error('Bulk save failed: ' . $e->getMessage(), 422);
+        $failure=staffingApiTimeEditError($e,422);api_error($failure['message'],$failure['status']);
     }
 }
 

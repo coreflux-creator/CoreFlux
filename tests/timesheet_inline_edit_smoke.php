@@ -306,10 +306,14 @@ $a('edit buffer reset keyed ONLY on timesheet id (not entries.length)',
     str_contains($det, 'useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id]);'));
 
 $lib = file_get_contents($root . '/modules/staffing/lib/timesheets.php');
-$a('staffingTimeEntrySave auto-reopens non-draft sheets',
-    preg_match("/function staffingTimeEntrySave[\s\S]{0,2000}staffingTimesheetReopen\\(\\\$userId, \\\$tsId, 'edited inline'\\)/", $lib) === 1);
-$a('staffingTimeEntryDelete auto-reopens non-draft sheets',
-    preg_match("/function staffingTimeEntryDelete[\s\S]{0,800}staffingTimesheetReopen\\(\\\$userId, \\\$tsId, 'entry deleted inline'\\)/", $lib) === 1);
+$saveBody = substr($lib, strpos($lib, 'function staffingTimeEntrySaveLocked('), strpos($lib, 'function staffingTimeEntryDelete(') - strpos($lib, 'function staffingTimeEntrySaveLocked('));
+$deleteBody = substr($lib, strpos($lib, 'function staffingTimeEntryDeleteLocked('));
+$a('staffingTimeEntrySave validates before reopening eligible sheets',
+    strpos($saveBody, 'staffingTimesheetValidatePlacement(') < strpos($saveBody, 'staffingTimesheetReopen(')
+    && str_contains($saveBody, "'edited inline'"));
+$a('staffingTimeEntryDelete checks editable evidence before reopening',
+    strpos($deleteBody, 'staffingTimeAssertEditableEntry(') < strpos($deleteBody, 'staffingTimesheetReopen(')
+    && str_contains($deleteBody, "'entry deleted inline'"));
 
 // ──────────────────────────────────────────────────────────────────────
 echo "\n=========================================\n";

@@ -403,6 +403,7 @@ try {
     require __DIR__.'/fixtures/joined_index_http_checks.php';
     require __DIR__.'/fixtures/live_contract_http_checks.php';
     require __DIR__.'/fixtures/placement_merge_http_checks.php';
+    require __DIR__.'/fixtures/native_time_edit_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
