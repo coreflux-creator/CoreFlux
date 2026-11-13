@@ -121,8 +121,24 @@ try {
         &&$older['next_before']===null&&$lh['historical_evidence'],'bounded line association history reaches original and reviewed snapshots');
     $check($fails(fn()=>purepayFinancialLineHistory($pdo,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',$owners,$captureId,$lineId)),'foreign installation cannot read association history');
     $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3 WHERE entity_type="placement" AND record_id=1');
-    $check($fails($linePreview),'merged placement number cannot silently redirect an association');
+    $check($fails($linePreview),'active placement with conflicting alias cannot redirect an association');
     $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1 WHERE entity_type="placement" AND record_id=1');
+    $pdo->exec('ALTER TABLE core_record_numbers ADD aliased_at DATETIME NULL');
+    $beforeMerge=$linePreview();
+    $pdo->exec('UPDATE placements SET deleted_at=NOW() WHERE id=1');
+    $check($fails($linePreview),'ordinary archived placement cannot masquerade as a reviewed alias');
+    $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3,aliased_at=NOW() WHERE entity_type="placement" AND record_id=1');
+    $mergeReview=$linePreview();
+    $check($mergeReview['target']['placement_id']===1 && $mergeReview['target']['placement']['number']==='PL-1'
+        && $mergeReview['target']['current_placement']['number']==='PL-3','merged financial line keeps original placement with separate current-number context');
+    staffingDictionaryAssertPayload('purepay_financial_line_association','purepay',$mergeReview['target'],'target');
+    $check($fails(fn()=>$lineSave($beforeMerge)) && $lineCount()===2,'merge invalidates the pre-merge financial association review');
+    $check($fails(fn()=>$linePreview('PL-3')) && $lineCount()===2,'merged source line cannot be reassigned to the survivor physical row');
+    $historyAfterMerge=purepayFinancialLineHistory($pdo,1,$instance,$owners,$captureId,$lineId);
+    $check($historyAfterMerge['items'][0]['id']===$revised['link']['id']
+        && $historyAfterMerge['items'][0]['saved']['target']['placement_id']===1,'retained encrypted association remains readable unchanged after merge');
+    $pdo->exec('UPDATE placements SET deleted_at=NULL WHERE id=1');
+    $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1,aliased_at=NULL WHERE entity_type="placement" AND record_id=1');
     $wire['bill']['document']['line_items'][0]['description']='Corrected source period';
     $wire['bill']['observation_hash']=purepayFinancialObservationHash($wire['bill']);
     $check($fails($linePreview)&&$lineCount()===2,'changed source description requires a new capture before association');

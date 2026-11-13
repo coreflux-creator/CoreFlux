@@ -64,6 +64,28 @@ $check(count($p['packet']['components'])===2 && $p['packet']['components'][1]['r
 $check($p['packet']['components'][0]['person']['directory_tenant_id']===10 && $p['packet']['components'][0]['placement']['directory_tenant_id']===20 && $p['packet']['time_tenant_id']===1,'source and shared directory owners remain distinct');
 $check($fails(fn()=>purepayPayrollInputPreview($pdo,1,7,$instance,['time'=>2,'people'=>1,'placements'=>20],'P-1','2026-10-01','2026-10-15')),'foreign directory cannot supply the payroll person');
 $check($preview()['delivery']['id']===$p['delivery']['id'],'identical preview reuses durable input review');
+$pdo->exec('ALTER TABLE core_record_numbers ADD aliased_at DATETIME NULL');
+$pdo->exec("INSERT INTO placements VALUES(3,20,'Current assignment after merge',1,1,'w2','on_hold','2026-11-01',NULL,NULL,NULL)");
+$pdo->exec("INSERT INTO core_record_numbers VALUES(20,'placement',3,3,'PL-3',NULL)");
+$pdo->exec("INSERT INTO placement_rates VALUES(3,20,3,199.0000,'hour','USD',2.00,NOW())");
+$pdo->exec('UPDATE placements SET deleted_at=NOW() WHERE id=1');
+$check($fails($preview),'ordinary placement archive does not acquire historical merge access');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3,aliased_at=NOW() WHERE entity_type="placement" AND record_id=1');
+$alias=$preview();$component=$alias['packet']['components'][0];
+$check($component['placement']['number']==='PL-1' && $component['assignment_id']==='assignment-a' && $component['rate']['snapshot_id']===1
+    && $component['rate']['pay_rate']==='52.5000','merged placement keeps original approved rate, permanent number and delivered assignment link');
+$check($alias['packet']===$p['packet'] && $alias['delivery']['id']!==$p['delivery']['id'],'merge changes local review evidence without rewriting the provider packet');
+$check($fails(fn()=>purepayCoreLinkSource($pdo,$instance,20,'placement','PL-1')),'retired number cannot create a new operational provider link');
+$pdo->exec('UPDATE integration_deliveries SET state="preview" WHERE operation="record.link" AND entity_type="placement" AND entity_id=1');
+$check($fails($preview),'historical payroll cannot borrow the survivor or another placement provider link');
+$pdo->exec('UPDATE integration_deliveries SET state="delivered" WHERE operation="record.link" AND entity_type="placement" AND entity_id=1');
+$pdo->exec('UPDATE placements SET deleted_at=NOW() WHERE id=3');
+$check($fails($preview),'unavailable canonical target blocks historical payroll review');
+$pdo->exec('UPDATE placements SET deleted_at=NULL WHERE id=3');
+putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY=1');
+$check($fails(fn()=>$send($p)) && $posts===0,'pre-merge unsent review cannot pass the changed identity evidence');
+$pdo->exec('UPDATE placements SET deleted_at=NULL WHERE id=1');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1,aliased_at=NULL WHERE entity_type="placement" AND record_id=1');
 putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY=1');
 $pdo->exec('UPDATE placement_rates SET pay_rate=99.0000 WHERE id=1');
 $check($fails(fn()=>$send($p)) && $posts===0,'frozen rate drift invalidates unsent review');

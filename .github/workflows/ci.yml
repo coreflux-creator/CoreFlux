@@ -691,6 +691,7 @@ jobs:
           php tests/jobdiva_live_contract_db_check.php --confirm-disposable-fixture
           php tests/jobdiva_alignment_report_db_check.php --confirm-disposable-fixture
           php tests/jobdiva_active_restore_db_check.php --confirm-disposable-fixture
+          php tests/placement_identity_db_check.php --confirm-disposable-fixture
       - name: Verify saved subcontract company preview and apply evidence
         run: php tests/jobdiva_subcontract_review_evidence_db_check.php --confirm-disposable-fixture
       - name: Verify atomic native participant creation and removal

@@ -342,12 +342,12 @@ function staffingWorkflowPayloadFields(array $columns): array
         $links[$path]=['string|null','Recorded source or placement value. Unknown values remain null.'];
     foreach(['future_item_rule','time_entries_matched','currency_verified','ledger_posted','provider_changed']as$path)
         $links[$path]=['boolean','Always false for a source-line association; separate workflows establish other facts.'];
-    foreach(['placement','person']as$type)foreach($reference as$path=>$definition)$links['target.'.$type.'.'.$path]=$definition;
+    foreach(['placement','person','current_placement']as$type)foreach($reference as$path=>$definition)$links['target.'.$type.'.'.$path]=$definition;
     foreach($fields as$path=>$definition)if(str_starts_with($path,'document.line_items[].'))
         $links['source.line.'.substr($path,strlen('document.line_items[].'))]=$definition;
     $add('purepay_financial_line_association','purepay_financial_line_links.payload_ct','','purepay',
-        '/api/purepay_financial_line_links.php','core_review_only','2026-10-30.1',
+        '/api/purepay_financial_line_links.php','core_review_only','2026-11-13.1',
         'core/integrations/purepay_financial_line_links.php',$links,'core_financial_review',
-        'explicit_line_and_canonical_placement_review; immutable_encrypted_history; no_provider_write_or_future_item_rule','','financial_evidence');
+        'explicit_line_and_original_placement_review; optional_current_placement_alias_never_replaces_original_identity; immutable_encrypted_history; no_provider_write_or_future_item_rule','','financial_evidence');
     return $rows;
 }

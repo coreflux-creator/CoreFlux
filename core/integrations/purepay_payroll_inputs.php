@@ -61,11 +61,9 @@ function purepayPayrollInputBuild(PDO $pdo,int $tenant,string $instance,array $o
     foreach($entries as$entry) {
         if(empty($entry['approved_at']) || !empty($entry['superseded_by_id']) || !empty($entry['payroll_extracted_at'])
             || !empty($entry['payroll_extracted_ref']) || (isset($entry['payable']) && (int)$entry['payable']!==1))throw new RuntimeException('An entry is not payable, no longer approved, or already extracted for payroll. Review its source before continuing.');
-        $s=$pdo->prepare('SELECT n.record_number FROM placements p JOIN core_record_numbers n ON n.tenant_id=p.tenant_id AND n.entity_type="placement" AND n.record_id=p.id AND n.canonical_record_id=p.id
-            WHERE p.tenant_id=:t AND p.id=:p AND p.person_id=:person AND p.deleted_at IS NULL AND p.engagement_type="w2" LIMIT 2');
-        $s->execute(['t'=>$owners['placements'],'p'=>$entry['placement_id'],'person'=>$person['entity_id']]);$numbers=$s->fetchAll(PDO::FETCH_COLUMN);
-        if(count($numbers)!==1)throw new RuntimeException('An approved entry has no current W-2 placement in the authorized directory.');
-        $placement=purepayCoreLinkSource($pdo,$instance,$owners['placements'],'placement',$numbers[0]);
+        $placement=purepayCorePlacementHistorySource($pdo,$instance,$owners['placements'],(int)$entry['placement_id'],true);
+        if((int)$placement['record']['person_id']!==$person['entity_id'] || $placement['record']['engagement_type']!=='w2')
+            throw new RuntimeException('An approved entry has no matching historical W-2 placement in the authorized directory.');
         $placementLink=purepayPayrollInputLink($pdo,$tenant,$access['connection'],$placement,$org);
         $s=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=:t AND placement_id=:p AND id=:r AND approved_at IS NOT NULL');
         $s->execute(['t'=>$owners['placements'],'p'=>$entry['placement_id'],'r'=>$entry['rate_snapshot_id']]);$rate=$s->fetch(PDO::FETCH_ASSOC);

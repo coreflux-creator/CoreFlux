@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/purepay_financial_observations.php';
 require_once __DIR__.'/identity.php';
+require_once __DIR__.'/../../modules/placements/lib/identity.php';
 
 final class PurePayFinancialLineReviewException extends RuntimeException {}
 
@@ -17,21 +18,23 @@ function purepayFinancialLineTarget(PDO $pdo,string $instance,array $owners,stri
 {
     purepayFinancialLineOwners($owners);
     $reference=integrationRecordReference($instance,$owners['placements'],'placement',$number);
-    $q=$pdo->prepare('SELECT p.id,p.person_id,p.title,p.status,p.start_date,COALESCE(p.actual_end_date,p.end_date) AS end_date,
-        pn.record_number AS person_number,pe.first_name,pe.last_name
-        FROM placements p JOIN core_record_numbers n ON n.tenant_id=p.tenant_id AND n.entity_type="placement"
-            AND n.record_id=p.id AND n.canonical_record_id=p.id
-        JOIN people pe ON pe.id=p.person_id AND pe.tenant_id=? AND pe.deleted_at IS NULL
+    $identity=placementNumberIdentityResolve($pdo,$owners['placements'],$number,$lock);
+    if(!$identity)throw new PurePayFinancialLineReviewException('The placement is unavailable in the authorized directory.');
+    $p=$identity['source_placement'];
+    $q=$pdo->prepare('SELECT pn.record_number AS person_number,pe.first_name,pe.last_name
+        FROM people pe
         JOIN core_record_numbers pn ON pn.tenant_id=pe.tenant_id AND pn.entity_type="person"
             AND pn.record_id=pe.id AND pn.canonical_record_id=pe.id
-        WHERE p.tenant_id=? AND n.record_number=? AND p.deleted_at IS NULL LIMIT 2'.($lock?' FOR UPDATE':''));
-    $q->execute([$owners['people'],$owners['placements'],$number]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+        WHERE pe.tenant_id=? AND pe.id=? AND pe.deleted_at IS NULL LIMIT 2'.($lock?' FOR UPDATE':''));
+    $q->execute([$owners['people'],$p['person_id']]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
     if(count($rows)!==1)throw new PurePayFinancialLineReviewException('The placement or person is unavailable in the authorized directories.');
     $r=$rows[0];
-    return ['placement'=>$reference,'placement_id'=>(int)$r['id'],
+    $target=['placement'=>$reference,'placement_id'=>$identity['source_id'],
         'person'=>integrationRecordReference($instance,$owners['people'],'person',$r['person_number']),
-        'person_id'=>(int)$r['person_id'],'person_name'=>trim($r['first_name'].' '.$r['last_name']),
-        'title'=>$r['title'],'status'=>$r['status'],'start_date'=>$r['start_date'],'end_date'=>$r['end_date']];
+        'person_id'=>(int)$p['person_id'],'person_name'=>trim($r['first_name'].' '.$r['last_name']),
+        'title'=>$p['title'],'status'=>$p['status'],'start_date'=>$p['start_date'],'end_date'=>$p['actual_end_date']??$p['end_date']];
+    if($identity['merged'])$target['current_placement']=integrationRecordReference($instance,$owners['placements'],'placement',$identity['placement_number']);
+    return $target;
 }
 
 function purepayFinancialLineCapture(PDO $pdo,int $tenant,array $context,int $id,bool $lock=false): array

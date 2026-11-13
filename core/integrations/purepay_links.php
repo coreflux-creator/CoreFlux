@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_core.php';
 require_once __DIR__.'/../record_numbers.php';
+require_once __DIR__.'/../../modules/placements/lib/identity.php';
 
 function purepayCoreLinkEnabled(?int $tenant=null): bool
 {
@@ -29,6 +30,21 @@ function purepayCoreLinkSource(PDO $pdo,string $instance,int $owner,string $kind
     if(count($rows)!==1)throw new RuntimeException('This current Core number is unavailable in the authorized directory. Review merged or missing records first.');
     return ['entity_tenant_id'=>$owner,'entity_id'=>(int)$rows[0]['id'],
         'reference'=>integrationRecordReference($instance,$owner,$kind,$number),'record'=>$rows[0]];
+}
+
+/** Historical time keeps its original number and provider link; current assignment publishing uses LinkSource. */
+function purepayCorePlacementHistorySource(PDO $pdo,string $instance,int $owner,int $id,bool $lock=false): array
+{
+    $identity=placementIdentityResolve($pdo,$owner,$id,$lock);
+    if(!$identity)throw new RuntimeException('The historical placement is unavailable in its authorized directory.');
+    $p=$identity['source_placement'];
+    $record=['id'=>$p['id'],'name'=>$p['title'],'person_id'=>$p['person_id'],'client_id'=>$p['client_id'],
+        'engagement_type'=>$p['engagement_type'],'status'=>$p['status'],'start_date'=>$p['start_date'],
+        'end_date'=>$p['actual_end_date']??$p['end_date']];
+    $source=['entity_tenant_id'=>$owner,'entity_id'=>$identity['source_id'],
+        'reference'=>integrationRecordReference($instance,$owner,'placement',$identity['source_number']),'record'=>$record];
+    if($identity['merged'])$source['current_placement']=integrationRecordReference($instance,$owner,'placement',$identity['placement_number']);
+    return $source;
 }
 
 /** Read a fresh company contract and ensure the credential did not change while it was read. */
