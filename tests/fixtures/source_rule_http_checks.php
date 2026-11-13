@@ -120,6 +120,47 @@ $before=$snapshot($ruleTables);[$status,$legacyAgain]=$request('POST',$rulePaths
 $expect($status===200&&!empty($legacyAgain['replayed'])&&$snapshot($ruleTables)===$before,'Native legacy-number handback retries return the existing receipt');
 $expect($snapshot($financialTables)===$financialBefore,'Native legacy-number handback changes no accounting, payroll, payment or time operation');
 
+// The native route must retain the acting source workspace when business rows
+// are shared. A parent catalog does not grant use of a child's connection.
+foreach(['people','placements','companies','staffing','accounting']as$module)$pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,"shared") ON DUPLICATE KEY UPDATE scope_mode="shared"')->execute([$childTenant,$module]);
+$sharedRuleStart='99190120';
+$sharedRulePerson=scopedInsert('people',['first_name'=>'Synthetic','last_name'=>'Shared rule worker','classification'=>'1099','external_id'=>'http-shared-worker-legacy']);
+mappingUpsert($childTenant,'jobdiva','person','99190122',$sharedRulePerson,['candidateId'=>'99190122']);
+$sharedRuleBill=jobdivaUpsertCompanyMapped($childTenant,'99190126','Synthetic shared rule debtor',[],['id'=>'99190126'],null,['client']);
+$sharedRuleMsp=jobdivaUpsertCompanyMapped($childTenant,'99190124','Synthetic shared rule MSP',[],['id'=>'99190124'],null,['msp']);
+$sharedRuleClient=staffingClientEnsureForCompany($childTenant,$sharedRuleBill,'Synthetic shared rule debtor',['source_system'=>'jobdiva','source_external_id'=>'99190126'])['client_id'];
+$sharedRulePlacement=scopedInsert('placements',['person_id'=>$sharedRulePerson,'title'=>'Synthetic shared rule handback','status'=>'on_hold','engagement_type'=>'1099','start_date'=>'2026-10-01','end_date'=>'2026-12-31','external_id'=>'http-shared-placement-legacy','client_id'=>$sharedRuleClient,'end_client_company_id'=>$sharedRuleBill,'end_client_name'=>'Synthetic shared rule debtor','client_bill_cycle'=>'monthly','client_payment_terms_override'=>'NET30','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>'NET30','vendor_pwp_enabled'=>0,'worksite_country'=>'US']);
+scopedInsert('placement_rates',['placement_id'=>$sharedRulePlacement,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-10-01 12:00:00']);
+$sharedRulePayload=array_replace($rulePayload,['startId'=>$sharedRuleStart,'candidateId'=>'99190122','jobId'=>'99190123','endClientName'=>'Synthetic shared rule debtor','mspCompanyId'=>'99190124','mspName'=>'Synthetic shared rule MSP']);
+foreach(['recruiterEmail','recruiterCommissionPct','referralVendorCompanyId','referralVendor','referralFeeAmount','referralFeeBasis']as$field)unset($sharedRulePayload[$field]);
+$sharedRulePayload['_jd_contract']=array_replace($rulePayload['_jd_contract'],['start_id'=>$sharedRuleStart,'client_company_name'=>'Synthetic shared rule debtor','end_client_name'=>'Synthetic shared rule debtor']);
+foreach(['placement','jobdiva_assignment']as$type)mappingUpsert($childTenant,'jobdiva',$type,$sharedRuleStart,$sharedRulePlacement,$sharedRulePayload);
+$sharedRuleRows=jobdivaSyncUpsertPlacementChain($tenant,$sharedRulePlacement,$sharedRuleBill,'Synthetic shared rule debtor',$sharedRulePayload,null,$childTenant)['rows'];
+placementSourceRuleEdit($tenant,$sharedRulePlacement,'chain','update',$sharedRuleRows['msp'],['portal_fee_pct'=>'0.0300'],$ruleActor);
+$sharedRulePath='/modules/placements/api/source_rules.php?kind=chain&placement_id='.$sharedRulePlacement;
+$before=$snapshot($ruleTables);[$status,$review]=$request('GET',$sharedRulePath,null,true,$childTenant);
+$expect($status===200&&$review['selectable']&&$review['source_workspace_id']===$childTenant&&$review['source_start_id']===$sharedRuleStart&&$snapshot($ruleTables)===$before,'Child native source review resolves its own connection and shared business owner without writes');
+$expect($request('GET',$sharedRulePath)[0]===409&&$snapshot($ruleTables)===$before,'Parent native viewer cannot borrow a child JobDiva connection through the shared catalog');
+$matches=[];foreach($review['proposed']as$p){$same=array_values(array_filter($review['current'],static fn($c)=>$c['identity']===$p['identity']));$matches[$p['key']]=$same[0]['id'];}
+$sharedRuleBody=['confirm'=>'REPLACE_REVIEWED_SOURCE_RULES','request_id'=>'99190120-0000-4000-8000-000000000001','review_token'=>$review['review_token'],'matches'=>$matches];
+RBACResolver::grantModule($childMembership,'placements','read',[$childTenant],$actor);
+$expect($request('POST',$sharedRulePath,$sharedRuleBody,true,$childTenant)[0]===403&&$snapshot($ruleTables)===$before,'Child native read access cannot replace shared source rules');
+RBACResolver::grantModule($childMembership,'placements','admin',[$childTenant],$actor);
+$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="placements"')->execute([$childTenant]);
+$expect($request('POST',$sharedRulePath,$sharedRuleBody,true,$childTenant)[0]===404&&$snapshot($ruleTables)===$before,'Native sharing change removes access to the old review before any mutation');
+$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key="placements"')->execute([$childTenant]);
+[$status,$review]=$request('GET',$sharedRulePath,null,true,$childTenant);$sharedRuleBody['review_token']=$review['review_token'];
+$retained=$snapshot(['people','placement_rates','external_entity_mappings','entity_sync_history','core_record_numbers']);
+[$status,$saved]=$request('POST',$sharedRulePath,$sharedRuleBody,true,$childTenant);
+$expect($status===200&&$saved['source_workspace_id']===$childTenant&&$saved['applied']===$matches,'Child native replacement preserves matched IDs while writing the shared rule rows');
+$q=$pdo->prepare('SELECT portal_fee_pct,tenant_id FROM placement_client_chain WHERE id=?');$q->execute([$sharedRuleRows['msp']]);$sharedRuleRow=$q->fetch(PDO::FETCH_ASSOC);
+$expect((float)$sharedRuleRow['portal_fee_pct']===0.02&&(int)$sharedRuleRow['tenant_id']===$tenant&&$retained===$snapshot(['people','placement_rates','external_entity_mappings','entity_sync_history','core_record_numbers']),'Shared native handback preserves provider identities, legacy person numbers, history and approved rates');
+$q=$pdo->prepare('SELECT tenant_id,actor_user_id FROM audit_log WHERE event="placement.source_rules.replaced" AND target_id=?');$q->execute([$sharedRulePlacement]);$sharedRuleAudits=$q->fetchAll(PDO::FETCH_ASSOC);
+$expect(count($sharedRuleAudits)===1&&(int)$sharedRuleAudits[0]['tenant_id']===$childTenant&&(int)$sharedRuleAudits[0]['actor_user_id']===$actor,'Shared native receipt records the authenticated actor in the original source workspace');
+$before=$snapshot($ruleTables);[$status,$again]=$request('POST',$sharedRulePath,$sharedRuleBody,true,$childTenant);
+$expect($status===200&&!empty($again['replayed'])&&$again['currently_follows_source']&&$snapshot($ruleTables)===$before,'Shared native retry returns its original receipt without repeating writes');
+$expect($snapshot($financialTables)===$financialBefore,'Shared native source review and replacement execute no financial operations');
+
 // The same native PATCH used by the company chooser resolves an unlinked source row.
 $choicePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unresolved company choice','status'=>'on_hold','engagement_type'=>'1099','start_date'=>'2026-10-01']);
 $choiceChain=jobdivaSyncUpsertPlacementChainRow($tenant,$choicePlacement,1,'msp','Unresolved source MSP',null,['portal_fee_pct'=>0.02]);
