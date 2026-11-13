@@ -124,7 +124,7 @@ $expect($snapshot($financialTables)===$financialBefore,'Native legacy-number han
 // are shared. A parent catalog does not grant use of a child's connection.
 foreach(['people','placements','companies','staffing','accounting']as$module)$pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,"shared") ON DUPLICATE KEY UPDATE scope_mode="shared"')->execute([$childTenant,$module]);
 $sharedRuleStart='99190120';
-$sharedRulePerson=scopedInsert('people',['first_name'=>'Synthetic','last_name'=>'Shared rule worker','classification'=>'1099','external_id'=>'http-shared-worker-legacy']);
+$sharedRulePerson=scopedInsert('people',['first_name'=>'Synthetic','last_name'=>'Shared rule worker','classification'=>'1099','external_id'=>'http-shared-worker-legacy','email_primary'=>'shared-rule-worker@example.invalid']);
 mappingUpsert($childTenant,'jobdiva','person','99190122',$sharedRulePerson,['candidateId'=>'99190122']);
 $sharedRuleBill=jobdivaUpsertCompanyMapped($childTenant,'99190126','Synthetic shared rule debtor',[],['id'=>'99190126'],null,['client']);
 $sharedRuleMsp=jobdivaUpsertCompanyMapped($childTenant,'99190124','Synthetic shared rule MSP',[],['id'=>'99190124'],null,['msp']);
