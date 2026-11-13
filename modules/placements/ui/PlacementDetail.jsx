@@ -188,13 +188,13 @@ function ownerUserLabel(user) {
 }
 
 /**
- * True when the placement was pulled in from JobDiva. The override
- * affordances only render for these — direct-CoreFlux placements don't
- * have anything to "revert to".
+ * Mapped legacy placements retain their existing external number. Their
+ * ownership controls use the actual link, with the older prefix as fallback.
  */
 function isJobDivaSourced(placement) {
   const ext = placement?.external_id;
-  return typeof ext === 'string' && ext.startsWith('jd:');
+  return placement?.jobdiva_linked === true || placement?.jobdiva_linked === 1
+    || (typeof ext === 'string' && ext.startsWith('jd:'));
 }
 
 /** Pill shown next to fields that have been edited inside CoreFlux. */

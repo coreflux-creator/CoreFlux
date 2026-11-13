@@ -77,6 +77,8 @@ function placementNativeReferenceHttpCases(PDO $pdo,int $parent,int $actor,calla
             $pdo->prepare('UPDATE placements SET external_id=? WHERE id=?')->execute(['legacy-native-'.$id,$id]);
             mappingBindStable($placementMode==='shared'?$parent:$child,'jobdiva','placement','native-reference-'.$id,$id,null,'pull',$actor);
             $mapped=$read('placements',$id);$mapping=$all('external_entity_mappings');
+            [$status,$linked]=$request($url.'?id='.$id,null,true,$child);
+            $expect($status===200&&(int)$linked['placement']['jobdiva_linked']===1&&$linked['placement']['external_id']==='legacy-native-'.$id,$mode.': ownership screen can recognize the actual source link without rewriting the legacy number');
             foreach(['external_id'=>'replacement','person_id'=>$person+1000000,'jobdiva_job_id'=>'replacement']as$field=>$value)$expect($request($url.'?id='.$id,[$field=>$value],true,$child,false,'PATCH')[0]===409,$mode.': mapped legacy placement protects '.$field.' across shared workspaces');
             $expect($read('placements',$id)===$mapped&&$all('external_entity_mappings')===$mapping,$mode.': rejected rebinding preserves original provider pairs');
             [$status,$edited]=$request($url.'?id='.$id,['notes'=>'Reviewed native note'],true,$child,false,'PATCH');

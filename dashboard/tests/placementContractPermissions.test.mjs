@@ -57,6 +57,7 @@ test('commission validation refusal retains the entered terms for correction',as
   }finally{f.close();}
 });
 async function fixture(permissions={},options={}){
+  const placement={id:15,external_id:'jd:123',engagement_type:'c2c',start_date:'2026-10-01',...options.placement};
   const f={calls:[],reads:[],reloads:0,parentReloads:0,context:{data:{placement,permissions,parties:[party],readiness:{ready:false}},loading:false,error:null}},module={exports:{}};
   f.corp={corp:{corp_legal_name:'Synthetic vendor',company_id:71,ap_vendor_id:82,corp_contact_phone:'555-0100',corp_ein_last4:'6789'},review_token:'a'.repeat(64)};
   f.corpReloads=0;
@@ -72,7 +73,7 @@ async function fixture(permissions={},options={}){
   const props={placement,chain:[{id:5,position:0,party_role:'end_client',party_name:'Synthetic client'}],rates:[{id:3,bill_rate:100,pay_rate:50,currency:'USD',effective_from:'2026-10-01'}],commissions:[{id:7,user_id:2,recipient_name:'Synthetic recruiter',role:'recruiter',basis:'flat',flat_amount:25}],referrals:[],reload:async()=>{f.parentReloads++;}};
   f.parent={data:props,loading:false,error:null};
   function NavigationProbe(){f.navigate=router.useNavigate();return null;}
-  f.render=()=>options.fullDetail?React.createElement(router.MemoryRouter,{initialEntries:['/placements/15/economics']},
+  f.render=()=>options.fullDetail?React.createElement(router.MemoryRouter,{initialEntries:[options.route||'/placements/15/economics']},
     React.createElement(NavigationProbe),React.createElement(router.Routes,null,React.createElement(router.Route,{path:'/placements/:pid/*',element:React.createElement(module.exports.default)})))
     :React.createElement(module.exports.EconomicsTab,props);
   await act(async()=>{f.tree=create(f.render());});
@@ -80,6 +81,22 @@ async function fixture(permissions={},options={}){
   f.click=async label=>{const b=button(f,label);assert.ok(b,label);assert.equal(!!b.props.disabled,false);await act(async()=>b.props.onClick());};
   f.close=()=>act(()=>f.tree.unmount());return f;
 }
+
+for(const [label,record,linked]of[
+  ['legacy mapped number',{external_id:'legacy-81',jobdiva_linked:1},true],
+  ['boolean source link',{external_id:'legacy-82',jobdiva_linked:true},true],
+  ['older source prefix',{external_id:'jd:123',jobdiva_linked:0},true],
+  ['unlinked native number',{external_id:'native-83',jobdiva_linked:0},false],
+])test('placement ownership controls follow '+label,async()=>{
+  const f=await fixture({}, {fullDetail:true,route:'/placements/15/overview',placement:{...record,title:'Reviewed title',coreflux_overridden_fields:'["title"]'}});
+  try{
+    assert.equal(byId(f,'override-pill-title').length,linked?1:0);
+    await act(async()=>byId(f,'placement-overview-edit')[0].props.onClick());
+    assert.equal(byId(f,'overview-edit-jd-banner').length,linked?1:0);
+    assert.equal(byId(f,'revert-title').length,linked?1:0);
+    assert.equal(f.calls.length,0);
+  }finally{f.close();}
+});
 
 test('same-placement refresh retains the saved source-rule receipt and clears write permissions while loading',async()=>{
   global.window={confirm:()=>true};

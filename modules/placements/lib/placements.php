@@ -90,7 +90,10 @@ function placementsSafeFields(string $alias = 'p'): string
              'client_bill_cycle','client_bill_cycle_anchor','vendor_pay_cycle','vendor_pay_cycle_anchor',
              'client_payment_terms_override','vendor_payment_terms_override','vendor_pwp_enabled',
              'coreflux_overridden_fields','created_by_user_id','created_at','updated_at','deleted_at'];
-    return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols));
+    // The outer placement query supplies the accessible directory. Expose only
+    // whether this retained identity is linked, never another workspace's pair.
+    return implode(', ', array_map(fn($c) => "{$alias}.{$c}", $cols))
+        . ", EXISTS(SELECT 1 FROM external_entity_mappings jm WHERE jm.internal_entity_type='placement' AND jm.source_system='jobdiva' AND jm.internal_entity_id={$alias}.id) AS jobdiva_linked";
 }
 
 function placementGet(int $id): ?array
