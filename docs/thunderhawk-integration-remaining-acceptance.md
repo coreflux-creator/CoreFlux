@@ -2,6 +2,12 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 company/client/vendor fields - installed checkpoint
+
+The intervening accounting-access reply made no integration progress. This continuation verified all eleven pending CI jobs passed, installed runtime `4e62d6a6` in the isolated Core pilot and independently checked 350 runtime fingerprints. All 35,205 rows across 378 tables, configuration and approved/current commission history remain unchanged. The native login/API fixture passed 376 checks. Existing pilot vendor responses serialize successfully and exclude private internal fields.
+
+The installed dictionary now has **2,125 fields and 245 remaining undecided dispositions**, resolving 94 company/client/vendor decisions. This defines ownership and receiving-contract limits; the legacy JobDiva company/contact overwrite and contact identity gaps remain explicit. Next is validating vendor company references against independently shared/isolated Companies directories. Company document references, remaining field/provider/cohort work, portal/lifecycle/browser upload, financial reconciliation and the full completion audit remain open. [Details](thunderhawk-party-field-boundaries.md) and [release manifest](../deploy/thunderhawk-party-fields-20261112.json). Production, provider systems, Arabella and financial execution were unchanged.
+
 ## November 13 person-profile boundaries — installed checkpoint
 
 The intervening accounting-access reply made no integration progress. This continuation revalidated the current source, failed CI and all 344 previously installed runtime fingerprints, then corrected two actual native person write gaps and the private-access audit schema mismatch. Runtime `ce5f53f3` passed all eleven CI jobs and is installed only in isolated Core. Ordinary edits cannot change internal identity/routing/document references; private demographics require private-data permissions; private changes roll back without their audit receipt. Original employee/person access history remains separately typed with preserved request context.
