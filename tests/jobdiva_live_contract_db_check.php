@@ -33,6 +33,22 @@ try{
         $fresh=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,$input,'99310001')];
         $check(jobdivaLiveContractValidate($expected,$exact,$fresh)===$fresh,'Exact raw financial evidence rebuilds the supplied contract');
         $check($expected['base']['context']['placement_owner']===$owner&&$expected['base']['mapping']['external_id']==='jd:99310001','Live refresh resolves a shared placement from its original workspace and retained provider pair');
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappingId,$exact,$rows,$actor,$state,$check,$failure,$read,$placement):void{
+            $corporation='99310009';$company=['id'=>$corporation,'name'=>'Synthetic live corporate payee','city'=>'Hamilton','country'=>'US'];
+            $snapshot=jobdivaLiveContractSnapshot($workspace,$mappingId,$corporation);
+            $payload=jobdivaLiveContractInput($snapshot,$exact);$corporateRows=$rows;
+            $corporateRows[0]['Employment Category']='Subcontract';$corporateRows[0]['W2']=false;$corporateRows[0]['C2C']=true;
+            $corporateRows[0]['Corporation ID']=$corporation;$corporateRows[0]['Pay Rate to Vendor']=50;
+            $payload['_jd_assignment_detail']=$corporateRows;$payload['_jd_contract']=jobdivaAssignmentContractBuild($corporateRows,$payload,'99310001');
+            $before=$state();$bad=array_replace($company,['id'=>'99319999']);
+            $check($failure(fn()=>jobdivaLiveContractApply($snapshot,$exact,$payload,$bad,$actor))!==''&&$before===$state(),'A returned corporate payee must echo the exact contract company ID');
+            $pdo->exec('SET @fixture_live_contract_audit=1');$error=$failure(fn()=>jobdivaLiveContractApply($snapshot,$exact,$payload,$company,$actor));$pdo->exec('SET @fixture_live_contract_audit=0');
+            $check(str_contains($error,'Synthetic live contract audit failure')&&$before===$state(),'Late audit failure also rolls back a newly resolved corporate company and vendor: '.$error);
+            $result=jobdivaLiveContractApply($snapshot,$exact,$payload,$company,$actor);
+            $q=$pdo->prepare('SELECT c.name,c.city,pc.company_id,m.external_id FROM placement_corp_details pc JOIN companies c ON c.id=pc.company_id AND c.tenant_id=? JOIN external_entity_mappings m ON m.internal_entity_id=c.id AND m.tenant_id=? AND m.source_system="jobdiva" AND m.internal_entity_type="company" WHERE pc.placement_id=?');
+            $q->execute([$snapshot['base']['context']['company_owner'],$workspace,$placement]);$saved=$q->fetch(PDO::FETCH_ASSOC);
+            $check($result['projected']===1&&$saved&&$saved['external_id']===$corporation&&$saved['city']==='Hamilton','Fresh corporate company, profile, vendor and assignment commit together in their current directories');
+        },true);
         foreach(['root','worker','detail','contract']as$case){
             $bad=$fresh;$remote=$exact;
             if($case==='root')$bad['startId']='99319999';

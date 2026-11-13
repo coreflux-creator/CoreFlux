@@ -48,6 +48,11 @@ try{
     [$status,$stale]=$request('POST',$livePath,[],true,$liveTenant);
     $q=$pdo->prepare('SELECT title FROM placements WHERE id=?');$q->execute([$livePlacement]);
     $expect($status===200&&(int)$stale['failed']===1&&$q->fetchColumn()==='Later committed native title'&&$snapshot(['external_entity_mappings','entity_sync_history','placement_rates'])===$linkBefore,'A native edit committed during lookup defeats the stale API save');
+    $liveWrite(array_replace($liveFixture,['mode'=>'wrong_start']));$beforeNative=$snapshot(['people','placements','placement_rates','companies','placement_economic_parties']);
+    $calls=substr_count((string)file_get_contents($directory.'/jobdiva-live.log'),'EmployeeAssignmentRecordsDetail');
+    [$status,$unverified]=$request('POST',$livePath,[],true,$liveTenant);
+    $expect($status===200&&(int)$unverified['failed']===1&&(int)$unverified['projected']===0&&$snapshot(['people','placements','placement_rates','companies','placement_economic_parties'])===$beforeNative
+        &&substr_count((string)file_get_contents($directory.'/jobdiva-live.log'),'EmployeeAssignmentRecordsDetail')===$calls,'A different returned Start cannot trigger contract lookup or native financial projection');
     $liveWrite($liveFixture);$pdo->prepare('UPDATE jobdiva_connections SET sync_config=? WHERE tenant_id=?')->execute([json_encode(['placement'=>['source'=>'coreflux','direction'=>'off']]),$liveTenant]);
     $before=$snapshot($liveTables);$calls=(string)file_get_contents($directory.'/jobdiva-live.log');
     [$status,$disabled]=$request('POST',$livePath,[],true,$liveTenant);
