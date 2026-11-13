@@ -264,7 +264,7 @@ try{
         [$a,$b]=$pair($label);$external='race-B-'.$label;$name=$read('companies',$b)['name'];
         if($workspace!==$tenant){$external.='-child';$name.=' child';$b=jobdivaCompanyUpsertStable($workspace,$external,$name,[],[],$actor,[]);$companies[]=$b;}
         $client=staffingClientEnsureForCompany($workspace,$b,$name,['source_system'=>'jobdiva','source_external_id'=>$external,'created_by_user_id'=>$actor])['client_id'];
-        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name) VALUES(?,"Synthetic","Repair race")')->execute([$tenant]);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Synthetic","Repair race",?)')->execute([$tenant,'repair-race-'.$start.'@example.invalid']);$person=(int)$pdo->lastInsertId();
         $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date) VALUES(?,?,"Repair race","draft","W2","2026-11-01")')->execute([$tenant,$person]);$placement=(int)$pdo->lastInsertId();
         $payload=['startId'=>$start,'candidateId'=>'71001','jobId'=>'81001','_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>$start,'client_company_id'=>$external,'client_company_name'=>$name]];
         mappingUpsert($workspace,'jobdiva','placement',$start,$placement,$payload,'pull',$actor);$mapping=mappingFindInternal($workspace,'jobdiva','placement',$start);

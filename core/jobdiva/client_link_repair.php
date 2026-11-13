@@ -28,8 +28,8 @@ function jobdivaRepairPlacementClientLink(int $workspace, int $mappingId, ?int $
         if (in_array('client_id', placementOwnershipFields($placement['coreflux_overridden_fields'] ?? null), true)) {
             return $result + ['reason'=>'core_owned'];
         }
-        $q = $pdo->prepare("SELECT id FROM external_entity_mappings WHERE source_system='jobdiva' AND internal_entity_type='placement' AND internal_entity_id=? AND id<>? FOR UPDATE");
-        $q->execute([$id, $mappingId]);
+        $q = $pdo->prepare("SELECT m.id FROM external_entity_mappings m JOIN placements p ON p.id=m.internal_entity_id AND p.tenant_id=? WHERE m.source_system='jobdiva' AND m.internal_entity_type='placement' AND m.internal_entity_id=? AND m.id<>? FOR UPDATE");
+        $q->execute([$owner, $id, $mappingId]);
         if ($q->fetchColumn()) throw new RuntimeException('Multiple source identities refer to this placement. Review its source links.', 409);
         if (($mapping['sync_status'] ?? '') !== 'ok') return $result + ['reason'=>'source_needs_review'];
         $payload = json_decode((string) $mapping['payload_snapshot'], true, 512, JSON_THROW_ON_ERROR);

@@ -49,7 +49,7 @@ foreach (['jobs_joined', 'candidates_joined', 'contacts_joined', 'companies_join
 $assert(
     'company join refuses shallow customer-id identity',
     str_contains($sync, "shallow `customer id` is frequently a contact id")
-    && str_contains($sync, "jobdivaMirrorPayloadByExternalId(\$tenantId, 'company', \$companyId)")
+    && str_contains($sync, "jobdivaMirrorPayloadByExternalId(\$tenantId, 'company', \$companyId, \$lock)")
 );
 
 echo "\n3. Apply delegates the whole graph to the canonical projector\n";

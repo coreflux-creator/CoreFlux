@@ -25,7 +25,7 @@ try{
         $client=(int)mappingFindInternal($child,'jobdiva','staffing_client',$external)['internal_entity_id'];
         $other=jobdivaCompanyUpsertStable($child,'repair-other-'.$index,'Other bill '.$index,[],[],$actor,['client']);
         $otherClient=(int)mappingFindInternal($child,'jobdiva','staffing_client','repair-other-'.$index)['internal_entity_id'];
-        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name) VALUES(?,"Synthetic","Repair worker")')->execute([$owner]);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Synthetic","Repair worker",?)')->execute([$owner,'repair-'.$index.'@example.invalid']);$person=(int)$pdo->lastInsertId();
         $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date,client_id,end_client_company_id) VALUES(?,?,"Synthetic repair assignment","active","W2","2026-11-01",?,?)')->execute([$owner,$person,$otherClient,$other]);$placement=(int)$pdo->lastInsertId();
         $start=(string)(41001+$index);$payload=['startId'=>$start,'candidateId'=>'51001','jobId'=>'61001','_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>$start,'client_company_id'=>$external,'client_company_name'=>$name]];
         mappingUpsert($child,'jobdiva','placement',$start,$placement,$payload,'pull',$actor);$mapping=(int)mappingFindInternal($child,'jobdiva','placement',$start)['id'];
