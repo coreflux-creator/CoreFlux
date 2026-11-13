@@ -5,6 +5,7 @@ require_once __DIR__ . '/ownership.php';
 require_once __DIR__ . '/economics.php';
 require_once __DIR__ . '/rate_approve.php';
 require_once __DIR__ . '/approval_contact.php';
+require_once __DIR__.'/company_references.php';
 
 function placementApplyNativeEdit(int $id, array $patch, array $user, string $via): array
 {
@@ -13,16 +14,20 @@ function placementApplyNativeEdit(int $id, array $patch, array $user, string $vi
         throw new InvalidArgumentException('Unknown placement edit operation.', 422);
     }
     $patch = placementApprovalContactInput($patch, $via === 'approval_contact');
-    return placementWithLockedRecord((int) effectiveTenantIdForRequest(), $id, static function (array $existing, PDO $pdo) use ($id, $patch, $user, $via): array {
+    return placementNativeDirectoryWrite((int)currentTenantId(),(int)effectiveTenantIdForRequest(),static function(array $scope)use($id,$patch,$user,$via):array{
+    return placementWithLockedRecord($scope['owner'], $id, static function (array $existing, PDO $pdo) use ($id, $patch, $user, $via, $scope): array {
         $current = placementOwnershipFields($existing['coreflux_overridden_fields'] ?? null);
         foreach ($patch as $field => $value) {
             if (!array_key_exists($field, $existing) || in_array($field, ['id','tenant_id','created_at','updated_at','created_by_user_id','deleted_at','coreflux_overridden_fields'], true)
                 || (!is_scalar($value) && $value !== null)) {
                 throw new InvalidArgumentException('This placement field cannot be edited: ' . $field, 422);
             }
+            if(is_bool($value)&&str_ends_with($field,'_id'))throw new InvalidArgumentException('Choose a valid record number for '.$field.'.',422);
             if (is_bool($value)) $patch[$field] = (int) $value;
         }
-        $isJobDivaSourced = str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:');
+        $q=$pdo->prepare("SELECT m.id FROM external_entity_mappings m JOIN placements p ON p.id=m.internal_entity_id AND p.tenant_id=? WHERE m.source_system='jobdiva' AND m.internal_entity_type='placement' AND p.id=? FOR UPDATE");
+        $q->execute([$scope['owner'],$id]);$sourceMapped=(bool)$q->fetchColumn();
+        $isJobDivaSourced = $sourceMapped || str_starts_with((string) ($existing['external_id'] ?? ''), 'jd:');
         if ($isJobDivaSourced) {
             foreach (['external_id','person_id','jobdiva_job_id'] as $identityField) {
                 if (array_key_exists($identityField, $patch) && (string) $patch[$identityField] !== (string) $existing[$identityField]) {
@@ -31,13 +36,13 @@ function placementApplyNativeEdit(int $id, array $patch, array $user, string $vi
             }
         }
         $before = placementAuditRow($id) ?? $existing;
-        if (!empty($patch['staffing_job_id'])) {
-            $job = scopedFind('SELECT id FROM staffing_jobs WHERE tenant_id=:tenant_id AND id=:id LIMIT 1', ['id'=>(int) $patch['staffing_job_id']]);
-            if (!$job) throw new InvalidArgumentException('staffing_job_id not found in this tenant.', 422);
-        }
+        if(array_key_exists('person_id',$patch))$patch['person_id']=placementResolveNativePerson($pdo,$scope,$patch['person_id']);
+        if(array_key_exists('accounting_entity_id',$patch))$patch['accounting_entity_id']=placementResolveNativeAccountingEntity($pdo,$scope,$patch['accounting_entity_id']);
+        if(array_key_exists('staffing_job_id',$patch))$patch['staffing_job_id']=placementResolveNativeJob($pdo,$scope,$patch['staffing_job_id']);
         $patch = array_replace($patch, placementsResolveCompanyRoles((int) $existing['tenant_id'], $patch, $existing, $user['id'] ?? null, currentTenantId()));
         $fields = array_keys($patch);
-        if ($isJobDivaSourced) {
+        {
+            // Native edits establish Core ownership even before a provider link.
             // A contact is one choice: a later source refresh must not combine
             // a Core email with a different source person's display name.
             $ownedFields = $fields;
@@ -79,5 +84,6 @@ function placementApplyNativeEdit(int $id, array $patch, array $user, string $vi
             }
         }
         return ['changed'=>$changed || $autoApproved > 0, 'rates_auto_approved'=>$autoApproved];
+    });
     });
 }

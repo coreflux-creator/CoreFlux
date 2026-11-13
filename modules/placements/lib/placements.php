@@ -66,38 +66,14 @@ function placementsNormalizeWorksiteCity(mixed $value): ?string
 /** Resolve only the company roles explicitly edited; neither role supplies the other. */
 function placementsResolveCompanyRoles(int $tenantId, array $input, array $existing = [], ?int $userId = null, ?int $workspaceId = null): array
 {
-    require_once __DIR__ . '/../../people/lib/companies.php';
-    $patch = [];
-    $pdo = getDB();
-    if (array_key_exists('client_id', $input)) {
-        $id = (int) $input['client_id'];
-        if ($id > 0) {
-            $s = $pdo->prepare('SELECT id FROM staffing_clients WHERE tenant_id = :t AND id = :i');
-            $s->execute(['t' => $tenantId, 'i' => $id]);
-            if (!$s->fetchColumn()) throw new InvalidArgumentException('Bill-to client is not in this placement directory.');
-        }
-        $patch['client_id'] = $id > 0 ? $id : null;
-    }
-    if (array_key_exists('end_client_company_id', $input) || array_key_exists('end_client_name', $input)) {
-        $owner = companiesDirectoryTenantId($tenantId);
-        $id = (int) ($input['end_client_company_id'] ?? 0);
-        $name = trim((string) ($input['end_client_name'] ?? ''));
-        if (($id > 0 || $name !== '') && $workspaceId !== null) {
-            $owner = placementsCompanyDirectoryTenantId($workspaceId);
-        }
-        if ($id > 0) {
-            $s = $pdo->prepare('SELECT name FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
-            $s->execute(['t' => $owner, 'i' => $id]);
-            $canonical = $s->fetchColumn();
-            if ($canonical === false) throw new InvalidArgumentException('End client is not in this company directory.');
-            $name = (string) $canonical;
-        } elseif ($name !== '') {
-            $id = companiesUpsertByName($owner, $name, ['created_by_user_id' => $userId], []);
-        }
-        $patch['end_client_company_id'] = $id > 0 ? $id : null;
-        $patch['end_client_name'] = $name !== '' ? $name : null;
-    }
-    return $patch;
+    require_once __DIR__.'/company_references.php';
+    return placementResolveCurrentCompanyRoles($tenantId,$input,$existing,$userId,$workspaceId??$tenantId);
+}
+
+function placementsJobDirectoryTenantId(): int
+{
+    require_once __DIR__.'/../../people/lib/company_relationships.php';
+    return companyRelationshipScope(getDB(),(int)currentTenantId(),'staffing',false)['owner'];
 }
 
 function placementsSafeFields(string $alias = 'p'): string
@@ -149,10 +125,10 @@ function placementGet(int $id): ?array
             FROM placements p
             LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
             LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :company_tenant AND ec.deleted_at IS NULL
-            LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
+            LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = :job_tenant
             LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
-    $row = scopedFind($sql, ['id' => $id, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())]);
+    $row = scopedFind($sql, ['id' => $id, 'company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest()), 'job_tenant'=>placementsJobDirectoryTenantId()]);
     if (!$row) return null;
     $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'placement', [$row])[0];
     return placementHydratePersonFields($row);
@@ -198,7 +174,7 @@ function placementHydratePersonFields(array $row, ?callable $loader = null): arr
 function placementsList(array $filters = []): array
 {
     $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
-    $params = ['company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest())];
+    $params = ['company_tenant' => companiesDirectoryTenantId((int) effectiveTenantIdForRequest()), 'job_tenant'=>placementsJobDirectoryTenantId()];
     if (!empty($filters['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
         $where[] = '(CAST(p.id AS CHAR) LIKE :q_id
@@ -289,7 +265,7 @@ function placementsList(array $filters = []): array
 
     $joins = ' LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
                LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = :company_tenant AND ec.deleted_at IS NULL
-               LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = p.tenant_id
+               LEFT JOIN staffing_jobs sj ON sj.id = p.staffing_job_id AND sj.tenant_id = :job_tenant
                LEFT JOIN placement_rates cr ON cr.id = (
                     SELECT cr2.id
                       FROM placement_rates cr2
@@ -531,14 +507,14 @@ function placementAuditRow(int $placementId): ?array
             AND pe.tenant_id = p.tenant_id
            LEFT JOIN companies ec
              ON ec.id = p.end_client_company_id
-            AND ec.tenant_id = p.tenant_id
+            AND ec.tenant_id = :company_tenant
            LEFT JOIN staffing_jobs sj
              ON sj.id = p.staffing_job_id
-            AND sj.tenant_id = p.tenant_id
+            AND sj.tenant_id = :job_tenant
           WHERE p.tenant_id = :tenant_id
             AND p.id = :id
             AND p.deleted_at IS NULL',
-        ['id' => $placementId]
+        ['id' => $placementId,'company_tenant'=>companiesDirectoryTenantId((int)effectiveTenantIdForRequest()),'job_tenant'=>placementsJobDirectoryTenantId()]
     );
 }
 

@@ -14,7 +14,7 @@ function companyRelationshipAtomic(PDO $pdo,callable $write): mixed
 
 function companyRelationshipScope(PDO $pdo,int $workspace,string $module,bool $lock=true): array
 {
-    if(($lock&&!$pdo->inTransaction())||!in_array($module,['staffing','placements','ap'],true))throw new LogicException('A current business-reference transaction is required.');
+    if(($lock&&!$pdo->inTransaction())||!in_array($module,['staffing','placements','ap','accounting'],true))throw new LogicException('A current business-reference transaction is required.');
     $suffix=$lock?' FOR UPDATE':'';
     $companies=jobdivaPartyDirectoryScope($pdo,$workspace,$lock);$tenant=$companies['tenant'];
     $q=$pdo->prepare('SELECT scope_mode FROM tenant_module_scope WHERE tenant_id=? AND module_key=?'.$suffix);$q->execute([$workspace,$module]);$mode=$q->fetchColumn();

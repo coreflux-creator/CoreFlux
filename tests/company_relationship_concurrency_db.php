@@ -9,7 +9,14 @@ require_once __DIR__.'/../modules/staffing/lib/client_write.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
 require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
+require_once __DIR__.'/../modules/placements/lib/edit.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
+
+function nativePlacementRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    return ['id'=>$input['placement_id']]+placementApplyNativeEdit($input['placement_id'],$input['patch'],['id'=>$input['actor'],'role'=>'admin'],'patch_status');
+}
 
 function clientSourceRaceWrite(array $input): array
 {
@@ -47,6 +54,7 @@ if(($argv[1]??'')==='worker'){
                 'client_source'=>clientSourceRaceWrite($input),
                 'client_accept'=>staffingClientSourceAccept($input['workspace'],$input['client_id'],$input['source_key'],$input['fields'],$input['review_token'],$input['actor']),
                 'client_repair'=>jobdivaRepairPlacementClientLink($input['workspace'],$input['mapping_id'],$input['actor']),
+                'native_placement'=>nativePlacementRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -298,6 +306,36 @@ try{
     $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE id=?')->execute(['["client_id"]',$placement]);
     fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
     $check($result['ok']&&$result['result']['reason']==='core_owned'&&$read('placements',$placement)['client_id']===null,'Billing repair does not overwrite native ownership from an older transaction snapshot');
+    $nativeFixture=static function(string $suffix,int $workspace)use($pdo,$tenant,$child,$actor,$pair):array{
+        [$a,$b]=$pair('native-placement-'.$suffix);
+        $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key IN("placements","companies")')->execute([$child]);
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Native","Race worker",?)')->execute([$tenant,'native-race-'.$suffix.'@example.invalid']);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date) VALUES(?,?,"Native race placement","draft","w2","2026-11-01")')->execute([$tenant,$person]);$placement=(int)$pdo->lastInsertId();
+        return[$a,$b,$placement,['mode'=>'native','entity'=>'native_placement','workspace'=>$workspace,'actor'=>$actor,'placement_id'=>$placement,'patch'=>['end_client_company_id'=>$b]]];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        [$a,$b,$placement,$input]=$nativeFixture('policy-'.$decision,$child);
+        $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="placements"')->execute([$child]);
+        $worker=$spawn($input);$check($waiting($worker),'Native placement waits for current directory policy '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&(int)$result['code']===409&&$read('placements',$placement)['end_client_company_id']===null):($result['ok']&&(int)$read('placements',$placement)['end_client_company_id']===$b),'Native placement observes committed or rolled-back scope without writing the old owner: '.$decision);
+        [$a,$b,$placement,$input]=$nativeFixture('merge-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+        $worker=$spawn($input);$check($waiting($worker),'Native placement waits for current company merge '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&(int)$result['code']===409&&$read('placements',$placement)['end_client_company_id']===null):($result['ok']&&(int)$read('placements',$placement)['end_client_company_id']===$b),'Native placement rejects a committed retired number and accepts the rolled-back merge: '.$decision);
+        [$a,$b,$placement,$input]=$nativeFixture('native-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $worker=$spawn(array_replace($input,['mode'=>'hold']));$saved=$line($workers[$worker]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Native placement holds reference, graph, ownership and audit before '.$decision);
+        $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+        $check($waiting($merger),'Company merge waits for the native placement writer '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$merged=$finish($merger);
+        $check($written['ok']&&($decision==='COMMIT'?(!$merged['ok']&&(int)$merged['code']===409&&(int)$read('placements',$placement)['end_client_company_id']===$b):($merged['ok']&&$read('placements',$placement)['end_client_company_id']===null)),'Merge rechecks committed placement references and ignores rolled-back choices: '.$decision);
+    }
+    [$a,$b,$placement,$input]=$nativeFixture('old-snapshot',$tenant);
+    $worker=$spawn($input+['snapshot'=>true]);$snapshot=$line($workers[$worker]['pipes'][1]);$check(!empty($snapshot['snapshot']),'Native placement transaction snapshot predates the merge');
+    $review=companyMergePreview($tenant,$user,$a,$b);companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+    fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
+    $check(!$result['ok']&&(int)$result['code']===409&&$read('placements',$placement)['end_client_company_id']===null,'Old transaction snapshot cannot restore a merged company into a native placement');
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -306,7 +344,7 @@ try{
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
-    foreach($createdTenants as$createdTenant)foreach(['placements','people','staffing_jobs','staffing_clients','external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+    foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($companies as$id)$pdo->prepare('DELETE FROM companies WHERE tenant_id=? AND id=?')->execute([$tenant,$id]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);

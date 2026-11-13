@@ -60,7 +60,7 @@ try{
     try{$check($refused(fn()=>placementApplyNativeEdit($placement,['end_client_name'=>'CI Native audit rollback company'],$user,'bulk_update'),503)&&placementAuditRow($placement)===$before&&$read('companies')===$companies&&$pdo->inTransaction(),'Audit failure rolls back the company bridge, placement edit and ownership together');}
     finally{$pdo->exec('DROP TEMPORARY TABLE audit_log');}
     setRequestTenantId($tenant+1000000);$_SESSION['tenant_id']=$tenant+1000000;
-    $check($refused(fn()=>placementApplyNativeEdit($placement,['notes'=>'Wrong tenant'],$user,'patch_status'),404),'Native edit cannot reach another tenant placement');
+    $check($refused(fn()=>placementApplyNativeEdit($placement,['notes'=>'Wrong tenant'],$user,'patch_status'),409),'Native edit rejects an unavailable workspace before reaching another tenant placement');
     setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
     // The dedicated approval setup path must use the same ownership and audit
     // guarantees as the overview, without changing economics or time approvals.
@@ -119,14 +119,14 @@ try{
             'Unavailable audit storage rolls back contact values and ownership together');
     } finally { $pdo->exec('DROP TEMPORARY TABLE audit_log'); }
     setRequestTenantId($tenant+1000000);$_SESSION['tenant_id']=$tenant+1000000;
-    $check($refused(fn()=>placementApplyNativeEdit($placement,['client_approver_name'=>'Foreign'],$user,'approval_contact'),404),
+    $check($refused(fn()=>placementApplyNativeEdit($placement,['client_approver_name'=>'Foreign'],$user,'approval_contact'),409),
         'Focused setup cannot write a placement in another directory');
     setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
     $manual=scopedInsert('placements',['person_id'=>$person,'status'=>'draft','start_date'=>'2026-11-01','engagement_type'=>'w2','title'=>'CI manual placement']);
     placementApplyNativeEdit($manual,['client_approver_email'=>'manual@example.invalid'],$user,'approval_contact');
-    $check(placementAuditRow($manual)['coreflux_overridden_fields']===null,'Native-only approval setup does not invent a JobDiva relationship');
+    $check(count(array_intersect(['client_approver_name','client_approver_email'],json_decode(placementAuditRow($manual)['coreflux_overridden_fields'],true)))===2,'Native-only approval setup owns its values before any future provider link');
     $result=placementApplyNativeEdit($manual,['notes'=>'Native-only note'],$user,'bulk_update');$manualRow=placementAuditRow($manual);
-    $check($result['changed']&&$manualRow['coreflux_overridden_fields']===null,'Native-only placement does not acquire JobDiva ownership flags');
+    $check($result['changed']&&in_array('notes',json_decode($manualRow['coreflux_overridden_fields'],true),true),'Native-only placement edits retain Core ownership before any future provider link');
     $draft=scopedInsert('placement_rates',['placement_id'=>$manual,'effective_from'=>'2026-11-01','bill_rate'=>100,'pay_rate'=>50]);
     $before=placementAuditRow($manual);$rateBefore=$read('placement_rates');$audit=$read('audit_log');
     $check($refused(fn()=>placementApplyNativeEdit($manual,['status'=>'active'],$user,'activate_action'),422)&&placementAuditRow($manual)===$before&&$read('placement_rates')===$rateBefore&&$read('audit_log')===$audit,'Failed activation rolls back rate approval, status, ownership and audit');

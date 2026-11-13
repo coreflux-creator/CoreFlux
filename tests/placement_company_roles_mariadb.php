@@ -73,11 +73,13 @@ try{
     $bad=$payload;$bad['_jd_contract']['end_client_company_id']='E-NEW';
     $check($fails(fn()=>jobdivaProjectorResolveEndClientCompany(1,$bad,null)),'Same name cannot merge distinct provider companies');
     $check($pdo->query('SELECT * FROM external_entity_mappings ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'Rejected source identity conflicts leave mappings unchanged');
+    $pdo->beginTransaction();
     $patch=placementsResolveCompanyRoles(1,['end_client_company_id'=>11],$placement);
     $check($patch===['end_client_company_id'=>11,'end_client_name'=>'Work Recipient'],'Editing work recipient does not write a billing profile');
     $check(placementsResolveCompanyRoles(1,['client_id'=>4],$placement)===['client_id'=>4],'Editing bill-to does not write end-client fields');
     $check(placementsResolveCompanyRoles(1,['end_client_name'=>''],$placement)===['end_client_company_id'=>null,'end_client_name'=>null],'Clearing recipient does not clear debtor');
     $check($fails(fn()=>placementsResolveCompanyRoles(1,['client_id'=>3]))&&$fails(fn()=>placementsResolveCompanyRoles(1,['end_client_company_id'=>12])),'Manual role edits reject another directory');
+    $pdo->commit();
     $before=$snapshot();$repair=jobdivaMappingRepairStaffingClientLinks(1);
     if($repair['failed'])fwrite(STDERR,json_encode(['repair_failure'=>$repair],JSON_THROW_ON_ERROR).PHP_EOL);
     $check($repair['failed']===0&&$snapshot()===$before,'Repair accepts a valid bill-to/end-client difference without modifying placement');

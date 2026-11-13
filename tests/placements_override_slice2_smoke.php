@@ -6,24 +6,21 @@
  *   1. Migration 070 adds `coreflux_overridden_fields` JSON column.
  *   2. jobdivaSyncUpsertPlacement strips overridden columns from its
  *      UPDATE statement when the placement has them flagged.
- *   3. PATCH /api/placements/placements auto-flags every column it
- *      touches when the placement is JobDiva-sourced (external_id has
- *      `jd:` prefix).
- *   4. PATCH leaves the flag list alone when the placement was created
- *      directly in CoreFlux (no `jd:` prefix).
+ *   3. PATCH /api/placements/placements records native field ownership.
+ *   4. Source identity changes use the reviewed mapping workflow.
  *   5. POST ?action=clear_override drops fields from the flag list.
  *
  * Strategy
  * --------
- * We don't have a writable DB in this CI environment, so we test the
- * code path by:
+ * These lightweight source checks complement the native database and HTTP
+ * fixtures below:
  *   - Asserting the migration file's SQL.
  *   - Reading the SOURCE of jobdivaSyncUpsertPlacement and asserting
  *     the override-handling block exists and references the right
  *     column names.
  *   - Reading the SOURCE of /api/placements/placements PATCH handler
  *     and asserting it merges field names into coreflux_overridden_fields
- *     when external_id starts with 'jd:'.
+ *     through the shared native editor.
  *
  * Native edits, approval-contact pairing, explicit handback and actual source
  * refresh run against MariaDB in `placement_native_edit_db_check.php`.
@@ -31,13 +28,14 @@
 declare(strict_types=1);
 
 $pass = 0; $fail = 0;
+$root = dirname(__DIR__);
 $assert = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
 echo "Migration — 070_placement_override_flags.sql\n";
-$migPath = '/app/core/migrations/070_placement_override_flags.sql';
+$migPath = $root . '/core/migrations/070_placement_override_flags.sql';
 $assert('migration file exists', is_file($migPath));
 $mig = (string) file_get_contents($migPath);
 $assert('adds coreflux_overridden_fields column',
@@ -50,7 +48,7 @@ $assert('migration is ALTER TABLE on placements',
     preg_match('/ALTER\s+TABLE\s+placements/i', $mig) === 1);
 
 echo "\nSync writer — jobdivaSyncUpsertPlacement respects override list\n";
-$syncSrc = (string) file_get_contents('/app/core/jobdiva/sync.php');
+$syncSrc = (string) file_get_contents($root . '/core/jobdiva/sync.php');
 $assert('sync reads coreflux_overridden_fields before UPDATE',
     preg_match(
         '/SELECT\s+[^;]*coreflux_overridden_fields[^;]*FROM\s+placements/is',
@@ -73,8 +71,8 @@ $assert('sync runs UPDATE only when assignments non-empty',
     str_contains($syncSrc, 'if (!empty($assignments))'));
 
 echo "\nAPI — PATCH /api/placements/placements auto-flags JobDiva-sourced edits\n";
-$apiSrc = (string) file_get_contents('/app/modules/placements/api/placements.php');
-$editSrc = (string) file_get_contents('/app/modules/placements/lib/edit.php');
+$apiSrc = (string) file_get_contents($root . '/modules/placements/api/placements.php');
+$editSrc = (string) file_get_contents($root . '/modules/placements/lib/edit.php');
 $assert('PATCH uses the same atomic edit as bulk operations',
     str_contains($apiSrc, "placementApplyNativeEdit(\$id, \$body, \$user, 'patch_status')"));
 $assert('native edit checks JobDiva origin and validates stored ownership',
@@ -83,8 +81,6 @@ $assert('native edit checks JobDiva origin and validates stored ownership',
 $assert('native values and ownership share one locked update',
     str_contains($editSrc, 'placementWithLockedRecord(')
     && str_contains($editSrc, "scopedUpdate('placements', \$id, \$patch)"));
-$assert('native-only placements retain their existing ownership',
-    str_contains($editSrc, 'if ($isJobDivaSourced)'));
 $assert('PATCH blocks client-supplied coreflux_overridden_fields',
     str_contains($apiSrc, "'coreflux_overridden_fields'"));
 
@@ -95,7 +91,7 @@ $assert('clear_override requires placements.manage RBAC',
     preg_match("/clear_override.*rbac_legacy_require\(\\\$user,\s*'placements\.manage'\)/s", $apiSrc) === 1);
 $assert('clear_override requires fields[] in body',
     preg_match("/clear_override.*fields\\[\\] required/s", $apiSrc) === 1);
-$ownershipSrc = (string) file_get_contents('/app/modules/placements/lib/ownership.php');
+$ownershipSrc = (string) file_get_contents($root . '/modules/placements/lib/ownership.php');
 $assert('clear_override uses the locked ownership release',
     str_contains($apiSrc, 'placementClearOverrides($id, $fields, $body[\'review\'])') && str_contains($ownershipSrc, 'FOR UPDATE'));
 $assert('clear_override retains its audit operation',

@@ -19,6 +19,7 @@ require_once __DIR__ . '/../lib/end.php';
 require_once __DIR__ . '/../lib/ownership.php';
 require_once __DIR__ . '/../lib/commercial_ownership.php';
 require_once __DIR__ . '/../lib/edit.php';
+require_once __DIR__.'/../lib/company_references.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
@@ -273,7 +274,8 @@ if ($method === 'POST') {
         }
     }
 
-    $personId = (int) ($body['person_id'] ?? 0);
+    try{$personId=companyRelationshipId($body['person_id']??null)??0;}
+    catch(InvalidArgumentException $e){api_error($e->getMessage(),422);}
     $newPersonBody = is_array($body['new_person'] ?? null) ? $body['new_person'] : null;
     if ($personId > 0 && $newPersonBody !== null) {
         api_error('Choose either an existing person or a new person, not both', 422);
@@ -328,15 +330,9 @@ if ($method === 'POST') {
         api_error('Placements cannot be created active. Create as draft/pending_start, approve rates, then activate.', 422);
     }
 
-    if (!empty($body['staffing_job_id'])) {
-        $job = scopedFind(
-            'SELECT id FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
-            ['id' => (int) $body['staffing_job_id']]
-        );
-        if (!$job) api_error('staffing_job_id not found in this tenant', 422);
-    }
     $accountingTenantId = effectiveTenantIdForModule('accounting', (int) $ctx['tenant_id']) ?? (int) $ctx['tenant_id'];
     try {
+        companyRelationshipId($body['accounting_entity_id']??null);
         $assignmentEntityId = accountingValidateActiveEntityId(
             $accountingTenantId,
             $body['accounting_entity_id'] ?? null
@@ -345,27 +341,28 @@ if ($method === 'POST') {
         api_error($e->getMessage(), 422);
     }
 
-    $createTransactionPdo = null;
-    $combinedCreateTransaction = false;
     $createdPersonId = null;
     try {
+        $id=placementNativeDirectoryWrite((int)currentTenantId(),$placementTenantId,static function(array $scope,PDO $pdo)use($newPersonInsert,$personId,$user,$body,$statusInput,$assignmentEntityId,$accountingTenantId,$placementTenantId,&$createdPersonId):int{
+        if((int)effectiveTenantIdForRequest()!==$scope['owner'])throw new RuntimeException('The placement request scope changed. Refresh before saving.',409);
+        $accountingScope=companyRelationshipScope($pdo,$scope['workspace'],'accounting');
+        if($accountingScope['owner']!==$accountingTenantId)throw new RuntimeException('The accounting directory changed. Refresh before saving.',409);
+        placementResolveNativeAccountingEntity($pdo,$scope,$assignmentEntityId);
+        $jobId=placementResolveNativeJob($pdo,$scope,$body['staffing_job_id']??null);
         if ($newPersonInsert !== null) {
             // Person + placement is one unit of work. A placement failure must
             // never leave an orphaned person in the directory.
-            $createTransactionPdo = cf_begin_transaction();
-            $combinedCreateTransaction = true;
             $personId = peopleCreateForPlacement(
                 $newPersonInsert,
                 (string) $newPersonInsert['classification'],
                 isset($user['id']) ? (int) $user['id'] : null
             );
             $createdPersonId = $personId;
-            peopleAudit('people.created', [
-                'id' => $personId,
-                'classification' => $newPersonInsert['classification'],
-                'source' => 'placement_create',
-            ], $personId);
+            companySourceAudit($pdo,$scope['workspace'],$scope['owner'],'people',$personId,'people.created',['classification'],(int)$user['id'],['classification'=>$newPersonInsert['classification'],'source'=>'placement_create']);
         }
+
+        $q=$pdo->prepare('SELECT id FROM people WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');$q->execute([$scope['owner'],$personId]);
+        if(!$q->fetchColumn())throw new RuntimeException('The selected person is no longer in this placement directory.',409);
 
         $insert = [
             'person_id'        => $personId,
@@ -385,7 +382,7 @@ if ($method === 'POST') {
             'department'       => $body['department']       ?? null,
             'cost_center'      => $body['cost_center']      ?? null,
             'accounting_entity_id' => $assignmentEntityId,
-            'staffing_job_id'  => !empty($body['staffing_job_id']) ? (int) $body['staffing_job_id'] : null,
+            'staffing_job_id'  => $jobId,
             'title'            => $body['title'],
             'end_client_name'  => $body['end_client_name']  ?? null,
             'end_client_company_id' => !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null,
@@ -401,6 +398,7 @@ if ($method === 'POST') {
 
         $insert = array_replace($insert, placementsResolveCompanyRoles($placementTenantId, $body, [], $user['id'] ?? null, currentTenantId()));
 
+        $insert['coreflux_overridden_fields']=json_encode(array_values(array_diff(array_keys($insert),['created_by_user_id'])),JSON_THROW_ON_ERROR);
         $id = scopedInsert('placements', $insert);
 
         // Bump end-client typeahead.
@@ -416,14 +414,12 @@ if ($method === 'POST') {
             } catch (\Throwable $e) { /* non-fatal */ }
         }
 
-        placementsAudit('placement.created', ['id' => $id, 'engagement_type' => $insert['engagement_type']], $id, [
-            'after' => placementAuditRow($id),
-        ]);
-        placementEconomicsReconcile((int) $ctx['tenant_id'], $id);
-        if ($combinedCreateTransaction && $createTransactionPdo && $createTransactionPdo->inTransaction()) $createTransactionPdo->commit();
+        $graph=placementEconomicsReconcile($scope['owner'],$id);
+        if(!$graph['available']||$graph['errors'])throw new RuntimeException('The placement commercial graph could not be created. Review the company links and try again.',422);
+        placementRequiredAudit('placement.created',['id'=>$id,'engagement_type'=>$insert['engagement_type'],'after'=>placementAuditRow($id)],$id);
+        return$id;
+        });
     } catch (\Throwable $e) {
-        if ($combinedCreateTransaction && $createTransactionPdo && $createTransactionPdo->inTransaction()) $createTransactionPdo->rollBack();
-
         // Close the small race between duplicate-email validation and INSERT.
         // When another request wins, return the same actionable conflict shape.
         if ($newPersonInsert !== null && $e instanceof \PDOException && (string) $e->getCode() === '23000') {
@@ -434,6 +430,9 @@ if ($method === 'POST') {
                     'conflict' => $conflict,
                 ]);
             }
+        }
+        if(!($e instanceof PDOException)&&($e instanceof RuntimeException||$e instanceof InvalidArgumentException)){
+            api_error($e->getMessage(),in_array($e->getCode(),[403,404,409,422,503],true)?$e->getCode():422);
         }
         throw $e;
     }
@@ -474,14 +473,10 @@ if ($method === 'PATCH') {
     if (array_key_exists('remote_policy', $body)) {
         $body['remote_policy'] = placementsNormalizeRemotePolicy($body['remote_policy']);
     }
-    foreach (['staffing_job_id'] as $idField) {
-        if (array_key_exists($idField, $body)) {
-            $body[$idField] = (int) $body[$idField] > 0 ? (int) $body[$idField] : null;
-        }
-    }
     if (array_key_exists('accounting_entity_id', $body)) {
         $accountingTenantId = effectiveTenantIdForModule('accounting', (int) $ctx['tenant_id']) ?? (int) $ctx['tenant_id'];
         try {
+            companyRelationshipId($body['accounting_entity_id']);
             $body['accounting_entity_id'] = accountingValidateActiveEntityId(
                 $accountingTenantId,
                 $body['accounting_entity_id']
