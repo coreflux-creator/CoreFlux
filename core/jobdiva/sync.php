@@ -2999,6 +2999,16 @@ function jobdivaApplyPlacementFieldMappings(
 
     require_once __DIR__ . '/../integrations/field_map_apply.php';
 
+    $companyContextId=$endClientCompanyId??0;
+    $companyEvidence=jobdivaAssignmentEndClientEvidence($payload);
+    if($companyContextId>0&&$companyEvidence['external_id']!==''){
+        $companyBinding=mappingFindInternal($tenantId,'jobdiva','company',$companyEvidence['external_id']);
+        // Relationships use the survivor, but proposals must remain attached to
+        // the exact source record. A Core-selected different company is not an
+        // invitation to write source fields into that company's primary identity.
+        $companyContextId=$companyBinding&&jobdivaCompanyCanonicalId($tenantId,(int)$companyBinding['internal_entity_id'])===$companyContextId
+            ?(int)$companyBinding['internal_entity_id']:0;
+    }
     $baseCtx = [
         'self'                   => $placementId,
         'placement'              => $placementId,
@@ -3006,9 +3016,9 @@ function jobdivaApplyPlacementFieldMappings(
         'placement_corp_details' => $placementId,
         'placement_referral'     => jobdivaPlacementReferralContextId($tenantId, $placementId),
         'person'                 => $personId,
-        'end_client_company'     => $endClientCompanyId ?? 0,
-        'company'                => $endClientCompanyId ?? 0,
-        'jobdiva_customer'       => $endClientCompanyId ?? 0,
+        'end_client_company'     => $companyContextId,
+        'company'                => $companyContextId,
+        'jobdiva_customer'       => $companyContextId,
         'staffing_job'           => $staffingJobId,
         'job'                    => $staffingJobId,
         'jobdiva_job'            => $staffingJobId,

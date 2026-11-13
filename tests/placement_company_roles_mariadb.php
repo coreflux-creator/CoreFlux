@@ -33,9 +33,11 @@ try{
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/022_external_entity_mappings.sql'))as$sql)$pdo->exec($sql);
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/196_commission_terms.sql'))as$sql)$pdo->exec($sql);
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/198_company_source_ownership.sql'))as$sql)$pdo->exec($sql);
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/156_record_numbers.sql'))as$sql)$pdo->exec($sql);
     $pdo->exec('ALTER TABLE companies ADD industry VARCHAR(80), ADD payment_terms_days INT');
     $pdo->exec("ALTER TABLE staffing_clients ADD company_id BIGINT, ADD source_system VARCHAR(40) DEFAULT 'manual', ADD external_id VARCHAR(80)");
     foreach([[10,1,'Billing Co',45],[11,1,'Work Recipient',90],[12,2,'Foreign Co',15],[13,1,'Another Bill-to',20]]as[$id,$tid,$name,$days])$insert('companies',['id'=>$id,'tenant_id'=>$tid,'name'=>$name,'payment_terms_days'=>$days]);
+    $pdo->exec('INSERT INTO core_record_numbers(tenant_id,entity_type,record_id,record_number,canonical_record_id) SELECT tenant_id,"company",id,CONCAT("CO-",id),id FROM companies');
     foreach([[1,1,10,'Billing Co'],[2,1,11,'Work Recipient'],[3,2,12,'Foreign Co'],[4,1,13,'Another Bill-to']]as[$id,$tid,$co,$name])$insert('staffing_clients',['id'=>$id,'tenant_id'=>$tid,'company_id'=>$co,'name'=>$name,'source_system'=>'jobdiva','payment_terms_days'=>45]);
     $fixture=purepayAssignmentFixtureRows();
     $placement=array_diff_key($fixture['placement'],['billing_company_id'=>true])+['tenant_id'=>1,'deleted_at'=>null,'updated_at'=>'2026-10-01 00:00:00','coreflux_overridden_fields'=>null,
