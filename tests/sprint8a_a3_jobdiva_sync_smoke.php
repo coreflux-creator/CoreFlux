@@ -256,7 +256,7 @@ echo "\nWiring — DirectoryDetail (companies) header\n";
 $dd = (string) file_get_contents("{$ROOT}/modules/people/ui/DirectoryModule.jsx");
 $assert('imports ConnectedSourcesBadge',          strpos($dd, "import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge'") !== false);
 $assert('renders badge with entityType=company',
-    strpos($dd, '<ConnectedSourcesBadge entityType="company" internalId={c.id} />') !== false);
+    preg_match('/<ConnectedSourcesBadge\b[^>]*entityType="company"[^>]*internalId=\{c\.id\}/', $dd) === 1);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

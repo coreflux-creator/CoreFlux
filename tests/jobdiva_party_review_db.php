@@ -27,8 +27,8 @@ try{
     $source=['companyId'=>'1001','companyName'=>'Source company','phone'=>'Source phone'];$reads=0;$offline=false;$duringRead=null;
     $reader=static function($workspace,$type,$id)use(&$source,&$reads,&$offline,&$duringRead){$reads++;if($offline)throw new RuntimeException('Offline');if($duringRead){$cb=$duringRead;$duringRead=null;$cb();}return[$source];};
     $request=['record_type'=>'companies','record_id'=>$company,'source_id'=>'1001'];
-    $check($fails(fn()=>jobdivaProjectorResolvePartyCompany($tenant,['external_id'=>'1001','name'=>'Core existing company'],[],$actor),'review the JobDiva identity link'),'Assignment projection cannot adopt an existing company by name');
-    $check(jobdivaProjectorResolvePartyCompany($tenant,['external_id'=>'','name'=>'Core existing company'],[],$actor)===null,'Name-only assignment company evidence remains unresolved');
+    $check($fails(fn()=>jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'1001','name'=>'Core existing company'],$actor),'review the JobDiva identity link'),'Assignment projection cannot adopt an existing company by name');
+    $check(jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'','name'=>'Core existing company'],$actor)===null,'Name-only assignment company evidence remains unresolved');
     $preview=static fn()=>jobdivaPartyReviewPreview($tenant,$actor,$request,$reader);
     $apply=static fn(array $p)=>jobdivaPartyReviewApply($tenant,$actor,$p['review_token'],$reader);
     $before=$row('companies',$company);$p=$preview();
@@ -68,7 +68,7 @@ try{
     $check(mappingFindExternal($tenant,'purepay','company',$company)===$otherProvider,'Unrelated provider identity and payload remain byte-for-byte unchanged');
     $link=mappingFindInternal($tenant,'jobdiva','company','1001');
     $check((int)$link['internal_entity_id']===$company&&$result['company_number']!==null,'New link retains the existing company ID and permanent company number');
-    $check(jobdivaProjectorResolvePartyCompany($tenant,['external_id'=>'1001','name'=>'Source company'],[],$actor)===$company,'Assignment projection uses the reviewed identity even when Core retains its own name');
+    $check(jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'1001','name'=>'Source company'],$actor)===$company,'Assignment projection uses the reviewed identity even when Core retains its own name');
     $offline=true;$readsBefore=$reads;$retry=$apply($p);
     $check($retry['replayed']&&$reads===$readsBefore&&mappingFindInternal($tenant,'jobdiva','company','1001')===$link,'Retry resolves locally without another source call or mapping rewrite');$offline=false;
     companyNativeFields($pdo,$tenant,$tenant,'companies',$company,['phone'=>'Later native edit'],$actor);
@@ -97,6 +97,8 @@ try{
     $sp=jobdivaPartyReviewPreview($child,$actor,$sharedRequest,$reader);jobdivaPartyReviewApply($child,$actor,$sp['review_token'],$reader);
     $check((int)mappingFindInternal($child,'jobdiva','company','4001')['internal_entity_id']===$shared&&(int)$row('companies',$shared)['tenant_id']===$tenant,'Shared directory data keeps the source identity in its authorized workspace');
     $check($fails(fn()=>jobdivaPartyReviewPreview($tenant,$actor,$sharedRequest,$reader),'another source authority'),'A different workspace cannot take source authority over the shared company');
+    mappingUpsert($tenant,'jobdiva','company','4001',$shared,null,'pull',$actor);
+    $check($fails(fn()=>jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'4001','name'=>'Shared Core company'],$actor),'another source authority'),'Assignment projection rejects competing source authority even when the company name matches');
     $pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="company" AND external_id="1001"')->execute([$tenant]);
     $offline=true;$retry=$apply($p);
     $check($retry['replayed']&&mappingFindInternal($tenant,'jobdiva','company','1001')===null,'A saved receipt never resurrects a deliberately removed identity');

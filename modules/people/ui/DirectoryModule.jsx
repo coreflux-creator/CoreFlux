@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams, Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
@@ -398,9 +398,12 @@ const SectionTitle = ({ children }) => (
 
 function DirectoryDetail({ cfg, mode }) {
   const { id } = useParams();
-  const { data, loading, error, reload } = useApi(`/modules/people/api/companies.php?id=${id}`);
+  const { data: response, loading, error, reload } = useApi(`/modules/people/api/companies.php?id=${id}`);
   const [sourceRevision, setSourceRevision] = useState(0);
-  // useApi retains the last response while a new route is loading.
+  const remembered = useRef(null);
+  if (response) remembered.current = response;
+  // Keep the confirmation visible during a same-record reload, never across routes.
+  const data = response ?? (loading ? remembered.current : null);
   const c = Number(data?.company?.id) === Number(id) ? data.company : null;
 
   if (loading && !c) return <p>Loading…</p>;

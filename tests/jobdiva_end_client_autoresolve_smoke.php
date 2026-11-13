@@ -71,7 +71,8 @@ echo "\njobdivaResolveOrAutoCreateEndClient — dedupe + bind\n";
 $assert('case-insensitive name lookup before auto-create (avoid dupes)',
     strpos($sync, 'WHERE tenant_id = :t AND LOWER(name) = LOWER(:n) AND deleted_at IS NULL') !== false);
 $assert('provider company identity conflicts stop automatic reassignment',
-    str_contains($projector, 'Company already has a different provider identity; no mapping was changed.'));
+    str_contains($projector, 'review the JobDiva identity link before importing.')
+    && str_contains($projector, 'Mapped company has another source authority.'));
 $assert('auto-creates with name-only (operator enriches later)',
     strpos($sync, "'INSERT INTO companies (tenant_id, name) VALUES (:t, :n)'") !== false);
 $assert('legacy helper still attempts a trusted mapping bind after auto-create',

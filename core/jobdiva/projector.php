@@ -768,6 +768,7 @@ function jobdivaProjectorResolvePartyCompany(int $tenantId, array $payload, arra
         $company = $s->fetch(PDO::FETCH_ASSOC);
         $authority=$company?companySourceState($company,'companies')['source']:null;
         $confirmed=$authority!==null&&mappingHash($authority)===mappingHash(['system'=>'jobdiva','workspace_id'=>$tenantId,'external_id'=>$externalId]);
+        if($authority!==null&&!$confirmed)throw new RuntimeException('Mapped company has another source authority. Review its existing identity.',409);
         if (!$company || (!$confirmed && $name !== '' && !jobdivaProjectorCompanyNameCompatible($company['name'], $name))) {
             throw new RuntimeException('Mapped company is missing, outside this directory, or has a conflicting source name. Review the existing identity.');
         }

@@ -19,12 +19,13 @@ test('directory keeps a same-record refresh visible but hides stale identities o
   let tree; await act(async () => { tree = create(render()); });
   try {
     assert.equal(tree.root.findByProps({ 'data-testid': 'clients-detail-name' }).findByType('span').children[0], 'First company');
-    state = { ...state, loading: true }; await act(async () => tree.update(render()));
+    const previous = state.data;
+    state = { ...state, data: null, loading: true }; await act(async () => tree.update(render()));
     assert.equal(tree.root.findAllByProps({ 'data-testid': 'clients-detail' }).length, 1);
     await act(async () => navigate('/11'));
     assert.equal(tree.root.findAllByProps({ 'data-testid': 'clients-detail' }).length, 0);
     assert.equal(tree.root.findAllByType('button').length, 0);
-    state = { ...state, loading: false, data: { ...state.data, company: { ...state.data.company, id: 11, name: 'Second company' } } };
+    state = { ...state, loading: false, data: { ...previous, company: { ...previous.company, id: 11, name: 'Second company' } } };
     await act(async () => tree.update(render()));
     assert.equal(tree.root.findByProps({ 'data-testid': 'clients-detail-name' }).findByType('span').children[0], 'Second company');
   } finally { act(() => tree.unmount()); }

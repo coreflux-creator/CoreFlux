@@ -71,7 +71,7 @@ $dd = (string) file_get_contents("{$ROOT}/modules/people/ui/DirectoryModule.jsx"
 $assert('imports LinkedExternalSystemsPanel',
     strpos($dd, "import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel'") !== false);
 $assert('renders panel with entityType=company below contacts',
-    strpos($dd, '<LinkedExternalSystemsPanel entityType="company" internalId={c.id} />') !== false);
+    preg_match('/<LinkedExternalSystemsPanel\b[^>]*entityType="company"[^>]*internalId=\{c\.id\}/', $dd) === 1);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);
