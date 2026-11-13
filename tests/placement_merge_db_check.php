@@ -17,6 +17,7 @@ $beforeFixture=$state();
 try{
     if($pdo->query('SELECT id FROM tenants WHERE id=990711')->fetchColumn())throw new RuntimeException('Merge fixture already exists');
     $pdo->exec("CREATE TRIGGER {$trigger} BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF BINARY NEW.event=BINARY 'placement.identity_merged' AND @fixture_placement_merge_receipt=1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic merge receipt failure'; END IF; END");
+    $pdo->exec("CREATE TRIGGER fixture_placement_merge_source_history BEFORE INSERT ON entity_sync_history FOR EACH ROW BEGIN IF NEW.tenant_id=990711 AND @fixture_placement_merge_source_history=1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic source history failure'; END IF; END");
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$check,$fails,$insert,$state,$read):void{
         $insert('tenants',['id'=>$workspace,'parent_id'=>$owner,'tenant_type'=>'sub','name'=>'Synthetic placement merge','is_active'=>1,'is_simulation'=>1]);
         foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
@@ -125,5 +126,5 @@ try{
         $check($fails(fn()=>placementMergeApply($workspace,$actor,$request))&&$revoked===$state(),'Receipt recovery requires current management access');
     },true);
     $check($state()===$beforeFixture,'All canonical merge fixtures roll back completely');
-}finally{if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP TRIGGER IF EXISTS '.$trigger);RBACResolver::resetCache();}
+}finally{if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP TRIGGER IF EXISTS '.$trigger);$pdo->exec('DROP TRIGGER IF EXISTS fixture_placement_merge_source_history');RBACResolver::resetCache();}
 echo "Placement merge canonical DB: {$checks} passed\n";

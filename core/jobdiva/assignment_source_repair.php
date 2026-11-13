@@ -177,7 +177,7 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
 {
     $summary = ['checked'=>0,'verified'=>0,'stored_assignments_trusted'=>0,'non_assignments'=>0,'not_found'=>0,
         'placements_restored'=>0,'placements_archived'=>0,'archived_retained'=>0,'quarantined'=>0,
-        'review_required'=>0,'api_errors'=>0,'failed'=>0,'mapping_writes'=>0,'errors'=>[]];
+        'review_required'=>0,'historical_sources_retained'=>0,'api_errors'=>0,'failed'=>0,'mapping_writes'=>0,'errors'=>[]];
     $pdo = getDB();
     // Holding database locks across a remote call is prohibited, even if the
     // caller happens to own a compatible nested transaction.
@@ -200,6 +200,8 @@ function jobdivaMappingRepairAssignmentSources(int $tenantId, ?int $userId = nul
             if (($exact['status']??'')==='not_assignment') $summary['non_assignments']++;
             if (($exact['status']??'')==='not_found') $summary['not_found']++;
             if (($exact['status']??'')==='error') { $summary['api_errors']++; if($result['action']==='review')$summary['failed']++; }
+        } catch (JobdivaHistoricalPlacementSource) {
+            $summary['historical_sources_retained']++;
         } catch (Throwable $e) {
             $summary['failed']++;
             if (count($summary['errors'])<20) $summary['errors'][]='source link '.$mappingId.': '.$e->getMessage();

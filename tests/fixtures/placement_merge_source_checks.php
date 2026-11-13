@@ -20,6 +20,11 @@ $check($csvSource['status']==='matched'&&$csvSource['ids']===[$a]&&(int)$csvSour
     'CSV reconciliation targets the current placement and retains the physical source pair');
 $check($fails(fn()=>jobdivaAssignmentRepairSnapshot($workspace,(int)$ma['id']))&&$sourceState===$state(),
     'A retained secondary mapping cannot be submitted as the current source owner');
+$pdo->exec('SET @fixture_placement_merge_source_history=1');
+$historyBefore=$state();
+$check($fails(fn()=>JobdivaStoredReviewTransaction::run(static fn()=>jobdivaPlacementBindRetained($workspace,'jd:99510001',$a,$payload+['sourceRefreshNote'=>'History must commit'],$actor)))&&$historyBefore===$state(),
+    'Required source observation failure rolls back the refreshed payload and mapping timestamps');
+$pdo->exec('SET @fixture_placement_merge_source_history=0');
 foreach(['receipt_missing','instance','source_rebound','source_workspace','new_source','alias_missing','survivor_archived','historical_revived','foreign_directory','unrelated_selection']as$case){
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$a,$b,$c,$ma,$mb,$case,$state,$check,$fails,$payload):void{
         if($case==='receipt_missing')$pdo->prepare('DELETE FROM audit_log WHERE tenant_id=? AND event="placement.identity_merged"')->execute([$workspace]);

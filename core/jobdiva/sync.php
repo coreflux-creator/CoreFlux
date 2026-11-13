@@ -3416,7 +3416,7 @@ function jobdivaStoredAssignmentProjectionPlan(
           WHERE tenant_id = :t
             AND source_system = 'jobdiva'
             AND internal_entity_type = 'placement'
-            AND external_id IN (:raw, :canonical)
+            AND id = :mapping_id
             AND sync_status = 'ok'
             AND payload_snapshot IS NOT NULL
           ORDER BY updated_at DESC, id DESC
@@ -3439,19 +3439,21 @@ function jobdivaStoredAssignmentProjectionPlan(
         }
         $financialPayload = null;
         $financialUpdatedAt = '';
+        $writeIdentity=null;
         try {
+            $writeIdentity=jobdivaPlacementResolvedIdentity($pdo,$directoryContext,$startId);
             $financialStmt->execute([
                 't' => $tenantId,
-                'raw' => $startId,
-                'canonical' => 'jd:' . $startId,
+                'mapping_id' => (int)($writeIdentity['mapping']['id']??0),
             ]);
             $financialRow = $financialStmt->fetch(\PDO::FETCH_ASSOC);
             if (is_array($financialRow)) {
                 $financialPayload = json_decode((string) ($financialRow['payload_snapshot'] ?? ''), true);
                 $financialUpdatedAt = (string) ($financialRow['updated_at'] ?? '');
             }
-        } catch (\Throwable $e) {
-            error_log('[jobdiva stored assignment preview] exact financial mirror lookup failed: ' . $e->getMessage());
+        } catch (\RuntimeException $e) {
+            if(!in_array($e->getCode(),[409,422],true))throw$e;
+            $errors[]=$e->getMessage();
         }
         if (is_array($financialPayload)) {
             foreach (['_jd_contract', '_jd_assignment_detail'] as $financialKey) {
@@ -3537,11 +3539,10 @@ function jobdivaStoredAssignmentProjectionPlan(
         $placementMapping=null;$placementId=0;$current=[];$currentGraph=[];
         $exactPlacementStmt=$pdo->prepare('SELECT id,deleted_at FROM placements WHERE tenant_id=? AND external_id IN(?,?) ORDER BY id FOR UPDATE');
         $exactPlacementStmt->execute([$placementOwner,'jd:'.$startId,$startId]);$exactPlacementRows=$exactPlacementStmt->fetchAll(PDO::FETCH_ASSOC);
-        try{
-            $writeIdentity=jobdivaPlacementWriteIdentity($pdo,$directoryContext,$startId);
+        if($writeIdentity){
             $placementMapping=$writeIdentity['mapping'];$placementId=(int)($writeIdentity['placement']['id']??0);
             if($writeIdentity['placement']&&!$placementMapping&&!empty($writeIdentity['placement']['deleted_at']))$warnings[]="Exact archived placement {$placementId} was found without its JobDiva binding.";
-        }catch(RuntimeException $e){if(!in_array($e->getCode(),[409,422],true))throw$e;$errors[]=$e->getMessage();}
+        }
         $sourceIdentityEvidence=null;
         if ($placementId > 0) {
             $placementStmt = $pdo->prepare(

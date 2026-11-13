@@ -52,7 +52,7 @@ function jobdivaPlacementWriteContext(PDO $pdo,int $workspace): array
 }
 
 /** Resolve an exact Start before related records can change; never adopt by name. */
-function jobdivaPlacementWriteIdentity(PDO $pdo,array $context,string $external,mixed $selected=null): array
+function jobdivaPlacementResolvedIdentity(PDO $pdo,array $context,string $external,mixed $selected=null): array
 {
     if(!$pdo->inTransaction()||trim($external)==='')throw new LogicException('A locked exact assignment identity is required.');
     $workspace=$context['workspace'];$owner=$context['placement_owner'];
@@ -68,7 +68,7 @@ function jobdivaPlacementWriteIdentity(PDO $pdo,array $context,string $external,
     }
     $candidates=array_values(array_unique($candidates));
     if(count($candidates)>1)throw new RuntimeException('Multiple Core placements claim this JobDiva Start. Review the retained identities.',409);
-    $placement=null;$owned=[];$sourceOwner=null;
+    $placement=null;$sourceOwner=null;
     if($candidates){
         $family=$families[$candidates[0]];$placement=$family['placement'];$sourceOwner=$family['source_owner'];
         if($family['merged']&&(!$mapping||(int)($family['primary']['id']??0)!==(int)$mapping['id']))throw new RuntimeException('Only the reviewed source owner can refresh the current placement.',409);
@@ -77,10 +77,19 @@ function jobdivaPlacementWriteIdentity(PDO $pdo,array $context,string $external,
         // Internal IDs are globally stable; the accessible placement constrains
         // this conflict query without disclosing another workspace's source IDs.
         if(!$family['merged']&&array_filter($family['links'],static fn($link)=>(int)$link['id']!==(int)($mapping['id']??0)))throw new RuntimeException('This placement already has another JobDiva identity. Review its existing source links.',409);
+    }
+    return ['mapping'=>$mapping,'placement'=>$placement,'source_owner'=>$sourceOwner];
+}
+
+/** Writers require valid ownership; read-only contract review can display malformed rules. */
+function jobdivaPlacementWriteIdentity(PDO $pdo,array $context,string $external,mixed $selected=null): array
+{
+    $identity=jobdivaPlacementResolvedIdentity($pdo,$context,$external,$selected);$placement=$identity['placement'];$owned=[];
+    if($placement){
         placementOwnershipFields($placement['coreflux_overridden_fields']??null);
-        $q=$pdo->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? FOR UPDATE');$q->execute([$owner,(int)$placement['id']]);
+        $q=$pdo->prepare('SELECT * FROM placement_economic_parties WHERE tenant_id=? AND placement_id=? FOR UPDATE');$q->execute([$context['placement_owner'],(int)$placement['id']]);
         $owned=jobdivaContractOwnedFields(['placement'=>$placement,'economic_parties'=>$q->fetchAll(PDO::FETCH_ASSOC)],(string)$placement['engagement_type']);
         if(array_intersect($owned,['end_client_name','end_client_company_id']))$owned=array_values(array_unique([...$owned,'end_client_name','end_client_company_id']));
     }
-    return ['mapping'=>$mapping,'placement'=>$placement,'owned_fields'=>$owned,'source_owner'=>$sourceOwner];
+    return $identity+['owned_fields'=>$owned];
 }
