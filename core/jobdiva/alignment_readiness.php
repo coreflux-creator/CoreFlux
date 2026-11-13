@@ -108,9 +108,15 @@ function jobdivaAlignmentCompanies(PDO $pdo, int $workspace, array $scope): arra
     $q = $pdo->prepare("SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='company'");
     $q->execute([$workspace]);
     $sourceIds = $q->fetchAll(PDO::FETCH_COLUMN);
-    $missing = 0; $canonical = [];
+    $missing = 0; $conflicts = 0; $canonical = [];
     foreach ($sourceIds as $sourceId) {
-        $identity = (int)$sourceId > 0 ? companyIdentityResolve($pdo, $scope['companies'], (int)$sourceId) : null;
+        try {
+            $identity = (int)$sourceId > 0 ? companyIdentityResolve($pdo, $scope['companies'], (int)$sourceId) : null;
+        } catch (RuntimeException $e) {
+            // A conflicting retained alias is a data finding; failed queries still abort the report.
+            if ($e instanceof PDOException || $e->getCode() !== 409) throw $e;
+            $missing++; $conflicts++; continue;
+        }
         if ($identity === null) { $missing++; continue; }
         $canonical[$identity['id']] = true;
     }
@@ -121,5 +127,5 @@ function jobdivaAlignmentCompanies(PDO $pdo, int $workspace, array $scope): arra
         $q->execute([$id, $scope['staffing'], $id]);
         $withoutClient += (int)$q->fetchColumn();
     }
-    return ['missing_company'=>$missing, 'current_companies'=>count($canonical), 'clients_without_staffing_client'=>$withoutClient];
+    return ['missing_company'=>$missing, 'identity_conflicts'=>$conflicts, 'current_companies'=>count($canonical), 'clients_without_staffing_client'=>$withoutClient];
 }

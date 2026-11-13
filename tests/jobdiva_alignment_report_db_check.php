@@ -52,6 +52,7 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,
     }
     $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE id=?')->execute([$bill]);
     $check($report()['relationships']['projector']['workflow_readiness']['client_company_mismatch']===1,'A retired bill-to company is unavailable without conflating the work recipient');
+    $check($report()['relationships']['company_graph']['identity_conflicts']===1,'A broken retained company alias is a reported identity finding, not a hidden link');
     $pdo->prepare('UPDATE companies SET deleted_at=NULL WHERE id=?')->execute([$bill]);
     $pdo->prepare('UPDATE placements SET status="active" WHERE id=?')->execute([$placement]);
     $pdo->prepare('UPDATE placement_rates SET approved_at=NULL WHERE id=?')->execute([$rate]);
