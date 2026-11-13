@@ -227,13 +227,12 @@ if ($method === 'POST') {
         $insert['entity_id'] = (int) $body['entity_id'];
     }
 
-    $id = scopedInsert('people', $insert);
-    if ($piiTouched) {
-        peopleLogPIIAccess(
-            (int) ($user['id'] ?? 0), $id, 'pii.set',
-            ['fields' => $piiTouched, 'on' => 'create']
-        );
-    }
+    $pdo=getDB();$pdo->beginTransaction();
+    try {
+        $id = scopedInsert('people', $insert);
+        if ($piiTouched) peopleLogPIIAccess((int)$user['id'],$id,'pii.set',['fields'=>$piiTouched]);
+        $pdo->commit();
+    } catch(Throwable $e) { if($pdo->inTransaction())$pdo->rollBack();throw $e; }
     peopleAudit('people.created', ['id' => $id, 'classification' => $insert['classification']], $id);
 
     // Auto-bridge: if the new person is an active W-2, ensure a paired
@@ -266,10 +265,6 @@ if ($method === 'PATCH') {
     foreach ($piiKeys as $k) if (array_key_exists($k, $body)) $touchingPII = true;
     if ($touchingPII) {
         rbac_legacy_require($user, 'people.pii.manage');
-        peopleLogPIIAccess(
-            (int) ($user['id'] ?? 0), $id, 'pii.viewed',
-            ['fields' => array_values(array_intersect(array_keys($body), $piiKeys)), 'on' => 'update']
-        );
     }
 
     if (!empty($body['classification'])) {
@@ -283,8 +278,13 @@ if ($method === 'PATCH') {
     }
 
     if (!$body) api_error('No fields to update', 422);
-    try { $rows = peopleEmploymentUpdatePerson((int)$ctx['tenant_id'], $id, $body); }
-    catch(RuntimeException $e) { api_error($e->getMessage(),409); }
+    $pdo=getDB();if($touchingPII)$pdo->beginTransaction();
+    try {
+        $rows = peopleEmploymentUpdatePerson((int)$ctx['tenant_id'], $id, $body);
+        if($touchingPII){peopleLogPIIAccess((int)$user['id'],$id,'pii.updated',['fields'=>array_values(array_intersect(array_keys($body),$piiKeys))]);$pdo->commit();}
+    } catch(PDOException $e) { if($touchingPII&&$pdo->inTransaction())$pdo->rollBack();api_error('Person changes could not be saved with their required audit.',503); }
+    catch(RuntimeException $e) { if($touchingPII&&$pdo->inTransaction())$pdo->rollBack();api_error($e->getMessage(),409); }
+    catch(Throwable $e) { if($touchingPII&&$pdo->inTransaction())$pdo->rollBack();throw $e; }
     if ($rows === 0) api_error('Not found or no change', 404);
     peopleAudit('people.updated', ['id' => $id, 'fields' => array_keys($body)], $id);
     api_ok(['person' => peopleGet($id)]);

@@ -61,7 +61,8 @@ $quantaEmail = staffingFieldContractRules('people', 'email_primary')['remote_con
 numberCheck($quantaEmail['direction'] === 'reviewed_inbound_and_outbound'
     && $quantaEmail['status'] === 'source_verified_hosted_acceptance_pending'
     && !$quantaEmail['sync_enabled_by_dictionary'], 'worker mapping does not claim hosted acceptance or enable delivery');
-numberCheck(staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta']['status'] === 'unverified', 'existing provider identity is not claimed as a Core ID field');
+$legacyPersonReference=staffingFieldContractRules('people', 'external_id')['remote_contracts']['quanta'];
+numberCheck($legacyPersonReference['status'] === 'core_internal_only' && $legacyPersonReference['path'] === null && empty($legacyPersonReference['mappings']), 'retained provider reference is not copied as a canonical Core ID');
 numberCheck(staffingFieldContractRules('people', 'first_name')['remote_contracts']['purepayroll']['path'] === 'first_name', 'explicit people-review mapping carries a separate first name');
 foreach ([['people', 'ssn_ct'], ['people_employees', 'employee_number'], ['placements', 'future_field'],
     ['placement_rates', 'future_field'], ['time_entries', 'approved_at']] as [$table, $field]) {

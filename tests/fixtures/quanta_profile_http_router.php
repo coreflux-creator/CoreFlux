@@ -15,7 +15,7 @@ $fixture = json_decode((string)file_get_contents($fixturePath), true, 32, JSON_T
 if (($_SERVER['HTTP_HOST'] ?? '') !== '127.0.0.1:' . $fixture['port']) { http_response_code(404); exit; }
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
-if (!in_array($path, ['/login.php','/logout.php','/api/quanta.php','/modules/people/api/people.php','/modules/people/api/employment_link.php','/modules/people/api/employment_setup.php','/modules/people/api/employees.php','/api/staffing_reconciliation.php','/api/staffing_financial_evidence.php','/api/purepay_connection.php'], true)) { http_response_code(404); exit; }
+if (!in_array($path, ['/login.php','/logout.php','/api/quanta.php','/modules/people/api/people.php','/modules/people/api/audit_pii.php','/modules/people/api/employment_link.php','/modules/people/api/employment_setup.php','/modules/people/api/employees.php','/api/staffing_reconciliation.php','/api/staffing_financial_evidence.php','/api/purepay_connection.php'], true)) { http_response_code(404); exit; }
 // Only provider transport is synthetic. Login, PHP session cookies, tenant
 // selection, dual RBAC, API validation and database reads are unmodified.
 $GLOBALS['__quanta_transport'] = static function ($method, $url) use ($fixture, $directory): array {

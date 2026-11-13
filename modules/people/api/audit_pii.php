@@ -13,6 +13,7 @@
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../lib/people.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -48,11 +49,12 @@ $perPage = min(500, max(1, (int) ($_GET['per_page'] ?? 50)));
 $offset  = ($page - 1) * $perPage;
 
 $whereSql = implode(' AND ', $where);
+$source=peoplePrivateAuditReadSource(getDB());
 
-$total = (int) (scopedFind("SELECT COUNT(*) AS c FROM people_pii_access_log WHERE {$whereSql}", $params)['c'] ?? 0);
+$total = (int) (scopedFind("SELECT COUNT(*) AS c FROM {$source} WHERE {$whereSql}", $params)['c'] ?? 0);
 
 $rows = scopedQuery(
-    "SELECT * FROM people_pii_access_log
+    "SELECT * FROM {$source}
      WHERE {$whereSql}
      ORDER BY created_at DESC
      LIMIT " . (int) $perPage . " OFFSET " . (int) $offset,

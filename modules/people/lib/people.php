@@ -128,7 +128,7 @@ function peopleCreateExternalCandidate(int $tenantId, array $identity, string $s
 /**
  * Get a person WITH PII. Caller MUST have already checked
  * rbac_legacy_can($user, 'people.pii.view') AND have written a
- * `people_pii_access_log` entry via peopleLogPIIAccess().
+ * required person-qualified access entry via peopleLogPIIAccess().
  */
 function peopleGetWithPII(int $personId): ?array
 {
@@ -270,22 +270,35 @@ function peopleSafeFieldsAliased(string $alias): string
 function peopleLogPIIAccess(int $actorUserId, ?int $targetPersonId, string $eventType, array $fields = []): void
 {
     $pdo = getDB();
-    if (!$pdo) return;
-    $stmt = $pdo->prepare(
-        'INSERT INTO people_pii_access_log
-         (tenant_id, actor_user_id, target_person_id, event_type, fields_json, ip_address, user_agent, request_id, created_at)
-         VALUES (:tenant_id, :actor, :target, :event, :fields, :ip, :ua, :rid, NOW())'
-    );
-    $stmt->execute([
-        'tenant_id' => currentTenantId(),
-        'actor'     => $actorUserId,
-        'target'    => $targetPersonId,
-        'event'     => $eventType,
-        'fields'    => $fields ? json_encode(array_values($fields)) : null,
-        'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        'ua'        => substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 500),
-        'rid'       => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-    ]);
+    if (!$pdo || $actorUserId<=0 || $targetPersonId===null || $targetPersonId<=0) throw new RuntimeException('Private person access requires an audit identity.');
+    if(!in_array($eventType,['pii.viewed','pii.set','pii.updated','banking.viewed','banking.updated','tax.viewed','tax.updated','ssn.revealed','document.downloaded'],true))throw new InvalidArgumentException('Unknown private access event.');
+    $owner=effectiveTenantIdForRequest();
+    $q=$pdo->prepare('SELECT id FROM people WHERE tenant_id=? AND id=? AND deleted_at IS NULL');$q->execute([$owner,$targetPersonId]);
+    if(!$q->fetchColumn())throw new RuntimeException('Person is unavailable in this directory.');
+    // The old people_pii_access_log may identify employees, not people. Never
+    // put a person ID into its employee_id column or rewrite that history.
+    $names=$fields['fields']??(array_is_list($fields)?$fields:array_keys($fields));
+    if(!is_array($names))throw new InvalidArgumentException('Private access field names required.');
+    foreach($names as$name)if(!is_string($name)||!preg_match('/^[a-zA-Z0-9_.]{1,80}$/D',$name))throw new InvalidArgumentException('Private access field names required.');
+    $meta=['record_kind'=>'person','people_tenant_id'=>$owner,'workspace_tenant_id'=>currentTenantId(),'event_type'=>$eventType,'fields'=>array_values(array_unique($names))];
+    $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,request_id,created_at) VALUES(?,?,"people.private_access",?,?,?,?,NOW())')
+        ->execute([$owner,$actorUserId,$targetPersonId,json_encode($meta,JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null,substr((string)($_SERVER['HTTP_X_REQUEST_ID']??''),0,64)?:null]);
+}
+
+/** Read original legacy history alongside new person-qualified receipts without rekeying either. */
+function peoplePrivateAuditReadSource(PDO $pdo): string
+{
+    $current="SELECT CONCAT('access:',id) AS id,tenant_id,actor_user_id,target_id AS target_person_id,NULL AS target_employee_id,
+        JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.event_type')) AS event_type,JSON_EXTRACT(meta_json,'$.fields') AS fields_json,
+        ip_address,created_at,'person' AS record_kind FROM audit_log WHERE event='people.private_access'";
+    $q=$pdo->query("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='people_pii_access_log'");
+    $columns=$q->fetchAll(PDO::FETCH_COLUMN);
+    if(in_array('target_person_id',$columns,true)&&in_array('actor_user_id',$columns,true)) {
+        $current.=" UNION ALL SELECT CONCAT('legacy-person:',id),tenant_id,actor_user_id,target_person_id,NULL,event_type,fields_json,ip_address,created_at,'person' FROM people_pii_access_log";
+    } elseif(in_array('employee_id',$columns,true)&&in_array('user_id',$columns,true)) {
+        $current.=" UNION ALL SELECT CONCAT('legacy-employee:',id),tenant_id,user_id,NULL,employee_id,action,JSON_ARRAY(field),ip_address,created_at,'employee' FROM people_pii_access_log";
+    } elseif($columns) throw new RuntimeException('Private access history schema needs review.');
+    return '('.$current.') AS private_access_history';
 }
 
 /**

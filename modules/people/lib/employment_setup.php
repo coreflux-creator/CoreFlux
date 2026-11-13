@@ -149,8 +149,8 @@ function peopleEmploymentUpdatePerson(int $tenant,int $personId,array $patch): i
 {
     $pdo=getDB();
     if(!array_intersect(array_keys($patch),['employment_type','hire_date']))return scopedUpdate('people',$personId,$patch);
-    if($pdo->inTransaction())throw new LogicException('Person employment review requires its own transaction.');
-    $pdo->beginTransaction();
+    $ownsTransaction=!$pdo->inTransaction();
+    if($ownsTransaction)$pdo->beginTransaction();
     try{
         $owner=peopleEmploymentOwner($tenant,true);
         $link=peopleEmploymentLink($pdo,$owner,$personId);
@@ -168,6 +168,6 @@ function peopleEmploymentUpdatePerson(int $tenant,int $personId,array $patch): i
             $set=implode(',',array_map(static fn($field)=>'`'._safeIdent($field).'`=?',array_keys($patch)));
             $s=$pdo->prepare('UPDATE people SET '.$set.' WHERE tenant_id=? AND id=?');$s->execute([...array_values($patch),$owner,$personId]);$rows=$s->rowCount();
         }
-        $pdo->commit();return $rows;
-    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+        if($ownsTransaction)$pdo->commit();return $rows;
+    }catch(Throwable $e){if($ownsTransaction&&$pdo->inTransaction())$pdo->rollBack();throw $e;}
 }

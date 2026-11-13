@@ -158,6 +158,8 @@ try {
     $expect($unchanged===['gender'=>'original','marital_status'=>'original','preferred_name'=>null,'user_id'=>null],'Rejected mixed person edits leave every original value intact');
     $expect($request($personRoute.'?id='.$privatePerson,['preferred_name'=>'Allowed profile'],true,$tenant,false,'PATCH')[0]===200,'Allowed ordinary person profile edit still works');
     $expect($request($personRoute.'?id='.$privatePerson,['preferred_name'=>'Foreign edit'],true,999,false,'PATCH')[0]===403,'Foreign pinned company cannot edit person profile');
+    $privateHistory='/modules/people/api/audit_pii.php?target_person_id='.$privatePerson;
+    $expect($request($privateHistory,null)[0]===403,'Ordinary profile writer cannot read private access history');
     $pdo->prepare('INSERT INTO people_employees(tenant_id,employee_number,legal_first_name,legal_last_name,ssn_last4,date_of_birth) VALUES(?,"HTTP-PRIVATE","Synthetic","Employee","3333","2000-01-01")')->execute([$tenant]);
     $privateEmployee=(int)$pdo->lastInsertId();
     [$status,$privateView]=$request($employees.'?id='.$privateEmployee,null);
@@ -166,9 +168,34 @@ try {
     foreach(['status'=>'active','job_title'=>'Bypass','employment_type'=>'full_time']as$field=>$value)$expect($request($employees.'?id='.$privateEmployee,[$field=>$value],true,$tenant,false,'PATCH')[0]===409,'Direct employment edit cannot bypass setup review: '.$field);
     $expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'Activation','status'=>'active'])[0]===409,'Legacy employment creation cannot bypass pending activation review');
     RBACResolver::grantModule($membership,'people','admin',[$tenant],$actor);
-    $expect($request($personRoute.'?id='.$privatePerson,['gender'=>'reviewed','marital_status'=>null],true,$tenant,false,'PATCH')[0]===200,'Private-authorized person change and explicit clear work');
+    $expect($request($personRoute.'?id='.$privatePerson,['gender'=>'reviewed','marital_status'=>null,'hire_date'=>'2026-12-01'],true,$tenant,false,'PATCH')[0]===200,'Private-authorized person change, explicit clear and employment fact work together');
     [$status,$personView]=$request($personRoute.'?id='.$privatePerson.'&include_pii=1',null);
     $expect($status===200&&($personView['person']['gender']??null)==='reviewed'&&array_key_exists('marital_status',$personView['person'])&&$personView['person']['marital_status']===null,'Private-authorized read returns exact reviewed values');
+    [$status,$history]=$request($privateHistory,null);
+    $expect($status===200&&count($history['rows']??[])===2,'Private profile changes and reads are available in the native access history');
+    foreach($history['rows'] as $receipt)$expect($receipt['record_kind']==='person'&&(int)$receipt['target_person_id']===$privatePerson&&$receipt['target_employee_id']===null&&!str_contains($receipt['fields_json'],'reviewed'),'Private access history qualifies person identity and stores field names only');
+    $expect(($personView['person']['hire_date']??null)==='2026-12-01','Caller-owned private edit transaction includes the employment helper');
+    $pdo->prepare('INSERT INTO people_pii_access_log(tenant_id,user_id,employee_id,field,action) VALUES(?,?,?,"ssn","view_full")')->execute([$tenant,$actor,$privatePerson]);
+    $legacyAudit=(int)$pdo->lastInsertId();
+    try {
+        [$status,$sameNumber]=$request($privateHistory,null);
+        $expect($status===200&&count($sameNumber['rows']??[])===2,'Employee history with the same numeric ID is not a person history match');
+        [$status,$legacyHistory]=$request('/modules/people/api/audit_pii.php?event_type=view_full',null);
+        $legacyRows=array_values(array_filter($legacyHistory['rows']??[],static fn($row)=>$row['id']==='legacy-employee:'.$legacyAudit));
+        $expect($status===200&&count($legacyRows)===1&&$legacyRows[0]['record_kind']==='employee'&&$legacyRows[0]['target_person_id']===null&&(int)$legacyRows[0]['target_employee_id']===$privatePerson,'Original employee history remains readable under its original identity');
+    } finally { $pdo->prepare('DELETE FROM people_pii_access_log WHERE id=? AND tenant_id=?')->execute([$legacyAudit,$tenant]); }
+    $expect($request($privateHistory,null,true,999)[0]===403,'Foreign company cannot read private profile history');
+    $pdo->exec("CREATE TRIGGER cf_profile_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='people.private_access' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic private profile audit failure'; END IF; END");
+    try {
+        $beforePerson=$pdo->query('SELECT * FROM people WHERE id='.$privatePerson)->fetch(PDO::FETCH_ASSOC);
+        $expect($request($personRoute.'?id='.$privatePerson,['preferred_name'=>'Must roll back','gender'=>'blocked','hire_date'=>'2026-12-02'],true,$tenant,false,'PATCH')[0]===503,'Private profile update refuses to succeed without its audit');
+        $expect($pdo->query('SELECT * FROM people WHERE id='.$privatePerson)->fetch(PDO::FETCH_ASSOC)===$beforePerson,'Audit failure rolls back ordinary and private profile changes together');
+        [$status,$blockedRead]=$request($personRoute.'?id='.$privatePerson.'&include_pii=1',null);
+        $expect($status===500&&!isset($blockedRead['person']),'Private read releases no person data when access audit fails');
+        $createBody=array_replace($personBody,['email_primary'=>'blocked-private-create@example.invalid','gender'=>'blocked']);
+        $expect($request($personRoute,$createBody)[0]===500,'Private person creation refuses an unaudited partial success');
+        $expect((int)$pdo->query("SELECT COUNT(*) FROM people WHERE tenant_id=900011 AND email_primary='blocked-private-create@example.invalid'")->fetchColumn()===0,'Failed private creation leaves no person record');
+    } finally { $pdo->exec('DROP TRIGGER cf_profile_audit_failure'); }
     $expect($request($personRoute.'?id='.$privatePerson,['user_id'=>$actor],true,$tenant,false,'PATCH')[0]===422,'Even a private-data administrator cannot bypass person identity linking');
     $pdo->prepare('DELETE FROM people WHERE id=? AND tenant_id=?')->execute([$privatePerson,$tenant]);
     [$status,$privateView]=$request($employees.'?id='.$privateEmployee,null);

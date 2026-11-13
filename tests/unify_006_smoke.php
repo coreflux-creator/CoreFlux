@@ -85,7 +85,8 @@ $assert('invoice PATCH allows client_company_id',         strpos($iapi, "'client
 echo "\nPeople API + lib (extended fields)\n";
 $papi = (string) file_get_contents(__DIR__ . '/../modules/people/api/people.php');
 $assert('people POST accepts employment_type',  strpos($papi, "'employment_type','hire_date','termination_date','pay_frequency','gender','marital_status'") !== false);
-$assert('people PII list includes mailing_*',   strpos($papi, "'mailing_address_line1'") !== false);
+require_once __DIR__.'/../modules/people/lib/profile_input.php';
+$assert('people private input includes mailing_*', str_contains($papi,'peopleProfilePrivateFields()') && in_array('mailing_address_line1',peopleProfilePrivateFields(),true));
 
 $plib = (string) file_get_contents(__DIR__ . '/../modules/people/lib/people.php');
 $assert('lib safeFields includes employment_type', strpos($plib, 'employment_type') !== false);
