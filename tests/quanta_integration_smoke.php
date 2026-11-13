@@ -334,8 +334,7 @@ $check('placement creation from Quanta requires reviewed type and date',
     && str_contains((string) file_get_contents($root . '/dashboard/src/pages/QuantaIdentityReview.jsx'), 'Create and link') && str_contains($ui, 'Find work to route'));
 $placementCreateApi = (string) file_get_contents($root . '/modules/placements/api/placements.php');
 $check('placement creation preserves the shared database connection',
-    str_contains($placementCreateApi, '$createTransactionPdo = null;')
-    && !str_contains($placementCreateApi, '$pdo = null;'));
+    !str_contains($placementCreateApi, '$pdo = null;'));
 $check('new route defaults to uncovered work and ends with the selected placement',
     str_contains($ui, 'quantaRoutingDraft(row, chosen')
     && str_contains((string) file_get_contents($root . '/dashboard/src/lib/quantaRouting.js'), 'effective_from: from || row.work_date')

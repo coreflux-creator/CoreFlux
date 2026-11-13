@@ -13,7 +13,7 @@ function placementNativeReferenceHttpCases(PDO $pdo,int $parent,int $actor,calla
         $id=(int)$pdo->lastInsertId();$ids[$table][]=$id;return$id;
     };
     $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
-    $all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    $all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY '.($table==='core_record_numbers'?'tenant_id,entity_type,record_id':'id'))->fetchAll(PDO::FETCH_ASSOC);
     $financial=[$all('accounting_journal_entries'),$all('accounting_journal_entry_lines'),$all('payroll_runs'),$all('billing_payments'),$all('ap_payments')];
     $cycles=array_column($all('staffing_operating_cycles'),'id');
     $setScope=static function(string $module,string $mode)use($pdo,$child):void{$pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,?) ON DUPLICATE KEY UPDATE scope_mode=VALUES(scope_mode)')->execute([$child,$module,$mode]);};
@@ -53,6 +53,22 @@ function placementNativeReferenceHttpCases(PDO $pdo,int $parent,int $actor,calla
                 $expect($request($url.'?id='.$id,[$field=>$value],true,$child,false,'PATCH')[0]===422,$mode.': native edit rejects malformed '.$field);
             }
             $expect($read('placements',$id)===$before&&$all('audit_log')===$audit,$mode.': malformed references make no business or audit changes');
+            $placementRows=$all('placements');
+            $pdo->prepare('UPDATE staffing_clients SET status="inactive" WHERE id=?')->execute([$client]);
+            $expect($request($url,$body,true,$child)[0]===422,$mode.': new placement cannot choose an inactive billing client');
+            $pdo->prepare('UPDATE staffing_clients SET status="active" WHERE id=?')->execute([$client]);
+            $pdo->prepare('UPDATE people SET deleted_at=NOW() WHERE id=?')->execute([$person]);
+            $expect($request($url,$body,true,$child)[0]===422,$mode.': new placement cannot choose a retired worker');
+            $pdo->prepare('UPDATE people SET deleted_at=NULL WHERE id=?')->execute([$person]);
+            $pdo->prepare('UPDATE accounting_entities SET active=0 WHERE id=?')->execute([$entity]);
+            $expect($request($url,$body,true,$child)[0]===422,$mode.': new placement cannot choose an inactive legal entity');
+            $pdo->prepare('UPDATE accounting_entities SET active=1 WHERE id=?')->execute([$entity]);
+            $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE id=?')->execute([$company]);
+            $expect($request($url,$body,true,$child)[0]===422,$mode.': billing client cannot hide a retired company reference');
+            $pdo->prepare('UPDATE companies SET deleted_at=NULL WHERE id=?')->execute([$company]);
+            $expect($request($url.'?id='.$id,['person_id'=>$person+100000000],true,$child,false,'PATCH')[0]===422,$mode.': native person change requires an existing current worker');
+            $expect($request($url.'?id='.$id,['staffing_job_id'=>$job+100000000],true,$child,false,'PATCH')[0]===422,$mode.': native job change requires a job in its configured directory');
+            $expect($all('placements')===$placementRows&&$all('audit_log')===$audit,$mode.': unavailable references leave placements and audit unchanged');
             RBACResolver::grantModule($membership,'placements','read',[$child],$actor);
             $expect($request($url.'?id='.$id,['title'=>'Denied'],true,$child,false,'PATCH')[0]===403,$mode.': reader cannot edit an existing placement');
             RBACResolver::grantModule($membership,'placements','write',[$child],$actor);
