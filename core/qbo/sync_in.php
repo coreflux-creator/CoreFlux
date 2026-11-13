@@ -209,7 +209,7 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
         }
     }
     if(!empty($qbo['Job'])||!empty($qbo['ParentRef']['value']))$payload['status']='inactive';
-    elseif(array_key_exists('Active',$qbo))$payload['status']=$qbo['Active']?'active':'inactive';
+    elseif(isset($qbo['Active']))$payload['status']=$qbo['Active']?'active':'inactive';
     $result=staffingClientEnsureForCompany($tenantId,null,$name,$payload+[
         'source_system'=>'qbo','source_external_id'=>trim((string)$qboId),'source_payload'=>$qbo,
     ]);

@@ -35,10 +35,16 @@ if(($argv[1]??'')==='worker'){
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
         else{
             if($input['mode']==='hold')$pdo->beginTransaction();
+            if(!empty($input['snapshot'])){
+                $pdo->beginTransaction();$pdo->query('SELECT COUNT(*) FROM audit_log')->fetchColumn();
+                echo json_encode(['snapshot'=>true]).PHP_EOL;flush();stream_set_timeout(STDIN,15);
+                if(trim((string)fgets(STDIN))!=='CONTINUE')throw new RuntimeException('Snapshot worker was not released');
+            }
             $result=match($input['entity']??'job'){
                 'client'=>staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision']),
                 'client_csv'=>['id'=>staffingClientImportNative($input['workspace'],$input['row'],$input['actor'],true)],
                 'client_source'=>clientSourceRaceWrite($input),
+                'client_accept'=>staffingClientSourceAccept($input['workspace'],$input['client_id'],$input['source_key'],$input['fields'],$input['review_token'],$input['actor']),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -46,6 +52,7 @@ if(($argv[1]??'')==='worker'){
                 stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
                 if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();
             }
+            if(!empty($input['snapshot']))$pdo->commit();
         }
         echo json_encode(['ok'=>true,'result'=>$result],JSON_THROW_ON_ERROR).PHP_EOL;
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();echo json_encode(['ok'=>false,'code'=>$e->getCode(),'error'=>$e->getMessage()],JSON_THROW_ON_ERROR).PHP_EOL;}
@@ -213,6 +220,21 @@ try{
             if($decision==='COMMIT')$check(!$merged['ok']&&(int)$merged['code']===409&&$read('companies',$b)['deleted_at']===null&&$read('staffing_clients',$id)['primary_contact_phone']==='Concurrent source phone',$system.' committed source profile invalidates a stale merge review');
             else$check($merged['ok']&&(int)$read('staffing_clients',$id)['company_id']===$a&&$read('staffing_clients',$id)['primary_contact_phone']===$before['primary_contact_phone'],$system.' rolled-back source leaves no value and permits the reviewed merge');
         }
+        [$a,$b,$id,$input]=$sourceFixture('receipt-snapshot');clientSourceRaceWrite($input);
+        $review=staffingClientSourceReview($tenant,$id);$sourceKey=array_key_first($review['observations']);
+        $worker=$spawn(['mode'=>'native','entity'=>'client_accept','snapshot'=>true,'workspace'=>$tenant,'actor'=>$actor,'client_id'=>$id,'source_key'=>$sourceKey,'fields'=>['primary_contact_phone'],'review_token'=>$review['review_token']]);
+        $snapshot=$line($workers[$worker]['pipes'][1]);$check(!empty($snapshot['snapshot']),$system.' receipt retry holds a repeatable-read snapshot predating acceptance');
+        staffingClientSourceAccept($tenant,$id,$sourceKey,['primary_contact_phone'],$review['review_token'],$actor);
+        $before=[$read('staffing_clients',$id),$read('companies',$b)];
+        fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
+        $check($result['ok']&&!empty($result['result']['replayed'])&&[$read('staffing_clients',$id),$read('companies',$b)]===$before,$system.' retry reads the committed receipt instead of reapplying from its older snapshot');
+        [$a,$b,$id,$input]=$sourceFixture('review-snapshot');clientSourceRaceWrite($input);
+        $review=staffingClientSourceReview($tenant,$id);$sourceKey=array_key_first($review['observations']);
+        $worker=$spawn(['mode'=>'native','entity'=>'client_accept','snapshot'=>true,'workspace'=>$tenant,'actor'=>$actor,'client_id'=>$id,'source_key'=>$sourceKey,'fields'=>['primary_contact_phone'],'review_token'=>$review['review_token']]);
+        $snapshot=$line($workers[$worker]['pipes'][1]);$check(!empty($snapshot['snapshot']),$system.' source review holds a snapshot before a later provider update');
+        clientSourceRaceWrite(array_replace($input,['phone'=>'Changed after review']));$before=[$read('staffing_clients',$id),$read('companies',$b)];
+        fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
+        $check(!$result['ok']&&(int)$result['code']===409&&[$read('staffing_clients',$id),$read('companies',$b)]===$before,$system.' source acceptance rejects the changed proposal even inside an older transaction snapshot');
     }
     foreach(['COMMIT','ROLLBACK']as$decision){
         foreach(['native','merge']as$mode){

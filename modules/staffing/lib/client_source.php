@@ -151,16 +151,18 @@ function staffingClientProjectSource(int $workspace,?int $companyId,string $name
     });
 }
 
-function staffingClientSourceReview(int $workspace,int $id): array
+function staffingClientSourceReview(int $workspace,int $id,bool $lock=false): array
 {
-    $pdo=getDB();$scope=companyRelationshipScope($pdo,$workspace,'placements',false);
-    $q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND id=?');$q->execute([$scope['owner'],$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
+    $pdo=getDB();$scope=companyRelationshipScope($pdo,$workspace,'placements',$lock);$suffix=$lock?' FOR UPDATE':'';
+    $q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND id=?'.$suffix);$q->execute([$scope['owner'],$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
     if(!$row)throw new RuntimeException('Client not found in this directory.',404);
+    $q=$pdo->prepare('SELECT * FROM companies WHERE tenant_id=? AND id=?'.$suffix);$q->execute([$scope['company_owner'],$row['company_id']]);$company=$q->fetch(PDO::FETCH_ASSOC)?:[];
     $state=staffingClientSourceState($row);$observations=$state['secondary']??[];
     if($state['source'])$observations[mappingHash($state['source'])]=['source'=>$state['source'],'proposed'=>$state['proposed']];
     $observations=array_filter($observations,static fn($o)=>$o['source']['workspace_id']===$workspace);
+    $revision=staffingClientRevision($pdo,$scope,$row,$company);
     return ['client_id'=>$id,'current'=>array_intersect_key($row,array_flip(staffingClientNativeFields())),'owned_fields'=>$state['owned'],'observations'=>$observations,
-        'review_token'=>mappingHash(['workspace'=>$workspace,'revision'=>staffingClientRevision($pdo,$scope,$row),'observations'=>$observations])];
+        'edit_revision'=>$revision,'review_token'=>mappingHash(['workspace'=>$workspace,'revision'=>$revision,'observations'=>$observations])];
 }
 
 /** Accept once, retain Core ownership and recover the original receipt on replay. */
@@ -172,14 +174,14 @@ function staffingClientSourceAccept(int $workspace,int $id,string $sourceKey,arr
         $scope=companyRelationshipScope($pdo,$workspace,'placements');
         $q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$scope['owner'],$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
         if(!$row)throw new RuntimeException('Client not found in this directory.',404);
-        $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="staffing.client.source_accepted" AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,"$.review_token"))=? ORDER BY id DESC LIMIT 1');$q->execute([$workspace,$id,$token]);$receipt=$q->fetchColumn();
+        $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="staffing.client.source_accepted" AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,"$.review_token"))=? ORDER BY id DESC LIMIT 1 FOR UPDATE');$q->execute([$workspace,$id,$token]);$receipt=$q->fetchColumn();
         if($receipt!==false){$receipt=json_decode($receipt,true,32,JSON_THROW_ON_ERROR);if(!hash_equals($receipt['request_digest'],$digest))throw new RuntimeException('This source review already saved a different selection.',409);return$receipt['result']+['replayed'=>true];}
-        $review=staffingClientSourceReview($workspace,$id);
+        $review=staffingClientSourceReview($workspace,$id,true);
         if($token===''||!hash_equals($review['review_token'],$token))throw new RuntimeException('The client, company or source changed. Refresh the review.',409);
         $observation=$review['observations'][$sourceKey]??null;
         if(!$observation||array_diff($fields,array_keys($observation['proposed'])))throw new InvalidArgumentException('Choose fields from the observed source in this workspace.');
         $values=array_intersect_key($observation['proposed'],array_flip($fields));
-        $saved=staffingClientSaveNative($workspace,$id,$values,$actor,staffingClientRevision($pdo,$scope,$row));
+        $saved=staffingClientSaveNative($workspace,$id,$values,$actor,$review['edit_revision']);
         $companyValues=[];foreach(staffingClientCompanyFields()as$field=>$target)if(array_key_exists($field,$values))$companyValues[$target]=$values[$field];
         if($companyValues)companyNativeFields($pdo,$workspace,$scope['company_owner'],'companies',(int)$saved['company_id'],$companyValues,$actor);
         $state=staffingClientSourceState($saved);$state['owned']=array_values(array_unique([...$state['owned'],...$fields]));sort($state['owned']);$state['revision']++;

@@ -73,8 +73,8 @@ try{
 
         $active=['Id'=>'qb-active-'.$mode,'DisplayName'=>'Source active client '.$mode,'PrimaryPhone'=>['FreeFormNumber'=>'Original phone'],'Active'=>true];
         $activeId=qboUpsertCustomer($child,$active)['internal_id'];
-        qboUpsertCustomer($child,['Id'=>$active['Id'],'DisplayName'=>$active['DisplayName']]);
-        $check($read('staffing_clients',$activeId)['primary_contact_phone']==='Original phone',$mode.': an omitted incoming phone preserves the previous source-owned value');
+        qboUpsertCustomer($child,['Id'=>$active['Id'],'DisplayName'=>$active['DisplayName'],'Active'=>null]);
+        $check($read('staffing_clients',$activeId)['primary_contact_phone']==='Original phone'&&$read('staffing_clients',$activeId)['status']==='active',$mode.': omitted phone and null status preserve the previous source-owned values');
         qboUpsertCustomer($child,['Id'=>$active['Id'],'DisplayName'=>$active['DisplayName'],'PrimaryPhone'=>['FreeFormNumber'=>'']]);
         $check($read('staffing_clients',$activeId)['primary_contact_phone']==='',$mode.': an explicit incoming blank clears an unowned phone');
         $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Synthetic source","Worker",?)')->execute([$owner,'client-source-'.$activeId.'@example.invalid']);$person=(int)$pdo->lastInsertId();
