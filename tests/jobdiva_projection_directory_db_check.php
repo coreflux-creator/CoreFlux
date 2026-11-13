@@ -95,11 +95,15 @@ try{
     $check(!$failed['projected']&&$before===$snapshot(),'Shared placements cannot import private company identities');
     $scope('companies','shared');
     foreach(['people','placements','staffing','accounting']as$module)$scope($module,'isolated');
+    $before=$snapshot();$missingEntity=$project($payload(99160600));
+    $check(!$missingEntity['projected']&&$before===$snapshot(),'Missing legal-entity setup rolls back an isolated import');
+    $entity=$insert('accounting_entities',['tenant_id'=>$child,'code'=>'PROJECTION-CI','legal_name'=>'Synthetic projection employer','active'=>1]);
     $result=$project($payload(99160600));$check($result['projected'],'Isolated projection succeeds with the shared company catalog: '.json_encode($result['errors']));
     $local=$read('placements',(int)$result['placement_id']);
     $custom->execute([(int)$local['id']]);$flag=$custom->fetch(PDO::FETCH_ASSOC);
     $check((int)$flag['tenant_id']===$child&&$flag['value']==='1','Custom values use fresh policies after changing sharing in the same process');
     $check((int)$local['tenant_id']===$child&&(int)$read('people',(int)$local['person_id'])['tenant_id']===$child&&(int)$read('staffing_jobs',(int)$local['staffing_job_id'])['tenant_id']===$child,'Isolated business records remain in the child workspace');
+    $check((int)$local['accounting_entity_id']===$entity,'Isolated assignment uses the active legal entity in its accounting directory');
     $before=$snapshot();$failed=$project($p,['existing_placement_id'=>$id]);
     $check(!$failed['projected']&&$before===$snapshot(),'A saved mapping cannot silently migrate records after a sharing change');
     $check($financial===[$all('accounting_journal_entries'),$all('accounting_journal_entry_lines'),$all('accounting_events'),$all('payroll_runs'),$all('billing_payments'),$all('ap_payments')],'Projection makes no financial postings, payroll runs or payments');
