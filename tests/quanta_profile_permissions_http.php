@@ -278,6 +278,8 @@ try {
     RBACResolver::grantModule($membership,'ap','read',[$tenant],$actor);
     $expect($pdo->query('SELECT * FROM ap_vendors_index WHERE id='.$privateVendor)->fetch(PDO::FETCH_ASSOC)===$vendorBefore,'Vendor reads and private reveal preserve the original vendor row');
     $pdo->prepare('DELETE FROM ap_vendors_index WHERE tenant_id=? AND id=?')->execute([$tenant,$privateVendor]);
+    require_once __DIR__ . '/fixtures/ap_vendor_directory_http_cases.php';
+    apVendorDirectoryHttpCases($pdo,$tenant,$actor,$request,$expect);
     [$status,$context]=$request($financialContext,null);
     $expect($status===200&&$context['tenant_id']===$tenant&&$context['permissions']['workbook_manage']===false,'Financial reader gets scoped report access without bank administration');
     foreach($financialModules as$module){

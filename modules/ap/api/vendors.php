@@ -14,11 +14,15 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/ap.php';
 require_once __DIR__ . '/../lib/vendor_projection.php';
+require_once __DIR__ . '/../lib/vendor_directory.php';
 require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
-$tid    = (int) $ctx['tenant_id'];
+$workspaceId = (int) $ctx['tenant_id'];
+$tid = (int) effectiveTenantIdForModule('ap', $workspaceId);
+$companyOwner = companiesDirectoryTenantId($workspaceId);
+setRequestModuleScope('ap');
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
@@ -75,15 +79,14 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'ap.view');
     $id = (int) $_GET['id'];
     $row = scopedFind(
-        'SELECT v.*, c.name AS company_name, c.legal_name AS company_legal_name
+        'SELECT v.*, c.id AS directory_company_id, c.name AS company_name, c.legal_name AS company_legal_name
          FROM ap_vendors_index v
-         LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
+         LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = :company_directory_id AND c.deleted_at IS NULL
          WHERE v.tenant_id = :tenant_id AND v.id = :id',
-        ['id' => $id]
+        ['id' => $id, 'company_directory_id' => $companyOwner]
     );
     if (!$row) api_error('Not found', 404);
-    $row = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', [$row])[0];
-    $row = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', [$row], 'company_id')[0];
+    $row = apVendorDirectoryRows(getDB(), $tid, $companyOwner, [$row])[0];
     $revealedTaxId = null;
     if (!empty($_GET['reveal_pii']) && !empty($row['tax_id_full_ct'])) {
         rbac_legacy_require($user, 'ap.vendor.view_pii');
@@ -98,7 +101,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 if ($method === 'GET') {
     rbac_legacy_require($user, 'ap.view');
     $where = ['v.tenant_id = :tenant_id'];
-    $params = [];
+    $params = ['company_directory_id' => $companyOwner];
     if (!empty($_GET['q'])) {
         // Distinct placeholders required by PDO_MYSQL native prepares.
         $where[]      = '(v.vendor_name LIKE :q OR c.name LIKE :q2 OR ' . coreRecordNumberSearchSql('vendor', 'v', 'qnumber') . ')';
@@ -108,27 +111,30 @@ if ($method === 'GET') {
     }
     if (!empty($_GET['type'])) { $where[] = 'v.vendor_type = :vt'; $params['vt'] = $_GET['type']; }
     if (!empty($_GET['category'])) { $where[] = 'v.vendor_category = :cat'; $params['cat'] = $_GET['category']; }
-    if (!empty($_GET['company_id'])) { $where[] = 'v.company_id = :cid'; $params['cid'] = (int) $_GET['company_id']; }
+    if (isset($_GET['company_id']) && $_GET['company_id'] !== '') {
+        try { $companyFilter = apVendorCompanyIdInput($_GET['company_id']); }
+        catch (InvalidArgumentException $e) { api_error($e->getMessage(), 422); }
+        $where[] = 'c.id = :cid'; $params['cid'] = $companyFilter;
+    }
     $perPage = max(1, min(200, (int) ($_GET['limit'] ?? $_GET['per_page'] ?? 50)));
     $page = max(1, (int) ($_GET['page'] ?? 1));
     $offset = ($page - 1) * $perPage;
     $rows = scopedQuery(
-        'SELECT v.id, v.vendor_name, v.company_id, c.name AS company_name,
+        'SELECT v.id, v.vendor_name, v.company_id, c.id AS directory_company_id, c.name AS company_name,
                 v.vendor_type, v.vendor_category, v.payment_method, v.remit_to_email,
                 v.tax_id_last4, v.payment_account_last4, v.requires_1099, v.default_terms,
                 COALESCE(v.default_pwp, 0) AS default_pwp, v.last_bill_at
          FROM ap_vendors_index v
-         LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
+         LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = :company_directory_id AND c.deleted_at IS NULL
          WHERE ' . implode(' AND ', $where) . ' ORDER BY v.vendor_name ASC
          LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
-    $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'vendor', $rows);
-    $rows = coreRecordNumbersAttachRelated(getDB(), (int) effectiveTenantIdForRequest(), 'company', $rows, 'company_id');
+    $rows = apVendorDirectoryRows(getDB(), $tid, $companyOwner, $rows);
     $count = scopedFind(
         'SELECT COUNT(*) AS c
            FROM ap_vendors_index v
-           LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
+           LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = :company_directory_id AND c.deleted_at IS NULL
           WHERE ' . implode(' AND ', $where),
         $params
     );
@@ -196,79 +202,91 @@ if ($method === 'POST') {
                     ? $body['payment_account_type']
                     : null;
 
-    // Resolve or auto-create companies.id for non-individual vendors. A 1099
-    // individual remains in the AP vendor index without a company row.
-    $companyId = !empty($body['company_id']) ? (int) $body['company_id'] : null;
-    if (!$companyId && in_array($vendorType, ['c2c_corp','w9_business','utility','other'], true)) {
-        require_once __DIR__ . '/../../people/lib/companies.php';
-        $companyId = companiesUpsertByName($tid, (string) $body['vendor_name'], [
-            'created_by_user_id' => $user['id'] ?? null,
-        ], ['vendor']);
-        companiesBumpUsage($companyId);
-    }
-
+    $name = trim((string) $body['vendor_name']);
+    if ($name === '') api_error('Vendor name is required.', 422);
+    coreRecordNumbersRejectWrite($body);
     $pdo = getDB();
-    $pdo->prepare(
-        'INSERT INTO ap_vendors_index
-           (tenant_id, vendor_name, company_id, vendor_type, vendor_category,
-            payment_method, remit_to_email, remit_to_phone,
-            payment_account_last4, payment_account_ct, kms_key_version_payment,
-            payment_routing_ct, payment_routing_last4, payment_account_type,
-            default_terms, tax_id_last4, tax_id_full_ct, kms_key_version, requires_1099)
-         VALUES
-           (:t, :v, :cid, :vt, :cat,
-            :pm, :rmail, :rphone,
-            :pal4, :pact, :pkms,
-            :prct, :prl4, :patyp,
-            :terms, :last4, :ct, :kms, :r)
-         ON DUPLICATE KEY UPDATE
-           company_id              = COALESCE(VALUES(company_id), company_id),
-           vendor_type             = VALUES(vendor_type),
-           vendor_category         = VALUES(vendor_category),
-           payment_method          = COALESCE(VALUES(payment_method), payment_method),
-           remit_to_email          = COALESCE(VALUES(remit_to_email), remit_to_email),
-           remit_to_phone          = COALESCE(VALUES(remit_to_phone), remit_to_phone),
-           payment_account_last4   = COALESCE(VALUES(payment_account_last4), payment_account_last4),
-           payment_account_ct      = COALESCE(VALUES(payment_account_ct), payment_account_ct),
-           kms_key_version_payment = COALESCE(VALUES(kms_key_version_payment), kms_key_version_payment),
-           payment_routing_ct      = COALESCE(VALUES(payment_routing_ct), payment_routing_ct),
-           payment_routing_last4   = COALESCE(VALUES(payment_routing_last4), payment_routing_last4),
-           payment_account_type    = COALESCE(VALUES(payment_account_type), payment_account_type),
-           default_terms           = VALUES(default_terms),
-           tax_id_last4            = COALESCE(VALUES(tax_id_last4), tax_id_last4),
-           tax_id_full_ct          = COALESCE(VALUES(tax_id_full_ct), tax_id_full_ct),
-           kms_key_version         = COALESCE(VALUES(kms_key_version), kms_key_version),
-           requires_1099           = VALUES(requires_1099)'
-    )->execute([
-        't'      => $tid,
-        'v'      => (string) $body['vendor_name'],
-        'cid'    => $companyId,
-        'vt'     => $vendorType,
-        'cat'    => $vendorCat,
-        'pm'     => $paymentMethod,
-        'rmail'  => $body['remit_to_email'] ?? null,
-        'rphone' => $body['remit_to_phone'] ?? null,
-        'pal4'   => $payAcctLast4,
-        'pact'   => $payAcctCt,
-        'pkms'   => $payKms,
-        'prct'   => $payRoutCt,
-        'prl4'   => $payRoutLast4,
-        'patyp'  => $payAcctType,
-        'terms'  => (string) ($body['default_terms'] ?? 'NET30'),
-        'last4'  => $last4,
-        'ct'     => $ct,
-        'kms'    => $kms,
-        'r'      => !empty($body['requires_1099']) ? 1 : 0,
-    ]);
-    $id = (int) $pdo->lastInsertId();
-    if ($id === 0) {
-        $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
-        $findStmt->execute(['t' => $tid, 'v' => (string) $body['vendor_name']]);
-        $id = (int) $findStmt->fetchColumn();
+    $pdo->beginTransaction();
+    try {
+        $find = $pdo->prepare('SELECT id, company_id FROM ap_vendors_index WHERE tenant_id=:t AND vendor_name=:n FOR UPDATE');
+        $find->execute(['t' => $tid, 'n' => $name]);
+        $existing = $find->fetch(PDO::FETCH_ASSOC) ?: null;
+        $companyId = apVendorResolveCompany($pdo, $workspaceId, $existing, $name, $vendorType,
+            $body['company_id'] ?? null, isset($user['id']) ? (int) $user['id'] : null);
+        $pdo->prepare(
+            'INSERT INTO ap_vendors_index
+               (tenant_id, vendor_name, company_id, vendor_type, vendor_category,
+                payment_method, remit_to_email, remit_to_phone,
+                payment_account_last4, payment_account_ct, kms_key_version_payment,
+                payment_routing_ct, payment_routing_last4, payment_account_type,
+                default_terms, tax_id_last4, tax_id_full_ct, kms_key_version, requires_1099)
+             VALUES
+               (:t, :v, :cid, :vt, :cat,
+                :pm, :rmail, :rphone,
+                :pal4, :pact, :pkms,
+                :prct, :prl4, :patyp,
+                :terms, :last4, :ct, :kms, :r)
+             ON DUPLICATE KEY UPDATE
+               company_id              = COALESCE(VALUES(company_id), company_id),
+               vendor_type             = VALUES(vendor_type),
+               vendor_category         = VALUES(vendor_category),
+               payment_method          = COALESCE(VALUES(payment_method), payment_method),
+               remit_to_email          = COALESCE(VALUES(remit_to_email), remit_to_email),
+               remit_to_phone          = COALESCE(VALUES(remit_to_phone), remit_to_phone),
+               payment_account_last4   = COALESCE(VALUES(payment_account_last4), payment_account_last4),
+               payment_account_ct      = COALESCE(VALUES(payment_account_ct), payment_account_ct),
+               kms_key_version_payment = COALESCE(VALUES(kms_key_version_payment), kms_key_version_payment),
+               payment_routing_ct      = COALESCE(VALUES(payment_routing_ct), payment_routing_ct),
+               payment_routing_last4   = COALESCE(VALUES(payment_routing_last4), payment_routing_last4),
+               payment_account_type    = COALESCE(VALUES(payment_account_type), payment_account_type),
+               default_terms           = VALUES(default_terms),
+               tax_id_last4            = COALESCE(VALUES(tax_id_last4), tax_id_last4),
+               tax_id_full_ct          = COALESCE(VALUES(tax_id_full_ct), tax_id_full_ct),
+               kms_key_version         = COALESCE(VALUES(kms_key_version), kms_key_version),
+               requires_1099           = VALUES(requires_1099)'
+        )->execute([
+            't'      => $tid,
+            'v'      => $name,
+            'cid'    => $companyId,
+            'vt'     => $vendorType,
+            'cat'    => $vendorCat,
+            'pm'     => $paymentMethod,
+            'rmail'  => $body['remit_to_email'] ?? null,
+            'rphone' => $body['remit_to_phone'] ?? null,
+            'pal4'   => $payAcctLast4,
+            'pact'   => $payAcctCt,
+            'pkms'   => $payKms,
+            'prct'   => $payRoutCt,
+            'prl4'   => $payRoutLast4,
+            'patyp'  => $payAcctType,
+            'terms'  => (string) ($body['default_terms'] ?? 'NET30'),
+            'last4'  => $last4,
+            'ct'     => $ct,
+            'kms'    => $kms,
+            'r'      => !empty($body['requires_1099']) ? 1 : 0,
+        ]);
+        $id = $existing ? (int) $existing['id'] : (int) $pdo->lastInsertId();
+        if ($id === 0) {
+            $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
+            $findStmt->execute(['t' => $tid, 'v' => $name]);
+            $id = (int) $findStmt->fetchColumn();
+        }
+        // A required receipt keeps company creation and the vendor link atomic.
+        $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at)
+            VALUES(:t,:actor,:event,:id,:meta,:ip,NOW())')->execute([
+            't' => $workspaceId, 'actor' => $user['id'] ?? null,
+            'event' => $taxIdFull ? 'ap.vendor.tax_id_updated' : 'ap.vendor.created', 'id' => $id,
+            'meta' => json_encode(['vendor_id' => $id, 'vendor_owner_id' => $tid, 'vendor_name' => $name,
+                'company_id' => $companyId, 'company_owner_id' => $companyOwner], JSON_THROW_ON_ERROR),
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof InvalidArgumentException) api_error($e->getMessage(), 422);
+        if ($e instanceof ApVendorCompanyConflict) api_error($e->getMessage(), 409);
+        throw $e;
     }
-    apAudit($taxIdFull ? 'ap.vendor.tax_id_updated' : 'ap.vendor.created', [
-        'vendor_id' => $id, 'vendor_name' => $body['vendor_name'], 'company_id' => $companyId,
-    ], $id);
     api_ok(['id' => $id, 'company_id' => $companyId], 201);
 }
 

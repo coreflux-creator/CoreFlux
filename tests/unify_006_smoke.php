@@ -56,11 +56,12 @@ $assert('people hire_date indexed',         strpos($sql, 'idx_people_tenant_hire
 
 echo "\nAP API unification wiring\n";
 $vapi = (string) file_get_contents(__DIR__ . '/../modules/ap/api/vendors.php');
+$vendorDirectory = (string) file_get_contents(__DIR__ . '/../modules/ap/lib/vendor_directory.php');
 $assert('vendors GET joins companies',      strpos($vapi, 'LEFT JOIN companies c') !== false);
 $assert('vendors GET filter by company_id', strpos($vapi, "\$_GET['company_id']") !== false);
-$assert('vendors POST resolves company_id', strpos($vapi, 'companiesUpsertByName') !== false);
-$assert('vendors POST tags role=vendor',    strpos($vapi, "'vendor'") !== false);
-$assert('vendors POST skips 1099 individual', strpos($vapi, "'c2c_corp','w9_business','utility','other'") !== false);
+$assert('vendors POST resolves company_id', strpos($vapi, 'apVendorResolveCompany') !== false && strpos($vendorDirectory, 'companiesUpsertByName') !== false);
+$assert('vendors POST tags role=vendor',    strpos($vendorDirectory, "['vendor']") !== false);
+$assert('vendors POST skips 1099 individual', strpos($vendorDirectory, "'c2c_corp','w9_business','utility','other'") !== false);
 $assert('vendors UPSERT persists company_id', strpos($vapi, 'company_id              = COALESCE(VALUES(company_id), company_id)') !== false);
 
 $bapi = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');
