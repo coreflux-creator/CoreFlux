@@ -24,21 +24,12 @@ $workflowPath = $root . '/.github/workflows/deploy-jobdiva-reconciliation.yml';
 $workflow = is_file($workflowPath) ? (string) file_get_contents($workflowPath) : null;
 require_once $root . '/core/jobdiva/assignment_contract.php';
 
-$selectPos = strpos($repair, 'FOR UPDATE');
-$countGuardPos = strpos($repair, 'count($eligibleIds) !== $expectedRestoreCount');
-$updatePos = strpos($repair, "SET status = 'active'");
-$activeGuardPos = strpos($repair, '$activeTotal !== $expectedActiveTotal');
-$commitPos = strpos($repair, '$pdo->commit()');
-
-$assert('repair locks the historical placement rows before deciding eligibility',
-    $selectPos !== false);
-$assert('repair verifies the exact eligible count before updating',
-    $countGuardPos !== false && $updatePos !== false && $countGuardPos < $updatePos);
-$assert('repair is limited to JobDiva pending rows that have started and not ended',
-    str_contains($repair, "status === 'pending_start'")
-    && str_contains($repair, "external_id LIKE 'jd:%'")
-    && str_contains($repair, 'start_date <= :start_today')
-    && str_contains($repair, 'COALESCE(actual_end_date, end_date)'));
+$service=(string)file_get_contents($root.'/core/jobdiva/active_status_review.php');
+$assert('web requests cannot invoke the maintenance command',str_contains($repair,"PHP_SAPI!=='cli'"));
+$assert('command exposes separate preview and reviewed apply operations',str_contains($repair,"['preview','apply']")&&str_contains($repair,'jobdivaActiveRestoreReview')&&str_contains($repair,'jobdivaActiveRestoreApply'));
+$assert('review and apply share a serializable transaction boundary',str_contains($service,'JobdivaStoredReviewTransaction::run')&&str_contains($service,'jobdivaLiveContractSnapshot'));
+$assert('exact source ownership, worker and approval evidence are checked',str_contains($service,'core_owned_lifecycle')&&str_contains($service,'worker_source_mismatch')&&str_contains($service,'review_approved_rate_coverage')&&str_contains($service,'jobdivaAssignmentContractBuild'));
+$assert('actor permissions are checked from current locked records',str_contains($service,'jobdivaActiveRestoreActor')&&str_contains($service,'RBACResolver::resetCache')&&str_contains($service,'FOR UPDATE'));
 $strongActiveSnapshot = [
     'assignment' => [
         'contract_version' => 1,
@@ -61,21 +52,16 @@ $assert('stored Assignment contract requires complete active evidence before rea
         $strongActiveSnapshot,
         ['assignment' => ['salary_closed' => true]]
     )));
-$assert('repair admits ended rows only with authoritative active snapshot evidence',
-    str_contains($repair, "status === 'ended'")
-    && str_contains($repair, '$actualEndDate ===')
-    && str_contains($repair, 'jobdivaAssignmentContractSnapshotIsStronglyActive($payload)')
-    && str_contains($repair, "source_active_assignment_marked_ended"));
-$assert('repair verifies the final active total before commit',
-    $activeGuardPos !== false && $commitPos !== false && $activeGuardPos < $commitPos);
-$assert('repair writes a durable JobDiva audit record',
-    str_contains($repair, "'repair_active_status_regression'")
-    && str_contains($repair, 'jobdiva_sync_audit'));
+$assert('both pending and ended rows require the same active evidence',str_contains($service,"['pending_start','ended']")&&str_contains($service,'jobdivaAssignmentContractSnapshotIsStronglyActive'));
+$assert('receipt is required and stale review cannot be applied',str_contains($service,"'jobdiva.active_status_restored'")&&str_contains($service,'hash_equals($token,jobdivaAssignmentRepairFingerprint($snapshot))')&&str_contains($service,"['replayed'=>true]"));
 if ($workflow !== null) {
     $assert('deployment accepts explicit restore guards',
         str_contains($workflow, 'restore_active_placement_ids:')
         && str_contains($workflow, 'expected_restore_active_count:')
-        && str_contains($workflow, 'expected_active_total_after_restore:'));
+        && str_contains($workflow, 'expected_active_total_after_restore:')
+        && str_contains($workflow, 'restore_active_actor_id:')
+        && str_contains($workflow, 'restore_active_review_token:')
+        && str_contains($workflow, 'restore_active_request_id:'));
     $assert('deployment packages and executes the guarded repair',
         str_contains($workflow, 'scripts/repair_jobdiva_active_status_regression.php')
         && str_contains($workflow, 'php scripts/repair_jobdiva_active_status_regression.php'));
@@ -93,6 +79,11 @@ if ($workflow !== null) {
     $skip++;
 }
 
+foreach (['2 1 1 1','preview 2junk 1 1','preview 2 0 1','apply 2 1 1','unknown 2 1 1'] as $args) {
+    $out=[];$code=0;
+    exec('php '.escapeshellarg($root.'/scripts/repair_jobdiva_active_status_regression.php').' '.$args.' 2>&1',$out,$code);
+    $assert('invalid CLI invocation refuses before database access: '.$args,$code===2&&str_contains(implode("\n",$out),'Usage:'));
+}
 $syntax = [];
 $syntaxCode = 0;
 exec('php -l ' . escapeshellarg($root . '/scripts/repair_jobdiva_active_status_regression.php') . ' 2>&1', $syntax, $syntaxCode);

@@ -24,12 +24,32 @@ on:
         type: string
         default: ''
       expected_restore_active_count:
-        description: Exact number of pending placements the guarded restore must update
+        description: Exact number of reviewed placements the restore must update
         required: false
         type: string
         default: ''
       expected_active_total_after_restore:
         description: Exact active-placement total required before the guarded restore commits
+        required: false
+        type: string
+        default: ''
+      restore_active_actor_id:
+        description: Core reviewer user ID with current placement management access
+        required: false
+        type: string
+        default: ''
+      restore_active_review_token:
+        description: Token from a reviewed preview; leave empty for preview only
+        required: false
+        type: string
+        default: ''
+      restore_active_request_id:
+        description: Unique UUID retained for safe retry of the reviewed restore
+        required: false
+        type: string
+        default: ''
+      restore_active_reason:
+        description: Reason for the reviewed active-status restoration
         required: false
         type: string
         default: ''
@@ -181,12 +201,16 @@ jobs:
           RESTORE_ACTIVE_PLACEMENT_IDS: ${{ inputs.restore_active_placement_ids }}
           EXPECTED_RESTORE_ACTIVE_COUNT: ${{ inputs.expected_restore_active_count }}
           EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE: ${{ inputs.expected_active_total_after_restore }}
+          RESTORE_ACTIVE_ACTOR_ID: ${{ inputs.restore_active_actor_id }}
+          RESTORE_ACTIVE_REVIEW_TOKEN: ${{ inputs.restore_active_review_token }}
+          RESTORE_ACTIVE_REQUEST_ID: ${{ inputs.restore_active_request_id }}
+          RESTORE_ACTIVE_REASON: ${{ inputs.restore_active_reason }}
         with:
           host: ${{ secrets.CW_SSH_HOST }}
           username: ${{ secrets.CW_SSH_USER }}
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
-          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID,RECONCILE_PAIRS,RESTORE_ACTIVE_PLACEMENT_IDS,EXPECTED_RESTORE_ACTIVE_COUNT,EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE
+          envs: RECONCILE_START_ID,RECONCILE_CANDIDATE_ID,RECONCILE_PAIRS,RESTORE_ACTIVE_PLACEMENT_IDS,EXPECTED_RESTORE_ACTIVE_COUNT,EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE,RESTORE_ACTIVE_ACTOR_ID,RESTORE_ACTIVE_REVIEW_TOKEN,RESTORE_ACTIVE_REQUEST_ID,RESTORE_ACTIVE_REASON
           command_timeout: 8m
           script: |
             set -eu
@@ -313,15 +337,21 @@ jobs:
               done
               IFS="$OLD_IFS"
             fi
-            if [ -n "$RESTORE_ACTIVE_PLACEMENT_IDS" ] || [ -n "$EXPECTED_RESTORE_ACTIVE_COUNT" ] || [ -n "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE" ]; then
+            if [ -n "$RESTORE_ACTIVE_PLACEMENT_IDS$EXPECTED_RESTORE_ACTIVE_COUNT$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE$RESTORE_ACTIVE_ACTOR_ID$RESTORE_ACTIVE_REVIEW_TOKEN$RESTORE_ACTIVE_REQUEST_ID$RESTORE_ACTIVE_REASON" ]; then
               test -n "$RESTORE_ACTIVE_PLACEMENT_IDS"
-              test -n "$EXPECTED_RESTORE_ACTIVE_COUNT"
-              test -n "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE"
-              php scripts/repair_jobdiva_active_status_regression.php \
-                2 \
-                "$RESTORE_ACTIVE_PLACEMENT_IDS" \
-                "$EXPECTED_RESTORE_ACTIVE_COUNT" \
-                "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE"
+              test -n "$RESTORE_ACTIVE_ACTOR_ID"
+              if [ -z "$RESTORE_ACTIVE_REVIEW_TOKEN" ]; then
+                test -z "$EXPECTED_RESTORE_ACTIVE_COUNT$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE$RESTORE_ACTIVE_REQUEST_ID$RESTORE_ACTIVE_REASON"
+                php scripts/repair_jobdiva_active_status_regression.php preview 2 "$RESTORE_ACTIVE_ACTOR_ID" "$RESTORE_ACTIVE_PLACEMENT_IDS"
+              else
+                test -n "$EXPECTED_RESTORE_ACTIVE_COUNT"
+                test -n "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE"
+                test -n "$RESTORE_ACTIVE_REQUEST_ID"
+                test -n "$RESTORE_ACTIVE_REASON"
+                php scripts/repair_jobdiva_active_status_regression.php apply 2 "$RESTORE_ACTIVE_ACTOR_ID" \
+                  "$RESTORE_ACTIVE_PLACEMENT_IDS" "$RESTORE_ACTIVE_REVIEW_TOKEN" "$RESTORE_ACTIVE_REQUEST_ID" \
+                  "$EXPECTED_RESTORE_ACTIVE_COUNT" "$EXPECTED_ACTIVE_TOTAL_AFTER_RESTORE" "$RESTORE_ACTIVE_REASON"
+              fi
             fi
             php scripts/jobdiva_rate_write_probe.php --active-roster 2
             php scripts/repair_staffing_client_catalog.php 2
