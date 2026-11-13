@@ -174,6 +174,10 @@ $assert(
     'exact echoed terminal Start can be archived',
     ($decision['action'] ?? '') === 'terminal'
 );
+$assert('exact terminal evidence supersedes a previously current active observation',
+    jobdivaAssignmentSourceDecision(['status'=>'not_assignment','seen_ids'=>['56830791'],'identity'=>$cancelledValidation],$storedActive,'56830791',true)['action']==='terminal');
+$assert('returned context conflict cannot be promoted by stored active evidence',
+    jobdivaAssignmentSourceDecision(['status'=>'not_assignment','seen_ids'=>['56830791'],'identity'=>['reason'=>'assignment_context_mismatch']],$storedActive,'56830791',true)['action']==='review');
 
 $decision = jobdivaAssignmentSourceDecision(
     [

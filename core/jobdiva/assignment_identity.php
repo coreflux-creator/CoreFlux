@@ -639,10 +639,6 @@ function jobdivaAssignmentSourceDecision(
         return ['action' => 'remote_verified', 'reason' => 'exact_source_assignment'];
     }
 
-    if (!empty($storedValidation['valid']) && $storedObservedInLatestSync) {
-        return ['action' => 'trusted_stored', 'reason' => 'stored_source_assignment'];
-    }
-
     $seenIds = [];
     foreach ((array) ($remote['seen_ids'] ?? []) as $seenId) {
         $seenId = jobdivaAssignmentIdentityNormaliseId($seenId);
@@ -655,6 +651,14 @@ function jobdivaAssignmentSourceDecision(
         && isset($seenIds[$expectedId])
         && in_array($remoteReason, $terminalReasons, true)) {
         return ['action' => 'terminal', 'reason' => $remoteReason];
+    }
+
+    // A fresh exact terminal response takes precedence over an older active
+    // observation. Only an inconclusive lookup may use prior source evidence;
+    // a returned identity/context conflict must remain for review.
+    if (in_array($remoteStatus, ['not_found','error','inconclusive'], true)
+        && !empty($storedValidation['valid']) && $storedObservedInLatestSync) {
+        return ['action' => 'trusted_stored', 'reason' => 'stored_source_assignment'];
     }
 
     return [
