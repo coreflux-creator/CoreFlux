@@ -87,6 +87,8 @@ $assert('placement upsert normalises startDate before binding',
 $assert('placement upsert normalises endDate (nullable) before binding',
     strpos($src, "\$endDateNorm = jobdivaNormaliseDate(\$endDate);") !== false);
 
+$partySrc = (string) file_get_contents(__DIR__ . '/../core/jobdiva/party_sync.php');
+$src = str_replace("\r\n", "\n", $src);
 echo "\nCompanies driver\n";
 $assert('hits V2 BI NewUpdatedCompanyRecords',    strpos($src, 'JOBDIVA_PATH_COMPANIES_DELTA')  !== false
                                                   && strpos($src, "'/apiv2/bi/NewUpdatedCompanyRecords'") !== false);
@@ -101,7 +103,7 @@ $assert('assignment projector owns staffing client promotion',
     strpos($projectorSrc, 'jobdivaProjectorAssignmentClientEvidence') !== false
     && strpos($projectorSrc, "'EmployeeAssignmentRecordsDetail'") !== false);
 $assert('binds mapping (company)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$payload, 'pull', \$userId)") !== false);
+    strpos($partySrc, "mappingUpsert(\$workspace,'jobdiva','company',\$external,\$id,\$payload,'pull',\$actor)") !== false);
 $assert('skips records missing extId or name',    strpos($src, "if (\$extId === '' || \$name === '') { \$skipped++; continue; }") !== false);
 $assert('emits audit row entity_type=company',
     strpos($src, "'entity_type'     => 'company'") !== false
@@ -124,10 +126,11 @@ $assert('first-sync mode widens window to 365 days',
     && strpos($src, "\$opts['default_window_days'] = 365") !== false
     && strpos($src, "'sync_first_backfill'") !== false);
 $assert('binds mapping (contact)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull', \$userId)") !== false);
+    strpos($partySrc, "mappingUpsert(\$workspace,'jobdiva','contact',\$external,\$id,\$payload,'pull',\$actor)") !== false);
 $assert('contact upsert helper exists',           strpos($src, 'function jobdivaSyncUpsertContact(') !== false);
-$assert('contact upsert dedupes by email per company',
-    strpos($src, "AND company_id = :c AND email = :e LIMIT 1") !== false);
+$assert('contact upsert uses stored source identity before considering new contact intake',
+    strpos($partySrc, "mappingFindInternal(\$workspace,'jobdiva','contact',\$external)") !== false
+    && strpos($partySrc, 'Review the source identity before linking it.') !== false);
 $assert("contact insert defaults role to 'other' (via \$contactRoleMap fallback)",
     strpos($src, "\$contactRoleMap[strtolower(trim(\$contactRoleRaw))] ?? 'other'") !== false);
 $assert('contact sync caches parent company mapping/backfill attempts',

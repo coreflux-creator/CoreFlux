@@ -55,7 +55,7 @@ function companiesGet(int $id, ?int $directoryTenantId = null): ?array
     }
     if (!$row) return null;
     $row = coreRecordNumbersAttach(getDB(), (int) $row['tenant_id'], 'company', [$row])[0];
-    unset($row['ein_full_ct']);
+    unset($row['ein_full_ct'], $row['coreflux_source_state']);
     if (!empty($row['tags_json'])) {
         $row['tags'] = json_decode($row['tags_json'], true) ?: [];
     } else {
@@ -90,7 +90,10 @@ function companyContacts(int $companyId): array
     // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $stmt = getDB()->prepare('SELECT * FROM company_contacts WHERE company_id = :id ORDER BY is_primary DESC, name ASC');
     $stmt->execute(['id' => $companyId]);
-    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    $rows=$stmt->fetchAll(\PDO::FETCH_ASSOC);
+    foreach($rows as &$row)unset($row['coreflux_source_state']);
+    unset($row);
+    return $rows;
 }
 
 /**
@@ -161,6 +164,8 @@ function companiesList(array $filters = []): array
          ORDER BY ' . $sortExpr . ' ' . $sortDir . ', c.id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
+    foreach($rows as &$row)unset($row['coreflux_source_state']);
+    unset($row);
     $rows = coreRecordNumbersAttach(getDB(), (int) effectiveTenantIdForRequest(), 'company', $rows);
     foreach ($rows as &$r) $r['roles'] = $r['roles_csv'] ? explode(',', $r['roles_csv']) : [];
     unset($r);
@@ -220,13 +225,9 @@ function companiesUpsertByName(int $tenantId, string $name, array $extra = [], a
             static fn($v) => $v !== null && $v !== ''
         );
         if (!empty($updatable)) {
-            $setSql = implode(', ', array_map(static fn($k) => "{$k} = :{$k}", array_keys($updatable)));
-            $params = $updatable;
-            $params['id']        = $id;
-            $params['tenant_id'] = $tenantId;
-            // tenant-leak-allow: tenant scope re-asserted in the WHERE
-            $pdo->prepare("UPDATE companies SET {$setSql} WHERE id = :id AND tenant_id = :tenant_id")
-                ->execute($params);
+            require_once __DIR__.'/company_source_ownership.php';
+            companyNativeFields($pdo,(int)(currentTenantId()?:$tenantId),$tenantId,'companies',$id,$updatable,
+                isset($extra['created_by_user_id'])?(int)$extra['created_by_user_id']:null);
         }
     }
 

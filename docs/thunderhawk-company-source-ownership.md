@@ -1,0 +1,11 @@
+# JobDiva company and contact ownership
+
+The previous goal turn installed and verified company/vendor directory alignment. Current inspection confirmed that JobDiva company updates could replace native values and redirect mappings on name collisions; contact updates matched email rather than the stored source ID.
+
+The development candidate adds private company/contact ownership state, exact source authority, retained source proposals and required-audit native edits. Newly created source rows permit source updates; existing rows without ownership evidence keep native values until reviewed. Default and configured company/contact mappings share these controls. Native header, bulk, upsert, role and contact changes hold their fields. Review acceptance checks the complete observed state, applies selected fields atomically, and records an exact retry receipt that never re-applies values over later native edits.
+
+Company and contact provider mappings are stable. A company rename collision, a new source ID that matches an existing contact email, a contact-parent change, a different source authority or an out-of-directory mapping requires review. Source identity, observations, configured mapping writes and target changes share one transaction. Generic company feeds still do not promote every organization to a bill-to client.
+
+Migration 198 adds nullable JSON state without backfilling existing rows. State stays out of ordinary company/contact responses and is available only through the authorized review workflow. The new source review API still needs native-session and rendered-operator acceptance. The remaining merge/alias workflow, broader source writers/cohorts and source blank/default semantics also require completion; this development checkpoint does not close the whole company-source requirement.
+
+Local source-compatibility checks pass after replacing assertions for the old email-matching behavior with stable-identity wiring. A disposable native database fixture covers ownership, source identity, conflicts, review staleness/replay, shared directories and required-audit rollback. CI, hosted migration/installation and browser acceptance are pending. The isolated pilot remains on the separately verified vendor-directory release; no production, provider, Arabella or financial execution change has been made.

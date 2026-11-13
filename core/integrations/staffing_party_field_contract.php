@@ -6,6 +6,7 @@ function staffingPartyFieldDefinitions(): array
 {
     $d=[
         'companies'=>[
+            'coreflux_source_state'=>['Internal source authority, observed proposals and explicit Core field ownership; private review metadata, never a provider-mapped business field.','restricted-source-ownership'],
             'name'=>['Company directory display name; not a provider ID or proof of the employing legal entity.','text'],
             'legal_name'=>['Recorded legal name, separate from the display name and placement-specific employer or bill-to role.','nullable-text'],
             'ein_last4'=>['Retained employer tax-identifier suffix; not a complete identifier or a company matching key.','restricted-last-four'],
@@ -43,6 +44,7 @@ function staffingPartyFieldDefinitions(): array
             'granted_at'=>['System-recorded time the company relationship role was added, not user-access approval.','system-timestamp'],
         ],
         'company_contacts'=>[
+            'coreflux_source_state'=>['Internal contact source authority, proposals and native ownership decisions; never a public contact value.','restricted-source-ownership'],
             'company_id'=>['Parent company in the same Companies directory; not a person or provider contact ID.','reference:company'],
             'name'=>['Business-contact display name; separate from canonical People identity.','text'],
             'title'=>['Business-contact job title.','nullable-text'],

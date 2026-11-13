@@ -105,8 +105,8 @@ function mappingUpsert(
         throw new \InvalidArgumentException('direction must be one of: ' . implode(',', EXTERNAL_MAPPING_DIRECTIONS));
     }
 
-    // Candidate identities cannot be moved by generic alias reconciliation.
-    if ($source === 'jobdiva' && $entityType === 'person') {
+    // Reviewed staffing identities cannot be moved by generic alias reconciliation.
+    if ($source === 'jobdiva' && in_array($entityType, ['person','company','contact'], true)) {
         require_once __DIR__ . '/stable_mapping.php';
         return mappingBindStable($tenantId,$source,$entityType,$externalId,$internalId,$payload,$direction,$actorUserId);
     }

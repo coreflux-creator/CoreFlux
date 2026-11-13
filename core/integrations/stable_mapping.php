@@ -13,7 +13,7 @@ function mappingBindStable(int $tenant, string $source, string $type, string $ex
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as $row) {
             if ($row['external_id'] !== $external || (int)$row['internal_entity_id'] !== $internal) {
-                throw new RuntimeException('This JobDiva candidate or Core person is already linked elsewhere. Review the existing identity; automatic replacement is disabled.');
+                throw new RuntimeException($type==='person'?'This JobDiva candidate or Core person is already linked elsewhere. Review the existing identity; automatic replacement is disabled.':'This JobDiva record or Core identity is already linked elsewhere. Review the existing identity; automatic replacement is disabled.');
             }
         }
         $old = $rows[0] ?? null;
@@ -41,7 +41,7 @@ function mappingBindStable(int $tenant, string $source, string $type, string $ex
         return $result + ['changed'=>$changed];
     } catch (Throwable $e) {
         if ($own && $pdo->inTransaction()) $pdo->rollBack();
-        if ($e instanceof PDOException && $e->getCode()==='23000') throw new RuntimeException('A competing person link was recorded. Refresh and review the existing identity.',0,$e);
+        if ($e instanceof PDOException && $e->getCode()==='23000') throw new RuntimeException($type==='person'?'A competing person link was recorded. Refresh and review the existing identity.':'A competing source identity link was recorded. Refresh and review the existing identity.',0,$e);
         throw $e;
     }
 }

@@ -105,6 +105,7 @@ function integrationFieldMapIsProtectedTarget(string $table, string $column): bo
         'created_by_user_id',
         'updated_by_user_id',
         'coreflux_overridden_fields',
+        'coreflux_source_state',
     ], true)) {
         return true;
     }
@@ -1412,6 +1413,19 @@ function integrationFieldMapApplyAll(
         if (!empty($b['set'])) {
             try {
                 $tableLower = strtolower((string) ($b['table'] ?? ''));
+                if (in_array($tableLower,['companies','company_contacts'],true)) {
+                    require_once __DIR__.'/../../modules/people/lib/companies.php';
+                    require_once __DIR__.'/../../modules/people/lib/company_source_ownership.php';
+                    if($integration!=='jobdiva')throw new RuntimeException('This company source requires a reviewed ownership contract.');
+                    $kind=$tableLower==='companies'?'company':'contact';
+                    $link=mappingFindExternal($tid,$integration,$kind,(int)$b['id']);
+                    if(!$link)throw new RuntimeException('An exact company source identity is required before applying mapped fields.');
+                    $write=companySourceObserve($pdo,companiesDirectoryTenantId($tid),$tableLower,(int)$b['id'],$b['set'],
+                        ['system'=>$integration,'workspace_id'=>$tid,'external_id'=>(string)$link['external_id']],false,false);
+                    $summary['written']+=$write['written'];
+                    foreach($write['skipped']as$column)integrationFieldMapSkip($summary,$b['maps'][$column],'core_owned_company_field');
+                    continue;
+                }
                 if ($tableLower === 'placements') {
                     $write = integrationFieldMapWritePlacement($pdo, $tid, (int) $b['id'], $b['set']);
                     $summary['written'] += $write['written'];

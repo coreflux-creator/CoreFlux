@@ -577,55 +577,8 @@ function jobdivaUpsertCompanyMapped(
     ?int $userId,
     array $roles = []
 ): int {
-    $name = trim($name);
-    if ($extId === '' || $name === '') throw new \InvalidArgumentException('company external id and name required');
-
-    $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $extId);
-    if ($mapped) {
-        $companyId = (int) $mapped['internal_entity_id'];
-        $pdo = getDB();
-        $st = $pdo->prepare('SELECT id, name FROM companies WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1');
-        $st->execute(['t' => $tid, 'id' => $companyId]);
-        $current = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-        if ($current) {
-            unset($patch['created_by_user_id']);
-            $updatable = array_filter($patch, static fn($v) => $v !== null && $v !== '');
-            $dupeId = 0;
-            if ($name !== '' && $name !== (string) ($current['name'] ?? '')) {
-                $dupe = $pdo->prepare('SELECT id FROM companies WHERE tenant_id = :t AND name = :n AND id != :id AND deleted_at IS NULL LIMIT 1');
-                $dupe->execute(['t' => $tid, 'n' => $name, 'id' => $companyId]);
-                $dupeId = (int) $dupe->fetchColumn();
-                if ($dupeId > 0) {
-                    $dupeMap = mappingFindExternal($tid, 'jobdiva', 'company', $dupeId);
-                    if ($dupeMap && (string) ($dupeMap['external_id'] ?? '') !== $extId) $dupeId = 0;
-                }
-                if ($dupeId <= 0) $updatable['name'] = $name;
-            }
-            if ($dupeId > 0) {
-                $pdo->prepare('UPDATE company_contacts SET company_id = :new WHERE tenant_id = :t AND company_id = :old')
-                    ->execute(['new' => $dupeId, 't' => $tid, 'old' => $companyId]);
-                $companyId = $dupeId;
-            } elseif (!empty($updatable)) {
-                $setSql = implode(', ', array_map(static fn($k) => "{$k} = :{$k}", array_keys($updatable)));
-                $params = $updatable + ['id' => $companyId, 'tenant_id' => $tid];
-                $pdo->prepare("UPDATE companies SET {$setSql} WHERE id = :id AND tenant_id = :tenant_id")
-                    ->execute($params);
-            }
-            foreach ($roles as $role) companiesAddRole($companyId, $role);
-            if (in_array('client', $roles, true)) {
-                jobdivaEnsureStaffingClientForCompany($tid, $companyId, $name, $userId);
-            }
-            mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $payload, 'pull', $userId);
-            return $companyId;
-        }
-    }
-
-    $companyId = companiesUpsertByName($tid, $name, $patch, $roles);
-    if (in_array('client', $roles, true)) {
-        jobdivaEnsureStaffingClientForCompany($tid, $companyId, $name, $userId);
-    }
-    mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $payload, 'pull', $userId);
-    return $companyId;
+    require_once __DIR__ . '/party_sync.php';
+    return jobdivaCompanyUpsertStable($tid,$extId,$name,$patch,$payload,$userId,$roles);
 }
 
 function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
@@ -687,7 +640,7 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
                 'city'                 => $pluck('city',          ['city', 'town', 'locality']) ?: null,
                 'state'                => $pluck('state',         ['state', 'region', 'province']) ?: null,
                 'postal_code'          => $pluck('postal_code',   ['zip', 'postal_code', 'postalCode', 'postal code', 'zipcode']) ?: null,
-                'country'              => $pluck('country',       ['country', 'countryCode', 'country_code']) ?: 'US',
+                'country'              => $pluck('country',       ['country', 'countryCode', 'country_code']) ?: null,
                 'notes'                => $pluck('notes',         ['notes', 'note', 'comments', 'comment']) ?: null,
                 'msa_signed_at'        => $pluck('msa_signed_at', ['msaSignedAt', 'msa_signed_at', 'msaDate', 'msa_date']) ?: null,
                 'created_by_user_id'   => $userId,
@@ -696,13 +649,6 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
             // This endpoint is a general organization directory. A company
             // becomes a staffing client only through assignment billing data.
             $companyId = jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId, []);
-            // Phase 2 — apply tenant mappings against the BI company payload.
-            try {
-                require_once __DIR__ . '/../integrations/field_map_apply.php';
-                integrationFieldMapApplyAll($tid, 'jobdiva', 'company', $jd, ['self' => $companyId]);
-            } catch (\Throwable $e) {
-                error_log('[jobdiva company sync] applyAll failed: ' . $e->getMessage());
-            }
             $processed++;
         } catch (\Throwable $e) {
             $failed++;
@@ -872,14 +818,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
             }
             $companyId = (int) $companyMapping['internal_entity_id'];
 
-            $internalId = jobdivaSyncUpsertContact($tid, $companyId, $jd, $name);
-            mappingUpsert($tid, 'jobdiva', 'contact', $extId, $internalId, $jd, 'pull', $userId);
-            try {
-                require_once __DIR__ . '/../integrations/field_map_apply.php';
-                integrationFieldMapApplyAll($tid, 'jobdiva', 'contact', $jd, ['self' => $internalId]);
-            } catch (\Throwable $e) {
-                error_log('[jobdiva contact sync] applyAll failed: ' . $e->getMessage());
-            }
+            $internalId = jobdivaSyncUpsertContact($tid, $companyId, $jd, $name, $extId, $userId);
             $processed++;
         } catch (\Throwable $e) {
             $failed++;
@@ -966,7 +905,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
     ];
 }
 
-function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $name): int
+function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $name, string $externalId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
 
@@ -1084,58 +1023,18 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
         true
     ) ? 0 : 1;
 
-    $pdo = getDB();
-    if ($email !== '') {
-        $stmt = $pdo->prepare('SELECT id FROM company_contacts WHERE tenant_id = :t AND company_id = :c AND email = :e LIMIT 1');
-        $stmt->execute(['t' => $tid, 'c' => $companyId, 'e' => $email]);
-        $existingId = (int) $stmt->fetchColumn();
-        if ($existingId > 0) {
-            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-            $pdo->prepare(
-                'UPDATE company_contacts
-                    SET name = :n, title = :ti, phone = :ph,
-                        contact_role = :cr, is_primary = :ip,
-                        notes = :no,
-                        mobile_phone = :mp, linkedin_url = :lu,
-                        department = :dp, decision_role = :dr,
-                        is_active = :ia
-                  WHERE id = :id'
-            )->execute([
-                'n'  => $name,
-                'ti' => $title ?: null,
-                'ph' => $phone ?: null,
-                'cr' => $contactRole,
-                'ip' => $isPrimary,
-                'no' => $notes !== '' ? mb_substr($notes, 0, 500) : null,
-                'mp' => $mobilePhone ?: null,
-                'lu' => $linkedinUrl ?: null,
-                'dp' => $department ?: null,
-                'dr' => $decisionRole,
-                'ia' => $isActive,
-                'id' => $existingId,
-            ]);
-            return $existingId;
-        }
-    }
-    $pdo->prepare(
-        'INSERT INTO company_contacts
-            (tenant_id, company_id, name, title, email, phone, contact_role, is_primary, notes,
-             mobile_phone, linkedin_url, department, decision_role, is_active)
-         VALUES
-            (:t, :c, :n, :ti, :e, :ph, :cr, :ip, :no,
-             :mp, :lu, :dp, :dr, :ia)'
-    )->execute([
-        't'  => $tid, 'c'  => $companyId, 'n'  => $name,
-        'ti' => $title ?: null, 'e'  => $email ?: null, 'ph' => $phone ?: null,
-        'cr' => $contactRole, 'ip' => $isPrimary,
-        'no' => $notes !== '' ? mb_substr($notes, 0, 500) : null,
-        'mp' => $mobilePhone ?: null,
-        'lu' => $linkedinUrl ?: null,
-        'dp' => $department ?: null,
-        'dr' => $decisionRole,
-        'ia' => $isActive,
-    ]);
-    return (int) $pdo->lastInsertId();
+    require_once __DIR__ . '/party_sync.php';
+    $values = [
+        'name'=>$name, 'title'=>$title ?: null, 'email'=>$email ?: null, 'phone'=>$phone ?: null,
+        'contact_role'=>$contactRoleRaw !== '' ? $contactRole : null,
+        'is_primary'=>$isPrimaryRaw !== '' ? $isPrimary : null,
+        'notes'=>$notes !== '' ? mb_substr($notes,0,500) : null,
+        'mobile_phone'=>$mobilePhone ?: null,'linkedin_url'=>$linkedinUrl ?: null,'department'=>$department ?: null,
+        'decision_role'=>$decisionRoleRaw !== '' ? $decisionRole : null,
+        'is_active'=>$isActiveRaw !== '' ? $isActive : null,
+    ];
+    $values=array_filter($values,static fn($v)=>$v!==null);
+    return jobdivaContactUpsertStable($tid,$companyId,$externalId,$jd,$name,$values,$userId);
 }
 
 function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array

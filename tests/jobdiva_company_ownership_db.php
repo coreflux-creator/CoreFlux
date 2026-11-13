@@ -1,0 +1,80 @@
+<?php
+/** Real database, invented source rows, no provider transport. */
+declare(strict_types=1);
+if(PHP_SAPI!=='cli'||getenv('GITHUB_ACTIONS')!=='true'||getenv('CI')!=='true'||getenv('DB_NAME')!=='coreaccounting_ci')exit(2);
+require_once __DIR__.'/../core/jobdiva/sync.php';
+require_once __DIR__.'/../core/jobdiva/party_sync.php';
+$pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
+$checks=[];$check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks[]=$label;};
+$fails=static function(callable $call):bool{try{$call();return false;}catch(Throwable){return true;}};
+$row=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC);};
+$review=static fn(int $owner,string $table,int $id):array=>companySourceWithRecord($pdo,$owner,$table,$id,static fn(array $r):array=>companySourceReview($r,$table));
+$tenant=990601;$child=990602;
+if($pdo->query('SELECT id FROM tenants WHERE id IN(990601,990602)')->fetchColumn())throw new RuntimeException('Fixture tenants already exist');
+$pdo->beginTransaction();$auditShadow=false;
+try{
+    $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(?,"Synthetic company source fixture",1,1,"master")')->execute([$tenant]);
+    $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic shared company source fixture",1,1,"sub",?)')->execute([$child,$tenant]);
+    $company=jobdivaUpsertCompanyMapped($tenant,'company-1','Source company',['phone'=>'source phone','country'=>'CA'],['id'=>'company-1','name'=>'Source company'],null,[]);
+    $state=companySourceState($row('companies',$company),'companies');
+    $check($state['owned']===[]&&!$state['legacy_unreviewed']&&$row('companies',$company)['country']==='CA','New source company receives a scoped source authority');
+    companyNativeFields($pdo,$tenant,$tenant,'companies',$company,['phone'=>null,'roles'=>['vendor']],null);
+    $same=jobdivaUpsertCompanyMapped($tenant,'company-1','Source renamed',['phone'=>'source changed','country'=>'GB'],['id'=>'company-1','name'=>'Source renamed'],null,['client']);
+    $companyRow=$row('companies',$company);$state=companySourceState($companyRow,'companies');
+    $check($same===$company&&$companyRow['phone']===null&&$companyRow['name']==='Source renamed'&&$companyRow['country']==='GB','Source updates preserve Core clearing and the company ID while updating unowned fields');
+    $check(companyRoles($company)===['vendor']&&$state['proposed']['phone']==='source changed'&&in_array('client',$state['proposed']['roles'],true),'Core role decisions remain held with incoming proposals retained');
+    $contactPayload=['id'=>'contact-1','email'=>'first@example.invalid','phone'=>'source contact'];
+    $contact=jobdivaSyncUpsertContact($tenant,$company,$contactPayload,'Source Contact','contact-1');
+    companyNativeFields($pdo,$tenant,$tenant,'company_contacts',$contact,['phone'=>'Core contact'],null);
+    $contactPayload['email']='changed@example.invalid';$contactPayload['phone']='changed source contact';
+    $same=jobdivaSyncUpsertContact($tenant,$company,$contactPayload,'Renamed Contact','contact-1');
+    $contactRow=$row('company_contacts',$contact);
+    $check($same===$contact&&$contactRow['email']==='changed@example.invalid'&&$contactRow['phone']==='Core contact','Email changes retain the provider contact ID and preserve Core-owned contact fields');
+    $check((int)mappingFindInternal($tenant,'jobdiva','contact','contact-1')['internal_entity_id']===$contact,'Stored contact binding still points to its original Core identity');
+    $check($fails(fn()=>jobdivaSyncUpsertContact($tenant,$company,$contactPayload,'Different Source','contact-2')),'A new source ID cannot adopt an existing contact by email');
+    $contactBefore=$row('company_contacts',$contact);$linkBefore=mappingFindInternal($tenant,'jobdiva','contact','contact-1');
+    $other=jobdivaUpsertCompanyMapped($tenant,'company-2','Other source company',[],['id'=>'company-2'],null,[]);
+    $check($fails(fn()=>jobdivaSyncUpsertContact($tenant,$other,$contactPayload,'Moved Contact','contact-1')),'A stored contact cannot move to another company implicitly');
+    $check($row('company_contacts',$contact)===$contactBefore&&mappingFindInternal($tenant,'jobdiva','contact','contact-1')===$linkBefore,'Rejected parent changes preserve the contact and its source receipt exactly');
+    $companyBefore=$row('companies',$company);$linkBefore=mappingFindInternal($tenant,'jobdiva','company','company-1');
+    $check($fails(fn()=>jobdivaUpsertCompanyMapped($tenant,'company-1','Other source company',[],['id'=>'company-1','name'=>'Other source company'],null,[])),'Company rename collisions require review rather than merging identities');
+    $check($row('companies',$company)===$companyBefore&&mappingFindInternal($tenant,'jobdiva','company','company-1')===$linkBefore,'Rename failure rolls back proposal and source-mapping changes together');
+    $check($fails(fn()=>mappingUpsert($tenant,'jobdiva','company','company-1',$other,['id'=>'company-1'],'pull',null)),'Generic mapping updates cannot replace company identity');
+    $check($fails(fn()=>mappingUpsert($tenant,'jobdiva','contact','contact-2',$contact,['id'=>'contact-2'],'pull',null)),'Generic mapping updates cannot replace contact identity');
+
+    $legacy=companiesUpsertByName($tenant,'Legacy native company',['phone'=>'historic Core value']);
+    mappingUpsert($tenant,'jobdiva','company','legacy-company',$legacy,['id'=>'legacy-company'],'pull',null);
+    jobdivaUpsertCompanyMapped($tenant,'legacy-company','Proposed legacy rename',['phone'=>'observed proposal'],['id'=>'legacy-company'],null,[]);
+    $legacyRow=$row('companies',$legacy);$legacyReview=$review($tenant,'companies',$legacy);
+    $check($legacyRow['name']==='Legacy native company'&&$legacyRow['phone']==='historic Core value'&&$legacyReview['legacy_unreviewed'],'Legacy rows without ownership receipts keep native values pending review');
+    companyNativeFields($pdo,$tenant,$tenant,'companies',$legacy,['phone'=>'new Core edit'],null);
+    $check($fails(fn()=>companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['phone'],$legacyReview['review_token'],null)),'An intervening Core edit invalidates the source review');
+    $legacyReview=$review($tenant,'companies',$legacy);
+    $accepted=companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['name','phone'],$legacyReview['review_token'],null);
+    $check(!$accepted['replayed']&&$row('companies',$legacy)['phone']==='observed proposal'&&$row('companies',$legacy)['name']==='Proposed legacy rename','Confirmed source review applies only the selected observed fields');
+    $after=$row('companies',$legacy);$auditCount=(int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='company.source.accepted' AND tenant_id=".$tenant)->fetchColumn();
+    $again=companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['name','phone'],$legacyReview['review_token'],null);
+    $check($again['replayed']&&$row('companies',$legacy)===$after&&(int)$pdo->query("SELECT COUNT(*) FROM audit_log WHERE event='company.source.accepted' AND tenant_id=".$tenant)->fetchColumn()===$auditCount,'Lost-response retry returns the saved review receipt without another write');
+    $check($fails(fn()=>companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['phone'],$legacyReview['review_token'],null)),'A review token cannot be replayed with a different field selection');
+    companyNativeFields($pdo,$tenant,$tenant,'companies',$legacy,['phone'=>'later native edit'],null);
+    $check(companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['name','phone'],$legacyReview['review_token'],null)['replayed']&&$row('companies',$legacy)['phone']==='later native edit','Historical receipt replay never re-applies values over a later native edit');
+
+    $pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,internal_field,external_field,source_path,target_module,target_table,target_column,linked_entity,transform,enabled) VALUES(?,"jobdiva","company","ci_company_phone","mappedPhone","mappedPhone","people","companies","phone","self","none",1)')->execute([$tenant]);
+    $mapped=integrationFieldMapApplyAll($tenant,'jobdiva','company',['mappedPhone'=>'mapped source'],['self'=>$company]);
+    $check($mapped['errors']===[]&&$mapped['written']===0&&$row('companies',$company)['phone']===null,'Configured source mappings cannot bypass Core field ownership');
+    $check(companySourceState($row('companies',$company),'companies')['proposed']['phone']==='mapped source','Configured mapping retains its exact proposed value for review');
+    $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared")')->execute([$child]);
+    $shared=jobdivaUpsertCompanyMapped($child,'shared-company','Shared source company',[],['id'=>'shared-company'],null,[]);
+    $check((int)$row('companies',$shared)['tenant_id']===$tenant&&(int)mappingFindInternal($child,'jobdiva','company','shared-company')['internal_entity_id']===$shared,'Source connection identity stays in its workspace while company data uses the shared directory');
+    $foreignBefore=$row('companies',$shared);
+    $check($fails(fn()=>companySourceObserve($pdo,$tenant,'companies',$shared,['phone'=>'different authority'],['system'=>'jobdiva','workspace_id'=>$tenant,'external_id'=>'shared-company'])),'Another source workspace cannot take ownership of the same company');
+    $check($row('companies',$shared)===$foreignBefore,'Rejected source authority changes preserve all state');
+
+    $before=$row('companies',$legacy);
+    $pdo->exec('CREATE TEMPORARY TABLE audit_log(id BIGINT PRIMARY KEY)');$auditShadow=true;
+    $check($fails(fn()=>companyNativeFields($pdo,$tenant,$tenant,'companies',$legacy,['phone'=>'unaudited'],null)),'Native company writes fail when the required audit is unavailable');
+    $check($row('companies',$legacy)===$before&&$pdo->inTransaction(),'Audit failure rolls back values and ownership while preserving the caller transaction');
+    $pdo->exec('DROP TEMPORARY TABLE audit_log');$auditShadow=false;
+    $check($pdo->inTransaction(),'Source and native operations do not commit the fixture transaction');
+}finally{if($auditShadow)$pdo->exec('DROP TEMPORARY TABLE audit_log');if($pdo->inTransaction())$pdo->rollBack();}
+echo json_encode(['scope'=>'Disposable native JobDiva company/contact ownership and stable identity','passed'=>true,'checks_passed'=>count($checks),'checks'=>$checks,'provider_calls'=>0,'permanent_fixture_records'=>0],JSON_THROW_ON_ERROR)."\n";

@@ -17,6 +17,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/companies.php';
+require_once __DIR__ . '/../lib/company_source_ownership.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -30,6 +31,25 @@ $requireCompany = static function (int $companyId): array {
     if (!$company) api_error('Not found', 404);
     return $company;
 };
+
+if (in_array($action, ['source_review','source_accept'], true)) {
+    rbac_legacy_require($user, 'people.manage');
+    $table=(string)($_GET['record_type']??'companies');$id=(int)($_GET['id']??0);
+    if(!in_array($table,['companies','company_contacts'],true))api_error('Choose a company or company contact.',422);
+    try {
+        if($method==='GET'&&$action==='source_review'){
+            $review=companySourceWithRecord(getDB(),$tid,$table,$id,static fn(array $row):array=>companySourceReview($row,$table));
+            api_ok(['review'=>$review]);
+        }
+        if($method==='POST'&&$action==='source_accept'){
+            $body=api_json_body();
+            if(($body['confirm_source']??null)!==true||!is_array($body['fields']??null)||!is_string($body['review_token']??null))api_error('Review and confirm the source fields first.',422);
+            $result=companySourceAccept(getDB(),(int)$ctx['tenant_id'],$tid,$table,$id,$body['fields'],$body['review_token'],(int)$user['id']);
+            api_ok($result);
+        }
+        api_error('Method not allowed',405);
+    }catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409,422],true)?$code:($e instanceof InvalidArgumentException?422:500));}
+}
 
 if ($method === 'GET' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'people.view');
@@ -84,8 +104,14 @@ if ($method === 'POST' && $action === 'upsert') {
         'industry','employee_size_range',
     ]));
     $extra['created_by_user_id'] = $user['id'] ?? null;
-    $id = companiesUpsertByName($tid, (string) $body['name'], $extra, $roles);
-    companiesAudit('company.upserted', ['id' => $id, 'name' => $body['name'], 'roles' => $roles], $id);
+    $pdo=getDB();$pdo->beginTransaction();
+    try {
+        $id=companiesUpsertByName($tid,(string)$body['name'],$extra,$roles);
+        $owned=array_intersect_key($extra,array_flip(companySourceFields('companies')))+['name'=>(string)$body['name']];
+        if(array_key_exists('roles',$body))$owned['roles']=array_values(array_intersect(COMPANY_ROLES,$roles));
+        companyNativeFields($pdo,(int)$ctx['tenant_id'],$tid,'companies',$id,$owned,(int)$user['id']);
+        $pdo->commit();
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw$e;}
     api_ok(['id' => $id, 'company' => companiesGet($id)], 201);
 }
 
@@ -128,7 +154,7 @@ if ($method === 'POST' && $action === 'bulk_update') {
                 $skipped++;
                 continue;
             }
-            scopedUpdate('companies', $id, [$field => $value]);
+            companyNativeFields(getDB(),(int)$ctx['tenant_id'],$tid,'companies',$id,[$field=>$value],(int)$user['id']);
             companiesAudit('company.updated', [
                 'id' => $id,
                 'source' => 'bulk_update',
@@ -196,6 +222,15 @@ if ($method === 'PATCH' && $action === 'address') {
     api_ok(['ok' => true]);
 }
 
+if ($method==='PATCH'&&$action==='contact') {
+    rbac_legacy_require($user,'people.manage');$id=(int)($_GET['id']??0);$body=api_json_body();
+    $values=array_intersect_key($body,array_flip(companySourceFields('company_contacts')));
+    if(!$values)api_error('Choose the contact fields to update.',422);
+    try{companyNativeFields(getDB(),(int)$ctx['tenant_id'],$tid,'company_contacts',$id,$values,(int)$user['id']);}
+    catch(Throwable$e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409,422],true)?$code:500);}
+    api_ok(['ok'=>true]);
+}
+
 if ($method === 'PATCH') {
     rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
@@ -218,17 +253,13 @@ if ($method === 'PATCH') {
     if (isset($body['tags']) && is_array($body['tags'])) {
         $allowed['tags_json'] = json_encode(array_values(array_unique(array_filter(array_map('strval', $body['tags'])))));
     }
-    if ($allowed) {
-        $rows = scopedUpdate('companies', $id, $allowed);
-        if ($rows === 0 && !isset($body['roles'])) api_error('Not found or no change', 404);
-    }
-    if (isset($body['roles']) && is_array($body['roles'])) {
-        getDB()->prepare('DELETE FROM company_roles WHERE company_id = :c')->execute(['c' => $id]);
-        foreach ($body['roles'] as $role) {
-            if (in_array($role, COMPANY_ROLES, true)) companiesAddRole($id, $role);
-        }
-    }
-    companiesAudit('company.updated', ['id' => $id, 'fields' => array_keys($allowed)], $id);
+    if(isset($body['roles'])&&is_array($body['roles']))$allowed['roles']=array_values(array_intersect(COMPANY_ROLES,$body['roles']));
+    companySourceWithRecord(getDB(),$tid,'companies',$id,static function(array $row)use($ctx,$user,$tid,$id,$allowed):void{
+        $sourceFields=array_intersect_key($allowed,array_flip(companySourceFields('companies')));
+        $otherFields=array_diff_key($allowed,$sourceFields);
+        if($otherFields)scopedUpdate('companies',$id,$otherFields);
+        companyNativeFields(getDB(),(int)$ctx['tenant_id'],$tid,'companies',$id,$sourceFields,(int)$user['id']);
+    });
     api_ok(['company' => companiesGet($id)]);
 }
 
@@ -238,7 +269,9 @@ if ($method === 'POST' && $action === 'add-role') {
     $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['role']);
-    companiesAddRole($id, (string) $body['role']);
+    companySourceWithRecord(getDB(),$tid,'companies',$id,static function(array $row)use($ctx,$tid,$id,$body,$user):void{
+        companyNativeFields(getDB(),(int)$ctx['tenant_id'],$tid,'companies',$id,['roles'=>array_values(array_unique(array_merge($row['roles'],[(string)$body['role']])))],(int)$user['id']);
+    });
     api_ok(['ok' => true, 'roles' => companyRoles($id)]);
 }
 
@@ -248,7 +281,9 @@ if ($method === 'POST' && $action === 'remove-role') {
     $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['role']);
-    companiesRemoveRole($id, (string) $body['role']);
+    companySourceWithRecord(getDB(),$tid,'companies',$id,static function(array $row)use($ctx,$tid,$id,$body,$user):void{
+        companyNativeFields(getDB(),(int)$ctx['tenant_id'],$tid,'companies',$id,['roles'=>array_values(array_diff($row['roles'],[(string)$body['role']]))],(int)$user['id']);
+    });
     api_ok(['ok' => true, 'roles' => companyRoles($id)]);
 }
 
@@ -258,6 +293,7 @@ if ($method === 'POST' && $action === 'add-contact') {
     $requireCompany($id);
     $body = api_json_body();
     api_require_fields($body, ['name']);
+    $cid=companySourceWithRecord(getDB(),$tid,'companies',$id,static function(array $row)use($ctx,$tid,$id,$body,$user):int{
     $cid = scopedInsert('company_contacts', [
         'tenant_id'    => $tid,
         'company_id'   => $id,
@@ -270,11 +306,13 @@ if ($method === 'POST' && $action === 'add-contact') {
         'notes'        => $body['notes'] ?? null,
     ]);
     if (!empty($body['is_primary'])) {
-        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-        getDB()->prepare('UPDATE company_contacts SET is_primary = 0 WHERE company_id = :c AND id != :id')
-            ->execute(['c' => $id, 'id' => $cid]);
+        foreach(companyContacts($id)as$contact)if((int)$contact['id']!==$cid&&!empty($contact['is_primary'])){
+            companyNativeFields(getDB(),(int)$ctx['tenant_id'],$tid,'company_contacts',(int)$contact['id'],['is_primary'=>0],(int)$user['id']);
+        }
     }
-    companiesAudit('company.contact.added', ['company_id' => $id, 'contact_id' => $cid], $id);
+    companySourceAudit(getDB(),(int)$ctx['tenant_id'],$tid,'company_contacts',$cid,'company.contact.added',array_keys($body),(int)$user['id']);
+    return $cid;
+    });
     api_ok(['contact_id' => $cid, 'contacts' => companyContacts($id)], 201);
 }
 
