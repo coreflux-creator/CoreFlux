@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
 require_once __DIR__ . '/placements.php';
 require_once __DIR__ . '/commission_input.php';
+require_once __DIR__ . '/commission_identity.php';
 require_once __DIR__ . '/payroll_recipients.php';
 
 function placementEconomicsNormaliseTerms(?string $terms, string $fallback = 'NET30'): string
@@ -793,6 +794,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 'source_ref' => 'commission:' . (int) $row['id'], 'source_type' => 'commission', 'source_id' => (int) $row['id'],
                 'role' => 'commission_' . (string) $row['role'], 'display_name' => $name,
                 'user_id' => $row['user_id'] ?: null,
+                'person_id' => placementCommissionPersonIdentity($pdo,(int)effectiveTenantIdForModule('people',$tenantId),(int)$row['user_id']),
                 'money_flow' => 'payable', 'settlement_channel' => $row['user_id'] ? 'payroll' : 'none',
                 'fee_basis' => (string) $row['basis'], 'fee_pct' => $row['split_pct'] ?? null,
                 'fee_flat' => $row['flat_amount'] ?? null, 'operating_cycle_id' => $payrollCycleId,

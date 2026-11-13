@@ -34,6 +34,16 @@ if(realpath($_SERVER['SCRIPT_FILENAME']??'')===__FILE__) {
     $current=$packet['current_commercial_context']['parties'][4];
     $check($current['currency']==='GBP'&&$current['payment_frequency']==='per_pay_period'&&$current['due_month']===null&&$current['fee_amount']==='8000.0000','Current terms remain separate from approval');
     $check($packet['terms'][0]['currency']==='USD'&&$packet['terms'][0]['pay_rates']['regular']==='42.1250','Placement wages remain unchanged');
+    foreach([false,true] as $approved) {
+        $missing=$rows;
+        if($approved) {
+            $snapshot=json_decode($missing['rates'][0]['economics_snapshot_json'],true,64,JSON_THROW_ON_ERROR);
+            $snapshot['contract_parties'][4]['person_id']=null;
+            $missing['rates'][0]['economics_snapshot_json']=json_encode($snapshot,JSON_THROW_ON_ERROR);
+        } else $missing['parties'][4]['person_id']=null;
+        try{purepayAssignmentFixtureBuild($missing);$error='';}catch(RuntimeException $e){$error=$e->getMessage();}
+        $check(str_contains($error,($approved?'Approved':'Current').' payroll participant')&&str_contains($error,'canonical person identity'),'Missing recipient stays blocked with the affected snapshot identified');
+    }
     $unknown=purepayAssignmentCommissionTerms(['source_type'=>'commission','fee_basis'=>'flat']);
     $check($unknown===['currency'=>null,'payment_frequency'=>null,'due_month'=>null],'Legacy missing terms stay unknown');
     foreach([['currency'=>'USD'],['payment_frequency'=>'one_time','due_month'=>'2026-08'],['currency'=>'EUR']] as $change) {

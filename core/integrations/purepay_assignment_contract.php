@@ -176,6 +176,10 @@ function purepayAssignmentParty(array $row,array $placement,callable $resolve,ar
         'cycle_overridden'=>$approved?null:purepayAssignmentBool($row['cycle_overridden']),
         'active'=>$approved?null:purepayAssignmentBool($row['active'])]+purepayAssignmentCommissionTerms($row);
     $purpose=['ar'=>'billing','ap'=>'ap','payroll'=>'payroll'][$channel]??null;
+    if($channel==='payroll' && !$roots['person']) {
+        $stage=$approved?'Approved':'Current';
+        throw new RuntimeException($stage.' payroll participant '.$result['display_name'].' has no canonical person identity. Review its employment/account link'.($approved?' and create a rate correction; approved snapshots are not rewritten.':'.'));
+    }
     if(($channel==='ar' && ($result['money_flow']!=='receivable' || !$roots['client']))
         || ($channel==='ap' && ($result['money_flow']!=='payable' || !$roots['vendor']))
         || ($channel==='payroll' && ($result['money_flow']!=='payable' || !$roots['person']))
