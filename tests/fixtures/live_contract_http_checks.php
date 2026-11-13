@@ -12,7 +12,7 @@ try{
     $liveRows=[['Start ID'=>'99320001','Candidate ID'=>'99320002','Job ID'=>'99320003','Employment Category'=>'Hourly Employee','W2'=>true,'Bill Rate'=>100,'Pay Rate'=>50,'Bill Rate Unit'=>'hour','Pay Rate Unit'=>'hour','Currency'=>'USD','Start Date'=>'2026-10-01',
         'BILLING'=>[['Approved'=>true,'Actual Start'=>false,'COMPANY'=>[['ID'=>'99320004','Name'=>'Synthetic live contract HTTP client']]]],'SALARY'=>[['Approved'=>true]]]];
     mappingUpsert($liveTenant,'jobdiva','person','jd:99320002',$livePerson,['candidateId'=>'99320002']);
-    mappingUpsert($liveTenant,'jobdiva','jobdiva_job','99320003',99320003,['id'=>'99320003','title'=>'HTTP live contract job']);
+    mappingUpsert($liveTenant,'jobdiva','jobdiva_job','99320003',99320003,['id'=>'99320003','title'=>'HTTP live contract job','Per Diem'=>777]);
     $liveMapping=mappingUpsert($liveTenant,'jobdiva','placement','jd:99320001',$livePlacement,$liveRoot);$liveMappingId=(int)$liveMapping['id'];
     jobdivaSaveConnection($liveTenant,['client_id'=>'99320000','username'=>'fixture@example.invalid','password'=>'synthetic-unused-password'],$actor);
     $pdo->prepare('UPDATE jobdiva_connections SET session_token_enc=?,session_token_exp=DATE_ADD(NOW(),INTERVAL 1 DAY),status="connected" WHERE tenant_id=?')->execute([encryptField('synthetic-live-contract-token'),$liveTenant]);

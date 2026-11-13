@@ -23,15 +23,16 @@ try{
         $placement=$insert('placements',['tenant_id'=>$owner,'person_id'=>$person,'title'=>'Native retained title','status'=>'on_hold','engagement_type'=>'w2','start_date'=>'2026-10-01','external_id'=>'retained-live-placement','worksite_country'=>'US','coreflux_overridden_fields'=>'["title"]']);
         $root=['startId'=>'99310001','candidateId'=>'99310002','jobId'=>'99310003','startDate'=>'2026-10-01','status'=>'on_hold','title'=>'Updated source title','worksiteCountry'=>'US'];
         $mapping=mappingUpsert($workspace,'jobdiva','placement','jd:99310001',$placement,$root);$mappingId=(int)$mapping['id'];
-        mappingUpsert($workspace,'jobdiva','jobdiva_job','99310003',99310003,['id'=>'99310003','jobId'=>'99310003','title'=>'Synthetic job']);
+        mappingUpsert($workspace,'jobdiva','jobdiva_job','99310003',99310003,['id'=>'99310003','jobId'=>'99310003','title'=>'Synthetic job','Per Diem'=>777]);
         mappingUpsert($workspace,'quanta','placement','retained-quanta-assignment',$placement,['id'=>'retained-quanta-assignment']);
         $expected=jobdivaLiveContractSnapshot($workspace,$mappingId);
         $exact=['status'=>'verified','row'=>jobdivaAssignmentMarkVerified($root,'99310001','searchStart:criteria_exact')];
         $input=jobdivaLiveContractInput($expected,$exact);
         $rows=[['Start ID'=>'99310001','Candidate ID'=>'99310002','Job ID'=>'99310003','Employment Category'=>'Hourly Employee','W2'=>true,'Bill Rate'=>100,'Pay Rate'=>50,'Bill Rate Unit'=>'hour','Pay Rate Unit'=>'hour','Currency'=>'USD','Start Date'=>'2026-10-01',
             'BILLING'=>[['Approved'=>true,'Actual Start'=>false,'COMPANY'=>[['ID'=>'99310004','Name'=>'Synthetic contract client']]]],'SALARY'=>[['Approved'=>true]]]];
-        $fresh=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,$input,'99310001')];
+        $fresh=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($input,'99310001'),'99310001')];
         $check(jobdivaLiveContractValidate($expected,$exact,$fresh)===$fresh,'Exact raw financial evidence rebuilds the supplied contract');
+        $check(empty($fresh['_jd_contract']['overheads']['per_diem']),'Related job financial fields cannot fill missing assignment overheads');
         $check($expected['base']['context']['placement_owner']===$owner&&$expected['base']['mapping']['external_id']==='jd:99310001','Live refresh resolves a shared placement from its original workspace and retained provider pair');
         JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappingId,$exact,$rows,$actor,$state,$check,$failure,$read,$placement):void{
             $corporation='99310009';$company=['id'=>$corporation,'name'=>'Synthetic live corporate payee','city'=>'Hamilton','country'=>'US'];
@@ -39,7 +40,7 @@ try{
             $payload=jobdivaLiveContractInput($snapshot,$exact);$corporateRows=$rows;
             $corporateRows[0]['Employment Category']='Subcontract';$corporateRows[0]['W2']=false;$corporateRows[0]['C2C']=true;
             $corporateRows[0]['Corporation ID']=$corporation;$corporateRows[0]['Pay Rate to Vendor']=50;
-            $payload['_jd_assignment_detail']=$corporateRows;$payload['_jd_contract']=jobdivaAssignmentContractBuild($corporateRows,$payload,'99310001');
+            $payload['_jd_assignment_detail']=$corporateRows;$payload['_jd_contract']=jobdivaAssignmentContractBuild($corporateRows,jobdivaAssignmentStripDerivedFacets($payload,'99310001'),'99310001');
             $before=$state();$bad=array_replace($company,['id'=>'99319999']);
             $check($failure(fn()=>jobdivaLiveContractApply($snapshot,$exact,$payload,$bad,$actor))!==''&&$before===$state(),'A returned corporate payee must echo the exact contract company ID');
             $pdo->exec('SET @fixture_live_contract_audit=1');$error=$failure(fn()=>jobdivaLiveContractApply($snapshot,$exact,$payload,$company,$actor));$pdo->exec('SET @fixture_live_contract_audit=0');

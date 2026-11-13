@@ -78,7 +78,10 @@ function jobdivaLiveContractValidate(array $expected, array $exact, array $paylo
     jobdivaJoinedIndexValidatePayload(['joined_payload'=>$input,'external'=>$expected['base']['external']], $payload);
     $rows = $payload['_jd_assignment_detail'] ?? [];
     if (!is_array($rows) || $rows === []) throw new RuntimeException('JobDiva returned no exact assignment financial detail.', 422);
-    $contract = jobdivaAssignmentContractBuild($rows, $input, $expected['base']['external']);
+    // Match the enricher's exact Start fallback. Related job/worker mirrors
+    // cannot supply missing assignment rates, overheads or lifecycle facts.
+    $hint = jobdivaAssignmentStripDerivedFacets($input,$expected['base']['external']);
+    $contract = jobdivaAssignmentContractBuild($rows, $hint, $expected['base']['external']);
     if ($contract === [] || mappingHash($contract) !== mappingHash($payload['_jd_contract'] ?? [])) throw new RuntimeException('The contract does not agree with the exact returned financial records.', 409);
     $payload['_jd_contract'] = $contract;
     return $payload;

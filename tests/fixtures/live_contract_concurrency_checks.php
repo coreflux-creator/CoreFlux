@@ -10,7 +10,7 @@ $liveFixture=static function(string $label)use($projectionFixture,$pdo,$child,$a
     $rows=[['Start ID'=>$root['startId'],'Candidate ID'=>$root['candidateId'],'Job ID'=>$root['jobId'],'Employment Category'=>'Hourly Employee','W2'=>true,
         'Bill Rate'=>125,'Pay Rate'=>50,'Bill Rate Unit'=>'hour','Pay Rate Unit'=>'hour','Currency'=>'USD','Start Date'=>'2026-11-01',
         'BILLING'=>[['COMPANY'=>[['ID'=>$original['payload']['_jd_contract']['client_company_id'],'Name'=>$original['payload']['_jd_contract']['client_company_name']]]]]]];
-    $payload['_jd_assignment_detail']=$rows;$payload['_jd_contract']=jobdivaAssignmentContractBuild($rows,$payload,$root['startId']);
+    $payload['_jd_assignment_detail']=$rows;$payload['_jd_contract']=jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($payload,$root['startId']),$root['startId']);
     return[$placement,$mapping,['mode'=>'native','entity'=>'live_contract','workspace'=>$child,'actor'=>$actor,'placement_id'=>$placement,'expected'=>$expected,'exact'=>$exact,'payload'=>$payload]];
 };
 foreach(['COMMIT','ROLLBACK']as$decision){
