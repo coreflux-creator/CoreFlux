@@ -54,6 +54,10 @@ function placementMergeSnapshot(int $workspace,int $actor,int $survivor,int $ret
     if(!JobdivaStoredReviewTransaction::active())throw new LogicException('Placement consolidation needs its protected review transaction.');
     if($survivor<=0||$retired<=0||$survivor===$retired)throw new InvalidArgumentException('Select two distinct current placements.',422);
     $pdo=getDB();$auth=placementMergeActor($pdo,$workspace,$actor);$scope=jobdivaPlacementWriteContext($pdo,$workspace);$owner=$scope['placement_owner'];
+    // Authentication refreshes activity timestamps between preview and apply.
+    // Preserve every access-control value, without making ordinary session use stale a review.
+    if($auth['membership'])$auth['membership']=array_diff_key($auth['membership'],array_flip(['last_active_at','created_at','updated_at']));
+    $auth['grants']=array_map(static fn($grant)=>array_diff_key($grant,array_flip(['created_at','updated_at'])),$auth['grants']);
     $instance=integrationInstanceId();if(!$instance)throw new RuntimeException('A permanent Core installation identity is required before consolidation.',409);
     $ids=[$survivor,$retired];sort($ids,SORT_NUMERIC);$records=[];$identities=[];
     foreach($ids as$id){

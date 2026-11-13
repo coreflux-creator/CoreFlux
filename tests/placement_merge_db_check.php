@@ -49,6 +49,11 @@ try{
         $check($review['retained_history']['time_entries']['count']===2&&$review['retained_history']['placement_rates']['count']===2,'Review includes downstream activity on both placements without moving it');
         $check(!str_contains(json_encode($review),'password')&&!str_contains(json_encode($review),'payload_snapshot'),'Public review omits authentication and raw provider snapshots');
         $check($review['custom_values_retained']===2&&!str_contains(json_encode($review),'sensitive-original'),'Private custom values participate without being exposed in merge choices');
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,$membership,$request,$preview,$review,$check):void{
+            $pdo->prepare('UPDATE tenant_memberships SET last_active_at="2030-01-01 12:00:00" WHERE id=?')->execute([$membership]);
+            $check($preview()['review_token']===$review['review_token'],'Ordinary membership activity does not invalidate unchanged permission and record evidence');
+            $check(!placementMergeApply($workspace,$actor,$request)['replayed'],'Merge remains usable after an ordinary session activity update');
+        },true);
         foreach(['title','approved_rate','new_rate','time','custom_value','custom_definition','source_payload','source_workspace','permission','membership','actor','policy','different_person','archived','number_alias','missing_number','in_flight']as$case)
             JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$actor,$membership,$grant,$person,$a,$b,$c,$rateA,$custom,$ma,$request,$check,$fails,$state,$insert,$case):void{
                 if($case==='title')$pdo->prepare('UPDATE placements SET title="Changed during review" WHERE id=?')->execute([$a]);
