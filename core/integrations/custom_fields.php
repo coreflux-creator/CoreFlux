@@ -21,13 +21,13 @@ function integrationCustomFieldApply(PDO $pdo,int $tenant,string $integration,ar
             $state=companySourceState($row,'companies');
             $link=mappingFindExternal($tenant,$integration,'company',$record);
             $source=['system'=>$integration,'workspace_id'=>$tenant,'external_id'=>(string)($link['external_id']??'')];
-            if(!$link||$integration!=='jobdiva'||mappingHash($state['source'])!==mappingHash($source)){
+            if(!$link||$integration!=='jobdiva'||mappingHash(['source'=>$state['source']])!==mappingHash(['source'=>$source])){
                 throw new RuntimeException('The merged company custom proposal needs its exact source identity.',409);
             }
             $def=customFieldStorageDefinition($pdo,$owner,'companies',(int)$row['_canonical_company_id'],$key,true);
             $value=customFieldStorageSourceValue($def,$key,$value);
             $proposal=['mapping_id'=>(int)$mapping['id'],'definition_id'=>(int)$def['id'],'value'=>$value];
-            $changed=mappingHash($state['merged_custom_proposals'][$key]??null)!==mappingHash($proposal);
+            $changed=mappingHash(['proposal'=>$state['merged_custom_proposals'][$key]??null])!==mappingHash(['proposal'=>$proposal]);
             if($changed){
                 $state['merged_custom_proposals'][$key]=$proposal;$state['revision']++;
                 companySourcePersist($pdo,$owner,'companies',$record,[],$state);

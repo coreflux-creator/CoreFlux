@@ -52,6 +52,9 @@ try{
     $check(jobdivaAssignmentPartyCompany($tenant,'Changed source B','provider-B',$a,null,'',[],null)===$a,'Explicit assignment company identity follows the permanent alias');
     $check(jobdivaAssignmentPartyCompany($tenant,'Changed source B','',$b,null,'',[],null)===$a,'A supplied original source record retains its exact reverse binding');
     $check(jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'provider-B','name'=>'Changed source B'],null)===$a,'Graph projection resolves the alias while validating the original source authority');
+    $beforeBinding=mappingFindInternal($tenant,'jobdiva','company','provider-B');
+    $bound=jobdivaProjectorBindPlacementSourceIdentities($tenant,['endClientCompanyId'=>'provider-B'],null,0,$a,0);
+    $check($bound['errors']===[]&&$bound['mapping_writes']===0&&mappingFindInternal($tenant,'jobdiva','company','provider-B')===$beforeBinding,'Full graph binding retains the raw company pair and original profile evidence');
     $job=staffingJobEnsureFromJobDivaPayload($tenant,'job-B',['title'=>'Alias job','companyId'=>'provider-B']);
     $check((int)$job['company_id']===$a,'Requisitions use the canonical company without inventing a bill-to client');
     $check(jobdivaContactUpsertStable($tenant,$b,'contact-B',['id'=>'contact-B'],'Contact B',['phone'=>'Updated contact'],null)===$contact&&(int)$row('company_contacts',$contact)['company_id']===$a,'Contact replay retains its provider ID and follows its reviewed parent alias');

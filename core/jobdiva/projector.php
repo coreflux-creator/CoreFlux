@@ -353,6 +353,14 @@ function jobdivaProjectorBindPlacementSourceIdentities(
         if ($externalId === '' || $internalId <= 0) return;
         try {
             $existing = mappingFindInternal($tenantId, 'jobdiva', $entityType, $externalId);
+            if($entityType==='company'&&$existing){
+                if(jobdivaCompanyCanonicalId($tenantId,(int)$existing['internal_entity_id'])!==$internalId){
+                    throw new RuntimeException('Source company identity belongs to a different canonical Core company.');
+                }
+                // Assignment context must not rebind a merged provider ID or
+                // replace the company profile snapshot with a sparse assignment.
+                return;
+            }
             if ($existing && (int) $existing['internal_entity_id'] !== $internalId) {
                 throw new \RuntimeException('Source identity already belongs to a different Core record.');
             }
