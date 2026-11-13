@@ -70,13 +70,15 @@ $mapping=$pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integ
 foreach(['bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency']as$field)$mapping->execute(['external'=>$field,'internal'=>$field,'source'=>$field,'target'=>$field]);
 $context=['placement'=>1,'placement_rates'=>(int)$rows[1]['id']];
 $mapped=['employmentType'=>'W2','bill_rate'=>75,'pay_rate'=>40,'bill_rate_unit'=>'USD/Hour','pay_rate_unit'=>'CAD/Hour','currency'=>'USD'];
-$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context);
+// This minimal schema verifies rate parsing. Full graph reconciliation and its
+// required failures are exercised by jobdiva_projection_directory_db_check.php.
+$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context,['reconcile'=>false]);
 $check($summary['written']===0&&$summary['errors']!==[]&&$snapshot()===$rows,'mapped mixed currencies cannot disappear during unit coercion');
 $mapped['pay_rate_unit']='hourly bonus';
-$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context);
+$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context,['reconcile'=>false]);
 $check($summary['written']===0&&$summary['errors']!==[]&&$snapshot()===$rows,'one invalid mapped unit blocks the entire rate bucket');
 $mapped['pay_rate_unit']='USD/Hour';unset($mapped['currency']);
-$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context);
+$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$mapped,$context,['reconcile'=>false]);
 $check($summary['written']===5&&$summary['errors']===[]&&$snapshot()===$rows,'mapped combined descriptors persist their explicit currency');
 $pdo->exec('UPDATE placements SET external_id="legacy:keep" WHERE id=1');
 $placementBefore=$pdo->query('SELECT * FROM placements')->fetchAll(PDO::FETCH_ASSOC);
@@ -120,7 +122,7 @@ $check(jobdivaClassificationRequire($withoutContract)==='1099'&&!isset($withoutC
 $pdo->exec('UPDATE tenant_integration_field_map SET enabled=0 WHERE internal_field="engagement_type"');
 $check(str_contains($failure(fn()=>jobdivaClassificationRequire(jobdivaClassificationPayloadForTenant(10,$withoutContract))),'needs review'),'thin-payload cached evidence also respects disabled mappings');
 $unclassified=$mapped;unset($unclassified['employmentType']);
-$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$unclassified,$context);
+$summary=integrationFieldMapApplyAll(10,'jobdiva','placement',$unclassified,$context,['reconcile'=>false]);
 $check($summary['written']===0&&str_contains(implode(' ',$summary['errors']),'classification_needs_review')&&$snapshot()===$rows,'mapped financial writes cannot bypass missing assignment classification');
 $pdo->exec('USE information_schema'); $pdo->exec('DROP DATABASE '.$db);
 echo "$passed passed\n";
