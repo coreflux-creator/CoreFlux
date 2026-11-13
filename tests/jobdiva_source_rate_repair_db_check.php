@@ -15,7 +15,7 @@ $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SE
 $financial=array_map($all,['accounting_events','accounting_journal_entries','accounting_journal_entry_lines','time_entries','payroll_runs','billing_payments','ap_payments']);
 try{
     if($pdo->query('SELECT id FROM tenants WHERE id=990705')->fetchColumn())throw new RuntimeException('Source rate fixture already exists');
-    $pdo->exec("CREATE TRIGGER fixture_source_rate_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event=COALESCE(@fixture_source_rate_fail,'') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic required rate audit failure'; END IF; END");$trigger=true;
+    $pdo->exec("CREATE TRIGGER fixture_source_rate_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF BINARY NEW.event=BINARY COALESCE(@fixture_source_rate_fail,'') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic required rate audit failure'; END IF; END");$trigger=true;
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$check,$failure,$insert,$all,$state,$read,$financial):void{
         $insert('tenants',['id'=>$workspace,'parent_id'=>$owner,'tenant_type'=>'sub','name'=>'Synthetic source rates','is_active'=>1,'is_simulation'=>1]);
         foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
