@@ -102,9 +102,11 @@ $terminateProc = function (&$proc, ?array &$pipes = null): void {
     $proc = null;
 };
 
+// Release both before either child starts: an inherited reservation in the
+// first child can otherwise keep the second child's port occupied.
 fclose($reservedCF);
-$procCF = proc_open('node dist/index.js', $descr, $p1, "{$ROOT}/subgraph-coreflux", $envCF);
 fclose($reservedJD);
+$procCF = proc_open('node dist/index.js', $descr, $p1, "{$ROOT}/subgraph-coreflux", $envCF);
 $procJD = proc_open('node dist/index.js', $descr, $p2, "{$ROOT}/subgraph-jobdiva",  $envJD);
 register_shutdown_function(function () use (&$procCF, &$procJD, &$p1, &$p2, $terminateProc) {
     $terminateProc($procCF, $p1);
@@ -164,6 +166,16 @@ echo "\nGraphQL Federation — _service { sdl } shape (Apollo Federation spec)\n
 $assert('coreflux serves _service { sdl }', $status === 200 && str_contains($body, 'type Placement'));
 [$status, $body] = $post($portJD, json_encode(['query' => '{ _service { sdl } }']));
 $assert('jobdiva  serves _service { sdl }', $status === 200 && str_contains($body, 'type JobDivaAssignment'));
+
+if($fail){
+    foreach(['coreflux'=>$p1,'jobdiva'=>$p2]as$name=>$pipes){
+        foreach([1,2]as$descriptor){
+            stream_set_blocking($pipes[$descriptor],false);
+            $output=stream_get_contents($pipes[$descriptor],2000);
+            if($output!=='')echo $name.' process output: '.$output."\n";
+        }
+    }
+}
 
 $terminateProc($procCF, $p1);
 $terminateProc($procJD, $p2);
