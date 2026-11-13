@@ -161,7 +161,7 @@ $a('context map populates placement/person/company/staffing_job owners',
     && str_contains($sync, "'placement_rates'        => jobdivaPlacementCurrentRateId(\$tenantId, \$placementId),")
     && str_contains($sync, "'placement_corp_details' => \$placementId,")
     && str_contains($sync, "'person'                 => \$personId,")
-    && str_contains($sync, "'end_client_company'     => \$endClientCompanyId ?? 0,")
+    && str_contains($sync, "'end_client_company'     => \$companyContextId,")
     && str_contains($sync, "'staffing_job'           => \$staffingJobId,"));
 $a('apply step is wrapped in try/catch (best-effort)',
     (bool) preg_match('/try \{\s*\$summary\[\'field_map\'\] = jobdivaApplyPlacementFieldMappings/s', $projector));

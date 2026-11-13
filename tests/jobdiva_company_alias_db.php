@@ -73,6 +73,9 @@ try{
     $primaryState=$row('companies',$a)['coreflux_source_state'];
     $mappedFields=jobdivaApplyPlacementFieldMappings($tenant,$placement,$person,$a,0,['endClientCompanyId'=>'provider-B','partyPhone'=>'Assignment proposal']);
     $check($mappedFields['errors']===[]&&companySourceState($row('companies',$b),'companies')['proposed']['phone']==='Assignment proposal'&&$row('companies',$a)['coreflux_source_state']===$primaryState,'Assignment field mappings retain the secondary source identity instead of contaminating primary proposals');
+    $beforeProfile=$row('companies',$a);
+    $mismatch=jobdivaApplyPlacementFieldMappings($tenant,$placement,$person,$a,0,['endClientCompanyId'=>'unmapped-other-company','partyPhone'=>'Wrong source']);
+    $check($mismatch['written']===0&&$mismatch['skipped']>0&&$row('companies',$a)===$beforeProfile,'A different source company cannot enrich a Core-selected parent profile');
     $check($fails(fn()=>companyNativeFields($pdo,$tenant,$tenant,'companies',$b,['name'=>'Unreviewed resurrection'],null)),'Native edits cannot resurrect a retired source alias');
     $retiredReview=companySourceReview($row('companies',$b)+['roles'=>[]],'companies');
     $check($fails(fn()=>companySourceAccept($pdo,$tenant,$tenant,'companies',$b,['name'],$retiredReview['review_token'],null)),'Generic source acceptance cannot release merged-source authority');
