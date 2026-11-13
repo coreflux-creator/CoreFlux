@@ -1,0 +1,235 @@
+{
+  "scope": "Native staffing time ownership, atomic edits, evidence retention and current-directory/period concurrency; source acceptance, not hosted release or full integration completion",
+  "previous_goal_turn": "No integration progress: standalone accounting production timing was answered. Revalidated the accepted history-reader CI, completed native time edits and exercised the real session and independent-connection paths.",
+  "source_commit": "c7fa91cd4db7a4f0011de603fb5aea5aa5fc42db",
+  "base_commit": "85d7f7d09e6e01603bc8d9c2eeb3ac1f108acb90",
+  "source_files_sha256_lf": {
+    "modules/staffing/api/timesheets.php": "d0a3f88cc7a4b110e4af579f13258d1bd44379676864d0f5faeae2e30f80288b",
+    "modules/staffing/lib/native_time_edit.php": "e12f5cd3035a940e04e0372127e0332d258bd025c82dfa7d8972d6233a858374",
+    "modules/staffing/lib/time_workspace.php": "5564d8ebdb376118d4bb1e1634e526e71a8ac4d0c9feaff283b724de4ff15c68",
+    "modules/staffing/lib/timesheets.php": "fca65f2187ee1bca79b7df675964a278eeb2469736c15c5fdc0a8ac4234d5e78",
+    "tests/company_relationship_concurrency_db.php": "fcab8b679f0914f7d4958f01c8827d726c45d6971002b320a08db18c2851eda6",
+    "tests/fixtures/native_time_concurrency_checks.php": "178941c49c2c9948a5a2899d9dafab599d1521e21e1ad7d13794cd46ad6fe450",
+    "tests/fixtures/native_time_edit_http_checks.php": "30ef7cff864cb8c69e5e19f4b87034b348e51fc0dbed66458a721ce305fa786d",
+    "tests/fixtures/placement_contract_http_router.php": "7ad9d33331ccddd8f81f12193935a282f4b5d1cb4c1cf6a60912cf0e8997a790",
+    "tests/hy093_repeated_placeholder_smoke.php": "a537ef659871521e7f74948b82738275d03444a78cf6677aa21b2e52cbaa0dd8",
+    "tests/placement_contract_permissions_http.php": "d09f5b41056ed96842bdad7360e62ebd35044aa23d1bd829713d6a7dbb2bab5d",
+    "tests/staffing_shell_and_weekly_timesheet_smoke.php": "b65afc2ddf1e66d34dc9d718251b00eca2616aed744f12b1cb945ed0c46ec325",
+    "tests/timesheet_end_to_end_guardrails_smoke.php": "32b7a703b48345a22999d967f24fc922c778792fcbefb0d02256e1dfe309d340",
+    "tests/timesheet_inline_edit_smoke.php": "9d1db50012f5fa4705e0d90759044b18caf0371dc7b34dcbced823b22932bf83"
+  },
+  "ci": {
+    "run_id": 43528873414,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43528873414",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132241314210,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314421,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314438,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314447,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314513,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314533,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314534,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314544,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314605,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314608,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132241314625,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "acceptance": {
+    "independent_connection_checks": 578,
+    "required_native_time_races": [
+      "Native time writer waits for concurrent approve COMMIT",
+      "Committed approve refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":409,\"error\":\"This timesheet is approved or already feeds downstream work. Use the correction workflow.\"}",
+      "Native time writer waits for concurrent supersede COMMIT",
+      "Committed supersede refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":409,\"error\":\"Approved, superseded or downstream time must retain its original evidence. Use the correction workflow.\"}",
+      "Native time writer waits for concurrent source_link COMMIT",
+      "Committed source_link refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":409,\"error\":\"Use source-time correction review to change imported Quanta time.\"}",
+      "Native time writer waits for concurrent archive COMMIT",
+      "Committed archive refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":404,\"error\":\"The original placement is unavailable in this directory.\"}",
+      "Native time writer waits for concurrent merge COMMIT",
+      "Committed merge refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":409,\"error\":\"This time belongs to a retained placement. Review its original time history and use the current placement for new entries.\"}",
+      "Native time writer waits for concurrent person_archive COMMIT",
+      "Committed person_archive refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":0,\"error\":\"Person #216 was not found\"}",
+      "Native time writer waits for concurrent period_lock COMMIT",
+      "Committed period_lock refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Native time writer waits for concurrent daily_total COMMIT",
+      "Committed daily_total refuses stale native time edit without changing time or receipts: {\"ok\":false,\"code\":0,\"error\":\"Total hours for 2026-10-05 would exceed 24\"}",
+      "Native time writer waits for concurrent approve ROLLBACK",
+      "Rolled-back approve permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":10,\"entry\":{\"id\":10,\"tenant_id\":990671,\"placement_id\":280,\"person_id\":219,\"period_id\":1,\"timesheet_id\":9,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:34\",\"updated_at\":\"2026-11-13 23:43:34\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":9,\"artifact_id\":\"a6b6d310-6678-4b4b-bd7d-0e0d7d1ce4e2\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":219,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:34\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:34\",\"updated_at\":\"2026-11-13 23:43:34\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-9\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent supersede ROLLBACK",
+      "Rolled-back supersede permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":11,\"entry\":{\"id\":11,\"tenant_id\":990671,\"placement_id\":281,\"person_id\":220,\"period_id\":1,\"timesheet_id\":10,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:34\",\"updated_at\":\"2026-11-13 23:43:35\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":10,\"artifact_id\":\"0773b1d2-456d-41e1-adb9-7c086520679e\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":220,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:35\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:34\",\"updated_at\":\"2026-11-13 23:43:35\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-10\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent source_link ROLLBACK",
+      "Rolled-back source_link permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":12,\"entry\":{\"id\":12,\"tenant_id\":990671,\"placement_id\":282,\"person_id\":221,\"period_id\":1,\"timesheet_id\":11,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:35\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":11,\"artifact_id\":\"8fe8981d-bcda-4eb4-86d0-289045282fa4\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":221,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:35\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:35\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-11\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent archive ROLLBACK",
+      "Rolled-back archive permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":13,\"entry\":{\"id\":13,\"tenant_id\":990671,\"placement_id\":283,\"person_id\":222,\"period_id\":1,\"timesheet_id\":12,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:35\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":12,\"artifact_id\":\"46dfe7c5-f495-4053-9008-c9bb64b656e9\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":222,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:35\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:35\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-12\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent merge ROLLBACK",
+      "Rolled-back merge permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":14,\"entry\":{\"id\":14,\"tenant_id\":990671,\"placement_id\":284,\"person_id\":223,\"period_id\":1,\"timesheet_id\":13,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:35\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":13,\"artifact_id\":\"8f96692e-ef19-4fb9-aca9-54e436440ad3\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":223,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:35\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:35\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-13\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent person_archive ROLLBACK",
+      "Rolled-back person_archive permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":15,\"entry\":{\"id\":15,\"tenant_id\":990671,\"placement_id\":286,\"person_id\":224,\"period_id\":1,\"timesheet_id\":14,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:36\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":14,\"artifact_id\":\"d6ee20a8-0c50-4d82-9dee-8ca8ee54be55\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":224,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:36\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:35\",\"updated_at\":\"2026-11-13 23:43:36\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-14\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent period_lock ROLLBACK",
+      "Rolled-back period_lock permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":16,\"entry\":{\"id\":16,\"tenant_id\":990671,\"placement_id\":287,\"person_id\":225,\"period_id\":1,\"timesheet_id\":15,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:36\",\"updated_at\":\"2026-11-13 23:43:36\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":15,\"artifact_id\":\"a4ff1254-c7f0-46db-aed3-8c5c9422c97c\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":225,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:36\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:36\",\"updated_at\":\"2026-11-13 23:43:36\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-15\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time writer waits for concurrent daily_total ROLLBACK",
+      "Rolled-back daily_total permits the unchanged original time to be edited: {\"ok\":true,\"result\":{\"id\":17,\"entry\":{\"id\":17,\"tenant_id\":990671,\"placement_id\":288,\"person_id\":226,\"period_id\":1,\"timesheet_id\":16,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"7.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:36\",\"updated_at\":\"2026-11-13 23:43:36\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":16,\"artifact_id\":\"0d1edf29-f5f1-4aa1-801f-4f2f996925c4\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":226,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:36\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"7.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:36\",\"updated_at\":\"2026-11-13 23:43:36\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-16\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}",
+      "Native time edit waits for its people directory policy COMMIT",
+      "Committed people isolation refuses the obsolete shared directory without writes",
+      "Native time edit waits for its people directory policy ROLLBACK",
+      "Rolled-back people policy keeps time in the original child workspace",
+      "Native time edit waits for its placements directory policy COMMIT",
+      "Committed placements isolation refuses the obsolete shared directory without writes",
+      "Native time edit waits for its placements directory policy ROLLBACK",
+      "Rolled-back placements policy keeps time in the original child workspace",
+      "Native time creation retains its uncommitted header and daily locks COMMIT",
+      "Second native time creation waits for the first daily total COMMIT",
+      "Concurrent native edits preserve the 24-hour limit after COMMIT: {\"ok\":false,\"code\":0,\"error\":\"Total hours for 2026-10-05 would exceed 24\"}",
+      "Native time creation retains its uncommitted header and daily locks ROLLBACK",
+      "Second native time creation waits for the first daily total ROLLBACK",
+      "Concurrent native edits preserve the 24-hour limit after ROLLBACK: {\"ok\":true,\"result\":{\"id\":27,\"entry\":{\"id\":27,\"tenant_id\":990671,\"placement_id\":294,\"person_id\":232,\"period_id\":1,\"timesheet_id\":22,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"9.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"draft\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-13 23:43:38\",\"updated_at\":\"2026-11-13 23:43:38\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null},\"timesheet\":{\"id\":22,\"artifact_id\":\"66723186-acb9-4ab6-ba6e-573dc47e61e7\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":232,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"draft\",\"submitted_at\":null,\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":\"2026-11-13 23:43:38\",\"rejected_by_user_id\":4,\"rejection_reason\":\"edited inline\",\"locked_at\":null,\"total_hours\":\"17.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-13 23:43:38\",\"updated_at\":\"2026-11-13 23:43:38\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-22\",\"artifact_status\":\"draft\",\"artifact_version\":2}}}"
+    ],
+    "native_core_session_checks": 953,
+    "placement_contract_http_checks": 637,
+    "required_native_time_http_checks": [
+      "Native time editing requires sign-in",
+      "Native time editing requires a staffing grant",
+      "General time writing cannot edit another worker without review access",
+      "Native time permission failures preserve original records and receipts",
+      "Native week reads original workspace time despite shared staffing catalog",
+      "Native time respects the locked original period: entry_save",
+      "Native time respects the locked original period: entry_delete",
+      "Native time respects the locked original period: reopen",
+      "Native time respects the locked original period: entry_save",
+      "Native time respects the closed original period: entry_save",
+      "Native time respects the closed original period: entry_delete",
+      "Native time respects the closed original period: reopen",
+      "Native time respects the closed original period: entry_save",
+      "Invalid inline edit leaves submitted header, entries and artifacts unchanged: {\"placement_id\":309}",
+      "Invalid inline edit leaves submitted header, entries and artifacts unchanged: {\"placement_id\":324}",
+      "Invalid inline edit leaves submitted header, entries and artifacts unchanged: {\"work_date\":\"2026-10-12\"}",
+      "Invalid inline edit leaves submitted header, entries and artifacts unchanged: {\"hours\":23}",
+      "Invalid inline edit leaves submitted header, entries and artifacts unchanged: {\"hours\":\"invalid\"}",
+      "Invalid inline edit leaves submitted header, entries and artifacts unchanged: {\"timesheet_id\":27}",
+      "Original workspace cannot delete a parent catalog time entry",
+      "Late native time receipt failure rolls back every change and hides database details",
+      "Valid native edit reopens only the original submitted timesheet",
+      "Approved sibling and parent workspace records remain byte-for-byte unchanged",
+      "Successful native edit retains full before and after facts in its required receipt",
+      "Draft header cannot authorize editing or deleting approved/superseded time: entry_save 33",
+      "Draft header cannot authorize editing or deleting approved/superseded time: entry_delete 33",
+      "Draft header cannot authorize editing or deleting approved/superseded time: entry_save 35",
+      "Draft header cannot authorize editing or deleting approved/superseded time: entry_delete 35",
+      "Imported Quanta time keeps its source correction workflow: entry_save",
+      "Imported Quanta time keeps its source correction workflow: entry_delete",
+      "Reopening a mixed week preserves imported source review state and approved evidence",
+      "Failed new-week save leaves no header, period or orphan artifact",
+      "Invalid second weekly row rolls back the earlier row and its total",
+      "Per-entry batch reports the saved row and refused approved row separately",
+      "Same cookie edit uses fresh people ownership",
+      "Same cookie edit uses fresh placements ownership",
+      "Archived placement time cannot be silently removed",
+      "Late delete receipt failure restores the entry and header total",
+      "Native deletion changes only editable time and recomputes non-superseded totals",
+      "Deleted editable time retains its complete prior row in the audit receipt",
+      "Native time edits preserve all identities, rates, provider mappings and financial records",
+      "Retained-placement time cannot be silently retargeted, removed or reopened: entry_save",
+      "Retained-placement time cannot be silently retargeted, removed or reopened: entry_delete",
+      "Retained-placement time cannot be silently retargeted, removed or reopened: reopen",
+      "Same session immediately loses native time write access after revocation"
+    ],
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "local_checks": {
+    "php_syntax": "passed",
+    "timesheet_inline_edit": 99,
+    "timesheet_end_to_end_guardrails": 22,
+    "staffing_shell_weekly": 66,
+    "timesheets_drill_in": 65,
+    "billing_suggest": 47,
+    "workflow_graph_alignment": "passed",
+    "distinct_placeholder_regression": 28
+  },
+  "initial_failed_run": {
+    "run_id": 43527460492,
+    "source_commit": "d8f7e5a262457de4f2a8458b80ba62d7d94c59e7",
+    "reason": "The new concurrency fixture omitted the synthetic worker required email; corrected before acceptance. Native HTTP was not reached in that failed lane."
+  },
+  "intermediate_run": {
+    "run_id": 43528126224,
+    "source_commit": "2f006d0d737bcb6bafe09eabc57992de38dc6bd9",
+    "native_http_checks": 636,
+    "required_native_time_http_checks": 44,
+    "limitation": "The period-placeholder text assertion still looked in the old file. Updated to verify both distinct bound placeholders in the delegated helper. Final source adds a mixed imported/native reopening case."
+  },
+  "hosted_pilot": {
+    "installed_source_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+    "candidate_installed": false,
+    "read_only_verification": {
+      "checked_at": "2026-11-13T23:36:49+00:00",
+      "passed": true,
+      "runtime_pins_verified": 367,
+      "tables_verified": 378,
+      "rows_preserved": 35304,
+      "configuration_preserved": true,
+      "synthetic_reviewer_retired": true,
+      "temporary_credentials_absent": true,
+      "temporary_probe_absent": true,
+      "synthetic_company_retired": true
+    }
+  },
+  "remaining": [
+    "Separate generic time API and submission/rejection/approval concurrency; rendered entry correction controls",
+    "Generic placement CSV ownership, AP/current references and native job provenance",
+    "Stable outbound QuickBooks customer identity",
+    "Required migrations, guarded pilot upgrade and signed-in hosted acceptance",
+    "Full field inventory, portal/onboarding/documents/time/approval/results/reconciliation and complete Thunderhawk round trip"
+  ],
+  "production_changed": false,
+  "real_payroll_payment_or_posting_executed": false,
+  "arabella_changed": false,
+  "full_goal_complete": false
+}
