@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, FilePlus2 } from 'lucide-react';
-import { useApi } from '../../../dashboard/src/lib/api';
+import { useApi, getPinnedTenantId } from '../../../dashboard/src/lib/api';
 import SuggestInvoiceModal from '../../billing/ui/SuggestInvoiceModal';
 
 /**
@@ -25,7 +25,12 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
     `/modules/staffing/api/timesheets.php?action=list_for_placement&placement_id=${pid}`,
     [pid]
   );
-  const rows = data?.rows ?? [];
+  const pin = getPinnedTenantId();
+  const validScope = Number(data?.placement_id) === Number(pid)
+    && (!pin || String(data?.workspace_id) === String(pin));
+  const available = !loading && !error && validScope;
+  const historical = available && data?.read_only === true;
+  const rows = available ? (data?.rows ?? []) : [];
 
   const pending = rows.filter(r => r.status === 'submitted');
   const history = rows.filter(r => r.status !== 'submitted');
@@ -33,7 +38,7 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
     (sum, row) => sum + (Number(row.unbilled_billable_hours) || 0),
     0
   );
-  const canPrepareInvoice = !loading && unbilledBillableHours > 0;
+  const canPrepareInvoice = available && !historical && unbilledBillableHours > 0;
   const weekParams = new URLSearchParams({ placement_id: String(pid) });
   if (placement?.person_id) weekParams.set('person_id', String(placement.person_id));
 
@@ -43,10 +48,10 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
         <div>
           <h3 style={{ margin: 0 }}>Timesheets for this placement</h3>
           <p style={{ color: '#666', fontSize: 13, margin: '4px 0 0' }}>
-            Review submitted time and prepare invoices from approved, unbilled hours.
+            {historical ? 'Original placement time is retained here for review.' : 'Review submitted time and prepare invoices from approved, unbilled hours.'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        {available && !historical && <div style={{ display: 'flex', gap: 8 }}>
           <button
             type="button"
             className="btn btn--primary"
@@ -67,11 +72,13 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
           >
             Open current week <ArrowRight size={14} aria-hidden="true" />
           </Link>
-        </div>
+        </div>}
       </header>
 
       {loading && <p data-testid="placement-timesheets-loading">Loading…</p>}
       {error && <p className="error" data-testid="placement-timesheets-error">{error.message}</p>}
+      {!loading && !error && data && !validScope && <p className="error">Reload time for this placement and workspace.</p>}
+      {historical && <p>Current placement: <Link to={`/modules/placements/${data.current_placement_id}`}>Open current placement</Link></p>}
 
       <h4 style={{ marginTop: 16, fontSize: 13, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
         Pending approval ({pending.length})
@@ -95,7 +102,7 @@ export default function PlacementTimesheetsTab({ pid, placement }) {
         <SectionTable rows={history} pid={pid} mode="history" />
       )}
 
-      {showSuggest && (
+      {showSuggest && canPrepareInvoice && (
         <SuggestInvoiceModal
           placementId={pid}
           placementTitle={placement?.title}

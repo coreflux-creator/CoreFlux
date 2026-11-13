@@ -30,13 +30,13 @@ $api = file_get_contents($root . '/modules/staffing/api/timesheets.php');
 $a('detail action wired',
     str_contains($api, "'GET' && \$action === 'detail'"));
 $a('list_for_placement action wired',
-    str_contains($api, "'GET' && \$action === 'list_for_placement'"));
+    str_contains($api, "['list_for_placement','detail_for_placement']"));
 $a('detail_for_placement action wired',
-    str_contains($api, "'GET' && \$action === 'detail_for_placement'"));
+    str_contains($api, "\$action === 'detail_for_placement'"));
 
 // detail action surface
 $detailStart = strpos($api, "if (\$method === 'GET' && \$action === 'detail')");
-$nextAction = strpos($api, "if (\$method === 'GET' && \$action === 'list_for_placement')", $detailStart === false ? 0 : $detailStart);
+$nextAction = strpos($api, "// Placement-scoped reads", $detailStart === false ? 0 : $detailStart);
 $detailSource = $detailStart !== false && $nextAction !== false && $nextAction > $detailStart
     ? substr($api, $detailStart, $nextAction - $detailStart) : '';
 $a('detail joins people for worker name',
@@ -51,25 +51,15 @@ $a('detail filters out superseded entries',
 $a('detail 404s when timesheet not found',
     str_contains($api, "api_error('timesheet not found', 404)"));
 
-// list_for_placement surface
-$a('list_for_placement requires placement_id',
-    preg_match("/'GET' && \\\$action === 'list_for_placement'[\s\S]{0,400}placement_id required/", $api) === 1);
-$a('list_for_placement filters by te.placement_id',
-    str_contains($api, "'te.placement_id = :plid'"));
-$a('list_for_placement aggregates placement_hours via SUM(te.hours)',
-    str_contains($api, 'SUM(te.hours) AS placement_hours'));
-$a('list_for_placement aggregates billable_hours separately',
-    str_contains($api, "SUM(CASE WHEN te.billable = 1 THEN te.hours ELSE 0 END) AS billable_hours"));
-$a('list_for_placement accepts status filter',
-    preg_match("/'GET' && \\\$action === 'list_for_placement'[\s\S]{0,800}\\\$_GET\\['status'\\][\s\S]{0,200}\\\$params\\['s'\\]/", $api) === 1);
-
-// detail_for_placement surface
-$a('detail_for_placement requires both id and placement_id',
-    preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,400}id required[\s\S]{0,400}placement_id required/", $api) === 1);
-$a('detail_for_placement scopes entries to one placement',
-    preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,1900}te\\.placement_id = :plid/", $api) === 1);
-$a('detail_for_placement returns aggregated placement_hours',
-    preg_match("/'GET' && \\\$action === 'detail_for_placement'[\s\S]{0,2600}'placement_hours'/", $api) === 1);
+// Native HTTP coverage exercises the service with real headers, corrected
+// time, retained placements, foreign workspaces and revoked permissions.
+$reader = file_get_contents($root . '/modules/staffing/lib/placement_timesheets.php');
+$a('both placement actions use the current-directory reader',
+    str_contains($api, 'staffingPlacementTimesheets($tenantId,')
+    && str_contains($reader, 'placementNavigation($workspace,$requested)'));
+$a('placement reader includes captured Quanta approval evidence',
+    str_contains($reader, 'qi.source_approval_json')
+    && str_contains($reader, 'qi.time_entry_id=te.id AND qi.tenant_id=te.tenant_id'));
 
 // ──────────────────────────────────────────────────────────────────────
 // 2) React: TimesheetsList

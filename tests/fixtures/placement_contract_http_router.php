@@ -10,6 +10,10 @@ if (PHP_SAPI !== 'cli-server' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('
 }
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
+if ($path === '/modules/staffing/api/timesheets.php') {
+    if ($_SERVER['REQUEST_METHOD']!=='GET' || !in_array($_GET['action']??'', ['list_for_placement','detail_for_placement'],true)) { http_response_code(404);exit; }
+    $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
+}
 if (in_array($path,['/modules/placements/api/time_history.php','/api/integrations/mappings.php','/api/integrations/sync_history.php'],true)) {
     $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
 }

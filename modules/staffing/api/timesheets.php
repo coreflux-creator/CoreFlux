@@ -372,101 +372,29 @@ if ($method === 'GET' && $action === 'detail') {
     api_ok(['timesheet' => $enriched[0] ?? $header, 'entries' => $entries]);
 }
 
-// ─── Placement-scoped timesheets list (Batch 2 — 2026-02) ──────────────
-//
-// "Show me every timesheet that touched THIS placement." Used by the new
-// PlacementDetail → Timesheets tab to surface history + pending + create
-// new affordances at the placement granularity.
-if ($method === 'GET' && $action === 'list_for_placement') {
-    api_require_legacy_permission($ctx, 'staffing.time.approve');
-    $placementId = (int) ($_GET['placement_id'] ?? 0);
-    if ($placementId <= 0) api_error('placement_id required', 400);
-    $where  = ['t.tenant_id = :tenant_id', 'te.placement_id = :plid'];
-    $params = ['plid' => $placementId];
-    if (!empty($_GET['status'])) { $where[] = 't.status = :s'; $params['s'] = $_GET['status']; }
-    if (!empty($_GET['period_start']))  { $where[] = 't.period_start >= :ps';    $params['ps'] = $_GET['period_start']; }
-    if (!empty($_GET['period_end']))    { $where[] = 't.period_end <= :pe';      $params['pe'] = $_GET['period_end']; }
-    $whereSql = implode(' AND ', $where);
-
-    $rows = scopedQuery(
-        "SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
-                t.origin_source, t.origin_system, t.created_by_user_id,
-                t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
-                p.first_name, p.last_name, p.email_primary,
-                SUM(te.hours) AS placement_hours,
-                SUM(CASE WHEN te.billable = 1 THEN te.hours ELSE 0 END) AS billable_hours,
-                SUM(CASE
-                      WHEN te.billable = 1
-                       AND te.status IN ('approved','locked','billing_ready','payroll_ready')
-                       AND te.bill_extracted_at IS NULL
-                      THEN te.hours ELSE 0 END) AS unbilled_billable_hours
-           FROM staffing_timesheets t
-           JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id
-                                AND te.status != 'superseded'
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
-          WHERE {$whereSql}
-          GROUP BY t.id, t.person_id, t.period_start, t.period_end, t.status,
-                   t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
-                   p.first_name, p.last_name, p.email_primary
-          ORDER BY t.period_start DESC, t.id DESC
-          LIMIT 500",
-        array_merge($params, ['people_tid' => $peopleTenantId])
-    );
-    api_ok([
-        'rows' => staffingApiEnrichTimesheetRows($rows, $tenantId),
-        'placement_id' => $placementId,
-    ]);
-}
-
-// ─── Placement-scoped single-timesheet detail (Batch 2 — 2026-02) ──────
-//
-// View a single timesheet's entries filtered to just one placement.
-// Useful when the timesheet covers multiple placements but the operator
-// only cares about THIS one's hours (e.g. for billing or pay rec).
-if ($method === 'GET' && $action === 'detail_for_placement') {
-    $id          = (int) ($_GET['id'] ?? 0);
-    $placementId = (int) ($_GET['placement_id'] ?? 0);
-    if ($id <= 0)          api_error('id required', 400);
-    if ($placementId <= 0) api_error('placement_id required', 400);
-    $header = scopedFind(
-        'SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
-                t.origin_source, t.origin_system, t.created_by_user_id,
-                t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
-                p.first_name, p.last_name, p.email_primary
-           FROM staffing_timesheets t
-      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
-          WHERE t.tenant_id = :tenant_id AND t.id = :id LIMIT 1',
-        ['id' => $id, 'people_tid' => $peopleTenantId]
-    );
-    if (!$header) api_error('timesheet not found', 404);
-    staffingApiRequirePersonRead($ctx, (int) $header['person_id']);
-    $entries = scopedQuery(
-        "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
-                te.hours, te.billable, te.payable, te.description, te.status,
-                qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
-                qi.source_dimension_values_json, qi.source_approval_json,
-                pl.title AS placement_title,
-                COALESCE(pl.end_client_name, '') AS client_name
-           FROM time_entries te
-      LEFT JOIN quanta_time_imports qi ON qi.time_entry_id = te.id AND qi.tenant_id = te.tenant_id
-      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
-          WHERE te.tenant_id = :tenant_id
-            AND te.timesheet_id = :tid
-            AND te.placement_id = :plid
-            AND te.status != 'superseded'
-          ORDER BY te.work_date, te.id",
-        ['tid' => $id, 'plid' => $placementId, 'placements_tid' => $placementsTenantId]
-    );
-    // Per-placement total so the UI can show "8h of 40h total for this person"
-    $plHours = 0.0;
-    foreach ($entries as $e) $plHours += (float) $e['hours'];
-    $enriched = staffingApiEnrichTimesheetRows([$header], $tenantId);
-    api_ok([
-        'timesheet'           => $enriched[0] ?? $header,
-        'entries'             => $entries,
-        'placement_id'        => $placementId,
-        'placement_hours'     => $plHours,
-    ]);
+// Placement-scoped reads keep their original workspace and physical identity.
+if ($method === 'GET' && in_array($action, ['list_for_placement','detail_for_placement'], true)) {
+    if ($action === 'list_for_placement') api_require_legacy_permission($ctx, 'staffing.time.approve');
+    require_once __DIR__.'/../lib/placement_timesheets.php';
+    try {
+        $rawId=(string)($_GET['id']??'');$id=null;
+        if ($action === 'detail_for_placement') {
+            if (!preg_match('/^[1-9][0-9]*$/D',$rawId) || (string)(int)$rawId!==$rawId) throw new InvalidArgumentException('Use a complete timesheet ID.',422);
+            $id=(int)$rawId;
+        }
+        $result=staffingPlacementTimesheets($tenantId,(string)($_GET['placement_id']??''),$id,
+            array_intersect_key($_GET,array_flip(['status','period_start','period_end'])),
+            static fn(int $personId):bool=>staffingApiCanPermission($ctx,
+                $personId===staffingApiOwnPersonId($user)?'staffing.time.view':'staffing.time.approve'),
+            'staffingApiEnrichTimesheetRows');
+        header('Cache-Control: private, no-store');
+        api_ok($result);
+    } catch (PDOException $e) {
+        error_log('[placement timesheets] '.$e->getCode());
+        api_error('Placement timesheets are temporarily unavailable.',503);
+    } catch (InvalidArgumentException|RuntimeException $e) {
+        api_error($e->getMessage(),in_array($e->getCode(),[403,404,409,422],true)?$e->getCode():409);
+    }
 }
 
 // ─── Per-entry CRUD (Batch 5 — 2026-02) ─────────────────────────────

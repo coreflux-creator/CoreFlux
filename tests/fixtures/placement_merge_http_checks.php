@@ -15,16 +15,19 @@
         foreach([[$a,110,60],[$b,100,50]]as[$id,$bill,$pay])$insert('placement_rates',['tenant_id'=>$tenant,'placement_id'=>$id,'effective_from'=>'2026-10-01','bill_rate'=>$bill,'pay_rate'=>$pay,'approved_at'=>'2026-10-01 12:00:00']);
         $period=$insert('time_periods',['tenant_id'=>$workspace,'start_date'=>'2026-10-01','end_date'=>'2026-10-07','label'=>'Synthetic original time history']);
         $foreignPeriod=$insert('time_periods',['tenant_id'=>$tenant,'start_date'=>'2026-10-01','end_date'=>'2026-10-07','label'=>'Synthetic other workspace time']);
+        $sheet=$insert('staffing_timesheets',['tenant_id'=>$workspace,'person_id'=>$person,'period_start'=>'2026-10-01','period_end'=>'2026-10-07','status'=>'approved','total_hours'=>12,'approved_at'=>'2026-10-08 12:00:00']);
+        $foreignSheet=$insert('staffing_timesheets',['tenant_id'=>$tenant,'person_id'=>$person,'period_start'=>'2026-10-01','period_end'=>'2026-10-07','status'=>'approved','total_hours'=>99]);
+        $unrelatedSheet=$insert('staffing_timesheets',['tenant_id'=>$workspace,'person_id'=>$person,'period_start'=>'2026-10-08','period_end'=>'2026-10-14','status'=>'draft','total_hours'=>0]);
         $timeIds=[];
         foreach([[$workspace,$b,8,'approved',$period],[$workspace,$b,6,'superseded',$period],[$workspace,$a,4,'approved',$period],[$tenant,$b,99,'approved',$foreignPeriod]]as[$timeOwner,$id,$hours,$state,$periodId]){
             $timeIds[]=$insert('time_entries',['tenant_id'=>$timeOwner,'placement_id'=>$id,'person_id'=>$person,'period_id'=>$periodId,'work_date'=>'2026-10-05',
-                'category'=>'regular_billable','hours'=>$hours,'status'=>$state,'approved_at'=>'2026-10-08 12:00:00','approved_by_user_id'=>$actor]);
+                'category'=>'regular_billable','hours'=>$hours,'status'=>$state,'approved_at'=>'2026-10-08 12:00:00','approved_by_user_id'=>$actor,'timesheet_id'=>$timeOwner===$workspace?$sheet:$foreignSheet]);
         }
         $payload=['startId'=>'99430001','candidateId'=>'99430002','jobId'=>'99430003','startDate'=>'2026-10-01','status'=>'on_hold','__cf_jobdiva_source_object'=>'assignment'];
         mappingUpsert($workspace,'jobdiva','placement','99430001',$a,$payload);$primary=mappingUpsert($workspace,'jobdiva','placement','jd:99430001',$b,$payload);
         entitySyncHistoryRecord($workspace,'jobdiva','placement',$b,'jd:99430001','pull',null,json_encode(['marker'=>'original-workspace-history']),null,str_repeat('a',64),$actor,true);
         entitySyncHistoryRecord($tenant,'jobdiva','placement',$b,'different-original-workspace','pull',null,json_encode(['marker'=>'other-workspace-history']),null,str_repeat('b',64),$actor,true);
-        $tables=array_values(array_unique([...$graphTables,'core_record_numbers','entity_sync_history','placement_documents','storage_objects',...$financialTables]));$before=$snapshot($tables);
+        $tables=array_values(array_unique([...$graphTables,'core_record_numbers','entity_sync_history','placement_documents','storage_objects','staffing_timesheets',...$financialTables]));$before=$snapshot($tables);
         $pair=['survivor_id'=>$a,'retired_id'=>$b];
         $expect($request('GET',$endpoint.'?action=candidates',null,false,$workspace)[0]===401,'Placement merge candidates require native sign-in');
         RBACResolver::grantModule($member,'placements','read',[$workspace],$actor);
@@ -40,7 +43,11 @@
             'Placement management alone does not grant provider link or source history access');
         RBACResolver::grantModule($member,'integrations','read',[$workspace],$actor);
         $timeHistory='/modules/placements/api/time_history.php?placement_id='.$b;
+        $sheetList='/modules/staffing/api/timesheets.php?action=list_for_placement&placement_id='.$b;
+        $sheetDetail='/modules/staffing/api/timesheets.php?action=detail_for_placement&placement_id='.$b.'&id='.$sheet;
         $expect($request('GET',$timeHistory,null,true,$workspace)[0]===403,'Placement management alone does not grant original time-history access');
+        $expect($request('GET',$sheetList,null,true,$workspace)[0]===403&&$request('GET',$sheetDetail,null,true,$workspace)[0]===403,
+            'Placement management alone cannot list or read placement timesheets');
         RBACResolver::grantModule($member,'staffing','admin',[$workspace],$actor);
         $documents='/modules/placements/api/documents.php';$documentPath=$documents.'?placement_id='.$b;
         $key='placements/'.$tenant.'/document/'.$b.'/synthetic-original-placement.txt';
@@ -118,6 +125,25 @@
         $expect($request('GET','/modules/placements/api/time_history.php?placement_id='.$foreign['placement'],null,true,$workspace)[0]===404
             &&$request('GET','/modules/placements/api/time_history.php?placement_id='.$archived,null,true,$workspace)[0]===404,
             'Original time history refuses foreign placements and ordinary archives');
+        [$status,$sheets]=$request('GET',$sheetList,null,true,$workspace);
+        $expect($status===200&&$sheets['workspace_id']===$workspace&&$sheets['placement_id']===$b&&$sheets['current_placement_id']===$a&&$sheets['read_only']
+            &&count($sheets['rows'])===1&&(int)$sheets['rows'][0]['id']===$sheet&&(float)$sheets['rows'][0]['placement_hours']===8.0,
+            'Placement timesheet list retains the original workspace and excludes superseded hours from operational totals');
+        [$status,$detail]=$request('GET',$sheetDetail,null,true,$workspace);
+        $expect($status===200&&$detail['read_only']&&(int)$detail['timesheet']['id']===$sheet&&(float)$detail['placement_hours']===8.0
+            &&array_map('intval',array_column($detail['entries'],'id'))===[$timeIds[0]]&&(int)$detail['entries'][0]['placement_id']===$b,
+            'Placement timesheet detail retains original entries without substituting current or foreign-workspace time');
+        [$status,$currentSheets]=$request('GET','/modules/staffing/api/timesheets.php?action=list_for_placement&placement_id='.$a,null,true,$workspace);
+        $expect($status===200&&!$currentSheets['read_only']&&count($currentSheets['rows'])===1&&(float)$currentSheets['rows'][0]['placement_hours']===4.0,
+            'Current placement timesheet totals exclude time retained on its historical placement');
+        foreach ([$unrelatedSheet,$foreignSheet] as $otherSheet) $expect($request('GET','/modules/staffing/api/timesheets.php?action=detail_for_placement&placement_id='.$b.'&id='.$otherSheet,null,true,$workspace)[0]===404,
+            'Placement timesheet detail refuses a header without original-workspace placement entries: '.$otherSheet);
+        [$status,$filtered]=$request('GET',$sheetList.'&period_start=2026-10-08',null,true,$workspace);
+        $expect($status===200&&$filtered['rows']===[],'Placement timesheet period filters preserve an empty matching result');
+        $expect($request('GET',$sheetList.'&period_start=2026-02-30',null,true,$workspace)[0]===422&&$request('GET',$sheetDetail.'junk',null,true,$workspace)[0]===422,
+            'Placement timesheets reject invalid periods and partially parsed header IDs');
+        foreach ([$foreign['placement'],$archived] as $unavailable) $expect($request('GET','/modules/staffing/api/timesheets.php?action=list_for_placement&placement_id='.$unavailable,null,true,$workspace)[0]===404,
+            'Operational timesheet list refuses a foreign or ordinary archived placement: '.$unavailable);
         [$status,$historyDocuments]=$request('GET',$documentPath,null,true,$workspace);
         $expect($status===200&&count($historyDocuments['documents'])===1&&(int)$historyDocuments['documents'][0]['id']===$documentId
             &&(int)$historyDocuments['documents'][0]['placement_id']===$b&&!$historyDocuments['context']['permissions']['manage'],
@@ -140,6 +166,8 @@
         $expect($request('GET',$documentPath,null,true,$workspace)[0]===409&&$request('GET',$documents.'?id='.$documentId,null,true,$workspace)[0]===409,
             'Historical document list and download both recheck the current directory policy');
         $expect($request('GET',$timeHistory,null,true,$workspace)[0]===404,'Original time history rechecks the current placement directory');
+        $expect($request('GET',$sheetList,null,true,$workspace)[0]===404&&$request('GET',$sheetDetail,null,true,$workspace)[0]===404,
+            'Both placement timesheet readers recheck current directory ownership');
         $expect($request('GET',$links,null,true,$workspace)[0]===404&&$request('GET',$historyPath,null,true,$workspace)[0]===404,
             'Historical source links and observations follow current placement directory policy');
         $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key="placements"')->execute([$workspace]);
@@ -152,6 +180,8 @@
             'Same native session loses original provider links and source history after integration access is revoked');
         RBACResolver::revokeModule($member,'staffing',$actor);
         $expect($request('GET',$timeHistory,null,true,$workspace)[0]===403,'Same native session loses original time history after staffing access is revoked');
+        $expect($request('GET',$sheetList,null,true,$workspace)[0]===403&&$request('GET',$sheetDetail,null,true,$workspace)[0]===403,
+            'Both placement timesheet readers deny the same session after staffing access is revoked');
         RBACResolver::grantModule($member,'placements','read',[$workspace],$actor);
         $expect($request('POST',$endpoint.'?action=apply',$body,true,$workspace)[0]===403&&$snapshot($tables)===$after,'Same native session cannot recover a merge receipt after write permission is removed');
         RBACResolver::revokeModule($member,'placements',$actor);

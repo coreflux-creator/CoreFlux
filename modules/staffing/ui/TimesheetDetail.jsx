@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
+import { api, useApi, bustApiCachePrefix, getPinnedTenantId } from '../../../dashboard/src/lib/api';
 import QuantaApprovalEvidence from '../../../dashboard/src/pages/QuantaApprovalEvidence';
 
 /**
@@ -144,10 +144,10 @@ export default function TimesheetDetail({ session }) {
   // Fetch this worker's active placements so the "Add entry" form can
   // offer a dropdown instead of asking for a raw id.
   const placementsApi = useApi(
-    ts?.person_id
+    ts?.person_id && !data?.read_only
       ? `/modules/placements/api/placements.php?person_id=${ts.person_id}&status=active&per_page=200`
       : null,
-    [ts?.person_id]
+    [ts?.person_id, data?.read_only]
   );
   const placements = useMemo(() => placementsApi.data?.rows ?? [], [placementsApi.data?.rows]);
 
@@ -188,14 +188,21 @@ export default function TimesheetDetail({ session }) {
   if (loading) return <p data-testid="timesheet-detail-loading">Loading timesheet…</p>;
   if (error)   return <p className="error" data-testid="timesheet-detail-error">Error: {error.message}</p>;
   if (!ts)     return <p data-testid="timesheet-detail-empty">Timesheet not found.</p>;
+  const pinnedWorkspace = getPinnedTenantId();
+  if (placementId && (Number(data.placement_id) !== Number(placementId)
+    || (pinnedWorkspace && String(data.workspace_id) !== String(pinnedWorkspace)))) {
+    return <p className="error">Reload the timesheet for this placement and workspace.</p>;
+  }
 
-  const isReadOnly = READ_ONLY_STATUSES.includes(ts.status);
+  const isHistorical = data?.read_only === true;
+  const isReadOnly = isHistorical || READ_ONLY_STATUSES.includes(ts.status);
   const isApproved = ts.status === 'approved';
   // Submitted + rejected + draft are inline-editable. Approved and
   // downstream-ready sheets are immutable financial source records.
   const canEditRows = !isReadOnly;
 
   const act = async (action, extra = {}) => {
+    if (isReadOnly) return;
     setBusy(true); setActionError(null);
     try {
       const result = await api.post(`/modules/staffing/api/timesheets.php?action=${action}`, {
@@ -406,7 +413,7 @@ export default function TimesheetDetail({ session }) {
                 data-testid="timesheet-detail-view-lifecycle">
             View downstream cascade →
           </Link>
-          {isSubmitted && !rejecting && (
+          {isSubmitted && !isReadOnly && !rejecting && (
             <>
               <button type="button" className="btn btn--primary" disabled={busy}
                       onClick={() => act('approve')}
@@ -420,7 +427,7 @@ export default function TimesheetDetail({ session }) {
               </button>
             </>
           )}
-          {(isDraft || isRejected) && (
+          {(isDraft || isRejected) && !isReadOnly && (
             <button type="button" className="btn btn--primary" disabled={busy}
                     onClick={() => act('submit')}
                     data-testid="timesheet-detail-submit">
@@ -430,7 +437,7 @@ export default function TimesheetDetail({ session }) {
         </div>
       </header>
 
-      {rejecting && (
+      {rejecting && !isReadOnly && (
         <div style={{ background: '#fff7ed', border: '1px solid #fdba74', padding: 12, borderRadius: 6, marginBottom: 16 }}
              data-testid="timesheet-detail-reject-form">
           <label style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
@@ -453,7 +460,8 @@ export default function TimesheetDetail({ session }) {
         </div>
       )}
 
-      {isReadOnly && (
+      {isHistorical && <p data-testid="timesheet-detail-history-notice">This is the original placement's time history. <Link to={`/modules/placements/${data.current_placement_id}`}>Open current placement</Link></p>}
+      {isReadOnly && !isHistorical && (
         <p data-testid="timesheet-detail-readonly-notice"
            style={{ background: '#f3f4f6', padding: 10, borderRadius: 4, fontSize: 13, color: '#475569' }}>
           This timesheet is <strong>{STATUS_LABELS[ts.status] || ts.status}</strong>. Rows are read-only because this time can already feed accounting, billing, vendor bills, or payroll.
