@@ -22,7 +22,7 @@ foreach(['status','end_date','actual_end_date','deleted_at']as$field){
             'Shared terminal census preserves native '.$field.' ownership after a merge');
     },true);
 }
-foreach(['malformed_ownership','candidate','candidate_object','conflicting_start','wrong_status','missing_context','date','disabled_policy','private_directory','source_receipt']as$case){
+foreach(['malformed_ownership','candidate','candidate_object','conflicting_start','wrong_status','missing_context','date','disabled_policy','disconnected','private_directory','source_receipt']as$case){
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$a,$terminal,$case,$state,$check,$insert):void{
         $row=$terminal;
         if($case==='malformed_ownership')$pdo->prepare('UPDATE placements SET coreflux_overridden_fields="{}" WHERE id=?')->execute([$a]);
@@ -33,6 +33,7 @@ foreach(['malformed_ownership','candidate','candidate_object','conflicting_start
         if($case==='missing_context')unset($row['jobId']);
         if($case==='date')$row['endDate']='2026-09-01';
         if($case==='disabled_policy')$insert('jobdiva_connections',['tenant_id'=>$workspace,'client_id'=>'disabled-fixture','username'=>'disabled-fixture','password_enc'=>'disabled-fixture','status'=>'connected','sync_config'=>json_encode(['placement'=>['source'=>'coreflux','direction'=>'push']])]);
+        if($case==='disconnected')$insert('jobdiva_connections',['tenant_id'=>$workspace,'client_id'=>'disabled-fixture','username'=>'disabled-fixture','password_enc'=>'disabled-fixture','status'=>'disconnected']);
         if($case==='private_directory')$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="placements"')->execute([$workspace]);
         if($case==='source_receipt')$pdo->prepare('DELETE FROM audit_log WHERE tenant_id=? AND event="placement.identity_merged"')->execute([$workspace]);
         $before=$state();$result=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$row],$actor);
@@ -53,8 +54,16 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,
     $check($receipt['directory_owner_id']===$owner&&(int)$receipt['source_mapping_id']===(int)$mb['id']&&(int)$receipt['source_physical_placement_id']===$b
         &&$receipt['source_owner']['placement_id']===$a&&isset($receipt['before'],$receipt['after'],$receipt['source_hash']),
         'Terminal receipt identifies original workspace, current owner, reviewed source and before/after state');
-    $after=$state();$replay=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$terminal],$actor);
+    $after=$state();$replay=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$terminal],$actor,jobdivaTerminalCensusBaseline($workspace));
     $check($replay['updated']===0&&$replay['failed']===0&&$after===$state(),'Repeated terminal census leaves lifecycle, history and receipts unchanged');
+},true);
+JobdivaStoredReviewTransaction::run(static function()use($workspace,$actor,$make,$payload,$state,$read,$check):void{
+    $legacy=$make('Legacy numeric source','99510301');$baseline=jobdivaTerminalCensusBaseline($workspace);
+    $row=array_replace($payload,['startId'=>'99510301','status'=>'Ended','endDate'=>'2026-11-01','__cf_jobdiva_canonical_status'=>'ended']);
+    $before=$state();$result=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$row],$actor,$baseline);
+    $check($result['updated']===1&&$result['failed']===0&&$read($legacy)['status']==='ended'&&$read($legacy)['external_id']==='99510301'
+        &&$before['external_entity_mappings']===$state()['external_entity_mappings'],
+        'Pre-discovery review preserves the legacy exact numeric identity without creating a new provider binding');
 },true);
 JobdivaStoredReviewTransaction::run(static function()use($workspace,$actor,$make,$payload,$requestFor,$state,$check):void{
     $left=$make('Terminal primary','jd:99510201');$right=$make('Terminal history','jd:99510202');

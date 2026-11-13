@@ -8,6 +8,7 @@ function jobdivaPlacementImportPolicy(PDO $pdo,int $workspace): ?array
 {
     if(!$pdo->inTransaction())throw new LogicException('Assignment policy requires its write transaction.');
     $q=$pdo->prepare('SELECT id,status,sync_config,field_ownership FROM jobdiva_connections WHERE tenant_id=? FOR UPDATE');$q->execute([$workspace]);$connection=$q->fetch(PDO::FETCH_ASSOC)?:null;
+    if(($connection['status']??null)==='disconnected')throw new RuntimeException('Reconnect JobDiva before applying source lifecycle changes.',409);
     $config=empty($connection['sync_config'])?[]:json_decode($connection['sync_config'],true,512,JSON_THROW_ON_ERROR);
     $policy=$config['placement']??JOBDIVA_SYNC_DEFAULTS['placement'];
     if(($policy['source']??'')!=='jobdiva'||!in_array($policy['direction']??'',['pull','two_way'],true))throw new RuntimeException('JobDiva placement imports are disabled by this workspace\'s sync policy.',409);
@@ -52,7 +53,7 @@ function jobdivaTerminalCensusBaseline(int $workspace): array
     return companyRelationshipAtomic(getDB(),static function()use($workspace):array{
         $pdo=getDB();$context=jobdivaPlacementWriteContext($pdo,$workspace);$policy=jobdivaPlacementImportPolicy($pdo,$workspace);
         $q=$pdo->prepare('SELECT external_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" ORDER BY id FOR UPDATE');$q->execute([$workspace]);$ids=$q->fetchAll(PDO::FETCH_COLUMN);
-        $q=$pdo->prepare('SELECT external_id FROM placements WHERE tenant_id=? AND external_id LIKE "jd:%" ORDER BY id FOR UPDATE');$q->execute([$context['placement_owner']]);$ids=[...$ids,...$q->fetchAll(PDO::FETCH_COLUMN)];
+        $q=$pdo->prepare('SELECT external_id FROM placements WHERE tenant_id=? AND (external_id LIKE "jd:%" OR external_id REGEXP "^[0-9]+$") ORDER BY id FOR UPDATE');$q->execute([$context['placement_owner']]);$ids=[...$ids,...$q->fetchAll(PDO::FETCH_COLUMN)];
         $states=[];
         foreach(array_unique(array_map('jobdivaAssignmentIdentityNormaliseId',$ids))as$external){
             if($external==='')continue;
