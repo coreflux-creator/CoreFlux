@@ -7,6 +7,7 @@ require_once __DIR__.'/../modules/people/lib/company_merge_review.php';
 require_once __DIR__.'/../modules/staffing/lib/job_write.php';
 require_once __DIR__.'/../modules/staffing/lib/client_write.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
+require_once __DIR__.'/../core/jobdiva/sync_placements.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
 require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 require_once __DIR__.'/../modules/placements/lib/edit.php';
@@ -29,6 +30,14 @@ function clientSourceRaceWrite(array $input): array
         $result=staffingClientEnsureForCompany($input['workspace'],$company,$input['source_name'],['source_system'=>'jobdiva','source_external_id'=>$input['source_external'],'created_by_user_id'=>$input['actor']]);
         return ['id'=>$result['client_id']]+$result;
     });
+}
+
+function assignmentSourceRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    $result=jobdivaProjectorProjectPlacement($input['workspace'],$input['payload'],$input['actor'],['payload_is_enriched'=>true]);
+    if(!$result['projected'])throw new RuntimeException('Assignment projection refused: '.implode('; ',$result['errors']),409);
+    return ['id'=>$result['placement_id']]+$result;
 }
 
 // Worker mode executes the actual library in another process and connection.
@@ -55,6 +64,7 @@ if(($argv[1]??'')==='worker'){
                 'client_accept'=>staffingClientSourceAccept($input['workspace'],$input['client_id'],$input['source_key'],$input['fields'],$input['review_token'],$input['actor']),
                 'client_repair'=>jobdivaRepairPlacementClientLink($input['workspace'],$input['mapping_id'],$input['actor']),
                 'native_placement'=>nativePlacementRaceWrite($input),
+                'assignment_source'=>assignmentSourceRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -336,6 +346,71 @@ try{
     $review=companyMergePreview($tenant,$user,$a,$b);companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
     fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
     $check(!$result['ok']&&(int)$result['code']===409&&$read('placements',$placement)['end_client_company_id']===null,'Old transaction snapshot cannot restore a merged company into a native placement');
+    // Full ordinary source projection, including derived economics, must use
+    // committed identities and policies after waiting on another connection.
+    $pdo->prepare('INSERT INTO accounting_entities(tenant_id,code,legal_name,active) VALUES(?,"RACE-CI","Synthetic assignment race employer",1)')->execute([$tenant]);
+    $projectionFixture=static function(string $label,int $workspace)use($pdo,$tenant,$child,$actor,$read):array{
+        static $sequence=99200000;$n=$sequence+=100;
+        foreach(['companies','people','placements','staffing','accounting']as$module)$pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,"shared") ON DUPLICATE KEY UPDATE scope_mode="shared"')->execute([$child,$module]);
+        $payload=['startId'=>(string)$n,'candidateId'=>(string)($n+1),'jobId'=>(string)($n+2),
+            'firstName'=>'Synthetic','lastName'=>'Projection race '.$n,'candidateEmail'=>'assignment-race-'.$n.'@example.invalid',
+            'startDate'=>'2026-11-01','title'=>'Assignment race '.$label,'status'=>'on_hold','worksiteCountry'=>'US',
+            '_jd_job'=>['jobId'=>(string)($n+2),'title'=>'Projection race job '.$n],
+            '_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>(string)$n,'engagement_type'=>'w2','placement_status'=>'on_hold','start_date'=>'2026-11-01',
+                'client_company_id'=>(string)($n+3),'client_company_name'=>'Projection race debtor '.$n,
+                'end_client_company_id'=>(string)($n+4),'end_client_name'=>'Projection race recipient '.$n,
+                'bill_rate'=>100,'pay_rate'=>50,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD','worksite_country'=>'US']];
+        $input=['mode'=>'native','entity'=>'assignment_source','workspace'=>$workspace,'actor'=>$actor,'payload'=>$payload];
+        $result=assignmentSourceRaceWrite($input);$placement=$read('placements',(int)$result['id']);
+        $client=$read('staffing_clients',(int)$placement['client_id']);$b=(int)$client['company_id'];
+        $a=jobdivaCompanyUpsertStable($workspace,'race-projection-survivor-'.$n,'Projection survivor '.$n,[],[],$actor,[]);
+        return[$a,$b,(int)$placement['id'],$input];
+    };
+    $projectionRows=static function()use($pdo,$tenant,$child):array{
+        $rows=[];foreach(['people','companies','staffing_clients','staffing_jobs','placements','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','placement_economic_parties','external_entity_mappings','entity_sync_history','audit_log']as$table){
+            $q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id IN(?,?) ORDER BY '.($table==='placement_corp_details'?'placement_id':'id'));$q->execute([$tenant,$child]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);
+        }return$rows;
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['companies','placements']as$module){
+            [$a,$b,$placement,$input]=$projectionFixture('policy-'.$module.'-'.$decision,$child);$before=$projectionRows();
+            $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$module]);
+            $worker=$spawn($input);$check($waiting($worker),'Full assignment projection waits for '.$module.' policy '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+            $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&(int)$result['result']['id']===$placement),'Full projection observes '.$module.' policy '.$decision.' without writing a stale directory');
+        }
+        [$a,$b,$placement,$input]=$projectionFixture('merge-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+        $worker=$spawn($input);$check($waiting($worker),'Full assignment projection waits for company merge '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+        $client=$read('staffing_clients',(int)$read('placements',$placement)['client_id']);
+        $parties=array_column(placementEconomicsParties($tenant,$placement),null,'source_ref');$expected=$decision==='COMMIT'?$a:$b;
+        $check($result['ok']&&(int)$client['company_id']===$expected&&(int)$parties['placement:bill_to']['company_id']===$expected,'Waiting full projection and derived debtor use the same committed company identity: '.$decision);
+        $link=mappingFindInternal($tenant,'jobdiva','company',$input['payload']['_jd_contract']['client_company_id']);
+        $check((int)$link['internal_entity_id']===$b,'Concurrent projection retains the original provider company binding: '.$decision);
+
+        [$a,$b,$placement,$input]=$projectionFixture('writer-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        // A second source assignment references the reviewed debtor. Its entire
+        // graph is invisible until commit and disappears completely on rollback.
+        $payload=$input['payload'];$n=(int)$payload['startId']+50;
+        $payload['startId']=(string)$n;$payload['_jd_contract']['start_id']=(string)$n;
+        $payload['candidateId']=(string)($n+1);$payload['candidateEmail']='assignment-race-'.$n.'@example.invalid';
+        $payload['jobId']=(string)($n+2);$payload['_jd_job']=['jobId'=>(string)($n+2),'title'=>'Held projection job '.$n];
+        $worker=$spawn(array_replace($input,['mode'=>'hold','payload'=>$payload]));$saved=$line($workers[$worker]['pipes'][1]);
+        $check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Full assignment writer holds all graph and source changes before '.$decision);
+        $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+        $check($waiting($merger),'Company merge waits for the complete assignment projection '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$merged=$finish($merger);
+        $newLink=mappingFindInternal($tenant,'jobdiva','placement',(string)$n);
+        $check($written['ok']&&($decision==='COMMIT'?(!$merged['ok']&&(int)$merged['code']===409&&$newLink&&(int)$newLink['internal_entity_id']===(int)$saved['id']):($merged['ok']&&!$newLink&&$read('placements',(int)$saved['id'])===[])), 'Merge rechecks committed source references and ignores rolled-back full projections: '.$decision);
+    }
+    [$a,$b,$placement,$input]=$projectionFixture('old-snapshot',$tenant);
+    $worker=$spawn($input+['snapshot'=>true]);$snapshot=$line($workers[$worker]['pipes'][1]);$check(!empty($snapshot['snapshot']),'Full assignment projection holds a snapshot predating the company merge');
+    $review=companyMergePreview($tenant,$user,$a,$b);companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+    fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
+    $parties=array_column(placementEconomicsParties($tenant,$placement),null,'source_ref');
+    $check($result['ok']&&(int)$parties['placement:bill_to']['company_id']===$a&&$read('companies',$b)['deleted_at']!==null,'Old transaction snapshot cannot revive a merged debtor through full projection or derived economics');
+
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -344,8 +419,7 @@ try{
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
-    foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
-    foreach($companies as$id)$pdo->prepare('DELETE FROM companies WHERE tenant_id=? AND id=?')->execute([$tenant,$id]);
+    foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);
     foreach($createdTenants as$createdTenant)$pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$createdTenant]);

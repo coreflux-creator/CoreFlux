@@ -96,6 +96,32 @@ try {
     $pdo->prepare('UPDATE companies SET deleted_at=NULL WHERE id=?')->execute([$bill]);
     $check(currentTenantId() === 999 && currentModuleKey() === 'placements', 'graph reads and reconciliation preserve request context');
 
+    // A long-running request must not keep the old company catalog after a
+    // policy change. Exercise every derived company/vendor branch, not only W2.
+    $check(companiesDirectoryTenantId(999) === $parent, 'Prime the shared company catalog before changing its policy');
+    $scope->execute(['companies','isolated']);
+    $before=$snapshot();$failed=placementEconomicsReconcile(999,$placement);
+    $check(!$failed['available'] && $snapshot()===$before, 'New company isolation holds old shared-company graphs without retiring their parties');
+    $privateClient=scopedInsert('staffing_clients',['tenant_id'=>999,'name'=>'CI private debtor','company_id'=>$foreign]);
+    $privatePlacement=scopedInsert('placements',['tenant_id'=>999,'person_id'=>$person,'title'=>'CI private C2C graph','start_date'=>'2026-10-01','engagement_type'=>'c2c','client_id'=>$privateClient]);
+    $pdo->prepare('INSERT INTO placement_corp_details(tenant_id,placement_id,corp_legal_name) VALUES(999,?,?)')->execute([$privatePlacement,'CI private new corporation']);
+    $privateChain=scopedInsert('placement_client_chain',['tenant_id'=>999,'placement_id'=>$privatePlacement,'position'=>1,'party_name'=>'CI private new prime','party_role'=>'prime_vendor','portal_fee_flat'=>10,'is_payable'=>1]);
+    $privateReferral=scopedInsert('placement_referrals',['tenant_id'=>999,'placement_id'=>$privatePlacement,'referrer_type'=>'vendor','referrer_vendor_name'=>'CI private new referrer','fee_basis'=>'per_hour','fee_flat'=>1,'start_date'=>'2026-10-01']);
+    $result=placementEconomicsReconcile(999,$privatePlacement);
+    $check($result['available'] && $result['errors']===[], 'C2C graph rebuild uses the new private catalog in the same process');
+    $privateParties=array_column(placementEconomicsParties(999,$privatePlacement),null,'source_ref');
+    foreach(['corp:'.$privatePlacement,'chain:'.$privateChain,'referral:'.$privateReferral]as$ref){
+        $party=$privateParties[$ref];$q=$pdo->prepare('SELECT tenant_id FROM companies WHERE id=?');$q->execute([$party['company_id']]);
+        $check((int)$q->fetchColumn()===999 && $party['company_name']!==null && (int)$party['ap_vendor_id']>0, "$ref retains a private company and vendor after the sharing change");
+    }
+    $before=$snapshot();$rejected=false;
+    try{placementEconomicsUpsertParty(999,$privatePlacement,['source_ref'=>'manual:stale-company','display_name'=>'Stale company','company_id'=>$bill]);}catch(RuntimeException){$rejected=true;}
+    $check($rejected && $snapshot()===$before, 'Standalone participant writes reject the old cached company owner atomically');
+    $before=$snapshot();$rejected=false;
+    try{placementEconomicsEnsureVendor(999,'Stale company vendor',$bill,'w9_business');}catch(RuntimeException){$rejected=true;}
+    $check($rejected && $snapshot()===$before, 'Standalone vendor resolution rejects the old cached company owner atomically');
+    $scope->execute(['companies','shared']);
+
     // A different viewer cannot retarget the intrinsic owner of a shared graph.
     $parentPerson = scopedInsert('people', ['tenant_id'=>$parent,'first_name'=>'Synthetic','last_name'=>'Parent',
         'email_primary'=>'ci-parent-graph@example.invalid']);

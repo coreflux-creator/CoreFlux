@@ -40,6 +40,7 @@ try{
     $pdo->beginTransaction();setRequestTenantId($child);$_SESSION['tenant_id']=$child;
     $insert('tenants',['id'=>$child,'name'=>'Synthetic JobDiva source child','is_active'=>1,'is_simulation'=>1,'tenant_type'=>'sub','parent_id'=>$parent]);
     foreach(['companies','people','placements','staffing','accounting']as$module)$scope($module,'shared');
+    $check(companiesDirectoryTenantId($child)===$parent,'Prime the legacy company-directory cache before policy changes');
     foreach([$parent,$child]as$owner)$insert('custom_fields',['tenant_id'=>$owner,'module'=>'placements','field_name'=>'projection_pilot_flag','field_label'=>'Synthetic projection flag','field_type'=>'boolean']);
     $insert('tenant_integration_field_map',['tenant_id'=>$child,'integration'=>'jobdiva','entity_type'=>'placement','external_field'=>'pilotFlag','internal_field'=>'projection_pilot_flag','source_path'=>'pilotFlag','target_module'=>'placements','target_table'=>'custom_field_values','target_column'=>'projection_pilot_flag','linked_entity'=>'placement']);
     $map=$insert('tenant_integration_field_map',['tenant_id'=>$child,'integration'=>'jobdiva','entity_type'=>'placement','external_field'=>'sourceNote','internal_field'=>'notes','source_path'=>'sourceNote','target_module'=>'placements','target_table'=>'placements','target_column'=>'notes','linked_entity'=>'self']);
@@ -106,6 +107,18 @@ try{
     $check((int)$local['accounting_entity_id']===$entity,'Isolated assignment uses the active legal entity in its accounting directory');
     $before=$snapshot();$failed=$project($p,['existing_placement_id'=>$id]);
     $check(!$failed['projected']&&$before===$snapshot(),'A saved mapping cannot silently migrate records after a sharing change');
+    $scope('companies','isolated');
+    $result=$project($payload(99160700));
+    $check($result['projected'],'Complete projection follows a new private company catalog despite the old cached owner: '.json_encode($result['errors']));
+    $private=$read('placements',(int)$result['placement_id']);
+    $privateClient=$read('staffing_clients',(int)$private['client_id']);
+    $check((int)$read('companies',(int)$privateClient['company_id'])['tenant_id']===$child
+        &&(int)$read('companies',(int)$private['end_client_company_id'])['tenant_id']===$child,'Both source company roles stay in the newly isolated catalog');
+    $privateParties=array_column(placementEconomicsParties($child,(int)$private['id']),null,'source_ref');
+    $check((int)$privateParties['placement:bill_to']['company_id']===(int)$privateClient['company_id']
+        &&$privateParties['placement:bill_to']['company_name']===$read('companies',(int)$privateClient['company_id'])['name'],'Derived graph writes and reads use the same current private company owner');
+    $before=$snapshot();$failed=$project($payload(99160600));
+    $check(!$failed['projected']&&$before===$snapshot(),'Existing shared-company source links are held after company isolation without partial graph changes');
     $check($financial===[$all('accounting_journal_entries'),$all('accounting_journal_entry_lines'),$all('accounting_events'),$all('payroll_runs'),$all('billing_payments'),$all('ap_payments')],'Projection makes no financial postings, payroll runs or payments');
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();

@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/staffing_economics.php';
 require_once __DIR__ . '/../../people/lib/companies.php';
+require_once __DIR__ . '/../../people/lib/company_relationships.php';
 require_once __DIR__ . '/placements.php';
 require_once __DIR__ . '/commission_input.php';
 require_once __DIR__ . '/commission_identity.php';
@@ -74,9 +75,12 @@ function placementEconomicsEnsureVendor(
     try {
         $existing = null;
         if ($companyId !== null) {
-            $companyOwner = companiesDirectoryTenantId($tenantId);
-            if ($workspaceId !== null && placementsCompanyDirectoryTenantId($workspaceId) !== $companyOwner) {
-                throw new PlacementCompanyScopeConflict('The company and placement directories do not match this workspace.');
+            $companyOwner = jobdivaPartyDirectoryScope($pdo, $tenantId, true)['owner'];
+            if ($workspaceId !== null) {
+                $scope = companyRelationshipScope($pdo, $workspaceId, 'placements');
+                if ($scope['owner'] !== $tenantId || $scope['company_owner'] !== $companyOwner) {
+                    throw new PlacementCompanyScopeConflict('The company and placement directories do not match this workspace.');
+                }
             }
             $st = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL FOR UPDATE');
             $st->execute(['c'=>$companyId, 't'=>$companyOwner]);
@@ -378,13 +382,20 @@ function placementEconomicsRepairPrimaryLaborPayee(int $tenantId, int $placement
 
 function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $party): int
 {
+    return companyRelationshipAtomic(getDB(), static fn(): int =>
+        placementEconomicsUpsertPartyInTransaction($tenantId, $placementId, $party));
+}
+
+function placementEconomicsUpsertPartyInTransaction(int $tenantId, int $placementId, array $party): int
+{
     $sourceRef = trim((string) ($party['source_ref'] ?? ''));
     $name = trim((string) ($party['display_name'] ?? ''));
     if ($tenantId <= 0 || $placementId <= 0 || $sourceRef === '' || $name === '') return 0;
 
     if (!empty($party['company_id'])) {
-        $checkCompany = getDB()->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL');
-        $checkCompany->execute(['c' => (int) $party['company_id'], 't' => companiesDirectoryTenantId($tenantId)]);
+        $companyOwner = jobdivaPartyDirectoryScope(getDB(), $tenantId, true)['owner'];
+        $checkCompany = getDB()->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL FOR UPDATE');
+        $checkCompany->execute(['c' => (int) $party['company_id'], 't' => $companyOwner]);
         if (!$checkCompany->fetchColumn()) throw new RuntimeException('The economic participant company is outside the placement company directory or is no longer active.');
     }
 
@@ -491,7 +502,6 @@ function placementEconomicsUpsertParty(int $tenantId, int $placementId, array $p
 
 function placementEconomicsReconcile(int $tenantId, int $placementId, array $options = []): array
 {
-    $tenantId = (int) placementsGraphTenantId($tenantId);
     $summary = ['available' => true, 'placement_id' => $placementId, 'written' => 0, 'source_refs' => [], 'errors' => []];
     if ($tenantId <= 0 || $placementId <= 0) return $summary;
 
@@ -500,7 +510,16 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
     $savepoint = 'placement_graph_' . bin2hex(random_bytes(8));
     try {
         $pdo = getDB();
-        $companyOwner = companiesDirectoryTenantId($tenantId);
+        $ownTransaction = !$pdo->inTransaction();
+        if ($ownTransaction) $pdo->beginTransaction();
+        else $pdo->exec('SAVEPOINT ' . $savepoint);
+        $transactionStarted = true;
+        // Resolve the intrinsic graph owner afresh, then hold its policies and
+        // references through the complete rebuild. A viewer does not retarget
+        // a shared graph to its private company catalog.
+        $tenantId = companyRelationshipScope($pdo, $tenantId, 'placements')['owner'];
+        $companyOwner = jobdivaPartyDirectoryScope($pdo, $tenantId, true)['owner'];
+        $peopleOwner = companyRelationshipScope($pdo, $tenantId, 'people')['owner'];
         $st = $pdo->prepare(
             'SELECT p.*, pe.first_name, pe.last_name, pe.email_primary,
                     pe.pay_frequency AS person_pay_frequency,
@@ -516,26 +535,20 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
           LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
           LEFT JOIN companies bc ON bc.id = sc.company_id AND bc.tenant_id = :bill_company_owner AND bc.deleted_at IS NULL
           LEFT JOIN tenants t ON t.id = p.tenant_id
-              WHERE p.tenant_id = :t AND p.id = :p LIMIT 1'
+              WHERE p.tenant_id = :t AND p.id = :p LIMIT 1 FOR UPDATE'
         );
         $st->execute(['t' => $tenantId, 'p' => $placementId, 'end_company_owner' => $companyOwner, 'bill_company_owner' => $companyOwner]);
         $placement = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
         if (!$placement) {
-            $summary['available'] = false;
-            $summary['errors'][] = 'placement not found';
-            return $summary;
+            throw new RuntimeException('placement not found');
         }
         foreach (['end_client_company_id', 'billing_link_company_id'] as $link) {
             if (empty($placement[$link])) continue;
-            $valid = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL');
+            $valid = $pdo->prepare('SELECT id FROM companies WHERE id=:c AND tenant_id=:t AND deleted_at IS NULL FOR UPDATE');
             $valid->execute(['c' => (int) $placement[$link], 't' => $companyOwner]);
             if (!$valid->fetchColumn()) throw new RuntimeException('Review the placement company links before rebuilding its economic graph.');
         }
 
-        $ownTransaction = !$pdo->inTransaction();
-        if ($ownTransaction) $pdo->beginTransaction();
-        else $pdo->exec('SAVEPOINT ' . $savepoint);
-        $transactionStarted = true;
         placementEconomicsEnsureDerivedCycles($tenantId, $placement);
 
         $sourceSystem = str_starts_with((string) ($placement['external_id'] ?? ''), 'jd:') ? 'jobdiva' : 'coreflux';
@@ -736,7 +749,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
           LEFT JOIN users u ON u.id = r.referrer_user_id
               WHERE r.tenant_id = :t AND r.placement_id = :p'
         );
-        $refSt->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => $companyOwner, 'person_owner'=>(int)effectiveTenantIdForModule('people',$tenantId)]);
+        $refSt->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => $companyOwner, 'person_owner'=>$peopleOwner]);
         foreach ($refSt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
             $type = (string) $row['referrer_type'];
             $name = trim((string) ($row['company_name'] ?: $row['referrer_vendor_name'] ?: $row['person_name'] ?: $row['user_name']));
@@ -794,7 +807,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
                 'source_ref' => 'commission:' . (int) $row['id'], 'source_type' => 'commission', 'source_id' => (int) $row['id'],
                 'role' => 'commission_' . (string) $row['role'], 'display_name' => $name,
                 'user_id' => $row['user_id'] ?: null,
-                'person_id' => placementCommissionPersonIdentity($pdo,(int)effectiveTenantIdForModule('people',$tenantId),(int)$row['user_id']),
+                'person_id' => placementCommissionPersonIdentity($pdo,$peopleOwner,(int)$row['user_id']),
                 'money_flow' => 'payable', 'settlement_channel' => $row['user_id'] ? 'payroll' : 'none',
                 'fee_basis' => (string) $row['basis'], 'fee_pct' => $row['split_pct'] ?? null,
                 'fee_flat' => $row['flat_amount'] ?? null, 'operating_cycle_id' => $payrollCycleId,
@@ -876,7 +889,7 @@ function placementEconomicsParties(int $tenantId, int $placementId): array
           WHERE ep.tenant_id = :t AND ep.placement_id = :p AND ep.active = 1
           ORDER BY FIELD(ep.money_flow, "receivable", "payable", "informational"), ep.id'
     );
-    $st->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => companiesDirectoryTenantId($tenantId)]);
+    $st->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => jobdivaPartyDirectoryScope(getDB(), $tenantId)['owner']]);
     return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
