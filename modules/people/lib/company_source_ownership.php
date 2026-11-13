@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../../../core/integrations/entity_mappings.php';
 require_once __DIR__ . '/company_identity.php';
+require_once __DIR__ . '/company_relationships.php';
 
 function companySourceFields(string $table): array
 {
@@ -193,14 +194,27 @@ function companyNativeFields(PDO $pdo,int $workspace,int $owner,string $table,in
     });
 }
 
-function companySourceReview(array $row,string $table): array
+function companySourceReview(array $row,string $table,?int $workspace=null): array
 {
     $state=companySourceState($row,$table);$current=array_intersect_key($row,array_flip(companySourceFields($table)));
+    if($workspace!==null&&$state['source']!==null&&$state['source']['workspace_id']!==$workspace)throw new RuntimeException('Source values are unavailable in this workspace.',404);
     $tokenState=$state;unset($tokenState['observed_at']);
     return ['record_id'=>(int)$row['id'],'directory_owner_id'=>(int)$row['tenant_id'],'record_type'=>$table,
         'source'=>$state['source'],'owned_fields'=>$state['owned'],'legacy_unreviewed'=>$state['legacy_unreviewed'],
         'current'=>$current,'proposed'=>$state['proposed'],'observed_at'=>$state['observed_at']??null,
         'review_token'=>mappingHash(['table'=>$table,'id'=>$row['id'],'owner'=>$row['tenant_id'],'current'=>$current,'state'=>$tokenState])];
+}
+
+/** Directory sharing grants record access, not another workspace's source authority. */
+function companySourceWorkspaceRecord(PDO $pdo,int $workspace,int $owner,string $table,int $id,callable $operation): mixed
+{
+    return companyRelationshipAtomic($pdo,static function()use($pdo,$workspace,$owner,$table,$id,$operation):mixed{
+        if(jobdivaPartyDirectoryScope($pdo,$workspace,true)['owner']!==$owner)throw new RuntimeException('Company directory changed. Refresh the source review.',409);
+        return companySourceWithRecord($pdo,$owner,$table,$id,static function(array $row)use($workspace,$table,$operation):mixed{
+            companySourceReview($row,$table,$workspace);
+            return$operation($row);
+        });
+    });
 }
 
 /** Accept exactly the observed proposals reviewed by the operator, atomically with ownership. */
@@ -209,9 +223,9 @@ function companySourceAccept(PDO $pdo,int $workspace,int $owner,string $table,in
     if (!$fields || !array_is_list($fields) || array_filter($fields,static fn($f)=>!is_string($f))
         || count(array_unique($fields))!==count($fields)) throw new InvalidArgumentException('Choose the source fields to accept.');
     sort($fields);
-    return companySourceWithRecord($pdo,$owner,$table,$id,static function(array $row)use($pdo,$workspace,$owner,$table,$id,$fields,$token,$actor):array{
+    return companySourceWorkspaceRecord($pdo,$workspace,$owner,$table,$id,static function(array $row)use($pdo,$workspace,$owner,$table,$id,$fields,$token,$actor):array{
         $digest=mappingHash($fields);
-        $q=$pdo->prepare("SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event='company.source.accepted' AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.record_type'))=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.directory_owner_id'))=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.review_token'))=? ORDER BY id DESC LIMIT 1");
+        $q=$pdo->prepare("SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event='company.source.accepted' AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.record_type'))=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.directory_owner_id'))=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.review_token'))=? ORDER BY id DESC LIMIT 1 FOR UPDATE");
         $q->execute([$workspace,$id,$table,(string)$owner,$token]);$prior=$q->fetchColumn();
         if($prior!==false){$receipt=json_decode($prior,true,32,JSON_THROW_ON_ERROR);if(!hash_equals($receipt['request_digest'],$digest))throw new RuntimeException('This source review was already used for a different field selection.',409);return $receipt['result']+['replayed'=>true];}
         $review=companySourceReview($row,$table);$state=companySourceState($row,$table);

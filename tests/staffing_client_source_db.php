@@ -45,6 +45,11 @@ try{
         $qbResult=qboUpsertCustomer($child,$qb);$qid=$qbResult['internal_id'];$qrow=$read('staffing_clients',$qid);$qc=(int)$qrow['company_id'];
         $check($qbResult['action']==='created'&&(int)$qrow['tenant_id']===$owner&&(int)$read('companies',$qc)['tenant_id']===$companyOwner,$mode.': QBO uses the original workspace and independently owned directories');
         $check(companySourceState($read('companies',$qc),'companies')['source']['system']==='quickbooks_online'&&in_array('client',companyRoles($qc),true),$mode.': new QBO company has exact source authority and its client role');
+        if($companyOwner===$parent){
+            $companyReview=companySourceReview($read('companies',$qc),'companies',$child);$before=$read('companies',$qc);
+            $check($fails(fn()=>companySourceWorkspaceRecord($pdo,$parent,$parent,'companies',$qc,static fn($row)=>companySourceReview($row,'companies'))),$mode.': shared company does not expose another workspace QuickBooks source identity');
+            $check($fails(fn()=>companySourceAccept($pdo,$parent,$parent,'companies',$qc,['primary_contact_phone'],$companyReview['review_token'],$actor))&&$read('companies',$qc)===$before,$mode.': shared company cannot release another workspace QuickBooks field authority');
+        }
         staffingClientSaveNative($child,$qid,['name'=>'Core billing '.$mode,'primary_contact_phone'=>'','status'=>'closed'],$actor,staffingClientRevision($pdo,companyRelationshipScope($pdo,$child,'placements',false),$qrow));
         $qb['DisplayName']='Renamed QBO source '.$mode;$qb['PrimaryPhone']['FreeFormNumber']='New QB phone';$again=qboUpsertCustomer($child,$qb);
         $check($again['internal_id']===$qid&&$read('staffing_clients',$qid)['name']==='Core billing '.$mode&&$read('staffing_clients',$qid)['primary_contact_phone']===''&&$read('staffing_clients',$qid)['status']==='closed',$mode.': QBO rename retains the mapped CL and protects native values');

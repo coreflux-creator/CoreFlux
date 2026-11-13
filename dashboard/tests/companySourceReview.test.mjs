@@ -7,11 +7,11 @@ const require = createRequire(import.meta.url), React = require('react');
 const { create, act } = require('react-test-renderer');
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../../modules/people/ui/CompanySourceReview.jsx', import.meta.url))], bundle: true, platform: 'node', format: 'cjs', write: false, external: ['react'], plugins: [{ name: 'fixture', setup(b) { b.onResolve({ filter: /lib\/api$/ }, () => ({ path: 'fixture-api', external: true })); } }] });
 const text = node => typeof node === 'string' ? node : (node.children || []).map(text).join('');
-async function fixture({ error = null, recordType = 'companies' } = {}) {
+async function fixture({ error = null, recordType = 'companies', system = 'jobdiva' } = {}) {
   const module = { exports: {} }, calls = [];
   let revision = 1, accepted = 0;
   const mock = { api: {
-    async get(path) { calls.push({ method: 'GET', path }); return { review: { source: { external_id: 'provider-10' },
+    async get(path) { calls.push({ method: 'GET', path }); return { review: { source: { system, external_id: 'provider-10' },
       current: { phone: null, name: 'Core name' }, proposed: { phone: 'Source phone', name: 'Source name' }, owned_fields: ['phone','name'],
       legacy_unreviewed: true, review_token: `review-${revision++}` } }; },
     async post(path, body) { calls.push({ method: 'POST', path, body }); if (error) throw new Error(error); return { replayed: false }; },
@@ -38,6 +38,21 @@ test('source review requires a field selection and explicit confirmation, and se
     const sent = f.calls.find(c => c.method === 'POST');
     assert.deepEqual(sent.body, { fields: ['phone'], review_token: 'review-1', confirm_source: true });
     assert.match(sent.path, /record_type=companies.*action=source_accept/);
+    assert.equal(f.accepted(), 1);
+  } finally { f.close(); }
+});
+
+test('QuickBooks company review identifies the actual provider and its continuing ownership choice', async () => {
+  const f = await fixture({ system: 'quickbooks_online' });
+  try {
+    await act(async () => f.button('Review source values').props.onClick());
+    assert.ok(text(f.tree.root).includes('QuickBooks record provider-10'));
+    assert.ok(text(f.tree.root).includes('keep these fields updated from QuickBooks'));
+    assert.ok(!text(f.tree.root).includes('JobDiva'));
+    await act(async () => f.field('Use QuickBooks for Phone').props.onChange({ target: { checked: true } }));
+    await act(async () => f.confirmation().props.onChange({ target: { checked: true } }));
+    await act(async () => f.button('Use selected QuickBooks values').props.onClick());
+    assert.deepEqual(f.calls.find(c => c.method === 'POST').body.fields, ['phone']);
     assert.equal(f.accepted(), 1);
   } finally { f.close(); }
 });

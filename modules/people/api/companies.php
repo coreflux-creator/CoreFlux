@@ -54,7 +54,7 @@ if (in_array($action, ['source_review','source_accept'], true)) {
     if(!in_array($table,['companies','company_contacts'],true))api_error('Choose a company or company contact.',422);
     try {
         if($method==='GET'&&$action==='source_review'){
-            $review=companySourceWithRecord(getDB(),$tid,$table,$id,static fn(array $row):array=>companySourceReview($row,$table));
+            $review=companySourceWorkspaceRecord(getDB(),(int)$ctx['tenant_id'],$tid,$table,$id,static fn(array $row):array=>companySourceReview($row,$table));
             api_ok(['review'=>$review]);
         }
         if($method==='POST'&&$action==='source_accept'){

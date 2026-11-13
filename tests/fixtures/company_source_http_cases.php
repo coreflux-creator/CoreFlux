@@ -62,6 +62,10 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
                     &&$review['current']['phone']!==$review['proposed']['phone'],"$mode $table: writer reviews native and source values in the configured directory");
                 $expect($request($reviewUrl,[],true,$child)[0]===405&&$request($acceptUrl,null,true,$child)[0]===405,"$mode $table: review and acceptance enforce their HTTP methods");
                 $body=['confirm_source'=>true,'fields'=>['phone'],'review_token'=>$review['review_token']];
+                if($mode==='shared'){
+                    $before=$read($table,$id);
+                    $expect($request($reviewUrl,null,true,$parent)[0]===404&&$request($acceptUrl,$body,true,$parent)[0]===404&&$read($table,$id)===$before,"$mode $table: sharing a directory does not expose or release another workspace source authority");
+                }
                 foreach([['confirm_source'=>'true'],['fields'=>[]],['fields'=>['tenant_id']],['fields'=>['phone','phone']],['review_token'=>[]]]as$invalid)
                     $expect($request($acceptUrl,array_replace($body,$invalid),true,$child)[0]===422,"$mode $table: malformed selection or confirmation is rejected");
                 $nativeUrl=$route.'?id='.$id.($table==='company_contacts'?'&action=contact':'');
