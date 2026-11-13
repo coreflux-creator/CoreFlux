@@ -23,7 +23,7 @@
  *           sub_records_indexed: { placement, person, company, contact, ...native buckets }
  *         }
  *
- * RBAC: tenant_admin.integrations (same gate as other field-map admin).
+ * RBAC: tenant integration administration or field-map management.
  * Idempotent: re-running just bumps occurrence_count on existing paths.
  */
 declare(strict_types=1);
@@ -36,7 +36,7 @@ $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
-rbac_legacy_require($user, 'tenant_admin.integrations');
+rbac_legacy_require_any($user, ['tenant_admin.integrations', 'integrations.field_map.manage']);
 
 try {
     $summary = jobdivaBackfillJoinedIndexes($tid, (int) $user['id']);

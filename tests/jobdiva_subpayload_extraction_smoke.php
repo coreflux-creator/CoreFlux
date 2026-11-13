@@ -218,8 +218,8 @@ $a('endpoint requires api_require_auth',
     str_contains($ep, 'api_require_auth'));
 $a('endpoint enforces POST',
     str_contains($ep, "if (api_method() !== 'POST')"));
-$a('endpoint guarded by tenant_admin.integrations',
-    str_contains($ep, "rbac_legacy_require(\$user, 'tenant_admin.integrations')"));
+$a('endpoint requires integration administration or field-map management',
+    str_contains($ep, "rbac_legacy_require_any(\$user, ['tenant_admin.integrations', 'integrations.field_map.manage'])"));
 $a('endpoint calls jobdivaBackfillJoinedIndexes($tid)',
     str_contains($ep, 'jobdivaBackfillJoinedIndexes($tid, (int) $user[\'id\'])'));
 $a('endpoint returns ok + counters',
