@@ -1057,6 +1057,12 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     // behaviour, since the test fixtures are designed for it.
     require_once __DIR__ . '/sync_placements.php';
 
+    require_once __DIR__.'/terminal_lifecycle.php';
+    $terminalBaseline=null;
+    if(!array_key_exists('items_override',$opts)){
+        if(getDB()->inTransaction()||JobdivaStoredReviewTransaction::inScope())throw new RuntimeException('Start assignment discovery outside an existing transaction.',409);
+        $terminalBaseline=jobdivaTerminalCensusBaseline($tid);
+    }
     $discovery = jobdivaPlacementsDiscover($tid, $userId, $opts);
     $items     = $discovery['items'];
     $channel   = $discovery['channel'];
@@ -1262,7 +1268,8 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             'lifecycle' => jobdivaSyncApplyTerminalAssignmentLifecycle(
                 $tid,
                 $terminalItems,
-                $userId
+                $userId,
+                $terminalBaseline
             ),
             'mappings' => jobdivaSyncReconcileAssignmentCensusMappings(
                 $tid,
@@ -1306,7 +1313,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
  * Missing rows are quarantined at the mapping layer and never treated as
  * deletion evidence.
  */
-function jobdivaSyncApplyTerminalAssignmentLifecycle(int $tenantId,array $rows,?int $userId=null): array
+function jobdivaSyncApplyTerminalAssignmentLifecycle(int $tenantId,array $rows,?int $userId=null,?array $baseline=null): array
 {
     require_once __DIR__.'/terminal_lifecycle.php';
     $summary=['seen'=>0,'matched'=>0,'updated'=>0,'ended'=>0,'cancelled'=>0,'skipped'=>0,'failed'=>0,'errors'=>[],'skipped_reasons'=>[]];
@@ -1316,7 +1323,7 @@ function jobdivaSyncApplyTerminalAssignmentLifecycle(int $tenantId,array $rows,?
         $startId=jobdivaAssignmentRowId($row);$desired=(string)($row['__cf_jobdiva_canonical_status']??'');
         if($startId===''||!in_array($desired, ['ended', 'cancelled'], true)){$summary['skipped']++;continue;}
         try{
-            $result=jobdivaTerminalCensusApply($tenantId,$row,$userId);
+            $result=jobdivaTerminalCensusApply($tenantId,$row,$userId,$baseline);
             $summary['matched']+=(int)$result['matched'];
             if($result['changed']){$summary['updated']++;$summary[$desired]++;}
             else{$summary['skipped']++;$reason=$result['reason'];$summary['skipped_reasons'][$reason]=($summary['skipped_reasons'][$reason]??0)+1;}
@@ -1923,6 +1930,9 @@ function jobdivaSyncCandidateAssignmentsBatch(
     $candidates = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     if ($candidates === []) return $result;
 
+    require_once __DIR__.'/terminal_lifecycle.php';
+    if($pdo->inTransaction()||JobdivaStoredReviewTransaction::inScope())throw new RuntimeException('Start candidate assignment discovery outside an existing transaction.',409);
+    $terminalBaseline=jobdivaTerminalCensusBaseline($tenantId);
     $terminalRows = [];
     foreach ($candidates as $candidate) {
         $candidateCursor = (int) ($candidate['cursor_id'] ?? 0);
@@ -2015,7 +2025,7 @@ function jobdivaSyncCandidateAssignmentsBatch(
     }
 
     if ($terminalRows !== []) {
-        jobdivaSyncApplyTerminalAssignmentLifecycle($tenantId, array_values($terminalRows), $userId);
+        jobdivaSyncApplyTerminalAssignmentLifecycle($tenantId, array_values($terminalRows), $userId,$terminalBaseline);
     }
     $result['done'] = count($candidates) < $limit;
     jobdivaAudit($tenantId, 'sync_candidate_assignments_batch', [

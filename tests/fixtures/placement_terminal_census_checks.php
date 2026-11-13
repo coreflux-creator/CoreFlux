@@ -1,6 +1,19 @@
 <?php
 /** Actual terminal census behavior on the reviewed shared placement family. */
 $terminal=array_replace($payload,['status'=>'Ended','endDate'=>'2026-11-01','__cf_jobdiva_canonical_status'=>'ended']);
+$beforeBaseline=$state();$baseline=jobdivaTerminalCensusBaseline($workspace);
+$check(isset($baseline['states']['99510001']['hash'])&&!str_contains(json_encode($baseline),'payload_snapshot')&&$beforeBaseline===$state(),
+    'Census baseline captures current source ownership without exposing payloads or changing records');
+foreach(['native_title','source_observation','source_workspace','new_record']as$change){
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$a,$b,$mb,$baseline,$terminal,$change,$state,$check):void{
+        if($change==='native_title')$pdo->prepare('UPDATE placements SET title="Edited while census was fetching" WHERE id=?')->execute([$a]);
+        if($change==='source_observation')$pdo->prepare('UPDATE external_entity_mappings SET content_hash=? WHERE id=?')->execute([str_repeat('d',64),$mb['id']]);
+        if($change==='source_workspace')$baseline['workspace']=$owner;
+        if($change==='new_record')unset($baseline['states']['99510001']);
+        $before=$state();$result=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$terminal],$actor,$baseline);
+        $check($result['failed']===1&&$before===$state(),'Census result refuses changed '.$change.' since provider discovery began');
+    },true);
+}
 foreach(['status','end_date','actual_end_date','deleted_at']as$field){
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$actor,$a,$terminal,$field,$state,$check):void{
         $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE id=?')->execute([json_encode([$field]),$a]);$before=$state();
@@ -9,11 +22,12 @@ foreach(['status','end_date','actual_end_date','deleted_at']as$field){
             'Shared terminal census preserves native '.$field.' ownership after a merge');
     },true);
 }
-foreach(['malformed_ownership','candidate','conflicting_start','wrong_status','missing_context','date','disabled_policy','private_directory','source_receipt']as$case){
+foreach(['malformed_ownership','candidate','candidate_object','conflicting_start','wrong_status','missing_context','date','disabled_policy','private_directory','source_receipt']as$case){
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$a,$terminal,$case,$state,$check,$insert):void{
         $row=$terminal;
         if($case==='malformed_ownership')$pdo->prepare('UPDATE placements SET coreflux_overridden_fields="{}" WHERE id=?')->execute([$a]);
         if($case==='candidate')$row['candidateId']='different-source-worker';
+        if($case==='candidate_object')$row['__cf_jobdiva_source_object']='candidate';
         if($case==='conflicting_start')$row['id']='different-start';
         if($case==='wrong_status')$row['__cf_jobdiva_canonical_status']='cancelled';
         if($case==='missing_context')unset($row['jobId']);
@@ -29,8 +43,8 @@ $pdo->exec('SET @fixture_placement_terminal_receipt=1');$terminalBefore=$state()
 $failedTerminal=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$terminal],$actor);
 $check($failedTerminal['failed']===1&&$failedTerminal['updated']===0&&$terminalBefore===$state(),'Required terminal receipt failure rolls back lifecycle and commercial dates');
 $pdo->exec('SET @fixture_placement_terminal_receipt=0');
-JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$a,$b,$mb,$terminal,$state,$read,$check):void{
-    $before=$state();$oldRetired=$read($b);$result=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$terminal],$actor);
+JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$actor,$a,$b,$mb,$terminal,$state,$read,$check,$baseline):void{
+    $before=$state();$oldRetired=$read($b);$result=jobdivaSyncApplyTerminalAssignmentLifecycle($workspace,[$terminal],$actor,$baseline);
     $check($result['updated']===1&&$result['ended']===1&&$result['failed']===0&&$read($a)['status']==='ended'&&$read($a)['end_date']==='2026-11-01',
         'Terminal census ends the current shared survivor through its retained historical source');
     $protected=array_diff_key($before,array_flip(['placements','placement_economic_parties','audit_log']));

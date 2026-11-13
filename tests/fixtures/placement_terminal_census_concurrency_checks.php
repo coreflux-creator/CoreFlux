@@ -32,4 +32,13 @@ foreach(['COMMIT','ROLLBACK']as$decision){
     fwrite($workers[$holder]['pipes'][0],$decision.PHP_EOL);fflush($workers[$holder]['pipes'][0]);$merged=$finish($holder);$result=$finish($worker);
     $check($merged['ok']&&($decision==='COMMIT'?($result['ok']&&$result['result']['changed']&&$result['result']['placement_id']===$a):!$result['ok']),
         'Terminal census resolves only a committed reviewed merge after '.$decision.': '.json_encode($result));
+    [$a,$b,$rate,$binding,$membership,$mergeInput]=$mergeFixture('terminal-prefetch-'.$decision);
+    placementMergeApply($child,$actor,$mergeInput['body']);$baseline=jobdivaTerminalCensusBaseline($child);
+    $q=$pdo->prepare('SELECT payload_snapshot FROM external_entity_mappings WHERE tenant_id=? AND id=?');$q->execute([$child,$binding]);$row=array_replace(json_decode($q->fetchColumn(),true,512,JSON_THROW_ON_ERROR),['status'=>'Ended','endDate'=>'2026-11-01','__cf_jobdiva_canonical_status'=>'ended']);
+    $pdo->beginTransaction();$pdo->prepare('UPDATE placements SET title="Native edit during provider discovery" WHERE id=?')->execute([$a]);
+    $worker=$spawn(['mode'=>'native','entity'=>'terminal_census','workspace'=>$child,'actor'=>$actor,'placement_id'=>$a,'row'=>$row,'baseline'=>$baseline]);
+    $check($waiting($worker),'Fetched terminal result waits for intervening native edit '.$decision);
+    if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$identityRaceState();$result=$finish($worker);
+    $check($decision==='COMMIT'?(!$result['ok']&&$before===$identityRaceState()):($result['ok']&&$result['result']['changed']),
+        'Fetched terminal result revalidates the original discovery baseline after '.$decision.': '.json_encode($result));
 }

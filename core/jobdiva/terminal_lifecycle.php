@@ -41,21 +41,46 @@ function jobdivaSourceLifecycleApplyLocked(PDO $pdo,int $workspace,array $contex
     return ['changed'=>true,'matched'=>true,'placement_id'=>$id,'desired_status'=>$desired];
 }
 
-function jobdivaTerminalCensusApply(int $workspace,array $row,?int $actor): array
+function jobdivaTerminalCensusFingerprint(array $context,?array $policy,array $identity): string
 {
-    return companyRelationshipAtomic(getDB(),static function()use($workspace,$row,$actor):array{
-        $pdo=getDB();$context=jobdivaPlacementWriteContext($pdo,$workspace);jobdivaPlacementImportPolicy($pdo,$workspace);
+    return hash('sha256',serialize([$context,$policy,$identity]));
+}
+
+/** Capture local decisions before network discovery; return hashes, never provider payloads. */
+function jobdivaTerminalCensusBaseline(int $workspace): array
+{
+    return companyRelationshipAtomic(getDB(),static function()use($workspace):array{
+        $pdo=getDB();$context=jobdivaPlacementWriteContext($pdo,$workspace);$policy=jobdivaPlacementImportPolicy($pdo,$workspace);
+        $q=$pdo->prepare('SELECT external_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" ORDER BY id FOR UPDATE');$q->execute([$workspace]);$ids=$q->fetchAll(PDO::FETCH_COLUMN);
+        $q=$pdo->prepare('SELECT external_id FROM placements WHERE tenant_id=? AND external_id LIKE "jd:%" ORDER BY id FOR UPDATE');$q->execute([$context['placement_owner']]);$ids=[...$ids,...$q->fetchAll(PDO::FETCH_COLUMN)];
+        $states=[];
+        foreach(array_unique(array_map('jobdivaAssignmentIdentityNormaliseId',$ids))as$external){
+            if($external==='')continue;
+            try{$identity=jobdivaPlacementWriteIdentity($pdo,$context,$external);$states[$external]=['hash'=>jobdivaTerminalCensusFingerprint($context,$policy,$identity)];}
+            catch(RuntimeException $e){if(!in_array($e->getCode(),[409,422],true))throw$e;$states[$external]=['review_required'=>true];}
+        }
+        return ['workspace'=>$workspace,'states'=>$states];
+    });
+}
+
+function jobdivaTerminalCensusApply(int $workspace,array $row,?int $actor,?array $baseline=null): array
+{
+    return companyRelationshipAtomic(getDB(),static function()use($workspace,$row,$actor,$baseline):array{
+        $pdo=getDB();$context=jobdivaPlacementWriteContext($pdo,$workspace);$policy=jobdivaPlacementImportPolicy($pdo,$workspace);
         $start=jobdivaAssignmentRowId($row);$desired=(string)($row['__cf_jobdiva_canonical_status']??'');
         if($start===''||!in_array($desired,['ended','cancelled'],true))throw new InvalidArgumentException('Choose an exact terminal assignment.',422);
         $identity=jobdivaPlacementWriteIdentity($pdo,$context,$start);$placement=$identity['placement'];
         if(!$placement)return ['changed'=>false,'matched'=>false,'reason'=>'not_found'];
+        if($baseline!==null&&(($baseline['workspace']??null)!==$workspace||($baseline['states'][$start]['hash']??null)!==jobdivaTerminalCensusFingerprint($context,$policy,$identity)))
+            throw new RuntimeException('Assignment ownership or source evidence changed during census discovery. Refresh and review this ending.',409);
         // Native lifecycle ownership is authoritative even when the incoming row is incomplete.
         if(array_intersect(['status','end_date','actual_end_date','deleted_at'],$identity['owned_fields']))return ['changed'=>false,'matched'=>true,'reason'=>'core_owned_lifecycle'];
         $rawEnd=jobdivaAssignmentIdentityPluck($row,['end date','endDate','end_date','assignment end date']);$end=jobdivaNormaliseDate($rawEnd);
         if($rawEnd!==''&&$end===null)throw new RuntimeException('Review the JobDiva assignment end date.',422);
         $rawStatus=jobdivaAssignmentIdentityPluck($row,['startStatus','start_status','start status','assignmentStatus','assignment_status','status']);
         $actual=jobdivaAssignmentCanonicalPlacementStatus($rawStatus,$end)['status'];
-        if(count(jobdivaAssignmentIdentityValues($row,true))!==1||empty(jobdivaAssignmentStructuralEvidence($row)['complete'])||$actual!==$desired)
+        $sourceType=jobdivaAssignmentIdentityPluck($row,['__cf_jobdiva_source_object']);
+        if(($sourceType!==''&&!in_array(strtolower($sourceType),['assignment','start'],true))||count(jobdivaAssignmentIdentityValues($row,true))!==1||empty(jobdivaAssignmentStructuralEvidence($row)['complete'])||$actual!==$desired)
             throw new RuntimeException('The census row does not establish this exact terminal assignment.',409);
         if($identity['mapping']&&$identity['mapping']['payload_snapshot']!==null){
             $stored=json_decode($identity['mapping']['payload_snapshot'],true,512,JSON_THROW_ON_ERROR);
