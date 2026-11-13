@@ -57,8 +57,11 @@ try{
             if($case==='missing_client')$pdo->prepare('UPDATE placements SET client_id=NULL WHERE id=?')->execute([$pending]);
             if($case==='retired_company')$pdo->prepare('UPDATE companies c JOIN placements p ON p.end_client_company_id=c.id SET c.deleted_at=NOW() WHERE p.id=?')->execute([$pending]);
             if($case==='disabled_cycle')$pdo->prepare('UPDATE staffing_operating_cycles c JOIN placement_economic_parties ep ON ep.operating_cycle_id=c.id SET c.active=0 WHERE ep.placement_id=?')->execute([$pending]);
-            // The normal stable mapper deliberately retains the old pair. Construct a legacy duplicate directly.
-            if($case==='duplicate_source')$insert('external_entity_mappings',['tenant_id'=>$workspace,'source_system'=>'jobdiva','internal_entity_type'=>'placement','external_id'=>'99320001','internal_entity_id'=>$pending,'payload_snapshot'=>json_encode($payload),'content_hash'=>mappingHash($payload),'sync_status'=>'ok']);
+            // The schema permits raw/prefixed aliases on different Core rows, not two links on the same row.
+            if($case==='duplicate_source'){
+                $duplicate=$insert('placements',['tenant_id'=>$owner,'person_id'=>$person,'title'=>'Synthetic legacy duplicate','status'=>'draft','engagement_type'=>'w2','start_date'=>'2026-10-01','worksite_country'=>'US']);
+                $insert('external_entity_mappings',['tenant_id'=>$workspace,'source_system'=>'jobdiva','internal_entity_type'=>'placement','external_id'=>'99320001','internal_entity_id'=>$duplicate,'payload_snapshot'=>json_encode($payload),'content_hash'=>mappingHash($payload),'sync_status'=>'ok']);
+            }
             if($case==='contradictory_mirror')mappingUpsert($workspace,'jobdiva','jobdiva_assignment','99320001',99320001,['startId'=>'99320001','candidateId'=>'99320002','jobId'=>'99320003','startDate'=>'2026-10-01','status'=>'Ended']);
             if($case==='mirror_closed_financials'){
                 $mirror=$payload;$mirror['_jd_assignment_detail'][0]['BILLING'][0]['Actual End']=true;
