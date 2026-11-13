@@ -67,8 +67,8 @@ function placementSourceRuleStoredSource(PDO $pdo,array $parent,array $context):
     $q=$pdo->prepare('SELECT external_id FROM people WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');$q->execute([$personOwner,$parent['person_id']]);$external=$q->fetchColumn();
     $q=$pdo->prepare('SELECT id,internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="person" AND external_id IN(?,?) ORDER BY id FOR UPDATE');
     $q->execute([$tenant,$candidateId,'jd:'.$candidateId]);$links=$q->fetchAll(PDO::FETCH_ASSOC);$mapping=$links[0]??null;
-    $q=$pdo->prepare('SELECT id FROM external_entity_mappings WHERE source_system="jobdiva" AND internal_entity_type="person" AND internal_entity_id=? AND id<>? LIMIT 1 FOR UPDATE');
-    $q->execute([$parent['person_id'],$mapping['id']??0]);$competing=$q->fetchColumn();
+    $q=$pdo->prepare('SELECT m.id FROM external_entity_mappings m JOIN people p ON p.id=m.internal_entity_id AND p.tenant_id=? WHERE m.source_system="jobdiva" AND m.internal_entity_type="person" AND p.id=? AND m.id<>? LIMIT 1 FOR UPDATE');
+    $q->execute([$personOwner,$parent['person_id'],$mapping['id']??0]);$competing=$q->fetchColumn();
     $display=trim((string)$external);
     if($external===false || count($links)>1 || $competing
         || ($mapping && (int)$mapping['internal_entity_id']!==(int)$parent['person_id'])
@@ -206,7 +206,16 @@ function placementSourceRuleReplace(int $tenant,int $placement,string $kind,arra
         static function(array $parent,PDO $pdo,array $context)use($placement,$kind,$definition,$token,$request,$matches,$fingerprint,$user):array{
         $tenant=(int)$parent['tenant_id'];
         $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="placement.source_rules.replaced" AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,"$.request_id"))=? ORDER BY id DESC LIMIT 1 FOR UPDATE');$q->execute([$context['workspace'],$placement,$request]);$prior=$q->fetchColumn();
-        if($prior!==false){$receipt=json_decode($prior,true,512,JSON_THROW_ON_ERROR);if(!hash_equals($receipt['request_fingerprint']??'',$fingerprint))throw new RuntimeException('This request already belongs to a different replacement.',409);return $receipt['result']+['replayed'=>true,'currently_follows_source'=>!in_array($definition['field'],placementOwnershipFields($parent['coreflux_overridden_fields']??null),true)];}
+        if($prior!==false){
+            $receipt=json_decode($prior,true,512,JSON_THROW_ON_ERROR);
+            if(!hash_equals($receipt['request_fingerprint']??'',$fingerprint))throw new RuntimeException('This request already belongs to a different replacement.',409);
+            $identity=null;
+            try{$identity=placementJobdivaSourceIdentity($pdo,$parent);}catch(RuntimeException $e){if($e->getCode()!==409)throw$e;}
+            $follows=$identity && $identity['start_id']===($receipt['review']['source_start_id']??null)
+                && ($identity['source_workspace_id']??$context['workspace'])===$context['workspace']
+                && !in_array($definition['field'],placementOwnershipFields($parent['coreflux_overridden_fields']??null),true);
+            return $receipt['result']+['replayed'=>true,'currently_follows_source'=>$follows];
+        }
         $plan=placementSourceRuleReplacementPlan($pdo,$parent,$kind,$context);
         if(!hash_equals($plan['review_token'],$token))throw new RuntimeException('The source, rule values, identities or linked records changed. Load a new review.',409);
         $selected=placementSourceRuleMatchPlan($plan,$matches);$table=$definition['table'];$current=array_column($plan['__raw_current'],null,'id');
@@ -234,7 +243,8 @@ function placementSourceRuleReplace(int $tenant,int $placement,string $kind,arra
         if(array_column($beforeReplay,'id')!==array_column($afterReplay,'id')||placementSourceRuleSemanticRows($kind,$beforeReplay)!==placementSourceRuleSemanticRows($kind,$afterReplay))throw new RuntimeException('Source replay would change the reviewed replacement. No replacement was saved.',409);
         $graph=placementEconomicsReconcile($tenant,$placement);
         if(empty($graph['available'])||$graph['errors'])throw new RuntimeException('The replacement could not be reconciled to the contract. No replacement was saved.',503);
-        $result=['placement_id'=>$placement,'kind'=>$kind,'applied'=>$applied,'retired'=>$retire,'source_control_released'=>true];
+        $result=['placement_id'=>$placement,'kind'=>$kind,'applied'=>$applied,'retired'=>$retire,'source_control_released'=>true,
+            'source_workspace_id'=>$context['workspace'],'source_start_id'=>$plan['source_start_id']];
         placementRequiredAudit('placement.source_rules.replaced',['request_id'=>$request,'request_fingerprint'=>$fingerprint,
             'review'=>placementSourceRulePublicReview($plan),'matches'=>$selected,'result'=>$result,'owned_fields_before'=>$owned,'owned_fields_after'=>$remaining,
             'actor_user_id'=>$user['id']??null,'approved_rates_changed'=>false,'financial_execution'=>false],$placement);

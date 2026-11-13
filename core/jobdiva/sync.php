@@ -43,6 +43,7 @@ require_once __DIR__ . '/../../modules/placements/lib/source_rule_ownership.php'
 require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
 require_once __DIR__ . '/projector.php';
 require_once __DIR__ . '/stored_review.php';
+require_once __DIR__ . '/placement_write_context.php';
 
 /**
  * JobDiva V2 BI endpoints — verified 2026-02 from

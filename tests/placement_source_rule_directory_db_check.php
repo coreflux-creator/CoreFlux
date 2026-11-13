@@ -58,17 +58,29 @@ try{JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$worksp
         if($change==='display')$pdo->prepare('UPDATE placements SET external_id="different-retained-number" WHERE id=?')->execute([$placement]);
         if($change==='unlinked')$pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id="99191001"')->execute([$workspace]);
         if($change==='competing')mappingUpsert($owner,'jobdiva','placement','99191999',$placement,$payload);
-        $before=$state();$check($refused(fn()=>$apply('chain',$data))&&$state()===$before,'Changed '.$change.' evidence rejects shared handback atomically');
+        $before=$state();$check($refused(fn()=>$apply('chain',$data),$change==='placements'?404:409)&&$state()===$before,'Changed '.$change.' evidence rejects shared handback atomically');
     },true);
     setRequestTenantId($owner);$_SESSION['tenant_id']=$owner;
     $check($refused(fn()=>placementSourceRuleReview($owner,$placement,'chain')),'Parent viewer cannot borrow the child workspace source link');
     setRequestTenantId($workspace);$_SESSION['tenant_id']=$workspace;
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$preview,$apply,$body,$check):void{
+        $pdo->prepare('UPDATE external_entity_mappings SET external_id="jd:99191001" WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id="99191001"')->execute([$workspace]);
+        $r=$preview();$check($r['selectable']&&$r['source_start_id']==='99191001','An existing prefixed provider link remains reviewable without rewriting it');
+        $apply('chain',$body($r,8));
+        $q=$pdo->prepare('SELECT external_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement"');$q->execute([$workspace]);
+        $check($q->fetchColumn()==='jd:99191001','Prefixed source identity remains physically unchanged after handback');
+    },true);
     $immutable=array_map($all,['people','placement_rates','external_entity_mappings','entity_sync_history','core_record_numbers']);
     foreach(['chain'=>1,'commission'=>2,'referral'=>3]as$kind=>$n){
         $r=$preview($kind);$check($r['selectable'],'Shared '.$kind.' source remains selectable');$data=$body($r,$n);
         $saved=$apply($kind,$data);$check($saved['applied']===$data['matches']&&$saved['source_control_released'],'Shared '.$kind.' handback preserves explicitly matched rule IDs');
         $before=$state();$again=$apply($kind,$data);$check(!empty($again['replayed'])&&$state()===$before,'Shared '.$kind.' retry returns its receipt without new writes');
     }
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$data,$apply,$state,$check):void{
+        $pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="placement" AND external_id="99191001"')->execute([$workspace]);
+        $before=$state();$again=$apply('referral',$data);
+        $check(!empty($again['replayed'])&&!$again['currently_follows_source']&&$state()===$before,'Historical receipt cannot claim current source ownership after its saved link is removed');
+    },true);
     $q=$pdo->prepare('SELECT portal_fee_pct,tenant_id FROM placement_client_chain WHERE id=?');$q->execute([$chain['msp']]);$saved=$q->fetch(PDO::FETCH_ASSOC);
     $check((float)$saved['portal_fee_pct']===0.04&&(int)$saved['tenant_id']===$owner,'Configured source value commits to the business owner only');
     $q=$pdo->prepare('SELECT tenant_id,meta_json FROM audit_log WHERE event="placement.source_rules.replaced" AND target_id=? ORDER BY id');$q->execute([$placement]);$audits=$q->fetchAll(PDO::FETCH_ASSOC);
