@@ -147,6 +147,11 @@
         $expect($request('GET',$placementEndpoint.'?id='.$archived,null,true,$workspace)[0]===404,'Ordinary archives are not restored through history navigation');
         $expect($request('GET',$placementEndpoint.'?number=PL-1junk',null,true,$workspace)[0]===422,'Navigation refuses malformed permanent numbers');
         $expect($snapshot($tables)===$after,'Placement history requests are fully read-only');
+        RBACResolver::revokeModule($member,'integrations',$actor);
+        $expect($request('GET',$links,null,true,$workspace)[0]===403&&$request('GET',$historyPath,null,true,$workspace)[0]===403,
+            'Same native session loses original provider links and source history after integration access is revoked');
+        RBACResolver::revokeModule($member,'staffing',$actor);
+        $expect($request('GET',$timeHistory,null,true,$workspace)[0]===403,'Same native session loses original time history after staffing access is revoked');
         RBACResolver::grantModule($member,'placements','read',[$workspace],$actor);
         $expect($request('POST',$endpoint.'?action=apply',$body,true,$workspace)[0]===403&&$snapshot($tables)===$after,'Same native session cannot recover a merge receipt after write permission is removed');
         RBACResolver::revokeModule($member,'placements',$actor);

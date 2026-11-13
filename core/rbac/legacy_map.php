@@ -126,6 +126,9 @@ final class RbacLegacyMap
             'coreflux.internal_sandbox'          => ['_platform', 'admin'],
 
             // ── integrations ──────────────────────────────────────────────
+            // Read-only source history uses this shared permission. Without
+            // an explicit entry it falls back to write access.
+            'integrations.read'                 => ['integrations', 'read'],
             'integrations.jobdiva.manage'        => ['integrations', 'admin'],
             'integrations.jobdiva.view'          => ['integrations', 'read'],
             'integrations.qbo.manage'            => ['integrations', 'admin'],

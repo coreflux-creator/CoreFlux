@@ -47,6 +47,7 @@ function placementDocumentReadablePlacement(PDO $pdo, int $owner, int $placement
 {
     if ($owner<=0 || $placement<=0) throw new InvalidArgumentException('Choose an existing placement.');
     try { $identity=placementIdentityResolve($pdo,$owner,$placement,$pdo->inTransaction()); }
+    catch (PDOException $e) { throw $e; }
     catch (RuntimeException $e) { throw new PlacementDocumentConflict($e->getMessage()); }
     if (!$identity) throw new PlacementDocumentConflict('Placement is unavailable in this directory.');
     return $identity;
