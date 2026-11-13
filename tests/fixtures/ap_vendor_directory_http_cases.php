@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 function apVendorDirectoryHttpCases(PDO $pdo, int $parent, int $actor, callable $request, callable $expect): void
 {
-    $child = 900012; $foreign = 900013; $membership = null;
+    $child = 990501; $foreign = 990502; $membership = null;
     $prefix = 'Synthetic vendor directory ';
     $route = '/modules/ap/api/vendors.php';
     $companyIds = []; $trigger = false;
-    $expect(!(int) $pdo->query('SELECT COUNT(*) FROM tenants WHERE id IN(900012,900013)')->fetchColumn(), 'Vendor directory fixture tenant IDs are unused');
+    $expect(!(int) $pdo->query('SELECT COUNT(*) FROM tenants WHERE id IN(990501,990502)')->fetchColumn(), 'Vendor directory fixture tenant IDs are unused');
     try {
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic vendor directory child",1,1,"sub",?)')->execute([$child,$parent]);
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(?,"Synthetic vendor directory foreign",1,1,"master")')->execute([$foreign]);
@@ -87,6 +87,10 @@ function apVendorDirectoryHttpCases(PDO $pdo, int $parent, int $actor, callable 
             $q=$pdo->prepare('SELECT COUNT(*) FROM '.$table.' WHERE '.$column.'=?');$q->execute([$failureName]);
             $expect((int)$q->fetchColumn()===0,'Required audit failure rolls back '.$table.' creation');
         }
+        $q=$pdo->prepare('SELECT * FROM companies WHERE id=?');$q->execute([$selected]);$beforeCompany=$q->fetch(PDO::FETCH_ASSOC);
+        $expect($request($route,['vendor_name'=>$failureName,'vendor_type'=>'w9_business','company_id'=>$selected],true,$child)[0]===500,
+            'Required audit failure prevents a partial link to an existing company');
+        $q->execute([$selected]);$expect($q->fetch(PDO::FETCH_ASSOC)===$beforeCompany,'Required audit failure also preserves existing company usage metadata');
         $pdo->exec('DROP TRIGGER ap_vendor_directory_audit_failure');$trigger=false;
     } finally {
         if($trigger)$pdo->exec('DROP TRIGGER ap_vendor_directory_audit_failure');
@@ -96,6 +100,6 @@ function apVendorDirectoryHttpCases(PDO $pdo, int $parent, int $actor, callable 
         if($companyIds){$ids=implode(',',array_unique($companyIds));$pdo->exec('DELETE FROM companies WHERE id IN('.$ids.')');$pdo->exec("DELETE FROM core_record_numbers WHERE entity_type='company' AND record_id IN(".$ids.')');}
         if($membership!==null){RBACResolver::revokeModule($membership,'ap',$actor);deactivateMembership($actor,$child);}
         $pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=?')->execute([$child]);
-        $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN(900012,900013)');
+        $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN(990501,990502)');
     }
 }
