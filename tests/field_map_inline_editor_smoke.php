@@ -146,9 +146,10 @@ $assert('inline edit input wired to the same datalist',
     strpos($panel, 'list={`payloadkeys-${integration}-${entityType}`}') !== false);
 
 echo "\nLinkedExternalSystemsPanel — discoverability fixes\n";
-$assert('row is clickable anywhere (not just chevron)',
-    strpos($panel, "onClick={() => setExpanded(s => ({ ...s, [m.id]: !s[m.id] }))}") !== false
-    && strpos($panel, "cursor: 'pointer'") !== false);
+$assert('editable rows open mapping controls while historical rows remain read-only',
+    str_contains($panel, "onClick={readOnly ? undefined : () => setExpanded(s => ({ ...s, [m.id]: !s[m.id] }))}")
+    && str_contains($panel, 'const isOpen = !readOnly && !!expanded[m.id]')
+    && str_contains($panel, "cursor: readOnly ? 'default' : 'pointer'"));
 $assert('chevron click stops propagation so it does not double-toggle',
     strpos($panel, 'e.stopPropagation(); setExpanded(') !== false);
 $assert('panel help text mentions the mapping editor (not just raw payload)',
