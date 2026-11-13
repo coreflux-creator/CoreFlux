@@ -1,0 +1,175 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Current source and failed CI were revalidated; direct-entry dependencies, scoped identity checks and fixture evidence were corrected before final verification.",
+  "source_commit": "6c91f4b930aed584154da86c54637400071e4d5f",
+  "base_commit": "7b2d303f36f8a20834372f34cdba5f6c7f1b48b8",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "cde631617443bfb8ee3b315b39fc14b053a69c481a6aea1c0116c7eb084fceca",
+    "core/jobdiva/sync.php": "08464ee7685a75478ff432dbae7f9b4c57908789df04098d723cbcb7b57abc0d",
+    "modules/placements/api/source_rules.php": "4b9a54e182334213880b26d007e2c87237b04728399672e37f7d638f52ef621d",
+    "modules/placements/lib/economics.php": "91f584774eab9f6c0d57a744af052eadaac40f69c4c9069bbe068654a0a9b381",
+    "modules/placements/lib/source_identity.php": "d59d1e1e2c2bc07abd680fb66edc577dcb9f83d8b2f99269bf1005398d192dff",
+    "modules/placements/lib/source_rule_review.php": "683c283c91916b057c266419467608e31df4b27656bcc864c68e39f7fb8a5e62",
+    "tests/company_relationship_concurrency_db.php": "956fefafe1b34b21d91fccd434a67fc44a46490b0741d66329f83b603e16aafb",
+    "tests/fixtures/source_rule_http_checks.php": "592ece7e723cd3fcc5e9a0e43eb09f3dd5a8a3e988ac0985192b1f62644530a5",
+    "tests/jobdiva_projection_directory_db_check.php": "673bb8a10cad134c91fb65b8499b6eb10718f15469d9ba9beecb71bd54f423de",
+    "tests/placement_company_roles_mariadb.php": "eae570e8a6848c2890dd8612d27b2d2fbb5f2ba74eefab07f22b00e1749fbf55",
+    "tests/placement_source_rule_directory_db_check.php": "be7667225489612117373d3398e8ec1c72d11234958a6b1c1a8982cb1e1b876b"
+  },
+  "ci": {
+    "run_id": 43458020981,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43458020981",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 131997235413,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997235767,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997235856,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236001,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236020,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236068,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236069,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236117,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236119,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236151,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 131997236248,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "source_rule_directory": 32,
+    "projection_directory": 40,
+    "independent_connections": 171,
+    "company_roles": 24,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 418
+  },
+  "handback_concurrency_labels": [
+    "Reviewed source handback waits for companies policy COMMIT",
+    "Reviewed handback respects current companies scope after COMMIT",
+    "Reviewed source handback waits for placements policy COMMIT",
+    "Reviewed handback respects current placements scope after COMMIT",
+    "Reviewed handback waits for the saved source mirror COMMIT",
+    "Committed new evidence invalidates handback; rolled-back evidence preserves the review: COMMIT",
+    "Reviewed handback waits for the recipient merge COMMIT",
+    "Handback never silently accepts a changed recipient review after COMMIT",
+    "Reviewed handback holds matched choices, source ownership and receipt before COMMIT",
+    "Recipient merge waits for reviewed rule replacement COMMIT",
+    "Merge rechecks committed replacement IDs and ignores rolled-back choices: COMMIT",
+    "First handback holds its receipt before concurrent retry COMMIT",
+    "Identical handback retry waits for first request COMMIT",
+    "Concurrent retry records exactly one replacement after COMMIT",
+    "Reviewed source handback waits for companies policy ROLLBACK",
+    "Reviewed handback respects current companies scope after ROLLBACK",
+    "Reviewed source handback waits for placements policy ROLLBACK",
+    "Reviewed handback respects current placements scope after ROLLBACK",
+    "Reviewed handback waits for the saved source mirror ROLLBACK",
+    "Committed new evidence invalidates handback; rolled-back evidence preserves the review: ROLLBACK",
+    "Reviewed handback waits for the recipient merge ROLLBACK",
+    "Handback never silently accepts a changed recipient review after ROLLBACK",
+    "Reviewed handback holds matched choices, source ownership and receipt before ROLLBACK",
+    "Recipient merge waits for reviewed rule replacement ROLLBACK",
+    "Merge rechecks committed replacement IDs and ignores rolled-back choices: ROLLBACK",
+    "First handback holds its receipt before concurrent retry ROLLBACK",
+    "Identical handback retry waits for first request ROLLBACK",
+    "Concurrent retry records exactly one replacement after ROLLBACK"
+  ],
+  "handback_http_labels": [
+    "Native handback reviews a mapped placement with a retained legacy external number",
+    "Native handback preserves both the legacy number and explicitly matched rule IDs",
+    "Native legacy-number handback retains JobDiva economic provenance",
+    "Native legacy-number handback retries return the existing receipt",
+    "Native legacy-number handback changes no accounting, payroll, payment or time operation",
+    "Child native source review resolves its own connection and shared business owner without writes",
+    "Parent native viewer cannot borrow a child JobDiva connection through the shared catalog",
+    "Child native read access cannot replace shared source rules",
+    "Native sharing change removes access to the old review before any mutation",
+    "Child native replacement preserves matched IDs while writing the shared rule rows",
+    "Shared native handback preserves provider identities, legacy person numbers, history and approved rates",
+    "Shared native receipt records the authenticated actor in the original source workspace",
+    "Shared native retry returns its original receipt without repeating writes",
+    "Shared native source review and replacement execute no financial operations"
+  ],
+  "native_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "contract_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "corrections": [
+    "Load write context explicitly for direct source-rule entry",
+    "Scope competing person-link lookup through the accessible owner",
+    "Align the distinct-company-role fixture with its saved Start and explicitly verify conflict refusal"
+  ],
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T16:04:34+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "financial_execution_performed": false,
+  "remaining_release_gates": [
+    "ordinary stored assignment preview/apply/restore/audit source-workspace separation",
+    "CSV and legacy alignment writers",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field/portal/onboarding/document/time/approval/payroll-result/reconciliation acceptance remains incomplete"
+}
