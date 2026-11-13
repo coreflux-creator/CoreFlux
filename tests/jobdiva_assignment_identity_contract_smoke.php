@@ -328,21 +328,21 @@ $assert(
 );
 $assert(
     'repair reports source reconciliation paths separately from API failures',
-    str_contains($alignment, "'non_assignments' => 0")
+    str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), "'non_assignments'=>0")
         && str_contains($settingsUi, 'trusted source snapshots')
         && str_contains($settingsUi, 'review required')
 );
 $assert(
     'repair restores source-backed archived assignments and never treats not-found as deletion',
-    str_contains($alignment, "'placements_restored' => 0")
-        && str_contains($alignment, 'SET deleted_at = NULL')
-        && str_contains($alignment, "if (\$action !== 'terminal')")
+    str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), 'SET deleted_at=NULL')
+        && str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), "\$action === 'terminal' && !\$wasArchived && !\$held")
+        && str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), 'jobdivaAssignmentRepairHasActivity')
 );
 $assert(
     'source repair replaces cached snapshots with the verified Start',
-    str_contains($alignment, 'jobdivaAssignmentStripDerivedFacets($stored)')
-        && str_contains($alignment, '$payload = $exact[\'row\'];')
-        && !str_contains($alignment, '$payload = array_replace($stored, $exact[\'row\']);')
+    str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), "\$action === 'remote_verified' ? \$exact['row'] : jobdivaAssignmentCompactSnapshotPayload")
+        && str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), "['_jd_contract','_jd_assignment_detail']")
+        && !str_contains(file_get_contents($root . '/core/jobdiva/assignment_source_repair.php'), 'mappingUpsert(')
 );
 $assert(
     'mirror reconstruction is rooted in the mapping Start ID',
