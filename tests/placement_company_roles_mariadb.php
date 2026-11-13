@@ -27,11 +27,12 @@ try{
     $pdo->exec('CREATE TABLE tenant_module_scope(tenant_id BIGINT,module_key VARCHAR(40),scope_mode VARCHAR(20))');
     foreach(['modules/people/migrations/004_companies.sql','modules/staffing/migrations/003_clients.sql','core/migrations/126_staffing_economic_graph.sql','core/migrations/138_placement_one_time_items.sql']as$file){
         foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../'.$file))as$sql){
-            if(preg_match('/CREATE TABLE IF NOT EXISTS (companies|company_roles|staffing_clients|staffing_operating_cycles|placement_economic_parties|placement_economic_obligations|placement_economic_items)\s*\(/',$sql))$pdo->exec($sql);
+            if(preg_match('/CREATE TABLE IF NOT EXISTS (companies|company_contacts|company_roles|staffing_clients|staffing_operating_cycles|placement_economic_parties|placement_economic_obligations|placement_economic_items)\s*\(/',$sql))$pdo->exec($sql);
         }
     }
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/022_external_entity_mappings.sql'))as$sql)$pdo->exec($sql);
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/196_commission_terms.sql'))as$sql)$pdo->exec($sql);
+    foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/198_company_source_ownership.sql'))as$sql)$pdo->exec($sql);
     $pdo->exec('ALTER TABLE companies ADD industry VARCHAR(80), ADD payment_terms_days INT');
     $pdo->exec("ALTER TABLE staffing_clients ADD company_id BIGINT, ADD source_system VARCHAR(40) DEFAULT 'manual', ADD external_id VARCHAR(80)");
     foreach([[10,1,'Billing Co',45],[11,1,'Work Recipient',90],[12,2,'Foreign Co',15],[13,1,'Another Bill-to',20]]as[$id,$tid,$name,$days])$insert('companies',['id'=>$id,'tenant_id'=>$tid,'name'=>$name,'payment_terms_days'=>$days]);
