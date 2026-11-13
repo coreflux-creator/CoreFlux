@@ -69,4 +69,19 @@ $check($comparison['provider_vs_worksheet_amount']['numeric_difference']==='0.00
 $check($comparison['provider_relation_to_worksheet']==='unknown'&&$comparison['provider_vs_worksheet_amount']['monetary_difference']===null,'known currencies and equal amounts cannot manufacture missing provider service dates');
 $check($comparison['worksheet_known_hours_in_common_period']==='16.00'&&$comparison['core_approved_hours_in_common_period']==='8.00'&&$comparison['worksheet_minus_core_hours']==='8.00','worksheet and approved Core hours retain an explicit discrepancy');
 $check(!$comparison['time_entry_allocation_proven']&&!$comparison['original_client_approval_proven'],'supplemental comparison does not authorize time allocation or client approval');
+$preMergeWorkbook=$previewWorkbook('record','Synthetic pending review before merge');
+$preMergeWorkbookHistory=staffingEvidenceHistory($pdo,1,$instance,$owners,$associationId);
+$pdo->exec('UPDATE placements SET deleted_at=NOW() WHERE id=1');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3,aliased_at=NOW() WHERE entity_type="placement" AND record_id=1');
+$mergedWorkbookCounts=$counts();
+$check($fails(fn()=>$saveWorkbook($preMergeWorkbook,'88888888-8888-4888-8888-888888888888')) && $counts()===$mergedWorkbookCounts,
+    'placement merge invalidates a pending workbook association review without creating evidence');
+$mergedWorkbookHistory=staffingEvidenceHistory($pdo,1,$instance,$owners,$associationId);
+$check($mergedWorkbookHistory['items']===$preMergeWorkbookHistory['items'],'historical workbook receipts remain unchanged and readable after placement merge');
+$mergedWorkbookReport=staffingReconciliationRead($pdo,1,$instance,['people'=>1,'placements'=>1,'time'=>1],'PL-1','2026-10-01','2026-10-31');
+$mergedInvoiceResult=array_values(array_filter($mergedWorkbookReport['financial_lines'],static fn($l)=>$l['association_id']===$associationId))[0];
+$check($mergedInvoiceResult['workbook_evidence']===$invoiceResult['workbook_evidence']
+    && $mergedInvoiceResult['workbook_comparison']===$invoiceResult['workbook_comparison'],'merged placement comparison retains original workbook differences and approval limits');
+$pdo->exec('UPDATE placements SET deleted_at=NULL WHERE id=1');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1,aliased_at=NULL WHERE entity_type="placement" AND record_id=1');
 $check($protected()===$beforeWorkbook,'workbook review and withdrawal leave financial, time, payroll and provider identity records unchanged');

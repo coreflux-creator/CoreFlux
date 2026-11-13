@@ -54,6 +54,17 @@ $pdo->exec("UPDATE time_entries SET category='regular_billable',hour_type='regul
 $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3 WHERE entity_type="placement" AND record_id=1');
 $check($fails($comparisonRead),'merged placement cannot redirect a saved line to another identity');
 $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1 WHERE entity_type="placement" AND record_id=1');
+$beforeMergedComparison=$comparisonRead();
+$pdo->exec('UPDATE placements SET deleted_at=NOW() WHERE id=1');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3,aliased_at=NOW() WHERE entity_type="placement" AND record_id=1');
+$mergedComparisonState=$fingerprint();$mergedComparisonCalls=count($calls);$mergedComparison=$comparisonRead();
+$check($mergedComparison['placement']['number']==='PL-1' && $mergedComparison['time']===$beforeMergedComparison['time']
+    && $mergedComparison['financial_lines']===$beforeMergedComparison['financial_lines'],'merged placement reconciliation preserves original time, approved rates and financial-line evidence');
+$check($fingerprint()===$mergedComparisonState && count($calls)===$mergedComparisonCalls,'merged reconciliation remains read-only without provider requests');
+$survivorComparison=staffingReconciliationRead($pdo,1,$instance,$reconciliationOwners,'PL-3','2026-10-05','2026-10-18');
+$check($survivorComparison['financial_lines']===[],'survivor comparison does not double-count lines retained on a historical placement');
+$pdo->exec('UPDATE placements SET deleted_at=NULL WHERE id=1');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1,aliased_at=NULL WHERE entity_type="placement" AND record_id=1');
 
 foreach(['164_purepay_core_connection.sql','174_payroll_native_observations.sql']as$file)
     foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../../core/migrations/'.$file))as$sql)$pdo->exec($sql);
