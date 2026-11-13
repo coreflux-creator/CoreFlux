@@ -1,0 +1,154 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; current-directory terminal census writer, not hosted release or full integration completion",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. This continuation revalidated and accepted the exact terminal-census CI run, verified the installed pilot unchanged, and began the remaining uncertain-contract review path.",
+  "source_commit": "cf6c66e806ab9b9b0665ac968bd516aa3cba500a",
+  "base_commit": "d1dfdc8977a1914c5705a48b590c2557d07b6f6b",
+  "source_files_sha256_lf": {
+    "core/jobdiva/sync.php": "330fdbcaf010e6bde8730629bda368a835dd510b149dab6714ed222d42a0363c",
+    "core/jobdiva/terminal_lifecycle.php": "9de44f443a533c1ed80be7164fe31308c41d293ef54ae490117542b729d61e46",
+    "tests/company_relationship_concurrency_db.php": "8e950fea0f83f2c74557da90506f0275a9a81d282e4022b6cbdf356c8db44aa3",
+    "tests/fixtures/placement_terminal_census_checks.php": "bf07053efd0caf79e1ba10ae8ff64c93fecb39130557b2a99e3aa1863cf523e9",
+    "tests/fixtures/placement_terminal_census_concurrency_checks.php": "1e8950a2fc3c51d77ebacf14ec8f0af37d62942fac3ed674ec7ce5450f84e828",
+    "tests/placement_lifecycle_ownership_db_check.php": "2588147db79a520a8e1951c45730517ed8882b849a5bca2995dfa87cdc8246d8",
+    "tests/placement_merge_db_check.php": "6064018591b8c2d3eb587e56dbbf49b32e39305b28308ac83933cfe60d479f30"
+  },
+  "ci": {
+    "run_id": 43513630850,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43513630850",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132189856316,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856715,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856726,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856736,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856739,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856754,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856761,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856781,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856827,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189856869,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132189857440,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "placement_merge_source_terminal_canonical": 103,
+    "placement_identity_canonical": 30,
+    "independent_connections": 508,
+    "new_terminal_census_concurrency": 30,
+    "native_core_session_api": 953,
+    "existing_native_placement_contract_http": 521
+  },
+  "terminal_census_concurrency_labels": [
+    "Terminal census waits for policy COMMIT",
+    "Terminal census rechecks policy after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Review People and Placements sharing before importing this assignment.\"}",
+    "Terminal census waits for native_closure COMMIT",
+    "Terminal census rechecks native_closure after COMMIT: {\"ok\":true,\"result\":{\"id\":233,\"changed\":false,\"matched\":true,\"reason\":\"core_owned_lifecycle\"}}",
+    "Terminal census waits for source_context COMMIT",
+    "Terminal census rechecks source_context after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The terminal row conflicts with the retained assignment context.\"}",
+    "Terminal census waits for alias COMMIT",
+    "Terminal census rechecks alias after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The reviewed placement family is incomplete. Review its permanent identities.\"}",
+    "Terminal census waits for primary_choice COMMIT",
+    "Terminal census rechecks primary_choice after COMMIT: {\"ok\":true,\"result\":{\"id\":239,\"changed\":true,\"matched\":true,\"placement_id\":239,\"desired_status\":\"ended\"}}",
+    "Merge holds terminal census source identity before COMMIT",
+    "Terminal census waits for merge decision COMMIT",
+    "Terminal census resolves only a committed reviewed merge after COMMIT: {\"ok\":true,\"result\":{\"id\":241,\"changed\":true,\"matched\":true,\"placement_id\":241,\"desired_status\":\"ended\"}}",
+    "Fetched terminal result waits for intervening native edit COMMIT",
+    "Fetched terminal result revalidates the original discovery baseline after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment ownership or source evidence changed during census discovery. Refresh and review this ending.\"}",
+    "Terminal census waits for policy ROLLBACK",
+    "Terminal census rechecks policy after ROLLBACK: {\"ok\":true,\"result\":{\"id\":245,\"changed\":true,\"matched\":true,\"placement_id\":245,\"desired_status\":\"ended\"}}",
+    "Terminal census waits for native_closure ROLLBACK",
+    "Terminal census rechecks native_closure after ROLLBACK: {\"ok\":true,\"result\":{\"id\":247,\"changed\":true,\"matched\":true,\"placement_id\":247,\"desired_status\":\"ended\"}}",
+    "Terminal census waits for source_context ROLLBACK",
+    "Terminal census rechecks source_context after ROLLBACK: {\"ok\":true,\"result\":{\"id\":249,\"changed\":true,\"matched\":true,\"placement_id\":249,\"desired_status\":\"ended\"}}",
+    "Terminal census waits for alias ROLLBACK",
+    "Terminal census rechecks alias after ROLLBACK: {\"ok\":true,\"result\":{\"id\":251,\"changed\":true,\"matched\":true,\"placement_id\":251,\"desired_status\":\"ended\"}}",
+    "Terminal census waits for primary_choice ROLLBACK",
+    "Terminal census rechecks primary_choice after ROLLBACK: {\"ok\":true,\"result\":{\"id\":253,\"changed\":true,\"matched\":true,\"placement_id\":253,\"desired_status\":\"ended\"}}",
+    "Merge holds terminal census source identity before ROLLBACK",
+    "Terminal census waits for merge decision ROLLBACK",
+    "Terminal census resolves only a committed reviewed merge after ROLLBACK: {\"ok\":false,\"code\":409,\"error\":\"Multiple Core placements claim this JobDiva Start. Review the retained identities.\"}",
+    "Fetched terminal result waits for intervening native edit ROLLBACK",
+    "Fetched terminal result revalidates the original discovery baseline after ROLLBACK: {\"ok\":true,\"result\":{\"id\":257,\"changed\":true,\"matched\":true,\"placement_id\":257,\"desired_status\":\"ended\"}}"
+  ],
+  "required_behavior_labels": [
+    "Census baseline captures current source ownership without exposing payloads or changing records",
+    "Required terminal receipt failure rolls back lifecycle and commercial dates",
+    "Terminal census ends the current shared survivor through its retained historical source",
+    "Terminal census retains historical placement, provider IDs, permanent numbers, approved rates, time and financial records",
+    "Repeated terminal census leaves lifecycle, history and receipts unchanged",
+    "Pre-discovery review preserves the legacy exact numeric identity without creating a new provider binding",
+    "A terminal secondary Start cannot end the current placement"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T21:58:29+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_consolidation": [
+    "uncertain-contract review path acceptance",
+    "remaining operational consumers and old-number history navigation",
+    "operator review screen and replacement of legacy automatic cleanup",
+    "native HTTP and hosted consolidation acceptance"
+  ],
+  "full_goal_status": "active; full integration and required pilot upgrade remain incomplete"
+}

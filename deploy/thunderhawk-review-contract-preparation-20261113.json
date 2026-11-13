@@ -1,0 +1,179 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; checked uncertain-contract review with retained provider identities, not hosted consolidation release or full integration completion",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. This continuation accepted terminal-census source, implemented queued contract review, corrected stale smoke expectations and a missing synthetic worker binding, then verified canonical, concurrent and native HTTP behavior.",
+  "source_commit": "bf35af7661331a1c62e572786a85271e77eb6839",
+  "base_commit": "cf6c66e806ab9b9b0665ac968bd516aa3cba500a",
+  "source_files_sha256_lf": {
+    "core/integrations/entity_mappings.php": "4f3bc0f55cd55c7e5f44856e0a56444ea2782bcb6b2032af99f23fb7e35d9e25",
+    "core/integrations/stable_mapping.php": "95f0cf577536f5a71af260659cb3f62145368986f15a81ad026d104bc1648e9d",
+    "core/jobdiva/live_contract_refresh.php": "9e6cfa8b0204e5bc1602392d2ee831225e7f1e5c4c7b198fa5e10972350e59f7",
+    "core/jobdiva/projector.php": "84d126ed0fb6e0f7ba9594583717183676167dab32589f5672ef16cb4eec21ff",
+    "core/jobdiva/review_contract_refresh.php": "c90206f6656e387ee25cc81c5dfa1acdc2b2a79480dc2ffeeb3778d08a7c81b4",
+    "core/jobdiva/sync.php": "836d532cb4a6a833aaa4c1b088cf4594c316409402cb9a55738a22b96212d292",
+    "modules/placements/lib/source_owner.php": "3ec26e2f45e49f75bdb9ee54ba419749c175154bb3a8ca3b491860f067688da4",
+    "tests/company_relationship_concurrency_db.php": "3ef61b1390ce4eb23ddae7a67ba3f03fb2b254a77cf7196c0f7ddee224ea5c2a",
+    "tests/entity_sync_history_smoke.php": "c50aaa9047150c973d2c7023134770f109ddbe2b8346079638c48f9812ef1231",
+    "tests/fixtures/live_contract_http_checks.php": "a9a287ae3c0496542bf34ae30941d48c8763bd5974807a9c88f776ac261a2346",
+    "tests/fixtures/live_contract_http_transport.php": "2c12222305f0dea41d63c5c9baa89bb28a434fef8dd575bfb245065b5868f4c6",
+    "tests/fixtures/placement_contract_http_router.php": "147ab055cb63599c1671a7903a22abeed2d57ffb4bdd38dd372f81e3062ec1c0",
+    "tests/fixtures/placement_merge_review_contract_checks.php": "db18cb9cf864d2671fc73f2e708ece299e9754f450d9419446369e48e4d9128a",
+    "tests/fixtures/review_contract_checks.php": "84737d603f540eb27fba5a3d4e759cb96d42f8dca117360a75bd4d3ca2297d88",
+    "tests/fixtures/review_contract_concurrency_checks.php": "5b3593598f52490159cce2a2a65157543fcfcc04f799e6f3174bad3551433772",
+    "tests/fixtures/review_contract_http_checks.php": "70d902a2838710806b57353fe077116c6b6109bba0fe63d50bbec5336fbfb7d7",
+    "tests/jobdiva_assignment_contract_batch_smoke.php": "406ee4dd52b88baf420d6c40402112f1320446e8b301f2ddaf3df0433534e06b",
+    "tests/jobdiva_live_contract_db_check.php": "13c97deb81524f36977105d111286f689a790196c1127b3d2898a8191271d933",
+    "tests/jobdiva_stored_assignment_reconciliation_smoke.php": "a33682da39e94761e362926f94d3a0d7c539e045b492404327fa36502b43c515",
+    "tests/placement_merge_db_check.php": "aefac3ea9b10094a784f0bcd30c789a9d73758622f337d769df16260c00aea60"
+  },
+  "ci": {
+    "run_id": 43516913081,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43516913081",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132201089592,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201089834,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201089919,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090030,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090038,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090040,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090133,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090213,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090255,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201090261,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132201091837,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "live_and_queued_contract_canonical": 73,
+    "placement_merge_source_terminal_queue_canonical": 108,
+    "placement_identity_canonical": 30,
+    "independent_connections": 532,
+    "new_review_contract_concurrency": 24,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 533,
+    "new_review_queue_http": 12
+  },
+  "review_contract_concurrency_labels": [
+    "Contract review waits for policy COMMIT",
+    "Contract review revalidates policy after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Review People and Placements sharing before importing this assignment.\"}",
+    "Contract review waits for review COMMIT",
+    "Contract review revalidates review after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment review, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Contract review waits for primary COMMIT",
+    "Contract review revalidates primary after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment review, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Contract review waits for placement COMMIT",
+    "Contract review revalidates placement after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment review, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Contract review waits for worker COMMIT",
+    "Contract review revalidates worker after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment review, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Contract review waits for rate COMMIT",
+    "Contract review revalidates rate after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Assignment review, ownership or source evidence changed during the remote lookup. Retry this contract.\"}",
+    "Contract review waits for policy ROLLBACK",
+    "Contract review revalidates policy after ROLLBACK: {\"ok\":true,\"result\":{\"id\":265,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Contract review waits for review ROLLBACK",
+    "Contract review revalidates review after ROLLBACK: {\"ok\":true,\"result\":{\"id\":266,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Contract review waits for primary ROLLBACK",
+    "Contract review revalidates primary after ROLLBACK: {\"ok\":true,\"result\":{\"id\":267,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Contract review waits for placement ROLLBACK",
+    "Contract review revalidates placement after ROLLBACK: {\"ok\":true,\"result\":{\"id\":268,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Contract review waits for worker ROLLBACK",
+    "Contract review revalidates worker after ROLLBACK: {\"ok\":true,\"result\":{\"id\":269,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"review_required\":0}}",
+    "Contract review waits for rate ROLLBACK",
+    "Contract review revalidates rate after ROLLBACK: {\"ok\":true,\"result\":{\"id\":270,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"review_required\":0}}"
+  ],
+  "required_behavior_labels": [
+    "Review queue validates exact financial evidence without writing or qualifying its workflow label alone",
+    "Contract enrichment preserves an unknown primary census date instead of manufacturing one",
+    "Legacy stale payload with a matching cached hash is repaired consistently",
+    "Corporate company and vendor creation roll back with the required review receipt",
+    "An exact current contract creates a previously unprojected assignment",
+    "New assignment and mirror use the actual review census date",
+    "A fresh review replay creates no duplicate worker, company, assignment, rate or provider identity",
+    "Queued contract updates the survivor without changing historical placement, approved rates, time or permanent numbers",
+    "Queued contract preserves the original historical primary provider pair",
+    "A historical secondary review cannot fetch or apply a contract to the current placement"
+  ],
+  "review_queue_http_labels": [
+    "Queued contract review requires native sign-in",
+    "Queued contract review cannot mutate on GET",
+    "Read-only integration access cannot resolve queued contracts",
+    "Denied queue requests change no records and make no provider calls",
+    "Queue cursor only selects the requested reconciliation run",
+    "Native queue receipt failure rolls back business, source and observation writes: [200,{\"processed\":1,\"projected\":0,\"created\":0,\"updated\":0,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"unavailable\":0,\"unavailable_ids\":[],\"financial\":null,\"failed\":1,\"errors\":[{\"start_id\":\"99320001\",\"error\":\"SQLSTATE[45000]: <<Unknown error>>: 1644 Synthetic queued contract audit failure\"}],\"cursor\":1292,\"done\":false}]",
+    "Native review queue projects one exact current shared assignment: [200,{\"processed\":1,\"projected\":1,\"created\":0,\"updated\":1,\"restored\":0,\"demoted\":0,\"skipped_not_current\":0,\"unavailable\":0,\"unavailable_ids\":[],\"financial\":{\"endpoint\":\"\\/apiv2\\/bi\\/EmployeeAssignmentRecordsDetail\",\"ids_seen\":1,\"attempted\":1,\"succeeded\":1,\"empty_response\":0,\"failed\":0,\"broken_endpoint\":false,\"sample_error\":null,\"skipped_self\":0,\"fallback_attempted\":0,\"fallback_succeeded\":0},\"failed\":0,\"errors\":[],\"cursor\":1292,\"done\":false}]",
+    "Native queue retains provider binding, original census timestamp and consistent fingerprint",
+    "Queue receipt identifies the authenticated reviewer and current directory",
+    "Queue cursor drain does not process the same review twice",
+    "Missing exact salary evidence remains unavailable without deletion or native writes",
+    "Queued contract review executes no payroll, payment or financial posting"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T21:58:29+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_consolidation": [
+    "remaining operational consumers and old-number history navigation",
+    "operator review screen and replacement of legacy automatic cleanup",
+    "native HTTP and hosted consolidation acceptance"
+  ],
+  "full_goal_status": "active; full integration and required pilot upgrade remain incomplete"
+}
