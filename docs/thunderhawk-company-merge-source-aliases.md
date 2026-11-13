@@ -1,6 +1,6 @@
 # Company merge source identities
 
-This is preparation for the reviewed company merge workflow, not completion of that workflow. The legacy merge API and screen have not been replaced, and this runtime has not been installed in the pilot.
+This records the initial source-alias preparation. The later [reviewed merge implementation](thunderhawk-company-reviewed-merge.md) replaces the legacy API and screen and adds scoped alias-aware source views. Neither preparation has been installed in the pilot; the complete workflow still has concurrency, secondary-source review and hosted acceptance gates.
 
 The source adapter preserves each original `external_entity_mappings` pair. A retired company can resolve to a current company only through its permanent `core_record_numbers` alias, in the currently configured Companies directory. Ordinary deletion does not create an alias. Missing, foreign, inconsistent or inactive alias targets are refused. Repeated merges use the flattened canonical number target; provider IDs and original CO numbers remain unchanged.
 
@@ -18,7 +18,9 @@ The first database candidate exposed an invalid null argument when comparing the
 
 The earlier assignment-verifier helper correction is independent: its three temporary placement updates now include tenant scope. All eleven jobs passed for `3a46ebdc` in [CI 43371538682](https://github.com/coreflux-creator/CoreFlux/actions/runs/43371538682). The installed runtime remains `4bc10bb0`; independent verification on November 13 at 05:20:17 UTC confirmed 367 runtime hashes and all 35,304 rows across 378 tables unchanged, with retired test accounts, no temporary credentials/probes and preserved configuration.
 
-## Required next implementation
+## Gates identified during initial preparation
+
+The [later reviewed merge checkpoint](thunderhawk-company-reviewed-merge.md) records which of these initial gates are now implemented and tested, and which still prevent installation.
 
 Replace the old merge API and screen with a preview and explicit field/role choices. Bind apply to the current actor, workspace, directory policy, exact companies, source bindings, numbers, references and reviewed values. Require an atomic audit receipt, safe replay and stale-review rejection. Retain every provider binding and original source evidence; expose secondary source proposals from the surviving company with an explicit apply-once workflow that leaves the chosen fields Core-owned.
 

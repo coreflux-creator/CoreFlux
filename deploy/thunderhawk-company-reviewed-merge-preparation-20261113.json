@@ -1,0 +1,221 @@
+{
+  "kind": "source_preparation_only_not_installed",
+  "source_commit": "9b124e70e39a9cee9065953f686fc8f63f041c9a",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Current worktree and installed runtime were revalidated before completing the pending reviewed merge service and tests.",
+  "ci": {
+    "run_id": 43377481792,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43377481792",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "native_merge_database": {
+    "passed": true,
+    "checks": 44,
+    "labels": [
+      "Active-name migration replays without changing the installed schema",
+      "Two active companies cannot claim the same name in one directory",
+      "Review exposes no protected tax, document or private custom values",
+      "Preview accounts for current references, retained history, all provider IDs and permanent numbers",
+      "Preview is read-only",
+      "Legacy merge cannot bypass review",
+      "Self merge is rejected",
+      "Cross-directory merge is rejected",
+      "Review is bound to its actor",
+      "Review is bound to its workspace",
+      "Tampered review is rejected",
+      "Extra identity-field selection is rejected",
+      "Unreviewed primary contact is rejected",
+      "A native edit invalidates the preview",
+      "Changed provider evidence invalidates the preview",
+      "Changed sharing policy invalidates the preview",
+      "Inconsistent foreign current references prevent a partial merge",
+      "Temporary audit failure fixture does not commit test data",
+      "Required audit failure refuses the merge",
+      "Failed audit rolls back selected values, references, custom writes, retirement and numbers",
+      "Reviewed name can survive while the retired original name is preserved",
+      "Selected values and explicit role union apply without deleting retired role history",
+      "Protected identifiers and document references remain on their original records",
+      "Reviewed current reference follows survivor: ap_vendors_index",
+      "Reviewed current reference follows survivor: staffing_clients",
+      "Reviewed current reference follows survivor: staffing_jobs",
+      "Reviewed current reference follows survivor: placements",
+      "Reviewed current reference follows survivor: placement_client_chain",
+      "Reviewed current reference follows survivor: placement_corp_details",
+      "Reviewed current reference follows survivor: placement_economic_parties",
+      "Reviewed current reference follows survivor: placement_referrals",
+      "Contacts retain IDs and the reviewed primary selection",
+      "Addresses retain IDs and one reviewed primary per kind",
+      "Financial records and approval identities remain byte-for-byte unchanged",
+      "All provider pairs are unchanged and the retired company number is an alias",
+      "Selected public custom value is copied through typed storage",
+      "Company choices remain Core-owned: 14",
+      "Company choices remain Core-owned: 15",
+      "Post-merge source refresh cannot replace company choices or the selected primary contact",
+      "Job write follows the merged source while retaining the enclosing transaction",
+      "Failed job write rolls back its savepoint without releasing the enclosing transaction",
+      "Same reviewed retry returns its receipt and preserves later edits",
+      "The review cannot be reused for changed choices",
+      "Merge operations preserve the enclosing test transaction"
+    ],
+    "provider_calls": 0,
+    "financial_execution": false
+  },
+  "native_http": {
+    "checks_passed": 642,
+    "merge_and_mapping_checks": 55,
+    "labels": [
+      "Anonymous reviewed company merge is denied: /modules/people/api/companies.php?action=merge_preview",
+      "Anonymous reviewed company merge is denied: /modules/people/api/companies.php?action=merge",
+      "Integration reader cannot merge: /modules/people/api/companies.php?action=merge_preview",
+      "Integration reader cannot merge: /modules/people/api/companies.php?action=merge",
+      "People reader cannot merge: /modules/people/api/companies.php?action=merge_preview",
+      "People reader cannot merge: /modules/people/api/companies.php?action=merge",
+      "Merge review requires POST",
+      "Legacy ID-only merge cannot bypass review",
+      "Merge review refuses caller-supplied directory owner",
+      "shared: adding a primary address never demotes or reveals another tenant's inconsistent row",
+      "shared: address audit failure rolls back the previous primary demotion",
+      "shared: address audit failure leaves no inserted address",
+      "shared: foreign directory company cannot enter review",
+      "shared: preview exposes only this workspace's source IDs and no private identifiers",
+      "shared: AP references are resolved independently of Companies sharing",
+      "shared: apply requires explicit confirmation",
+      "shared: a review cannot move between workspaces",
+      "shared: stale preview cannot retire a company",
+      "shared: HTTP audit failure rolls back the company and AP reference together",
+      "shared: same session cannot apply after integration downgrade",
+      "shared: reviewed merge updates the correct independently-owned vendor",
+      "shared: choosing the other name preserves retired history",
+      "shared: lost-response retry returns receipt and preserves subsequent edits",
+      "shared: used review cannot apply changed choices",
+      "shared: source mapping remains original while permanent number resolves to survivor",
+      "shared: company mapping view follows either number without exposing another workspace or source payload",
+      "shared: company mapping view follows either number without exposing another workspace or source payload",
+      "shared: source-list access cannot reveal a foreign company",
+      "shared: reverse mapping distinguishes original source record from canonical company",
+      "shared: multiple source identities require a choice instead of selecting an arbitrary ID",
+      "shared: integration access alone cannot inspect company source identities",
+      "shared: company access alone cannot inspect source identities",
+      "isolated: adding a primary address never demotes or reveals another tenant's inconsistent row",
+      "isolated: address audit failure rolls back the previous primary demotion",
+      "isolated: address audit failure leaves no inserted address",
+      "isolated: foreign directory company cannot enter review",
+      "isolated: preview exposes only this workspace's source IDs and no private identifiers",
+      "isolated: AP references are resolved independently of Companies sharing",
+      "isolated: apply requires explicit confirmation",
+      "isolated: a review cannot move between workspaces",
+      "isolated: stale preview cannot retire a company",
+      "isolated: HTTP audit failure rolls back the company and AP reference together",
+      "isolated: same session cannot apply after integration downgrade",
+      "isolated: reviewed merge updates the correct independently-owned vendor",
+      "isolated: choosing the other name preserves retired history",
+      "isolated: lost-response retry returns receipt and preserves subsequent edits",
+      "isolated: used review cannot apply changed choices",
+      "isolated: source mapping remains original while permanent number resolves to survivor",
+      "isolated: company mapping view follows either number without exposing another workspace or source payload",
+      "isolated: company mapping view follows either number without exposing another workspace or source payload",
+      "isolated: source-list access cannot reveal a foreign company",
+      "isolated: reverse mapping distinguishes original source record from canonical company",
+      "isolated: multiple source identities require a choice instead of selecting an arbitrary ID",
+      "isolated: integration access alone cannot inspect company source identities",
+      "isolated: company access alone cannot inspect source identities"
+    ],
+    "actor_retired": true,
+    "owned_server_stopped": true,
+    "private_sessions_removed": true,
+    "provider_writes": 0
+  },
+  "rendered_merge_tests": 7,
+  "dashboard_build_passed": true,
+  "tenant_leak_sentry_passed": true,
+  "installed_pilot_verification": {
+    "checked_at": "2026-11-13T06:13:48+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "installed_runtime": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "normalized_sha256": {
+    "core/migrations/199_company_active_name.sql": "74d451442502e0c412a3273b9ff49c1ab750275ed865d1cb8735aec751257875",
+    "core/integrations/staffing_party_field_contract.php": "56fd41c4d014046ce83fdc4d19c698dffbe4f5511ada48550f2ec40c4176ead3",
+    "modules/people/lib/company_merge_review.php": "5418f94f1cb4ac3d55071e3401369a4f53a434635b268ee7979b96537e65cb7d",
+    "modules/people/lib/company_mapping_views.php": "d9761c4c9073f2d10662bfee06a350b1cd56044df8094646d4fce068ba0e6ec8",
+    "modules/people/lib/companies.php": "5446d4c08358aff9e56366ec264e4e39bff9bb29006da1b2dcc5ca2b1bed5cab",
+    "modules/people/api/companies.php": "33c9a8fa7e9ee7eb8e31aca2149d66520906ffbaf53d7f0eb9643871c0e63a66",
+    "api/integrations/mappings.php": "aaf7facf0058baef3d6ae514a541aacfffe697daaad84619008c4487970fc305",
+    "modules/staffing/lib/jobs.php": "4629a8d022b3288efa22edd70e611f63b62440281a049b4b4234d51a860b1876",
+    "modules/people/ui/CompaniesMerge.jsx": "ef69db79cdf8e2d8b3d3f5aa2d40dde9d1f703dd9d818b3021404720b18f6576",
+    "modules/people/ui/CompanyMergeReview.jsx": "8de38c63d020bad751cfb2f16d75160694f8c1a27455bcafdf5c05df3b106bef",
+    "tests/company_merge_review_db.php": "3b0ef8c94bcfd3061d6e34f9f05a3dfb131e675969c2e8f420f6720d0b023391",
+    "tests/fixtures/company_merge_http_cases.php": "6cc0058022a7ba7adf3410351dd260b363b4898b01667d75c31cb44215187f12",
+    "tests/fixtures/quanta_profile_http_router.php": "1e0572556af5d0240e4b1f94a238d937969a8ab31831686c7ad76c51a01a0ace",
+    "tests/quanta_profile_permissions_http.php": "53619a657c7a3a743348b533c8787ffbf27ead09a692be8232a1d2ba594377fc",
+    "dashboard/tests/companyMergeReview.test.mjs": "828c003a94d280b95c244d1af7c84a770d3a8c2cb7bfd63d7e82689c21c67b1b",
+    "dashboard/tests/companiesMergePage.test.mjs": "d59cb04d6f1503f41f0952ee9763919485a51e38a654977d53e635ca5c0be255",
+    "spa-assets/index-B2N6HFy0.js": "b8c1b6d39899c12bfe5f52cb53d545d8459cdcca611d36e98fc233559831d52b",
+    "spa-assets/index-CQXT4MRA.js": "d99e18ce691105ca202385d94bf54a19e8ce2787e6ec412f620f70e1cf1a7538"
+  },
+  "required_before_installation": [
+    "Complete all current-reference writer checks and independent-session concurrent merge tests; native jobs create/update still accept unchecked company/client IDs",
+    "Secondary-source profile/role/custom apply-once review with Core ownership, permissions, stale detection and audit/replay",
+    "Retired-number detail, historical financial navigation and actual source-link rendering",
+    "Complete isolated installation and signed-in native merge/source-review acceptance"
+  ],
+  "production_changed": false,
+  "providers_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings_executed": false,
+  "goal_complete": false
+}
