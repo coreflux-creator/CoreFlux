@@ -7019,7 +7019,7 @@ function jobdivaSyncUpsertPlacementRatesLocked(int $tid,int $placementId,string 
         ])
     );
     $billRate = jobdivaParseRateAmount($billRateRaw);
-    $contractBillRate = jobdivaCanonicalContractPositiveRate($jd, ['bill_rate', 'net_bill_rate']);
+    $contractBillRate = jobdivaCanonicalContractPositiveRate(['_jd_contract'=>$sourceContract], ['bill_rate', 'net_bill_rate']);
     // The exact EmployeeAssignmentRecordsDetail contract owns transaction
     // pricing; broad tenant mappings are an enrichment fallback only.
     if ($sourceContract !== []) $billRate = $contractBillRate;
@@ -7075,7 +7075,7 @@ function jobdivaSyncUpsertPlacementRatesLocked(int $tid,int $placementId,string 
     // tenant field map) does not provide a real positive pay value, do
     // not create/refresh the rate row.
     $payRate = jobdivaParseRateAmount($payRateRaw);
-    $contractPayRate = jobdivaCanonicalContractPositiveRate($jd, ['pay_rate', 'pay_rate_to_vendor']);
+    $contractPayRate = jobdivaCanonicalContractPositiveRate(['_jd_contract'=>$sourceContract], ['pay_rate', 'pay_rate_to_vendor']);
     // An exact contract with missing pay must remain incomplete. A related
     // requisition or candidate's rate cannot silently fill the assignment.
     if ($sourceContract !== []) $payRate = $contractPayRate;

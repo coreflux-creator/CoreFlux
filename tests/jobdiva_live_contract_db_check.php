@@ -37,6 +37,7 @@ try{
             $incomplete=$fresh;$incomplete['_jd_contract'][$missing]=0;
             if($missing==='bill_rate')$incomplete['_jd_contract']['net_bill_rate']=0;
             $incomplete['_jd_job']['bill_rate']=999;$incomplete['_jd_job']['pay_rate']=888;
+            $incomplete['assignment']=['contract_version'=>1,'bill_rate'=>999,'pay_rate'=>888];
             $before=$state();
             $check(!jobdivaSyncUpsertPlacementRates($owner,$placement,'2026-10-01',$incomplete,true,$workspace)&&$state()===$before,'Missing exact '.$missing.' cannot fall back to related job pricing');
         }
