@@ -1,0 +1,824 @@
+{
+  "checked_at_utc": "2026-11-13T00:54:12.703Z",
+  "prior_goal_turn": "Standalone accounting access answered; no integration progress. Current source, installed pilot, active browser session and provider coordination hold revalidated before native draft acceptance.",
+  "core_runtime": "6cd64631d72c21d13d642557a7ae921f2b96909c",
+  "core_runtime_ci": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43337413158",
+  "scope": {
+    "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+    "tenant_id": 2002,
+    "provider_organization_id": "org_0369a63ff2cb",
+    "contract_version": "2026-11-12.1"
+  },
+  "records": {
+    "placement": 909,
+    "person": 387,
+    "client": 1280,
+    "commission_recipient_person": 393,
+    "commission_recipient_employee": 8,
+    "employment_link": 5,
+    "rate": 30,
+    "commission": 10,
+    "economic_party": 577,
+    "editor": 105,
+    "approver": 106
+  },
+  "approved_commission": {
+    "active": null,
+    "client_identity_basis": null,
+    "currency": "INR",
+    "cycle": {
+      "cadence": "biweekly",
+      "id": 7,
+      "name": "Biweekly employee payroll",
+      "purpose": "payroll"
+    },
+    "cycle_overridden": null,
+    "display_name": "Synthetic commission editor",
+    "due_month": "2026-12",
+    "effective_from": "2026-12-01",
+    "effective_to": null,
+    "fee_amount": "7500.0000",
+    "fee_basis": "flat",
+    "fee_fraction": null,
+    "id": 577,
+    "money_flow": "payable",
+    "paid_when_paid": false,
+    "payment_frequency": "one_time",
+    "payment_terms": null,
+    "payment_terms_overridden": null,
+    "pwp_enabled": null,
+    "pwp_overridden": null,
+    "resolved_payment_terms": null,
+    "role": "commission_recruiter",
+    "roots": {
+      "client": null,
+      "company": null,
+      "person": {
+        "directory_tenant_id": 2002,
+        "entity_type": "person",
+        "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+        "number": "P-393"
+      },
+      "vendor": null
+    },
+    "settlement_channel": "payroll",
+    "source_ref": "commission:10",
+    "source_type": "commission",
+    "source_user_id": 105
+  },
+  "current_commission": {
+    "active": true,
+    "client_identity_basis": null,
+    "currency": "GBP",
+    "cycle": {
+      "cadence": "biweekly",
+      "id": 7,
+      "name": "Biweekly employee payroll",
+      "purpose": "payroll"
+    },
+    "cycle_overridden": false,
+    "display_name": "Synthetic commission editor",
+    "due_month": null,
+    "effective_from": "2026-12-01",
+    "effective_to": null,
+    "fee_amount": "8000.0000",
+    "fee_basis": "flat",
+    "fee_fraction": null,
+    "id": 577,
+    "money_flow": "payable",
+    "paid_when_paid": false,
+    "payment_frequency": "per_pay_period",
+    "payment_terms": null,
+    "payment_terms_overridden": false,
+    "pwp_enabled": false,
+    "pwp_overridden": false,
+    "resolved_payment_terms": null,
+    "role": "commission_recruiter",
+    "roots": {
+      "client": null,
+      "company": null,
+      "person": {
+        "directory_tenant_id": 2002,
+        "entity_type": "person",
+        "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+        "number": "P-393"
+      },
+      "vendor": null
+    },
+    "settlement_channel": "payroll",
+    "source_ref": "commission:10",
+    "source_type": "commission",
+    "source_user_id": 105
+  },
+  "reviewed_packet": {
+    "client": {
+      "directory_tenant_id": 2002,
+      "entity_type": "client",
+      "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+      "number": "CL-1280"
+    },
+    "contract_version": "2026-11-12.1",
+    "current_commercial_context": {
+      "ap_cycle_id": null,
+      "billing_cycle_id": 9,
+      "cycles": [
+        {
+          "active": true,
+          "anchor_date": "1970-01-05",
+          "cadence": "biweekly",
+          "default_payment_terms": null,
+          "external_id": "biweekly",
+          "id": 7,
+          "name": "Biweekly employee payroll",
+          "payroll_pay_cycle_id": null,
+          "purpose": "payroll",
+          "settlement_offset_days": 0,
+          "source_system": "standard_cadence"
+        },
+        {
+          "active": true,
+          "anchor_date": "1970-01-01",
+          "cadence": "monthly",
+          "default_payment_terms": null,
+          "external_id": "monthly",
+          "id": 9,
+          "name": "Monthly client billing",
+          "payroll_pay_cycle_id": null,
+          "purpose": "billing",
+          "settlement_offset_days": 0,
+          "source_system": "standard_cadence"
+        }
+      ],
+      "one_time_items": [],
+      "parties": [
+        {
+          "active": true,
+          "client_identity_basis": "current_placement",
+          "currency": null,
+          "cycle": {
+            "cadence": "monthly",
+            "id": 9,
+            "name": "Monthly client billing",
+            "purpose": "billing"
+          },
+          "cycle_overridden": false,
+          "display_name": "Rockefeller Capital Management",
+          "due_month": null,
+          "effective_from": null,
+          "effective_to": null,
+          "fee_amount": null,
+          "fee_basis": "none",
+          "fee_fraction": null,
+          "id": 573,
+          "money_flow": "receivable",
+          "paid_when_paid": false,
+          "payment_frequency": null,
+          "payment_terms": "NET30",
+          "payment_terms_overridden": false,
+          "pwp_enabled": false,
+          "pwp_overridden": false,
+          "resolved_payment_terms": "NET30",
+          "role": "bill_to_client",
+          "roots": {
+            "client": {
+              "directory_tenant_id": 2002,
+              "entity_type": "client",
+              "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+              "number": "CL-1280"
+            },
+            "company": {
+              "directory_tenant_id": 2002,
+              "entity_type": "company",
+              "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+              "number": "CO-1902"
+            },
+            "person": null,
+            "vendor": null
+          },
+          "settlement_channel": "ar",
+          "source_ref": "placement:bill_to",
+          "source_type": "placement",
+          "source_user_id": null
+        },
+        {
+          "active": true,
+          "client_identity_basis": null,
+          "currency": null,
+          "cycle": {
+            "cadence": "biweekly",
+            "id": 7,
+            "name": "Biweekly employee payroll",
+            "purpose": "payroll"
+          },
+          "cycle_overridden": false,
+          "display_name": "Synthetic Lifecycle",
+          "due_month": null,
+          "effective_from": "2026-12-01",
+          "effective_to": "2026-12-31",
+          "fee_amount": null,
+          "fee_basis": "pay_rate",
+          "fee_fraction": null,
+          "id": 574,
+          "money_flow": "payable",
+          "paid_when_paid": false,
+          "payment_frequency": null,
+          "payment_terms": null,
+          "payment_terms_overridden": false,
+          "pwp_enabled": false,
+          "pwp_overridden": false,
+          "resolved_payment_terms": null,
+          "role": "worker",
+          "roots": {
+            "client": null,
+            "company": null,
+            "person": {
+              "directory_tenant_id": 2002,
+              "entity_type": "person",
+              "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+              "number": "P-387"
+            },
+            "vendor": null
+          },
+          "settlement_channel": "payroll",
+          "source_ref": "worker:387",
+          "source_type": "worker",
+          "source_user_id": null
+        },
+        {
+          "active": true,
+          "client_identity_basis": null,
+          "currency": "GBP",
+          "cycle": {
+            "cadence": "biweekly",
+            "id": 7,
+            "name": "Biweekly employee payroll",
+            "purpose": "payroll"
+          },
+          "cycle_overridden": false,
+          "display_name": "Synthetic commission editor",
+          "due_month": null,
+          "effective_from": "2026-12-01",
+          "effective_to": null,
+          "fee_amount": "8000.0000",
+          "fee_basis": "flat",
+          "fee_fraction": null,
+          "id": 577,
+          "money_flow": "payable",
+          "paid_when_paid": false,
+          "payment_frequency": "per_pay_period",
+          "payment_terms": null,
+          "payment_terms_overridden": false,
+          "pwp_enabled": false,
+          "pwp_overridden": false,
+          "resolved_payment_terms": null,
+          "role": "commission_recruiter",
+          "roots": {
+            "client": null,
+            "company": null,
+            "person": {
+              "directory_tenant_id": 2002,
+              "entity_type": "person",
+              "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+              "number": "P-393"
+            },
+            "vendor": null
+          },
+          "settlement_channel": "payroll",
+          "source_ref": "commission:10",
+          "source_type": "commission",
+          "source_user_id": 105
+        }
+      ],
+      "payroll_cycle_id": 7
+    },
+    "employment_type": "w2",
+    "end_date": "2026-12-31",
+    "person": {
+      "directory_tenant_id": 2002,
+      "entity_type": "person",
+      "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+      "number": "P-387"
+    },
+    "person_name": "Synthetic Lifecycle",
+    "placement": {
+      "directory_tenant_id": 2002,
+      "entity_type": "placement",
+      "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+      "number": "PL-909"
+    },
+    "previous_revision": null,
+    "primary_vendor": null,
+    "source_revision": "fa81749dc0f12e2589056f2655b25c6223a7d7c38d132ba18702155541e4de96",
+    "source_status": "pending_start",
+    "start_date": "2026-12-01",
+    "terms": [
+      {
+        "additional_vendor_costs": [],
+        "bill_rate_unit": "hour",
+        "bill_rates": {
+          "double_time": "80.000000",
+          "overtime": "60.000000",
+          "regular": "40.0000"
+        },
+        "client_terms": {
+          "days": 30,
+          "type": "net"
+        },
+        "currency": "USD",
+        "economics": {
+          "adjustments": {
+            "background_fee_total": null,
+            "benefits_load_override": null,
+            "bill_adder_amount": null,
+            "bill_adder_fraction": null,
+            "bill_discount_amount": null,
+            "bill_discount_fraction": null,
+            "c2c_overhead_override": null,
+            "employer_load_override": null,
+            "other_cost_fixed": null,
+            "other_cost_per_hour": null,
+            "workers_comp_override": null
+          },
+          "approved_at": "2026-11-12 19:40:31",
+          "double_time_multiplier": "2.00",
+          "modeled_totals": {
+            "fixed_obligations": "0.000000",
+            "hourly_cost": "24.000000",
+            "hourly_margin": "16.000000",
+            "invoice_bill_rate": "40.000000",
+            "margin_fraction": "0.400000"
+          },
+          "overtime_multiplier": "1.50",
+          "parties": [
+            {
+              "active": null,
+              "client_identity_basis": "approved_snapshot",
+              "currency": null,
+              "cycle": {
+                "cadence": "monthly",
+                "id": 9,
+                "name": "Monthly client billing",
+                "purpose": "billing"
+              },
+              "cycle_overridden": null,
+              "display_name": "Rockefeller Capital Management",
+              "due_month": null,
+              "effective_from": null,
+              "effective_to": null,
+              "fee_amount": null,
+              "fee_basis": "none",
+              "fee_fraction": null,
+              "id": 573,
+              "money_flow": "receivable",
+              "paid_when_paid": false,
+              "payment_frequency": null,
+              "payment_terms": "NET30",
+              "payment_terms_overridden": null,
+              "pwp_enabled": null,
+              "pwp_overridden": null,
+              "resolved_payment_terms": "NET30",
+              "role": "bill_to_client",
+              "roots": {
+                "client": {
+                  "directory_tenant_id": 2002,
+                  "entity_type": "client",
+                  "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+                  "number": "CL-1280"
+                },
+                "company": {
+                  "directory_tenant_id": 2002,
+                  "entity_type": "company",
+                  "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+                  "number": "CO-1902"
+                },
+                "person": null,
+                "vendor": null
+              },
+              "settlement_channel": "ar",
+              "source_ref": "placement:bill_to",
+              "source_type": "placement",
+              "source_user_id": null
+            },
+            {
+              "active": null,
+              "client_identity_basis": null,
+              "currency": null,
+              "cycle": {
+                "cadence": "biweekly",
+                "id": 7,
+                "name": "Biweekly employee payroll",
+                "purpose": "payroll"
+              },
+              "cycle_overridden": null,
+              "display_name": "Synthetic Lifecycle",
+              "due_month": null,
+              "effective_from": "2026-12-01",
+              "effective_to": "2026-12-31",
+              "fee_amount": null,
+              "fee_basis": "pay_rate",
+              "fee_fraction": null,
+              "id": 574,
+              "money_flow": "payable",
+              "paid_when_paid": false,
+              "payment_frequency": null,
+              "payment_terms": null,
+              "payment_terms_overridden": null,
+              "pwp_enabled": null,
+              "pwp_overridden": null,
+              "resolved_payment_terms": null,
+              "role": "worker",
+              "roots": {
+                "client": null,
+                "company": null,
+                "person": {
+                  "directory_tenant_id": 2002,
+                  "entity_type": "person",
+                  "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+                  "number": "P-387"
+                },
+                "vendor": null
+              },
+              "settlement_channel": "payroll",
+              "source_ref": "worker:387",
+              "source_type": "worker",
+              "source_user_id": null
+            },
+            {
+              "active": null,
+              "client_identity_basis": null,
+              "currency": "INR",
+              "cycle": {
+                "cadence": "biweekly",
+                "id": 7,
+                "name": "Biweekly employee payroll",
+                "purpose": "payroll"
+              },
+              "cycle_overridden": null,
+              "display_name": "Synthetic commission editor",
+              "due_month": "2026-12",
+              "effective_from": "2026-12-01",
+              "effective_to": null,
+              "fee_amount": "7500.0000",
+              "fee_basis": "flat",
+              "fee_fraction": null,
+              "id": 577,
+              "money_flow": "payable",
+              "paid_when_paid": false,
+              "payment_frequency": "one_time",
+              "payment_terms": null,
+              "payment_terms_overridden": null,
+              "pwp_enabled": null,
+              "pwp_overridden": null,
+              "resolved_payment_terms": null,
+              "role": "commission_recruiter",
+              "roots": {
+                "client": null,
+                "company": null,
+                "person": {
+                  "directory_tenant_id": 2002,
+                  "entity_type": "person",
+                  "instance_id": "9f4b6dfb-e52e-464c-9a9d-af7766928ddf",
+                  "number": "P-393"
+                },
+                "vendor": null
+              },
+              "settlement_channel": "payroll",
+              "source_ref": "commission:10",
+              "source_type": "commission",
+              "source_user_id": 105
+            }
+          ],
+          "rate_effective_from": "2026-12-01",
+          "rate_effective_to": null,
+          "rate_revision": "f2bf1be814cd54540f57b43ae385a6e7984528e5a9bf33a70cfedad54e5257ac",
+          "rate_snapshot_id": 30,
+          "resolved_costs": {
+            "benefits_load": {
+              "fraction": "0.000000",
+              "source": "tenant_default"
+            },
+            "c2c_overhead": {
+              "fraction": "0.000000",
+              "source": "none"
+            },
+            "employer_load": {
+              "fraction": "0.200000",
+              "source": "tenant_default"
+            },
+            "workers_comp": {
+              "fraction": "0.000000",
+              "source": "tenant_default"
+            }
+          }
+        },
+        "end_date": "2026-12-31",
+        "pay_rate_unit": "hour",
+        "pay_rates": {
+          "double_time": "40.000000",
+          "overtime": "30.000000",
+          "regular": "20.0000"
+        },
+        "primary_vendor_terms": null,
+        "start_date": "2026-12-01"
+      }
+    ],
+    "title": "Synthetic linked commission 20261112",
+    "work_context": {
+      "accounting_entity_id": 127,
+      "branch": "Synthetic integration test",
+      "cost_center": null,
+      "department": null,
+      "due_date": null,
+      "end_client": null,
+      "end_client_name": null,
+      "external_id": null,
+      "jobdiva_job_id": null,
+      "remote_policy": null,
+      "service_line": null,
+      "staffing_job_id": null,
+      "workers_comp_class": "SYNTHETIC TEST ONLY",
+      "worksite_city": "Hamilton",
+      "worksite_country": "US",
+      "worksite_state": "NJ"
+    }
+  },
+  "hosted_review": {
+    "state": "ready",
+    "missing_links": [],
+    "review_hash": "fff6a362b77b629b24f976db8ad42c89aa6d593a6286aeeae8802b703f1da0c8",
+    "packet_equals_core": true,
+    "rendered_terms": "PL-909 \u00c2\u00b7 Synthetic linked commission 20261112\n\nP-387 \u00c2\u00b7 Synthetic Lifecycle \u00c2\u00b7 W2\n\nClient CL-1280 \u00c2\u00b7 Wages paid through Payroll\n\n2026-12-01 \u00e2\u2020\u2019 2026-12-31 \u00c2\u00b7 Core status: pending_start\n\nCore directory 2002 \u00c2\u00b7 9f4b6dfb-e52e-464c-9a9d-af7766928ddf\n\nCore owns this placement and its effective terms. Creating or activating it does not change catalog prices, employee base pay, existing bills or invoices.\n\nCL-1280 \u00e2\u2020\u2019 Rockefeller Capital Management (cus_e25f880f86)\n\nP-387 \u00e2\u2020\u2019 Synthetic Lifecycle (emp_core_ddf206bef1e2b7a511b6b445ca9b49bbc65d56c9dc79e0617bf125c155c1606f)\n\n2026-12-01 \u00e2\u2020\u2019 2026-12-31 \u00c2\u00b7 USD\n\nEmployee pay per hour: Regular 20.0000; overtime 30.000000; double time 40.000000\n\nClient billing per hour: Regular 40.0000; overtime 60.000000; double time 80.000000\n\nClient terms: Net 30 days\n\nApproved economic graph \u00c2\u00b7 rate #30\n\nApproved 2026-11-12 19:40:31 (Core source time) \u00c2\u00b7 2026-12-01 \u00e2\u2020\u2019 Open-ended\n\nOvertime multiplier\n1.50\nDouble-time multiplier\n2.00\nBill adder\nNot specified\nBill adder amount\nNot specified\nBill discount\nNot specified\nBill discount amount\nNot specified\nEmployer load override\nNot specified\nWorkers compensation override\nNot specified\nBenefits load override\nNot specified\nC2C overhead override\nNot specified\nOther cost per hour\nNot specified\nOther fixed cost\nNot specified\nBackground and onboarding cost\nNot specified\n\nA zero override is an explicit waiver. An unspecified override may inherit a Core default.\n\nResolved overhead at approval\nemployer load\n20% \u00c2\u00b7 tenant default\nworkers comp\n0% \u00c2\u00b7 tenant default\nbenefits load\n0% \u00c2\u00b7 tenant default\nc2c overhead\n0% \u00c2\u00b7 none\nApproved parties and settlement terms\n\nRockefeller Capital Management \u00c2\u00b7 bill to client \u00c2\u00b7 ar\n\nCL-1280 \u00c2\u00b7 CO-1902 \u00c2\u00b7 receivable\n\nFee basis\nNo fee\nFee percentage\nNot specified\nFee amount\nNot specified\nPayment terms\nNET30\nResolved payment terms\nNET30\nPaid when paid\nNo\nSource paid-when-paid setting\nNot retained at approval\nEffective dates\nNo start limit \u00e2\u2020\u2019 No end limit\nCycle\nMonthly client billing \u00c2\u00b7 monthly \u00c2\u00b7 #9\nPayment terms overridden\nNot retained at approval\nPaid-when-paid overridden\nNot retained at approval\nCycle overridden\nNot retained at approval\nActive\nNot retained at approval\n\nCore party #573 \u00c2\u00b7 placement:bill_to \u00c2\u00b7 placement\n\nThis approval did not retain the cycle anchor or settlement offset. Current cycle settings are shown separately.\n\nSynthetic Lifecycle \u00c2\u00b7 worker \u00c2\u00b7 payroll\n\nP-387 \u00c2\u00b7 payable\n\nFee basis\nPlacement pay rate\nFee percentage\nNot specified\nFee amount\nNot specified\nPayment terms\nNot specified\nResolved payment terms\nNot specified\nPaid when paid\nNo\nSource paid-when-paid setting\nNot retained at approval\nEffective dates\n2026-12-01 \u00e2\u2020\u2019 2026-12-31\nCycle\nBiweekly employee payroll \u00c2\u00b7 biweekly \u00c2\u00b7 #7\nPayment terms overridden\nNot retained at approval\nPaid-when-paid overridden\nNot retained at approval\nCycle overridden\nNot retained at approval\nActive\nNot retained at approval\n\nCore party #574 \u00c2\u00b7 worker:387 \u00c2\u00b7 worker\n\nThis approval did not retain the cycle anchor or settlement offset. Current cycle settings are shown separately.\n\nSynthetic commission editor \u00c2\u00b7 commission recruiter \u00c2\u00b7 payroll\n\nP-393 \u00c2\u00b7 payable\n\nFee basis\nFixed amount\nFee percentage\nNot specified\nFee amount\n7500.0000 INR\nPayment terms\nNot specified\nResolved payment terms\nNot specified\nPaid when paid\nNo\nSource paid-when-paid setting\nNot retained at approval\nEffective dates\n2026-12-01 \u00e2\u2020\u2019 No end limit\nCycle\nBiweekly employee payroll \u00c2\u00b7 biweekly \u00c2\u00b7 #7\nPayment terms overridden\nNot retained at approval\nPaid-when-paid overridden\nNot retained at approval\nCycle overridden\nNot retained at approval\nActive\nNot retained at approval\n\nCore party #577 \u00c2\u00b7 commission:10 \u00c2\u00b7 commission \u00c2\u00b7 Core user #105\n\nCommission currency\nINR\nPayment frequency\nOne time\nDue month\n2026-12\n\nThese terms are shown for review. They do not create a commission payment or convert its currency.\n\nThis approval did not retain the cycle anchor or settlement offset. Current cycle settings are shown separately.\n\nCore model as saved\nInvoice bill rate\n40.000000\nModeled hourly cost\n24.000000\nModeled hourly margin\n16.000000\nModeled margin\n40%\nFixed obligations\n0.000000\n\nThese are Core\u00e2\u20ac\u2122s saved estimates. They do not establish an invoice, payment, tax calculation or payroll result.\n\nCurrent work details and editable commercial settings\n\nCurrent settings are shown for review. They do not replace the approved economic graph attached to each rate period.\n\nSource placement ID\nNot specified\nJobDiva job ID\nNot specified\nEnd client\nNot specified\nCore job\nNot specified\nCore legal entity\n127\nDue date\nNot specified\nCity\nHamilton\nCountry\nUS\nState\nNJ\nBranch\nSynthetic integration test\nService line\nNot specified\nWorkers compensation class\nSYNTHETIC TEST ONLY\nDepartment\nNot specified\nCost center\nNot specified\nWork arrangement\nNot specified\nBilling cycle\n9\nVendor payment cycle\nNot specified\nPayroll cycle\n7\nCurrent parties\n\nRockefeller Capital Management \u00c2\u00b7 bill to client \u00c2\u00b7 ar\n\nCL-1280 \u00c2\u00b7 CO-1902 \u00c2\u00b7 receivable\n\nClient number is mapped from the current placement. The original approval retained the company identity, not its client number.\n\nFee basis\nNo fee\nFee percentage\nNot specified\nFee amount\nNot specified\nPayment terms\nNET30\nResolved payment terms\nNET30\nPaid when paid\nNo\nSource paid-when-paid setting\nNo\nEffective dates\nNo start limit \u00e2\u2020\u2019 No end limit\nCycle\nMonthly client billing \u00c2\u00b7 monthly \u00c2\u00b7 #9\nPayment terms overridden\nNo\nPaid-when-paid overridden\nNo\nCycle overridden\nNo\nActive\nYes\n\nCore party #573 \u00c2\u00b7 placement:bill_to \u00c2\u00b7 placement\n\nSynthetic Lifecycle \u00c2\u00b7 worker \u00c2\u00b7 payroll\n\nP-387 \u00c2\u00b7 payable\n\nFee basis\nPlacement pay rate\nFee percentage\nNot specified\nFee amount\nNot specified\nPayment terms\nNot specified\nResolved payment terms\nNot specified\nPaid when paid\nNo\nSource paid-when-paid setting\nNo\nEffective dates\n2026-12-01 \u00e2\u2020\u2019 2026-12-31\nCycle\nBiweekly employee payroll \u00c2\u00b7 biweekly \u00c2\u00b7 #7\nPayment terms overridden\nNo\nPaid-when-paid overridden\nNo\nCycle overridden\nNo\nActive\nYes\n\nCore party #574 \u00c2\u00b7 worker:387 \u00c2\u00b7 worker\n\nSynthetic commission editor \u00c2\u00b7 commission recruiter \u00c2\u00b7 payroll\n\nP-393 \u00c2\u00b7 payable\n\nFee basis\nFixed amount\nFee percentage\nNot specified\nFee amount\n8000.0000 GBP\nPayment terms\nNot specified\nResolved payment terms\nNot specified\nPaid when paid\nNo\nSource paid-when-paid setting\nNo\nEffective dates\n2026-12-01 \u00e2\u2020\u2019 No end limit\nCycle\nBiweekly employee payroll \u00c2\u00b7 biweekly \u00c2\u00b7 #7\nPayment terms overridden\nNo\nPaid-when-paid overridden\nNo\nCycle overridden\nNo\nActive\nYes\n\nCore party #577 \u00c2\u00b7 commission:10 \u00c2\u00b7 commission \u00c2\u00b7 Core user #105\n\nCommission currency\nGBP\nPayment frequency\nPer pay period\nDue month\nNot applicable\n\nThese terms are shown for review. They do not create a commission payment or convert its currency.\n\nCurrent operating cycles\n\nBiweekly employee payroll \u00c2\u00b7 #7 \u00c2\u00b7 payroll\n\nCadence\nbiweekly\nAnchor date\n1970-01-05\nSettlement offset (days)\n0\nDefault payment terms\nNot specified\nCore payroll cycle\nNot specified\nActive\nYes\nSource\nstandard_cadence\nSource ID\nbiweekly\n\nMonthly client billing \u00c2\u00b7 #9 \u00c2\u00b7 billing\n\nCadence\nmonthly\nAnchor date\n1970-01-01\nSettlement offset (days)\n0\nDefault payment terms\nNot specified\nCore payroll cycle\nNot specified\nActive\nYes\nSource\nstandard_cadence\nSource ID\nmonthly\nOne-time items\n\nConfiguration only. Inclusion here does not mean an item has been posted, paid or included in payroll.\n\nNo one-time items recorded.\n\nNative automatic billing is off for Core-managed placements. The reviewed terms do not overwrite catalog prices or employee base pay.\n\nI reviewed the placement identity, linked parties, dates and every effective term period.\nCreate draft assignment\nRefresh this placement"
+  },
+  "core_wrong_review": {
+    "body": {
+      "error": "Choose the current placement review.",
+      "status": 422
+    },
+    "status": 422
+  },
+  "core_delivery": {
+    "body": {
+      "approved_at": "2026-11-12 19:42:04",
+      "attempted_at": "2026-11-12 19:42:04",
+      "created_at": "2026-11-12 19:41:15",
+      "entity_id": 909,
+      "entity_tenant_id": 2002,
+      "entity_type": "placement",
+      "error_code": null,
+      "expires_at": "2026-11-12 20:11:15",
+      "finished_at": "2026-11-12 19:42:05",
+      "id": 116,
+      "operation": "assignments.inputs",
+      "provider": "purepayroll",
+      "remote_id": "cpa_80cd8482fb6aabea461a60b2b7bbddcc2bea2e81dce07eb39f7b4c105a877be8",
+      "remote_receipt_id": "cpa_80cd8482fb6aabea461a60b2b7bbddcc2bea2e81dce07eb39f7b4c105a877be8",
+      "review_hash": "e07f96062da571c5dad8714a62e7403b28168a2def599e074983e2231ba3d0ff",
+      "state": "delivered"
+    },
+    "status": 200
+  },
+  "core_replay_equals_delivery": true,
+  "provider_created": {
+    "activation_enabled": true,
+    "assignment_id": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+    "assignment_status": "draft",
+    "buttons": [
+      {
+        "disabled": false,
+        "text": "Refresh this placement"
+      }
+    ],
+    "creation_enabled": true,
+    "review_hash": "c13860173399f04a573c701fac1d469b5ea2eb081bfe13703752d2d74ae63018",
+    "state": "created",
+    "status": 200
+  },
+  "provider_retry": {
+    "assignment_id": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+    "assignment_status": "draft",
+    "state": "created",
+    "status": 200
+  },
+  "provider_terminal_wrong_hash": {
+    "status": 200,
+    "state": "created",
+    "assignment_id": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+    "note": "The create endpoint intentionally returns an already-created assignment for a confirmed replay before testing the hash; this is an idempotent readback, not evidence of stale-review rejection."
+  },
+  "provider_unconfirmed": {
+    "body": {
+      "detail": "Confirm the reviewed placement and effective terms"
+    },
+    "status": 422
+  },
+  "core_status": {
+    "body": {
+      "delivery": {
+        "approved_at": "2026-11-12 19:42:04",
+        "attempted_at": "2026-11-12 19:42:04",
+        "created_at": "2026-11-12 19:41:15",
+        "entity_id": 909,
+        "entity_tenant_id": 2002,
+        "entity_type": "placement",
+        "error_code": null,
+        "expires_at": "2026-11-12 20:11:15",
+        "finished_at": "2026-11-12 19:42:05",
+        "id": 116,
+        "operation": "assignments.inputs",
+        "provider": "purepayroll",
+        "remote_id": "cpa_80cd8482fb6aabea461a60b2b7bbddcc2bea2e81dce07eb39f7b4c105a877be8",
+        "remote_receipt_id": "cpa_80cd8482fb6aabea461a60b2b7bbddcc2bea2e81dce07eb39f7b4c105a877be8",
+        "review_hash": "e07f96062da571c5dad8714a62e7403b28168a2def599e074983e2231ba3d0ff",
+        "state": "delivered"
+      },
+      "provider_review": {
+        "accepted_revision": "fa81749dc0f12e2589056f2655b25c6223a7d7c38d132ba18702155541e4de96",
+        "assignment_id": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+        "assignment_status": "draft",
+        "state": "created"
+      }
+    },
+    "status": 200
+  },
+  "provider_session_retirement": {
+    "after_status": 401,
+    "body": {
+      "status": "revoked"
+    },
+    "status": 200
+  },
+  "cleanup": {
+    "credentials_cleared": true,
+    "own_browser_tabs_closed": [
+      59,
+      60
+    ],
+    "own_ssh_tunnel_stopped": 80036,
+    "coordination_hold_released": true
+  },
+  "limitations": [
+    "Separate test accounts were used, not independent human acceptance.",
+    "Provider assignment remains draft; activation and payroll execution were not attempted.",
+    "No real Puneet recipient was inferred; PL-908 immutable approval remains unresolved.",
+    "Broader integration requirements remain open."
+  ],
+  "core_preservation": {
+    "phase": "retired",
+    "actors": {
+      "editor": {
+        "id": 105,
+        "membership_id": 93,
+        "email": "core-commission-linked-editor-20261112@example.invalid",
+        "is_active": 0,
+        "password_absent": 1,
+        "hash_absent": 1
+      },
+      "approver": {
+        "id": 106,
+        "membership_id": 94,
+        "email": "core-commission-linked-approver-20261112@example.invalid",
+        "is_active": 0,
+        "password_absent": 1,
+        "hash_absent": 1
+      }
+    },
+    "placements": [
+      {
+        "id": 909,
+        "person_id": 387,
+        "client_id": 1280,
+        "status": "pending_start",
+        "start_date": "2026-12-01",
+        "end_date": "2026-12-31"
+      }
+    ],
+    "original_missing_or_changed": [],
+    "added_rows": {
+      "audit_log": 6,
+      "core_record_numbers": 2,
+      "integration_deliveries": 1,
+      "integration_delivery_subjects": 1,
+      "membership_audit": 10,
+      "people": 1,
+      "people_change_log": 1,
+      "people_employees": 1,
+      "people_employment_links": 1,
+      "placement_commissions": 1,
+      "placement_economic_parties": 3,
+      "placement_rates": 1,
+      "placements": 1,
+      "rbac_bridge_audit": 12,
+      "tenant_memberships": 2,
+      "user_tenants": 2,
+      "users": 2
+    },
+    "original_rows": 35157,
+    "current_rows": 35205,
+    "feature_preserved": true,
+    "credential_file_present": false
+  },
+  "provider_preservation": {
+    "collections_before": 26,
+    "collections_after": 26,
+    "before_rows": 121,
+    "after_rows": 126,
+    "added": {
+      "assignments": [
+        {
+          "id": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+          "organization_id": "org_0369a63ff2cb",
+          "type": null
+        }
+      ],
+      "coreflux_assignment_inputs": [
+        {
+          "id": "cpa_80cd8482fb6aabea461a60b2b7bbddcc2bea2e81dce07eb39f7b4c105a877be8",
+          "organization_id": "org_0369a63ff2cb",
+          "type": null
+        }
+      ],
+      "coreflux_record_links": [
+        {
+          "id": "cfl_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+          "organization_id": "org_0369a63ff2cb",
+          "type": null
+        }
+      ],
+      "login_events": [
+        {
+          "id": "lgn_c78ce3ac3b",
+          "organization_id": null,
+          "type": null
+        }
+      ],
+      "sessions": [
+        {
+          "id": "sess_558c05b95d1a4938",
+          "organization_id": null,
+          "type": null
+        }
+      ]
+    },
+    "missing": {},
+    "changed": {
+      "api_keys": [
+        {
+          "id": "key_3afdf4dbff6c",
+          "fields": [
+            "last_used_at"
+          ]
+        }
+      ],
+      "users": [
+        {
+          "id": "usr_2d19df3dfa23",
+          "fields": [
+            "last_login"
+          ]
+        }
+      ]
+    },
+    "index_changes": [],
+    "native_assignment_id": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+    "native_draft": true,
+    "native_packet_equals_inbox": true,
+    "native_billing_automation_off": true,
+    "held_draft_exactly_preserved": true,
+    "expected_delta_only": true,
+    "own_session_revoked": true,
+    "approved_and_current_commissions_verified": true
+  },
+  "provider_runtime": {
+    "checked_at": "2026-11-13T00:53:03.622941+00:00",
+    "passed": true,
+    "provider_files": 310,
+    "frontend_files": 64,
+    "unrelated_services_preserved": 207,
+    "configuration_preserved": true,
+    "health": {
+      "maintenance": false,
+      "state": "active",
+      "message": "Pure//Pay is completing a release. Please try again shortly.",
+      "startup_mode": "isolated_pilot",
+      "background_jobs": false,
+      "startup_migrations": false,
+      "scheduled_operations": false,
+      "provider_egress_enabled": false
+    },
+    "contract_probe": {
+      "passed": true,
+      "existing_inputs": 5,
+      "native_assignments": 4,
+      "new_packet_retained": true,
+      "records_changed": false
+    },
+    "container_id": "5763915d68a6b5e4af402d84d0e41aa2aa074ba823c0089bdb5188b4ffc5fb2d",
+    "site_id": "9808d4afbd5090dc23d568669e8f26a6df2d210c676cfc60803eb183cf0fdc02"
+  },
+  "reviewed_packet_sha256": "e75482c4499927f5399ca3c0747157077ddf77edce39af05d2e71a4ff1d42716",
+  "helper_sha256": {
+    "deploy\\commission_linked_native_fixture.php": "7bec9e9e29f833d27e6dd7c5373640a1873dcdadcfdc28e99e7d8347970f9da7",
+    "output\\verify_commission_linked_native_provider.py": "528d9b3dda18e32e3446ac24e26d23c994643d5f1019b6a06820b3832aae88a4",
+    "output\\verify_commission_linked_provider_runtime.py": "3d7ba608b95556c1ea55c86140fa89bf9754c7db0cfefbb94d5d30f93ead6f9d"
+  }
+}

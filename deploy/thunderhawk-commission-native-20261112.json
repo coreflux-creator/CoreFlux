@@ -502,5 +502,13 @@
     "core/integrations/purepay_assignment_contract.php": "23b11a162038187c6a06ee9d2d9d690e33f489579c469d91a443c9915e2775cd",
     "modules/placements/lib/economics.php": "3c97f7b6e6e6917a3892e8030df7849971d8bbc6ef20ec2182ac8ae0ba4e5bf5",
     "modules/placements/lib/commission_identity.php": "28d32ac31f6f0aa65ddb8ccd798734ff3c59296f94c12f1ed1d16458ff342658"
+  },
+  "linked_native_acceptance": {
+    "manifest": "deploy/thunderhawk-commission-linked-native-20261112.json",
+    "placement": "PL-909",
+    "native_draft": "asg_core_adf2d4ae9db457c6b3b11f92bc74ddfa793dcf716c2f9a8772c065e0018e3fce",
+    "approved_history_rewritten": false,
+    "complete_for_this_case": true,
+    "full_integration_complete": false
   }
 }
