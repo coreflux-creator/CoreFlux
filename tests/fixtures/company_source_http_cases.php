@@ -3,14 +3,18 @@
 function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $request,callable $expect): void
 {
     require_once __DIR__.'/../../core/jobdiva/party_sync.php';
-    $child=990611;$foreign=990612;$membership=null;$companyIds=[];$trigger=false;
+    $child=990611;$foreign=990612;$viewer=990613;$membership=null;$viewerMembership=null;$companyIds=[];$trigger=false;
     $route='/modules/people/api/companies.php';
     $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC);};
     try {
-        if($pdo->query('SELECT id FROM tenants WHERE id IN(990611,990612)')->fetchColumn())throw new RuntimeException('Company source HTTP fixture already exists');
+        if($pdo->query('SELECT id FROM tenants WHERE id IN(990611,990612,990613)')->fetchColumn())throw new RuntimeException('Company source HTTP fixture already exists');
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic company source child",1,1,"sub",?)')->execute([$child,$parent]);
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(?,"Synthetic company source foreign",1,1,"master")')->execute([$foreign]);
         $membership=(int)provisionMembership($actor,$child,'admin',['status'=>'active'])['membership_id'];
+        $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic shared company viewer",1,1,"sub",?)')->execute([$viewer,$parent]);
+        $viewerMembership=(int)provisionMembership($actor,$viewer,'admin',['status'=>'active'])['membership_id'];
+        RBACResolver::grantModule($viewerMembership,'people','write',[$viewer],$actor);
+        $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared")')->execute([$viewer]);
         $identity='/api/admin/integrations/jobdiva_party_review.php';
         $identityBody=['record_type'=>'companies','record_id'=>1,'source_id'=>'1001'];
         $expect($request($identity.'?action=preview',$identityBody,false,$child)[0]===401,'Anonymous company identity preview is denied');
@@ -64,7 +68,8 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
                 $body=['confirm_source'=>true,'fields'=>['phone'],'review_token'=>$review['review_token']];
                 if($mode==='shared'){
                     $before=$read($table,$id);
-                    $expect($request($reviewUrl,null,true,$parent)[0]===404&&$request($acceptUrl,$body,true,$parent)[0]===404&&$read($table,$id)===$before,"$mode $table: sharing a directory does not expose or release another workspace source authority");
+                    $expect($request($route.'?id='.$company,null,true,$viewer)[0]===200,"$mode $table: another workspace editor can access the shared company profile");
+                    $expect($request($reviewUrl,null,true,$viewer)[0]===404&&$request($acceptUrl,$body,true,$viewer)[0]===404&&$read($table,$id)===$before,"$mode $table: sharing a directory does not expose or release another workspace source authority");
                 }
                 foreach([['confirm_source'=>'true'],['fields'=>[]],['fields'=>['tenant_id']],['fields'=>['phone','phone']],['review_token'=>[]]]as$invalid)
                     $expect($request($acceptUrl,array_replace($body,$invalid),true,$child)[0]===422,"$mode $table: malformed selection or confirmation is rejected");
@@ -115,7 +120,9 @@ function companySourceHttpCases(PDO $pdo,int $parent,int $actor,callable $reques
         $pdo->prepare('DELETE FROM entity_sync_history WHERE tenant_id=?')->execute([$child]);
         if($companyIds){$ids=implode(',',array_map('intval',$companyIds));$pdo->exec('DELETE FROM companies WHERE id IN('.$ids.')');$pdo->exec("DELETE FROM core_record_numbers WHERE entity_type='company' AND record_id IN(".$ids.')');}
         if($membership!==null){RBACResolver::revokeModule($membership,'integrations',$actor);RBACResolver::revokeModule($membership,'people',$actor);deactivateMembership($actor,$child);}
+        if($viewerMembership!==null){RBACResolver::revokeModule($viewerMembership,'people',$actor);deactivateMembership($actor,$viewer);}
         $pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=?')->execute([$child]);
-        $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN(990611,990612)');
+        $pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=?')->execute([$viewer]);
+        $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN(990611,990612,990613)');
     }
 }
