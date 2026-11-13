@@ -286,7 +286,7 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
         $st = $pdo->prepare(
             'SELECT 1 FROM staffing_operating_cycles
               WHERE tenant_id = :t AND id = :id AND purpose = :purpose
-                AND cadence = :cadence AND active = 1 LIMIT 1'
+                AND cadence = :cadence AND active = 1 LIMIT 1 FOR UPDATE'
         );
         $st->execute([
             't' => $tenantId,
@@ -324,7 +324,7 @@ function placementEconomicsEnsureDerivedCycles(int $tenantId, array &$placement)
     foreach (['billing','ap','payroll'] as $purpose) {
         $cycleId=(int)($updates[$purpose.'_operating_cycle_id'] ?? $placement[$purpose.'_operating_cycle_id'] ?? 0);
         if (!$cycleId) continue;
-        $bridge=$pdo->prepare('SELECT payroll_pay_cycle_id FROM staffing_operating_cycles WHERE tenant_id=? AND id=? AND purpose=? AND active=1');
+        $bridge=$pdo->prepare('SELECT payroll_pay_cycle_id FROM staffing_operating_cycles WHERE tenant_id=? AND id=? AND purpose=? AND active=1 FOR UPDATE');
         $bridge->execute([$tenantId,$cycleId,$purpose]);$row=$bridge->fetch(PDO::FETCH_ASSOC);
         if (!$row) continue;
         $legacy=empty($row['payroll_pay_cycle_id']) ? null : (int)$row['payroll_pay_cycle_id'];
@@ -359,7 +359,7 @@ function placementEconomicsRepairPrimaryLaborPayee(int $tenantId, int $placement
         'SELECT 1 FROM placement_economic_parties
           WHERE tenant_id = :t AND placement_id = :p AND active = 1
             AND money_flow = "payable" AND fee_basis = "pay_rate"
-          LIMIT 1'
+          LIMIT 1 FOR UPDATE'
     );
     $hasLabor->execute(['t' => $tenantId, 'p' => $placementId]);
     if ($hasLabor->fetchColumn()) return;
@@ -369,7 +369,7 @@ function placementEconomicsRepairPrimaryLaborPayee(int $tenantId, int $placement
           WHERE tenant_id = :t AND placement_id = :p AND active = 1
             AND source_type = "manual" AND settlement_channel = "ap"
             AND money_flow = "payable" AND fee_basis = "none"
-          ORDER BY id'
+          ORDER BY id FOR UPDATE'
     );
     $candidates->execute(['t' => $tenantId, 'p' => $placementId]);
     $ids = array_map('intval', $candidates->fetchAll(\PDO::FETCH_COLUMN) ?: []);
@@ -535,7 +535,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
           LEFT JOIN staffing_clients sc ON sc.id = p.client_id AND sc.tenant_id = p.tenant_id
           LEFT JOIN companies bc ON bc.id = sc.company_id AND bc.tenant_id = :bill_company_owner AND bc.deleted_at IS NULL
           LEFT JOIN tenants t ON t.id = p.tenant_id
-              WHERE p.tenant_id = :t AND p.id = :p LIMIT 1 FOR UPDATE'
+              WHERE p.tenant_id = :t AND p.id = :p AND p.deleted_at IS NULL LIMIT 1 FOR UPDATE'
         );
         $st->execute(['t' => $tenantId, 'p' => $placementId, 'end_company_owner' => $companyOwner, 'bill_company_owner' => $companyOwner]);
         $placement = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
@@ -561,7 +561,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
         if ($apCycleId) {
             $cycleTermsSt = $pdo->prepare(
                 'SELECT default_payment_terms FROM staffing_operating_cycles
-                  WHERE tenant_id = :t AND id = :id AND purpose = "ap" AND active = 1 LIMIT 1'
+                  WHERE tenant_id = :t AND id = :id AND purpose = "ap" AND active = 1 LIMIT 1 FOR UPDATE'
             );
             $cycleTermsSt->execute(['t' => $tenantId, 'id' => $apCycleId]);
             $apCycleTerms = $cycleTermsSt->fetchColumn() ?: null;
@@ -657,7 +657,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             ]);
         }
 
-        $corpSt = $pdo->prepare('SELECT * FROM placement_corp_details WHERE tenant_id = :t AND placement_id = :p LIMIT 1');
+        $corpSt = $pdo->prepare('SELECT * FROM placement_corp_details WHERE tenant_id = :t AND placement_id = :p LIMIT 1 FOR UPDATE');
         $corpSt->execute(['t' => $tenantId, 'p' => $placementId]);
         $corp = $corpSt->fetch(\PDO::FETCH_ASSOC) ?: null;
         $corpName = trim((string) ($corp['corp_legal_name'] ?? ''));
@@ -691,7 +691,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
 
         $chainSt = $pdo->prepare(
             'SELECT * FROM placement_client_chain
-              WHERE tenant_id = :t AND placement_id = :p ORDER BY position, id'
+              WHERE tenant_id = :t AND placement_id = :p ORDER BY position, id FOR UPDATE'
         );
         $chainSt->execute(['t' => $tenantId, 'p' => $placementId]);
         foreach ($chainSt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
@@ -747,7 +747,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
           LEFT JOIN companies c ON c.id = r.referrer_company_id AND c.tenant_id = :company_owner AND c.deleted_at IS NULL
           LEFT JOIN people pe ON pe.id = r.referrer_person_id AND pe.tenant_id = :person_owner AND pe.deleted_at IS NULL
           LEFT JOIN users u ON u.id = r.referrer_user_id
-              WHERE r.tenant_id = :t AND r.placement_id = :p'
+              WHERE r.tenant_id = :t AND r.placement_id = :p FOR UPDATE'
         );
         $refSt->execute(['t' => $tenantId, 'p' => $placementId, 'company_owner' => $companyOwner, 'person_owner'=>$peopleOwner]);
         foreach ($refSt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
@@ -797,7 +797,7 @@ function placementEconomicsReconcile(int $tenantId, int $placementId, array $opt
             'SELECT pc.*, u.name AS user_name
                FROM placement_commissions pc
           LEFT JOIN users u ON u.id = pc.user_id
-              WHERE pc.tenant_id = :t AND pc.placement_id = :p'
+              WHERE pc.tenant_id = :t AND pc.placement_id = :p FOR UPDATE'
         );
         $commSt->execute(['t' => $tenantId, 'p' => $placementId]);
         foreach ($commSt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {

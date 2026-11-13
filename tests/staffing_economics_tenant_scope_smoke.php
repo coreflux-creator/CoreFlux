@@ -8,7 +8,17 @@ require_once __DIR__ . '/../modules/placements/lib/economics.php';
 class StaffingScopePDO extends PDO
 {
     public array $placementLookups = [];
+    private bool $transaction = false;
     public function __construct() {}
+    public function inTransaction(): bool { return $this->transaction; }
+    public function beginTransaction(): bool { $this->transaction=true; return true; }
+    public function commit(): bool { $this->transaction=false; return true; }
+    public function rollBack(): bool { $this->transaction=false; return true; }
+    public function exec(string $statement): int|false
+    {
+        if(!preg_match('/^(?:SAVEPOINT |RELEASE SAVEPOINT |ROLLBACK TO SAVEPOINT )/',$statement))throw new RuntimeException('Unexpected statement in scope regression');
+        return 0;
+    }
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
         return new StaffingScopeStatement($this, $query);
@@ -23,11 +33,12 @@ class StaffingScopeStatement extends PDOStatement
     {
         $params ??= [];
         if (str_contains($this->sql, 'FROM tenants')) {
-            $id = (int) $params['id'];
-            $this->row = ['id' => $id, 'parent_id' => $id === 1 ? null : 1,
-                'tenant_type' => $id === 1 ? 'master' : 'sub'];
+            $id = (int) ($params['id'] ?? $params[0]);
+            $this->row = str_contains($this->sql,'SELECT is_active') ? ['is_active'=>1]
+                : ['id' => $id, 'parent_id' => $id === 1 ? null : 1,
+                    'tenant_type' => $id === 1 ? 'master' : 'sub', 'is_active'=>1];
         } elseif (str_contains($this->sql, 'FROM tenant_module_scope')) {
-            $this->row = $params['t'] === 3 ? ['scope_mode' => 'isolated'] : false;
+            $this->row = ($params['t'] ?? $params[0]) === 3 ? ['scope_mode' => 'isolated'] : false;
         } elseif (str_contains($this->sql, 'FROM placements p')) {
             $this->db->placementLookups[] = $params;
             // No matching placement: the graph must stop, never broaden scope.
@@ -41,6 +52,7 @@ class StaffingScopeStatement extends PDOStatement
     {
         return $this->row;
     }
+    public function fetchColumn(int $column = 0): mixed { return $this->row === false ? false : (array_values($this->row)[$column] ?? false); }
 }
 
 $pdo = new StaffingScopePDO();
@@ -64,7 +76,7 @@ foreach ([1 => 1, 2 => 1, 3 => 3] as $activeTenant => $graphTenant) {
         && end($pdo->placementLookups) === $expectedLookup);
     $assert("tenant $activeTenant preserves not-found and authenticated context",
         !$result['available'] && $result['reconcile']['errors'] === ['placement not found']
-        && currentTenantId() === $activeTenant);
+        && currentTenantId() === $activeTenant && !$pdo->inTransaction());
     placementEconomicsReconcile($activeTenant, 810);
     $assert("direct reconciliation for tenant $activeTenant uses graph scope",
         end($pdo->placementLookups) === $expectedLookup);

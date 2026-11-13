@@ -65,6 +65,7 @@ if(($argv[1]??'')==='worker'){
                 'client_repair'=>jobdivaRepairPlacementClientLink($input['workspace'],$input['mapping_id'],$input['actor']),
                 'native_placement'=>nativePlacementRaceWrite($input),
                 'assignment_source'=>assignmentSourceRaceWrite($input),
+                'economic_graph'=>['id'=>$input['placement_id']]+placementEconomicsReconcile($input['workspace'],$input['placement_id']),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -411,6 +412,24 @@ try{
     $parties=array_column(placementEconomicsParties($tenant,$placement),null,'source_ref');
     $check($result['ok']&&(int)$parties['placement:bill_to']['company_id']===$a&&$read('companies',$b)['deleted_at']!==null,'Old transaction snapshot cannot revive a merged debtor through full projection or derived economics');
 
+    [$a,$b,$placement,$input]=$projectionFixture('derived-old-snapshot',$tenant);
+    $pdo->prepare('UPDATE placements SET engagement_type="c2c" WHERE id=?')->execute([$placement]);
+    $pdo->prepare('INSERT INTO placement_corp_details(tenant_id,placement_id,company_id,corp_legal_name) VALUES(?,?,?,?)')->execute([$tenant,$placement,$b,'Synthetic graph corporation']);
+    $pdo->prepare('INSERT INTO placement_client_chain(tenant_id,placement_id,position,party_role,party_name,company_id,is_payable,portal_fee_flat) VALUES(?,?,9,"prime_vendor","Synthetic graph fee",?,1,10)')->execute([$tenant,$placement,$b]);$chain=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO placement_referrals(tenant_id,placement_id,referrer_type,referrer_company_id,referrer_vendor_name,fee_basis,fee_flat,start_date) VALUES(?,?,"vendor",?,"Synthetic graph referral","per_hour",1,"2026-11-01")')->execute([$tenant,$placement,$b]);$referral=(int)$pdo->lastInsertId();
+    $check(placementEconomicsReconcile($tenant,$placement)['available'],'Derived graph race starts with valid corporation, chain and referral recipients');
+    $worker=$spawn(['mode'=>'native','entity'=>'economic_graph','workspace'=>$tenant,'actor'=>$actor,'placement_id'=>$placement,'snapshot'=>true]);$snapshot=$line($workers[$worker]['pipes'][1]);
+    $check(!empty($snapshot['snapshot']),'Derived graph transaction snapshot predates company merge and changed source terms');
+    $review=companyMergePreview($tenant,$user,$a,$b);companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+    $pdo->prepare('UPDATE placement_client_chain SET portal_fee_flat=17 WHERE id=?')->execute([$chain]);
+    $pdo->prepare('UPDATE placement_referrals SET fee_flat=3 WHERE id=?')->execute([$referral]);
+    fwrite($workers[$worker]['pipes'][0],'CONTINUE'.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$result=$finish($worker);
+    $parties=array_column(placementEconomicsParties($tenant,$placement),null,'source_ref');
+    $check($result['ok']&&!empty($result['result']['available'])&&(int)$parties['corp:'.$placement]['company_id']===$a
+        &&(int)$parties['chain:'.$chain]['company_id']===$a&&(float)$parties['chain:'.$chain]['fee_flat']===17.0
+        &&(int)$parties['referral:'.$referral]['company_id']===$a&&(float)$parties['referral:'.$referral]['fee_flat']===3.0,
+        'Derived graph uses current corporation, chain and referral identities and terms despite an older snapshot');
+
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -419,7 +438,7 @@ try{
 }finally{
     if($pdo->inTransaction())$pdo->rollBack();
     foreach($workers as&$worker)if(!$worker['closed']){proc_terminate($worker['handle']);foreach($worker['pipes']as$pipe)if(is_resource($pipe))fclose($pipe);proc_close($worker['handle']);}unset($worker);
-    foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+    foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','ap_vendors_index','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     if($actor!==null)$pdo->prepare('DELETE FROM users WHERE tenant_id=? AND id=?')->execute([$tenant,$actor]);
     foreach($createdTenants as$createdTenant)$pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$createdTenant]);
