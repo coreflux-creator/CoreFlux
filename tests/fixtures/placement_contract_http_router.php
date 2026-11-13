@@ -29,7 +29,7 @@ if (in_array($path,['/modules/placements/api/documents.php','/modules/people/api
     \Core\StorageService::reset($driver);
 }
 if ($path === '/api/jobdiva.php') {
-    if (($_GET['action'] ?? '') !== 'assignment_contracts_batch') { http_response_code(404); exit; }
+    if (!in_array($_GET['action'] ?? '', ['assignment_contracts_batch','review_assignment_contracts_batch'], true)) { http_response_code(404); exit; }
     require __DIR__.'/live_contract_http_transport.php';
 }
 $script = dirname(__DIR__, 2) . $path;
