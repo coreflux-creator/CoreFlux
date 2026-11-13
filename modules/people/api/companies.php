@@ -348,13 +348,13 @@ if ($method === 'POST' && $action === 'add-address') {
     $allowedKinds = ['hq','billing','remit_to','worksite','mailing'];
     if (!in_array($kind, $allowedKinds, true)) api_error("invalid kind: {$kind}", 422);
 
+    $aid=companySourceWithRecord(getDB(),$tid,'companies',$id,static function(array $row)use($ctx,$tid,$id,$body,$user,$kind):int{
     if (!empty($body['is_primary'])) {
         // Demote any existing primary of the same kind so there's at most one.
-        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         getDB()->prepare(
             'UPDATE company_addresses SET is_primary = 0
-             WHERE company_id = :c AND kind = :k'
-        )->execute(['c' => $id, 'k' => $kind]);
+             WHERE tenant_id=:owner AND company_id = :c AND kind = :k'
+        )->execute(['owner'=>$tid,'c' => $id, 'k' => $kind]);
     }
     $aid = scopedInsert('company_addresses', [
         'tenant_id'   => $tid,
@@ -370,7 +370,9 @@ if ($method === 'POST' && $action === 'add-address') {
         'is_primary'  => !empty($body['is_primary']) ? 1 : 0,
         'notes'       => $body['notes']       ?? null,
     ]);
-    companiesAudit('company.address.added', ['company_id' => $id, 'address_id' => $aid, 'kind' => $kind], $id);
+    companySourceAudit(getDB(),(int)$ctx['tenant_id'],$tid,'companies',$id,'company.address.added',array_keys($body),(int)$user['id'],['address_id'=>$aid,'kind'=>$kind]);
+    return $aid;
+    });
     api_ok(['address_id' => $aid, 'addresses' => companyAddresses($id)], 201);
 }
 

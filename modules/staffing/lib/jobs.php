@@ -84,6 +84,14 @@ function staffingJobFindBySource(int $tenantId, string $sourceSystem, string $ex
 
 function staffingJobEnsureFromJobDivaPayload(int $tenantId, string $externalId, array $payload, ?int $actorUserId = null): array
 {
+    require_once __DIR__.'/../../../core/jobdiva/party_sync.php';
+    return jobdivaPartyAtomic(static fn(PDO $pdo):array=>staffingJobEnsureFromJobDivaPayloadLocked($tenantId,$externalId,$payload,$actorUserId));
+}
+
+/** Keep the company identity locked until the job reference is saved. */
+function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $externalId, array $payload, ?int $actorUserId): array
+{
+    if(!getDB()->inTransaction())throw new LogicException('A job company write requires an active transaction.');
     $externalId = trim($externalId);
     if ($externalId === '') throw new \InvalidArgumentException('job external id required');
 
@@ -101,7 +109,7 @@ function staffingJobEnsureFromJobDivaPayload(int $tenantId, string $externalId, 
         $mapped = mappingFindInternal($tenantId, 'jobdiva', 'company', $companyExtId);
         if ($mapped) {
             require_once __DIR__.'/../../../core/jobdiva/party_sync.php';
-            $companyId = jobdivaCompanyCanonicalId($tenantId,(int)$mapped['internal_entity_id']);
+            $companyId = jobdivaCompanyCanonicalId($tenantId,(int)$mapped['internal_entity_id'],true);
         }
     }
 

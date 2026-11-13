@@ -6,7 +6,7 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
     $child=990662;$foreign=990663;$membership=null;$companyIds=[];$vendorIds=[];$trigger=false;
     $previewUrl='/modules/people/api/companies.php?action=merge_preview';$applyUrl='/modules/people/api/companies.php?action=merge';
     $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
-    $choices=static fn(array $review):array=>['fields'=>array_fill_keys($review['fields'],'survivor'),'custom_fields'=>[],'primary_contact_id'=>0,'primary_addresses'=>[]];
+    $choices=static fn(array $review):array=>['fields'=>array_fill_keys($review['fields'],'survivor'),'custom_fields'=>[],'primary_contact_id'=>0,'primary_addresses'=>array_fill_keys(array_unique(array_column($review['addresses'],'kind')),0)];
     try{
         if($pdo->query('SELECT id FROM tenants WHERE id IN(990662,990663)')->fetchColumn())throw new RuntimeException('Company merge HTTP fixture already exists');
         $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic merge HTTP child",1,1,"sub",?)')->execute([$child,$parent]);
@@ -32,6 +32,17 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             [$a,$b]=$pair;$companyIds=array_merge($companyIds,$pair);
             $pdo->prepare('INSERT INTO companies(tenant_id,name) VALUES(?,?)')->execute([$foreign,'Foreign merge '.$mode]);$other=(int)$pdo->lastInsertId();$companyIds[]=$other;
             $pdo->prepare('INSERT INTO ap_vendors_index(tenant_id,vendor_name,company_id) VALUES(?,?,?)')->execute([$apOwner,'Merge vendor '.$mode,$b]);$vendor=(int)$pdo->lastInsertId();$vendorIds[]=$vendor;
+            $pdo->prepare('INSERT INTO company_addresses(tenant_id,company_id,line1,city,kind,is_primary) VALUES(?,?,"Private foreign street","Foreign city","hq",1)')->execute([$foreign,$a]);$foreignAddress=(int)$pdo->lastInsertId();
+            $addressUrl='/modules/people/api/companies.php?action=add-address&id='.$a;
+            $addressBody=['line1'=>'Reviewed street','city'=>'Reviewed city','kind'=>'hq','is_primary'=>true];
+            [$status,$added]=$request($addressUrl,$addressBody,true,$child);
+            $expect($status===201&&(int)$read('company_addresses',$foreignAddress)['is_primary']===1&&count($added['addresses'])===1,"$mode: adding a primary address never demotes or reveals another tenant's inconsistent row");
+            $addressId=(int)$added['address_id'];$addressBefore=$read('company_addresses',$addressId);
+            $pdo->exec("CREATE TRIGGER company_merge_http_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='company.address.added' AND NEW.tenant_id=990662 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic address audit failure'; END IF; END");$trigger=true;
+            $expect($request($addressUrl,$addressBody,true,$child)[0]===500&&$read('company_addresses',$addressId)===$addressBefore,"$mode: address audit failure rolls back the previous primary demotion");
+            $q=$pdo->prepare('SELECT COUNT(*) FROM company_addresses WHERE tenant_id=? AND company_id=?');$q->execute([$owner,$a]);$expect((int)$q->fetchColumn()===1,"$mode: address audit failure leaves no inserted address");
+            $pdo->exec('DROP TRIGGER company_merge_http_audit_failure');$trigger=false;
+            $pdo->prepare('DELETE FROM company_addresses WHERE tenant_id=? AND id=?')->execute([$foreign,$foreignAddress]);
             mappingUpsert($child,'purepay','company','merge-http-'.$mode,$b,['preserved'=>true],'pull',$actor);
             // Another workspace's source metadata is retained internally, not disclosed.
             mappingUpsert($parent,'jobdiva','company','private-other-workspace-'.$mode,$b,['preserved'=>true],'pull',$actor);
