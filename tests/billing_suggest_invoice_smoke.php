@@ -125,7 +125,7 @@ $a('imports SuggestInvoiceModal',
 $a('renders Suggest invoice button',
     str_contains($ptab, 'data-testid="placement-timesheets-suggest-invoice"'));
 $a('invoice preparation is disabled when no approved unbilled time exists',
-    str_contains($ptab, 'const canPrepareInvoice = !loading && unbilledBillableHours > 0')
+    str_contains($ptab, 'const canPrepareInvoice = available && !historical && unbilledBillableHours > 0')
     && str_contains($ptab, 'disabled={!canPrepareInvoice}'));
 $a('current-week link carries worker and placement context',
     str_contains($ptab, "weekParams.set('person_id'")

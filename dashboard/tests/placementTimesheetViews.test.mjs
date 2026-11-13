@@ -45,6 +45,11 @@ test('current placement tab retains invoice and weekly-grid actions', async () =
   try { assert.equal(id(tree, 'placement-timesheets-suggest-invoice')[0].props.disabled, false); assert.equal(id(tree, 'placement-timesheets-create-new').length, 2); }
   finally { act(() => tree.unmount()); }
 });
+test('current placement without approved unbilled hours cannot prepare an invoice', async () => {
+  view = data(false); view.rows = [{ ...row, unbilled_billable_hours: 0 }]; failure = null; pin = '2002'; const tree = await open(Tab);
+  try { assert.equal(id(tree, 'placement-timesheets-suggest-invoice')[0].props.disabled, true); }
+  finally { act(() => tree.unmount()); }
+});
 for (const mode of ['wrong-placement', 'wrong-workspace', 'revoked']) test(`placement tab conceals stale rows and actions after ${mode}`, async () => {
   view = data(false); failure = null; pin = '2002';
   if (mode === 'wrong-placement') view.placement_id = 903;

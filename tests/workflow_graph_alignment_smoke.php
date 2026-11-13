@@ -109,10 +109,16 @@ $a('profitability reports join placement/people graphs explicitly',
     && str_contains($reports[2], 'pl.tenant_id = :placements_tid'));
 
 $staffingApi = $c('modules/staffing/api/timesheets.php');
+$placementTimeReader = $c('modules/staffing/lib/placement_timesheets.php');
 $classification = $c('modules/staffing/api/classification_mix.php');
 $a('staffing pickers and ready tiles consume people/placement graph tenants',
-    substr_count($staffingApi, ':placements_tid') >= 4
-    && substr_count($staffingApi, ':people_tid') >= 4);
+    str_contains($staffingApi, 'pl.tenant_id = :placements_tid')
+    && str_contains($staffingApi, 'p.tenant_id = :people_tid')
+    && str_contains($staffingApi, 'staffingPlacementTimesheets($tenantId,')
+    && str_contains($placementTimeReader, "companyRelationshipScope(\$pdo,\$workspace,'people')")
+    && str_contains($placementTimeReader, "companyRelationshipScope(\$pdo,\$workspace,'placements')")
+    && str_contains($placementTimeReader, 'pl.tenant_id=:owner')
+    && str_contains($placementTimeReader, 'p.tenant_id=:people_owner'));
 $a('classification mix reads engagement type from placement graph',
     str_contains($classification, 'pl.tenant_id = :placements_tid')
     && str_contains($classification, 'p.tenant_id = :people_tid'));
