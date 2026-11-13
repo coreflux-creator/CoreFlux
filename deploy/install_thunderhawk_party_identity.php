@@ -4,7 +4,7 @@ declare(strict_types=1);
 const JI_ROOT = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html';
 const JI_PRIVATE = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/thunderhawk-pilot-20261030';
 const JI_FEATURE = '/home/1516771.cloudwaysapps.com/muzqvdvqbx/private_html/coreflux.thunderhawk-pilot.php';
-const JI_FILES = ['core/jobdiva/party_review.php', 'core/jobdiva/projector.php', 'api/admin/integrations/jobdiva_party_review.php', 'modules/people/api/companies.php', 'modules/people/ui/DirectoryModule.jsx', 'modules/people/ui/CompanySourceLink.jsx', 'dashboard/dist/index.html', 'index.html', 'spa-assets/index.html', 'spa-assets/sw.js', 'spa-assets/index-XGkCfVEm.js', 'spa-assets/index-CHISaQPV.js'];
+const JI_FILES = ['core/jobdiva/party_review.php', 'core/jobdiva/projector.php', 'api/admin/integrations/jobdiva_party_review.php', 'modules/people/api/companies.php', 'modules/people/ui/DirectoryModule.jsx', 'modules/people/ui/CompanySourceLink.jsx', 'dashboard/dist/index.html', 'index.html', 'spa-assets/index.html', 'spa-assets/sw.js', 'spa-assets/index-Dle_0bH0.js', 'spa-assets/index-vRq3HfjC.js'];
 if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'staging' || getcwd() !== JI_ROOT
     || posix_geteuid() !== 1003 || realpath(JI_PRIVATE) !== JI_PRIVATE
     || !in_array($argv[1] ?? '', ['--inspect-party-identity', '--install-party-identity'], true)
@@ -64,7 +64,7 @@ try{
   $request=['record_type'=>'companies','record_id'=>1,'source_id'=>'123'];
   if(jobdivaPartyReviewRequest($request)!==$request)throw new RuntimeException();
   $source=jobdivaPartyReviewSource(2002,$request,static fn()=>[['COMPANYID'=>'123','COMPANYNAME'=>'Synthetic identity probe']]);
-  if($source!==['id'=>'123','name'=>'Synthetic identity probe','phone'=>null])throw new RuntimeException();
+  if($source!==['id'=>'123','name'=>'Synthetic identity probe'])throw new RuntimeException();
   $rejected=false;try{jobdivaPartyReviewRequest($request+['owner'=>999]);}catch(InvalidArgumentException $e){$rejected=true;}
   if(!$rejected)throw new RuntimeException();
  }

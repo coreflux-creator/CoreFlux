@@ -7,11 +7,11 @@ const require = createRequire(import.meta.url), React = require('react');
 const { create, act } = require('react-test-renderer');
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../../modules/people/ui/CompanySourceLink.jsx', import.meta.url))], bundle: true, platform: 'node', format: 'cjs', write: false, external: ['react'], plugins: [{ name: 'fixture', setup(b) { b.onResolve({ filter: /lib\/api$/ }, () => ({ path: 'fixture-api', external: true })); } }] });
 const text = node => typeof node === 'string' ? node : (node.children || []).map(text).join('');
-async function fixture({ error = null, saved = false, recordType = 'companies' } = {}) {
+async function fixture({ error = null, saved = false, recordType = 'companies', omitPhone = false, sourcePhone = 'Source phone' } = {}) {
   const module = { exports: {} }, calls = []; let linked = 0;
   const mock = { api: { async post(path, body) {
     calls.push({ path, body });
-    if (path.endsWith('preview')) return { review_token: 'opaque-review', source: { id: body.source_id, name: 'Source name', phone: 'Source phone', email: 'source@example.invalid', company_id: '1001' }, target: { company_number: 'CO-10', company_id: 10, company_name: 'Core company', name: 'Core name', phone: 'Core phone', email: 'core@example.invalid' } };
+    if (path.endsWith('preview')) return { review_token: 'opaque-review', source: { id: body.source_id, name: 'Source name', ...(!omitPhone ? { phone: sourcePhone } : {}), email: 'source@example.invalid', company_id: '1001' }, target: { company_number: 'CO-10', company_id: 10, company_name: 'Core company', name: 'Core name', phone: 'Core phone', email: 'core@example.invalid' } };
     const result = { source_id: '1001', record_id: 10 };
     if (path.endsWith('status')) return { state: saved ? 'applied' : 'not_applied', result: saved ? result : null };
     if (error) throw new Error(error);
@@ -55,6 +55,15 @@ test('contact review displays parent proof and uses the contact record type', as
     assert.match(text(f.tree.toJSON()), /1001 · already linked to this Core company/);
     assert.match(text(f.tree.toJSON()), /core@example.invalid/); assert.match(text(f.tree.toJSON()), /source@example.invalid/);
   } finally { f.close(); }
+});
+test('missing source phone is displayed differently from an explicit blank', async () => {
+  for (const [options, expected] of [[{ omitPhone: true }, 'Not provided'], [{ sourcePhone: null }, 'Blank']]) {
+    const f = await fixture(options); try {
+      await f.preview();
+      const row = f.tree.root.findAllByType('tr').find(n => text(n).startsWith('Phone'));
+      assert.equal(text(row.findAllByType('td')[1]), expected);
+    } finally { f.close(); }
+  }
 });
 test('failed or stale commit remains reviewable and does not claim completion', async () => {
   const f = await fixture({ error: 'The Core record changed. Preview again.' }); try {

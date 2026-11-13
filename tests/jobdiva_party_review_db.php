@@ -43,6 +43,9 @@ try{
     $source['id']='9999';$check($fails($preview,'conflicting'),'Conflicting source aliases rejected');unset($source['id']);
     $source['companyId']='9999';$check($fails($preview,'different record ID'),'Unexpected source identity rejected');$source['companyId']='1001';
     $check($fails(fn()=>jobdivaPartyReviewPreview($tenant,$actor,$request,fn()=>[$source,$source]),'exactly one'),'Ambiguous source result rejected');
+    $absent=jobdivaPartyReviewSource($tenant,$request,fn()=>[['companyId'=>'1001','name'=>'Missing optional phone']]);
+    $blank=jobdivaPartyReviewSource($tenant,$request,fn()=>[['companyId'=>'1001','name'=>'Explicit blank phone','phone'=>null]]);
+    $check(!array_key_exists('phone',$absent)&&array_key_exists('phone',$blank)&&$blank['phone']===null,'Missing optional source fields remain distinct from explicit blanks');
     $source['phone']='Changed after preview';$check($fails(fn()=>$apply($p),'identity changed'),'Source changes invalidate the reviewed identity');$source['phone']='Source phone';
     $pdo->prepare('UPDATE companies SET phone="Intervening edit" WHERE id=?')->execute([$company]);
     $check($fails(fn()=>$apply($p),'Core record'),'Intervening native edits invalidate review');$pdo->prepare('UPDATE companies SET phone="Core phone" WHERE id=?')->execute([$company]);
@@ -96,6 +99,7 @@ try{
     $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=?')->execute([$child]);
     $sp=jobdivaPartyReviewPreview($child,$actor,$sharedRequest,$reader);jobdivaPartyReviewApply($child,$actor,$sp['review_token'],$reader);
     $check((int)mappingFindInternal($child,'jobdiva','company','4001')['internal_entity_id']===$shared&&(int)$row('companies',$shared)['tenant_id']===$tenant,'Shared directory data keeps the source identity in its authorized workspace');
+    $check(!array_key_exists('phone',companySourceState($row('companies',$shared),'companies')['proposed']),'Missing source phone does not become a proposal to clear the Core value');
     $check($fails(fn()=>jobdivaPartyReviewPreview($tenant,$actor,$sharedRequest,$reader),'another source authority'),'A different workspace cannot take source authority over the shared company');
     mappingUpsert($tenant,'jobdiva','company','4001',$shared,null,'pull',$actor);
     $check($fails(fn()=>jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'4001','name'=>'Shared Core company'],$actor),'another source authority'),'Assignment projection rejects competing source authority even when the company name matches');

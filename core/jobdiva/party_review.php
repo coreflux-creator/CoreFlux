@@ -54,6 +54,12 @@ function jobdivaPartyReviewValue(array $row,array $aliases,bool $required=false)
     return $values[0]??null;
 }
 
+function jobdivaPartyReviewHasField(array $row,array $aliases): bool
+{
+    foreach(array_keys($row)as$key)if(in_array(strtolower((string)preg_replace('/[^a-z0-9]/i','',(string)$key)),$aliases,true))return true;
+    return false;
+}
+
 /** Optional reader is an internal test dependency; the API never accepts one. */
 function jobdivaPartyReviewSource(int $workspace,array $request,?callable $reader=null): array
 {
@@ -68,8 +74,12 @@ function jobdivaPartyReviewSource(int $workspace,array $request,?callable $reade
     $name=jobdivaPartyReviewValue($row,$company?['name','companyname']:['name','fullname','contactname']);
     if(!$name&&!$company)$name=trim((jobdivaPartyReviewValue($row,['firstname'])??'').' '.(jobdivaPartyReviewValue($row,['lastname'])??''));
     if(!$name)throw new RuntimeException('The JobDiva record has no usable name for review.',409);
-    $source=['id'=>$id,'name'=>$name,'phone'=>jobdivaPartyReviewValue($row,['phone','phonenumber','mainphone'])];
-    if(!$company){$source['email']=jobdivaPartyReviewValue($row,['email','emailaddress']);$source['company_id']=jobdivaPartyReviewValue($row,['companyid','clientid'],true);}
+    $source=['id'=>$id,'name'=>$name];
+    if(jobdivaPartyReviewHasField($row,['phone','phonenumber','mainphone']))$source['phone']=jobdivaPartyReviewValue($row,['phone','phonenumber','mainphone']);
+    if(!$company){
+        if(jobdivaPartyReviewHasField($row,['email','emailaddress']))$source['email']=jobdivaPartyReviewValue($row,['email','emailaddress']);
+        $source['company_id']=jobdivaPartyReviewValue($row,['companyid','clientid'],true);
+    }
     return $source;
 }
 

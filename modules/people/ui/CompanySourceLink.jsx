@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
 const endpoint = '/api/admin/integrations/jobdiva_party_review.php';
+const sourceValue = value => value === undefined ? 'Not provided' : value || 'Blank';
 export default function CompanySourceLink({ id, recordType = 'companies', onLinked }) {
   const [open, setOpen] = useState(false);
   const [sourceId, setSourceId] = useState('');
@@ -53,8 +54,8 @@ export default function CompanySourceLink({ id, recordType = 'companies', onLink
           <tbody>
             <tr><th>Reference</th><td>{review.target.company_number || `Company #${review.target.company_id}`}{recordType === 'company_contacts' ? ` · Contact #${id}` : ''}</td><td>{review.source.id}</td></tr>
             <tr><th>Name</th><td>{review.target.name}</td><td>{review.source.name}</td></tr>
-            <tr><th>Phone</th><td>{review.target.phone || 'Blank'}</td><td>{review.source.phone || 'Blank'}</td></tr>
-            {recordType === 'company_contacts' && <><tr><th>Email</th><td>{review.target.email || 'Blank'}</td><td>{review.source.email || 'Blank'}</td></tr><tr><th>Company</th><td>{review.target.company_name}</td><td>{review.source.company_id} · already linked to this Core company</td></tr></>}
+            <tr><th>Phone</th><td>{review.target.phone || 'Blank'}</td><td>{sourceValue(review.source.phone)}</td></tr>
+            {recordType === 'company_contacts' && <><tr><th>Email</th><td>{review.target.email || 'Blank'}</td><td>{sourceValue(review.source.email)}</td></tr><tr><th>Company</th><td>{review.target.company_name}</td><td>{review.source.company_id} · already linked to this Core company</td></tr></>}
           </tbody></table></div>
         {review.target.already_linked && <p>These exact identities are already linked. Confirming again preserves the existing link and field ownership.</p>}
         <label style={{ display: 'block', marginTop: 12 }}><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} /> I reviewed both records and confirm they represent the same {recordType === 'companies' ? 'company' : 'contact'}.</label>
