@@ -55,7 +55,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     rbac_legacy_require($user, 'people.view');
     $row = companiesGet((int) $_GET['id']);
     if (!$row) api_error('Not found', 404);
-    api_ok(['company' => $row]);
+    api_ok(['company' => $row, 'can_review_source'=>rbac_legacy_can($user,'people.manage')]);
 }
 
 if ($method === 'GET' && $action === 'duplicates') {

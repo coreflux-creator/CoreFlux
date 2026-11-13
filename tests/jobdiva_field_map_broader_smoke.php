@@ -20,7 +20,7 @@
  */
 declare(strict_types=1);
 
-require_once '/app/core/integrations/field_map.php';
+require_once dirname(__DIR__).'/core/integrations/field_map.php';
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -81,7 +81,7 @@ foreach ([
 $a('contact allow-list excludes source-owned external_id', !in_array('external_id', $contact, true));
 
 echo "\n5. Placement syncer wire-in (jobdivaSyncUpsertPlacement)\n";
-$sync = (string) file_get_contents('/app/core/jobdiva/sync.php');
+$sync = str_replace("\r\n","\n",(string) file_get_contents(dirname(__DIR__).'/core/jobdiva/sync.php'));
 $a('resolves client_bill_cycle via registry',
    str_contains($sync, "tenantIntegrationFieldMapPluckInternal(\n        \$tid, 'jobdiva', 'placement', 'client_bill_cycle', \$jd,"));
 $a('resolves vendor_pay_cycle via registry',
@@ -121,22 +121,22 @@ $a('decision_role coerces unknown values to "unknown"',
    str_contains($sync, "\$decisionRoleMap[strtolower(trim(\$decisionRoleRaw))] ?? 'unknown'"));
 $a('is_active treats inactive synonyms as 0',
    str_contains($sync, "['0', 'false', 'no', 'n', 'inactive', 'disabled']"));
-$a('contact UPDATE writes mobile_phone + linkedin_url + department + decision_role + is_active',
-   str_contains($sync, 'mobile_phone = :mp')
-   && str_contains($sync, 'linkedin_url = :lu')
-   && str_contains($sync, 'department = :dp')
-   && str_contains($sync, 'decision_role = :dr')
-   && str_contains($sync, 'is_active = :ia'));
-$a('contact INSERT writes the new columns',
-   str_contains($sync, 'mobile_phone, linkedin_url, department, decision_role, is_active'));
+$ownership=(string)file_get_contents(dirname(__DIR__).'/modules/people/lib/company_source_ownership.php');
+$party=(string)file_get_contents(dirname(__DIR__).'/core/jobdiva/party_sync.php');
+foreach (['mobile_phone','linkedin_url','department','decision_role','is_active'] as $field) {
+    $a("contact proposal and controlled writer support $field", str_contains($sync,"'$field'=>") && str_contains($ownership,"'$field'"));
+}
+$a('contact values reach ownership-controlled persistence',
+    str_contains($sync,'jobdivaContactUpsertStable($tid,$companyId,$externalId,$jd,$name,$values,$userId)')
+    && str_contains($party,"companySourceObserve(\$pdo,\$owner,'company_contacts',\$id,\$values+['name'=>\$name]"));
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/core/integrations/field_map.php',
-    '/app/core/jobdiva/sync.php',
+    dirname(__DIR__).'/core/integrations/field_map.php',
+    dirname(__DIR__).'/core/jobdiva/sync.php',
 ] as $f) {
     $out = []; $rc = 0;
-    exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
+    exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
     $a("php -l {$f}", $rc === 0, implode("\n", $out));
 }
 

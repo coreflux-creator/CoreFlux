@@ -4247,12 +4247,56 @@ function jobdivaApplyStoredAssignmentProjection(
     ];
     // Resolve saved C2C identity evidence inside the same transaction.
     // Stored review never performs a remote fetch while locks are held.
+    $resolvedSubcontractCompanies = [];
     foreach (array_keys($selected) as $startId) {
         $contract = $rowsByStart[$startId]['contract']['source_contract'] ?? [];
         $companyExternalId = jobdivaAssignmentSubcontractCompanyId(['_jd_contract' => $contract]);
         $retainsCorePayee = ($rowsByStart[$startId]['contract']['subcontract_company']['source'] ?? '') === 'core_owned';
         if ($companyExternalId !== '' && !$retainsCorePayee) {
+            // This repair is available only after the selected assignment and its
+            // complete review token have been validated above. Ordinary imports
+            // must never redirect an existing source identity.
+            $reviewedCompany = $rowsByStart[$startId]['contract']['subcontract_company'];
+            if (isset($resolvedSubcontractCompanies[$companyExternalId])) {
+                if (!hash_equals($resolvedSubcontractCompanies[$companyExternalId], (string)$reviewedCompany['evidence_hash'])) {
+                    throw new RuntimeException('Selected assignments disagree about the same subcontract company. Review their source evidence.', 409);
+                }
+                continue;
+            }
+            $evidence = jobdivaStoredSubcontractCompanyEvidence($tenantId, $companyExternalId, $contract);
+            if (!$evidence['available'] || !hash_equals((string)$reviewedCompany['evidence_hash'], (string)$evidence['evidence_hash'])) {
+                throw new RuntimeException('Subcontract company evidence changed after preview.', 409);
+            }
+            $binding = mappingFindInternal($tenantId, 'jobdiva', 'company', $companyExternalId);
+            if ($binding && $evidence['company_id'] === null) {
+                $owner = companiesDirectoryTenantId($tenantId);
+                $oldId = (int)$binding['internal_entity_id'];
+                $q = $pdo->prepare('SELECT tenant_id FROM companies WHERE id=? FOR UPDATE');
+                $q->execute([$oldId]);
+                $oldOwner = $q->fetchColumn();
+                // A retired or placeholder company in our directory retains its
+                // identity. It needs its own explicit restore/ownership review.
+                if ($oldOwner !== false && (int)$oldOwner === $owner) {
+                    throw new RuntimeException('Review the existing Core company before applying this assignment.', 409);
+                }
+                $q = $pdo->prepare('SELECT id FROM companies WHERE tenant_id=? AND name=? FOR UPDATE');
+                $q->execute([$owner, $evidence['name']]);
+                if ($q->fetchColumn()) throw new RuntimeException('Review and link the existing Core company before repairing this source identity.', 409);
+                $pdo->prepare('INSERT INTO companies(tenant_id,name,country,created_by_user_id) VALUES(?,?,?,?)')
+                    ->execute([$owner, $evidence['name'], 'US', $userId]);
+                $newId = (int)$pdo->lastInsertId();
+                $q = $pdo->prepare('UPDATE external_entity_mappings SET internal_entity_id=? WHERE tenant_id=? AND id=? AND internal_entity_id=?');
+                $q->execute([$newId, $tenantId, $binding['id'], $oldId]);
+                if ($q->rowCount() !== 1) throw new RuntimeException('Company source binding changed after preview.', 409);
+                require_once __DIR__.'/../../modules/people/lib/company_source_ownership.php';
+                companySourceObserve($pdo, $owner, 'companies', $newId, ['name'=>$evidence['name']],
+                    ['system'=>'jobdiva','workspace_id'=>$tenantId,'external_id'=>$companyExternalId], true);
+                companySourceAudit($pdo, $tenantId, $owner, 'companies', $newId, 'company.source.binding_repaired', [], $userId,
+                    ['mapping_id'=>(int)$binding['id'],'previous_internal_id'=>$oldId,'external_id'=>$companyExternalId,
+                        'start_id'=>(string)$startId,'review_token'=>$expectedToken,'evidence_hash'=>$evidence['evidence_hash']]);
+            }
             jobdivaSyncResolveSubcontractCompany($tenantId, $companyExternalId, $userId, $contract);
+            $resolvedSubcontractCompanies[$companyExternalId] = (string)$reviewedCompany['evidence_hash'];
         }
     }
 
@@ -4947,14 +4991,17 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
             . ' in JobDiva settings, then refresh this preview.'];
     if ($tid <= 0 || $externalId === '') return $result;
     $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $externalId);
+    $owner = companiesDirectoryTenantId($tid);
+    $bindingEvidence = ['directory_owner_id'=>$owner,'mapping_id'=>$mapped['id']??null,
+        'internal_entity_id'=>$mapped['internal_entity_id']??null];
     if ((int) ($mapped['internal_entity_id'] ?? 0) > 0) {
         $q = getDB()->prepare('SELECT id,name FROM companies WHERE tenant_id=? AND id=? AND deleted_at IS NULL LIMIT 1');
-        $q->execute([$tid, (int) $mapped['internal_entity_id']]);
+        $q->execute([$owner, (int) $mapped['internal_entity_id']]);
         $company = $q->fetch(PDO::FETCH_ASSOC);
         if ($company && !jobdivaCompanyNameIsPlaceholder((string) $company['name'], $externalId)) {
             return array_replace($result, ['available'=>true, 'company_id'=>(int)$company['id'],
                 'name'=>trim((string)$company['name']), 'source'=>'existing_company',
-                'evidence_hash'=>mappingHash(['mapping_id'=>$mapped['id'],'company'=>$company]),
+                'evidence_hash'=>mappingHash(['binding'=>$bindingEvidence,'company'=>$company]),
                 'detail'=>'Existing Core company ' . $company['id'] . ': ' . trim((string)$company['name'])
                     . ' (JobDiva ' . $externalId . ').']);
         }
@@ -4972,7 +5019,7 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
         if (($payloadId === '' || jobdivaAssignmentCompanyId($payloadId) === $externalId)
             && !jobdivaCompanyNameIsPlaceholder($name,$externalId,$payload)) {
             return array_replace($result, ['available'=>true,'name'=>$name,'source'=>'saved_company','payload'=>$payload,
-                'evidence_hash'=>mappingHash(['mirror_id'=>$mirror['id'],'type'=>$mirror['internal_entity_type'],'payload'=>$payload]),
+                'evidence_hash'=>mappingHash(['binding'=>$bindingEvidence,'mirror_id'=>$mirror['id'],'type'=>$mirror['internal_entity_type'],'payload'=>$payload]),
                 'detail'=>'Saved JobDiva company ' . $externalId . ': ' . $name . '.']);
         }
     }
@@ -4981,7 +5028,7 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
     if ($sourceId === $externalId && $name !== '' && !jobdivaCompanyNameIsPlaceholder($name,$externalId)) {
         $payload = ['id'=>$externalId,'name'=>$name];
         return array_replace($result, ['available'=>true,'name'=>$name,'source'=>'assignment_contract','payload'=>$payload,
-            'evidence_hash'=>mappingHash($payload), 'detail'=>'Exact assignment identifies JobDiva company ' . $externalId . ': ' . $name . '.']);
+            'evidence_hash'=>mappingHash(['binding'=>$bindingEvidence,'payload'=>$payload]), 'detail'=>'Exact assignment identifies JobDiva company ' . $externalId . ': ' . $name . '.']);
     }
     return $result;
 }

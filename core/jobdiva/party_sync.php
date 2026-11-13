@@ -40,6 +40,7 @@ function jobdivaCompanyUpsertStable(int $workspace,string $external,string $name
             mappingUpsert($workspace,'jobdiva','company',$external,$id,$payload,'pull',$actor);
             companySourceObserve($pdo,$owner,'companies',$id,$proposal,['system'=>'jobdiva','workspace_id'=>$workspace,'external_id'=>$external],$new);
             jobdivaPartyMappedFields($workspace,'company',$id,$payload);
+            companySourceFinishObservation($pdo,$owner,'companies',$id,$current);
             if(in_array('client',$roles,true)&&in_array('client',companyRoles($id),true)){
                 $q=$pdo->prepare('SELECT name FROM companies WHERE tenant_id=? AND id=?');$q->execute([$owner,$id]);
                 jobdivaEnsureStaffingClientForCompany($workspace,$id,(string)$q->fetchColumn(),$actor);
@@ -69,6 +70,7 @@ function jobdivaContactUpsertStable(int $workspace,int $companyId,string $extern
                 mappingUpsert($workspace,'jobdiva','contact',$external,$id,$payload,'pull',$actor);
                 companySourceObserve($pdo,$owner,'company_contacts',$id,$values+['name'=>$name],['system'=>'jobdiva','workspace_id'=>$workspace,'external_id'=>$external],$new);
                 jobdivaPartyMappedFields($workspace,'contact',$id,$payload);
+                companySourceFinishObservation($pdo,$owner,'company_contacts',$id,$current);
                 return$id;
             });
         });

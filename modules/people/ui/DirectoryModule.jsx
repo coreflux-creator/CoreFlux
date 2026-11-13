@@ -9,6 +9,7 @@ import IdBadge from '../../../dashboard/src/components/IdBadge';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
 import CustomFields from './CustomFields';
+import CompanySourceReview from './CompanySourceReview';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -423,6 +424,7 @@ function DirectoryDetail({ cfg, mode }) {
       <div style={{ margin: '4px 0 8px' }}>
         <ConnectedSourcesBadge entityType="company" internalId={c.id} />
       </div>
+      {data.can_review_source && <CompanySourceReview key={c.id} id={c.id} onAccepted={reload} />}
 
       {/* Cross-link badge: if this record also acts as the OTHER role, show a link to the other directory */}
       {(c.roles || []).some(r => cfg.crossRoles.includes(r)) && (
@@ -495,13 +497,14 @@ function DirectoryDetail({ cfg, mode }) {
 
       <h3 style={{ marginTop: 24, fontSize: 14 }}>Contacts</h3>
       <table className="data-table" data-testid={`${mode}-detail-contacts`}>
-        <thead><tr><th>Name</th><th>Title</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th></tr></thead>
+        <thead><tr><th>Name</th><th>Title</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th>{data.can_review_source && <th>Source values</th>}</tr></thead>
         <tbody>
-          {(c.contacts || []).length === 0 && <tr><td colSpan={6} className="empty">No additional contacts.</td></tr>}
+          {(c.contacts || []).length === 0 && <tr><td colSpan={data.can_review_source ? 7 : 6} className="empty">No additional contacts.</td></tr>}
           {(c.contacts || []).map(ct => (
             <tr key={ct.id}>
               <td>{ct.name}</td><td>{ct.title || '—'}</td><td><span className="badge">{ct.contact_role}</span></td>
               <td>{ct.email || '—'}</td><td>{ct.phone || '—'}</td><td>{Number(ct.is_primary) ? '✓' : ''}</td>
+              {data.can_review_source && <td><CompanySourceReview key={ct.id} id={ct.id} recordType="company_contacts" onAccepted={reload} /></td>}
             </tr>
           ))}
         </tbody>

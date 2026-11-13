@@ -18,6 +18,11 @@ try{
     $company=jobdivaUpsertCompanyMapped($tenant,'company-1','Source company',['phone'=>'source phone','country'=>'CA'],['id'=>'company-1','name'=>'Source company'],null,[]);
     $state=companySourceState($row('companies',$company),'companies');
     $check($state['owned']===[]&&!$state['legacy_unreviewed']&&$row('companies',$company)['country']==='CA','New source company receives a scoped source authority');
+    $sourceReview=$review($tenant,'companies',$company);
+    $savedState=$state;$savedState['observed_at']='2020-01-01T00:00:00+00:00';
+    $pdo->prepare('UPDATE companies SET coreflux_source_state=? WHERE id=?')->execute([json_encode($savedState,JSON_THROW_ON_ERROR),$company]);
+    jobdivaUpsertCompanyMapped($tenant,'company-1','Source company',['phone'=>'source phone','country'=>'CA'],['id'=>'company-1','name'=>'Source company'],null,[]);
+    $check($review($tenant,'companies',$company)['review_token']===$sourceReview['review_token'],'An unchanged source poll preserves the review token despite a newer observation timestamp');
     companyNativeFields($pdo,$tenant,$tenant,'companies',$company,['phone'=>null,'roles'=>['vendor']],null);
     $same=jobdivaUpsertCompanyMapped($tenant,'company-1','Source renamed',['phone'=>'source changed','country'=>'GB'],['id'=>'company-1','name'=>'Source renamed'],null,['client']);
     $companyRow=$row('companies',$company);$state=companySourceState($companyRow,'companies');
@@ -58,17 +63,34 @@ try{
     $check($fails(fn()=>companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['phone'],$legacyReview['review_token'],null)),'A review token cannot be replayed with a different field selection');
     companyNativeFields($pdo,$tenant,$tenant,'companies',$legacy,['phone'=>'later native edit'],null);
     $check(companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['name','phone'],$legacyReview['review_token'],null)['replayed']&&$row('companies',$legacy)['phone']==='later native edit','Historical receipt replay never re-applies values over a later native edit');
+    companyNativeFields($pdo,$tenant,$tenant,'companies',$legacy,['phone'=>'new Core edit'],null);
+    $cycleReview=$review($tenant,'companies',$legacy);
+    $check($cycleReview['review_token']!==$legacyReview['review_token'],'Returning to an earlier Core value produces a new review revision');
+    $cycleAccepted=companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['phone','name'],$cycleReview['review_token'],null);
+    $check(!$cycleAccepted['replayed']&&$row('companies',$legacy)['phone']==='observed proposal','A new ownership cycle applies its new review instead of replaying an old receipt');
+    $check(companySourceAccept($pdo,$tenant,$tenant,'companies',$legacy,['name','phone'],$cycleReview['review_token'],null)['replayed'],'Field selection order does not change the accepted review request');
 
     $pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,internal_field,external_field,source_path,target_module,target_table,target_column,linked_entity,transform,enabled) VALUES(?,"jobdiva","company","ci_company_phone","mappedPhone","mappedPhone","people","companies","phone","self","none",1)')->execute([$tenant]);
     $mapped=integrationFieldMapApplyAll($tenant,'jobdiva','company',['mappedPhone'=>'mapped source'],['self'=>$company]);
     $check($mapped['errors']===[]&&$mapped['written']===0&&$row('companies',$company)['phone']===null,'Configured source mappings cannot bypass Core field ownership');
     $check(companySourceState($row('companies',$company),'companies')['proposed']['phone']==='mapped source','Configured mapping retains its exact proposed value for review');
+    $mappedPayload=['id'=>'company-2','mappedPhone'=>'mapped source phone'];
+    jobdivaUpsertCompanyMapped($tenant,'company-2','Other source company',['phone'=>'default source phone'],$mappedPayload,null,['vendor']);
+    $pdo->prepare('UPDATE company_roles SET granted_at="2020-01-01 00:00:00" WHERE company_id=?')->execute([$other]);
+    $mappedReview=$review($tenant,'companies',$other);
+    jobdivaUpsertCompanyMapped($tenant,'company-2','Other source company',['phone'=>'default source phone'],$mappedPayload,null,['vendor']);
+    $check($review($tenant,'companies',$other)['review_token']===$mappedReview['review_token'],'Identical default and configured mappings remain one unchanged source observation');
+    $q=$pdo->prepare('SELECT granted_at FROM company_roles WHERE company_id=? AND role="vendor"');$q->execute([$other]);
+    $check($q->fetchColumn()==='2020-01-01 00:00:00','Source role replay preserves the original role grant timestamp');
     $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared")')->execute([$child]);
     $shared=jobdivaUpsertCompanyMapped($child,'shared-company','Shared source company',[],['id'=>'shared-company'],null,[]);
     $check((int)$row('companies',$shared)['tenant_id']===$tenant&&(int)mappingFindInternal($child,'jobdiva','company','shared-company')['internal_entity_id']===$shared,'Source connection identity stays in its workspace while company data uses the shared directory');
     $foreignBefore=$row('companies',$shared);
     $check($fails(fn()=>companySourceObserve($pdo,$tenant,'companies',$shared,['phone'=>'different authority'],['system'=>'jobdiva','workspace_id'=>$tenant,'external_id'=>'shared-company'])),'Another source workspace cannot take ownership of the same company');
     $check($row('companies',$shared)===$foreignBefore,'Rejected source authority changes preserve all state');
+    $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="companies"')->execute([$child]);
+    $check($fails(fn()=>jobdivaUpsertCompanyMapped($child,'shared-company','Shared source company',[],['id'=>'shared-company'],null,[])),'Changing the company directory does not redirect an existing provider identity');
+    $check($row('companies',$shared)===$foreignBefore,'Directory policy changes leave the old shared company unchanged');
 
     $before=$row('companies',$legacy);
     $pdo->exec('CREATE TEMPORARY TABLE audit_log(id BIGINT PRIMARY KEY)');$auditShadow=true;

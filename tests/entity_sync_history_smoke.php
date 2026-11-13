@@ -122,10 +122,13 @@ $assert('renders drawer for placement entity',
 
 echo "\nJobDiva sync — actor threaded into mappingUpsert\n";
 $syncSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
-$assert('companies upsert passes $userId',
-    preg_match("/mappingUpsert\\(\\\$tid, 'jobdiva', 'company', \\\$extId, \\\$companyId, \\\$[a-zA-Z]+, 'pull', \\\$userId\\);/", $syncSrc) === 1);
-$assert('contacts upsert passes $userId',
-    strpos($syncSrc, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull', \$userId);") !== false);
+$partySrc = (string) file_get_contents("{$ROOT}/core/jobdiva/party_sync.php");
+$assert('companies preserve actor through the atomic stable writer',
+    str_contains($syncSrc, 'jobdivaCompanyUpsertStable($tid,$extId,$name,$patch,$payload,$userId,$roles)')
+    && str_contains($partySrc, "mappingUpsert(\$workspace,'jobdiva','company',\$external,\$id,\$payload,'pull',\$actor)"));
+$assert('contacts preserve actor through the atomic stable writer',
+    str_contains($syncSrc, 'jobdivaContactUpsertStable($tid,$companyId,$externalId,$jd,$name,$values,$userId)')
+    && str_contains($partySrc, "mappingUpsert(\$workspace,'jobdiva','contact',\$external,\$id,\$payload,'pull',\$actor)"));
 $projectorSrc = (string) file_get_contents("{$ROOT}/core/jobdiva/projector.php");
 $assert('placements upsert passes $userId',
     strpos($projectorSrc, "mappingUpsert(\$tenantId, 'jobdiva', 'placement', \$externalId, \$placementId, \$snapshotPayload, 'pull', \$userId);") !== false);

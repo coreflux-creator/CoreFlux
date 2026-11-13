@@ -77,8 +77,27 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$fa
     $changed=$preview();$afterSourceChange=$snapshot();
     $check($changed['dry_run_token']!==$ready['dry_run_token'],'A company payload change invalidates the prior assignment review');
     $check(str_contains($failure(fn()=>$apply($ready['dry_run_token'])),'changed after preview')&&$snapshot()===$afterSourceChange,'Stale company evidence is rejected before any business write');
+    $check($failure(fn()=>jobdivaUpsertCompanyMapped($tenant,'99181101','CI Saved Subcontractor',[],$mirror,null,['vendor']))!==''
+        &&$snapshot()===$afterSourceChange,'Ordinary source import cannot repair a foreign company binding even inside a stored-review transaction');
+    $oldBinding=mappingFindInternal($tenant,'jobdiva','company','99181101');
+    $pdo->prepare('UPDATE external_entity_mappings SET internal_entity_id=? WHERE id=?')->execute([$foreignCompany+1000000,$oldBinding['id']]);
+    $afterBindingChange=$snapshot();
+    $check(str_contains($failure(fn()=>$apply($changed['dry_run_token'])),'changed after preview')&&$snapshot()===$afterBindingChange,
+        'Changing the broken binding invalidates the review even when source company values are unchanged');
+    $pdo->prepare('UPDATE external_entity_mappings SET internal_entity_id=? WHERE id=?')->execute([$foreignCompany,$oldBinding['id']]);
+    $changed=$preview();$beforeRepair=$snapshot();
+    $pdo->exec('CREATE TEMPORARY TABLE audit_log(id BIGINT PRIMARY KEY)');
+    try {
+        $check($failure(fn()=>$apply($changed['dry_run_token']))!==''&&$snapshot()===$beforeRepair,
+            'A missing required repair audit rolls back the new company and identity change together');
+    } finally {$pdo->exec('DROP TEMPORARY TABLE audit_log');}
     $result=$apply($changed['dry_run_token']);$binding=mappingFindInternal($tenant,'jobdiva','company','99181101');$companyId=(int)($binding['internal_entity_id']??0);
     $check($result['projected']===1&&$companyId>0,'Reviewed saved company evidence projects through the canonical writer');
+    $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="company.source.binding_repaired"');$q->execute([$tenant,$companyId]);
+    $repairReceipt=json_decode((string)$q->fetchColumn(),true,32,JSON_THROW_ON_ERROR);
+    $check((int)$binding['id']===(int)$oldBinding['id']&&(int)$repairReceipt['previous_internal_id']===$foreignCompany
+        &&$repairReceipt['review_token']===$changed['dry_run_token']&&$repairReceipt['start_id']==='99181001',
+        'Reviewed repair preserves the provider mapping row and records its prior target and exact assignment review');
     $q=$pdo->prepare('SELECT company_id,corp_legal_name FROM placement_corp_details WHERE tenant_id=? AND placement_id=?');$q->execute([$tenant,$placement]);$corp=$q->fetch(PDO::FETCH_ASSOC);
     $check((int)$corp['company_id']===$companyId&&$corp['corp_legal_name']==='CI Saved Subcontractor','Applied corporate payee matches the reviewed provider company');
     $current=placementAuditRow($placement);

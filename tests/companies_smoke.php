@@ -59,7 +59,7 @@ foreach (['upsert','add-role','remove-role','add-contact'] as $a) {
     $assert("api action: {$a}",                 strpos($apiSrc, "action === '{$a}'") !== false);
 }
 $assert('GET typeahead by q+role',             strpos($apiSrc, "\$_GET['q']") !== false && strpos($apiSrc, "\$_GET['role']") !== false);
-$assert('PATCH allows role rewrite',           strpos($apiSrc, "DELETE FROM company_roles") !== false);
+$assert('PATCH allows role rewrite',           str_contains($apiSrc, "\$allowed['roles']=array_values(array_intersect(COMPANY_ROLES,\$body['roles']))") && str_contains($apiSrc, "companyNativeFields(getDB(),(int)\$ctx['tenant_id'],\$tid,'companies',\$id,\$sourceFields"));
 $assert('DELETE soft-deletes (deleted_at)',    strpos($apiSrc, 'SET deleted_at = NOW()') !== false);
 $assert('DELETE requires people.manage',       strpos($apiSrc, "rbac_legacy_require(\$user, 'people.manage')") !== false);
 

@@ -85,15 +85,16 @@ $a('link points at /admin/integrations/field-map/studio',
     && str_contains($leg, 'data-testid="field-map-studio-link"'));
 
 echo "\n4. JobDiva company sync wires applyAll\n";
-$a('company sync requires field_map_apply.php',
-    str_contains($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';")
-    && strpos($sync, "require_once __DIR__ . '/../integrations/field_map_apply.php';") < strpos($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'company', \$jd, ['self' => \$companyId]);"));
-$a('company sync calls applyAll with {self => $companyId}',
-    str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'company', \$jd, ['self' => \$companyId]);"));
-
-echo "\n5. JobDiva contact sync wires applyAll\n";
-$a('contact sync calls applyAll with {self => $internalId}',
-    str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', 'contact', \$jd, ['self' => \$internalId]);"));
+$party = (string) file_get_contents($root.'/core/jobdiva/party_sync.php');
+$a('party writer loads and applies configured fields in its transaction',
+    str_contains($party, "require_once __DIR__.'/../integrations/field_map_apply.php'")
+    && str_contains($party, "integrationFieldMapApplyAll(\$workspace,'jobdiva',\$type,\$payload,['self'=>\$id])"));
+$a('company sync forwards its exact identity to mapped fields',
+    str_contains($sync, 'jobdivaCompanyUpsertStable($tid,$extId,$name,$patch,$payload,$userId,$roles)')
+    && str_contains($party, "jobdivaPartyMappedFields(\$workspace,'company',\$id,\$payload)"));
+$a('contact sync forwards its exact identity to mapped fields',
+    str_contains($sync, 'jobdivaContactUpsertStable($tid,$companyId,$externalId,$jd,$name,$values,$userId)')
+    && str_contains($party, "jobdivaPartyMappedFields(\$workspace,'contact',\$id,\$payload)"));
 
 echo "\n6. JobDiva person intake preserves existing records\n";
 $a('email collision cannot overwrite existing person fields',

@@ -11,7 +11,20 @@ class PlacementClientSavePDO extends PDO
     public array $companies = [];
     public array $clients = [];
     public int $lastId = 0;
+    private bool $transaction = false;
+    private array $snapshots = [];
     public function __construct() {}
+    public function inTransaction(): bool { return $this->transaction; }
+    public function beginTransaction(): bool { $this->snapshots['transaction']=[$this->companies,$this->clients,$this->lastId];$this->transaction=true;return true; }
+    public function commit(): bool { $this->snapshots=[];$this->transaction=false;return true; }
+    public function rollBack(): bool { [$this->companies,$this->clients,$this->lastId]=$this->snapshots['transaction'];$this->snapshots=[];$this->transaction=false;return true; }
+    public function exec(string $statement): int|false {
+        if(preg_match('/^SAVEPOINT (\w+)$/',$statement,$m)) $this->snapshots[$m[1]]=[$this->companies,$this->clients,$this->lastId];
+        elseif(preg_match('/^ROLLBACK TO SAVEPOINT (\w+)$/',$statement,$m)) [$this->companies,$this->clients,$this->lastId]=$this->snapshots[$m[1]];
+        elseif(preg_match('/^RELEASE SAVEPOINT (\w+)$/',$statement,$m)) unset($this->snapshots[$m[1]]);
+        else throw new RuntimeException('Unexpected transaction statement: '.$statement);
+        return 0;
+    }
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
         return new PlacementClientSaveStatement($this, $query);
@@ -41,12 +54,18 @@ class PlacementClientSaveStatement extends PDOStatement
             $this->db->companies[$this->db->lastId] = ['id' => $this->db->lastId] + $p;
         } elseif (str_contains($this->sql, 'UPDATE companies SET')) {
             $id = $p['id'];
-            if ($this->db->companies[$id]['tenant_id'] !== $p['tenant_id']) {
+            if ($this->db->companies[$id]['tenant_id'] !== ($p['owner'] ?? $p['tenant_id'])) {
                 throw new RuntimeException('Cross-tenant company update');
             }
-            unset($p['id'], $p['tenant_id']);
+            if (isset($p['state'])) {
+                $values=['coreflux_source_state'=>$p['state']];
+                foreach($p as$key=>$value) if(str_starts_with($key,'v_')) $values[substr($key,2)]=$value;
+                $p=$values;
+            }
+            unset($p['id'], $p['tenant_id'], $p['owner']);
             $this->db->companies[$id] = array_replace($this->db->companies[$id], $p);
         } elseif (str_contains($this->sql, 'FROM companies')) {
+            if (array_is_list($p)) $p=['t'=>$p[0],'id'=>$p[1]];
             foreach ($this->db->companies as $row) {
                 if ($row['tenant_id'] === $p['t']
                     && (!isset($p['n']) || $row['name'] === $p['n'])
@@ -55,7 +74,7 @@ class PlacementClientSaveStatement extends PDOStatement
                     break;
                 }
             }
-        } elseif (str_contains($this->sql, 'INSERT IGNORE INTO company_roles')) {
+        } elseif (str_contains($this->sql, 'INSERT IGNORE INTO company_roles') || str_contains($this->sql, 'FROM company_roles') || str_contains($this->sql, 'INSERT INTO audit_log')) {
             // Roles are not material to the country/default and identity cases.
         } elseif (str_contains($this->sql, 'INSERT INTO staffing_clients')) {
             $this->db->lastId = count($this->db->clients) + 1;
@@ -80,6 +99,7 @@ class PlacementClientSaveStatement extends PDOStatement
 }
 
 $pdo = new PlacementClientSavePDO();
+setRequestTenantId(1);
 $failures = 0;
 $assert = static function (string $name, bool $ok) use (&$failures): void {
     echo ($ok ? 'PASS' : 'FAIL') . " - $name\n";

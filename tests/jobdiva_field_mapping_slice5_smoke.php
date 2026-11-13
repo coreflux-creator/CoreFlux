@@ -17,9 +17,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$sync   = (string) file_get_contents('/app/core/jobdiva/sync.php');
-$fmap   = (string) file_get_contents('/app/core/integrations/field_map.php');
-$cohelp = (string) file_get_contents('/app/modules/people/lib/companies.php');
+$sync   = (string) file_get_contents(dirname(__DIR__).'/core/jobdiva/sync.php');
+$fmap   = (string) file_get_contents(dirname(__DIR__).'/core/integrations/field_map.php');
+$cohelp = (string) file_get_contents(dirname(__DIR__).'/modules/people/lib/companies.php');
 
 echo "\n1. Allow-list audit\n";
 // Slice 5b (2026-02): the original ghost-field roster has been pared
@@ -96,11 +96,10 @@ foreach ([
     $a($label, str_contains($sync, $needle));
 }
 // Persistence side — make sure new fields are written, not just read:
-$a('UPDATE writes contact_role',  str_contains($sync, 'contact_role = :cr'));
-$a('UPDATE writes is_primary',    str_contains($sync, 'is_primary = :ip'));
-$a('UPDATE writes notes',         str_contains($sync, 'notes = :no'));
-$a('INSERT binds all new cols',
-    (bool) preg_match('#INSERT INTO company_contacts.+?contact_role,\s*is_primary,\s*notes#s', $sync));
+$ownership=(string)file_get_contents(dirname(__DIR__).'/modules/people/lib/company_source_ownership.php');
+foreach (['contact_role','is_primary','notes'] as $field) {
+    $a("contact proposal and controlled writer support $field", str_contains($sync,"'$field'=>") && str_contains($ownership,"'$field'"));
+}
 $a('contact_role coerced to ENUM (other fallback)',
     str_contains($sync, "\$contactRoleMap[strtolower(trim(\$contactRoleRaw))] ?? 'other'"));
 
@@ -108,17 +107,18 @@ echo "\n4. companiesUpsertByName UPDATE branch\n";
 $a('writable list includes duns',         str_contains($cohelp, "'duns'"));
 $a('writable list includes ein_last4',    str_contains($cohelp, "'ein_last4'"));
 $a('writable list includes msa_signed_at',str_contains($cohelp, "'msa_signed_at'"));
-$a('non-empty patch triggers UPDATE',
-    (bool) preg_match('#if \(!empty\(\$updatable\)\) \{.+?UPDATE companies SET#s', $cohelp));
+$a('non-empty native patch establishes Core field ownership',
+    str_contains($cohelp, 'companyNativeFields($pdo, currentTenantId() ?? $tenantId, $tenantId,')
+    || str_contains($cohelp, 'companyNativeFields($pdo,(int)(currentTenantId()?:$tenantId),$tenantId,'));
 $a('UPDATE drops created_by_user_id',     str_contains($cohelp, "unset(\$patch['created_by_user_id'])"));
 $a('UPDATE filters null/empty patch values',
     (bool) preg_match('#array_filter\(\s*\$patch,\s*static fn\(\$v\) => \$v !== null && \$v !== ""\s*\)#', $cohelp)
     || (bool) preg_match("#array_filter\(\s*\\\$patch,\s*static fn\(\\\$v\) => \\\$v !== null && \\\$v !== ''#", $cohelp));
-$a('UPDATE re-asserts tenant_id in WHERE',str_contains($cohelp, 'WHERE id = :id AND tenant_id = :tenant_id'));
+$a('UPDATE re-asserts tenant_id in WHERE',str_contains($ownership, 'WHERE tenant_id=:owner AND id=:id'));
 
 echo "\n5. PHP syntax (no parse errors)\n";
-foreach (['/app/core/jobdiva/sync.php', '/app/core/integrations/field_map.php', '/app/modules/people/lib/companies.php'] as $f) {
-    exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
+foreach ([dirname(__DIR__).'/core/jobdiva/sync.php', dirname(__DIR__).'/core/integrations/field_map.php', dirname(__DIR__).'/modules/people/lib/companies.php'] as $f) {
+    exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
     $a("php -l {$f}", $rc === 0, implode(' | ', array_slice($out, -2)));
     $out = [];
 }
