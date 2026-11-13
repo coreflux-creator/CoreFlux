@@ -12,6 +12,9 @@ require_once __DIR__.'/../core/qbo/sync_in.php';
 require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 require_once __DIR__.'/../modules/placements/lib/edit.php';
 require_once __DIR__.'/../modules/placements/lib/source_rule_review.php';
+require_once __DIR__.'/../core/CsvImportService.php';
+require_once __DIR__.'/../modules/placements/lib/jobdiva_csv_write.php';
+Core\CsvImportService::registerSchema('jobdiva_placement_reconciliation',jobdivaReconciliationSchema());
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 
 function nativePlacementRaceWrite(array $input): array
@@ -53,6 +56,12 @@ function storedAssignmentRaceWrite(array $input): array
     return ['id'=>$input['placement_id']]+jobdivaApplyStoredAssignmentProjection($input['workspace'],$input['actor'],[$input['start_id']],$input['review_token'],5000);
 }
 
+function csvAssignmentRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    return ['id'=>$input['placement_id']]+jobdivaReconciliationApply(getDB(),$input['workspace'],$input['actor'],$input['csv'],null,[$input['start_id']],$input['review_token']);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -63,8 +72,8 @@ if(($argv[1]??'')==='worker'){
     try{
         if($input['mode']==='merge')$result=companyMergeApply($input['workspace'],['id'=>$input['actor'],'role'=>'admin'],$input['review_token'],$input['choices']);
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
-        elseif(in_array($input['mode'],['rule_hold','stored_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
-            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=$input['mode']==='rule_hold'?sourceRuleRaceWrite($input):storedAssignmentRaceWrite($input);
+        elseif(in_array($input['mode'],['rule_hold','stored_hold','csv_hold'],true))$result=JobdivaStoredReviewTransaction::run(static function()use($pdo,$input):array{
+            $pdo->exec('SAVEPOINT fixture_rule_hold');$result=match($input['mode']){'rule_hold'=>sourceRuleRaceWrite($input),'stored_hold'=>storedAssignmentRaceWrite($input),default=>csvAssignmentRaceWrite($input)};
             echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
             stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
             if($decision!=='COMMIT')$pdo->exec('ROLLBACK TO SAVEPOINT fixture_rule_hold');
@@ -88,6 +97,7 @@ if(($argv[1]??'')==='worker'){
                 'economic_graph'=>['id'=>$input['placement_id']]+placementEconomicsReconcile($input['workspace'],$input['placement_id']),
                 'source_rules'=>sourceRuleRaceWrite($input),
                 'stored_assignment'=>storedAssignmentRaceWrite($input),
+                'csv_assignment'=>csvAssignmentRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -531,6 +541,38 @@ try{
         fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
         $q=$pdo->prepare('SELECT COUNT(*) FROM jobdiva_sync_audit WHERE tenant_id=? AND action="stored_assignment_reconciliation" AND JSON_UNQUOTE(JSON_EXTRACT(detail,"$.start_id"))=?');$q->execute([$tenant,$input['start_id']]);
         $check($written['ok']&&($decision==='COMMIT'?!$again['ok']:$again['ok'])&&(int)$q->fetchColumn()===1&&$read('placements',$placement)['worksite_city']==='Reviewed stored city','Concurrent stored requests commit exactly one reviewed projection after '.$decision);
+    }
+    $csvFixture=static function(string $label,int $workspace)use($projectionFixture,$pdo,$actor):array{
+        [$a,$b,$placement,$input]=$projectionFixture('csv-'.$label,$workspace);$start=$input['payload']['startId'];
+        $csv="Start ID,Title,Worksite City\n{$start},Reviewed concurrent CSV,CSV reviewed city\n";
+        $plan=jobdivaReconciliationBuildPlan($pdo,$workspace,null,$csv,null);
+        if(!$plan['rows'][0]['selectable'])throw new RuntimeException('CSV race source blocked: '.implode('; ',$plan['rows'][0]['errors']));
+        return[$a,$b,$placement,['mode'=>'native','entity'=>'csv_assignment','workspace'=>$workspace,'actor'=>$actor,'placement_id'=>$placement,'start_id'=>$start,'review_token'=>$plan['dry_run_token'],'csv'=>$csv],$input['payload']];
+    };
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        foreach(['companies','placements']as$module){
+            [$a,$b,$placement,$input]=$csvFixture('policy-'.$module.'-'.$decision,$child);$before=$projectionRows();
+            $pdo->beginTransaction();$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$child,$module]);
+            $worker=$spawn($input);$check($waiting($worker),'CSV assignment waits for '.$module.' policy '.$decision);
+            if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$result=$finish($worker);
+            $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$result['result']['updated']===1&&$read('placements',$placement)['worksite_city']==='CSV reviewed city'),'CSV apply respects current '.$module.' scope after '.$decision);
+        }
+        [$a,$b,$placement,$input,$payload]=$csvFixture('source-first-'.$decision,$tenant);
+        $pdo->beginTransaction();mappingUpsert($tenant,'jobdiva','placement',$payload['startId'],$placement,array_replace($payload,['title'=>'Changed source after CSV preview']));
+        $worker=$spawn($input);$check($waiting($worker),'CSV apply waits for retained provider mapping '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$projectionRows();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$read('placements',$placement)['worksite_city']==='CSV reviewed city'),'CSV revalidates committed source metadata after '.$decision);
+        [$a,$b,$placement,$input]=$csvFixture('merge-first-'.$decision,$tenant);$review=companyMergePreview($tenant,$user,$a,$b);
+        $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+        $worker=$spawn($input);$check($waiting($worker),'CSV apply waits for recipient merge '.$decision);
+        if($decision==='COMMIT')$pdo->commit();else$pdo->rollBack();$before=$projectionRows();$result=$finish($worker);
+        $check($decision==='COMMIT'?(!$result['ok']&&$projectionRows()===$before):($result['ok']&&$read('placements',$placement)['worksite_city']==='CSV reviewed city'),'CSV never silently accepts changed recipients after '.$decision);
+        [$a,$b,$placement,$input]=$csvFixture('concurrent-apply-'.$decision,$tenant);
+        $worker=$spawn(array_replace($input,['mode'=>'csv_hold']));$saved=$line($workers[$worker]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'CSV apply holds its complete assignment and audit before '.$decision);
+        $retry=$spawn($input);$check($waiting($retry),'Concurrent CSV apply waits for first request '.$decision);
+        fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$written=$finish($worker);$again=$finish($retry);
+        $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="placement.jobdiva_reconciliation.applied" AND target_id=?');$q->execute([$tenant,$placement]);
+        $check($written['ok']&&($decision==='COMMIT'?!$again['ok']:$again['ok'])&&(int)$q->fetchColumn()===1&&$read('placements',$placement)['worksite_city']==='CSV reviewed city','Concurrent CSV requests commit exactly one reviewed change after '.$decision);
     }
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));

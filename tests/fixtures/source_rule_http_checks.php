@@ -194,6 +194,36 @@ $numbers=$snapshot(['core_record_numbers']);[$status,$freshStored]=$request('POS
 $expect($status===200&&$replayed['projected']===1&&$numbers===$snapshot(['core_record_numbers']),'Fresh native stored replay retains stable record numbers');
 $expect($snapshot($financialTables)===$financialBefore,'Native shared stored reconciliation executes no accounting, payroll or payment operations');
 
+// CSV fallback uses the same original workspace and revalidates its complete
+// review inside the write transaction, including the required audit.
+$csvBody="Start ID,Candidate ID,Title,Worksite City\n{$sharedRuleStart},99190122,Reviewed CSV shared assignment,Hamilton CSV\n";
+$before=$snapshot($ruleTables);[$status,$csvReview]=$request('POST',$storedPath.'?action=dry_run',['csv'=>$csvBody],true,$childTenant);
+$expect($status===200&&$csvReview['rows'][0]['selectable']&&$csvReview['rows'][0]['placement_id']===$sharedRulePlacement&&$snapshot($ruleTables)===$before,'Native CSV preview uses the original child source and keeps shared legacy identities without writes');
+$csvApply=['csv'=>$csvBody,'dry_run_token'=>$csvReview['dry_run_token'],'selected_start_ids'=>[$sharedRuleStart],'confirm'=>'APPLY_EXACT_START_ID_RECONCILIATION'];
+[$status,$csvParent]=$request('POST',$storedPath.'?action=dry_run',['csv'=>$csvBody]);
+$expect($status===200&&!$csvParent['rows'][0]['selectable']&&$snapshot($ruleTables)===$before,'Native parent CSV preview cannot adopt a child source assignment or candidate');
+RBACResolver::grantModule($childMembership,'placements','read',[$childTenant],$actor);
+$expect($request('POST',$storedPath.'?action=apply',$csvApply,true,$childTenant)[0]===403&&$snapshot($ruleTables)===$before,'Read-only child cannot apply a shared CSV assignment');
+RBACResolver::grantModule($childMembership,'placements','admin',[$childTenant],$actor);
+$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="companies"')->execute([$childTenant]);
+$expect($request('POST',$storedPath.'?action=apply',$csvApply,true,$childTenant)[0]===409&&$snapshot($ruleTables)===$before,'Changed native sharing invalidates the CSV review without partial writes');
+$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="shared" WHERE tenant_id=? AND module_key="companies"')->execute([$childTenant]);
+$pdo->exec("CREATE TRIGGER cf_http_csv_directory_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='placement.jobdiva_reconciliation.applied' AND NEW.tenant_id=900014 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic CSV directory audit failure'; END IF; END");
+try{$expect($request('POST',$storedPath.'?action=apply',$csvApply,true,$childTenant)[0]===409&&$snapshot($ruleTables)===$before,'Required native CSV audit failure rolls back the whole shared assignment');}
+finally{$pdo->exec('DROP TRIGGER cf_http_csv_directory_audit');}
+$csvPairs=$pdo->query('SELECT id,tenant_id,source_system,internal_entity_type,external_id,internal_entity_id FROM external_entity_mappings ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$csvRetained=$snapshot(['people','placement_rates','core_record_numbers']);
+[$status,$csvSaved]=$request('POST',$storedPath.'?action=apply',$csvApply,true,$childTenant);
+$q=$pdo->prepare('SELECT tenant_id,external_id,person_id,title,worksite_city FROM placements WHERE id=?');$q->execute([$sharedRulePlacement]);$csvPlacement=$q->fetch(PDO::FETCH_ASSOC);
+$expect($status===200&&$csvSaved['updated']===1&&(int)$csvPlacement['tenant_id']===$tenant&&$csvPlacement['external_id']==='http-shared-placement-legacy'&&(int)$csvPlacement['person_id']===$sharedRulePerson&&$csvPlacement['title']==='Reviewed CSV shared assignment'&&$csvPlacement['worksite_city']==='Hamilton CSV','Native CSV apply updates the shared assignment with original provider and display identities');
+$expect($csvRetained===$snapshot(['people','placement_rates','core_record_numbers'])&&$csvPairs===$pdo->query('SELECT id,tenant_id,source_system,internal_entity_type,external_id,internal_entity_id FROM external_entity_mappings ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'Native sparse CSV preserves workers, approved rates, record numbers and every provider pair');
+$q=$pdo->prepare('SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=? AND event="placement.jobdiva_reconciliation.applied" AND target_id=?');$q->execute([$childTenant,$sharedRulePlacement]);$csvAudit=$q->fetch(PDO::FETCH_ASSOC);$csvDetail=json_decode($csvAudit['meta_json'],true,512,JSON_THROW_ON_ERROR);
+$expect((int)$csvAudit['actor_user_id']===$actor&&(int)$csvDetail['directory_owner_id']===$tenant&&(int)$csvDetail['before']['placement']['id']===$sharedRulePlacement&&(int)$csvDetail['after']['placement']['id']===$sharedRulePlacement,'Native CSV audit retains the acting workspace, authenticated actor and shared before/after graph');
+$before=$snapshot($ruleTables);$expect($request('POST',$storedPath.'?action=apply',$csvApply,true,$childTenant)[0]===409&&$snapshot($ruleTables)===$before,'Old native CSV token cannot repeat a committed change');
+[$status,$csvAgain]=$request('POST',$storedPath.'?action=dry_run',['csv'=>$csvBody],true,$childTenant);
+$expect($status===200&&$csvAgain['rows'][0]['outcome']==='unchanged'&&$snapshot($ruleTables)===$before,'A fresh identical native CSV converges without another write');
+$expect($snapshot($financialTables)===$financialBefore,'Native CSV reconciliation executes no accounting, payroll or payment operations');
+
 // The same native PATCH used by the company chooser resolves an unlinked source row.
 $choicePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unresolved company choice','status'=>'on_hold','engagement_type'=>'1099','start_date'=>'2026-10-01']);
 $choiceChain=jobdivaSyncUpsertPlacementChainRow($tenant,$choicePlacement,1,'msp','Unresolved source MSP',null,['portal_fee_pct'=>0.02]);
