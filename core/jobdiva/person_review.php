@@ -53,19 +53,21 @@ function jobdivaPersonReviewSource(int $tenant, string $candidate, ?callable $re
 
 function jobdivaPersonReviewTarget(PDO $pdo,int $tenant,array $request,bool $lock=false): array
 {
+    $owner=jobdivaPersonDirectoryCheck($pdo,$tenant,$lock);
     $suffix=$lock?' FOR UPDATE':'';
     $s=$pdo->prepare('SELECT p.id,p.first_name,p.last_name,p.email_primary,p.phone_primary,p.external_id,p.status,n.record_number AS person_number FROM people p JOIN core_record_numbers n ON n.tenant_id=p.tenant_id AND n.entity_type="person" AND n.record_id=p.id AND n.canonical_record_id=p.id WHERE p.tenant_id=:t AND n.record_number=:n AND p.deleted_at IS NULL'.$suffix);
-    $s->execute(['t'=>$tenant,'n'=>$request['person_number']]); $target=$s->fetch(PDO::FETCH_ASSOC);
+    $s->execute(['t'=>$owner,'n'=>$request['person_number']]); $target=$s->fetch(PDO::FETCH_ASSOC);
     if (!$target) throw new RuntimeException('Choose a current person from this Core workspace');
     if (jobdivaPersonExternalIdConflicts((string)$target['external_id'],$request['candidate_id'])) throw new RuntimeException('This person carries another JobDiva candidate ID. Review the existing identity before linking');
     $s=$pdo->prepare('SELECT id FROM people WHERE tenant_id=:t AND external_id=:e AND id<>:p'.$suffix);
-    $s->execute(['t'=>$tenant,'e'=>'jd:'.$request['candidate_id'],'p'=>$target['id']]);
+    $s->execute(['t'=>$owner,'e'=>'jd:'.$request['candidate_id'],'p'=>$target['id']]);
     if ($s->fetchColumn()) throw new RuntimeException('Another Core person already carries this JobDiva candidate ID');
     $s=$pdo->prepare('SELECT external_id,internal_entity_id FROM external_entity_mappings WHERE tenant_id=:t AND source_system="jobdiva" AND internal_entity_type="person" AND (external_id=:e OR internal_entity_id=:p)'.$suffix);
     $s->execute(['t'=>$tenant,'e'=>$request['candidate_id'],'p'=>$target['id']]);
     foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $link) {
         if ($link['external_id']!==$request['candidate_id'] || (int)$link['internal_entity_id']!==(int)$target['id']) throw new RuntimeException('This candidate or person is already linked elsewhere. Existing links cannot be replaced here');
     }
+    $target['directory_owner_id']=$owner;
     return $target;
 }
 

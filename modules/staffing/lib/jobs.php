@@ -94,7 +94,10 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     if(!getDB()->inTransaction())throw new LogicException('A job company write requires an active transaction.');
     // Acquire policy locks before the first consistent read. A merge that wins
     // the lock must be visible to this job's company and client lookups.
-    jobdivaPartyDirectoryScope(getDB(),$tenantId,true);
+    require_once __DIR__.'/../../people/lib/company_relationships.php';
+    $scope=companyRelationshipScope(getDB(),$tenantId,'staffing');
+    $owner=$scope['owner'];
+    if(jobdivaPartyDirectoryScope(getDB(),$owner,true)['owner']!==$scope['company_owner'])throw new RuntimeException('This shared job cannot use a private company directory.',409);
     $externalId = trim($externalId);
     if ($externalId === '') throw new \InvalidArgumentException('job external id required');
 
@@ -120,6 +123,7 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     // company. Jobs may reference an existing client, but only an exact
     // assignment BILLING.COMPANY contract may create a client consumer row.
     $client = staffingClientFindForCompany($tenantId, $companyId);
+    if($client && (int)$client['tenant_id']!==companyRelationshipScope(getDB(),$owner,'placements')['owner'])throw new RuntimeException('This shared job cannot use a private client directory.',409);
     $clientId = $client ? (int) $client['id'] : null;
 
     $country = strtoupper(staffingJobPluck($payload, ['country', 'jobCountry', 'job_country', 'worksiteCountry']));
@@ -127,7 +131,7 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     if (is_string($country) && strlen($country) > 2) $country = substr($country, 0, 2);
 
     $row = [
-        'tenant_id'          => $tenantId,
+        'tenant_id'          => $owner,
         'client_id'          => $clientId,
         'company_id'         => $companyId,
         'title'              => $title,
@@ -145,8 +149,19 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
         'created_by_user_id' => $actorUserId,
     ];
 
-    $existing = staffingJobFindBySource($tenantId, 'jobdiva', $externalId);
     $pdo = getDB();
+    $q=$pdo->prepare("SELECT * FROM staffing_jobs WHERE tenant_id=? AND source_system='jobdiva' AND external_id=? FOR UPDATE");
+    $q->execute([$owner,$externalId]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+    if(count($rows)>1)throw new RuntimeException('Multiple jobs claim this JobDiva identity. Review their links.',409);
+    $existing=$rows[0]??null;
+    if($existing){
+        $q=$pdo->prepare("SELECT m.id FROM external_entity_mappings m JOIN staffing_jobs j ON j.id=m.internal_entity_id AND j.tenant_id=? WHERE m.source_system='jobdiva' AND m.internal_entity_type='staffing_job' AND j.id=? AND m.tenant_id<>? FOR UPDATE");
+        $q->execute([$owner,(int)$existing['id'],$tenantId]);
+        if($q->fetchColumn())throw new RuntimeException('This job already has a JobDiva identity from another workspace. Review its source account.',409);
+    }
+    $q=$pdo->prepare("SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='staffing_job' AND external_id=? FOR UPDATE");
+    $q->execute([$tenantId,$externalId]);$mapped=$q->fetchColumn();
+    if($mapped!==false&&(!$existing||(int)$mapped!==(int)$existing['id']))throw new RuntimeException('The retained JobDiva job link does not match the current directory. Review its identity.',409);
     if ($existing) {
         $patch = [];
         foreach ($row as $key => $value) {
@@ -158,7 +173,7 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
         }
         if ($patch) {
             $sets = [];
-            $params = ['t' => $tenantId, 'id' => (int) $existing['id']];
+            $params = ['t' => $owner, 'id' => (int) $existing['id']];
             foreach ($patch as $key => $value) {
                 $sets[] = "`{$key}` = :{$key}";
                 $params[$key] = $value;
@@ -167,7 +182,7 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
             $pdo->prepare('UPDATE staffing_jobs SET ' . implode(', ', $sets) . ' WHERE tenant_id = :t AND id = :id')
                 ->execute($params);
         }
-        return staffingJobFindBySource($tenantId, 'jobdiva', $externalId) ?: $existing;
+        return staffingJobFindBySource($owner, 'jobdiva', $externalId) ?: $existing;
     }
 
     $insert = array_filter($row, static fn($value) => $value !== null && $value !== '');
@@ -176,7 +191,7 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     $pdo->prepare(
         'INSERT INTO staffing_jobs (`' . implode('`, `', $cols) . '`) VALUES (' . implode(', ', $placeholders) . ')'
     )->execute($insert);
-    return staffingJobFindBySource($tenantId, 'jobdiva', $externalId) ?: ['id' => (int) $pdo->lastInsertId()] + $insert;
+    return staffingJobFindBySource($owner, 'jobdiva', $externalId) ?: ['id' => (int) $pdo->lastInsertId()] + $insert;
 }
 
 function staffingJobLinkPlacementsByJobDivaId(int $tenantId, string $jobdivaJobId, int $staffingJobId): int

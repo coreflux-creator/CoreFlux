@@ -670,6 +670,8 @@ jobs:
           php tests/placement_source_rule_review_db_check.php --confirm-disposable-fixture
       - name: Preserve Core commercial ownership during contract reconciliation
         run: php tests/jobdiva_contract_ownership_db_check.php --confirm-disposable-fixture
+      - name: Verify complete JobDiva projection ownership and rollback
+        run: php tests/jobdiva_projection_directory_db_check.php --confirm-disposable-fixture
       - name: Verify stored contract ownership review and stale-review rejection
         run: php tests/jobdiva_contract_review_db_check.php --confirm-disposable-fixture
       - name: Verify atomic native commercial participant edits

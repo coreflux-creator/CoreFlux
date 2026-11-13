@@ -629,22 +629,22 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
 
     // Durable IDs survive contact changes. Damaged links require explicit repair.
     $pdo = getDB();
+    require_once __DIR__.'/person_directory.php';
+    $owner=jobdivaPersonDirectoryCheck($pdo,$tid,true);
     $mapping = mappingFindInternal($tid, 'jobdiva', 'person', $candidateExtId);
     if ($mapping) {
         $mappedPersonId = (int) $mapping['internal_entity_id'];
         $identityStmt = $pdo->prepare(
-            'SELECT external_id FROM people WHERE tenant_id=:t AND id=:id FOR UPDATE'
+            'SELECT external_id,status,deleted_at FROM people WHERE tenant_id=:t AND id=:id FOR UPDATE'
         );
-        $identityStmt->execute(['t'=>$tid,'id'=>$mappedPersonId]);
+        $identityStmt->execute(['t'=>$owner,'id'=>$mappedPersonId]);
         $mappedPerson = $identityStmt->fetch(PDO::FETCH_ASSOC);
         $mappedExternalId = (string) ($mappedPerson['external_id']??'');
         if (!$mappedPerson || jobdivaPersonExternalIdConflicts($mappedExternalId, $candidateExtId)) {
             throw new RuntimeException('The JobDiva candidate link conflicts with its Core person. Review the existing identity before importing this assignment.');
         }
-        $pdo->prepare(
-            "UPDATE people SET status = 'active', deleted_at = NULL, updated_at = NOW()
-              WHERE tenant_id=:t AND id=:id AND (status <> 'active' OR deleted_at IS NOT NULL)"
-        )->execute(['t'=>$tid,'id'=>$mappedPersonId]);
+        jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$mappedPersonId);
+        if($mappedPerson['deleted_at']!==null||$mappedPerson['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
         mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $mappedPersonId, $jd, 'pull', $userId);
         return $mappedPersonId;
     }
@@ -701,15 +701,14 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
           ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
           LIMIT 2 FOR UPDATE'
     );
-    $stmt->execute(['t' => $tid, 'ext' => $canonicalPersonExternalId]);
+    $stmt->execute(['t' => $owner, 'ext' => $canonicalPersonExternalId]);
     $exactIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
     if (count($exactIds)>1) throw new RuntimeException('More than one Core person carries this JobDiva candidate ID. Review the duplicate identities.');
     $existingId = (int) ($exactIds[0]??0);
     if ($existingId > 0) {
-        $pdo->prepare(
-            "UPDATE people SET status = 'active', deleted_at = NULL, updated_at = NOW()
-              WHERE tenant_id = :t AND id = :id"
-        )->execute(['t' => $tid, 'id' => $existingId]);
+        jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$existingId);
+        $q=$pdo->prepare('SELECT status,deleted_at FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$owner,$existingId]);$person=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$person||$person['deleted_at']!==null||$person['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
         mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
         return $existingId;
     }
@@ -721,7 +720,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
           LIMIT 1 FOR UPDATE"
     );
     $stmt->execute([
-        't' => $tid,
+        't' => $owner,
         'e' => $email,
     ]);
     $existingId = (int) $stmt->fetchColumn();
@@ -731,7 +730,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
 
     // Spreadsheet evidence also requires an operator-reviewed identity link.
     $legacyPersonId = jobdivaLegacyImportPersonCandidate(
-        $tid,
+        $owner,
         $firstName,
         $lastName,
         $email,
@@ -751,7 +750,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
             (:t, :ext, :fn, :ln, :em, :ph, :cls, "active",
              "unknown", "jobdiva", :u)'
     )->execute([
-        't'   => $tid,
+        't'   => $owner,
         'ext' => $canonicalPersonExternalId,
         'fn'  => $firstName,
         'ln'  => $lastName,
@@ -764,9 +763,18 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
     mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $newId, $jd, 'pull', $userId);
     try {
         require_once __DIR__ . '/../integrations/field_map_apply.php';
-        integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $newId]);
+        $mapped=integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $newId], ['source_owned_context'=>true]);
+        if($mapped['errors'])throw new RuntimeException(implode('; ',$mapped['errors']));
     } catch (\Throwable $e) {
-        error_log('[jobdiva person sync] applyAll failed: ' . $e->getMessage());
+        throw $e;
     }
     return $newId;
+}
+
+/** A shared directory does not make unrelated JobDiva accounts interchangeable. */
+function jobdivaPersonSourceWorkspaceCheck(PDO $pdo,int $workspace,int $owner,int $person): void
+{
+    $q=$pdo->prepare("SELECT m.id FROM external_entity_mappings m JOIN people p ON p.id=m.internal_entity_id AND p.tenant_id=? WHERE m.source_system='jobdiva' AND m.internal_entity_type='person' AND p.id=? AND m.tenant_id<>? FOR UPDATE");
+    $q->execute([$owner,$person,$workspace]);
+    if($q->fetchColumn())throw new RuntimeException('This person already has a JobDiva identity from another workspace. Review the source account before linking.',409);
 }

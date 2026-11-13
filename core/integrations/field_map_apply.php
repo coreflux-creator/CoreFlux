@@ -1248,11 +1248,17 @@ function integrationFieldMapApplyAll(
         $maps=array_values(array_filter($maps,static fn(array $m):bool=>in_array($m['target_table']??'', $only,true)));
     }
     if (!$maps) return $summary;
+    $directoryContext=null;
+    if ($integration==='jobdiva' && isset($options['source_owned_context'])) {
+        require_once __DIR__.'/../jobdiva/placement_write_context.php';
+        $directoryContext=jobdivaPlacementWriteContext(getDB(),$tid);
+    }
+    $placementOwner=$directoryContext['placement_owner']??$tid;
     require_once __DIR__ . '/../../modules/placements/lib/source_rule_ownership.php';
     $placementId=integrationFieldMapPlacementIdFromContext($contextRowIds);
     $ruleFields=array_column(placementSourceRuleDefinitions(),'field','table');
     $hasRules=(bool)array_intersect(array_map(static fn($table)=>strtolower((string)$table),array_column($maps,'target_table')),array_keys($ruleFields));
-    $apply=static function(?array $lockedParent=null) use ($tid,$integration,$entityType,$payload,$contextRowIds,$summary,$maps,$placementId,$ruleFields,$options):array {
+    $apply=static function(?array $lockedParent=null) use ($tid,$integration,$entityType,$payload,$contextRowIds,$summary,$maps,$placementId,$ruleFields,$options,$directoryContext,$placementOwner):array {
     $ruleOwned=$lockedParent?placementOwnershipFields($lockedParent['coreflux_overridden_fields']??null):[];
     if ($integration === 'jobdiva' && $entityType === 'placement') {
         require_once __DIR__ . '/../jobdiva/classification_mapping.php';
@@ -1352,11 +1358,25 @@ function integrationFieldMapApplyAll(
         $col   = (string) $m['target_column'];
         $tableLower = strtolower($table);
         $colLower = strtolower($col);
+        $writeOwner=$directoryContext===null?$tid:match($tableLower){
+            'people'=>$directoryContext['people_owner'],
+            'staffing_jobs'=>$directoryContext['staffing_owner'],
+            'companies','company_contacts'=>$directoryContext['company_owner'],
+            'placements','placement_rates','placement_corp_details','placement_commissions','placement_referrals','placement_client_chain'=>$placementOwner,
+            'custom_field_values'=>$tid,
+            default=>throw new RuntimeException('Review the directory for this mapped target: '.$tableLower),
+        };
+        $held=$options['held_placement_fields']??[];
+        $heldTarget=match($tableLower){'people'=>'person_id','staffing_jobs'=>'staffing_job_id','companies','company_contacts'=>'end_client_company_id',default=>null};
+        if($tableLower==='custom_field_values')$heldTarget=match($m['target_module']??''){'people'=>'person_id','companies'=>'end_client_company_id',default=>null};
+        if($heldTarget!==null&&in_array($heldTarget,$held,true)){
+            integrationFieldMapSkip($summary,$m,'core_owned_related_identity');continue;
+        }
 
-        $rowId  = integrationFieldMapContextRowId($contextRowIds, $m, $tid);
+        $rowId  = integrationFieldMapContextRowId($contextRowIds, $m, $writeOwner);
         $pendingPlacementRateFor = 0;
         if ($rowId <= 0 && $tableLower === 'placement_client_chain' && $colLower === 'party_name') {
-            $rowId = integrationFieldMapEnsurePlacementChainRow($tid, $contextRowIds, $linked, $val);
+            $rowId = integrationFieldMapEnsurePlacementChainRow($writeOwner, $contextRowIds, $linked, $val);
         }
         if ($rowId <= 0 && $tableLower === 'placement_rates') {
             $pendingPlacementRateFor = integrationFieldMapPlacementIdFromContext($contextRowIds);
@@ -1368,7 +1388,7 @@ function integrationFieldMapApplyAll(
         }
         if(isset($ruleFields[$tableLower])) {
             $belongs=$pdo->prepare('SELECT id FROM `'.$tableLower.'` WHERE tenant_id=? AND placement_id=? AND id=?');
-            $belongs->execute([$tid,$placementId,$rowId]);
+            $belongs->execute([$writeOwner,$placementId,$rowId]);
             if(!$belongs->fetchColumn()) {integrationFieldMapSkip($summary,$m,'rule_placement_mismatch');continue;}
         }
         if ($tableLower === 'placement_commissions') {
@@ -1389,6 +1409,7 @@ function integrationFieldMapApplyAll(
         if (!isset($bucket[$key])) {
             $bucket[$key] = [
                 'table' => $table,
+                'owner' => $writeOwner,
                 'id' => $rowId,
                 'placement_id' => $pendingPlacementRateFor,
                 'set' => [],
@@ -1410,6 +1431,7 @@ function integrationFieldMapApplyAll(
 
     // Flush bucket → DB.
     foreach ($bucket as $b) {
+        $writeOwner=$b['owner'];
         if (!empty($b['set'])) {
             try {
                 $tableLower = strtolower((string) ($b['table'] ?? ''));
@@ -1420,14 +1442,14 @@ function integrationFieldMapApplyAll(
                     $kind=$tableLower==='companies'?'company':'contact';
                     $link=mappingFindExternal($tid,$integration,$kind,(int)$b['id']);
                     if(!$link)throw new RuntimeException('An exact company source identity is required before applying mapped fields.');
-                    $write=companySourceObserve($pdo,companiesDirectoryTenantId($tid),$tableLower,(int)$b['id'],$b['set'],
+                    $write=companySourceObserve($pdo,$directoryContext['company_owner']??companiesDirectoryTenantId($tid),$tableLower,(int)$b['id'],$b['set'],
                         ['system'=>$integration,'workspace_id'=>$tid,'external_id'=>(string)$link['external_id']],false,false);
                     $summary['written']+=$write['written'];
                     foreach($write['skipped']as$column)integrationFieldMapSkip($summary,$b['maps'][$column],'core_owned_company_field');
                     continue;
                 }
                 if ($tableLower === 'placements') {
-                    $write = integrationFieldMapWritePlacement($pdo, $tid, (int) $b['id'], $b['set']);
+                    $write = integrationFieldMapWritePlacement($pdo, $writeOwner, (int) $b['id'], $b['set']);
                     $summary['written'] += $write['written'];
                     foreach ($write['skipped'] as $column) {
                         integrationFieldMapSkip($summary, $b['maps'][$column], 'core_owned_placement_field');
@@ -1453,7 +1475,7 @@ function integrationFieldMapApplyAll(
                 }
                 if ($tableLower === 'placement_rates' && (int) ($b['id'] ?? 0) <= 0) {
                     $placementId = (int) ($b['placement_id'] ?? 0);
-                    $insert = integrationFieldMapInsertPlacementRateRow($tid, $placementId, $b['set']);
+                    $insert = integrationFieldMapInsertPlacementRateRow($writeOwner, $placementId, $b['set']);
                     if ((int) ($insert['id'] ?? 0) > 0) {
                         $summary['written'] += count($b['set']);
                     } else {
@@ -1463,7 +1485,7 @@ function integrationFieldMapApplyAll(
                     continue;
                 }
                 if ($tableLower === 'placement_corp_details') {
-                    $corpWrite = integrationFieldMapWritePlacementCorpDetails($tid, (int) $b['id'], $b['set']);
+                    $corpWrite = integrationFieldMapWritePlacementCorpDetails($writeOwner, (int) $b['id'], $b['set']);
                     if (!empty($corpWrite['ok'])) {
                         $summary['written'] += (int) ($corpWrite['written'] ?? 0);
                         $summary['skipped'] += (int) ($corpWrite['skipped'] ?? 0);
@@ -1475,10 +1497,13 @@ function integrationFieldMapApplyAll(
                 if ($tableLower === 'placement_commissions') {
                     require_once __DIR__.'/../../modules/placements/lib/commission_input.php';
                     $b['set']=placementCommissionTermsInput($b['set']);
-                    placementCommissionProtectConsumed($pdo,$tid,integrationFieldMapPlacementIdFromContext($contextRowIds),(int)$b['id'],$b['set']);
+                    placementCommissionProtectConsumed($pdo,$writeOwner,integrationFieldMapPlacementIdFromContext($contextRowIds),(int)$b['id'],$b['set']);
                 }
+                $exists=$pdo->prepare('SELECT id FROM `'.$b['table'].'` WHERE tenant_id=? AND id=? FOR UPDATE');
+                $exists->execute([$writeOwner,(int)$b['id']]);
+                if(!$exists->fetchColumn())throw new RuntimeException('The mapped record is unavailable in its current directory.');
                 $sets = [];
-                $params = ['id' => $b['id'], 't' => $tid];
+                $params = ['id' => $b['id'], 't' => $writeOwner];
                 foreach ($b['set'] as $c => $v) {
                     $ph = 'v_' . preg_replace('/[^a-z0-9_]/i', '_', $c);
                     $sets[] = "`{$c}` = :{$ph}";
@@ -1515,7 +1540,8 @@ function integrationFieldMapApplyAll(
         if ($placementId > 0 && $summary['written'] > 0 && $summary['errors'] === [] && ($options['reconcile'] ?? true)) {
             try {
                 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
-                placementEconomicsReconcile($tid, $placementId);
+                $graph=placementEconomicsReconcile($placementOwner, $placementId);
+                if(!$graph['available']||$graph['errors'])throw new RuntimeException('Mapped assignment economics could not be reconciled.');
             } catch (\Throwable $e) {
                 $summary['errors'][] = 'economic_reconcile_failed: ' . $e->getMessage();
             }
@@ -1525,7 +1551,7 @@ function integrationFieldMapApplyAll(
     return $summary;
     };
     return $hasRules && $placementId>0
-        ? placementWithLockedRecord($tid,$placementId,static fn(array $parent):array=>$apply($parent))
+        ? placementWithLockedRecord($placementOwner,$placementId,static fn(array $parent):array=>$apply($parent))
         : $apply();
 }
 

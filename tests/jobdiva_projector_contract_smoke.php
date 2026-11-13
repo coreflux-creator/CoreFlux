@@ -38,7 +38,7 @@ echo "\n2. Placement projection owns write sequencing\n";
 $a('placement projector function exists',
     str_contains($projector, 'function jobdivaProjectorProjectPlacement(int $tenantId, array $payload'));
 $a('projector joins native mirrors before projection',
-    str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId)'));
+    str_contains($projector, 'jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId, true)'));
 $a('projector independently resolves billing and explicit work-recipient evidence',
     str_contains($projector, 'function jobdivaProjectorResolveBillingClientCompany')
     && str_contains($projector, 'function jobdivaProjectorResolveEndClientCompany'));
@@ -53,7 +53,7 @@ $a('end-client resolution requires explicit provider identity',
 $a('projector delegates placement/rate write to canonical sync writer',
     str_contains($projector, 'jobdivaSyncUpsertPlacement('));
 $a('projector binds canonical placement mapping',
-    str_contains($projector, "mappingUpsert(\$tenantId, 'jobdiva', 'placement'"));
+    str_contains($projector, "mappingBindStable(\$tenantId, 'jobdiva', 'placement'"));
 $a('projector reinforces adjacent canonical source mappings',
     str_contains($projector, 'function jobdivaProjectorBindPlacementSourceIdentities')
     && str_contains($projector, "\$bind('person', \$candidateExtId, \$personId")
@@ -68,7 +68,7 @@ $a('exact reconciliation verifies the canonical write after field mapping',
     str_contains($projector, 'jobdivaProjectorSourceContractDrift(')
     && str_contains($projector, 'JobDiva canonical projection did not persist:'));
 $a('projector emits workflow readiness',
-    str_contains($projector, 'jobdivaProjectorPlacementReadiness($tenantId, $placementId)'));
+    str_contains($projector, "jobdivaProjectorPlacementReadiness(\$context['placement_owner'], \$placementId)"));
 
 echo "\n3. Runtime paths use the projector\n";
 $a('sync requires projector', str_contains($sync, "require_once __DIR__ . '/projector.php'"));

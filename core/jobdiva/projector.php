@@ -118,7 +118,31 @@ function jobdivaProjectorCoreOwnershipConflicts(array $payload, array $currentGr
     )));
 }
 
+/** A failed projection cannot leave a successful subgraph or mapping behind. */
+class JobDivaPlacementProjectionFailure extends RuntimeException
+{
+    public function __construct(public array $summary){parent::__construct(implode('; ',$summary['errors']??[]));}
+}
+
 function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $userId = null, array $opts = []): array
+{
+    require_once __DIR__.'/placement_write_context.php';
+    try{
+        return companyRelationshipAtomic(getDB(),static function()use($tenantId,$payload,$userId,$opts):array{
+            $result=jobdivaProjectorProjectPlacementInTransaction($tenantId,$payload,$userId,$opts);
+            if(!$result['projected']||$result['errors']||$result['field_map']['errors'])throw new JobDivaPlacementProjectionFailure($result);
+            return$result;
+        });
+    }catch(JobDivaPlacementProjectionFailure $e){
+        $result=$e->summary;$result['projected']=false;$result['placement_id']=null;$result['mapping_writes']=0;
+        $result['identities']=['person_id'=>0,'end_client_company_id'=>0,'staffing_job_id'=>0,'contact_id'=>0];
+        $result['field_map']['written']=0;$result['rolled_back']=true;
+        $result['readiness']=['ok'=>false,'missing'=>['projection_rolled_back'],'warnings'=>[],'facts'=>[]];
+        return$result;
+    }
+}
+
+function jobdivaProjectorProjectPlacementInTransaction(int $tenantId, array $payload, ?int $userId = null, array $opts = []): array
 {
     $summary = [
         'projected' => false,
@@ -160,7 +184,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         $payload = jobdivaAssignmentSanitisePayload($payload, $externalId);
         $joinStats = [];
         if (empty($opts['payload_is_enriched']) && function_exists('jobdivaPlacementPayloadWithMirrors')) {
-            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId);
+            $payload = jobdivaPlacementPayloadWithMirrors($tenantId, $payload, $joinStats, $externalId, true);
         } elseif (function_exists('jobdivaExtractJoinedSubPayloads')) {
             $joinStats = jobdivaProjectorInferJoinStats($payload);
             if (function_exists('jobdivaCanonicalPlacementPayload')) {
@@ -197,7 +221,11 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         if (jobdivaAssignmentEndClientEvidence($payload)['status'] === 'ambiguous') {
             throw new \RuntimeException('Conflicting explicit end-client identities require review.');
         }
-        $personId = (int) ($opts['person_id'] ?? 0);
+        $context=jobdivaPlacementWriteContext(getDB(),$tenantId);
+        $identity=jobdivaPlacementWriteIdentity(getDB(),$context,$externalId,$opts['existing_placement_id']??null);
+        $ownedFields=$identity['owned_fields'];
+
+        $personId=in_array('person_id',$ownedFields,true)?(int)$identity['placement']['person_id']:(int)($opts['person_id']??0);
         if ($personId <= 0 && !function_exists('jobdivaPlacementsAutoCreatePerson')) {
             // The stored-assignment reconciliation path loads the canonical
             // projector without running placement discovery first. Load the
@@ -205,13 +233,13 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             // identical for sync, repair, and operator-selected reconciliation.
             require_once __DIR__ . '/sync_placements.php';
         }
-        if ($personId <= 0 && function_exists('jobdivaPlacementsAutoCreatePerson')) {
+        if ($personId <= 0 && !in_array('person_id',$ownedFields,true) && function_exists('jobdivaPlacementsAutoCreatePerson')) {
             $personId = (int) (jobdivaPlacementsAutoCreatePerson($tenantId, $payload, $userId) ?? 0);
         }
         if ($personId <= 0) throw new \RuntimeException('could not resolve JobDiva candidate to CoreFlux person');
 
-        $endClientCompanyId = isset($opts['end_client_company_id']) ? (int) $opts['end_client_company_id'] : 0;
-        if ($endClientCompanyId <= 0) {
+        $endClientCompanyId=in_array('end_client_company_id',$ownedFields,true)?(int)($identity['placement']['end_client_company_id']??0):(int)($opts['end_client_company_id']??0);
+        if ($endClientCompanyId <= 0 && !in_array('end_client_company_id',$ownedFields,true)) {
             $endClientCompanyId = (int) (jobdivaProjectorResolveEndClientCompany($tenantId, $payload, $userId) ?? 0);
         }
 
@@ -239,7 +267,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         $snapshotPayload = function_exists('jobdivaAssignmentCompactSnapshotPayload')
             ? jobdivaAssignmentCompactSnapshotPayload($writePayload, $externalId)
             : $writePayload;
-        mappingUpsert($tenantId, 'jobdiva', 'placement', $externalId, $placementId, $snapshotPayload, 'pull', $userId);
+        mappingBindStable($tenantId, 'jobdiva', 'placement', $externalId, $placementId, $snapshotPayload, 'pull', $userId);
         $summary['mapping_writes']++;
 
         if (function_exists('jobdivaIndexJoinedSubPayloads')) {
@@ -251,7 +279,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         }
 
         $staffingJobId = function_exists('jobdivaPlacementStaffingJobId')
-            ? jobdivaPlacementStaffingJobId($tenantId, $placementId)
+            ? jobdivaPlacementStaffingJobId($context['placement_owner'], $placementId)
             : 0;
         $identityBindings = jobdivaProjectorBindPlacementSourceIdentities(
             $tenantId,
@@ -259,7 +287,8 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             $userId,
             $personId,
             $endClientCompanyId > 0 ? $endClientCompanyId : 0,
-            $staffingJobId
+            $staffingJobId,
+            $ownedFields
         );
         $summary['mapping_writes'] += (int) ($identityBindings['mapping_writes'] ?? 0);
         foreach (($identityBindings['errors'] ?? []) as $bindError) {
@@ -275,7 +304,8 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
                     $endClientCompanyId > 0 ? $endClientCompanyId : null,
                     $staffingJobId,
                     $writePayload,
-                    $contactId
+                    $contactId,
+                    ['source_owned_context'=>$context,'held_placement_fields'=>$ownedFields]
                 );
             } catch (\Throwable $e) {
                 $summary['field_map']['errors'][] = $e->getMessage();
@@ -285,7 +315,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
 
         if (!empty($opts['force_source_contract'])
             && function_exists('jobdivaPlacementProjectionAuditSnapshot')) {
-            $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+            $currentGraph = jobdivaPlacementProjectionAuditSnapshot($context['placement_owner'], $placementId, true);
             $drift = jobdivaProjectorSourceContractDrift($writePayload, $currentGraph, $externalId);
             if ($drift !== []) {
                 // Retry only source-owned drift after enrichment. The writer
@@ -301,7 +331,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
                     $externalId,
                     $userId
                 );
-                $currentGraph = jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId);
+                $currentGraph = jobdivaPlacementProjectionAuditSnapshot($context['placement_owner'], $placementId, true);
                 $drift = jobdivaProjectorSourceContractDrift($writePayload, $currentGraph, $externalId);
             }
             if ($drift !== []) {
@@ -315,7 +345,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
         $summary['projected'] = true;
         if (function_exists('jobdivaPlacementProjectionAuditSnapshot')) {
             $summary['ownership_conflicts'] = jobdivaProjectorCoreOwnershipConflicts(
-                $writePayload, jobdivaPlacementProjectionAuditSnapshot($tenantId, $placementId), $externalId
+                $writePayload, jobdivaPlacementProjectionAuditSnapshot($context['placement_owner'], $placementId, true), $externalId
             );
         }
         $summary['placement_id'] = $placementId;
@@ -325,7 +355,7 @@ function jobdivaProjectorProjectPlacement(int $tenantId, array $payload, ?int $u
             'staffing_job_id' => $staffingJobId,
             'contact_id' => $contactId,
         ];
-        $summary['readiness'] = jobdivaProjectorPlacementReadiness($tenantId, $placementId);
+        $summary['readiness'] = jobdivaProjectorPlacementReadiness($context['placement_owner'], $placementId);
         return $summary;
     } catch (\Throwable $e) {
         $summary['errors'][] = $e->getMessage();
@@ -339,7 +369,8 @@ function jobdivaProjectorBindPlacementSourceIdentities(
     ?int $userId,
     int $personId,
     int $endClientCompanyId,
-    int $staffingJobId
+    int $staffingJobId,
+    array $ownedFields = []
 ): array {
     $summary = ['mapping_writes' => 0, 'contact_id' => 0, 'errors' => []];
     if ($tenantId <= 0) return $summary;
@@ -347,8 +378,11 @@ function jobdivaProjectorBindPlacementSourceIdentities(
     $bind = static function (string $entityType, string $externalId, int $internalId, array $sourcePayload) use (
         $tenantId,
         $userId,
-        &$summary
+        &$summary,
+        $ownedFields
     ): void {
+        $field=['person'=>'person_id','company'=>'end_client_company_id','staffing_job'=>'staffing_job_id'][$entityType]??null;
+        if($field&&in_array($field,$ownedFields,true))return;
         $externalId = trim($externalId);
         if ($externalId === '' || $internalId <= 0) return;
         try {
