@@ -21,7 +21,7 @@ try{
         foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
         setRequestTenantId($workspace);$_SESSION['tenant_id']=$workspace;setRequestModuleScope('placements');
         $actor=$insert('users',['tenant_id'=>$owner,'name'=>'Synthetic rate reviewer','email'=>'source-rate-review@example.invalid','password'=>'fixture-disabled','password_hash'=>'fixture-disabled','role'=>'admin','is_active'=>1]);$user=['id'=>$actor];
-        $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Source rate','classification'=>'w2','status'=>'active','external_id'=>'retained-worker-number']);
+        $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Source rate','email_primary'=>'source-rate-worker@example.invalid','classification'=>'w2','status'=>'active','external_id'=>'retained-worker-number']);
         mappingUpsert($workspace,'jobdiva','person','jd:99196002',$person,['candidateId'=>'99196002']);
         $placement=$insert('placements',['tenant_id'=>$owner,'person_id'=>$person,'title'=>'Retained rate assignment','status'=>'draft','engagement_type'=>'w2','start_date'=>'2026-10-01','external_id'=>'retained-placement-number','worksite_country'=>'US']);
         $payload=['startId'=>'99196001','candidateId'=>'99196002','jobId'=>'99196003','startDate'=>'2026-10-01','status'=>'Active','_jd_contract'=>['start_id'=>'99196001','candidate_id'=>'99196002','job_id'=>'99196003','engagement_type'=>'w2','bill_rate'=>100,'pay_rate'=>50,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD']];
@@ -69,6 +69,14 @@ try{
         $check($edit['updated']&&(int)$edited['created_by_user_id']===$actor&&(float)$edited['bill_rate']===110.0&&in_array('rates',json_decode($read('placements',$placement)['coreflux_overridden_fields'],true),true),'Editing a source draft records native ownership and the editor');
         $before=$state();$check(!jobdivaSyncUpsertPlacementRates($owner,$placement,'2026-10-01',$payload,false,$workspace)&&$state()===$before,'Later source refresh cannot overwrite the edited draft or its timestamps');
         $check($repair()['reason']==='native_draft_requires_review'&&$state()===$before,'Repair preserves the manually reviewed draft');
+        require_once __DIR__.'/../core/integrations/field_map_apply.php';
+        $mapInsert=$pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,internal_field,source_path,target_module,target_table,target_column,linked_entity) VALUES(?,"jobdiva","placement",?,?,?,"placements","placement_rates",?,"placement_rates")');
+        foreach(['bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency']as$field)$mapInsert->execute([$workspace,$field,$field,$field,$field]);
+        tenantIntegrationFieldMapFlushCache();$mappedPayload=['employmentType'=>'W2','bill_rate'=>80,'pay_rate'=>40,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD'];$before=$state();
+        $mapped=integrationFieldMapApplyAll($workspace,'jobdiva','placement',$mappedPayload,['placement'=>$placement,'placement_rates'=>$rateId],['source_owned_context'=>true,'reconcile'=>false]);
+        $check($mapped['written']===0&&$mapped['errors']===[]&&$state()===$before,'Configured field mappings cannot bypass native rate ownership');
+        $held=jobdivaContractOwnedFields(['placement'=>$read('placements',$placement),'rates'=>[$read('placement_rates',$rateId)]]);
+        $check(in_array('bill_rate',$held,true)&&in_array('pay_rate',$held,true)&&in_array('currency',$held,true),'Stored contract reviews recognize the complete native rate ownership decision');
         $pdo->exec("SET @fixture_source_rate_fail='placement.rate.approved'");$error=$failure(fn()=>placementsRateApproveOne($rateId,$user,false,null));$pdo->exec('SET @fixture_source_rate_fail=NULL');
         $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Approval audit failure rolls back approval and rebuilt economics together');
         $approved=placementsRateApproveOne($rateId,$user,false,null);$stored=$read('placement_rates',$rateId);
@@ -76,6 +84,11 @@ try{
         $before=$state();$check(str_contains($failure(fn()=>placementsRateApproveOne($rateId,$user,false,null)),'already approved')&&$state()===$before,'Repeated approval cannot restamp the immutable snapshot');
         $check(str_contains($failure(fn()=>placementRateDraftNative($workspace,$placement,$native,$actor,$rateId)),'locked')&&$state()===$before,'Native edit cannot overwrite an approved row');
         $check(!jobdivaSyncUpsertPlacementRates($owner,$placement,'2026-10-01',$payload,false,$workspace)&&$state()===$before,'Native rate ownership remains effective after approval');
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$placement,$rateId,$mappedPayload,$state,$check):void{
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=NULL WHERE id=?')->execute([$placement]);$before=$state();
+            $mapped=integrationFieldMapApplyAll($workspace,'jobdiva','placement',$mappedPayload,['placement'=>$placement,'placement_rates'=>$rateId],['source_owned_context'=>true,'reconcile'=>false]);
+            $check($mapped['written']===0&&$mapped['errors']===[]&&$state()===$before,'Even without a native hold, field mappings cannot overwrite an approved snapshot');
+        },true);
         $next=placementRateDraftNative($workspace,$placement,array_replace($native,['effective_from'=>'2026-11-01','bill_rate'=>120]),$actor);$before=$state();
         $pdo->exec("SET @fixture_source_rate_fail='placement.rate.superseded'");$error=$failure(fn()=>placementsRateApproveOne($next['id'],$user,false,null));$pdo->exec('SET @fixture_source_rate_fail=NULL');
         $check(str_contains($error,'Synthetic required rate audit failure')&&$state()===$before,'Late supersede audit failure restores both old history and new approval');

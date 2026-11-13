@@ -19,7 +19,7 @@ foreach(['COMMIT','ROLLBACK']as$decision){
     $check($result['ok']&&count($rows)===1&&(float)$rows[0]['pay_rate']===($decision==='COMMIT'?80.0:50.0),'Source repair preserves a committed native draft and repairs after rollback: '.$decision);
     [$placement,$rate,$input]=$rateFixture('approval-retry-'.$decision,$child);
     $worker=$spawn(array_replace($input,['mode'=>'hold']));$saved=$line($workers[$worker]['pipes'][1]);
-    $check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Shared approval holds rate and required audit before '.$decision);
+    $check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Shared approval holds rate and required audit before '.$decision.': '.json_encode($saved,JSON_THROW_ON_ERROR));
     $retry=$spawn($input);$check($waiting($retry),'Concurrent approval waits for the first decision '.$decision);
     fwrite($workers[$worker]['pipes'][0],$decision.PHP_EOL);fflush($workers[$worker]['pipes'][0]);$first=$finish($worker);$again=$finish($retry);
     $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="placement.rate.approved" AND target_id=?');$q->execute([$child,$placement]);

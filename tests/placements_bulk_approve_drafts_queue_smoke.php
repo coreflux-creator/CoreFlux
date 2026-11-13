@@ -67,7 +67,7 @@ $a('shared placementsRateApproveOne() helper defined',
 $a('approval shares the protected directory and placement transaction',str_contains($nativeRates,'placementNativeDirectoryWrite(')&&str_contains($nativeRates,'placementWithLockedRecord(')&&str_contains($nativeRates,'ORDER BY id FOR UPDATE'));
 $a('approval requires an atomic audit',str_contains($nativeRates,'companySourceAudit(')&&str_contains($nativeRates,"'placement.rate.approved'"));
 $a('approval closes superseded coverage under the owning tenant',str_contains($nativeRates,'SET effective_to=DATE_SUB(')&&str_contains($nativeRates,'superseded_by=? WHERE tenant_id=?'));
-$a('approval computes the canonical locked economics snapshot',str_contains($nativeRates,"placementEconomicsApprovalSnapshot(\$scope['workspace'],\$rate)"));
+$a('approval computes the canonical locked economics snapshot',str_contains($nativeRates,"placementEconomicsApprovalSnapshot(\$scope['owner'],\$rate)"));
 $a('single ?action=approve now calls placementsRateApproveOne',
    (bool) preg_match("/action === 'approve'.*?placementsRateApproveOne\(\\\$id, \\\$user, \\\$isCorrection, \\\$correctionReason\)/s", $rates));
 $a('single approve still maps known errors to 404/409',

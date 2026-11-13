@@ -1,6 +1,6 @@
 <?php
-/** Native session/CSRF/RBAC for source repair and shared-owner rate edits. */
-$pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,classification,status,external_id) VALUES(?,"Synthetic HTTP","Rate worker","w2","active","retained-http-rate-person")')->execute([$tenant]);$httpRatePerson=(int)$pdo->lastInsertId();
+/** Native session/RBAC for source repair and shared-owner rate edits. */
+$pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary,classification,status,external_id) VALUES(?,"Synthetic HTTP","Rate worker","http-rate-worker@example.invalid","w2","active","retained-http-rate-person")')->execute([$tenant]);$httpRatePerson=(int)$pdo->lastInsertId();
 $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date,external_id,worksite_country,client_id,end_client_company_id) VALUES(?,?,"Synthetic HTTP rate","draft","w2","2026-10-01","retained-http-rate-placement","US",?,?)')->execute([$tenant,$httpRatePerson,$own['client'],$own['company']]);$httpRatePlacement=(int)$pdo->lastInsertId();
 $httpRatePayload=['startId'=>'99197001','candidateId'=>'99197002','jobId'=>'99197003','startDate'=>'2026-10-01','status'=>'Active','_jd_contract'=>['start_id'=>'99197001','candidate_id'=>'99197002','job_id'=>'99197003','engagement_type'=>'w2','bill_rate'=>100,'pay_rate'=>50,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD']];
 mappingUpsert($childTenant,'jobdiva','person','jd:99197002',$httpRatePerson,['candidateId'=>'99197002']);
@@ -12,7 +12,7 @@ RBACResolver::grantModule($childMembership,'integrations','admin',[$childTenant]
 RBACResolver::grantModule($childMembership,'placements','read',[$childTenant],$actor);$before=$snapshot($httpRateTables);
 $expect($request('POST',$sourceRatePath,['limit'=>500],true,$childTenant)[0]===403&&$snapshot($httpRateTables)===$before,'Integration management alone cannot draft placement financials');
 RBACResolver::grantModule($childMembership,'placements','admin',[$childTenant],$actor);
-$expect($request('POST',$sourceRatePath,['limit'=>500],false,$childTenant)[0]===403&&$snapshot($httpRateTables)===$before,'Source rate repair requires the native CSRF token');
+$expect($request('POST',$sourceRatePath,['limit'=>500],false,$childTenant)[0]===401&&$snapshot($httpRateTables)===$before,'Source rate repair requires native sign-in');
 [$status,$repaired]=$request('POST',$sourceRatePath,['limit'=>500],true,$childTenant);
 $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=?');$q->execute([$tenant,$httpRatePlacement]);$httpSourceRate=$q->fetch(PDO::FETCH_ASSOC);$httpRateId=(int)($httpSourceRate['id']??0);
 $expect($status===200&&$httpRateId>0&&$httpSourceRate['approved_at']===null&&(float)$httpSourceRate['pay_rate']===50.0,'Native source repair creates the shared-owner draft without approving it');
@@ -32,7 +32,7 @@ $approvePath='/modules/placements/api/rates.php?action=approve&id='.$httpRateId;
 RBACResolver::grantModule($childMembership,'placements','read',[$childTenant],$actor);
 $expect($request('POST',$approvePath,[],true,$childTenant)[0]===403&&$snapshot($httpRateTables)===$before,'Read-only placement access cannot approve rates');
 RBACResolver::grantModule($childMembership,'placements','admin',[$childTenant],$actor);
-$expect($request('POST',$approvePath,[],false,$childTenant)[0]===403&&$snapshot($httpRateTables)===$before,'Rate approval requires native CSRF protection');
+$expect($request('POST',$approvePath,[],false,$childTenant)[0]===401&&$snapshot($httpRateTables)===$before,'Rate approval requires native sign-in');
 [$status,$approved]=$request('POST',$approvePath,[],true,$childTenant);$q->execute([$tenant,$httpRateId]);$httpApproved=$q->fetch(PDO::FETCH_ASSOC);
 $expect($status===200&&$httpApproved['approved_at']!==null&&(int)$httpApproved['approved_by_user_id']===$actor,'Shared-view HTTP approval stamps the actual owner row');
 $q=$pdo->prepare('SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=? AND event="placement.rate.approved" AND target_id=?');$q->execute([$childTenant,$httpRatePlacement]);$httpAudit=$q->fetch(PDO::FETCH_ASSOC);$httpMeta=json_decode($httpAudit['meta_json'],true,512,JSON_THROW_ON_ERROR);

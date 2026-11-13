@@ -623,7 +623,7 @@ function jobdivaReconciliationBuildRowPlan(
         foreach ($desiredRate as $field => $to) {
             $from = $currentRate[$field] ?? null;
             $ownershipField=match($field){'effective_from'=>'start_date','effective_to'=>'end_date',default=>$field};
-            if(in_array($ownershipField,$overrides,true)){
+            if(in_array('rates',$overrides,true)||in_array($ownershipField,$overrides,true)){
                 if(!jobdivaReconciliationValueEqual($from,$to))$protected[]=jobdivaReconciliationChange('rate',$field,$field,$from,$to);
                 if($currentRate)$desiredRate[$field]=$from;
                 else $errors[]='Review Core-owned rate fields before creating a new source rate.';

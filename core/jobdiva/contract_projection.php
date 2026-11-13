@@ -22,6 +22,9 @@ function jobdivaContractOwnedFields(array $currentGraph, string $sourceEngagemen
         || array_filter($owned, static fn($field) => !is_string($field) || $field === '')) {
         throw new RuntimeException('Review the placement field ownership before reconciling its contract.', 422);
     }
+    if(in_array('rates',$owned,true))array_push($owned,'bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency',
+        'bill_discount_pct','bill_discount_flat','invoice_bill_rate','payroll_load_pct','workers_comp_pct','benefits_load_pct',
+        'ot_multiplier','dt_multiplier','adder_pct','background_fee_total','bill_adder_pct','bill_adder_flat','c2c_overhead_pct','other_cost_per_hour','other_cost_flat');
     foreach ($currentGraph['economic_parties'] ?? [] as $party) {
         if (($party['source_type'] ?? '') === 'corp'
             && ($party['source_ref'] ?? '') === 'corp:' . (int)($currentGraph['placement']['id'] ?? 0)

@@ -65,7 +65,7 @@ function placementRateApproveLocked(int $workspace,int $rateId,array $user,bool 
         $autoCorrection=(bool)array_filter($rates,static fn($r)=>$r['approved_at']!==null);
         $isCorrection=$isCorrection||$autoCorrection;
         if($isCorrection&&trim((string)$reason)==='')$reason=$autoCorrection?'Rate update (auto-detected supersede of prior approved row)':'Manual correction (no reason provided)';
-        $margin=placementEconomicsApprovalSnapshot($scope['workspace'],$rate);
+        $margin=placementEconomicsApprovalSnapshot($scope['owner'],$rate);
         $q=$pdo->prepare('UPDATE placement_rates SET effective_to=DATE_SUB(?, INTERVAL 1 DAY),superseded_by=? WHERE tenant_id=? AND placement_id=? AND id<>? AND approved_at IS NOT NULL AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?)');
         $q->execute([$rate['effective_from'],$rateId,$scope['owner'],$placement['id'],$rateId,$rate['effective_from'],$rate['effective_from']]);$closed=$q->rowCount();
         $q=$pdo->prepare('UPDATE placement_rates SET approved_by_user_id=?,approved_at=NOW(),adjusted_bill_rate=?,net_to_vendor=?,economics_snapshot_json=?,is_correction=?,correction_reason=? WHERE tenant_id=? AND placement_id=? AND id=? AND approved_at IS NULL');

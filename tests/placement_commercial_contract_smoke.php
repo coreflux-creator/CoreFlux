@@ -7,7 +7,7 @@ $read = static fn(string $path): string => (string) file_get_contents($root . '/
 $migration = $read('core/migrations/128_placement_commercial_contract.sql')
     . $read('core/migrations/136_c2c_overhead_load.sql');
 $economics = $read('modules/placements/lib/economics.php');
-$approval = $read('modules/placements/lib/rate_approve.php');
+$approval = $read('modules/placements/lib/native_rates.php');
 $ratesApi = $read('modules/placements/api/rates.php');
 $csvImport = $read('modules/placements/api/csv_import.php');
 $csvExport = $read('modules/placements/api/csv_export.php');
@@ -56,7 +56,7 @@ foreach ($rateFields as $field) {
 
 $assert('approved rate stores an immutable economics snapshot',
     str_contains($migration, 'economics_snapshot_json')
-    && str_contains($approval, 'economics_snapshot_json = :snapshot')
+    && str_contains($approval, 'economics_snapshot_json=?')
     && str_contains($approval, "json_encode(\$margin['economics_snapshot']"));
 $assert('snapshot includes bill-to terms and all commercial participants',
     str_contains($economics, "\$model['contract_parties'] = \$contractParties")

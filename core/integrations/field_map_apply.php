@@ -1258,6 +1258,7 @@ function integrationFieldMapApplyAll(
     $placementId=integrationFieldMapPlacementIdFromContext($contextRowIds);
     $ruleFields=array_column(placementSourceRuleDefinitions(),'field','table');
     $hasRules=(bool)array_intersect(array_map(static fn($table)=>strtolower((string)$table),array_column($maps,'target_table')),array_keys($ruleFields));
+    $hasRates=in_array('placement_rates',array_map(static fn($table)=>strtolower((string)$table),array_column($maps,'target_table')),true);
     $apply=static function(?array $lockedParent=null) use ($tid,$integration,$entityType,$payload,$contextRowIds,$summary,$maps,$placementId,$ruleFields,$options,$directoryContext,$placementOwner):array {
     $ruleOwned=$lockedParent?placementOwnershipFields($lockedParent['coreflux_overridden_fields']??null):[];
     if ($integration === 'jobdiva' && $entityType === 'placement') {
@@ -1456,6 +1457,17 @@ function integrationFieldMapApplyAll(
                     }
                     continue;
                 }
+                if ($tableLower === 'placement_rates') {
+                    if(!$lockedParent)throw new RuntimeException('A current placement lock is required for mapped rates.');
+                    $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=? ORDER BY id FOR UPDATE');$q->execute([$writeOwner,$lockedParent['id']]);$rateRows=$q->fetchAll(PDO::FETCH_ASSOC);
+                    $selected=(int)($b['id']??0);$selectedRate=$selected>0?(array_column($rateRows,null,'id')[$selected]??null):null;
+                    if($selected>0&&!$selectedRate)throw new RuntimeException('The mapped rate is not on this placement.');
+                    $held=array_intersect($ruleOwned,['rates','bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency','ot_multiplier','dt_multiplier','adder_pct','payroll_load_pct','background_fee_total','bill_adder_pct','bill_adder_flat','bill_discount_pct','bill_discount_flat','workers_comp_pct','benefits_load_pct','c2c_overhead_pct','other_cost_per_hour','other_cost_flat']);
+                    if($held||array_filter($rateRows,static fn($r)=>$r['approved_at']===null&&!empty($r['created_by_user_id']))||($selectedRate&&$selectedRate['approved_at']!==null)){
+                        foreach($b['maps']as$rateMap)integrationFieldMapSkip($summary,$rateMap,'core_owned_or_approved_rate');
+                        continue;
+                    }
+                }
                 if ($integration === 'jobdiva' && $tableLower === 'placement_rates') {
                     if (jobdivaClassificationFromPayload($payload)['status'] !== 'resolved') {
                         $summary['skipped'] += count($b['set']);
@@ -1551,7 +1563,7 @@ function integrationFieldMapApplyAll(
 
     return $summary;
     };
-    return $hasRules && $placementId>0
+    return ($hasRules || $hasRates) && $placementId>0
         ? placementWithLockedRecord($placementOwner,$placementId,static fn(array $parent):array=>$apply($parent))
         : $apply();
 }
