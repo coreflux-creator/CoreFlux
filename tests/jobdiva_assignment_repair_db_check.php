@@ -9,12 +9,12 @@ $check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw n
 $failure=static function(callable $f):string{try{$f();return '';}catch(Throwable $e){return $e->getMessage();}};
 $insert=static function(string $table,array $row)use($pdo):int{$pdo->prepare('INSERT INTO '.$table.' (`'.implode('`,`',array_keys($row)).'`) VALUES('.implode(',',array_fill(0,count($row),'?')).')')->execute(array_values($row));return(int)$pdo->lastInsertId();};
 $all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY '.($table==='core_record_numbers'?'tenant_id,entity_type,record_id':'id'))->fetchAll(PDO::FETCH_ASSOC);
-$state=static fn():array=>array_map($all,['people','placements','placement_rates','placement_economic_parties','external_entity_mappings','entity_sync_history','core_record_numbers','audit_log']);
+$state=static fn():array=>array_map($all,['people','placements','placement_rates','placement_economic_parties','staffing_operating_cycles','external_entity_mappings','entity_sync_history','core_record_numbers','audit_log']);
 $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
 $financial=array_map($all,['accounting_events','accounting_journal_entries','accounting_journal_entry_lines','time_entries','payroll_runs','billing_payments','ap_payments']);
 try{
     if($pdo->query('SELECT id FROM tenants WHERE id=990703')->fetchColumn())throw new RuntimeException('Assignment repair fixture already exists');
-    $pdo->exec("CREATE TRIGGER fixture_assignment_repair_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF COALESCE(@fixture_assignment_repair_fail,0)=1 AND NEW.event='placement.assignment_source_repaired' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic required assignment repair audit failure'; END IF; END");$trigger=true;
+    $pdo->exec("CREATE TRIGGER fixture_assignment_repair_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF COALESCE(@fixture_assignment_repair_fail,0)=1 AND NEW.event IN('placement.assignment_source_repaired','placement.status_repaired_from_jobdiva_lifecycle') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic required assignment repair audit failure'; END IF; END");$trigger=true;
     JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$check,$failure,$insert,$all,$state,$read,$financial):void{
         $insert('tenants',['id'=>$workspace,'parent_id'=>$owner,'tenant_type'=>'sub','name'=>'Synthetic assignment repair workspace','is_active'=>1,'is_simulation'=>1]);
         foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
@@ -87,6 +87,26 @@ try{
             $result=$apply($preview(),$missing);$check($result['action']==='trusted_stored'&&$read('external_entity_mappings',$mappingId)['last_seen_at']==='2026-10-20 12:00:00','Stored trust does not manufacture a new provider observation timestamp');
             $pdo->prepare('UPDATE external_entity_mappings SET sync_status="error" WHERE tenant_id=? AND id=?')->execute([$workspace,$mappingId]);
             $result=$apply($preview(),$missing);$check($result['action']==='review','Quarantined source evidence cannot promote itself to trusted stored evidence');
+        },true);
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$mappingId,$placement,$payload,$read,$all,$state,$failure,$check):void{
+            mappingBindStable($workspace,'jobdiva','placement','jd:99194001',$placement,array_replace($payload,['status'=>'Completed']),'pull',null);
+            $before=$state();$preview=jobdivaMappingRepairStaleActivePlacements($workspace,null,500,true);
+            $check($preview['updated']===1&&$preview['ended']===1&&$preview['failed']===0&&$state()===$before,'Lifecycle preview finds an exact shared assignment and performs no writes');
+            $check(jobdivaMappingRepairStaleActivePlacements($owner,null,500,true)['updated']===0&&$state()===$before,'Lifecycle preview does not borrow source links from another workspace');
+            foreach(['status','end_date','actual_end_date']as$field)JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$placement,$mappingId,$field,$state,$check):void{
+                $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE tenant_id=? AND id=?')->execute([json_encode([$field]),$owner,$placement]);$before=$state();
+                $result=jobdivaRepairPlacementLifecycle($workspace,$mappingId,null,false);
+                $check($result['status']==='skipped'&&$result['reason']==='core_owned_lifecycle'&&$state()===$before,'Lifecycle repair preserves Core-owned '.$field);
+            },true);
+            $before=$state();$pdo->exec('SET @fixture_assignment_repair_fail=1');$error=$failure(fn()=>jobdivaRepairPlacementLifecycle($workspace,$mappingId,null,false));$pdo->exec('SET @fixture_assignment_repair_fail=0');
+            $check(str_contains($error,'Synthetic required assignment repair audit failure')&&$state()===$before,'Late lifecycle audit failure rolls back status, derived graph and cycles');
+            $rates=$all('placement_rates');$mapping=$read('external_entity_mappings',$mappingId);$result=jobdivaMappingRepairStaleActivePlacements($workspace,null,500,false);
+            $check($result['updated']===1&&$result['failed']===0&&$read('placements',$placement)['status']==='ended','Lifecycle apply updates the shared exact assignment');
+            $check($rates===$all('placement_rates')&&$mapping===$read('external_entity_mappings',$mappingId)&&$read('placements',$placement)['external_id']==='legacy-placement-number','Lifecycle repair preserves approved rates, display numbers and exact provider pairs');
+            $q=$pdo->query('SELECT tenant_id,meta_json FROM audit_log WHERE event="placement.status_repaired_from_jobdiva_lifecycle" ORDER BY id DESC LIMIT 1');$audit=$q->fetch(PDO::FETCH_ASSOC);$meta=json_decode($audit['meta_json'],true,512,JSON_THROW_ON_ERROR);
+            $check((int)$audit['tenant_id']===$workspace&&$meta['directory_owner_id']===$owner&&$meta['before']['placement']['status']==='active'&&$meta['after']['placement']['status']==='ended','Lifecycle audit retains original workspace and complete before/after graph');
+            $before=$state();$result=jobdivaMappingRepairStaleActivePlacements($workspace,null,500,false);
+            $check($result['updated']===0&&$state()===$before,'Repeated lifecycle repair does not duplicate graph or audit writes');
         },true);
         $check($financial===array_map($all,['accounting_events','accounting_journal_entries','accounting_journal_entry_lines','time_entries','payroll_runs','billing_payments','ap_payments']),'Assignment source repair executes no time, accounting, payroll or payment operations');
     },true);

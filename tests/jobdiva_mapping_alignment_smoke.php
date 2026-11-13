@@ -152,9 +152,10 @@ $a('duplicate repair avoids repeated PDO placeholders when restoring external id
     && str_contains($service, "'ext_filter' => \$canonical"));
 $a('source-backed placement lifecycle repair is exposed from alignment service',
     str_contains($service, 'placement_active_past_end_date')
-    && str_contains($service, 'function jobdivaMappingRepairStaleActivePlacements')
-    && str_contains($service, 'mapping_alignment_repair_stale_active_placements')
-    && str_contains($service, 'jobdivaAssignmentPlacementStatusForWrite'));
+    && str_contains($service, "'/placement_lifecycle_repair.php'")
+    && str_contains(file_get_contents($root.'/core/jobdiva/placement_lifecycle_repair.php'), 'function jobdivaMappingRepairStaleActivePlacements')
+    && str_contains(file_get_contents($root.'/core/jobdiva/placement_lifecycle_repair.php'), 'placement.status_repaired_from_jobdiva_lifecycle')
+    && str_contains(file_get_contents($root.'/core/jobdiva/placement_lifecycle_repair.php'), 'jobdivaAssignmentPlacementStatusForWrite'));
 $a('source-owned People lifecycle repair preserves history by inactivating rows',
     str_contains($service, 'function jobdivaMappingRepairSourcePeopleLifecycle')
     && str_contains($service, 'function _jobdivaMappingStaleSourcePeopleRows')
