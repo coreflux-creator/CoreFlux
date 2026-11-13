@@ -1,0 +1,193 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Current worktree, pushed checkpoint, CI and installed pilot were revalidated before source and lifecycle repair implementation.",
+  "source_commit": "3ca8a7a1b0bd5ed35d9a5b44695ce7b2822679ca",
+  "base_commit": "cf24255db07ad733b5935b843ee339006246d1ad",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "b28500f27aa5ee101afcf8e92fcb3bb00cc80ecf01edd4781abbfcb358dc491d",
+    "core/jobdiva/assignment_identity.php": "05e1ea59fd743f45b49eeb884345b4af8261384ab01a716b796831e2cecc9b9f",
+    "core/jobdiva/assignment_source_repair.php": "86f4eec982ed6c97412480139a4024f99fd09e625d0c79a216d874037d29dc4b",
+    "core/jobdiva/mapping_alignment.php": "2549bef0bbb8a74eb160a609566cb9650d42eefc8738187e48ecba57e0d958e3",
+    "core/jobdiva/placement_lifecycle_repair.php": "0249d2929784cf9ff2c3f16dc5f5b436c5e54ad5b67c6a0e060dd68733509715",
+    "tests/company_relationship_concurrency_db.php": "c47539a7a68d25c274333c0c03a8fd33a85f84637653bc9049971979de8f2249",
+    "tests/fixtures/assignment_lifecycle_repair_http_checks.php": "528b66fb3ac2d740d56823cd1b926b2927b88f992fe9d1ea27462931477ea452",
+    "tests/fixtures/placement_contract_http_router.php": "85d4163cd4ea1a0b5d221a976aed0f42c991d6d18d48081df33015bf97924923",
+    "tests/jobdiva_assignment_identity_contract_smoke.php": "c4cd02fad6a7b1ead94619ad5fd6daed97992c6542c621cbbe873ccb7668a883",
+    "tests/jobdiva_assignment_repair_db_check.php": "251412d0f4f7925a49d77b0f088d7e231edab4449c5492824324de7eab2f1dab",
+    "tests/jobdiva_mapping_alignment_smoke.php": "70e314020b020d277fa121cd9f655723d7f36a74b6c8190ea87fb76295e35221",
+    "tests/placement_contract_permissions_http.php": "afa71a8ce9f9ed4495ac228ab76c4d1f89e478db02cf2c5443efa53b0be09772"
+  },
+  "ci": {
+    "run_id": 43470034776,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43470034776",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132039207080,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207477,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207489,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207495,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207529,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207583,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207654,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207677,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207703,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207710,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132039207726,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "assignment_source_and_lifecycle_repair": 46,
+    "csv_assignment_directory": 38,
+    "stored_assignment_directory": 27,
+    "stored_review_transaction": 20,
+    "stored_contract_review": 17,
+    "source_rule_directory": 32,
+    "projection_directory": 40,
+    "independent_connections": 263,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 452
+  },
+  "repair_concurrency_labels": [
+    "Source repair waits for concurrent companies COMMIT",
+    "Source repair revalidates companies after COMMIT",
+    "Source repair waits for concurrent placements COMMIT",
+    "Source repair revalidates placements after COMMIT",
+    "Source repair waits for concurrent mapping COMMIT",
+    "Source repair revalidates mapping after COMMIT",
+    "Source repair waits for concurrent ownership COMMIT",
+    "Source repair revalidates ownership after COMMIT",
+    "Source repair waits for concurrent person COMMIT",
+    "Source repair revalidates person after COMMIT",
+    "Source repair holds mapping and required audit before COMMIT",
+    "Concurrent source repair waits for first result COMMIT",
+    "Concurrent source repairs commit exactly one result after COMMIT",
+    "Source repair waits for concurrent companies ROLLBACK",
+    "Source repair revalidates companies after ROLLBACK",
+    "Source repair waits for concurrent placements ROLLBACK",
+    "Source repair revalidates placements after ROLLBACK",
+    "Source repair waits for concurrent mapping ROLLBACK",
+    "Source repair revalidates mapping after ROLLBACK",
+    "Source repair waits for concurrent ownership ROLLBACK",
+    "Source repair revalidates ownership after ROLLBACK",
+    "Source repair waits for concurrent person ROLLBACK",
+    "Source repair revalidates person after ROLLBACK",
+    "Source repair holds mapping and required audit before ROLLBACK",
+    "Concurrent source repair waits for first result ROLLBACK",
+    "Concurrent source repairs commit exactly one result after ROLLBACK",
+    "Lifecycle repair waits for current companies COMMIT",
+    "Lifecycle repair respects committed companies and rolled-back evidence after COMMIT",
+    "Lifecycle repair waits for current placements COMMIT",
+    "Lifecycle repair respects committed placements and rolled-back evidence after COMMIT",
+    "Lifecycle repair waits for current ownership COMMIT",
+    "Lifecycle repair respects committed ownership and rolled-back evidence after COMMIT",
+    "Lifecycle repair waits for current source COMMIT",
+    "Lifecycle repair respects committed source and rolled-back evidence after COMMIT",
+    "Lifecycle repair holds status, graph and audit before COMMIT",
+    "Concurrent lifecycle repair waits for first status change COMMIT",
+    "Concurrent lifecycle repairs commit exactly one transition after COMMIT",
+    "Lifecycle repair waits for current companies ROLLBACK",
+    "Lifecycle repair respects committed companies and rolled-back evidence after ROLLBACK",
+    "Lifecycle repair waits for current placements ROLLBACK",
+    "Lifecycle repair respects committed placements and rolled-back evidence after ROLLBACK",
+    "Lifecycle repair waits for current ownership ROLLBACK",
+    "Lifecycle repair respects committed ownership and rolled-back evidence after ROLLBACK",
+    "Lifecycle repair waits for current source ROLLBACK",
+    "Lifecycle repair respects committed source and rolled-back evidence after ROLLBACK",
+    "Lifecycle repair holds status, graph and audit before ROLLBACK",
+    "Concurrent lifecycle repair waits for first status change ROLLBACK",
+    "Concurrent lifecycle repairs commit exactly one transition after ROLLBACK"
+  ],
+  "lifecycle_http_labels": [
+    "Native integration read access cannot repair assignment lifecycle",
+    "Native lifecycle preview finds exact child source in shared directory without writes",
+    "Native lifecycle repair preserves a newly Core-owned status",
+    "Native lifecycle repair refuses an assignment outside the current directory",
+    "Required native lifecycle audit failure rolls back the shared status and commercial graph",
+    "Native lifecycle repair changes the existing shared assignment",
+    "Native lifecycle repair preserves workers, approved rates, permanent numbers and provider pairs",
+    "Native lifecycle audit retains original workspace, authenticated actor and before/after graph",
+    "Native lifecycle replay does not repeat status, graph or audit writes",
+    "Native integration revocation immediately removes lifecycle repair access",
+    "Native lifecycle repair creates no accounting, payroll or payment execution"
+  ],
+  "native_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "contract_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T17:04:27+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "legacy alignment reports, People lifecycle, source rates and joined-index refresh",
+    "reviewed duplicate consolidation preserving provider pairs and permanent number aliases",
+    "active-status maintenance script and generic placement CSV",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field/portal/onboarding/document/time/approval/payroll-result/reconciliation acceptance remains incomplete"
+}
