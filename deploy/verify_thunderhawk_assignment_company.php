@@ -71,13 +71,13 @@ try{
     $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,4,'msp','Different party'))&&(int)$row('placement_client_chain',$legacyChain)['company_id']===$legacy,'A changed name cannot reuse the legacy company identity');
     $check($fails(fn()=>jobdivaSyncUpsertPlacementChainRow($tenant,$placement,5,'msp','Legacy party',$legacy)),'An unbound company cannot be linked by a supplied local ID alone');
     $nativePlacement=$makePlacement($tenant);
-    $pdo->prepare('UPDATE placements SET end_client_company_id=?,end_client_name="Legacy party" WHERE id=?')->execute([$legacy,$nativePlacement]);
+    $pdo->prepare('UPDATE placements SET end_client_company_id=?,end_client_name="Legacy party" WHERE tenant_id=? AND id=?')->execute([$legacy,$tenant,$nativePlacement]);
     $nativeChain=jobdivaSyncUpsertPlacementChain($tenant,$nativePlacement,$legacy,'Legacy party',[])['rows']['end_client'];
     $check((int)$row('placement_client_chain',$nativeChain)['company_id']===$legacy&&companyRoles($legacy)===[]&&$row('companies',$legacy)['coreflux_source_state']===$legacyBefore['coreflux_source_state'],'Native parent end-client identity carries into its chain without claiming source authority or roles');
-    $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["end_client_company_id","end_client_name"]\' WHERE id=?')->execute([$nativePlacement]);
+    $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["end_client_company_id","end_client_name"]\' WHERE tenant_id=? AND id=?')->execute([$tenant,$nativePlacement]);
     jobdivaSyncUpsertPlacementChain($tenant,$nativePlacement,$legacy,'Legacy party',['endClientCompanyId'=>'company-A']);
     $check((int)$row('placement_client_chain',$nativeChain)['company_id']===$legacy&&companyRoles($legacy)===[],'Core-owned parent identity survives a different explicit source end-client ID');
-    $pdo->prepare('UPDATE placements SET end_client_company_id=?,end_client_name="New exact party",coreflux_overridden_fields=NULL WHERE id=?')->execute([$newCompany,$nativePlacement]);
+    $pdo->prepare('UPDATE placements SET end_client_company_id=?,end_client_name="New exact party",coreflux_overridden_fields=NULL WHERE tenant_id=? AND id=?')->execute([$newCompany,$tenant,$nativePlacement]);
     jobdivaSyncUpsertPlacementChain($tenant,$nativePlacement,$newCompany,'New exact party',[]);
     $check((int)$row('placement_client_chain',$nativeChain)['company_id']===$newCompany,'Existing chain follows the current canonical parent identity without a name-based lookup');
     $pdo->prepare('INSERT INTO companies(tenant_id,name,country) VALUES(?,"Foreign party","US")')->execute([$foreign]);$other=(int)$pdo->lastInsertId();
