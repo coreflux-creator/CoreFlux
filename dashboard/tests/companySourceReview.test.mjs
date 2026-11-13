@@ -27,7 +27,7 @@ test('source review requires a field selection and explicit confirmation, and se
   const f = await fixture();
   try {
     assert.equal(f.calls.length, 0);
-    await act(async () => f.button('Review JobDiva values').props.onClick());
+    await act(async () => f.button('Review source values').props.onClick());
     assert.ok(text(f.tree.root).includes('Blank'));
     assert.ok(text(f.tree.root).includes('Source phone'));
     assert.ok(f.button('Use selected JobDiva values').props.disabled);
@@ -45,7 +45,7 @@ test('source review requires a field selection and explicit confirmation, and se
 test('refresh clears prior choices and confirmation before presenting a new review', async () => {
   const f = await fixture({ recordType: 'company_contacts' });
   try {
-    await act(async () => f.button('Review JobDiva values').props.onClick());
+    await act(async () => f.button('Review source values').props.onClick());
     await act(async () => f.field('Use JobDiva for Phone').props.onChange({ target: { checked: true } }));
     await act(async () => f.confirmation().props.onChange({ target: { checked: true } }));
     await act(async () => f.button('Refresh review').props.onClick());
@@ -59,7 +59,7 @@ test('refresh clears prior choices and confirmation before presenting a new revi
 test('a rejected stale review remains visible and never reports success or refreshes silently', async () => {
   const f = await fixture({ error: 'Company or source values changed. Refresh and review again.' });
   try {
-    await act(async () => f.button('Review JobDiva values').props.onClick());
+    await act(async () => f.button('Review source values').props.onClick());
     await act(async () => f.field('Use JobDiva for Phone').props.onChange({ target: { checked: true } }));
     await act(async () => f.confirmation().props.onChange({ target: { checked: true } }));
     await act(async () => f.button('Use selected JobDiva values').props.onClick());

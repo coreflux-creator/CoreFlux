@@ -9,6 +9,7 @@ const displayValue = value => value === null || value === '' ? 'Blank' : Array.i
 export default function CompanySourceReview({ id, recordType = 'companies', onAccepted }) {
   const [open, setOpen] = useState(false);
   const [review, setReview] = useState(null);
+  const sourceName = review?.source?.system === 'quickbooks_online' ? 'QuickBooks' : 'JobDiva';
   const [selected, setSelected] = useState([]);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ export default function CompanySourceReview({ id, recordType = 'companies', onAc
         fields: selected, review_token: review.review_token, confirm_source: true,
       });
       setReview(null); setSelected([]); setConfirmed(false);
-      setMessage(result.replayed ? 'This selection was already applied. Later Core edits were preserved.' : 'Selected fields now use JobDiva.');
+      setMessage(result.replayed ? 'This selection was already applied. Later Core edits were preserved.' : `Selected fields now use ${sourceName}.`);
       onAccepted?.();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -37,32 +38,32 @@ export default function CompanySourceReview({ id, recordType = 'companies', onAc
   return <div data-testid={`company-source-review-${recordType}-${id}`} style={{ marginTop: 8 }}>
     <button type="button" className="btn btn--ghost" aria-expanded={open} disabled={busy}
       onClick={() => { setOpen(!open); if (!open) refresh(); }}>
-      {open ? 'Close JobDiva review' : 'Review JobDiva values'}
+      {open ? 'Close source review' : 'Review source values'}
     </button>
-    {open && <section aria-label="Review JobDiva values" style={{ padding: 16, border: '1px solid var(--cf-border, #ddd)', marginTop: 8 }}>
-      <p>Core edits protect those fields from source updates. Choose which values to use from JobDiva.</p>
+    {open && <section aria-label="Review source values" style={{ padding: 16, border: '1px solid var(--cf-border, #ddd)', marginTop: 8 }}>
+      <p>Core edits protect those fields from source updates. Choose which values to use from the connected source.</p>
       <button type="button" className="btn btn--ghost" disabled={busy} onClick={refresh}>Refresh review</button>
       {busy && <p role="status">Working…</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}
-      {review && !review.source && <p>No JobDiva values have been observed for this record.</p>}
+      {review && !review.source && <p>No source values have been observed for this record.</p>}
       {review?.source && <>
-        <p>JobDiva record {review.source.external_id}{review.observed_at ? ` · Last observed ${new Date(review.observed_at).toLocaleString()}` : ''}</p>
+        <p>{sourceName} record {review.source.external_id}{review.observed_at ? ` · Last observed ${new Date(review.observed_at).toLocaleString()}` : ''}</p>
         {review.legacy_unreviewed && <p>Existing Core values are protected until reviewed.</p>}
         <div style={{ overflowX: 'auto' }}><table className="data-table">
-          <thead><tr><th>Use JobDiva</th><th>Field</th><th>Current Core value</th><th>Latest JobDiva value</th><th>Updated by</th></tr></thead>
+          <thead><tr><th>Use {sourceName}</th><th>Field</th><th>Current Core value</th><th>Latest {sourceName} value</th><th>Updated by</th></tr></thead>
           <tbody>{Object.entries(review.proposed).map(([field, value]) => <tr key={field}>
-            <td><input type="checkbox" aria-label={`Use JobDiva for ${labelFor(field)}`} checked={selected.includes(field)} disabled={busy}
+            <td><input type="checkbox" aria-label={`Use ${sourceName} for ${labelFor(field)}`} checked={selected.includes(field)} disabled={busy}
               onChange={e => { setSelected(e.target.checked ? [...selected, field] : selected.filter(f => f !== field)); setConfirmed(false); }} /></td>
             <td>{labelFor(field)}</td><td style={{ whiteSpace: 'pre-wrap' }}>{displayValue(review.current[field])}</td>
-            <td style={{ whiteSpace: 'pre-wrap' }}>{displayValue(value)}</td><td>{review.owned_fields.includes(field) ? 'Core — protected' : 'JobDiva'}</td>
+            <td style={{ whiteSpace: 'pre-wrap' }}>{displayValue(value)}</td><td>{review.owned_fields.includes(field) ? 'Core — protected' : sourceName}</td>
           </tr>)}</tbody>
         </table></div>
         {!Object.keys(review.proposed).length && <p>No source fields are available for review.</p>}
         <label style={{ display: 'block', marginTop: 12 }}><input type="checkbox" checked={confirmed} disabled={busy || !selected.length}
-          onChange={e => setConfirmed(e.target.checked)} /> Use the selected JobDiva values now and keep these fields updated from JobDiva. A later Core edit will protect the field again.</label>
+          onChange={e => setConfirmed(e.target.checked)} /> Use the selected {sourceName} values now and keep these fields updated from {sourceName}. A later Core edit will protect the field again.</label>
         <button type="button" className="btn btn--primary" disabled={busy || !confirmed || !selected.length} onClick={accept} style={{ marginTop: 12 }}>
-          Use selected JobDiva values
+          Use selected {sourceName} values
         </button>
       </>}
     </section>}

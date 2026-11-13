@@ -29,7 +29,7 @@ function staffingClientRevision(PDO $pdo,array $scope,array $client,?array $comp
     if($company===null&&!empty($client['company_id'])){
         $q=$pdo->prepare('SELECT * FROM companies WHERE tenant_id=? AND id=?');$q->execute([$scope['company_owner'],$client['company_id']]);$company=$q->fetch(PDO::FETCH_ASSOC)?:[];
     }
-    return mappingHash(['scope'=>$scope,'client'=>array_intersect_key($client,array_flip([...staffingClientNativeFields(),'id','tenant_id','company_id','external_id','source_system'])),
+    return mappingHash(['scope'=>$scope,'client'=>array_intersect_key($client,array_flip([...staffingClientNativeFields(),'id','tenant_id','company_id','external_id','source_system','coreflux_source_state'])),
         'company'=>array_intersect_key($company??[],array_flip([...array_values(staffingClientCompanyFields()),'id','tenant_id','deleted_at','coreflux_source_state']))]);
 }
 
@@ -108,6 +108,7 @@ function staffingClientSaveNative(int $workspace,?int $id,array $patch,int $acto
         }else{
             $q=$pdo->prepare('UPDATE staffing_clients SET '.implode(',',array_map(static fn($key)=>'`'.$key.'`=?',array_keys($patch))).' WHERE tenant_id=? AND id=?');$q->execute([...array_values($patch),$owner,$id]);
         }
+        staffingClientSourceClaim($pdo,$owner,$id,$before,$patch);
         $q=$pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND id=?');$q->execute([$owner,$id]);$saved=$q->fetch(PDO::FETCH_ASSOC);
         // Provenance scans follow the client owner; retain the acting workspace separately.
         companySourceAudit($pdo,$owner,$owner,'staffing_clients',$id,$event?:($before?'staffing.client.updated':'staffing.client.created'),array_keys($patch),$actor,
@@ -163,3 +164,5 @@ function staffingClientImportNative(int $workspace,array $row,int $actor,bool $u
         return$id;
     });
 }
+
+require_once __DIR__.'/client_source.php';

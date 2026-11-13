@@ -8,7 +8,7 @@
  * entity's direction set to `pull` or `two_way`.
  *
  * - QBO Customer  → CoreFlux `staffing_clients`
- *   Match-by-name UNIQUE KEY uq_sc_tenant_name (tenant_id, name).
+ *   Exact source identity; namesakes require review, native fields remain protected.
  * - QBO Vendor    → CoreFlux `ap_vendors_index`
  *   Match-by-name UNIQUE KEY uq_apv_tenant_name (tenant_id, vendor_name).
  *
@@ -35,6 +35,7 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/conflict_rules.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
+require_once __DIR__ . '/../integrations/source_values.php';
 
 const QBO_PAGE_SIZE = 100;
 
@@ -122,6 +123,7 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
                     'name'        => (string) ($row['DisplayName'] ?? $row['CompanyName'] ?? ''),
                     'internal_id' => $r['internal_id'] ?? null,
                     'action'      => $action,
+                    'held_fields' => $r['held_fields'] ?? [],
                 ];
             } catch (\Throwable $e) {
                 $failed++;
@@ -175,122 +177,43 @@ function _qboSyncMasterEntity(int $tenantId, ?int $userId, array $opts, array $c
  *
  * Match strategy (in order):
  *   1. existing mapping (source='quickbooks_online', entity_type='customer', external_id=QBO Id)
- *   2. UNIQUE KEY uq_sc_tenant_name → match by name (auto-link an existing
- *      manually-created client and bind the mapping)
- *   3. ensure one canonical company/client row in the shared placement catalog.
+ *   2. independently owned current company/client graph; namesakes require review.
+ * Native field ownership takes precedence over source timestamps.
  */
 function qboUpsertCustomer(int $tenantId, array $qbo): array
 {
-    $qboId = (string) ($qbo['Id'] ?? '');
-    if ($qboId === '') throw new \InvalidArgumentException('QBO Customer missing Id');
-
-    $displayName = trim((string) ($qbo['DisplayName'] ?? $qbo['CompanyName'] ?? ''));
-    if ($displayName === '') throw new \InvalidArgumentException('QBO Customer missing DisplayName/CompanyName');
-    $legalName   = trim((string) ($qbo['CompanyName']   ?? ''));
-    $email       = trim((string) ($qbo['PrimaryEmailAddr']['Address']  ?? ''));
-    $phone       = trim((string) ($qbo['PrimaryPhone']['FreeFormNumber'] ?? ''));
-    $addr        = is_array($qbo['BillAddr'] ?? null) ? $qbo['BillAddr'] : [];
-    $countryRaw  = trim((string) ($addr['Country'] ?? ''));
-    $country     = in_array(strtolower($countryRaw), ['us', 'usa', 'united states', 'united states of america'], true)
-        ? 'US'
-        : ($countryRaw !== '' ? strtoupper(substr($countryRaw, 0, 2)) : null);
-    $isSubcustomer = !empty($qbo['Job'])
-        || trim((string) ($qbo['ParentRef']['value'] ?? '')) !== '';
-
-    $pdo = getDB();
-    $clientTenantId = staffingClientCatalogTenantId($tenantId);
-    $mapping = mappingFindInternal($tenantId, QBO_SOURCE, 'customer', $qboId);
-    $internalId = $mapping ? (int) $mapping['internal_entity_id'] : 0;
-    $existing = null;
-
-    // Old releases could map customers to sub-tenant-local rows. Trust a
-    // mapping only when it points into the shared placement/client catalog.
-    if ($internalId) {
-        $stmt = $pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id = :t AND id = :id LIMIT 1');
-        $stmt->execute(['t' => $clientTenantId, 'id' => $internalId]);
-        $existing = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-        $snapshot = !empty($mapping['payload_snapshot'])
-            ? json_decode((string) $mapping['payload_snapshot'], true)
-            : null;
-        $mappedName = is_array($snapshot) ? trim((string) ($snapshot['DisplayName'] ?? $snapshot['CompanyName'] ?? '')) : '';
-        $catalogName = trim((string) ($existing['name'] ?? ''));
-        if (!$existing || ($mappedName !== ''
-            && strcasecmp($catalogName, $mappedName) !== 0
-            && strcasecmp($catalogName, $displayName) !== 0)) {
-            $internalId = 0;
-            $existing = null;
+    $qboId=$qbo['Id']??null;
+    if((!is_string($qboId)&&!is_int($qboId))||trim((string)$qboId)==='')throw new InvalidArgumentException('QBO Customer missing Id');
+    foreach(['DisplayName','CompanyName']as$field)if(isset($qbo[$field])&&!is_string($qbo[$field]))throw new InvalidArgumentException('Invalid QBO customer name.');
+    foreach(['Active','Job']as$field)if(isset($qbo[$field])&&!is_bool($qbo[$field]))throw new InvalidArgumentException('Invalid QBO customer status.');
+    foreach(['PrimaryEmailAddr','PrimaryPhone','BillAddr','ParentRef']as$field)if(isset($qbo[$field])&&!is_array($qbo[$field]))throw new InvalidArgumentException('Invalid QBO customer profile.');
+    foreach(['PrimaryEmailAddr'=>['Address'],'PrimaryPhone'=>['FreeFormNumber'],'BillAddr'=>['Line1','Line2','City','CountrySubDivisionCode','PostalCode','Country']]as$field=>$keys){
+        foreach($keys as$key)if(isset($qbo[$field][$key])&&!is_string($qbo[$field][$key]))throw new InvalidArgumentException('Invalid QBO customer field.');
+    }
+    $name=trim((string)($qbo['DisplayName']??$qbo['CompanyName']??''));
+    if($name==='')throw new InvalidArgumentException('QBO Customer missing DisplayName/CompanyName');
+    $payload=['name'=>$name];
+    foreach(['CompanyName'=>'legal_name']as$source=>$target)if(array_key_exists($source,$qbo)&&$qbo[$source]!==null)$payload[$target]=(string)$qbo[$source];
+    foreach(['PrimaryEmailAddr'=>['Address','primary_contact_email'],'PrimaryPhone'=>['FreeFormNumber','primary_contact_phone']]as$key=>[$field,$target]){
+        if(is_array($qbo[$key]??null)&&array_key_exists($field,$qbo[$key])&&$qbo[$key][$field]!==null)$payload[$target]=(string)$qbo[$key][$field];
+    }
+    if(is_array($qbo['BillAddr']??null)){
+        $addr=$qbo['BillAddr'];
+        foreach(['Line1'=>'billing_address_line1','Line2'=>'billing_address_line2','City'=>'billing_city','CountrySubDivisionCode'=>'billing_state','PostalCode'=>'billing_postal_code']as$key=>$target){
+            if(array_key_exists($key,$addr)&&$addr[$key]!==null)$payload[$target]=(string)$addr[$key];
+        }
+        if(!empty($addr['Country'])){
+            $country=trim((string)$addr['Country']);
+            $payload['billing_country']=integrationSourceCountry($country);
+            if($payload['billing_country']===null)throw new InvalidArgumentException('Review the QuickBooks billing country before importing.');
         }
     }
-
-    if (!$internalId) {
-        // JobDiva, placements, CSV, and QBO converge on this same row.
-        $stmt = $pdo->prepare('SELECT * FROM staffing_clients WHERE tenant_id = :t AND name = :n LIMIT 1');
-        $stmt->execute(['t' => $clientTenantId, 'n' => $displayName]);
-        $existing = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-        $internalId = $existing ? (int) $existing['id'] : 0;
-    }
-
-    $status = 'active';
-    if ($isSubcustomer || (array_key_exists('Active', $qbo) && empty($qbo['Active']))) {
-        $activePlacement = $pdo->prepare(
-            "SELECT 1 FROM placements p
-         LEFT JOIN staffing_clients sc
-                ON sc.tenant_id = p.tenant_id
-               AND sc.id = :client_id
-              WHERE p.tenant_id = :t
-                AND p.status = 'active'
-                AND p.deleted_at IS NULL
-                AND p.client_id = sc.id
-              LIMIT 1"
-        );
-        $activePlacement->execute([
-            't' => $clientTenantId,
-            'client_id' => $internalId ?: 0,
-        ]);
-        $status = $activePlacement->fetchColumn() ? 'active' : 'inactive';
-    }
-
-    $payload = [
-        'name'                  => $displayName,
-        'legal_name'            => $legalName !== '' ? $legalName : null,
-        'primary_contact_email' => $email !== '' ? $email : null,
-        'primary_contact_phone' => $phone !== '' ? $phone : null,
-        'billing_address_line1' => isset($addr['Line1']) ? (string) $addr['Line1'] : null,
-        'billing_address_line2' => isset($addr['Line2']) ? (string) $addr['Line2'] : null,
-        'billing_city'          => isset($addr['City'])  ? (string) $addr['City']  : null,
-        'billing_state'         => isset($addr['CountrySubDivisionCode']) ? substr((string) $addr['CountrySubDivisionCode'], 0, 40) : null,
-        'billing_postal_code'   => isset($addr['PostalCode']) ? (string) $addr['PostalCode'] : null,
-        'billing_country'       => $country,
-        'status'                => $status,
-    ];
-    $action = $internalId ? 'unchanged' : 'created';
-    if ($internalId) {
-        // Slice 5 — conflict detection for two_way customers.
-        $cur = $existing ?: [];
-        $conflict = qboDetectConflict($tenantId, 'customer', $internalId, $qboId, $qbo, $cur['updated_at'] ?? null);
-        if ($conflict['winner'] === 'coreflux') {
-            // CoreFlux side wins → don't overwrite locally; pretend no change.
-            return ['internal_id' => $internalId, 'action' => 'conflict_coreflux_wins'];
-        }
-        foreach ($payload as $k => $v) {
-            if ((string) ($cur[$k] ?? '') !== (string) ($v ?? '')) {
-                $action = 'updated';
-                break;
-            }
-        }
-    }
-
-    $clientRef = staffingClientEnsureForCompany(
-        $clientTenantId,
-        !empty($existing['company_id']) ? (int) $existing['company_id'] : null,
-        $displayName,
-        $payload + ['sync_company_patch' => true]
-    );
-    $internalId = (int) $clientRef['client_id'];
-
-    $row = mappingUpsert($tenantId, QBO_SOURCE, 'customer', $qboId, $internalId, $qbo, 'pull');
-    if (!$row['changed'] && $action === 'unchanged') $action = 'unchanged';
-    return ['internal_id' => $internalId, 'action' => $action];
+    if(!empty($qbo['Job'])||!empty($qbo['ParentRef']['value']))$payload['status']='inactive';
+    elseif(array_key_exists('Active',$qbo))$payload['status']=$qbo['Active']?'active':'inactive';
+    $result=staffingClientEnsureForCompany($tenantId,null,$name,$payload+[
+        'source_system'=>'qbo','source_external_id'=>trim((string)$qboId),'source_payload'=>$qbo,
+    ]);
+    return ['internal_id'=>$result['client_id'],'action'=>$result['created']?'created':($result['changed']?'updated':'unchanged'),'held_fields'=>$result['held_fields']];
 }
 
 /**

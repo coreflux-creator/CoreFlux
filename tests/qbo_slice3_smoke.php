@@ -35,9 +35,9 @@ foreach (['qboSyncCustomers', 'qboSyncVendors', 'qboUpsertCustomer', 'qboUpsertV
 $a('pagination via STARTPOSITION + MAXRESULTS',  $c($si, 'STARTPOSITION') && $c($si, 'MAXRESULTS'));
 $a('refuses when customers direction off',       $c($si, "in_array(\$config[\$cfgKey] ?? 'off', ['pull', 'two_way']"));
 $a('uses mappingFindInternal for idempotency',   $c($si, 'mappingFindInternal') && $c($si, 'mappingUpsert'));
-$a('customer falls back to name match',          $c($si, 'staffing_clients WHERE tenant_id = :t AND name = :n'));
+$a('customer uses exact source identity instead of a name fallback', $c($si, "'source_external_id'=>trim((string)$"."qboId)") && !$c($si, 'staffing_clients WHERE tenant_id = :t AND name = :n'));
 $a('vendor falls back to name match',            $c($si, 'ap_vendors_index WHERE tenant_id = :t AND vendor_name = :n'));
-$a('customer converges on canonical client graph',$c($si, 'staffingClientEnsureForCompany') && $c($si, 'staffingClientCatalogTenantId'));
+$a('customer converges on canonical client graph',$c($si, 'staffingClientEnsureForCompany($tenantId,null,$name'));
 $a('vendor inserts ap_vendors_index',            $c($si, 'INSERT INTO ap_vendors_index'));
 $a('vendor honors Vendor1099 flag',              $c($si, "Vendor1099") && $c($si, "requires_1099"));
 $a('audits sync_customer + sync_vendor',         $c($si, "qboAudit(\$tenantId, 'sync_' . \$entity"));

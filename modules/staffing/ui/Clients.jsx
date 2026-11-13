@@ -5,6 +5,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import BulkEditBar from '../../../dashboard/src/components/BulkEditBar';
+import ClientSourceReview from './ClientSourceReview';
 import { Building2, Download, Pencil, Plus, Search, Upload, Zap } from 'lucide-react';
 
 /**
@@ -38,6 +39,7 @@ export default function Clients() {
   });
 
   const [drawer, setDrawer]   = useState(null); // { mode: 'new' | 'edit', client }
+  const [sourceClient, setSourceClient] = useState(null);
   const [savePending, setSP]  = useState(false);
   const [saveErr, setSE]      = useState(null);
   const [selected, setSelected] = useState(() => new Set());
@@ -301,6 +303,7 @@ export default function Clients() {
                           style={{ width:32, height:32, padding:0, display:'inline-grid', placeItems:'center' }}>
                     <Pencil size={15} aria-hidden="true" />
                   </button>
+                  <button type="button" className="btn btn--ghost" onClick={() => setSourceClient(r)} aria-label={`Review incoming values for ${r.name}`}>Review incoming values</button>
                 </td>
               </tr>
             ))}
@@ -313,6 +316,7 @@ export default function Clients() {
         <ClientDrawer drawer={drawer} setDrawer={setDrawer} save={save}
                       closeDrawer={closeDrawer} softDelete={softDelete} savePending={savePending} saveErr={saveErr} />
       )}
+      {sourceClient && <ClientSourceReview client={sourceClient} onClose={() => setSourceClient(null)} onSaved={reload} />}
     </section>
   );
 }

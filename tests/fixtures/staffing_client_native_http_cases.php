@@ -5,6 +5,7 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
     require_once __DIR__.'/../../modules/staffing/lib/client_write.php';
     require_once __DIR__.'/../../core/jobdiva/sync.php';
     require_once __DIR__.'/../../modules/people/lib/company_merge_review.php';
+    require_once __DIR__.'/../../core/qbo/sync_in.php';
     $child=990682;$membership=null;$created=false;$companies=[];$clients=[];$people=[];$placements=[];$trigger=false;
     $url='/modules/staffing/api/clients.php?action=';
     $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
@@ -91,7 +92,26 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
             [$status,$import]=$request($csvUrl.'commit&update_existing=1&skip_invalid=1',['csv'=>$batch],true,$child);
             $createdId=(int)($import['ids'][2]??0);if($createdId){$clients[]=$createdId;$companies[]=(int)$read('staffing_clients',$createdId)['company_id'];}
             $expect($status===200&&$import['imported_count']===1&&$import['skipped_count']===1&&$createdId>0,$mode.': explicit skip-invalid import keeps only the independently committed valid row');
+            $sourceExternal='native-client-source-'.$id;
+            mappingBindStable($child,QBO_SOURCE,'customer',$sourceExternal,$id,[],'pull',$actor);
+            qboUpsertCustomer($child,['Id'=>$sourceExternal,'DisplayName'=>$detail['name'],'PrimaryPhone'=>['FreeFormNumber'=>'Reviewed source phone']]);
+            $expect($request($url.'source_review&id='.$id,null,false,$child)[0]===401,$mode.': anonymous source review is denied');
+            RBACResolver::grantModule($membership,'placements','read',[$child],$actor);
+            $expect($request($url.'source_review&id='.$id,null,true,$child)[0]===403&&$request($url.'source_accept&id='.$id,[],true,$child)[0]===403,$mode.': client reader cannot review or apply source fields');
+            RBACResolver::grantModule($membership,'placements','write',[$child],$actor);
+            [$status,$sourceReview]=$request($url.'source_review&id='.$id,null,true,$child);$sourceReview=$sourceReview['review']??[];$sourceKey=array_key_first($sourceReview['observations']??[]);
+            $expect($status===200&&$sourceKey!==null,$mode.': client editor sees source evidence for the connected workspace');
+            $selection=['source_key'=>$sourceKey,'fields'=>['primary_contact_phone'],'review_token'=>$sourceReview['review_token'],'confirm_source'=>true];
+            $sourceBefore=[$read('staffing_clients',$id),$read('companies',$company)];
+            $pdo->exec("CREATE TRIGGER client_native_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.event='staffing.client.source_accepted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic source review audit failure'; END IF; END");$trigger=true;
+            $expect($request($url.'source_accept&id='.$id,$selection,true,$child)[0]===500&&[$read('staffing_clients',$id),$read('companies',$company)]===$sourceBefore,$mode.': source acceptance audit failure rolls back client, company and ownership');
+            $pdo->exec('DROP TRIGGER client_native_audit_failure');$trigger=false;
+            [$status,$accepted]=$request($url.'source_accept&id='.$id,$selection,true,$child);
+            $expect($status===200&&!$accepted['replayed']&&$read('staffing_clients',$id)['primary_contact_phone']==='Reviewed source phone'&&$read('companies',$company)['primary_contact_phone']==='Reviewed source phone',$mode.': selected source values apply once through the native client transaction');
+            [$status,$replay]=$request($url.'source_accept&id='.$id,$selection,true,$child);
+            $expect($status===200&&$replay['replayed'],$mode.': lost source acceptance response recovers the original receipt');
             [$status,$detail]=$request($url.'get&id='.$id,null,true,$child);$detail=$detail['client'];
+            $expect(!array_key_exists('coreflux_source_state',$detail),$mode.': ordinary client details do not expose another workspace source state');
             $pdo->prepare('INSERT INTO companies(tenant_id,name) VALUES(?,?)')->execute([$companyOwner,'Native client survivor '.$mode]);$survivor=(int)$pdo->lastInsertId();$companies[]=$survivor;
             $review=companyMergePreview($child,['id'=>$actor,'role'=>'admin'],$survivor,$company);
             companyMergeApply($child,['id'=>$actor,'role'=>'admin'],$review['review_token'],['fields'=>array_fill_keys($review['fields'],'survivor'),'custom_fields'=>[],'primary_contact_id'=>0,'primary_addresses'=>[]]);
@@ -109,6 +129,7 @@ function staffingClientNativeHttpCases(PDO $pdo,int $parent,int $actor,callable 
         foreach($placements as$id){$pdo->prepare('DELETE FROM placements WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="placement" AND record_id=?')->execute([$id]);}
         foreach($people as$id){$pdo->prepare('DELETE FROM people WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="person" AND record_id=?')->execute([$id]);}
         foreach($clients as$id){$pdo->prepare('DELETE FROM staffing_clients WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="client" AND record_id=?')->execute([$id]);}
+        foreach($clients as$id){$pdo->prepare('DELETE FROM external_entity_mappings WHERE tenant_id=? AND source_system=? AND internal_entity_type="customer" AND internal_entity_id=?')->execute([$child,QBO_SOURCE,$id]);$pdo->prepare('DELETE FROM entity_sync_history WHERE tenant_id=? AND source_system=? AND internal_entity_type="customer" AND internal_entity_id=?')->execute([$child,QBO_SOURCE,$id]);}
         foreach($companies as$id){$pdo->prepare('DELETE FROM companies WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="company" AND record_id=?')->execute([$id]);}
         if($membership!==null){RBACResolver::revokeModule($membership,'placements',$actor);deactivateMembership($actor,$child);}
         if($created){$pdo->prepare('DELETE FROM audit_log WHERE tenant_id=?')->execute([$child]);$pdo->prepare('DELETE FROM tenant_module_scope WHERE tenant_id=?')->execute([$child]);$pdo->prepare('UPDATE tenants SET is_active=0 WHERE id=?')->execute([$child]);}

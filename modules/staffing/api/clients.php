@@ -32,7 +32,7 @@ $action = $_GET['action'] ?? 'list';
 
 function staffingClientApiSave(int $workspace,?int $id,array $patch,int $actor,?string $revision=null,string $event=''): array
 {
-    try{return staffingClientSaveNative($workspace,$id,$patch,$actor,$revision,$event);}
+    try{$saved=staffingClientSaveNative($workspace,$id,$patch,$actor,$revision,$event);unset($saved['coreflux_source_state']);return$saved;}
     catch(Throwable $e){
         $status=in_array((int)$e->getCode(),[404,409],true)?(int)$e->getCode():($e instanceof InvalidArgumentException?422:500);
         if($e instanceof PDOException&&(string)$e->getCode()==='23000')api_error('This client or company conflicts with an existing record. Refresh and review it.',409);
@@ -46,6 +46,20 @@ function staffingClientApiId(mixed $value): int
     catch(InvalidArgumentException $e){api_error('Choose a valid client number.',422);}
     if($id===null)api_error('id required',422);
     return$id;
+}
+
+if(in_array($action,['source_review','source_accept'],true)){
+    api_require_legacy_permission($ctx,'placements.manage');
+    try{
+        $id=staffingClientApiId($_GET['id']??null);
+        if($method==='GET'&&$action==='source_review')api_ok(['review'=>staffingClientSourceReview($activeTenantId,$id)]);
+        if($method==='POST'&&$action==='source_accept'){
+            $body=api_json_body();
+            if(($body['confirm_source']??null)!==true||!is_string($body['source_key']??null)||!is_string($body['review_token']??null)||!is_array($body['fields']??null))api_error('Review and confirm the selected source values.',422);
+            api_ok(staffingClientSourceAccept($activeTenantId,$id,$body['source_key'],$body['fields'],$body['review_token'],(int)$actorUserId));
+        }
+        api_error('Method not allowed',405);
+    }catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
 }
 
 
@@ -159,7 +173,7 @@ if ($method === 'GET' && $action === 'list') {
     ));
     $scope=companyRelationshipScope(getDB(),$activeTenantId,'placements',false);
     if($scope['owner']!==$tenantId)api_error('The client directory changed. Refresh and try again.',409);
-    foreach($numberedRows as&$row)$row['edit_revision']=staffingClientRevision(getDB(),$scope,$row);unset($row);
+    foreach($numberedRows as&$row){$row['edit_revision']=staffingClientRevision(getDB(),$scope,$row);unset($row['coreflux_source_state']);}unset($row);
     $numberedRows = coreRecordNumbersAttachRelated(getDB(), $scope['company_owner'], 'company', $numberedRows, 'company_id');
     api_ok(['rows' => $numberedRows]);
 }
@@ -224,6 +238,7 @@ if ($method === 'GET' && $action === 'get') {
     $row = coreRecordNumbersAttach(getDB(), $tenantId, 'client', [$row])[0];
     $scope=companyRelationshipScope(getDB(),$activeTenantId,'placements',false);
     $row['edit_revision']=staffingClientRevision(getDB(),$scope,$row);
+    unset($row['coreflux_source_state']);
     $row = coreRecordNumbersAttachRelated(getDB(), $scope['company_owner'], 'company', [$row], 'company_id')[0];
     api_ok(['client' => $row]);
 }

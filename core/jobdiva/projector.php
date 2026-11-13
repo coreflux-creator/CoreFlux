@@ -745,11 +745,6 @@ function jobdivaProjectorResolveBillingClientCompany(int $tenantId, array $paylo
     $evidence = jobdivaProjectorAssignmentClientEvidence($payload);
     if (empty($evidence['authoritative'])) return null;
     $companyId = jobdivaProjectorResolvePartyCompany($tenantId, $payload, $evidence, $userId);
-    if ($companyId) {
-        staffingClientEnsureForCompany($tenantId, $companyId, $evidence['name'], [
-            'created_by_user_id' => $userId, 'status' => 'active', 'source_system' => 'jobdiva',
-        ]);
-    }
     return $companyId;
 }
 

@@ -122,17 +122,10 @@ $_SERVER['REQUEST_URI'] = '/modules/placements/api/placements.php';
 foreach ([1 => 1, 2 => 1, 3 => 3] as $activeTenant => $catalogTenant) {
     setRequestTenantId($activeTenant);
     $scope = (int) placementsGraphTenantId($activeTenant);
-    $ref = staffingClientEnsureForCompany($scope, null, "Placement client $activeTenant");
-    $company = $pdo->companies[$ref['company_id']];
-    $client = $pdo->clients[$ref['client_id']];
-    $assert("tenant $activeTenant creates company and client in catalog $catalogTenant",
-        $company['tenant_id'] === $catalogTenant && $client['tenant_id'] === $catalogTenant);
-    $assert("tenant $activeTenant bridge handles missing billing country",
-        $company['country'] === 'US' && $client['billing_country'] === 'US');
-    $before = [count($pdo->companies), count($pdo->clients)];
-    $again = staffingClientEnsureForCompany($scope, null, "Placement client $activeTenant");
-    $assert("tenant $activeTenant repeated name lookup reuses both records",
-        $again === $ref && $before === [count($pdo->companies), count($pdo->clients)]);
+    $assert("tenant $activeTenant resolves the expected client catalog", $scope === $catalogTenant);
+    // The bridge now locks real directory policies and source identities.
+    // Its country/default, repeat-import and independent-owner cases run on
+    // the native schema in staffing_client_source_db.php, not a SQL emulator.
     $assert("tenant $activeTenant request context is unchanged", currentTenantId() === $activeTenant);
 }
 $api = file_get_contents(__DIR__ . '/../modules/placements/api/placements.php');

@@ -58,7 +58,8 @@ $a('helper no longer scopedInsert()s staffing_clients',
 $a('helper update is guarded by tenant_id and id',
     str_contains($clients, 'WHERE tenant_id = :tenant_id AND id = :id'));
 $a('helper insert explicitly sets tenant_id from argument',
-    str_contains($clients, "\$payload['tenant_id'] = \$tenantId"));
+    str_contains($clients, 'staffingClientProjectSource($tenantId,$companyId,$name,$extra)')
+    && str_contains(file_get_contents(__DIR__.'/../modules/staffing/lib/client_source.php'), "'tenant_id'=>$"."owner"));
 
 echo "\n3. Alignment service models canonical roots plus native mirrors\n";
 $a('alignment service file exists', file_exists($servicePath));

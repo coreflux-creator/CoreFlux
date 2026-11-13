@@ -20,7 +20,7 @@ $assert('client API pins scoped CRUD to placements catalog',
     str_contains($clientsApi, "setRequestModuleScope('placements')"));
 $assert('client API uses the shared placements permission boundary',
     substr_count($clientsApi, "'placements.view'") === 3
-    && substr_count($clientsApi, "'placements.manage'") === 4
+    && substr_count($clientsApi, "'placements.manage'") === 5
     && !str_contains($clientsApi, "'staffing.clients.manage'"));
 $assert('client API binds the resolved catalog tenant directly',
     str_contains($clientsApi, 'staffingClientCatalogQuery(')
@@ -30,11 +30,12 @@ $assert('client stats retain isolated financial tenant',
     str_contains($clientsApi, "'tenant_id' => \$activeTenantId"));
 
 $clientLib = $read($root . '/modules/staffing/lib/clients.php');
+$clientSource = $read($root . '/modules/staffing/lib/client_source.php');
 $assert('client catalog helper follows placements scope',
     str_contains($clientLib, "effectiveTenantIdForModule('placements', \$activeTenantId)"));
 $assert('client bridge carries canonical company address fields',
-    str_contains($clientLib, "'billing_address_line1'  => \$company['address_line1']")
-    && str_contains($clientLib, "'billing_postal_code'    => \$company['postal_code']"));
+    str_contains($clientSource, 'staffingClientCompanyFields()')
+    && str_contains($clientSource, "$"."profile[$"."field]=$"."company[$"."target]??null"));
 
 foreach (['csv_import.php', 'csv_export.php'] as $file) {
     $source = $read($root . '/modules/staffing/api/' . $file);
@@ -51,7 +52,8 @@ $assert('client CSV import uses atomic native company/client writes',
     str_contains($csvImport, 'staffingClientImportNative(')
     && !str_contains($csvImport, "return scopedInsert('staffing_clients'"));
 $assert('client bridge preserves existing commercial terms when a source omits them',
-    str_contains($clientLib, ': ($existing ? null : 30)'));
+    str_contains($clientSource, "'payment_terms_days'=>$"."incoming['payment_terms_days']??30")
+    && str_contains($clientSource, 'in_array($field,$state[\'owned\'],true)'));
 $assert('client catalog helpers never re-resolve an already resolved tenant',
     str_contains($clientLib, 'function staffingClientCatalogQuery(')
     && str_contains($clientLib, "\$params['tenant_id'] = \$tenantId")
@@ -64,11 +66,12 @@ $assert('client UI surfaces API failures instead of reporting an empty catalog',
 
 $qbo = $read($root . '/core/qbo/sync_in.php');
 $assert('QBO customers resolve in shared client tenant',
-    str_contains($qbo, '$clientTenantId = staffingClientCatalogTenantId($tenantId)'));
+    str_contains($qbo, 'staffingClientEnsureForCompany($tenantId,null,$name')
+    && str_contains($clientSource, "companyRelationshipScope($"."pdo,$"."workspace,'placements')"));
 $assert('QBO customers converge through company/client bridge',
     str_contains($qbo, 'staffingClientEnsureForCompany('));
 $assert('QBO source mapping remains on connected accounting tenant',
-    str_contains($qbo, "mappingUpsert(\$tenantId, QBO_SOURCE, 'customer'"));
+    str_contains($clientSource, "mappingBindStable($"."workspace,$"."source['system'],$"."type,$"."external,$"."id"));
 
 $qboInvoices = $read($root . '/core/qbo/sync_invoices.php');
 $assert('QBO invoice push resolves customer from shared catalog',

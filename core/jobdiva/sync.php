@@ -36,6 +36,7 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
 require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
+require_once __DIR__ . '/../../modules/staffing/lib/client_source.php';
 require_once __DIR__ . '/../../modules/staffing/lib/jobs.php';
 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
 require_once __DIR__ . '/../../modules/placements/lib/source_rule_ownership.php';
@@ -6567,9 +6568,18 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
         : ['authoritative' => false, 'name' => '', 'external_id' => ''];
     if (!empty($clientEvidence['authoritative'])) {
         $billingCompanyId = jobdivaProjectorResolveBillingClientCompany($tid, $jd, $userId);
+        $retainedClientId=null;
+        if(!$billingCompanyId&&$existingId>0&&empty($clientEvidence['external_id'])){
+            $clientScope=companyRelationshipScope($pdo,$tid,'placements');
+            $q=$pdo->prepare('SELECT sc.id,sc.company_id,sc.name FROM placements p JOIN staffing_clients sc ON sc.tenant_id=? AND sc.id=p.client_id WHERE p.tenant_id=? AND p.id=? FOR UPDATE');
+            $q->execute([$clientScope['owner'],$tid,$existingId]);$retained=$q->fetch(PDO::FETCH_ASSOC);
+            if($retained&&strcasecmp(trim($retained['name']),trim($clientEvidence['name']))===0){$retainedClientId=(int)$retained['id'];$billingCompanyId=(int)$retained['company_id'];}
+        }
         $clientRef = staffingClientEnsureForCompany($tid, $billingCompanyId, $clientEvidence['name'], [
             'created_by_user_id' => $userId,
             'source_system' => 'jobdiva',
+            'source_external_id' => $clientEvidence['external_id'] ?? '',
+            'preferred_client_id' => $retainedClientId,
         ]);
         $clientId = (int) ($clientRef['client_id'] ?? 0) ?: null;
     }

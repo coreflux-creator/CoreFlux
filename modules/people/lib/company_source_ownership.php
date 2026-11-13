@@ -30,7 +30,7 @@ function companySourceState(array $row, string $table): array
         || !array_key_exists('source',$state) || !is_bool($state['legacy_unreviewed'] ?? null)) {
         throw new RuntimeException('Review the stored company field ownership before making changes.',409);
     }
-    if ($state['source'] !== null && (!is_array($state['source']) || ($state['source']['system'] ?? '')!=='jobdiva'
+    if ($state['source'] !== null && (!is_array($state['source']) || !in_array($state['source']['system'] ?? '',['jobdiva','quickbooks_online'],true)
         || !is_int($state['source']['workspace_id'] ?? null) || $state['source']['workspace_id']<=0
         || !is_string($state['source']['external_id'] ?? null) || $state['source']['external_id']==='')) {
         throw new RuntimeException('Review the stored company source identity.',409);
@@ -149,7 +149,7 @@ function companySourceFinishObservation(PDO $pdo,int $owner,string $table,int $i
 function companySourceObserve(PDO $pdo,int $owner,string $table,int $id,array $values,array $source,bool $newRecord=false,bool $replaceProposal=true): array
 {
     if (array_diff(array_keys($values),companySourceFields($table))) throw new InvalidArgumentException('Unsupported source company field.');
-    if (($source['system']??'')!=='jobdiva' || !is_int($source['workspace_id']??null) || $source['workspace_id']<=0
+    if (!in_array($source['system']??'',['jobdiva','quickbooks_online'],true) || !is_int($source['workspace_id']??null) || $source['workspace_id']<=0
         || !is_string($source['external_id']??null) || $source['external_id']==='') throw new InvalidArgumentException('Exact company source identity is required.');
     $source=array_intersect_key($source,array_flip(['system','workspace_id','external_id']));
     return companySourceWithRecord($pdo,$owner,$table,$id,static function(array $row)use($pdo,$owner,$table,$id,$values,$source,$newRecord,$replaceProposal):array{

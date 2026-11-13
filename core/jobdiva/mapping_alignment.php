@@ -577,6 +577,7 @@ function jobdivaMappingRepairStaffingClientLinks(int $tenantId, ?int $userId = n
                     'created_by_user_id' => $userId,
                     'status' => 'active',
                     'source_system' => 'jobdiva',
+                    'source_external_id' => $evidence['external_id'] ?? '',
                 ])
                 : [
                     'client_id' => (int) $existingCanonicalClient['id'],
