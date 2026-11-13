@@ -393,6 +393,7 @@ try {
     require __DIR__.'/fixtures/document_merge_http_checks.php';
     require __DIR__.'/fixtures/person_document_audit_http_checks.php';
     require __DIR__.'/fixtures/source_rule_http_checks.php';
+    require __DIR__.'/fixtures/assignment_lifecycle_repair_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);
@@ -414,7 +415,7 @@ try {
         try {
             $pdo->beginTransaction();
             if ($membership!==null) { RBACResolver::revokeModule($membership,'people',$actor); RBACResolver::revokeModule($membership,'placements',$actor); RBACResolver::revokeModule($membership,'payroll',$actor); deactivateMembership($actor,$tenant); }
-            if ($childMembership!==null) { RBACResolver::revokeModule($childMembership,'people',$actor); RBACResolver::revokeModule($childMembership,'placements',$actor); RBACResolver::revokeModule($childMembership,'payroll',$actor); deactivateMembership($actor,$childTenant); }
+            if ($childMembership!==null) { RBACResolver::revokeModule($childMembership,'integrations',$actor); RBACResolver::revokeModule($childMembership,'people',$actor); RBACResolver::revokeModule($childMembership,'placements',$actor); RBACResolver::revokeModule($childMembership,'payroll',$actor); deactivateMembership($actor,$childTenant); }
             $pdo->prepare('UPDATE users SET is_active=0,password=NULL,password_hash=NULL WHERE id=? AND tenant_id=?')->execute([$actor,$tenant]);
             $pdo->exec('UPDATE tenants SET is_active=0 WHERE id IN (900012,900013,900014)'); $pdo->commit();
             $q=$pdo->prepare("SELECT COUNT(*) FROM users u JOIN tenant_memberships tm ON tm.user_id=u.id AND tm.tenant_id=u.tenant_id
