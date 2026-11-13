@@ -25,7 +25,7 @@ $assert('client API uses the shared placements permission boundary',
 $assert('client API binds the resolved catalog tenant directly',
     str_contains($clientsApi, 'staffingClientCatalogQuery(')
     && str_contains($clientsApi, 'staffingClientCatalogFind(')
-    && str_contains($clientsApi, 'staffingClientCatalogUpdate('));
+    && str_contains($clientsApi, 'staffingClientSaveNative('));
 $assert('client stats retain isolated financial tenant',
     str_contains($clientsApi, "'tenant_id' => \$activeTenantId"));
 

@@ -26,9 +26,9 @@ $a('one statement per line for PREPARE',      preg_match('/PREPARE s FROM @sql[^
 echo "\nClients API\n";
 $api = $read(__DIR__ . '/../modules/staffing/api/clients.php');
 $a('list action with q + status + active_placements join', str_contains($api, "action === 'list'") && str_contains($api, 'active_placements'));
-$a('create action validates unique name',     str_contains($api, "Client '{\$name}' already exists"));
-$a('update action allow-list of fields',      str_contains($api, "'billing_city','billing_state'"));
-$a('delete action is soft (status=closed)',   str_contains($api, "'status' => 'closed'"));
+$a('create and update use native client transaction service', str_contains($api, 'staffingClientApiSave(') && str_contains($api, 'staffingClientSaveNative('));
+$a('update action delegates its field allow-list', str_contains($api, 'array_flip(staffingClientNativeFields())'));
+$a('delete action is soft (status=closed)',   str_contains($api, "['status'=>'closed']"));
 $a('stats action queries v_timesheet_day_fin',str_contains($api, 'FROM v_timesheet_day_fin') && str_contains($api, 'mtd_revenue'));
 $a('stats tolerates missing view',            str_contains($api, "\$stats['mtd_revenue'] = null"));
 

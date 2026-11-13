@@ -12,15 +12,16 @@ function companyRelationshipAtomic(PDO $pdo,callable $write): mixed
     catch(Throwable $e){if($pdo->inTransaction()){if($outer){$pdo->exec('ROLLBACK TO SAVEPOINT '.$save);$pdo->exec('RELEASE SAVEPOINT '.$save);}else$pdo->rollBack();}throw$e;}
 }
 
-function companyRelationshipScope(PDO $pdo,int $workspace,string $module): array
+function companyRelationshipScope(PDO $pdo,int $workspace,string $module,bool $lock=true): array
 {
-    if(!$pdo->inTransaction()||!in_array($module,['staffing','placements','ap'],true))throw new LogicException('A current business-reference transaction is required.');
-    $companies=jobdivaPartyDirectoryScope($pdo,$workspace,true);$tenant=$companies['tenant'];
-    $q=$pdo->prepare('SELECT scope_mode FROM tenant_module_scope WHERE tenant_id=? AND module_key=? FOR UPDATE');$q->execute([$workspace,$module]);$mode=$q->fetchColumn();
+    if(($lock&&!$pdo->inTransaction())||!in_array($module,['staffing','placements','ap'],true))throw new LogicException('A current business-reference transaction is required.');
+    $suffix=$lock?' FOR UPDATE':'';
+    $companies=jobdivaPartyDirectoryScope($pdo,$workspace,$lock);$tenant=$companies['tenant'];
+    $q=$pdo->prepare('SELECT scope_mode FROM tenant_module_scope WHERE tenant_id=? AND module_key=?'.$suffix);$q->execute([$workspace,$module]);$mode=$q->fetchColumn();
     $mode=$mode===false?(SUBTENANT_MODULE_SCOPE_DEFAULTS[$module]??'isolated'):$mode;
     if(!in_array($mode,['shared','isolated'],true))throw new RuntimeException('Review this workspace sharing configuration.',409);
     $owner=$tenant['tenant_type']==='sub'&&!empty($tenant['parent_id'])&&$mode==='shared'?(int)$tenant['parent_id']:$workspace;
-    $q=$pdo->prepare('SELECT is_active FROM tenants WHERE id=? FOR UPDATE');$q->execute([$owner]);
+    $q=$pdo->prepare('SELECT is_active FROM tenants WHERE id=?'.$suffix);$q->execute([$owner]);
     if((int)$q->fetchColumn()!==1)throw new RuntimeException('The owning workspace is no longer active.',409);
     return ['workspace'=>$workspace,'owner'=>$owner,'company_owner'=>$companies['owner'],'module'=>$module,'mode'=>$mode];
 }

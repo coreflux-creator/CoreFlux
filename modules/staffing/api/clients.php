@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/client_audit.php';
 require_once __DIR__ . '/../lib/clients.php';
+require_once __DIR__ . '/../lib/client_write.php';
 require_once __DIR__ . '/../../../core/record_numbers.php';
 
 $ctx    = api_require_auth();
@@ -28,6 +29,17 @@ setRequestModuleScope('placements');
 $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
+
+function staffingClientApiSave(int $workspace,?int $id,array $patch,int $actor,?string $revision=null,string $event=''): array
+{
+    try{return staffingClientSaveNative($workspace,$id,$patch,$actor,$revision,$event);}
+    catch(Throwable $e){
+        $status=in_array((int)$e->getCode(),[404,409],true)?(int)$e->getCode():($e instanceof InvalidArgumentException?422:500);
+        if($e instanceof PDOException&&(string)$e->getCode()==='23000')api_error('This client or company conflicts with an existing record. Refresh and review it.',409);
+        api_error($e->getMessage(),$status);
+    }
+}
+
 
 if ($method === 'GET' && $action === 'list') {
     api_require_legacy_permission($ctx, 'placements.view');
@@ -107,10 +119,7 @@ if ($method === 'GET' && $action === 'list') {
     $sortKey = (string) ($_GET['sort'] ?? 'name');
     $sortExpr = $sortMap[$sortKey] ?? $sortMap['name'];
     $sortDir = strtolower((string) ($_GET['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
-    $sql = "SELECT c.id, c.company_id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
-                   c.primary_contact_name, c.primary_contact_email, c.primary_contact_phone,
-                   c.billing_city, c.billing_state, c.billing_country,
-                   c.msa_status, c.created_at, c.source_system, c.external_id,
+    $sql = "SELECT c.*,
                    CASE
                      WHEN COALESCE(p.cnt, 0) > 0 THEN 'Placement billing company'
                      WHEN EXISTS (
@@ -140,7 +149,10 @@ if ($method === 'GET' && $action === 'list') {
         $sql,
         array_merge($params, ['placements_tid' => $placementsTenantId])
     ));
-    $numberedRows = coreRecordNumbersAttachRelated(getDB(), $tenantId, 'company', $numberedRows, 'company_id');
+    $scope=companyRelationshipScope(getDB(),$activeTenantId,'placements',false);
+    if($scope['owner']!==$tenantId)api_error('The client directory changed. Refresh and try again.',409);
+    foreach($numberedRows as&$row)$row['edit_revision']=staffingClientRevision(getDB(),$scope,$row);unset($row);
+    $numberedRows = coreRecordNumbersAttachRelated(getDB(), $scope['company_owner'], 'company', $numberedRows, 'company_id');
     api_ok(['rows' => $numberedRows]);
 }
 
@@ -174,60 +186,15 @@ if ($method === 'POST' && $action === 'bulk_update') {
         if (strlen($value) > 120) api_error('industry is too long', 422);
     }
 
+    $revisions=$b['edit_revisions']??[];
+    if(!is_array($revisions))api_error('Refresh the client list before editing.',422);
     $updated = 0; $skipped = 0; $failed = 0; $results = [];
-    foreach ($ids as $id) {
-        try {
-            $existing = staffingClientCatalogFind(
-                $tenantId,
-                'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
-                ['id' => $id]
-            );
-            if (!$existing) {
-                $skipped++;
-                $results[] = ['id' => $id, 'ok' => false, 'reason' => 'not_found'];
-                continue;
-            }
-            if ($field === 'status' && in_array($value, ['inactive','closed'], true) && !empty($existing['company_id'])) {
-                $active = staffingClientCatalogFind(
-                    $tenantId,
-                    'SELECT COUNT(*) AS c FROM placements
-                      WHERE tenant_id = :tenant_id
-                        AND end_client_company_id = :company_id
-                        AND status = \'active\'
-                        AND deleted_at IS NULL',
-                    ['company_id' => (int) $existing['company_id']]
-                );
-                if ((int) ($active['c'] ?? 0) > 0) {
-                    throw new \RuntimeException('Client has active placements');
-                }
-            }
-            if ((string) ($existing[$field] ?? '') === (string) $value) {
-                $skipped++;
-                $results[] = ['id' => $id, 'ok' => true, 'reason' => 'no_change'];
-                continue;
-            }
-            $before = staffingClientAuditSnapshot($existing);
-            staffingClientCatalogUpdate($tenantId, $id, [$field => $value]);
-            if (!empty($existing['company_id']) && in_array($field, ['industry','payment_terms_days'], true)) {
-                staffingClientApplyCompanyPatch($tenantId, (int) $existing['company_id'], [$field => $value]);
-            }
-            $after = staffingClientCatalogFind(
-                $tenantId,
-                'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
-                ['id' => $id]
-            );
-            staffingClientAudit($tenantId, $actorUserId, 'staffing.client.updated', $id, [
-                'source' => 'bulk_update',
-                'changed_fields' => [$field],
-                'before' => $before,
-                'after' => staffingClientAuditSnapshot($after ?: []),
-            ]);
-            $updated++;
-            $results[] = ['id' => $id, 'ok' => true];
-        } catch (\Throwable $e) {
-            $failed++;
-            $results[] = ['id' => $id, 'ok' => false, 'reason' => $e->getMessage()];
-        }
+    foreach($ids as$id){
+        try{
+            staffingClientSaveNative($activeTenantId,$id,[$field=>$value],(int)$actorUserId,
+                is_string($revisions[$id]??null)?$revisions[$id]:null);
+            $updated++;$results[]=['id'=>$id,'ok'=>true];
+        }catch(Throwable $e){$failed++;$results[]=['id'=>$id,'ok'=>false,'reason'=>$e instanceof PDOException?'The client conflicts with an existing record. Refresh and review it.':$e->getMessage()];}
     }
     api_ok([
         'ok' => $failed === 0,
@@ -250,131 +217,32 @@ if ($method === 'GET' && $action === 'get') {
     );
     if (!$row) api_error('Not found', 404);
     $row = coreRecordNumbersAttach(getDB(), $tenantId, 'client', [$row])[0];
-    $row = coreRecordNumbersAttachRelated(getDB(), $tenantId, 'company', [$row], 'company_id')[0];
+    $scope=companyRelationshipScope(getDB(),$activeTenantId,'placements',false);
+    $row['edit_revision']=staffingClientRevision(getDB(),$scope,$row);
+    $row = coreRecordNumbersAttachRelated(getDB(), $scope['company_owner'], 'company', [$row], 'company_id')[0];
     api_ok(['client' => $row]);
 }
 
 if ($method === 'POST' && $action === 'create') {
     api_require_legacy_permission($ctx, 'placements.manage');
-    $b = api_json_body();
-    $name = trim((string) ($b['name'] ?? ''));
-    if ($name === '') api_error('name required', 422);
-
-    // Reject duplicate names.
-    $existing = staffingClientCatalogFind(
-        $tenantId,
-        'SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
-        ['n' => $name]
-    );
-    if ($existing) api_error("Client '{$name}' already exists", 409, ['existing_id' => $existing['id']]);
-
-    $clientRef = staffingClientEnsureForCompany($tenantId, null, $name, [
-        'name'                  => $name,
-        'legal_name'            => $b['legal_name']            ?? null,
-        'industry'              => $b['industry']              ?? null,
-        'primary_contact_name'  => $b['primary_contact_name']  ?? null,
-        'primary_contact_email' => $b['primary_contact_email'] ?? null,
-        'primary_contact_phone' => $b['primary_contact_phone'] ?? null,
-        'billing_address_line1' => $b['billing_address_line1'] ?? null,
-        'billing_address_line2' => $b['billing_address_line2'] ?? null,
-        'billing_city'          => $b['billing_city']          ?? null,
-        'billing_state'         => $b['billing_state']         ?? null,
-        'billing_postal_code'   => $b['billing_postal_code']   ?? null,
-        'billing_country'       => $b['billing_country']       ?? 'US',
-        'payment_terms_days'    => isset($b['payment_terms_days']) ? (int) $b['payment_terms_days'] : 30,
-        'status'                => $b['status']                ?? 'active',
-        'created_by_user_id'    => $actorUserId,
-    ]);
-    $id = (int) $clientRef['client_id'];
-    $postCreatePatch = array_filter([
-        'notes'      => $b['notes']      ?? null,
-        'msa_status' => $b['msa_status'] ?? 'none',
-    ], static fn($v) => $v !== null);
-    if ($postCreatePatch) staffingClientCatalogUpdate($tenantId, $id, $postCreatePatch);
-    $client = staffingClientCatalogFind(
-        $tenantId,
-        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $id]
-    );
-    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.created', $id, [
-        'source' => 'staffing_clients_api',
-        'after' => staffingClientAuditSnapshot($client ?: ['id' => $id, 'name' => $name]),
-    ]);
-    api_ok(['client' => $client]);
+    $b=api_json_body();$patch=array_intersect_key($b,array_flip(staffingClientNativeFields()));
+    $client=staffingClientApiSave($activeTenantId,null,$patch,(int)$actorUserId);
+    api_ok(['client'=>$client]);
 }
 
 if ($method === 'POST' && $action === 'update') {
     api_require_legacy_permission($ctx, 'placements.manage');
-    $b  = api_json_body();
-    $id = (int) ($b['id'] ?? 0);
-    if ($id <= 0) api_error('id required', 422);
-    $existing = staffingClientCatalogFind(
-        $tenantId,
-        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i',
-        ['i' => $id]
-    );
-    if (!$existing) api_error('Not found', 404);
-
-    $allowed = [
-        'name','legal_name','industry','primary_contact_name','primary_contact_email','primary_contact_phone',
-        'billing_address_line1','billing_address_line2','billing_city','billing_state','billing_postal_code','billing_country',
-        'payment_terms_days','status','notes','msa_status','msa_executed_at','msa_expires_at',
-    ];
-    $patch = [];
-    foreach ($allowed as $k) { if (array_key_exists($k, $b)) $patch[$k] = $b[$k]; }
-    if (!$patch) api_error('No updatable fields supplied', 422);
-
-    if (array_key_exists('name', $patch) || empty($existing['company_id'])) {
-        $clientRef = staffingClientEnsureForCompany(
-            $tenantId,
-            !empty($existing['company_id']) ? (int) $existing['company_id'] : null,
-            (string) ($patch['name'] ?? $existing['name']),
-            $patch + ['sync_company_patch' => true]
-        );
-        $patch['company_id'] = $clientRef['company_id'];
-        $patch['name'] = $clientRef['name'];
-    } elseif (!empty($existing['company_id'])) {
-        staffingClientApplyCompanyPatch($tenantId, (int) $existing['company_id'], $patch + ['name' => $existing['name']]);
-    }
-    staffingClientCatalogUpdate($tenantId, $id, $patch);
-    $client = staffingClientCatalogFind(
-        $tenantId,
-        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $id]
-    );
-    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.updated', $id, [
-        'source' => 'staffing_clients_api',
-        'changed_fields' => array_keys($patch),
-        'before' => staffingClientAuditSnapshot($existing),
-        'after' => staffingClientAuditSnapshot($client ?: []),
-    ]);
-    api_ok(['client' => $client]);
+    $b=api_json_body();$id=(int)($b['id']??0);if($id<=0)api_error('id required',422);
+    $patch=array_intersect_key($b,array_flip(staffingClientNativeFields()));
+    $client=staffingClientApiSave($activeTenantId,$id,$patch,(int)$actorUserId,is_string($b['edit_revision']??null)?$b['edit_revision']:null);
+    api_ok(['client'=>$client]);
 }
 
 if ($method === 'POST' && $action === 'delete') {
     api_require_legacy_permission($ctx, 'placements.manage');
-    $b  = api_json_body();
-    $id = (int) ($b['id'] ?? 0);
-    if ($id <= 0) api_error('id required', 422);
-    // Soft delete — flip status to closed. Keeps FK links intact for history.
-    $existing = staffingClientCatalogFind(
-        $tenantId,
-        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i',
-        ['i' => $id]
-    );
-    if (!$existing) api_error('Not found', 404);
-    staffingClientCatalogUpdate($tenantId, $id, ['status' => 'closed']);
-    $client = staffingClientCatalogFind(
-        $tenantId,
-        'SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $id]
-    );
-    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.closed', $id, [
-        'source' => 'staffing_clients_api',
-        'before' => staffingClientAuditSnapshot($existing),
-        'after' => staffingClientAuditSnapshot($client ?: []),
-    ]);
-    api_ok(['ok' => true, 'closed_id' => $id]);
+    $b=api_json_body();$id=(int)($b['id']??0);if($id<=0)api_error('id required',422);
+    staffingClientApiSave($activeTenantId,$id,['status'=>'closed'],(int)$actorUserId,is_string($b['edit_revision']??null)?$b['edit_revision']:null,'staffing.client.closed');
+    api_ok(['ok'=>true,'closed_id'=>$id]);
 }
 
 if ($method === 'GET' && $action === 'stats') {

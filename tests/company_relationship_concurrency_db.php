@@ -5,6 +5,7 @@ if(PHP_SAPI!=='cli'||getenv('GITHUB_ACTIONS')!=='true'||getenv('CI')!=='true'||g
 if(($argv[1]??'')!=='worker'){putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));putenv('COREFLUX_INTEGRATION_INSTANCE_ID=e443cc91-9552-41a1-8876-c14d044c5591');}
 require_once __DIR__.'/../modules/people/lib/company_merge_review.php';
 require_once __DIR__.'/../modules/staffing/lib/job_write.php';
+require_once __DIR__.'/../modules/staffing/lib/client_write.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 
@@ -20,7 +21,9 @@ if(($argv[1]??'')==='worker'){
         elseif($input['mode']==='source')$result=staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['job_external'],['title'=>$input['title'],'companyId'=>$input['company_external']],$input['actor']);
         else{
             if($input['mode']==='hold')$pdo->beginTransaction();
-            $result=staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']);
+            $result=($input['entity']??'job')==='client'
+                ?staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision'])
+                :staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']);
             if($input['mode']==='hold'){
                 echo json_encode(['saved'=>true,'id'=>$result['id'],'in_transaction'=>$pdo->inTransaction()]).PHP_EOL;flush();
                 stream_set_timeout(STDIN,15);$decision=trim((string)fgets(STDIN));
@@ -107,6 +110,29 @@ try{
             $check($merged['ok']&&$read('companies',$b)['deleted_at']!==null,'Rolled-back reference does not falsely invalidate the waiting merge');
             $check($read('staffing_jobs',(int)$saved['id'])===[],'Rolled-back writer leaves no job behind');
         }
+    }
+    [$a,$b]=$pair('client-first');
+    $pdo->prepare('INSERT INTO staffing_clients(tenant_id,name,company_id) VALUES(?,?,?)')->execute([$tenant,'Concurrent native client',$b]);$client=(int)$pdo->lastInsertId();
+    $clientBefore=$read('staffing_clients',$client);$revision=staffingClientRevision($pdo,companyRelationshipScope($pdo,$tenant,'placements',false),$clientBefore);
+    $review=companyMergePreview($tenant,$user,$a,$b);
+    $pdo->beginTransaction();companyMergeApply($tenant,$user,$review['review_token'],$reviewChoices($review));
+    $worker=$spawn(['mode'=>'native','entity'=>'client','workspace'=>$tenant,'actor'=>$actor,'client_id'=>$client,'edit_revision'=>$revision]);
+    $check($waiting($worker),'Native client edit is observed waiting on the uncommitted merge');$pdo->commit();$result=$finish($worker);
+    $clientAfter=$read('staffing_clients',$client);
+    $check(!$result['ok']&&(int)$result['code']===409&&(int)$clientAfter['company_id']===$a&&$clientAfter['primary_contact_phone']===$clientBefore['primary_contact_phone'],'Stale client editor preserves the merged relationship and saved profile');
+    foreach(['COMMIT','ROLLBACK']as$decision){
+        [$a,$b]=$pair('client-'.$decision);
+        $pdo->prepare('INSERT INTO staffing_clients(tenant_id,name,company_id) VALUES(?,?,?)')->execute([$tenant,'Held client '.$decision,$b]);$client=(int)$pdo->lastInsertId();
+        $revision=staffingClientRevision($pdo,companyRelationshipScope($pdo,$tenant,'placements',false),$read('staffing_clients',$client));
+        $review=companyMergePreview($tenant,$user,$a,$b);
+        $writer=$spawn(['mode'=>'hold','entity'=>'client','workspace'=>$tenant,'actor'=>$actor,'client_id'=>$client,'edit_revision'=>$revision]);
+        $saved=$line($workers[$writer]['pipes'][1]);$check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'Native client writer holds company and client before '.$decision);
+        $merger=$spawn(['mode'=>'merge','workspace'=>$tenant,'actor'=>$actor,'review_token'=>$review['review_token'],'choices'=>$reviewChoices($review)]);
+        $check($waiting($merger),'Merge waits on the independent native client '.$decision);
+        fwrite($workers[$writer]['pipes'][0],$decision.PHP_EOL);fflush($workers[$writer]['pipes'][0]);$writerResult=$finish($writer);$result=$finish($merger);
+        $check($writerResult['ok'],'Native client completes its '.$decision.' decision');
+        if($decision==='COMMIT')$check(!$result['ok']&&(int)$result['code']===409&&$read('companies',$b)['deleted_at']===null,'Committed native company/client edit invalidates the waiting merge review');
+        else$check($result['ok']&&(int)$read('staffing_clients',$client)['company_id']===$a&&$read('staffing_clients',$client)['primary_contact_phone']===null,'Rolled-back client edit leaves no value and permits the reviewed merge');
     }
     foreach(['COMMIT','ROLLBACK']as$decision){
         foreach(['native','merge']as$mode){

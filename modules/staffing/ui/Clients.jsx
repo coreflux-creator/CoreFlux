@@ -107,6 +107,7 @@ export default function Clients() {
     try {
       const result = await api.post('/modules/staffing/api/clients.php?action=bulk_update', {
         ids: Array.from(selected), field, value,
+        edit_revisions: Object.fromEntries(items.filter(row => selected.has(Number(row.id))).map(row => [row.id, row.edit_revision])),
       });
       setBulkResult({ ...result, label, value });
       reload();
@@ -151,7 +152,7 @@ export default function Clients() {
     if (!confirm(`Close client "${drawer.client.name}"? Existing placements stay linked for history.`)) return;
     setSP(true); setSE(null);
     try {
-      await api.post('/modules/staffing/api/clients.php?action=delete', { id: drawer.client.id });
+      await api.post('/modules/staffing/api/clients.php?action=delete', { id: drawer.client.id, edit_revision: drawer.client.edit_revision });
       closeDrawer();
       reload();
     } catch (err) { setSE(err.message); }
