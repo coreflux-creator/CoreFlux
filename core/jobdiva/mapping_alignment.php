@@ -94,6 +94,9 @@ function jobdivaMappingAlignmentReportSnapshot(int $tenantId, array $opts = []):
     ];
     $projectorContract = jobdivaProjectorContract();
     $projectorReadiness = jobdivaProjectorReadinessCounts($tenantId);
+    $relationships['directory_policy'] = ['conflicts'=>jobdivaAlignmentDirectoryConflicts($pdo, $scope)];
+    _jobdivaMappingAddIssue($issues, 'critical', 'assignment_directory_policy_conflict', 'integration', $projectorReadiness['directory_policy_conflicts'],
+        'Current directory sharing does not support assignment projection.', 'Align People and the shared assignment consumer directories before importing assignments.');
     foreach (['missing_placement'=>'Some source links do not resolve to a placement in the current directory.',
         'missing_person'=>'Some mapped placements do not resolve to a person in the current People directory.'] as $key=>$message) {
         _jobdivaMappingAddIssue($issues, 'critical', 'placement_'.$key, 'placement', $projectorReadiness[$key], $message, 'Review sharing and the retained source links before continuing.');

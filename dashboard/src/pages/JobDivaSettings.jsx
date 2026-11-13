@@ -1080,7 +1080,8 @@ export function JobDivaMappingAlignmentCard({
   const totalMirrors = layers.native_payload_mirrors ?? layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + Number(rawCounts[k] || 0), 0);
   const fieldPathTotal = layers.field_map_paths ?? layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0);
   const identityBlockers =
-    Number(readiness.missing_placement || 0)
+    Number(readiness.directory_policy_conflicts || 0)
+    + Number(readiness.missing_placement || 0)
     + Number(readiness.missing_person || 0)
     + Number(readiness.missing_staffing_job || 0)
     + Number(readiness.missing_end_client_company || 0)

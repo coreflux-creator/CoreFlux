@@ -7,13 +7,25 @@ require_once __DIR__.'/stored_review.php';
 function jobdivaAlignmentScope(PDO $pdo, int $workspace): array
 {
     $scope = ['workspace' => $workspace];
-    foreach (['placements', 'people', 'staffing'] as $module) {
+    foreach (['placements', 'people', 'staffing', 'accounting'] as $module) {
         $scope[$module] = companyRelationshipScope($pdo, $workspace, $module, false)['owner'];
     }
     $scope['companies'] = jobdivaPartyDirectoryScope($pdo, $workspace)['owner'];
     // Imported time and provider identities stay in their original workspace.
     $scope['time'] = $workspace;
     return $scope;
+}
+
+/** Diagnose the current writer's sharing requirements without hiding other findings. */
+function jobdivaAlignmentDirectoryConflicts(PDO $pdo, array $scope): array
+{
+    $conflicts = [];
+    if ($scope['people'] !== $scope['placements']) $conflicts[] = 'people';
+    if (jobdivaPartyDirectoryScope($pdo, $scope['placements'])['owner'] !== $scope['companies']) $conflicts[] = 'companies';
+    foreach (['staffing', 'accounting'] as $module) {
+        if (companyRelationshipScope($pdo, $scope['placements'], $module, false)['owner'] !== $scope[$module]) $conflicts[] = $module;
+    }
+    return $conflicts;
 }
 
 function jobdivaAlignmentReadiness(PDO $pdo, int $workspace): array
@@ -49,6 +61,7 @@ function jobdivaAlignmentReadiness(PDO $pdo, int $workspace): array
         AND NOT EXISTS (SELECT 1 FROM placements p WHERE p.id=m.internal_entity_id AND p.tenant_id=?)");
     $q->execute([$workspace, $owner]);
     $counts['missing_placement'] = (int) $q->fetchColumn();
+    $counts['directory_policy_conflicts'] = count(jobdivaAlignmentDirectoryConflicts($pdo, $scope));
     return $counts;
 }
 

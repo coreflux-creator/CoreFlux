@@ -11,7 +11,7 @@ $insert=static function(string $table,array $row)use($pdo):int{$pdo->prepare('IN
 $state=static function()use($pdo):array{$result=[];foreach(['placements','people','companies','staffing_clients','staffing_jobs','placement_rates','external_entity_mappings','entity_sync_history','core_record_numbers','audit_log','time_entries']as$table){$rows=array_map(static fn($r)=>json_encode($r,JSON_THROW_ON_ERROR),$pdo->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC));sort($rows);$result[$table]=$rows;}return$result;};
 JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$check,$fails,$insert,$state):void{
     $insert('tenants',['id'=>$workspace,'parent_id'=>$owner,'tenant_type'=>'sub','name'=>'Synthetic alignment report','is_active'=>1,'is_simulation'=>1]);
-    foreach(['companies'=>'shared','placements'=>'shared','people'=>'isolated','staffing'=>'isolated']as$module=>$mode)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>$mode]);
+    foreach(['companies'=>'shared','placements'=>'shared','people'=>'isolated','staffing'=>'isolated','accounting'=>'shared']as$module=>$mode)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>$mode]);
     $person=$insert('people',['tenant_id'=>$workspace,'first_name'=>'Synthetic','last_name'=>'Alignment','email_primary'=>'alignment@example.invalid','status'=>'active','classification'=>'w2']);
     $bill=$insert('companies',['tenant_id'=>$owner,'name'=>'Synthetic alignment bill-to']);
     $recipient=$insert('companies',['tenant_id'=>$owner,'name'=>'Synthetic alignment work recipient']);
@@ -32,7 +32,9 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,
     $before=$state();$result=$report();
     $check($result['complete']===true,'Full canonical alignment report finishes with independent directory owners: '.json_encode($result['issues']??[]));
     $ready=$result['relationships']['projector']['workflow_readiness'];
-    $check(array_sum($ready)===0,'Current shared placement, private person/job/client, and shared companies all resolve');
+    $references=$ready;unset($references['directory_policy_conflicts']);
+    $check(array_sum($references)===0,'Current shared placement, private person/job/client, and shared companies all resolve');
+    $check($ready['directory_policy_conflicts']===2&&$result['ok']===false,'Unsupported mixed sharing is explicitly blocked while independent reference diagnostics remain available');
     $check($result['directory_owners']['people']===$workspace&&$result['directory_owners']['placements']===$owner,'Report exposes independently resolved directory ownership');
     $check($result['relationships']['end_client_consumer_bridge']['jobdiva_customers_without_staffing_client']===0,'Raw customer mirror IDs are never treated as canonical company IDs');
     $check($result['relationships']['placement_graph']['person_without_jobdiva_mapping']===0,'Person source links are read from the original workspace');
