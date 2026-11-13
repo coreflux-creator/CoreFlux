@@ -1,0 +1,184 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "No integration progress: answered standalone accounting access. Current worktree and completed checkpoint CI revalidated before continuing source-rate implementation.",
+  "source_commit": "b9acbaf06244fa919f20b27456b3dd12f8cbfdfc",
+  "base_commit": "f8fbb05e44415d7964eeca17e4281dfad8ca4338",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "eebae50d0bbec9c0c606d2a46098b4defa261b0df2c451436685e7e566294cb0",
+    "api/admin/integrations/jobdiva_mapping_alignment.php": "87e4ae73970eb9b819bbc46292a54ef7112d6b5b9f0b5486f1a9cd3885d24eff",
+    "core/integrations/field_map_apply.php": "e87f82937e5d36f1a925e6dbd158772e16357bcfd68e6743b75dfc9575229129",
+    "core/jobdiva/contract_projection.php": "960fd24ded3f44db7948a936b3fb3201244eb6e8173516df1d83c16356bb5fec",
+    "core/jobdiva/mapping_alignment.php": "2352d1b893ac21c2d34a6a25a8881b943226c7725d33103929c25afe7ccda0f8",
+    "core/jobdiva/source_rate_repair.php": "0903f464713587cfd2daa191e7d69950293648ed375baebd347e555065691baf",
+    "core/jobdiva/sync.php": "a96cd6b9b706b4721026d4a90ad66648ef63e0c985a9bee7566e8fa34e3caf29",
+    "modules/placements/api/rates.php": "5fd1c49ca1a5bb69fb23e90242f7547bce9a25e50a251cc4a9a5ea6c99fd4493",
+    "modules/placements/lib/economics.php": "0251eb9178f450f3e14fa7cf8893cd90dae91959e71e0e697e21282c021bb069",
+    "modules/placements/lib/jobdiva_reconciliation.php": "0081325589be251624e7e002964f11a2deaecfb21647e4c43e30e0f03e96ff73",
+    "modules/placements/lib/native_rates.php": "20625dd54ff6815bff2c33da378c360619b3b1852728c0b826c82f2c6f3b3164",
+    "modules/placements/lib/rate_approve.php": "935a67b27c7fe88dd14649a51e89a6b8af4732891344048be6c8a3bc1452c8d3",
+    "tests/company_relationship_concurrency_db.php": "d23c6e78232e2d31026f34f4dfba2ee211c93ce4fde3e5ab23036a81d24760a0",
+    "tests/fixtures/placement_contract_http_router.php": "cf326c30e5c15a08e7b79712010bc5d088aefb58a27dace68ca6952c1eda6937",
+    "tests/fixtures/source_rate_concurrency_checks.php": "9f1cca31ca8804b00fbbe6eecb6fc9e6d213e69bb404fd5ae47ead886e8f228a",
+    "tests/fixtures/source_rate_http_checks.php": "452e1ff27bcb9bf1dbd3601cf9468b54133fb1e49c8c49a037e3bd08ba1d6d83",
+    "tests/jobdiva_mapping_alignment_smoke.php": "4b4be9825f1021de452e392542ad71b1df54dde6653e7d8d33dfd455f07a7bc5",
+    "tests/jobdiva_source_rate_repair_db_check.php": "8ea775df2e0ed452445a603d7ce18b4c42fa4f73ba747722914b4a65295f1a47",
+    "tests/nested_tx_sweep_smoke.php": "10fa86ba11dbff8750eec121211d0280572fbf3ac3ba8775be609deac71c4c14",
+    "tests/placement_commercial_contract_smoke.php": "52909073e7f5f28de4677cd5109c5499dd0b8475f05800f2c01a506544c3ef13",
+    "tests/placement_contract_permissions_http.php": "ab0f426300be56bd3acd2843f3a71c7411a4d3ead3f244217c4d499aad0292c7",
+    "tests/placement_detail_and_auto_approve_smoke.php": "190b78fcaf02969e7400d678cdb29d07406d264fe85d24692a3dc7747bcd59cf",
+    "tests/placement_rate_source_repair_smoke.php": "14ecf3e3529741137f8861671a0f37d725d5aad37e157c33e028d2ef19ed81da",
+    "tests/placements_bulk_approve_drafts_queue_smoke.php": "d6999798db8c06a8417aa1db38e5517baf9f0041b44490d219859e1a77dfa347"
+  },
+  "ci": {
+    "run_id": 43479996001,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43479996001",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132073694164,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073694727,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073694743,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073694774,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073694775,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073694875,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073694997,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073695024,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073695063,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073695113,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132073695292,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "source_rate_ownership_and_approval": 41,
+    "people_availability": 42,
+    "assignment_source_and_lifecycle_repair": 46,
+    "csv_assignment_directory": 38,
+    "stored_assignment_directory": 27,
+    "stored_review_transaction": 20,
+    "projection_directory": 40,
+    "independent_connections": 309,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 488
+  },
+  "rate_concurrency_labels": [
+    "Source rate repair waits for directory policy COMMIT",
+    "Source rate repair uses committed directory policy after COMMIT",
+    "Source rate repair waits for a native draft edit COMMIT",
+    "Shared approval holds rate and required audit before COMMIT: {\"saved\":true,\"id\":113,\"in_transaction\":true}",
+    "Concurrent shared approvals produce exactly one owner stamp and audit after COMMIT",
+    "Source rate repair waits for directory policy ROLLBACK",
+    "Source rate repair uses committed directory policy after ROLLBACK",
+    "Source rate repair waits for a native draft edit ROLLBACK",
+    "Shared approval holds rate and required audit before ROLLBACK: {\"saved\":true,\"id\":116,\"in_transaction\":true}",
+    "Concurrent shared approvals produce exactly one owner stamp and audit after ROLLBACK"
+  ],
+  "rate_http_labels": [
+    "Placement editing does not grant rate editing or approval",
+    "A separately reviewed source apply updates the released client terms",
+    "Corporate endpoints enforce placement tenant ownership before reads or writes",
+    "Corporate review supplies a token without creating a payee",
+    "Corporate audit failure is returned as a retryable HTTP error",
+    "A failed native corporate save rolls back company, vendor, cycle and participant creation",
+    "Authorized corporate save returns aligned metadata without ciphertext",
+    "A consumed corporate review cannot overwrite the saved details",
+    "Partial native HTTP save preserves unsubmitted corporate metadata",
+    "Fresh identical corporate save is an unchanged HTTP success",
+    "Corporate saves audit the authenticated actor once per actual change",
+    "Ownership HTTP review accepts binary corporate ciphertext without disclosing it",
+    "Shared child context separates operating workspace from owning directory",
+    "Shared native handback preserves provider identities, legacy person numbers, history and approved rates",
+    "Native sparse CSV preserves workers, approved rates, record numbers and every provider pair",
+    "Native lifecycle repair preserves workers, approved rates, permanent numbers and provider pairs",
+    "People write grant cannot bypass the separate inactive permission",
+    "Native availability preserves employment, sign-in, historical assignments, rates, numbers and source identities",
+    "Source rate repair requires native sign-in",
+    "Shared-view Draft Rates queue includes the repaired owner rate",
+    "Read-only placement access cannot edit imported rates",
+    "Invalid effective date is rejected without rate or ownership changes",
+    "Ordinary source refresh preserves the HTTP-edited rate and ownership",
+    "Read-only placement access cannot approve rates",
+    "Rate approval requires native sign-in",
+    "Rate approval cannot cross into an unrelated tenant",
+    "Late native approval audit failure rolls back placement promotion, source draft, graph and ownership",
+    "Native placement promotion repairs and approves the exact source rate in its shared owner"
+  ],
+  "native_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "contract_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T18:04:23+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "legacy alignment reporting and joined-source index refresh",
+    "reviewed duplicate consolidation preserving source pairs and permanent aliases",
+    "active-status maintenance and generic placement CSV",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field, portal, onboarding, documents, time, approval, payroll results and reconciliation remain incomplete"
+}
