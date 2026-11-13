@@ -1,0 +1,259 @@
+{
+  "kind": "company_merge_source_alias_preparation",
+  "status": "source_tested_not_installed_merge_workflow_incomplete",
+  "previous_goal_turn": "No integration progress: supplied standalone accounting access; current source and installed pilot were revalidated before implementation.",
+  "recorded_at": "2026-11-13T05:41:19.748992+00:00",
+  "source_commit": "94a79c6a99f5ce2d61cbcb3f2eaa2a8146494f88",
+  "ci": {
+    "run_id": 43373083534,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43373083534",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "native_alias_checks": {
+    "passed": true,
+    "checks": 34,
+    "labels": [
+      "Retired company number resolves to the reviewed same-directory survivor",
+      "Merge aliases preserve every raw provider ID, mapping row and payload",
+      "Company refresh returns the canonical relationship ID without rebinding the source",
+      "Merged source proposals cannot change either physical profile",
+      "Both stable JobDiva pairs survive a post-merge refresh",
+      "Other providers are not rewritten by JobDiva refresh",
+      "Exact replay retains one semantic source revision",
+      "Secondary source roles remain reviewable proposals, not restored roles",
+      "Explicit assignment company identity follows the permanent alias",
+      "A supplied original source record retains its exact reverse binding",
+      "Graph projection resolves the alias while validating the original source authority",
+      "Full graph binding retains the raw company pair and original profile evidence",
+      "Requisitions use the canonical company without inventing a bill-to client",
+      "Contact replay retains its provider ID and follows its reviewed parent alias",
+      "Native chain and referral writers follow the source alias while retaining their economics",
+      "Stored review and normal subcontract resolution use the canonical company",
+      "Reviewed contact linking accepts the exact provider parent through its permanent alias",
+      "Assignment field mappings retain the secondary source identity instead of contaminating primary proposals",
+      "A different source company cannot enrich a Core-selected parent profile",
+      "Native edits cannot resurrect a retired source alias",
+      "Generic source acceptance cannot release merged-source authority",
+      "Custom source values are retained as typed proposals without writing either profile",
+      "Custom proposal replay is idempotent",
+      "Merged custom proposals cannot use an incoming clear",
+      "Merged custom proposals retain protected-field restrictions",
+      "A bad mapped custom proposal rolls back profile evidence and provider payload atomically",
+      "Full source refresh applies configured custom mappings as held alias proposals",
+      "Shared company directory resolves aliases using the source workspace",
+      "A changed company directory invalidates an old alias immediately",
+      "A foreign directory cannot resolve a company alias",
+      "Ordinary deletion is never interpreted as a merge",
+      "Repeated merges flatten company-number aliases without changing provider bindings",
+      "Corrupt cross-directory alias is rejected before source writes",
+      "Alias processing changes no financial or time records"
+    ]
+  },
+  "provider_calls": 0,
+  "permanent_fixture_records": 0,
+  "runtime_sha256": {
+    "modules/people/lib/company_identity.php": "c134c95b22c75cfbd40615247a6e8333220f27fddb3411f785ac6df70529ef45",
+    "modules/people/lib/company_source_ownership.php": "74848ea447e3ce5c48ffde47e8f2d458dd1fe63cadafdcb45ae622ebefc93c52",
+    "core/jobdiva/party_sync.php": "b5017ef2081763e8d17f3812735e9b9e02c2a03c1ab0f1cde217005fc4692f38",
+    "core/jobdiva/party_review.php": "dc612e5857bbd53f9f54209ec45410ed9af6b1288711d7936c1586f390323b68",
+    "core/jobdiva/projector.php": "ca955f491f0b645c118e57397b3f1fbd9123fd824e29ac31dc3350ae0c201209",
+    "core/jobdiva/sync.php": "ed70e0221dfe6e6b7e305a52279260b047b5e1f046bee9a1b65d6fb760fe19a5",
+    "core/custom_field_storage.php": "aa65ba7b442c2dce422f00dca4ded5b71838efde87ff046050ac793c310c5bc9",
+    "core/integrations/custom_fields.php": "e4629dcdf9219c569a8380566d9576334bce290d292543cc7d4e2e26d8633c42",
+    "core/integrations/field_map_apply.php": "98c9c797c88805087d519fd7c5487fc99c2477bce05df35f62ef4564e651b684",
+    "modules/staffing/lib/jobs.php": "14a1a65ac1fd125fc2781b3910837b4044e322693ca8d7f32c762e8a7e6581e2"
+  },
+  "reference_inventory": {
+    "checked_at": "2026-11-13T05:33:28+00:00",
+    "metadata_only": true,
+    "rows_changed": false,
+    "columns": [
+      {
+        "table_name": "accounting_journal_entry_lines",
+        "column_name": "counterparty_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "ap_1099_ledger",
+        "column_name": "vendor_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "ap_bills",
+        "column_name": "vendor_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "ap_payments",
+        "column_name": "vendor_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "ap_settings",
+        "column_name": "nacha_company_id",
+        "column_type": "varchar(10)",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "ap_vendors_index",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "billing_invoices",
+        "column_name": "client_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "company_addresses",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "company_contacts",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "company_roles",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 0
+      },
+      {
+        "table_name": "payroll_settings",
+        "column_name": "nacha_company_id",
+        "column_type": "varchar(10)",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "people_graph_actor_links",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "placements",
+        "column_name": "end_client_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "placement_client_chain",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "placement_corp_details",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "placement_economic_parties",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "placement_referrals",
+        "column_name": "referrer_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "staffing_clients",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "staffing_jobs",
+        "column_name": "company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      },
+      {
+        "table_name": "treasury_liability_statement_lines",
+        "column_name": "counterparty_company_id",
+        "column_type": "bigint(20) unsigned",
+        "tenant_scoped": 1
+      }
+    ]
+  },
+  "installed_runtime_unchanged": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_verification_at": "2026-11-13T05:20:17+00:00",
+  "installed_runtime_pins": 367,
+  "installed_tables": 378,
+  "installed_rows": 35304,
+  "not_proved": [
+    "reviewed merge preview/apply API",
+    "merge permissions and native HTTP workflow",
+    "atomic merge audit and replay",
+    "concurrent merge/source/native writer isolation",
+    "all dependent reference dispositions",
+    "secondary source review and apply-once UI",
+    "alias-aware mapping list permissions",
+    "hosted signed-in merge walkthrough",
+    "full integration objective"
+  ],
+  "production_changed": false,
+  "providers_changed": false,
+  "arabella_changed": false,
+  "real_financial_execution": false
+}
