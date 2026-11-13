@@ -1,0 +1,95 @@
+<?php
+/** Protected CSV reconciliation against the canonical disposable database. */
+declare(strict_types=1);
+if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'||getenv('COREFLUX_STANDALONE_DATABASE')!=='coreaccounting_ci'||!in_array('--confirm-disposable-fixture',$argv,true))exit(2);
+require_once __DIR__.'/../core/CsvImportService.php';
+require_once __DIR__.'/../modules/placements/lib/jobdiva_csv_write.php';
+Core\CsvImportService::registerSchema('jobdiva_placement_reconciliation',jobdivaReconciliationSchema());
+$pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
+$owner=(int)$pdo->query('SELECT MIN(id) FROM tenants')->fetchColumn();$workspace=990702;$checks=0;$trigger=false;
+$check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks++;echo "PASS $label\n";};
+$failure=static function(callable $f):string{try{$f();return '';}catch(Throwable $e){return$e->getMessage();}};
+$insert=static function(string $table,array $row)use($pdo):int{$pdo->prepare('INSERT INTO '.$table.' (`'.implode('`,`',array_keys($row)).'`) VALUES('.implode(',',array_fill(0,count($row),'?')).')')->execute(array_values($row));return(int)$pdo->lastInsertId();};
+$all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY '.match($table){'core_record_numbers'=>'tenant_id,entity_type,record_id','placement_corp_details'=>'placement_id',default=>'id'})->fetchAll(PDO::FETCH_ASSOC);
+$state=static fn():array=>array_map($all,['people','placements','placement_rates','placement_client_chain','placement_corp_details','placement_economic_parties','companies','staffing_clients','staffing_jobs','external_entity_mappings','entity_sync_history','core_record_numbers','audit_log','jobdiva_sync_audit']);
+$read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
+$pairs=static fn():array=>$pdo->query('SELECT id,tenant_id,source_system,internal_entity_type,external_id,internal_entity_id FROM external_entity_mappings ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$csv=static function(array $rows):string{$headers=[];foreach($rows as$row)$headers=array_values(array_unique([...$headers,...array_keys($row)]));$f=fopen('php://temp','w+');fputcsv($f,$headers,',','"','');foreach($rows as$row)fputcsv($f,array_map(static fn($h)=>$row[$h]??'',$headers),',','"','');rewind($f);$body=stream_get_contents($f);fclose($f);return$body;};
+$financial=array_map($all,['accounting_events','accounting_journal_entries','accounting_journal_entry_lines','time_entries','payroll_runs','billing_payments','ap_payments']);
+try{
+    if($pdo->query('SELECT id FROM tenants WHERE id=990702')->fetchColumn())throw new RuntimeException('CSV fixture already exists');
+    $pdo->exec("CREATE TRIGGER fixture_csv_directory_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF COALESCE(@fixture_csv_audit_start,'')<>'' AND NEW.event='placement.jobdiva_reconciliation.applied' AND JSON_UNQUOTE(JSON_EXTRACT(NEW.meta_json,'$.start_id'))=@fixture_csv_audit_start THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic final CSV audit failure'; END IF; END");$trigger=true;
+    JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$check,$failure,$insert,$all,$state,$read,$pairs,$csv,$financial):void{
+        $insert('tenants',['id'=>$workspace,'parent_id'=>$owner,'tenant_type'=>'sub','name'=>'Synthetic CSV source workspace','is_active'=>1,'is_simulation'=>1]);
+        foreach(['people','placements','companies','staffing','accounting']as$module)$insert('tenant_module_scope',['tenant_id'=>$workspace,'module_key'=>$module,'scope_mode'=>'shared']);
+        setRequestTenantId($workspace);$_SESSION['tenant_id']=$workspace;setRequestModuleScope('placements');
+        $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'CSV candidate','email_primary'=>'csv-directory@example.invalid','classification'=>'w2','status'=>'active','external_id'=>'csv-person-legacy']);
+        mappingUpsert($workspace,'jobdiva','person','jd:99193002',$person,['candidateId'=>'99193002']);
+        $company=jobdivaUpsertCompanyMapped($workspace,'99193006','Synthetic CSV company',[],['id'=>'99193006'],null,['client']);
+        $client=staffingClientEnsureForCompany($workspace,$company,'Synthetic CSV company',['source_system'=>'jobdiva','source_external_id'=>'99193006'])['client_id'];
+        $base=['tenant_id'=>$owner,'person_id'=>$person,'title'=>'Before CSV review','status'=>'on_hold','engagement_type'=>'w2','start_date'=>'2026-10-01','end_date'=>'2026-12-31','external_id'=>'csv-placement-legacy','client_id'=>$client,'end_client_company_id'=>$company,'end_client_name'=>'Synthetic CSV company','client_bill_cycle'=>'monthly','client_payment_terms_override'=>'NET30','vendor_pay_cycle'=>'biweekly','vendor_payment_terms_override'=>'NET30','vendor_pwp_enabled'=>0,'worksite_country'=>'US','notes'=>'Retained Core note','coreflux_overridden_fields'=>'["notes","pay_rate"]'];
+        $placement=$insert('placements',$base);
+        $rate=$insert('placement_rates',['tenant_id'=>$owner,'placement_id'=>$placement,'effective_from'=>'2026-10-01','effective_to'=>'2026-12-31','bill_rate'=>100,'pay_rate'=>50,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD','approved_at'=>'2026-10-01 12:00:00']);
+        mappingUpsert($workspace,'jobdiva','placement','jd:99193001',$placement,['startId'=>'99193001','candidateId'=>'99193002','_jd_contract'=>['start_id'=>'99193001','bill_rate'=>100,'pay_rate'=>50]]);
+        placementEconomicsReconcile($owner,$placement);
+        $pdo->prepare('UPDATE placement_economic_parties SET payment_terms_overridden=1 WHERE tenant_id=? AND placement_id=? AND source_ref="placement:bill_to"')->execute([$owner,$placement]);
+        $source=['start_id'=>'99193001','candidate_id'=>'99193002','title'=>'Reviewed CSV title','end_client_source_id'=>'99193006','end_client_name'=>'Source company display','worksite_city'=>'Hamilton','notes'=>'Source note','client_payment_terms_override'=>'NET60','bill_rate'=>120,'pay_rate'=>60,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD'];
+        $body=$csv([$source]);$preview=static fn(string $body):array=>jobdivaReconciliationBuildPlan($pdo,$workspace,null,$body,null);
+        $apply=static fn(string $body,string $token,array $ids=['99193001']):array=>jobdivaReconciliationApply($pdo,$workspace,null,$body,null,$ids,$token);
+        $before=$state();$plan=$preview($body);$row=$plan['rows'][0];
+        $check($row['selectable']&&$row['placement_id']===$placement,'CSV review selects the original child provider pair in a shared directory: '.implode('; ',$row['errors']));
+        $check($state()===$before&&$preview($body)['dry_run_token']===$plan['dry_run_token'],'CSV preview is read-only and stable within the protected transaction');
+        $check(!array_key_exists('external_id',$row['placement_patch'])&&!array_key_exists('notes',$row['placement_patch'])&&!array_key_exists('client_payment_terms_override',$row['placement_patch'])&&(float)$row['rate_plan']['payload']['pay_rate']===50.0,'CSV preserves legacy numbers, Core-owned notes/rates and participant-owned terms');
+        $check(!isset($plan['public_rows'][0]['__review_evidence'],$plan['public_rows'][0]['person']['evidence']),'Public CSV review omits internal snapshots and source ownership metadata');
+        $missing=$preview($csv([['start_id'=>'99193001','bill_rate'=>75,'pay_rate'=>40]]));
+        $check(!$missing['rows'][0]['selectable']&&str_contains(implode(' ',$missing['rows'][0]['errors']),'currency'),'CSV rate writes require explicit currency and units instead of inheriting old basis');
+        $check($preview($csv([['start_id'=>'99193001','bill_rate'=>75,'pay_rate'=>40,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD']]))['rows'][0]['selectable']&&$state()===$before,'Complete explicit CSV rate basis is reviewable without changing rates');
+        foreach(['companies','placements','people','ownership','candidate','company','mapping','rate']as$change)JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$owner,$placement,$person,$company,$rate,$source,$body,$plan,$apply,$state,$check,$failure,$change):void{
+            if(in_array($change,['companies','placements','people'],true))$pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key=?')->execute([$workspace,$change]);
+            if($change==='ownership')$pdo->prepare('UPDATE placements SET coreflux_overridden_fields=\'["notes","pay_rate","worksite_city"]\' WHERE tenant_id=? AND id=?')->execute([$owner,$placement]);
+            if($change==='candidate')$pdo->prepare('UPDATE people SET status="inactive" WHERE tenant_id=? AND id=?')->execute([$owner,$person]);
+            if($change==='company')$pdo->prepare('UPDATE companies SET name="Changed company after CSV review" WHERE tenant_id=? AND id=?')->execute([$owner,$company]);
+            if($change==='mapping')$pdo->prepare('UPDATE external_entity_mappings SET content_hash=REPEAT("f",64) WHERE tenant_id=? AND internal_entity_type="placement" AND internal_entity_id=?')->execute([$workspace,$placement]);
+            if($change==='rate')$pdo->prepare('UPDATE placement_rates SET bill_rate=101 WHERE tenant_id=? AND id=?')->execute([$owner,$rate]);
+            $before=$state();$check($failure(fn()=>$apply($body,$plan['dry_run_token']))!==''&&$state()===$before,'Changed '.$change.' evidence rejects stale CSV apply without writes');
+        },true);
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$placement,$person,$body,$source,$csv,$preview,$check):void{
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields="{}" WHERE tenant_id=? AND id=?')->execute([$owner,$placement]);
+            $bad=$preview($body);$check(!$bad['rows'][0]['selectable']&&str_contains(implode(' ',$bad['rows'][0]['errors']),'ownership'),'Malformed ownership blocks the CSV row instead of becoming empty ownership');
+        },true);
+        JobdivaStoredReviewTransaction::run(static function()use($owner,$workspace,$placement,$person,$source,$csv,$preview,$check):void{
+            mappingUpsert($owner,'jobdiva','person','99193999',$person,['candidateId'=>'99193999']);
+            $bad=$preview($csv([array_replace($source,['candidate_id'=>'99193999','person_email'=>'csv-directory@example.invalid'])]));
+            $check(!$bad['rows'][0]['selectable'],'CSV cannot borrow the parent candidate mapping or adopt the worker by email');
+            mappingUpsert($owner,'jobdiva','placement','99193998',$placement,[]);
+            $check(!$preview($csv([$source]))['rows'][0]['selectable'],'Another workspace placement link prevents CSV rebinding');
+        },true);
+        $bad=$preview($csv([array_replace($source,['end_client_source_id'=>'99193997','end_client_name'=>'Synthetic CSV company'])]));
+        $check(!$bad['rows'][0]['selectable'],'A company namesake requires exact source review before CSV adoption');
+        $bad=$preview($csv([array_diff_key(array_replace($source,['end_client_name'=>'Changed name without ID']),['end_client_source_id'=>true])]));
+        $check(!$bad['rows'][0]['selectable'],'A company name change without source ID cannot silently retarget the assignment');
+        $initialPairs=$pairs();$approved=$read('placement_rates',$rate);$people=$all('people');$result=$apply($body,$plan['dry_run_token']);$saved=$read('placements',$placement);
+        $check($result['updated']===1&&$result['rate_drafts']===1&&$saved['title']==='Reviewed CSV title'&&$saved['worksite_city']==='Hamilton'&&$saved['notes']==='Retained Core note','CSV updates source-owned fields on the existing shared assignment');
+        $check($saved['external_id']==='csv-placement-legacy'&&(int)$saved['person_id']===$person&&(int)$saved['tenant_id']===$owner&&$people===$all('people'),'CSV preserves both canonical person and placement records and their legacy numbers');
+        $check($read('placement_rates',$rate)===$approved&&$saved['client_payment_terms_override']==='NET30','CSV rate correction retains approved history and participant-owned terms');
+        foreach($initialPairs as$p)$check((array_column($pairs(),null,'id')[$p['id']]??null)===$p,'CSV preserves provider pair '.$p['internal_entity_type'].' '.$p['external_id']);
+        $link=mappingFindInternal($workspace,'jobdiva','placement','jd:99193001');$snapshot=json_decode($link['payload_snapshot'],true,512,JSON_THROW_ON_ERROR);
+        $check(isset($snapshot['_jd_contract'])&&$snapshot['__cf_csv_reconciliation']['title']==='Reviewed CSV title','Sparse CSV evidence retains the original provider contract facets');
+        $q=$pdo->query('SELECT tenant_id,meta_json FROM audit_log WHERE event="placement.jobdiva_reconciliation.applied" ORDER BY id DESC LIMIT 1');$audit=$q->fetch(PDO::FETCH_ASSOC);$detail=json_decode($audit['meta_json'],true,512,JSON_THROW_ON_ERROR);
+        $check((int)$audit['tenant_id']===$workspace&&(int)$detail['directory_owner_id']===$owner&&(int)$detail['before']['placement']['id']===$placement&&(int)$detail['after']['placement']['id']===$placement,'CSV required audit retains source workspace and before/after shared graph');
+        $stable=$state();$check($failure(fn()=>$apply($body,$plan['dry_run_token']))!==''&&$state()===$stable,'The old CSV token cannot apply again after a committed change');
+        $check($preview($body)['rows'][0]['outcome']==='unchanged'&&$state()===$stable,'A freshly reviewed identical CSV converges without writes or a second correction draft');
+        $second=$insert('placements',array_replace($base,['external_id'=>'csv-second-legacy']));mappingUpsert($workspace,'jobdiva','placement','99193011',$second,[]);
+        $batch=$csv([['start_id'=>'99193001','title'=>'Batch first'],['start_id'=>'99193011','title'=>'Batch second']]);$ready=$preview($batch);$before=$state();$pdo->exec("SET @fixture_csv_audit_start='99193011'");
+        $message=$failure(fn()=>$apply($batch,$ready['dry_run_token'],['99193001','99193011']));$pdo->exec("SET @fixture_csv_audit_start=''");
+        $check(str_contains($message,'Synthetic final CSV audit failure')&&$state()===$before,'Second required CSV audit failure rolls back the entire selected batch');
+        $new=$csv([['start_id'=>'99193021','candidate_id'=>'99193002','title'=>'New reviewed CSV placement','start_date'=>'2026-10-01','engagement_type'=>'W2','end_client_source_id'=>'99193006','end_client_name'=>'Synthetic CSV company']]);$ready=$preview($new);
+        $check($ready['rows'][0]['selectable'],'New CSV assignment with exact existing candidate and company is reviewable: '.implode('; ',$ready['rows'][0]['errors']));
+        $made=$apply($new,$ready['dry_run_token'],['99193021']);$newId=$made['applied'][0]['placement_id'];$created=$read('placements',$newId);
+        $check($made['created']===1&&(int)$created['tenant_id']===$owner&&(int)$created['person_id']===$person&&(int)$created['end_client_company_id']===$company&&$created['external_id']==='jd:99193021','New CSV placement uses current business owners and exact provider identities');
+        $numbers=$all('core_record_numbers');$check($preview($new)['rows'][0]['outcome']==='unchanged'&&$numbers===$all('core_record_numbers'),'New CSV placement replay keeps its stable Core number');
+        $check($financial===array_map($all,['accounting_events','accounting_journal_entries','accounting_journal_entry_lines','time_entries','payroll_runs','billing_payments','ap_payments']),'CSV reconciliation performs no time, accounting, payroll or payment operations');
+    },true);
+    $check(!$pdo->inTransaction()&&!JobdivaStoredReviewTransaction::inScope(),'CSV fixture rolls back business records and closes the protected scope');
+}finally{if($pdo->inTransaction())$pdo->rollBack();if($trigger)$pdo->exec('DROP TRIGGER fixture_csv_directory_audit');setRequestTenantId(null);clearRequestModuleScope();}
+echo "$checks CSV assignment directory checks passed.\n";

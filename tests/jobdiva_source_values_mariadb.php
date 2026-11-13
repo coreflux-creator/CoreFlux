@@ -61,11 +61,8 @@ $check(jobdivaSyncUpsertPlacementRates(10,1,'2026-10-01',$changed)&&$snapshot()=
 $missing=['bill_rate'=>75,'pay_rate'=>40,'effective_from'=>'2026-10-01'];
 $insert=integrationFieldMapInsertPlacementRateRow(10,1,$missing);
 $check($insert['id']===0&&str_contains($insert['error'],'need_review')&&$snapshot()===$rows,'generic mapped insert cannot manufacture hourly USD metadata');
-$plan=jobdivaReconciliationBuildRowPlan($pdo,10,10,1,['start_id'=>'101','bill_rate'=>75,'pay_rate'=>40],[]);
-$check($plan['outcome']==='blocked'&&str_contains(implode(' ',$plan['errors']),'currency'),'CSV plan does not inherit old rate currency or units');
-$plan=jobdivaReconciliationBuildRowPlan($pdo,10,10,1,['start_id'=>'101','bill_rate'=>75,'pay_rate'=>40,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD'],[]);
-$check($plan['outcome']!=='blocked','complete explicit CSV rate basis remains reviewable');
-$check($snapshot()===$rows,'CSV previews never mutate rate records');
+// CSV rate-basis and read-only checks now use the canonical protected fixture
+// in jobdiva_csv_directory_db_check.php rather than this reduced schema.
 $mapping=$pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,internal_field,source_path,target_module,target_table,target_column,linked_entity) VALUES(10,"jobdiva","placement",:external,:internal,:source,"placements","placement_rates",:target,"placement_rates")');
 foreach(['bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency']as$field)$mapping->execute(['external'=>$field,'internal'=>$field,'source'=>$field,'target'=>$field]);
 $context=['placement'=>1,'placement_rates'=>(int)$rows[1]['id']];

@@ -97,20 +97,25 @@ $assert('scientific-notation Start IDs are blocked', $scientific['error_count'] 
 echo "\nGuarded API and UI contract\n";
 $api = (string) file_get_contents(__DIR__ . '/../modules/placements/api/jobdiva_reconciliation.php');
 $lib = (string) file_get_contents(__DIR__ . '/../modules/placements/lib/jobdiva_reconciliation.php');
+$writer=(string)file_get_contents(__DIR__.'/../modules/placements/lib/jobdiva_csv_write.php');
+$identity=(string)file_get_contents(__DIR__.'/../modules/placements/lib/jobdiva_csv_context.php');
 $ui = (string) file_get_contents(__DIR__ . '/../modules/placements/ui/JobDivaReconciliation.jsx');
 $routes = (string) file_get_contents(__DIR__ . '/../modules/placements/ui/PlacementsModule.jsx');
-$assert('apply requires exact preview token', str_contains($api, 'hash_equals'));
+$assert('apply requires exact preview token inside its protected transaction', str_contains($writer, 'hash_equals')&&str_contains($writer,'JobdivaStoredReviewTransaction::run'));
 $assert('apply requires explicit confirmation phrase',
     str_contains($api, 'APPLY_EXACT_START_ID_RECONCILIATION'));
 $assert('selected writes are transactional',
-    str_contains($api, 'beginTransaction') && str_contains($api, 'rollBack'));
+    str_contains($api, 'jobdivaReconciliationApply') && str_contains($writer, 'JobdivaStoredReviewTransaction::run'));
 $assert('approved rates are never updated',
-    str_contains($api, 'approved_at IS NULL'));
+    str_contains($writer, 'approved_at IS NULL'));
 $assert('economic graph reconciliation is required',
-    str_contains($api, 'placementEconomicsReconcile'));
+    str_contains($writer, 'placementEconomicsReconcile'));
 $assert('identity lookup uses only mapping/external Start IDs',
     str_contains($lib, 'jobdivaReconciliationFetchExactPlacement')
     && !str_contains($lib, 'person_id + title + start_date'));
+$assert('CSV uses original source workspace and explicit current directory context',str_contains($api,'$sourceWorkspace,null,$csv')&&str_contains($lib,'jobdivaPlacementWriteContext($pdo,$tenantId)'));
+$assert('CSV never adopts a person by email or parent-workspace mapping',!str_contains($identity,'LOWER(TRIM(email_primary))')&&!str_contains($identity,'people_mapping_tenant')&&str_contains($identity,'jobdivaPlacementSourceLink'));
+$assert('CSV uses a required original-workspace audit',str_contains($writer,'companySourceAudit($pdo,$workspace,$owner'));
 $assert('UI starts with no selected rows', str_contains($ui, 'setSelected(new Set())'));
 $assert('UI advertises non-destructive behavior',
     str_contains($ui, 'No fuzzy matching') && str_contains($ui, 'No delete or archive'));

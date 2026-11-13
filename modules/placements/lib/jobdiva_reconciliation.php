@@ -28,6 +28,7 @@ function jobdivaReconciliationSchema(): array
             'start_date'           => ['label' => 'Start Date'],
             'end_date'             => ['label' => 'End Date'],
             'end_client_name'      => ['label' => 'End Client'],
+            'end_client_source_id' => ['label' => 'JobDiva End Client Company ID'],
             'worksite_city'        => ['label' => 'Worksite City'],
             'worksite_state'       => ['label' => 'Worksite State'],
             'worksite_country'     => ['label' => 'Worksite Country'],
@@ -75,6 +76,7 @@ function jobdivaReconciliationHeaderAliases(): array
             'end client', 'end client name', 'client name', 'customer name',
             'company name', 'companyname',
         ],
+        'end_client_source_id' => ['jobdiva end client company id', 'end client company id', 'endclientcompanyid'],
         'worksite_city' => ['worksite city', 'working city', 'job city'],
         'worksite_state' => ['worksite state', 'state', 'job state'],
         'worksite_country' => ['worksite country', 'country', 'job country'],
@@ -272,6 +274,11 @@ function jobdivaReconciliationNormaliseRow(array $row, array $mappedHeaders, arr
             $errors[] = "start_id: expected the exact digits exported by JobDiva; scientific notation and formatted values are not safe identities";
         }
     }
+    foreach (['candidate_id','job_id','end_client_source_id'] as $field) {
+        if (!isset($out[$field])) continue;
+        $out[$field] = jobdivaAssignmentIdentityNormaliseId($out[$field]);
+        if (!preg_match('/^\d+$/D', $out[$field])) $errors[] = $field . ': provide the exact digits exported by JobDiva.';
+    }
     foreach (['start_date','end_date'] as $field) {
         if (!array_key_exists($field, $out)) continue;
         $date = jobdivaReconciliationNormaliseDate($out[$field]);
@@ -413,159 +420,7 @@ function jobdivaReconciliationParse(string $csv, ?array $columnMap): array
     return $dry;
 }
 
-function jobdivaReconciliationFetchExactPlacement(\PDO $pdo, int $tenantId, string $startId): array
-{
-    $canonical = 'jd:' . $startId;
-    $ids = [];
-    $mappingIds = [];
-    $st = $pdo->prepare(
-        'SELECT id, internal_entity_id
-           FROM external_entity_mappings
-          WHERE tenant_id = :t AND source_system = "jobdiva"
-            AND internal_entity_type = "placement"
-            AND external_id IN (:raw_id, :canonical_id)'
-    );
-    $st->execute(['t' => $tenantId, 'raw_id' => $startId, 'canonical_id' => $canonical]);
-    foreach ($st->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $mapping) {
-        $ids[(int) $mapping['internal_entity_id']] = true;
-        $mappingIds[] = (int) $mapping['id'];
-    }
-    $st = $pdo->prepare(
-        'SELECT id FROM placements
-          WHERE tenant_id = :t AND external_id IN (:raw_id, :canonical_id)'
-    );
-    $st->execute(['t' => $tenantId, 'raw_id' => $startId, 'canonical_id' => $canonical]);
-    foreach ($st->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $id) $ids[(int) $id] = true;
-
-    $ids = array_values(array_map('intval', array_keys($ids)));
-    if (count($ids) > 1) {
-        return ['status' => 'ambiguous', 'ids' => $ids, 'mapping_ids' => $mappingIds, 'row' => null];
-    }
-    if (!$ids) return ['status' => 'missing', 'ids' => [], 'mapping_ids' => [], 'row' => null];
-
-    $internalMapping = $pdo->prepare(
-        'SELECT id, external_id
-           FROM external_entity_mappings
-          WHERE tenant_id = :t AND source_system = "jobdiva"
-            AND internal_entity_type = "placement"
-            AND internal_entity_id = :id
-          LIMIT 1'
-    );
-    $internalMapping->execute(['t' => $tenantId, 'id' => $ids[0]]);
-    $bound = $internalMapping->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if ($bound
-        && jobdivaAssignmentIdentityNormaliseId((string) $bound['external_id']) !== $startId) {
-        return [
-            'status' => 'internal_conflict',
-            'ids' => $ids,
-            'mapping_ids' => [(int) $bound['id']],
-            'conflicting_external_id' => (string) $bound['external_id'],
-            'row' => null,
-        ];
-    }
-
-    $st = $pdo->prepare(
-        'SELECT p.*, pe.first_name, pe.last_name, pe.email_primary,
-                ec.name AS end_client_company_name
-           FROM placements p
-      LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-      LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
-          WHERE p.tenant_id = :t AND p.id = :id LIMIT 1'
-    );
-    $st->execute(['t' => $tenantId, 'id' => $ids[0]]);
-    $row = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
-    if (!$row) return ['status' => 'broken_mapping', 'ids' => $ids, 'mapping_ids' => $mappingIds, 'row' => null];
-    if (!empty($row['deleted_at'])) {
-        return ['status' => 'archived', 'ids' => $ids, 'mapping_ids' => $mappingIds, 'row' => $row];
-    }
-    return ['status' => 'matched', 'ids' => $ids, 'mapping_ids' => $mappingIds, 'row' => $row];
-}
-
-function jobdivaReconciliationResolvePerson(
-    \PDO $pdo,
-    int $mappingTenantId,
-    int $peopleTenantId,
-    array $source,
-    ?array $placement
-): array {
-    $candidateId = jobdivaAssignmentIdentityNormaliseId((string) ($source['candidate_id'] ?? ''));
-    $unresolvedSourceIdentity = [];
-    if ($candidateId !== '') {
-        $st = $pdo->prepare(
-            'SELECT DISTINCT m.internal_entity_id, pe.first_name, pe.last_name, pe.email_primary
-               FROM external_entity_mappings m
-               JOIN people pe ON pe.id = m.internal_entity_id AND pe.tenant_id = :people_tenant
-              WHERE m.tenant_id IN (:mapping_tenant, :people_mapping_tenant)
-                AND m.source_system = "jobdiva"
-                AND m.internal_entity_type = "person"
-                AND m.external_id IN (:raw_id, :canonical_id)
-                AND pe.deleted_at IS NULL'
-        );
-        $st->execute([
-            'people_tenant' => $peopleTenantId,
-            'mapping_tenant' => $mappingTenantId,
-            'people_mapping_tenant' => $peopleTenantId,
-            'raw_id' => $candidateId,
-            'canonical_id' => 'jd:' . $candidateId,
-        ]);
-        $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-        if (count($rows) === 1) {
-            return [
-                'id' => (int) $rows[0]['internal_entity_id'],
-                'label' => trim((string) ($rows[0]['first_name'] . ' ' . $rows[0]['last_name'])),
-                'email' => $rows[0]['email_primary'] ?? null,
-                'matched_by' => 'candidate_id',
-                'error' => null,
-            ];
-        }
-        if (count($rows) > 1) {
-            return ['id' => null, 'label' => null, 'email' => null, 'matched_by' => null, 'error' => 'Candidate ID maps to multiple People rows.'];
-        }
-        $unresolvedSourceIdentity[] = "Candidate ID {$candidateId} is not mapped to People";
-    }
-    $email = strtolower(trim((string) ($source['person_email'] ?? '')));
-    if ($email !== '') {
-        $st = $pdo->prepare(
-            'SELECT id, first_name, last_name, email_primary
-               FROM people
-              WHERE tenant_id = :t AND LOWER(TRIM(email_primary)) = :email
-                AND deleted_at IS NULL'
-        );
-        $st->execute(['t' => $peopleTenantId, 'email' => $email]);
-        $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-        if (count($rows) === 1) {
-            return [
-                'id' => (int) $rows[0]['id'],
-                'label' => trim((string) ($rows[0]['first_name'] . ' ' . $rows[0]['last_name'])),
-                'email' => $rows[0]['email_primary'] ?? null,
-                'matched_by' => 'email',
-                'error' => null,
-            ];
-        }
-        if (count($rows) > 1) {
-            return ['id' => null, 'label' => null, 'email' => $email, 'matched_by' => null, 'error' => 'Candidate email matches multiple People rows.'];
-        }
-        $unresolvedSourceIdentity[] = "candidate email {$email} was not found in People";
-    }
-    if ($placement && !empty($placement['person_id'])) {
-        return [
-            'id' => (int) $placement['person_id'],
-            'label' => trim((string) (($placement['first_name'] ?? '') . ' ' . ($placement['last_name'] ?? ''))),
-            'email' => $placement['email_primary'] ?? null,
-            'matched_by' => 'existing_placement',
-            'error' => $unresolvedSourceIdentity
-                ? implode('; ', $unresolvedSourceIdentity)
-                : null,
-        ];
-    }
-    return [
-        'id' => null,
-        'label' => trim((string) ($source['person_name'] ?? '')) ?: null,
-        'email' => $email ?: null,
-        'matched_by' => null,
-        'error' => 'No unique People row resolved from Candidate ID or candidate email.',
-    ];
-}
+require_once __DIR__.'/jobdiva_csv_context.php';
 
 function jobdivaReconciliationFetchRate(\PDO $pdo, int $tenantId, int $placementId): ?array
 {
@@ -602,41 +457,31 @@ function jobdivaReconciliationChange(string $group, string $field, string $label
 function jobdivaReconciliationBuildRowPlan(
     \PDO $pdo,
     int $tenantId,
-    int $peopleTenantId,
+    array $context,
     int $rowNumber,
     array $source,
     array $parseErrors
 ): array {
+    if(!JobdivaStoredReviewTransaction::active())throw new LogicException('CSV reconciliation requires a protected review.');
+    $placementOwner=$context['placement_owner'];
     $startId = jobdivaAssignmentIdentityNormaliseId((string) ($source['start_id'] ?? ''));
     $identity = $startId !== ''
-        ? jobdivaReconciliationFetchExactPlacement($pdo, $tenantId, $startId)
+        ? jobdivaReconciliationFetchExactPlacement($pdo, $context, $startId)
         : ['status' => 'missing', 'ids' => [], 'mapping_ids' => [], 'row' => null];
     $placement = $identity['row'] ?? null;
     $errors = array_values($parseErrors);
     $warnings = [];
 
     if ($startId === '') $errors[] = 'A non-empty Start ID is required.';
-    if ($identity['status'] === 'ambiguous') {
-        $errors[] = 'Start ID resolves to multiple CoreFlux placements: ' . implode(', ', $identity['ids']) . '.';
-    } elseif ($identity['status'] === 'archived') {
-        $errors[] = 'Start ID is bound to an archived placement. This importer will not restore or replace it automatically.';
-    } elseif ($identity['status'] === 'broken_mapping') {
-        $errors[] = 'Start ID has a broken external mapping whose CoreFlux placement no longer exists.';
-    } elseif ($identity['status'] === 'internal_conflict') {
-        $errors[] = 'The matching CoreFlux placement is already bound to a different JobDiva Start ID ('
-            . ($identity['conflicting_external_id'] ?? 'unknown')
-            . '). Rebinding is blocked.';
-    }
-
-    $person = jobdivaReconciliationResolvePerson(
-        $pdo,
-        $tenantId,
-        $peopleTenantId,
-        $source,
-        $placement
-    );
-    if ($person['error'] && !$placement) $errors[] = $person['error'];
-    elseif ($person['error']) $warnings[] = $person['error'] . ' Existing placement person will be retained.';
+    if($identity['status']==='conflict')$errors[]=$identity['error'];
+    if($identity['status']==='archived')$errors[]='This exact placement is archived. Use the stored assignment lifecycle review before restoring it.';
+    $currentGraph=$placement?jobdivaPlacementProjectionAuditSnapshot($placementOwner,(int)$placement['id'],true):[];
+    $overrides=$identity['owned_fields']??[];
+    if($placement)$overrides=jobdivaContractOwnedFields($currentGraph,(string)($source['engagement_type']??$placement['engagement_type']));
+    $person=jobdivaReconciliationResolvePerson($pdo,$context,$source,$placement,$overrides);
+    if($person['error'])$errors[]=$person['error'];
+    $company=jobdivaReconciliationCompanyProposal($pdo,$context,$source,$placement,$overrides);
+    if($company['error'])$errors[]=$company['error'];
 
     $isCreate = $identity['status'] === 'missing';
     if ($isCreate) {
@@ -650,15 +495,19 @@ function jobdivaReconciliationBuildRowPlan(
         if (empty($person['id'])) $errors[] = 'A unique existing People row is required to create a missing placement.';
     }
 
-    $overrides = [];
-    if ($placement && !empty($placement['coreflux_overridden_fields'])) {
-        $decoded = json_decode((string) $placement['coreflux_overridden_fields'], true);
-        if (is_array($decoded)) $overrides = array_values(array_map('strval', $decoded));
-    }
-
     $placementPatch = [];
     $changes = [];
     $protected = [];
+    if(isset($source['status'])&&$source['status']!=='draft'){
+        $source['status']=jobdivaAssignmentPlacementStatusForWrite($source['status'],
+            (string)($source['start_date']??$placement['start_date']??''),
+            $source['end_date']??$placement['end_date']??null,$placement['status']??null)['status'];
+    }
+    if($isCreate){
+        $q=$pdo->prepare('SELECT id,code,active FROM accounting_entities WHERE tenant_id=? AND active=1 ORDER BY id LIMIT 1 FOR UPDATE');$q->execute([$context['accounting_owner']]);$entity=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$entity)$errors[]='Set up an active legal entity in this workspace before importing an assignment.';
+        else $placementPatch['accounting_entity_id']=(int)$entity['id'];
+    }
     $fieldMap = [
         'title' => 'Title',
         'status' => 'Status',
@@ -698,6 +547,7 @@ function jobdivaReconciliationBuildRowPlan(
     }
     if (!empty($source['job_id'])) {
         $from = $placement['jobdiva_job_id'] ?? null;
+        if($from!==null&&$from!==''&&(string)$from!==$source['job_id'])$errors[]='Review the existing assignment job link before changing its JobDiva job ID.';
         if ($isCreate || !jobdivaReconciliationValueEqual($from, $source['job_id'])) {
             $placementPatch['jobdiva_job_id'] = $source['job_id'];
             $changes[] = jobdivaReconciliationChange('placement', 'jobdiva_job_id', 'JobDiva Job ID', $from, $source['job_id']);
@@ -715,7 +565,7 @@ function jobdivaReconciliationBuildRowPlan(
         }
     }
     $canonicalExternalId = $startId !== '' ? 'jd:' . $startId : null;
-    if ($canonicalExternalId !== null && ($isCreate || (string) ($placement['external_id'] ?? '') !== $canonicalExternalId)) {
+    if ($canonicalExternalId !== null && $isCreate) {
         $placementPatch['external_id'] = $canonicalExternalId;
         $changes[] = jobdivaReconciliationChange(
             'identity',
@@ -729,9 +579,17 @@ function jobdivaReconciliationBuildRowPlan(
     if (!$mappingPresent && $placement) {
         $changes[] = jobdivaReconciliationChange('identity', 'mapping', 'External mapping', null, "JobDiva Start {$startId}");
     }
-    if (!empty($source['end_client_name']) && $placement && empty($placement['end_client_company_id'])) {
-        $changes[] = jobdivaReconciliationChange('graph', 'end_client_company_link', 'Canonical company link', null, $source['end_client_name']);
+    if($company['requested']&&!$company['held']&&!$company['error']){
+        unset($placementPatch['end_client_name']);
+        $changes=array_values(array_filter($changes,static fn($c)=>$c['field']!=='end_client_name'));
+        foreach(['end_client_company_id'=>$company['id'],'end_client_name'=>$company['name']]as$field=>$value){
+            if($company['create']||!jobdivaReconciliationValueEqual($placement[$field]??null,$value)){
+                $placementPatch[$field]=$value;
+                $changes[]=jobdivaReconciliationChange('placement',$field,$field,$placement[$field]??null,$value);
+            }
+        }
     }
+    $currentRate=$placement?jobdivaReconciliationFetchRate($pdo,$placementOwner,(int)$placement['id']):null;
 
     $ratePlan = null;
     $hasBill = array_key_exists('bill_rate', $source);
@@ -744,7 +602,6 @@ function jobdivaReconciliationBuildRowPlan(
         if ($basis['bill_rate_unit'] !== 'hour' || $basis['pay_rate_unit'] !== 'hour') {
             $errors[] = 'Automatic JobDiva economics require verified hourly bill/pay rates; other bases need a reviewed conversion.';
         }
-        $currentRate = $placement ? jobdivaReconciliationFetchRate($pdo, $tenantId, (int) $placement['id']) : null;
         $desiredRate = [
             'effective_from' => $source['start_date'] ?? ($currentRate['effective_from'] ?? ($placement['start_date'] ?? date('Y-m-d'))),
             'effective_to' => array_key_exists('end_date', $source)
@@ -759,6 +616,13 @@ function jobdivaReconciliationBuildRowPlan(
         $rateChanged = $currentRate === null;
         foreach ($desiredRate as $field => $to) {
             $from = $currentRate[$field] ?? null;
+            $ownershipField=match($field){'effective_from'=>'start_date','effective_to'=>'end_date',default=>$field};
+            if(in_array($ownershipField,$overrides,true)){
+                if(!jobdivaReconciliationValueEqual($from,$to))$protected[]=jobdivaReconciliationChange('rate',$field,$field,$from,$to);
+                if($currentRate)$desiredRate[$field]=$from;
+                else $errors[]='Review Core-owned rate fields before creating a new source rate.';
+                continue;
+            }
             if ($currentRate === null || !jobdivaReconciliationValueEqual($from, $to)) {
                 $rateChanged = true;
                 $changes[] = jobdivaReconciliationChange('rate', $field, ucwords(str_replace('_', ' ', $field)), $from, $to);
@@ -808,6 +672,9 @@ function jobdivaReconciliationBuildRowPlan(
         'source' => $source,
         'mapping_present' => $mappingPresent,
         'is_create' => $isCreate,
+        '__review_evidence'=>['context'=>$context,'identity'=>$identity,'graph'=>$currentGraph,'rate'=>$currentRate,'candidate'=>$person['evidence'],'company'=>$company],
+        '__company'=>$company,
+        '__mapping'=>$identity['mapping']??null,
     ];
 }
 
@@ -837,24 +704,30 @@ function jobdivaReconciliationFingerprint(int $tenantId, string $csv, array $col
 
 function jobdivaReconciliationPublicRow(array $row): array
 {
-    unset($row['placement_patch'], $row['rate_plan'], $row['source']);
+    unset($row['placement_patch'], $row['rate_plan'], $row['source'], $row['__review_evidence'], $row['__company'], $row['__mapping'], $row['person']['evidence']);
     return $row;
 }
 
 function jobdivaReconciliationBuildPlan(
     \PDO $pdo,
     int $tenantId,
-    int $peopleTenantId,
+    ?int $peopleTenantId,
     string $csv,
     ?array $columnMap
 ): array {
+    require_once __DIR__.'/../../../core/jobdiva/sync.php';
+    if($pdo!==getDB())throw new LogicException('CSV review must use the application database.');
+    if(!JobdivaStoredReviewTransaction::active())return JobdivaStoredReviewTransaction::run(static fn()=>jobdivaReconciliationBuildPlan($pdo,$tenantId,$peopleTenantId,$csv,$columnMap),true);
+    $context=jobdivaPlacementWriteContext($pdo,$tenantId);
+    if($peopleTenantId!==null&&$peopleTenantId!==$context['people_owner'])throw new RuntimeException('The People directory changed. Refresh the CSV preview.',409);
+    $q=$pdo->prepare('SELECT tenant_id,module_key,scope_mode FROM tenant_module_scope WHERE tenant_id IN(?,?) ORDER BY tenant_id,module_key FOR UPDATE');$q->execute([$tenantId,$context['placement_owner']]);$policies=$q->fetchAll(PDO::FETCH_ASSOC);
     $parsed = jobdivaReconciliationParse($csv, $columnMap);
     $rows = [];
     foreach ($parsed['rows'] as $rowNumber => $source) {
         $rows[] = jobdivaReconciliationBuildRowPlan(
             $pdo,
             $tenantId,
-            $peopleTenantId,
+            $context,
             (int) $rowNumber,
             $source,
             $parsed['errors'][$rowNumber] ?? []
@@ -870,8 +743,9 @@ function jobdivaReconciliationBuildPlan(
     }
     $summary = ['rows' => count($rows), 'create' => 0, 'update' => 0, 'unchanged' => 0, 'blocked' => 0];
     foreach ($rows as $row) $summary[$row['outcome']]++;
-    $token = jobdivaReconciliationFingerprint($tenantId, $csv, $parsed['column_map'], $rows);
+    $token = jobdivaReconciliationFingerprint($tenantId, $csv, $parsed['column_map'], ['context'=>$context,'policies'=>$policies,'rows'=>$rows]);
     return [
+        '__context'=>$context,
         'summary' => $summary,
         'rows' => $rows,
         'public_rows' => array_map('jobdivaReconciliationPublicRow', $rows),
