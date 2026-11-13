@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/people.php';
 require_once __DIR__ . '/../lib/audit.php';
 require_once __DIR__ . '/../lib/employment_setup.php';
+require_once __DIR__ . '/../lib/profile_input.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -33,7 +34,7 @@ if ($method === 'GET') {
                 (int) ($user['id'] ?? 0),
                 $id,
                 'pii.viewed',
-                ['fields' => ['dob', 'ssn_last4', 'home_address']]
+                ['fields' => peopleProfilePrivateFields()]
             );
             peopleAudit('people.pii.viewed', ['id' => $id], $id);
             $row = peopleGetWithPII($id);
@@ -158,6 +159,8 @@ if ($method === 'POST') {
     // Default POST = create
     rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();
+    try { $body = peopleProfileInput($body); }
+    catch (InvalidArgumentException $e) { api_error($e->getMessage(),422); }
     api_require_fields($body, ['first_name', 'last_name', 'email_primary', 'classification']);
 
     $allowedClassifications = ['w2','1099','c2c','temp','perm','candidate','alumni'];
@@ -205,11 +208,8 @@ if ($method === 'POST') {
         }
     }
 
-    // PII / address fields are gated by people.pii.manage on create just like PATCH.
-    $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
-                'home_city', 'home_state', 'home_postal_code', 'home_country',
-                'mailing_address_line1', 'mailing_address_line2',
-                'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country'];
+    // All fields classified as private on read require private-write permission too.
+    $piiKeys = peopleProfilePrivateFields();
     $piiTouched = [];
     foreach ($piiKeys as $k) {
         if (array_key_exists($k, $body) && $body[$k] !== '' && $body[$k] !== null) {
@@ -257,15 +257,11 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();
 
-    // Strip fields not allowed via PATCH on this endpoint.
-    $disallowed = ['id', 'tenant_id', 'created_at', 'created_by_user_id', 'deleted_at'];
-    foreach ($disallowed as $k) unset($body[$k]);
+    try { $body = peopleProfileInput($body); }
+    catch (InvalidArgumentException $e) { api_error($e->getMessage(),422); }
 
     // PII fields require people.pii.manage
-    $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
-                'home_city', 'home_state', 'home_postal_code', 'home_country',
-                'mailing_address_line1', 'mailing_address_line2',
-                'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country'];
+    $piiKeys = peopleProfilePrivateFields();
     $touchingPII = false;
     foreach ($piiKeys as $k) if (array_key_exists($k, $body)) $touchingPII = true;
     if ($touchingPII) {

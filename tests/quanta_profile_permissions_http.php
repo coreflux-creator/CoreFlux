@@ -138,6 +138,26 @@ try {
     foreach([false,1,'true',null]as$confirmation)$expect($request($setup.'?action=apply',['confirm_setup'=>$confirmation,'review_token'=>'invalid'])[0]===422,'Employment setup requires literal confirmation');
     $expect($request($setup.'?employee_id=1',null,true,999)[0]===403,'Foreign pinned company cannot inspect employment setup');
     foreach(['date_of_birth'=>'2000-01-01','ssn'=>'111223333']as$field=>$value)$expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'PII',$field=>$value])[0]===403,'People write cannot create restricted identity field: '.$field);
+    $personRoute='/modules/people/api/people.php';
+    $personBody=['first_name'=>'Synthetic','last_name'=>'Private Profile','email_primary'=>'private-profile-http@example.invalid','classification'=>'candidate'];
+    foreach(['gender'=>'test','marital_status'=>'test'] as $field=>$value) {
+        $expect($request($personRoute,$personBody+[$field=>$value])[0]===403,'People write cannot create private person demographic: '.$field);
+    }
+    $expect($request($personRoute,$personBody+['user_id'=>$actor])[0]===422,'Person creation cannot silently accept a Core account association');
+    $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary,classification,gender,marital_status) VALUES(?,"Synthetic","Private Profile","private-profile-http@example.invalid","candidate","original","original")')->execute([$tenant]);
+    $privatePerson=(int)$pdo->lastInsertId();
+    foreach(['gender','marital_status'] as $field)foreach(['changed',null,''] as $value) {
+        $expect($request($personRoute.'?id='.$privatePerson,[$field=>$value],true,$tenant,false,'PATCH')[0]===403,'Private person change or clear requires private permission: '.$field);
+    }
+    foreach(['user_id'=>$actor,'worker_class'=>'c2c','worker_class_meta_json'=>'{}','resume_storage_object_id'=>1,'updated_at'=>'2000-01-01 00:00:00','person_number'=>'P-FAKE','future_column'=>'unexpected'] as $field=>$value) {
+        $expect($request($personRoute.'?id='.$privatePerson,['preferred_name'=>'Must not partially apply',$field=>$value],true,$tenant,false,'PATCH')[0]===422,'Person editor refuses internal identity/routing/storage field: '.$field);
+    }
+    [$status,$personView]=$request($personRoute.'?id='.$privatePerson,null);
+    $expect($status===200&&!array_intersect(['gender','marital_status'],array_keys($personView['person']??[])),'Ordinary person read omits private demographics');
+    $unchanged=$pdo->query('SELECT gender,marital_status,preferred_name,user_id FROM people WHERE id='.$privatePerson)->fetch(PDO::FETCH_ASSOC);
+    $expect($unchanged===['gender'=>'original','marital_status'=>'original','preferred_name'=>null,'user_id'=>null],'Rejected mixed person edits leave every original value intact');
+    $expect($request($personRoute.'?id='.$privatePerson,['preferred_name'=>'Allowed profile'],true,$tenant,false,'PATCH')[0]===200,'Allowed ordinary person profile edit still works');
+    $expect($request($personRoute.'?id='.$privatePerson,['preferred_name'=>'Foreign edit'],true,999,false,'PATCH')[0]===403,'Foreign pinned company cannot edit person profile');
     $pdo->prepare('INSERT INTO people_employees(tenant_id,employee_number,legal_first_name,legal_last_name,ssn_last4,date_of_birth) VALUES(?,"HTTP-PRIVATE","Synthetic","Employee","3333","2000-01-01")')->execute([$tenant]);
     $privateEmployee=(int)$pdo->lastInsertId();
     [$status,$privateView]=$request($employees.'?id='.$privateEmployee,null);
@@ -146,6 +166,11 @@ try {
     foreach(['status'=>'active','job_title'=>'Bypass','employment_type'=>'full_time']as$field=>$value)$expect($request($employees.'?id='.$privateEmployee,[$field=>$value],true,$tenant,false,'PATCH')[0]===409,'Direct employment edit cannot bypass setup review: '.$field);
     $expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'Activation','status'=>'active'])[0]===409,'Legacy employment creation cannot bypass pending activation review');
     RBACResolver::grantModule($membership,'people','admin',[$tenant],$actor);
+    $expect($request($personRoute.'?id='.$privatePerson,['gender'=>'reviewed','marital_status'=>null],true,$tenant,false,'PATCH')[0]===200,'Private-authorized person change and explicit clear work');
+    [$status,$personView]=$request($personRoute.'?id='.$privatePerson.'&include_pii=1',null);
+    $expect($status===200&&($personView['person']['gender']??null)==='reviewed'&&array_key_exists('marital_status',$personView['person'])&&$personView['person']['marital_status']===null,'Private-authorized read returns exact reviewed values');
+    $expect($request($personRoute.'?id='.$privatePerson,['user_id'=>$actor],true,$tenant,false,'PATCH')[0]===422,'Even a private-data administrator cannot bypass person identity linking');
+    $pdo->prepare('DELETE FROM people WHERE id=? AND tenant_id=?')->execute([$privatePerson,$tenant]);
     [$status,$privateView]=$request($employees.'?id='.$privateEmployee,null);
     $expect($status===200&&($privateView['employee']['ssn_masked']??null)==='***-**-3333'&&($privateView['employee']['date_of_birth']??null)==='2000-01-01'&&!isset($privateView['employee']['ssn_cipher'],$privateView['employee']['ssn_hash']),'People admin receives only the permitted identity presentation');
     $pdo->prepare('DELETE FROM people_employees WHERE id=? AND tenant_id=?')->execute([$privateEmployee,$tenant]);
