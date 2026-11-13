@@ -1,0 +1,157 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "The preceding standalone accounting access reply made no integration change. This continuation revalidated current source and CI, replaced date-only active-status maintenance with reviewed source, ownership, worker, approved-rate and current-recipient checks, and tested actual CLI and independent-session recovery.",
+  "source_commit": "07fd66c3ae84435cd5d7a502c80572829453484a",
+  "base_commit": "53051336962ed88284a508a8efe0d350a3f85d08",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "ea05637e2132fa9329a77d84b52ada50773c7fe042a5d2400659ff3897791375",
+    ".github/workflows/deploy-jobdiva-reconciliation.yml": "f593622399c094a8f91985c7d5e771d5e6382ffa455a6224f70c0c9c0a215820",
+    "core/jobdiva/active_status_review.php": "1f90df5226497be2ddca6dbdbd79833654fda6c6e1d27f962acc0e712a6092cc",
+    "docs/thunderhawk-active-status-restoration.md": "b2af6f7b172b768a7c7d7b79bab12a4e3874b9ee4738d66f77a22c7dbc8c0c7a",
+    "scripts/repair_jobdiva_active_status_regression.php": "3e78ca70223e8abc9dcee439108303c5ecc4669b66d56918b0272b7d5c409b31",
+    "tests/company_relationship_concurrency_db.php": "68285232661df66f5c0a8e886a0a712a088ebc707db1d38ff07f923ada3dd152",
+    "tests/fixtures/active_restore_concurrency_checks.php": "d66162f2651f99e5e009a0722a2528f3e0df7e6dd2e9b5eb610ded652b2dcfea",
+    "tests/jobdiva_active_restore_db_check.php": "fcd0f94ef6fa607fd33539677889c5cda39b5f4e1ddbd9b99033b08afc7d2e93",
+    "tests/jobdiva_active_status_regression_smoke.php": "324c90f2bc7e89b9b7bbc96f9ddfd7aac76e33dc130a379c208b1c0f7bc1f016"
+  },
+  "ci": {
+    "run_id": 43497660171,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43497660171",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132134882619,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882695,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882710,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882723,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882740,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882755,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882818,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882827,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882848,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882913,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132134882921,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "alignment_report": 30,
+    "live_assignment_contract": 35,
+    "joined_source_refresh": 26,
+    "source_rate_ownership_and_approval": 41,
+    "reviewed_active_restoration": 69,
+    "independent_connections": 398,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 521
+  },
+  "active_restoration_concurrency_and_cli_labels": [
+    "Active restoration waits for policy COMMIT",
+    "Active restoration rechecks policy after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"Review People and Placements sharing before importing this assignment.\"}",
+    "Active restoration waits for ownership COMMIT",
+    "Active restoration rechecks ownership after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The reviewed assignment evidence changed. Preview and review again.\"}",
+    "Active restoration waits for rate COMMIT",
+    "Active restoration rechecks rate after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The reviewed assignment evidence changed. Preview and review again.\"}",
+    "Active restoration waits for permission COMMIT",
+    "Active restoration rechecks permission after COMMIT: {\"ok\":false,\"code\":403,\"error\":\"The reviewer needs current placement management access in this workspace.\"}",
+    "Active restoration waits for worker COMMIT",
+    "Active restoration rechecks worker after COMMIT: {\"ok\":false,\"code\":409,\"error\":\"The reviewed assignment evidence changed. Preview and review again.\"}",
+    "Active restoration holds status and receipt before COMMIT",
+    "Duplicate restoration waits for first receipt COMMIT",
+    "Concurrent restore retry commits one receipt after COMMIT",
+    "Active restoration waits for policy ROLLBACK",
+    "Active restoration rechecks policy after ROLLBACK: {\"ok\":true,\"result\":{\"id\":146,\"restored\":1,\"restored_ids\":[146],\"active_total_after\":8,\"replayed\":false}}",
+    "Active restoration waits for ownership ROLLBACK",
+    "Active restoration rechecks ownership after ROLLBACK: {\"ok\":true,\"result\":{\"id\":147,\"restored\":1,\"restored_ids\":[147],\"active_total_after\":9,\"replayed\":false}}",
+    "Active restoration waits for rate ROLLBACK",
+    "Active restoration rechecks rate after ROLLBACK: {\"ok\":true,\"result\":{\"id\":148,\"restored\":1,\"restored_ids\":[148],\"active_total_after\":10,\"replayed\":false}}",
+    "Active restoration waits for permission ROLLBACK",
+    "Active restoration rechecks permission after ROLLBACK: {\"ok\":true,\"result\":{\"id\":149,\"restored\":1,\"restored_ids\":[149],\"active_total_after\":11,\"replayed\":false}}",
+    "Active restoration waits for worker ROLLBACK",
+    "Active restoration rechecks worker after ROLLBACK: {\"ok\":true,\"result\":{\"id\":150,\"restored\":1,\"restored_ids\":[150],\"active_total_after\":12,\"replayed\":false}}",
+    "Active restoration holds status and receipt before ROLLBACK",
+    "Duplicate restoration waits for first receipt ROLLBACK",
+    "Concurrent restore retry commits one receipt after ROLLBACK",
+    "Actual restoration CLI preview is read-only",
+    "Actual CLI applies the exact reviewed selection",
+    "Actual CLI retries recover the stored receipt without another write"
+  ],
+  "alignment_http_labels": [
+    "Alignment report requires native sign-in",
+    "Native read-only alignment follows current shared directories: [200,[{\"severity\":\"critical\",\"code\":\"placement_missing_end_client_company\",\"area\":\"placement\",\"count\":1,\"summary\":\"JobDiva-mapped placements are missing the canonical end-client company link.\",\"action\":\"Re-run JobDiva placement sync or repair client links so billing\\/AP\\/payroll have the same company identity.\"},{\"severity\":\"warn\",\"code\":\"non_ok_mapping_status\",\"area\":\"mapping\",\"count\":1,\"summary\":\"Some JobDiva mappings are stale, errored, or deleted in source.\",\"action\":\"Open the recent sync audit and re-run the affected entity sync.\"},{\"severity\":\"warn\",\"code\":\"canonical_payload_roots_missing\",\"area\":\"field_mapping\",\"count\":1,\"summary\":\"Placement payloads exist, but some canonical mapping roots have no indexed JobDiva fields: contact.\",\"action\":\"Run the JobDiva subpayload re-indexer, then open Field Mapping Studio.\"}]]",
+    "Alignment HTTP read changes no records and contacts no provider",
+    "Native failed alignment returns unavailable without zero readiness counters",
+    "Alignment permission removal takes effect on the next request"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T20:05:34+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "reviewed duplicate consolidation preserving source pairs and permanent aliases",
+    "generic placement CSV",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider fields, portal, onboarding, documents, original time approvals and corrections, payroll results and financial reconciliation remain incomplete"
+}
