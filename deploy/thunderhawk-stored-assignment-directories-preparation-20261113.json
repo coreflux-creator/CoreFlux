@@ -1,0 +1,197 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "No integration progress: standalone accounting access answered. Pending implementation and live pilot were revalidated before correcting malformed ownership handling and adding native HTTP and independent-session stored-assignment acceptance.",
+  "source_commit": "087a65223fd38039b3807c02d880008353ab0278",
+  "base_commit": "4eeffa32241881f49e670a22fac70716fa233511",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "93bec324b79f5bd806da1b427150790cd9c78c6d0c56b820ad3a8058aede589c",
+    "core/jobdiva/placement_write_context.php": "2c6af2817c526a0766a6253b9998ae2235821e0469994f4feaac3da9d45a3631",
+    "core/jobdiva/projector.php": "43ab8e155728c0bb9eb95c7ce49143b846b9046a07acd97da70d7cd24a192343",
+    "core/jobdiva/sync.php": "157e41223e54add3f633095ca17a833a727c9d8831b3c35261b9d8438acde2c4",
+    "core/jobdiva/sync_placements.php": "6ccb7989e67ccd3a627bf30aea5a1e940be1dfb7f7bc6568efcf78628b5914b5",
+    "modules/placements/api/jobdiva_reconciliation.php": "d2cd6e888cfaec09c004d38e87cd7f49ec2bf5279ddcaca280a32042eff58a1e",
+    "tests/company_relationship_concurrency_db.php": "1589d85bd32d17653b34b971163be4dab7cafe4448a7901ec7c293065d4a721a",
+    "tests/entity_sync_history_smoke.php": "eb16def5be7733058a694388024ae52ce0a2719d5e72ae9d1494703f4f5c2319",
+    "tests/fixtures/source_rule_http_checks.php": "5f3dbd34604dec42419d6c8bc8e7bfb0ff3e0e96f63ede8979744a8fba4364c3",
+    "tests/jobdiva_contract_review_db_check.php": "ec5b6c65b01091561a53e517605939f911aae577cd07b8fea509e59ff1acc109",
+    "tests/jobdiva_people_placement_lifecycle_smoke.php": "58d5936577781b2f55dd3745320db03f48a8f5f2f7f965589134ef2e31b62b5b",
+    "tests/jobdiva_placement_discovery_smoke.php": "4866c5450e9f22ade06fcea9c04f4756f83e864ea25cfe13092fc1b2633dbcb9",
+    "tests/jobdiva_stored_assignment_reconciliation_smoke.php": "15666cb27ef72b2806c0a6c0b98e416e3584d0b4d6c1a02f4373ce11e746fc77",
+    "tests/jobdiva_stored_directory_db_check.php": "c966dba6cda33f5d18b8e41d504600404af77d382b2a1ab2c1d8d7e18038106d"
+  },
+  "ci": {
+    "run_id": 43462583153,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43462583153",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132013065809,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066401,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066449,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066454,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066535,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066538,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066649,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066652,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066669,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013066723,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132013067027,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "stored_assignment_directory": 27,
+    "stored_review_transaction": 20,
+    "stored_contract_review": 17,
+    "source_rule_directory": 32,
+    "projection_directory": 40,
+    "independent_connections": 193,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 429
+  },
+  "stored_concurrency_labels": [
+    "Waiting job uses its own Staffing owner and the restored shared company",
+    "Waiting merge completes only after the original sharing policy is restored",
+    "Stored assignment waits for companies policy COMMIT",
+    "Stored assignment respects current companies scope after COMMIT",
+    "Stored assignment waits for placements policy COMMIT",
+    "Stored assignment respects current placements scope after COMMIT",
+    "Stored assignment waits for its saved source evidence COMMIT",
+    "Stored apply rejects changed evidence and accepts rolled-back evidence after COMMIT",
+    "Stored assignment waits for its recipient merge COMMIT",
+    "Stored review never silently accepts a changed recipient after COMMIT",
+    "Stored apply holds its complete assignment and audit before COMMIT",
+    "Concurrent stored apply waits for the first reviewed assignment COMMIT",
+    "Concurrent stored requests commit exactly one reviewed projection after COMMIT",
+    "Stored assignment waits for companies policy ROLLBACK",
+    "Stored assignment respects current companies scope after ROLLBACK",
+    "Stored assignment waits for placements policy ROLLBACK",
+    "Stored assignment respects current placements scope after ROLLBACK",
+    "Stored assignment waits for its saved source evidence ROLLBACK",
+    "Stored apply rejects changed evidence and accepts rolled-back evidence after ROLLBACK",
+    "Stored assignment waits for its recipient merge ROLLBACK",
+    "Stored review never silently accepts a changed recipient after ROLLBACK",
+    "Stored apply holds its complete assignment and audit before ROLLBACK",
+    "Concurrent stored apply waits for the first reviewed assignment ROLLBACK",
+    "Concurrent stored requests commit exactly one reviewed projection after ROLLBACK"
+  ],
+  "stored_http_labels": [
+    "Anonymous denied: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_preview",
+    "Anonymous denied: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_apply",
+    "No module grant denied: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_preview",
+    "No module grant denied: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_apply",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/economics.php?action=release_ownership&placement_id=76",
+    "Read grant denies change or stored reconciliation: PATCH /modules/placements/api/economics.php?id=334",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_preview",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_apply",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/economics.php?placement_id=78&action=reconcile",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/economics.php?action=party&placement_id=76",
+    "Read grant denies change or stored reconciliation: DELETE /modules/placements/api/economics.php?id=334",
+    "Read grant denies change or stored reconciliation: PUT /modules/placements/api/corp.php?placement_id=79",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/economics.php?action=item&placement_id=76",
+    "Read grant denies change or stored reconciliation: DELETE /modules/placements/api/economics.php?action=item&id=999999",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/cycles.php",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/cycles.php?action=assign",
+    "Read grant denies change or stored reconciliation: PATCH /modules/placements/api/cycles.php?id=10",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/documents.php?placement_id=76",
+    "Read grant denies change or stored reconciliation: DELETE /modules/placements/api/documents.php?id=999999",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/source_rules.php?kind=chain&placement_id=76",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/source_rules.php?kind=referral&placement_id=76",
+    "Read grant denies change or stored reconciliation: POST /modules/placements/api/source_rules.php?kind=commission&placement_id=76",
+    "Foreign tenant pin denied: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_preview",
+    "Foreign tenant pin denied: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_apply",
+    "Foreign workspace pin cannot issue a file URL or mutate stored evidence",
+    "Audit failure and retirement preserve original stored bytes",
+    "Native stored preview follows the child source mirror and retained shared placement without writes",
+    "Native parent stored catalog cannot borrow child assignment mirrors",
+    "A different workspace preview cannot authorize native stored apply",
+    "Read-only child cannot apply stored shared assignments",
+    "Required native stored audit failure rolls back the complete shared projection",
+    "Native stored apply updates the existing shared assignment and preserves its worker and legacy number",
+    "Native stored apply retains every original provider pair including prefixed person and placement IDs",
+    "Native stored audit identifies original workspace, authenticated actor and shared before/after graph",
+    "Old native stored preview cannot reapply after the first accepted projection",
+    "Fresh native stored replay retains stable record numbers",
+    "Native shared stored reconciliation executes no accounting, payroll or payment operations",
+    "Same session immediately loses writes after downgrade: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_preview",
+    "Same session immediately loses writes after downgrade: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_apply",
+    "Same session loses contract access after revocation: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_preview",
+    "Same session loses contract access after revocation: POST /modules/placements/api/jobdiva_reconciliation.php?action=stored_apply"
+  ],
+  "native_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "contract_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T16:25:30+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "financial_execution_performed": false,
+  "remaining_release_gates": [
+    "CSV and legacy alignment writers",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field/portal/onboarding/document/time/approval/payroll-result/reconciliation acceptance remains incomplete"
+}
