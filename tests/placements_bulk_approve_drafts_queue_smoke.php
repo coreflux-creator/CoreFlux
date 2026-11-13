@@ -36,6 +36,7 @@ require_once $root . '/modules/placements/lib/rate_approve.php';
 $placements = (string) file_get_contents($root . '/modules/placements/api/placements.php');
 $rates      = (string) file_get_contents($root . '/modules/placements/api/rates.php');
 $rateApprLib = (string) file_get_contents($root . '/modules/placements/lib/rate_approve.php');
+$nativeRates=(string)file_get_contents($root.'/modules/placements/lib/native_rates.php');
 $csvImp     = (string) file_get_contents($root . '/modules/placements/ui/CsvImport.jsx');
 $importPg   = (string) file_get_contents($root . '/dashboard/src/components/CsvImportPage.jsx');
 $list       = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
@@ -63,16 +64,10 @@ $a('end action remains untouched (regression guard)',
 echo "\n2. Rates bulk_approve endpoint + shared helper\n";
 $a('shared placementsRateApproveOne() helper defined',
    str_contains($rateApprLib, 'function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array'));
-$a('helper begins + commits a transaction',
-   (str_contains($rateApprLib, '$pdo->beginTransaction()') || str_contains($rateApprLib, 'cf_tx_begin($pdo)'))
-   && (str_contains($rateApprLib, '$pdo->commit()') || str_contains($rateApprLib, 'cf_tx_commit('))
-   && (str_contains($rateApprLib, '$pdo->rollBack()') || str_contains($rateApprLib, 'cf_tx_rollback(')));
-$a('helper emits placement.rate.approved audit', str_contains($rateApprLib, "placementsAudit('placement.rate.approved'"));
-$a('helper supersedes prior approved rows',
-   str_contains($rateApprLib, 'SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY)')
-   && str_contains($rateApprLib, 'superseded_by = :new_id_set'));
-$a('helper computes the canonical economics approval snapshot',
-   str_contains($rateApprLib, 'placementEconomicsApprovalSnapshot((int) currentTenantId(), $rate)'));
+$a('approval shares the protected directory and placement transaction',str_contains($nativeRates,'placementNativeDirectoryWrite(')&&str_contains($nativeRates,'placementWithLockedRecord(')&&str_contains($nativeRates,'ORDER BY id FOR UPDATE'));
+$a('approval requires an atomic audit',str_contains($nativeRates,'companySourceAudit(')&&str_contains($nativeRates,"'placement.rate.approved'"));
+$a('approval closes superseded coverage under the owning tenant',str_contains($nativeRates,'SET effective_to=DATE_SUB(')&&str_contains($nativeRates,'superseded_by=? WHERE tenant_id=?'));
+$a('approval computes the canonical locked economics snapshot',str_contains($nativeRates,"placementEconomicsApprovalSnapshot(\$scope['workspace'],\$rate)"));
 $a('single ?action=approve now calls placementsRateApproveOne',
    (bool) preg_match("/action === 'approve'.*?placementsRateApproveOne\(\\\$id, \\\$user, \\\$isCorrection, \\\$correctionReason\)/s", $rates));
 $a('single approve still maps known errors to 404/409',
@@ -166,7 +161,7 @@ $a('implausible rates are blocked in the shared approval helper',
    str_contains($rateApprLib, 'function placementsRateApprovalBlocker')
    && str_contains($rateApprLib, 'Hourly rate exceeds $5,000')
    && str_contains($rateApprLib, 'Convert them to the same unit before approval')
-   && str_contains($rateApprLib, '$blocker = placementsRateApprovalBlocker($rate)'));
+   && str_contains($nativeRates, '$blocker=placementsRateApprovalBlocker($rate)'));
 $a('zero-bill internal salary is not falsely blocked by unit mismatch',
    placementsRateApprovalBlocker([
        'bill_rate' => 0,

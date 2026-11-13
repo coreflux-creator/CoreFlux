@@ -37,21 +37,21 @@ if ($method === 'GET') {
         $pdo = getDB();
         $stmt = $pdo->prepare(
             "SELECT pr.id, pr.placement_id, pr.effective_from, pr.bill_rate, pr.bill_rate_unit,
-                    pr.pay_rate, pr.pay_rate_unit, pr.currency, pr.created_at,
+                    pr.pay_rate, pr.pay_rate_unit, pr.currency, pr.created_at, pr.created_by_user_id, pr.tenant_id,
                     p.title AS placement_title, p.status AS placement_status,
                     p.external_id AS placement_external_id, p.start_date AS placement_start_date,
                     p.person_id, p.end_client_name,
                     pe.first_name, pe.last_name, pe.email_primary
              FROM placement_rates pr
-             JOIN placements p ON p.id = pr.placement_id
-             LEFT JOIN people pe ON pe.id = p.person_id
+             JOIN placements p ON p.id = pr.placement_id AND p.tenant_id = pr.tenant_id
+             LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
              WHERE pr.tenant_id = :tenant_id
                AND pr.approved_at IS NULL
                AND (p.deleted_at IS NULL)
              ORDER BY pr.created_at DESC, pr.id DESC
              LIMIT 500"
         );
-        $stmt->execute(['tenant_id' => currentTenantId()]);
+        $stmt->execute(['tenant_id' => placementsGraphTenantId()]);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         foreach ($rows as &$row) {
             $row['approval_blocker'] = placementsRateApprovalBlocker($row);
@@ -135,26 +135,8 @@ if ($method === 'POST' && $action === 'approve') {
     // breadcrumb so the audit row still has something useful. Operators
     // can override by passing an explicit `correction_reason` in the
     // request body.
-    $rateRow = scopedFind('SELECT placement_id FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $id]);
-    $autoCorrection = false;
-    if ($rateRow) {
-        $prior = scopedFind(
-            'SELECT id FROM placement_rates
-              WHERE tenant_id = :tenant_id AND placement_id = :pid
-                AND id != :rid AND approved_at IS NOT NULL
-              LIMIT 1',
-            ['pid' => (int) $rateRow['placement_id'], 'rid' => $id]
-        );
-        $autoCorrection = (bool) $prior;
-    }
-    $isCorrection     = !empty($body['is_correction']) || $autoCorrection;
-    $correctionReason = $body['correction_reason'] ?? null;
-    if ($isCorrection && empty($correctionReason)) {
-        $correctionReason = $autoCorrection
-            ? 'Rate update (auto-detected supersede of prior approved row)'
-            : 'Manual correction (no reason provided)';
-    }
+    $isCorrection=!empty($body['is_correction']);
+    $correctionReason=$body['correction_reason']??null;
 
     try {
         $r = placementsRateApproveOne($id, $user, $isCorrection, $correctionReason);
@@ -166,7 +148,7 @@ if ($method === 'POST' && $action === 'approve') {
     } catch (\Throwable $e) {
         api_error('Approve failed: ' . $e->getMessage(), 500);
     }
-    api_ok(['ok' => true, 'snapshot' => $r['margin'], 'auto_correction' => $autoCorrection]);
+    api_ok(['ok' => true, 'snapshot' => $r['margin'], 'auto_correction' => $r['auto_correction']]);
 }
 
 if ($method === 'POST') {
@@ -215,26 +197,12 @@ if ($method === 'POST') {
         'created_by_user_id'   => $user['id'] ?? null,
     ];
     $replaceDraftId = (int) ($body['replace_draft_id'] ?? 0);
-    if ($replaceDraftId > 0) {
-        $draft = scopedFind(
-            'SELECT id, placement_id, approved_at FROM placement_rates
-              WHERE tenant_id = :tenant_id AND id = :id',
-            ['id' => $replaceDraftId]
-        );
-        if (!$draft || (int) $draft['placement_id'] !== $pid) api_error('Draft rate not found on this placement', 404);
-        if (!empty($draft['approved_at'])) api_error('Approved rates are locked; create a correction instead', 409);
-        unset($rateData['placement_id'], $rateData['created_by_user_id']);
-        scopedUpdate('placement_rates', $replaceDraftId, $rateData);
-        placementsAudit('placement.rate.draft_updated', [
-            'placement_id' => $pid,
-            'rate_id' => $replaceDraftId,
-        ], $pid);
-        api_ok(['id' => $replaceDraftId, 'updated' => true]);
+    try {
+        $result=placementRateDraftNative((int)currentTenantId(),$pid,$rateData,(int)$user['id'],$replaceDraftId>0?$replaceDraftId:null);
+    } catch (InvalidArgumentException|RuntimeException $e) {
+        $status=(int)$e->getCode();api_error($e->getMessage(),in_array($status,[403,404,409,422,503],true)?$status:422);
     }
-
-    $id = scopedInsert('placement_rates', $rateData);
-    placementsAudit('placement.rate.drafted', ['placement_id' => $pid, 'rate_id' => $id], $pid);
-    api_ok(['id' => $id, 'updated' => false], 201);
+    api_ok($result,$result['updated']?200:201);
 }
 
 api_error('Method not allowed', 405);

@@ -7285,9 +7285,28 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     ?int $sourceWorkspace = null
 ): bool
 {
+    if($validateOnly)return jobdivaSyncUpsertPlacementRatesLocked($tid,$placementId,$startDate,$jd,true,$sourceWorkspace);
+    require_once __DIR__.'/../../modules/people/lib/company_relationships.php';
+    require_once __DIR__.'/../../modules/placements/lib/ownership.php';
+    $pdo=getDB();
+    return companyRelationshipAtomic($pdo,static function()use($pdo,$tid,$placementId,$startDate,$jd,$sourceWorkspace):bool{
+        $q=$pdo->prepare('SELECT * FROM placements WHERE tenant_id=? AND id=? AND deleted_at IS NULL FOR UPDATE');$q->execute([$tid,$placementId]);$placement=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$placement)throw new RuntimeException('Rate placement not found.',404);
+        $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=? ORDER BY id FOR UPDATE');$q->execute([$tid,$placementId]);$rates=$q->fetchAll(PDO::FETCH_ASSOC);
+        if(array_filter($rates,static fn($r)=>$r['approved_at']===null&&!empty($r['created_by_user_id'])))return false;
+        $owned=placementOwnershipFields($placement['coreflux_overridden_fields']??null);
+        if(array_intersect($owned,['rates','bill_rate','pay_rate','bill_rate_unit','pay_rate_unit','currency','ot_multiplier','dt_multiplier','adder_pct','payroll_load_pct','background_fee_total','bill_adder_pct','bill_adder_flat','bill_discount_pct','bill_discount_flat','workers_comp_pct','benefits_load_pct','c2c_overhead_pct','other_cost_per_hour','other_cost_flat']))return false;
+        return jobdivaSyncUpsertPlacementRatesLocked($tid,$placementId,$startDate,$jd,false,$sourceWorkspace);
+    });
+}
+
+/** Internal writer: the public entry holds the placement and complete rate range. */
+function jobdivaSyncUpsertPlacementRatesLocked(int $tid,int $placementId,string $startDate,array $jd,bool $validateOnly=false,?int $sourceWorkspace=null):bool
+{
     $sourceWorkspace ??= $tid;
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
+    if(!$validateOnly&&!$pdo->inTransaction())throw new LogicException('Source rate writes require the placement transaction.');
     $sourceContract = jobdivaContractProjectionContract($jd);
     $jd = jobdivaClassificationPayloadForTenant($sourceWorkspace, $jd);
     $sourceContract = jobdivaContractProjectionContract($jd);
@@ -7571,7 +7590,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'SELECT id
            FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p
-            AND approved_at IS NULL
+            AND approved_at IS NULL AND created_by_user_id IS NULL
             AND JSON_UNQUOTE(JSON_EXTRACT(economics_snapshot_json, "$.source_system")) = "jobdiva"
           ORDER BY (effective_to IS NULL) DESC, id DESC'
     );
@@ -7586,7 +7605,7 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         $pdo->prepare(
             "DELETE FROM placement_rates
               WHERE tenant_id = ? AND placement_id = ?
-                AND approved_at IS NULL
+                AND approved_at IS NULL AND created_by_user_id IS NULL
                 AND JSON_UNQUOTE(JSON_EXTRACT(economics_snapshot_json, '$.source_system')) = 'jobdiva'
                 AND id IN ({$deletePlaceholders})"
         )->execute(array_merge([$tid, $placementId], $staleIds));

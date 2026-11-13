@@ -83,34 +83,18 @@ $repairPos = strpos($rateAppr, 'placementsEnsureDraftRateFromSourcePayload($plac
 $scanPos   = strpos($rateAppr, 'SELECT id FROM placement_rates');
 $a('auto-approve repairs missing source-backed draft before scanning drafts',
    $repairPos !== false && $scanPos !== false && $repairPos < $scanPos);
-$a('auto-approve iterates each draft rate row',
-   str_contains($rateAppr, 'placement_id = :pid AND approved_at IS NULL')
-   && str_contains($rateAppr, 'ORDER BY id ASC'));
-$a('auto-approve catches per-rate errors with audit',
-   str_contains($rateAppr, "placementsAudit('placement.rate.auto_approve_failed'"));
+$a('auto-approve iterates draft rows in effective-date order under the complete rate lock',str_contains($rateAppr,'placementRateWithLockedRows(')&&str_contains($rateAppr,'ORDER BY effective_from,id FOR UPDATE'));
+$a('auto-approve failures propagate to roll back the complete activation',!str_contains($rateAppr,'placement.rate.auto_approve_failed')&&str_contains($rateAppr,'foreach($rows as$r)placementsRateApproveOne('));
 $a('rates.php and placements.php require the shared helper',
    str_contains($rates, "require_once __DIR__ . '/../lib/rate_approve.php';")
    && str_contains($placements, "require_once __DIR__ . '/../lib/rate_approve.php';"));
 $a('rates.php old in-file copy of helper was removed',
    !preg_match('/^function placementsRateApproveOne\(/m', $rates));
 
-echo "\n4. Single-rate approve auto-detects correction\n";
-$a('server probes for prior approved row',
-   str_contains($rates, 'AND id != :rid AND approved_at IS NOT NULL')
-   && str_contains($rates, '$autoCorrection = (bool) $prior;'));
-$a('is_correction OR-ed with autoCorrection',
-   str_contains($rates, "\$isCorrection     = !empty(\$body['is_correction']) || \$autoCorrection;"));
-$a('server auto-generates reason when missing on auto-detected supersede',
-   str_contains($rates, "'Rate update (auto-detected supersede of prior approved row)'"));
-$a('correction_reason no longer hard-required at API layer',
-   !preg_match('/if \(\$isCorrection && empty\(\$correctionReason\)\) \{\s*api_error/', $rates));
-$a('approve response returns auto_correction flag',
-   str_contains($rates, "'auto_correction' => \$autoCorrection"));
-$a('UI approve handler no longer prompts or confirms correction',
-   !preg_match('/confirm\\(.Is this a correction/', $detail)
-   && !preg_match('/prompt\\(.Correction reason/', $detail));
-$a('UI approve handler POSTs an empty body',
-   (bool) preg_match('/api\\.post\\(`\\/modules\\/placements\\/api\\/rates\\.php\\?action=approve&id=\\$\\{rateId\\}`, \\{\\}\\)/', $detail));
+echo "\n4. Single-rate approval correction is based on locked history\n";
+$nativeRates=(string)file_get_contents($ROOT.'/modules/placements/lib/native_rates.php');
+$a('server detects prior approval under the rate lock',str_contains($nativeRates,'$autoCorrection=(bool)array_filter($rates'));
+$a('server generates a default correction reason',str_contains($nativeRates,'Rate update (auto-detected supersede of prior approved row)'));
 
 echo "\n5. Placement activation auto-approves/repairs rates\n";
 $nativeEdit = (string) file_get_contents($ROOT . '/modules/placements/lib/edit.php');

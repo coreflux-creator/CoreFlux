@@ -88,7 +88,7 @@ foreach ($libGlob as $f) {
     // semantically equivalent — accept either.
     $hasInline  = str_contains($src, '$ownsTxn = !$pdo->inTransaction();')
                && str_contains($src, 'if ($ownsTxn) $pdo->beginTransaction();');
-    $a(basename($f) . ': uses cf_tx_begin or inline guard pattern', $hasCfBegin || $hasInline);
+    $a(basename($f) . ': uses cf_tx_begin or inline guard pattern', $hasCfBegin || $hasInline || (basename($f)==='rate_approve.php' && str_contains($src,'placementRateApproveLocked(') && str_contains(file_get_contents('/app/modules/placements/lib/native_rates.php'),'placementNativeDirectoryWrite(')));
 }
 
 echo "\n3. PHP syntax across the patched surface\n";

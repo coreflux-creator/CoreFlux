@@ -79,6 +79,13 @@ function peopleAvailabilityRaceWrite(array $input): array
     return ['id'=>$input['person_id']]+jobdivaPeopleLifecycleApply($input['workspace'],$input['actor'],$input['body']);
 }
 
+function sourceRateRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('placements');
+    if($input['entity']==='source_rate')return jobdivaRepairPlacementSourceRate($input['workspace'],$input['placement_id'],$input['actor']);
+    return ['id'=>$input['placement_id']]+placementsRateApproveOne($input['rate_id'],['id'=>$input['actor']],false,null);
+}
+
 // Worker mode executes the actual library in another process and connection.
 if(($argv[1]??'')==='worker'){
     $path=$argv[2]??'';$directory=dirname($path);
@@ -118,6 +125,7 @@ if(($argv[1]??'')==='worker'){
                 'assignment_repair'=>assignmentRepairRaceWrite($input),
                 'lifecycle_repair'=>placementLifecycleRaceWrite($input),
                 'people_availability'=>peopleAvailabilityRaceWrite($input),
+                'source_rate','rate_approval'=>sourceRateRaceWrite($input),
                 default=>staffingJobSaveNative($input['workspace'],null,['title'=>$input['title'],'company_id'=>$input['company_id']],$input['actor']),
             };
             if($input['mode']==='hold'){
@@ -675,6 +683,7 @@ try{
         $q=$pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND event="jobdiva.people_availability_applied" AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,"$.request_id"))=?');$q->execute([$tenant,$input['body']['request_id']]);
         $check($written['ok']&&$again['ok']&&$again['result']['replayed']===($decision==='COMMIT')&&(int)$q->fetchColumn()===1&&$read('people',$input['person_id'])['status']==='bench','Concurrent availability retry commits one decision and one receipt after '.$decision);
     }
+    require __DIR__.'/fixtures/source_rate_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);

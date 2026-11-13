@@ -63,6 +63,7 @@ if ($method === 'POST' && $action === 'repair_source_rate_drafts') {
         'tenant_admin.integrations',
         'integrations.jobdiva.manage',
     ]);
+    rbac_legacy_require($user, 'placements.financials.manage');
     $body = api_json_body();
     $limit = isset($body['limit']) ? (int) $body['limit'] : 500;
     $result = jobdivaMappingRepairSourceRateDrafts($tid, $user, $limit);

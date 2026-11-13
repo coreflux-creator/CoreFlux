@@ -165,18 +165,12 @@ $a('alignment report includes projector readiness drift',
     && str_contains($service, 'placement_missing_staffing_job')
     && str_contains($service, 'placement_missing_rate_row')
     && str_contains($service, 'placement_active_missing_approved_rate'));
-$a('source rate draft repair is exposed from alignment service',
-    str_contains($service, 'function jobdivaMappingRepairSourceRateDrafts(int $tenantId, array $user')
-    && str_contains($service, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user)')
-    && str_contains($service, 'mapping_alignment_repair_source_rate_drafts'));
-$a('source rate draft repair tries mapped placements even when snapshot must be rebuilt from mirrors',
-    str_contains($service, "m.internal_entity_type = 'placement'")
-    && !str_contains($service, "AND m.payload_snapshot IS NOT NULL\n            AND m.payload_snapshot <> ''\n            AND (p.deleted_at"));
-$a('alignment detects and repairs unsafe JobDiva auto-drafted bill=pay rates',
-    str_contains($service, 'placement_auto_rate_bill_equals_pay')
-    && str_contains($service, 'unsafe_auto_rate_bill_equals_pay')
-    && str_contains($service, 'ABS(pr.pay_rate - pr.bill_rate) < 0.0001')
-    && str_contains($service, 'ABS(unsafe_pr.pay_rate - unsafe_pr.bill_rate) < 0.0001'));
+$sourceRate=$read("$root/core/jobdiva/source_rate_repair.php");
+$a('source rate draft repair delegates to the locked exact-source service',
+    str_contains($service,"'/source_rate_repair.php'")&&str_contains($sourceRate,'function jobdivaMappingRepairSourceRateDrafts(')&&str_contains($sourceRate,'jobdivaRepairPlacementSourceRate('));
+$a('missing source snapshots need exact saved assignment evidence',str_contains($sourceRate,'exact_assignment_evidence_required'));
+$a('unsafe auto drafts require positive exact source rates before mutation',
+    str_contains($service,'placement_auto_rate_bill_equals_pay')&&str_contains($sourceRate,'positive_source_rates_required')&&str_contains($sourceRate,"abs((float)\$rate['bill_rate']-(float)\$rate['pay_rate'])"));
 $a('canonical projection repair is exposed from alignment service',
     str_contains($service, 'function jobdivaMappingRepairCanonicalProjection(int $tenantId')
     && str_contains($service, "'projection_mode' => 'source_indexes_only'")

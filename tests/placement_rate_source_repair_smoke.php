@@ -17,35 +17,23 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 
 $ROOT = realpath(__DIR__ . '/..');
 $rateApprove = (string) file_get_contents("{$ROOT}/modules/placements/lib/rate_approve.php");
+$sourceRepair=(string)file_get_contents("{$ROOT}/core/jobdiva/source_rate_repair.php");
 $placements  = (string) file_get_contents("{$ROOT}/modules/placements/api/placements.php");
 $jobdivaSync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 
 echo "\n1. Missing-rate repair helper\n";
 $a('rate_approve.php defines placementsEnsureDraftRateFromSourcePayload',
     str_contains($rateApprove, 'function placementsEnsureDraftRateFromSourcePayload(int $placementId, array $user): bool'));
-$a('repair reads JobDiva source bindings by internal placement id',
-    str_contains($rateApprove, 'FROM external_entity_mappings')
-    && str_contains($rateApprove, "source_system = 'jobdiva'")
-    && str_contains($rateApprove, "internal_entity_type = 'placement'")
-    && str_contains($rateApprove, 'internal_entity_id = :pid'));
-$a('repair prefers payload snapshots but can rebuild from placement binding ids',
-    str_contains($rateApprove, 'CASE WHEN payload_snapshot IS NOT NULL AND payload_snapshot <>')
-    && str_contains($rateApprove, 'placementsJobDivaSeedPayloadFromBinding($placement, $mapping)')
-    && str_contains($rateApprove, '$payload[\'startId\'] = $externalId')
-    && str_contains($rateApprove, '$payload[\'jobID\'] = $jobId'));
-$a('repair enriches the placement payload with local JobDiva mirrors before resolving rates',
-    str_contains($rateApprove, 'jobdivaPlacementPayloadWithMirrors(')
-        && str_contains($rateApprove, "(string) (\$mapping['external_id'] ?? '')"));
-$a('repair delegates rate creation to the canonical JobDiva placement_rates writer',
-    str_contains($rateApprove, 'jobdivaSyncUpsertPlacementRates($tenantId, $placementId, $startDate, $payload)'));
-$a('repair does not skip unsafe auto-drafted bill=pay rows',
-    str_contains($rateApprove, "SELECT id, bill_rate, pay_rate, created_by_user_id")
-    && str_contains($rateApprove, '$unsafeAutoDraft = empty($draft[\'created_by_user_id\'])')
-    && str_contains($rateApprove, 'if (!$unsafeAutoDraft) return false;'));
-$a('repair audits success and unavailable/failure reasons',
-    str_contains($rateApprove, "placement.rate.auto_drafted_from_source")
-    && str_contains($rateApprove, "placement.rate.auto_draft_from_source_unavailable")
-    && str_contains($rateApprove, "placement.rate.auto_draft_from_source_failed"));
+$a('repair uses original source workspace and current owner under one transaction',
+    str_contains($sourceRepair,'companyRelationshipAtomic(')&&str_contains($sourceRepair,'jobdivaPlacementWriteContext($pdo,$workspace)'));
+$a('repair requires the exact saved Start and candidate identities',
+    str_contains($sourceRepair,'jobdivaAssignmentValidate($payload,$external)')&&str_contains($sourceRepair,'jobdivaPersonSourceWorkspaceCheck('));
+$a('repair uses exact assignment mirrors without manufacturing source identities',
+    str_contains($sourceRepair,'exact_assignment_evidence_required')&&!str_contains($rateApprove,'placementsJobDivaSeedPayloadFromBinding'));
+$a('repair locks field maps in the original workspace and uses the canonical writer',
+    str_contains($sourceRepair,'enabled=1 FOR UPDATE')&&str_contains($sourceRepair,'jobdivaSyncUpsertPlacementRates($owner,$placementId,$start,$payload,false,$workspace)'));
+$a('repair preserves approved and native drafts and requires a same-transaction audit',
+    str_contains($sourceRepair,'approved_rate_covers_start')&&str_contains($sourceRepair,'native_draft_requires_review')&&str_contains($sourceRepair,'companySourceAudit('));
 
 echo "\n2. Auto-approve runs repair before looking for draft rows\n";
 $repairPos = strpos($rateApprove, 'placementsEnsureDraftRateFromSourcePayload($placementId, $user);');

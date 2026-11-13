@@ -1703,7 +1703,8 @@ function placementEconomicsApprovalSnapshot(int $tenantId, array $rate): array
 {
     $placementId = (int) ($rate['placement_id'] ?? 0);
     $sourceSnapshot = json_decode((string) ($rate['economics_snapshot_json'] ?? ''), true);
-    placementEconomicsReconcile($tenantId, $placementId);
+    $reconcile=placementEconomicsReconcile($tenantId, $placementId);
+    if(empty($reconcile['available'])||!empty($reconcile['errors']))throw new RuntimeException('Placement economics need review before rate approval: '.implode('; ', $reconcile['errors']??[]),409);
     $parties = placementEconomicsParties($tenantId, $placementId);
     $engagementType = placementEconomicsEngagementForPlacement($tenantId, $placementId);
     $tenantDefaults = placementEconomicsDefaultsForPlacement($tenantId, $placementId);
