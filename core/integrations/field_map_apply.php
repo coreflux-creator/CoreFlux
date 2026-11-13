@@ -1524,7 +1524,7 @@ function integrationFieldMapApplyAll(
                 try {
                     if(count($values)!==1)throw new InvalidArgumentException('Multiple mappings target the same custom field; review the ambiguity.');
                     $entry=$values[0];
-                    $result=integrationCustomFieldApply($pdo,$tid,$integration,$entry['mapping'],(int)$b['id'],$entry['value']);
+                    $result=integrationCustomFieldApply($pdo,$tid,$integration,$entry['mapping'],(int)$b['id'],$entry['value'],$directoryContext);
                     if($result['changed'])$summary['written']++;
                     else integrationFieldMapSkip($summary,$entry['mapping'],!empty($result['held_for_merge_review'])?'merged_company_custom_proposal':'custom_value_already_current');
                 } catch (\Throwable $e) {
@@ -1537,7 +1537,8 @@ function integrationFieldMapApplyAll(
 
     if ($integration === 'jobdiva' && $entityType === 'placement') {
         $placementId = integrationFieldMapPlacementIdFromContext($contextRowIds);
-        if ($placementId > 0 && $summary['written'] > 0 && $summary['errors'] === [] && ($options['reconcile'] ?? true)) {
+        $economicTargets=['placements','placement_rates','placement_corp_details','placement_commissions','placement_referrals','placement_client_chain'];
+        if ($placementId > 0 && array_intersect(array_column($bucket,'table'),$economicTargets) && $summary['written'] > 0 && $summary['errors'] === [] && ($options['reconcile'] ?? true)) {
             try {
                 require_once __DIR__ . '/../../modules/placements/lib/economics.php';
                 $graph=placementEconomicsReconcile($placementOwner, $placementId);

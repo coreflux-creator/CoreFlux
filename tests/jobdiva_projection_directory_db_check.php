@@ -16,16 +16,16 @@ $insert=static function(string $table,array $row)use($pdo):int{
 $read=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
 $all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY '.match($table){'core_record_numbers'=>'tenant_id,entity_type,record_id','placement_corp_details'=>'placement_id',default=>'id'})->fetchAll(PDO::FETCH_ASSOC);
 $snapshot=static function()use($all):array{
-    $out=[];foreach(['people','companies','staffing_clients','staffing_jobs','placements','placement_rates','placement_client_chain','placement_corp_details','placement_commissions','placement_referrals','placement_economic_parties','external_entity_mappings','entity_sync_history','core_record_numbers','audit_log']as$table)$out[$table]=$all($table);return$out;
+    $out=[];foreach(['people','companies','staffing_clients','staffing_jobs','placements','placement_rates','placement_client_chain','placement_corp_details','placement_commissions','placement_referrals','placement_economic_parties','external_entity_mappings','entity_sync_history','core_record_numbers','custom_values','audit_log']as$table)$out[$table]=$all($table);return$out;
 };
 $scope=static function(string $module,string $mode)use($pdo,$child):void{$pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,?,?) ON DUPLICATE KEY UPDATE scope_mode=VALUES(scope_mode)')->execute([$child,$module,$mode]);};
 $payload=static function(int $n):array{return[
     'startId'=>(string)$n,'candidateId'=>(string)($n+1),'jobId'=>(string)($n+2),
     'firstName'=>'Synthetic','lastName'=>'Source '.$n,'candidateEmail'=>'projection-'.$n.'@example.invalid',
     'startDate'=>'2026-11-01','title'=>'Synthetic source assignment '.$n,'status'=>'on_hold','worksiteCountry'=>'US',
-    'sourceNote'=>'Original workspace note '.$n,
+    'sourceNote'=>'Original workspace note '.$n,'pilotFlag'=>true,
     '_jd_job'=>['jobId'=>(string)($n+2),'title'=>'Synthetic job '.$n],
-    '_jd_contract'=>['start_id'=>(string)$n,'engagement_type'=>'w2','placement_status'=>'on_hold','start_date'=>'2026-11-01',
+    '_jd_contract'=>['source'=>'EmployeeAssignmentRecordsDetail','start_id'=>(string)$n,'engagement_type'=>'w2','placement_status'=>'on_hold','start_date'=>'2026-11-01',
         'client_company_id'=>(string)($n+3),'client_company_name'=>'Synthetic bill-to '.$n,
         'end_client_company_id'=>(string)($n+4),'end_client_name'=>'Synthetic work recipient '.$n,
         'bill_rate'=>100,'pay_rate'=>50,'bill_rate_unit'=>'hour','pay_rate_unit'=>'hour','currency'=>'USD','worksite_country'=>'US'],
@@ -39,11 +39,15 @@ try{
     $pdo->beginTransaction();setRequestTenantId($child);$_SESSION['tenant_id']=$child;
     $insert('tenants',['id'=>$child,'name'=>'Synthetic JobDiva source child','is_active'=>1,'is_simulation'=>1,'tenant_type'=>'sub','parent_id'=>$parent]);
     foreach(['companies','people','placements','staffing','accounting']as$module)$scope($module,'shared');
+    foreach([$parent,$child]as$owner)$insert('custom_fields',['tenant_id'=>$owner,'module'=>'placements','field_name'=>'projection_pilot_flag','field_label'=>'Synthetic projection flag','field_type'=>'boolean']);
+    $insert('tenant_integration_field_map',['tenant_id'=>$child,'integration'=>'jobdiva','entity_type'=>'placement','external_field'=>'pilotFlag','internal_field'=>'projection_pilot_flag','source_path'=>'pilotFlag','target_module'=>'placements','target_table'=>'custom_field_values','target_column'=>'projection_pilot_flag','linked_entity'=>'placement']);
     $map=$insert('tenant_integration_field_map',['tenant_id'=>$child,'integration'=>'jobdiva','entity_type'=>'placement','external_field'=>'sourceNote','internal_field'=>'notes','source_path'=>'sourceNote','target_module'=>'placements','target_table'=>'placements','target_column'=>'notes','linked_entity'=>'self']);
     $p=$payload(99160000);$result=$project($p);
     $check($result['projected'],'Shared full projection succeeds: '.json_encode($result['errors']));
     $id=(int)$result['placement_id'];$row=$read('placements',$id);$person=(int)$row['person_id'];
     $check((int)$row['tenant_id']===$parent&&(int)$read('people',$person)['tenant_id']===$parent,'People and placements use their shared owner');
+    $custom=$pdo->prepare('SELECT tenant_id,value FROM custom_values WHERE record_id=? AND field_id IN(SELECT id FROM custom_fields WHERE field_name="projection_pilot_flag")');$custom->execute([$id]);$flag=$custom->fetch(PDO::FETCH_ASSOC);
+    $check((int)$flag['tenant_id']===$parent&&$flag['value']==='1','Configured custom value uses the shared placement owner');
     $check((int)$read('staffing_jobs',(int)$row['staffing_job_id'])['tenant_id']===$parent,'Job projection uses the independently configured Staffing owner');
     $check($row['notes']===$p['sourceNote'],'Source workspace field mapping writes into the shared placement');
     $q=$pdo->prepare('SELECT tenant_id FROM placement_rates WHERE placement_id=?');$q->execute([$id]);$rateOwners=array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN));
@@ -89,6 +93,8 @@ try{
     foreach(['people','placements','staffing','accounting']as$module)$scope($module,'isolated');
     $result=$project($payload(99160600));$check($result['projected'],'Isolated projection succeeds with the shared company catalog: '.json_encode($result['errors']));
     $local=$read('placements',(int)$result['placement_id']);
+    $custom->execute([(int)$local['id']]);$flag=$custom->fetch(PDO::FETCH_ASSOC);
+    $check((int)$flag['tenant_id']===$child&&$flag['value']==='1','Custom values use fresh policies after changing sharing in the same process');
     $check((int)$local['tenant_id']===$child&&(int)$read('people',(int)$local['person_id'])['tenant_id']===$child&&(int)$read('staffing_jobs',(int)$local['staffing_job_id'])['tenant_id']===$child,'Isolated business records remain in the child workspace');
     $before=$snapshot();$failed=$project($p,['existing_placement_id'=>$id]);
     $check(!$failed['projected']&&$before===$snapshot(),'A saved mapping cannot silently migrate records after a sharing change');

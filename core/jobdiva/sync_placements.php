@@ -626,6 +626,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
     if ($candidateExtId === '') return null;
 
     $canonicalPersonExternalId = 'jd:' . $candidateExtId;
+    $personSnapshot=jobdivaProjectorPersonSnapshot($jd);
 
     // Durable IDs survive contact changes. Damaged links require explicit repair.
     $pdo = getDB();
@@ -645,7 +646,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
         }
         jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$mappedPersonId);
         if($mappedPerson['deleted_at']!==null||$mappedPerson['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $mappedPersonId, $jd, 'pull', $userId);
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $mappedPersonId, $personSnapshot, 'pull', $userId);
         return $mappedPersonId;
     }
 
@@ -709,7 +710,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
         jobdivaPersonSourceWorkspaceCheck($pdo,$tid,$owner,$existingId);
         $q=$pdo->prepare('SELECT status,deleted_at FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$owner,$existingId]);$person=$q->fetch(PDO::FETCH_ASSOC);
         if(!$person||$person['deleted_at']!==null||$person['status']!=='active')throw new RuntimeException('Review and reactivate the linked Core person before importing this assignment.',409);
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $personSnapshot, 'pull', $userId);
         return $existingId;
     }
 
@@ -760,7 +761,7 @@ function jobdivaPlacementsResolvePerson(int $tid, array $jd, ?int $userId): ?int
         'u'   => $userId,
     ]);
     $newId = (int) $pdo->lastInsertId();
-    mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $newId, $jd, 'pull', $userId);
+    mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $newId, $personSnapshot, 'pull', $userId);
     try {
         require_once __DIR__ . '/../integrations/field_map_apply.php';
         $mapped=integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $newId], ['source_owned_context'=>true]);

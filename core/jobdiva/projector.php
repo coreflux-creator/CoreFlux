@@ -405,9 +405,7 @@ function jobdivaProjectorBindPlacementSourceIdentities(
         }
     };
 
-    $candidatePayload = jobdivaProjectorNestedPayload($payload, [
-        '_jd_candidate', 'person', 'candidate', 'Candidate', 'jobdiva_candidate',
-    ]) ?: $payload;
+    $candidatePayload = jobdivaProjectorPersonSnapshot($payload);
     $candidateExtId = jobdivaProjectorPluckDeep($payload, [
         'candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID',
         'employeeId', 'employee_id', 'personId', 'person_id',
@@ -928,6 +926,14 @@ function jobdivaProjectorPluckDeep(array $payload, array $candidates, ?array $ne
         if ($v !== '') return $v;
     }
     return '';
+}
+
+/** Intake and adjacent identity binding must retain the same candidate snapshot. */
+function jobdivaProjectorPersonSnapshot(array $payload): array
+{
+    return jobdivaProjectorNestedPayload($payload, [
+        '_jd_candidate', 'person', 'candidate', 'Candidate', 'jobdiva_candidate',
+    ]) ?: $payload;
 }
 
 function jobdivaProjectorNestedPayload(array $payload, array $keys): ?array
