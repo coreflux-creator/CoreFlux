@@ -199,6 +199,9 @@ jobs:
       - name: Verify stable staffing numbers and replayable migrations
         run: php tests/record_numbers_mariadb.php
 
+      - name: Verify exact assignment company identities and owned roles
+        run: php tests/jobdiva_assignment_company_db.php
+
       - name: Verify typed staffing custom fields, directory scope and atomic edits
         run: |
           php tests/staffing_custom_fields_smoke.php
@@ -263,7 +266,6 @@ jobs:
           php tests/jobdiva_source_values_mariadb.php
           php tests/jobdiva_company_ownership_db.php
           php tests/jobdiva_party_review_db.php
-          php tests/jobdiva_assignment_company_db.php
           php tests/jobdiva_subcontract_parties_mariadb.php
           php tests/jobdiva_assignment_parties_smoke.php
           php tests/placement_company_roles_mariadb.php

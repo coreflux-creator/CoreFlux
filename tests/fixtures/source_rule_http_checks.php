@@ -3,8 +3,8 @@
 require_once $root.'/modules/placements/lib/source_rule_review.php';
 setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
 $ruleStart='99190100';$ruleTitle='Synthetic HTTP reviewed source rules';
-$ruleMsp=companiesUpsertByName($tenant,'Synthetic HTTP Source MSP',[],['msp']);
-companiesUpsertByName($tenant,'Synthetic HTTP Source Referrer',[],['referrer','vendor']);
+$ruleMsp=jobdivaUpsertCompanyMapped($tenant,'99190104','Synthetic HTTP Source MSP',[],['id'=>'99190104'],null,['msp']);
+$ruleReferrer=jobdivaUpsertCompanyMapped($tenant,'99190105','Synthetic HTTP Source Referrer',[],['id'=>'99190105'],null,['referrer','vendor']);
 $rulePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>$ruleTitle,'status'=>'on_hold',
     'engagement_type'=>'1099','start_date'=>'2026-10-01','end_date'=>'2026-12-31','external_id'=>'jd:'.$ruleStart,
     'coreflux_overridden_fields'=>'["notes"]','client_id'=>$own['client'],'end_client_company_id'=>$own['company'],
@@ -13,7 +13,7 @@ $rulePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>$
 scopedInsert('placement_rates',['placement_id'=>$rulePlacement,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>50,'approved_at'=>'2026-10-01 12:00:00']);
 $rulePayload=['startId'=>$ruleStart,'candidateId'=>$own['start'].'2','jobId'=>$ruleStart.'3','startDate'=>'2026-10-01',
     'status'=>'on_hold','title'=>$ruleTitle,'endClientName'=>'Synthetic HTTP Billing '.$tenant,'employmentType'=>'1099',
-    'worksiteCountry'=>'US','mspName'=>'Synthetic HTTP Source MSP','mspFeePct'=>2,
+    'worksiteCountry'=>'US','mspName'=>'Synthetic HTTP Source MSP','mspCompanyId'=>'99190104','referralVendorCompanyId'=>'99190105','mspFeePct'=>2,
     'recruiterEmail'=>$email,'recruiterCommissionPct'=>10,'referralVendor'=>'Synthetic HTTP Source Referrer','referralFeeAmount'=>10,'referralFeeBasis'=>'one_time',
     '_jd_contract'=>['start_id'=>$ruleStart,'engagement_type'=>'1099','placement_status'=>'on_hold','start_date'=>'2026-10-01','end_date'=>'2026-12-31',
         'client_company_name'=>'Synthetic HTTP Billing '.$tenant,'end_client_name'=>'Synthetic HTTP Billing '.$tenant,
@@ -102,3 +102,20 @@ $expect($status===200&&$again['replayed']&&!$again['currently_follows_source']&&
 $q=$pdo->prepare("SELECT actor_user_id,meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event='placement.source_rules.replaced'");$q->execute([$tenant,$rulePlacement]);$ruleAudits=$q->fetchAll(PDO::FETCH_ASSOC);
 $expect(count($ruleAudits)===3&&count(array_filter($ruleAudits,static fn($r)=>(int)$r['actor_user_id']===$actor))===3,'Each native rule-set replacement audits the authenticated actor exactly once');
 $expect($snapshot($financialTables)===$financialBefore,'Native rule review and replacement do not execute accounting, payroll or payment operations');
+
+// The same native PATCH used by the company chooser resolves an unlinked source row.
+$choicePlacement=scopedInsert('placements',['person_id'=>$own['person'],'title'=>'Synthetic unresolved company choice','status'=>'on_hold','engagement_type'=>'1099','start_date'=>'2026-10-01']);
+$choiceChain=jobdivaSyncUpsertPlacementChainRow($tenant,$choicePlacement,1,'msp','Unresolved source MSP',null,['portal_fee_pct'=>0.02]);
+$choiceReferral=jobdivaSyncUpsertPlacementReferral($tenant,$choicePlacement,'2026-10-01',['employmentType'=>'1099','referralVendor'=>'Unresolved source referrer','referralFeeAmount'=>11]);
+foreach([['chain','chain',$choiceChain,'company_id',$ruleMsp,'placement_client_chain'],['referral','referrals',$choiceReferral,'referrer_company_id',$ruleReferrer,'placement_referrals']]as[$kind,$endpoint,$id,$field,$company,$table]){
+    $path='/modules/placements/api/'.$endpoint.'.php?id='.$id;
+    RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);$before=$snapshot($ruleTables);
+    $expect($request('PATCH',$path,[$field=>$company])[0]===403&&$snapshot($ruleTables)===$before,'Read-only staff cannot choose the '.$kind.' company');
+    RBACResolver::grantModule($membership,'placements','write',[$tenant],$actor);
+    [$status,$saved]=$request('PATCH',$path,[$field=>$company]);
+    $q=$pdo->prepare('SELECT '.$field.' FROM '.$table.' WHERE tenant_id=? AND placement_id=? AND id=?');$q->execute([$tenant,$choicePlacement,$id]);
+    $expect($status===200&&(int)$q->fetchColumn()===$company,'Native chooser resolves the existing '.$kind.' row to the selected company');
+    $before=$snapshot($ruleTables);$expect($request('PATCH',$path,[$field=>$company])[0]===200&&$snapshot($ruleTables)===$before,'Repeated '.$kind.' company choice preserves rows and audit');
+}
+$expect(jobdivaSyncUpsertPlacementChainRow($tenant,$choicePlacement,1,'msp','Different source')===0&&jobdivaSyncUpsertPlacementReferral($tenant,$choicePlacement,'2026-10-01',['employmentType'=>'1099','referralVendor'=>'Different source','referralFeeAmount'=>99])===0,'Native company selection holds both rule sets against later source changes');
+$expect($snapshot($financialTables)===$financialBefore,'Native company choice creates no accounting, payroll or payment operation');
