@@ -18,7 +18,7 @@ try{
     $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Synthetic shared assignment",1,1,"sub",?)')->execute([$child,$tenant]);
     $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared")')->execute([$child]);
     $makePlacement=static function(int $workspace)use($pdo):int{
-        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,classification) VALUES(?,"Synthetic","Party Worker","w2")')->execute([$workspace]);$person=(int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,classification,email_primary) VALUES(?,"Synthetic","Party Worker","w2",?)')->execute([$workspace,'synthetic-party-'.bin2hex(random_bytes(8)).'@example.invalid']);$person=(int)$pdo->lastInsertId();
         $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,status,engagement_type,start_date) VALUES(?,?,"Synthetic parties","on_hold","w2","2026-11-01")')->execute([$workspace,$person]);return(int)$pdo->lastInsertId();
     };
     $placement=$makePlacement($tenant);
