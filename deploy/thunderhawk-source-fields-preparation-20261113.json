@@ -1,0 +1,154 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "No integration progress: standalone accounting access answer. Current worktree and exact live rate CI revalidated; rate acceptance completed before source-field refresh work.",
+  "source_commit": "4fe4c3ab2812c5a87d08dcad5dd8b3e5ace84eab",
+  "base_commit": "8b103767d6571ae9280ca3859e32f790273505bd",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "58d622c6e2dfb8b042c1786b7c0d7cd0f5378194fa581ec6dd43b37cb9fdee34",
+    "api/admin/integrations/reindex_jobdiva_subpayloads.php": "6ac795fe1fedac07872a75d9ed6cc872fa55f16eb66803ae252a5a187ceaf8dc",
+    "core/integrations/payload_field_index.php": "edebea993b04223e5f84395b7e52dfce27ee40c91f9f71735544f1ae1514793d",
+    "core/jobdiva/joined_index_refresh.php": "55f5f6b737c9fa4eaaa92348fe6398da8a9fb5207ad74c295bcabd0e9626b6d5",
+    "core/jobdiva/mapping_alignment.php": "956aebf9f3b1ff6d278e5ce1bb2f8443ad73edc1307e5b29ca861b7558b0a019",
+    "core/jobdiva/sync.php": "aa0a3e228e48511d4389fc9b3699a76a553b7678ee861b29e0e3d28ee1074838",
+    "tests/company_relationship_concurrency_db.php": "02fcfcac6de48bfbab65be0586f0c5e6c0742d4770946fa03b1264e834269d45",
+    "tests/fixtures/joined_index_concurrency_checks.php": "adb28f0dd35083a7ab7855acef8e17d1921b20f92f412d1929c456a1a5c8159c",
+    "tests/fixtures/joined_index_http_checks.php": "4f8a53b3bb88775a595a4c8d3197077fed2be9685cc5b29bbc6f6016ab7fa7df",
+    "tests/fixtures/placement_contract_http_router.php": "b85dc50c19c0206407a1637616bf2f1dd19602c0cbe31432c574825bed30541e",
+    "tests/jobdiva_assignment_contract_smoke.php": "54f65752989a26357b927e11dad524aff741c5ebb9fb9ac33676f6148835fe69",
+    "tests/jobdiva_enrich_diagnostics_smoke.php": "2c182a8ddb2e6659749cfeb50a1c6b8c2ad9502e2ad3918fe6614880c0b45b22",
+    "tests/jobdiva_joined_refresh_db_check.php": "cad2e70e58aac954b54dcc693ef4bc8f51ae65b06d7ccf9334e05be71dba1eab",
+    "tests/jobdiva_placement_graph_economics_smoke.php": "a3391aea4e3679d0d3240ccfc57a94860604aed107eb759f7edd2b8572de771b",
+    "tests/jobdiva_subpayload_extraction_smoke.php": "2424147abd5925ac006a21c0cbaa0b176b55bf94954bb8f051dba67245a75cfd",
+    "tests/placement_contract_permissions_http.php": "21d295ac8fe24762ec0b5dc3f53fbd73d59dadb29a5e8bc05e04191fd4dd8547"
+  },
+  "ci": {
+    "run_id": 43483416538,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43483416538",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132085487342,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487357,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487370,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487385,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487409,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487415,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487428,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487529,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487580,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487615,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132085487640,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "joined_source_refresh": 26,
+    "source_rate_ownership_and_approval": 41,
+    "independent_connections": 327,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 497
+  },
+  "concurrency_labels": [
+    "Source-field refresh waits for policy COMMIT",
+    "Source-field refresh revalidates current policy after COMMIT",
+    "Source-field refresh waits for mapping COMMIT",
+    "Source-field refresh revalidates current mapping after COMMIT",
+    "Source-field refresh waits for placement COMMIT",
+    "Source-field refresh revalidates current placement after COMMIT",
+    "Source-field refresh holds its snapshot, index and audit before COMMIT: {\"saved\":true,\"id\":121,\"in_transaction\":true}",
+    "Concurrent source-field retry waits for COMMIT",
+    "Concurrent source-field retries save exactly one required receipt after COMMIT",
+    "Source-field refresh waits for policy ROLLBACK",
+    "Source-field refresh revalidates current policy after ROLLBACK",
+    "Source-field refresh waits for mapping ROLLBACK",
+    "Source-field refresh revalidates current mapping after ROLLBACK",
+    "Source-field refresh waits for placement ROLLBACK",
+    "Source-field refresh revalidates current placement after ROLLBACK",
+    "Source-field refresh holds its snapshot, index and audit before ROLLBACK: {\"saved\":true,\"id\":125,\"in_transaction\":true}",
+    "Concurrent source-field retry waits for ROLLBACK",
+    "Concurrent source-field retries save exactly one required receipt after ROLLBACK"
+  ],
+  "http_labels": [
+    "Source-field refresh requires native sign-in",
+    "Source-field refresh cannot mutate on GET",
+    "Late native source-field audit failure leaves snapshot and indexes unchanged",
+    "Native source-field refresh indexes original-workspace fields for a shared placement: [200,{\"ok\":true,\"placements_walked\":1,\"snapshots_refreshed\":1,\"sub_records_indexed\":{\"placement\":0,\"staffing_job\":1,\"person\":1,\"company\":1,\"job\":1,\"jobdiva_customer\":1,\"contact\":0,\"assignment\":1},\"enrichment_ran_for\":0,\"enrichment_errors\":[],\"endpoint_diagnostics\":[]}]",
+    "Local source-field refresh reports completed snapshots separately from remote lookups",
+    "Native field refresh preserves business rows, approved history and permanent numbers",
+    "Changed directory access blocks native field refresh without leaking shared records"
+  ],
+  "cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T18:04:23+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "ordinary assignment_contracts_batch current source identity, revalidation and required audit",
+    "legacy alignment reporting with current directory owners",
+    "reviewed duplicate consolidation preserving source pairs and permanent aliases",
+    "active-status maintenance and generic placement CSV",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider fields, portal, onboarding, documents, original time approvals and corrections, payroll results and financial reconciliation remain incomplete"
+}
