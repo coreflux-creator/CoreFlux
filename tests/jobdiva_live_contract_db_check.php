@@ -49,6 +49,20 @@ try{
             $q->execute([$snapshot['base']['context']['company_owner'],$workspace,$placement]);$saved=$q->fetch(PDO::FETCH_ASSOC);
             $check($result['projected']===1&&$saved&&$saved['external_id']===$corporation&&$saved['city']==='Hamilton','Fresh corporate company, profile, vendor and assignment commit together in their current directories');
         },true);
+        foreach([false,true]as$coreOwned)JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$mappingId,$placement,$person,$actor,$exact,$fresh,$insert,$read,$check,$coreOwned):void{
+            $other=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Retained alternate worker','classification'=>'w2','status'=>'active','external_id'=>'retained-alternate-number']);
+            $pdo->prepare('UPDATE placements SET person_id=?,coreflux_overridden_fields=? WHERE id=?')->execute([$other,$coreOwned?'["title","person_id"]':'["title"]',$placement]);
+            $snapshot=jobdivaLiveContractSnapshot($workspace,$mappingId);$result=jobdivaLiveContractApply($snapshot,$exact,$fresh,null,$actor);
+            $check($result['projected']===1&&(int)$read('placements',$placement)['person_id']===($coreOwned?$other:$person),'Live candidate reconciliation '.($coreOwned?'preserves the Core-owned person selection':'corrects a stale source-owned person selection'));
+            $check($read('people',$other)['external_id']==='retained-alternate-number'&&$read('people',$person)['external_id']==='retained-live-worker','Candidate reconciliation never rewrites either permanent person number');
+        },true);
+        JobdivaStoredReviewTransaction::run(static function()use($pdo,$owner,$workspace,$mappingId,$placement,$actor,$exact,$fresh,$insert,$read,$check):void{
+            $rate=$insert('placement_rates',['tenant_id'=>$owner,'placement_id'=>$placement,'effective_from'=>'2026-10-01','bill_rate'=>130,'pay_rate'=>65,'approved_at'=>'2026-10-01 12:00:00','approved_by_user_id'=>$actor]);
+            $pdo->prepare('UPDATE placements SET coreflux_overridden_fields=? WHERE id=?')->execute(['["title","rates"]',$placement]);
+            $before=$read('placement_rates',$rate);$snapshot=jobdivaLiveContractSnapshot($workspace,$mappingId);
+            $result=jobdivaLiveContractApply($snapshot,$exact,$fresh,null,$actor);
+            $check($result['projected']===1&&$read('placement_rates',$rate)===$before,'The live path retains the complete Core-owned approved rate and approval actor');
+        },true);
         foreach(['root','worker','detail','contract']as$case){
             $bad=$fresh;$remote=$exact;
             if($case==='root')$bad['startId']='99319999';
