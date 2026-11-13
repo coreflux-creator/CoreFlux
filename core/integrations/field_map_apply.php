@@ -1501,7 +1501,7 @@ function integrationFieldMapApplyAll(
                     $entry=$values[0];
                     $result=integrationCustomFieldApply($pdo,$tid,$integration,$entry['mapping'],(int)$b['id'],$entry['value']);
                     if($result['changed'])$summary['written']++;
-                    else integrationFieldMapSkip($summary,$entry['mapping'],'custom_value_already_current');
+                    else integrationFieldMapSkip($summary,$entry['mapping'],!empty($result['held_for_merge_review'])?'merged_company_custom_proposal':'custom_value_already_current');
                 } catch (\Throwable $e) {
                     $summary['skipped']+=count($values);
                     $summary['errors'][] = "cf_write_fail {$b['table']}#{$b['id']}: " . $e->getMessage();

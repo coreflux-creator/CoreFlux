@@ -1,0 +1,93 @@
+<?php
+/** Source-side merge contract against the native schema. No provider calls; all fixtures roll back. */
+declare(strict_types=1);
+if(PHP_SAPI!=='cli'||getenv('GITHUB_ACTIONS')!=='true'||getenv('CI')!=='true'||getenv('DB_NAME')!=='coreaccounting_ci')exit(2);
+require_once __DIR__.'/../core/jobdiva/sync.php';
+require_once __DIR__.'/../core/jobdiva/projector.php';
+require_once __DIR__.'/../core/integrations/custom_fields.php';
+$pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
+$checks=[];$check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks[]=$label;};
+$fails=static function(callable $fn):bool{try{$fn();return false;}catch(Throwable $e){return $e instanceof RuntimeException||$e instanceof InvalidArgumentException;}};
+$row=static function(string $table,int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
+$all=static fn(string $table):array=>$pdo->query('SELECT * FROM '.$table.' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$tenant=990641;$child=990642;$foreign=990643;
+if($pdo->query('SELECT id FROM tenants WHERE id IN(990641,990642,990643)')->fetchColumn())throw new RuntimeException('Fixture tenants already exist');
+$protected=[$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries')];
+$pdo->beginTransaction();
+try{
+    foreach([$tenant,$foreign]as$t)$pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type) VALUES(?,?,1,1,"master")')->execute([$t,'Synthetic merged company '.$t]);
+    $pdo->prepare('INSERT INTO tenants(id,name,is_active,is_simulation,tenant_type,parent_id) VALUES(?,"Shared alias fixture",1,1,"sub",?)')->execute([$child,$tenant]);
+    $pdo->prepare('INSERT INTO tenant_module_scope(tenant_id,module_key,scope_mode) VALUES(?,"companies","shared")')->execute([$child]);
+    $create=static fn(string $external,string $name,int $workspace=990641):int=>jobdivaUpsertCompanyMapped($workspace,$external,$name,['phone'=>'Source phone'],['id'=>$external,'name'=>$name],null,[]);
+    $a=$create('provider-A','Company A');$b=$create('provider-B','Company B');
+    $contact=jobdivaContactUpsertStable($tenant,$b,'contact-B',['id'=>'contact-B'],'Contact B',['phone'=>'Source contact'],null);
+    mappingUpsert($tenant,'purepay','company','pure-B',$b,['external'=>'pure-B'],'pull',null);
+    $bindings=$all('external_entity_mappings');
+    $bNumber=companyIdentityResolve($pdo,$tenant,$b)['company_number'];
+    // This establishes the reviewed merge invariants, not the legacy merge API.
+    // The new merge review/apply service must perform these actions atomically.
+    $mergeIdentity=static function(int $survivor,int $retired)use($pdo,$tenant):void{
+        foreach([$survivor,$retired]as$id)companySourceWithRecord($pdo,$tenant,'companies',$id,static function(array $r)use($pdo,$tenant,$id):void{
+            companyNativeFields($pdo,$tenant,$tenant,'companies',$id,array_intersect_key($r,array_flip(companySourceFields('companies'))),null);
+        });
+        coreRecordNumbersMerge($pdo,$tenant,'company',$survivor,$retired,null);
+        $pdo->prepare('UPDATE company_contacts SET company_id=? WHERE tenant_id=? AND company_id=?')->execute([$survivor,$tenant,$retired]);
+        $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE tenant_id=? AND id=?')->execute([$tenant,$retired]);
+    };
+    $mergeIdentity($a,$b);
+    $identity=companyIdentityResolve($pdo,$tenant,$b,true);
+    $check($identity['id']===$a&&$identity['source_id']===$b&&$identity['merged']&&$identity['source_number']===$bNumber,'Retired company number resolves to the reviewed same-directory survivor');
+    $check($all('external_entity_mappings')===$bindings,'Merge aliases preserve every raw provider ID, mapping row and payload');
+    $survivorBefore=$row('companies',$a);$retiredBefore=$row('companies',$b);
+    $check($create('provider-B','Changed source B')===$a,'Company refresh returns the canonical relationship ID without rebinding the source');
+    $state=companySourceState($row('companies',$b),'companies');
+    $check($state['proposed']['name']==='Changed source B'&&$row('companies',$b)['name']===$retiredBefore['name']&&$row('companies',$a)===$survivorBefore,'Merged source proposals cannot change either physical profile');
+    $check((int)mappingFindInternal($tenant,'jobdiva','company','provider-B')['internal_entity_id']===$b&&(int)mappingFindInternal($tenant,'jobdiva','company','provider-A')['internal_entity_id']===$a,'Both stable JobDiva pairs survive a post-merge refresh');
+    $pure=static function()use($pdo,$tenant):array{$q=$pdo->prepare('SELECT * FROM external_entity_mappings WHERE tenant_id=? AND source_system="purepay" AND external_id="pure-B"');$q->execute([$tenant]);return$q->fetch(PDO::FETCH_ASSOC);};
+    $check($pure()===array_values(array_filter($bindings,static fn($r)=>$r['source_system']==='purepay'&&$r['external_id']==='pure-B'))[0],'Other providers are not rewritten by JobDiva refresh');
+    $revision=$state['revision'];$create('provider-B','Changed source B');
+    $check(companySourceState($row('companies',$b),'companies')['revision']===$revision,'Exact replay retains one semantic source revision');
+    jobdivaCompanyObserveMappedRoles($tenant,'provider-B',$a,['vendor']);
+    $check(companyRoles($a)===[]&&companyRoles($b)===[]&&in_array('vendor',companySourceState($row('companies',$b),'companies')['proposed']['roles'],true),'Secondary source roles remain reviewable proposals, not restored roles');
+    $check(jobdivaAssignmentPartyCompany($tenant,'Changed source B','provider-B',$a,null,'',[],null)===$a,'Explicit assignment company identity follows the permanent alias');
+    $check(jobdivaAssignmentPartyCompany($tenant,'Changed source B','',$b,null,'',[],null)===$a,'A supplied original source record retains its exact reverse binding');
+    $check(jobdivaProjectorResolvePartyCompany($tenant,[],['external_id'=>'provider-B','name'=>'Changed source B'],null)===$a,'Graph projection resolves the alias while validating the original source authority');
+    $job=staffingJobEnsureFromJobDivaPayload($tenant,'job-B',['title'=>'Alias job','companyId'=>'provider-B']);
+    $check((int)$job['company_id']===$a,'Requisitions use the canonical company without inventing a bill-to client');
+    $check(jobdivaContactUpsertStable($tenant,$b,'contact-B',['id'=>'contact-B'],'Contact B',['phone'=>'Updated contact'],null)===$contact&&(int)$row('company_contacts',$contact)['company_id']===$a,'Contact replay retains its provider ID and follows its reviewed parent alias');
+    $check($fails(fn()=>companyNativeFields($pdo,$tenant,$tenant,'companies',$b,['name'=>'Unreviewed resurrection'],null)),'Native edits cannot resurrect a retired source alias');
+    $retiredReview=companySourceReview($row('companies',$b)+['roles'=>[]],'companies');
+    $check($fails(fn()=>companySourceAccept($pdo,$tenant,$tenant,'companies',$b,['name'],$retiredReview['review_token'],null)),'Generic source acceptance cannot release merged-source authority');
+    $pdo->prepare('INSERT INTO custom_fields(tenant_id,module,field_name,field_label,field_type) VALUES(?,"companies","external_segment","Segment","text")')->execute([$tenant]);$def=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO tenant_integration_field_map(tenant_id,integration,entity_type,external_field,source_path,internal_field,target_module,target_table,target_column,linked_entity) VALUES(?,"jobdiva","company","segment","segment","external_segment","companies","custom_field_values","external_segment","self")')->execute([$tenant]);
+    $map=['id'=>(int)$pdo->lastInsertId(),'target_module'=>'companies','target_table'=>'custom_field_values','target_column'=>'external_segment'];
+    $customBefore=$all('custom_values');
+    $result=integrationCustomFieldApply($pdo,$tenant,'jobdiva',$map,$b,'Enterprise');$state=companySourceState($row('companies',$b),'companies');
+    $check($result['held_for_merge_review']&&!$result['changed']&&$state['merged_custom_proposals']['external_segment']['value']==='Enterprise'&&$all('custom_values')===$customBefore,'Custom source values are retained as typed proposals without writing either profile');
+    $revision=$state['revision'];integrationCustomFieldApply($pdo,$tenant,'jobdiva',$map,$b,'Enterprise');
+    $check(companySourceState($row('companies',$b),'companies')['revision']===$revision,'Custom proposal replay is idempotent');
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,$tenant,'jobdiva',$map,$b,null)),'Merged custom proposals cannot use an incoming clear');
+    $pdo->prepare('UPDATE custom_fields SET pii=1 WHERE tenant_id=? AND id=?')->execute([$tenant,$def]);
+    $check($fails(fn()=>integrationCustomFieldApply($pdo,$tenant,'jobdiva',$map,$b,'Sensitive')),'Merged custom proposals retain protected-field restrictions');
+    $pdo->prepare('UPDATE custom_fields SET pii=0 WHERE tenant_id=? AND id=?')->execute([$tenant,$def]);
+    $before=$row('companies',$b);$beforeMapping=mappingFindInternal($tenant,'jobdiva','company','provider-B');
+    $pdo->prepare('UPDATE custom_fields SET field_type="number" WHERE tenant_id=? AND id=?')->execute([$tenant,$def]);
+    $check($fails(fn()=>jobdivaUpsertCompanyMapped($tenant,'provider-B','Must roll back',[],['id'=>'provider-B','segment'=>'invalid-number'],null,[]))&&$row('companies',$b)===$before&&mappingFindInternal($tenant,'jobdiva','company','provider-B')===$beforeMapping,'A bad mapped custom proposal rolls back profile evidence and provider payload atomically');
+    $pdo->prepare('UPDATE custom_fields SET field_type="text" WHERE tenant_id=? AND id=?')->execute([$tenant,$def]);
+    $check(jobdivaUpsertCompanyMapped($tenant,'provider-B','Changed source B',[],['id'=>'provider-B','segment'=>'New segment'],null,[])===$a&&companySourceState($row('companies',$b),'companies')['merged_custom_proposals']['external_segment']['value']==='New segment','Full source refresh applies configured custom mappings as held alias proposals');
+    $shared=$create('shared-provider','Shared source',$child);$mergeIdentity($a,$shared);
+    $check($create('shared-provider','Shared change',$child)===$a,'Shared company directory resolves aliases using the source workspace');
+    $pdo->prepare('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=? AND module_key="companies"')->execute([$child]);
+    $check($fails(fn()=>$create('shared-provider','Must not cross directory',$child)),'A changed company directory invalidates an old alias immediately');
+    $check(companyIdentityResolve($pdo,$foreign,$b)===null,'A foreign directory cannot resolve a company alias');
+    $deleted=$create('deleted-provider','Deleted source');
+    $pdo->prepare('UPDATE companies SET deleted_at=NOW() WHERE tenant_id=? AND id=?')->execute([$tenant,$deleted]);
+    $check(companyIdentityResolve($pdo,$tenant,$deleted)===null&&$fails(fn()=>$create('deleted-provider','Do not revive')),'Ordinary deletion is never interpreted as a merge');
+    $c=$create('provider-C','Company C');$mergeIdentity($c,$a);
+    $check(companyIdentityResolve($pdo,$tenant,$b)['id']===$c&&$create('provider-B','Chained update')===$c,'Repeated merges flatten company-number aliases without changing provider bindings');
+    $foreignCompany=$create('foreign-provider','Foreign source',$foreign);
+    $pdo->prepare('UPDATE core_record_numbers SET canonical_record_id=? WHERE tenant_id=? AND entity_type="company" AND record_id=?')->execute([$foreignCompany,$tenant,$b]);
+    $check($fails(fn()=>$create('provider-B','Corrupt alias')),'Corrupt cross-directory alias is rejected before source writes');
+    $check($protected===[$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries')],'Alias processing changes no financial or time records');
+    echo json_encode(['passed'=>true,'checks'=>count($checks),'labels'=>$checks],JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR).PHP_EOL;
+}finally{if($pdo->inTransaction())$pdo->rollBack();}

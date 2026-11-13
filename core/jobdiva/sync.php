@@ -5000,13 +5000,14 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
             . ' in JobDiva settings, then refresh this preview.'];
     if ($tid <= 0 || $externalId === '') return $result;
     $mapped = mappingFindInternal($tid, 'jobdiva', 'company', $externalId);
-    $owner = companiesDirectoryTenantId($tid);
+    $owner = jobdivaPartyDirectoryScope(getDB(),$tid)['owner'];
     $bindingEvidence = ['directory_owner_id'=>$owner,'mapping_id'=>$mapped['id']??null,
         'internal_entity_id'=>$mapped['internal_entity_id']??null];
     if ((int) ($mapped['internal_entity_id'] ?? 0) > 0) {
-        $q = getDB()->prepare('SELECT id,name,coreflux_source_state FROM companies WHERE tenant_id=? AND id=? AND deleted_at IS NULL LIMIT 1');
-        $q->execute([$owner, (int) $mapped['internal_entity_id']]);
-        $company = $q->fetch(PDO::FETCH_ASSOC);
+        $identity=companyIdentityResolve(getDB(),$owner,(int)$mapped['internal_entity_id']);
+        $company=$identity?array_intersect_key($identity['company'],array_flip(['id','name','coreflux_source_state'])):null;
+        $bindingEvidence['canonical_company_id']=$identity['id']??null;
+        $bindingEvidence['source_number']=$identity['source_number']??null;
         if ($company && !jobdivaCompanyNameIsPlaceholder((string) $company['name'], $externalId)) {
             require_once __DIR__.'/../../modules/people/lib/company_source_ownership.php';
             $ownership=companySourceState($company,'companies');
@@ -5073,12 +5074,9 @@ function jobdivaSyncResolveSubcontractCompany(
     if ($mapped) {
         $companyId = (int) ($mapped['internal_entity_id'] ?? 0);
         if ($companyId > 0) {
-            $st = getDB()->prepare(
-                'SELECT id, name FROM companies
-                  WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
-            );
-            $st->execute(['t' => companiesDirectoryTenantId($tid), 'id' => $companyId]);
-            $company = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+            $identity=companyIdentityResolve(getDB(),jobdivaPartyDirectoryScope(getDB(),$tid)['owner'],$companyId);
+            $company=$identity['company']??null;
+            if($identity)$companyId=$identity['id'];
             if ($company && !jobdivaCompanyNameIsPlaceholder(
                 (string) ($company['name'] ?? ''),
                 $externalId

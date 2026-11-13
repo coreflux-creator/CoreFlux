@@ -99,7 +99,10 @@ function staffingJobEnsureFromJobDivaPayload(int $tenantId, string $externalId, 
     $companyId = null;
     if ($companyExtId !== '' && function_exists('mappingFindInternal')) {
         $mapped = mappingFindInternal($tenantId, 'jobdiva', 'company', $companyExtId);
-        if ($mapped) $companyId = (int) $mapped['internal_entity_id'];
+        if ($mapped) {
+            require_once __DIR__.'/../../../core/jobdiva/party_sync.php';
+            $companyId = jobdivaCompanyCanonicalId($tenantId,(int)$mapped['internal_entity_id']);
+        }
     }
 
     // A requisition's company is not necessarily the assignment's bill-to

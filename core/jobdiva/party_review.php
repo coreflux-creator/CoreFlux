@@ -90,7 +90,7 @@ function jobdivaPartyReviewTarget(PDO $pdo,int $workspace,array $scope,array $re
     if($table==='company_contacts'){
         $q=$pdo->prepare('SELECT id,external_id,internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="company" AND external_id=?'.$suffix);
         $q->execute([$workspace,$source['company_id']]);$parentLink=$q->fetch(PDO::FETCH_ASSOC);
-        if(!$parentLink||(int)$parentLink['internal_entity_id']!==$companyId)throw new RuntimeException('Link the contact’s exact JobDiva parent company first. A contact cannot move to another company here.',409);
+        if(!$parentLink||jobdivaCompanyCanonicalId($workspace,(int)$parentLink['internal_entity_id'],$lock)!==$companyId)throw new RuntimeException('Link the contact’s exact JobDiva parent company first. A contact cannot move to another company here.',409);
     }
     $type=$table==='companies'?'company':'contact';
     $q=$pdo->prepare('SELECT id,external_id,internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type=? AND (external_id=? OR internal_entity_id=?) ORDER BY id'.$suffix);

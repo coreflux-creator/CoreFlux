@@ -2,6 +2,7 @@
 /** One reviewed source authority per company/contact, with explicit native field holds. */
 declare(strict_types=1);
 require_once __DIR__ . '/../../../core/integrations/entity_mappings.php';
+require_once __DIR__ . '/company_identity.php';
 
 function companySourceFields(string $table): array
 {
@@ -40,11 +41,24 @@ function companySourceState(array $row, string $table): array
                 ||array_diff($value,['client','customer','vendor','msp','prime_vendor','sub_vendor','referrer','partner']))throw new RuntimeException('Review the stored company role proposal.',409);
         }elseif($value!==null&&!is_scalar($value))throw new RuntimeException('Review the stored company source value.',409);
     }
+    if(array_key_exists('merged_custom_proposals',$state)){
+        if($table!=='companies'||!is_array($state['merged_custom_proposals']))throw new RuntimeException('Review the merged company custom proposals.',409);
+        foreach($state['merged_custom_proposals']as$key=>$proposal){
+            if(!is_string($key)||!preg_match('/^[a-z][a-z0-9_]{0,79}$/D',$key)||!is_array($proposal)
+                ||!is_int($proposal['mapping_id']??null)||$proposal['mapping_id']<=0
+                ||!is_int($proposal['definition_id']??null)||$proposal['definition_id']<=0
+                ||!array_key_exists('value',$proposal)||$proposal['value']===null
+                ||(!is_scalar($proposal['value'])&&(!is_array($proposal['value'])||!array_is_list($proposal['value'])
+                    ||array_filter($proposal['value'],static fn($v)=>!is_string($v))))){
+                throw new RuntimeException('Review the merged company custom proposal value.',409);
+            }
+        }
+    }
     return $state;
 }
 
 /** Nested callers retain their transaction; a failed operation rolls back its own writes. */
-function companySourceWithRecord(PDO $pdo, int $owner, string $table, int $id, callable $write, bool $parentLocked=false): mixed
+function companySourceWithRecord(PDO $pdo, int $owner, string $table, int $id, callable $write, bool $parentLocked=false, bool $allowMergedSource=false): mixed
 {
     companySourceFields($table);
     if ($owner<=0 || $id<=0) throw new InvalidArgumentException('A scoped company record is required.');
@@ -56,9 +70,14 @@ function companySourceWithRecord(PDO $pdo, int $owner, string $table, int $id, c
     $own = !$pdo->inTransaction(); $save = 'company_source_'.bin2hex(random_bytes(8));
     if ($own) $pdo->beginTransaction(); else $pdo->exec('SAVEPOINT '.$save);
     try {
-        $sql='SELECT * FROM '.$table.' WHERE tenant_id=? AND id=?';
-        if ($table==='companies') $sql.=' AND deleted_at IS NULL';
-        $q=$pdo->prepare($sql.' FOR UPDATE');$q->execute([$owner,$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
+        if($table==='companies'&&$allowMergedSource){
+            $identity=companyIdentityResolve($pdo,$owner,$id,true);
+            $row=$identity?$identity['source_company']+['_canonical_company_id'=>$identity['id'],'_merged_source'=>$identity['merged']]:null;
+        }else{
+            $sql='SELECT * FROM '.$table.' WHERE tenant_id=? AND id=?';
+            if ($table==='companies') $sql.=' AND deleted_at IS NULL';
+            $q=$pdo->prepare($sql.' FOR UPDATE');$q->execute([$owner,$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
+        }
         if (!$row) throw new RuntimeException('Company record not found in this directory.',404);
         if($table==='companies'){$q=$pdo->prepare('SELECT role FROM company_roles WHERE company_id=? ORDER BY role');$q->execute([$id]);$row['roles']=$q->fetchAll(PDO::FETCH_COLUMN);}
         $result=$write($row);
@@ -123,7 +142,7 @@ function companySourceFinishObservation(PDO $pdo,int $owner,string $table,int $i
             ||companySourceComparableValues(array_intersect_key($before,$fields))!==companySourceComparableValues(array_intersect_key($after,$fields));
         $revision=$old['revision']+($changed?1:0);
         if($state['revision']!==$revision){$state['revision']=$revision;companySourcePersist($pdo,$owner,$table,$id,[],$state);}
-    });
+    },false,$table==='companies');
 }
 
 /** Source proposals are retained even when a Core edit prevents their application. */
@@ -135,6 +154,13 @@ function companySourceObserve(PDO $pdo,int $owner,string $table,int $id,array $v
     $source=array_intersect_key($source,array_flip(['system','workspace_id','external_id']));
     return companySourceWithRecord($pdo,$owner,$table,$id,static function(array $row)use($pdo,$owner,$table,$id,$values,$source,$newRecord,$replaceProposal):array{
         $state=companySourceState($row,$table);$before=$state;unset($before['observed_at']);
+        // A secondary identity keeps its own proposals. It has no authority to
+        // change either the retired profile or the reviewed surviving company.
+        if(!empty($row['_merged_source'])){
+            if($newRecord)throw new LogicException('A merged source cannot initialize a company.');
+            $state['owned']=companySourceFields($table);sort($state['owned']);
+            $state['legacy_unreviewed']=false;
+        }
         if ($newRecord) {
             if ($row['coreflux_source_state']!==null) throw new LogicException('Source initialization cannot replace existing ownership.');
             $state['owned']=[];$state['legacy_unreviewed']=false;
@@ -152,7 +178,7 @@ function companySourceObserve(PDO $pdo,int $owner,string $table,int $id,array $v
         if($changed)$state['revision']++;
         companySourcePersist($pdo,$owner,$table,$id,$apply,$state);
         return ['written'=>count($apply),'skipped'=>array_values(array_intersect(array_keys($values),$state['owned']))];
-    });
+    },false,$table==='companies');
 }
 
 function companyNativeFields(PDO $pdo,int $workspace,int $owner,string $table,int $id,array $values,?int $actor): array

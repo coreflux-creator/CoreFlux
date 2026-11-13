@@ -20,6 +20,15 @@ function jobdivaPartyMappedFields(int $workspace,string $type,int $id,array $pay
     if($result['errors'])throw new RuntimeException('Company source mappings need review: '.implode('; ',$result['errors']));
 }
 
+/** Relationship IDs follow reviewed aliases; the provider mapping itself stays unchanged. */
+function jobdivaCompanyCanonicalId(int $workspace,int $sourceId,bool $lock=false): int
+{
+    $pdo=getDB();$owner=jobdivaPartyDirectoryScope($pdo,$workspace,$lock)['owner'];
+    $identity=companyIdentityResolve($pdo,$owner,$sourceId,$lock);
+    if(!$identity)throw new RuntimeException('The source company is unavailable in this directory. Review its identity.',409);
+    return $identity['id'];
+}
+
 /** A source rule can retain an old relation, but cannot establish identity by name. */
 function jobdivaAssignmentPartyCompany(int $workspace, string $name, string $external, ?int $knownId, ?int $previousId, string $previousName, array $roles, ?int $actor): ?int
 {
@@ -28,9 +37,12 @@ function jobdivaAssignmentPartyCompany(int $workspace, string $name, string $ext
     if ($external === '' && !$knownId && !$previousId) return null;
     return jobdivaPartyAtomic(static function(PDO $pdo) use ($workspace,$name,$external,$knownId,$previousId,$previousName,$roles,$actor): ?int {
         $owner = jobdivaPartyDirectoryScope($pdo,$workspace,true)['owner'];
+        $knownSourceId=$knownId;
+        if($knownId)$knownId=jobdivaCompanyCanonicalId($workspace,$knownId,true);
+        if($previousId)$previousId=jobdivaCompanyCanonicalId($workspace,$previousId,true);
         if ($external === '' && $knownId) {
             $q = $pdo->prepare('SELECT external_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="company" AND internal_entity_id=? FOR UPDATE');
-            $q->execute([$workspace,$knownId]);
+            $q->execute([$workspace,$knownSourceId]);
             $external = (string) ($q->fetchColumn() ?: '');
             if ($external === '' && $knownId !== $previousId) throw new RuntimeException('Review the exact JobDiva company link before using it in this assignment.',409);
         }
@@ -42,7 +54,7 @@ function jobdivaAssignmentPartyCompany(int $workspace, string $name, string $ext
         }
         $link = mappingFindInternal($workspace,'jobdiva','company',$external);
         if ($link) {
-            $id = (int) $link['internal_entity_id'];
+            $id = jobdivaCompanyCanonicalId($workspace,(int)$link['internal_entity_id'],true);
             if ($knownId && $knownId !== $id) throw new RuntimeException('The assignment company and JobDiva identity disagree. Review the company link.',409);
             jobdivaCompanyObserveMappedRoles($workspace,$external,$id,$roles);
             return $id;
@@ -64,15 +76,20 @@ function jobdivaCompanyObserveMappedRoles(int $workspace,string $external,int $c
     }
     return jobdivaPartyAtomic(static function(PDO $pdo)use($workspace,$external,$companyId,$roles):array{
         $owner=jobdivaPartyDirectoryScope($pdo,$workspace,true)['owner'];
-        return companySourceWithRecord($pdo,$owner,'companies',$companyId,static function(array $current)use($pdo,$workspace,$owner,$external,$companyId,$roles):array{
+        $link=mappingFindInternal($workspace,'jobdiva','company',$external);
+        $sourceId=(int)($link['internal_entity_id']??0);
+        if(!$sourceId||jobdivaCompanyCanonicalId($workspace,$sourceId,true)!==jobdivaCompanyCanonicalId($workspace,$companyId,true)){
+            throw new RuntimeException('Review the exact JobDiva company link before applying source roles.',409);
+        }
+        return companySourceWithRecord($pdo,$owner,'companies',$sourceId,static function(array $current)use($pdo,$workspace,$owner,$external,$sourceId,$roles):array{
             $q=$pdo->prepare('SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="company" AND external_id=? FOR UPDATE');
             $q->execute([$workspace,$external]);
-            if((int)$q->fetchColumn()!==$companyId)throw new RuntimeException('Review the exact JobDiva company link before applying source roles.',409);
+            if((int)$q->fetchColumn()!==$sourceId)throw new RuntimeException('Review the exact JobDiva company link before applying source roles.',409);
             $state=companySourceState($current,'companies');
             $proposed=array_values(array_unique(array_merge($current['roles'],$state['proposed']['roles']??[],$roles)));sort($proposed);
-            return companySourceObserve($pdo,$owner,'companies',$companyId,['roles'=>$proposed],
+            return companySourceObserve($pdo,$owner,'companies',$sourceId,['roles'=>$proposed],
                 ['system'=>'jobdiva','workspace_id'=>$workspace,'external_id'=>$external],false,false);
-        });
+        },false,true);
     });
 }
 
@@ -98,12 +115,13 @@ function jobdivaCompanyUpsertStable(int $workspace,string $external,string $name
             companySourceObserve($pdo,$owner,'companies',$id,$proposal,['system'=>'jobdiva','workspace_id'=>$workspace,'external_id'=>$external],$new);
             jobdivaPartyMappedFields($workspace,'company',$id,$payload);
             companySourceFinishObservation($pdo,$owner,'companies',$id,$current);
-            if(in_array('client',$roles,true)&&in_array('client',companyRoles($id),true)){
+            $canonicalId=(int)$current['_canonical_company_id'];
+            if(empty($current['_merged_source'])&&in_array('client',$roles,true)&&in_array('client',companyRoles($id),true)){
                 $q=$pdo->prepare('SELECT name FROM companies WHERE tenant_id=? AND id=?');$q->execute([$owner,$id]);
                 jobdivaEnsureStaffingClientForCompany($workspace,$id,(string)$q->fetchColumn(),$actor);
             }
-            return$id;
-        });
+            return$canonicalId;
+        },false,true);
     });
 }
 
@@ -112,6 +130,7 @@ function jobdivaContactUpsertStable(int $workspace,int $companyId,string $extern
     if($external===''||trim($name)==='')throw new InvalidArgumentException('Contact source identity and name are required.');
     return jobdivaPartyAtomic(static function(PDO $pdo)use($workspace,$companyId,$external,$payload,$name,$values,$actor):int{
         $owner=jobdivaPartyDirectoryScope($pdo,$workspace,true)['owner'];
+        $companyId=jobdivaCompanyCanonicalId($workspace,$companyId,true);
         return companySourceWithRecord($pdo,$owner,'companies',$companyId,static function(array $parent)use($pdo,$workspace,$owner,$companyId,$external,$payload,$name,$values,$actor):int{
             $link=mappingFindInternal($workspace,'jobdiva','contact',$external);
             $new=$link===null;$id=$link?(int)$link['internal_entity_id']:0;

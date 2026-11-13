@@ -202,6 +202,9 @@ jobs:
       - name: Verify exact assignment company identities and owned roles
         run: php tests/jobdiva_assignment_company_db.php
 
+      - name: Verify merged company source identities and held proposals
+        run: php tests/jobdiva_company_alias_db.php
+
       - name: Verify typed staffing custom fields, directory scope and atomic edits
         run: |
           php tests/staffing_custom_fields_smoke.php

@@ -50,17 +50,24 @@ function customFieldStorageCurrent(PDO $pdo,int $tenant,string $entity,int $reco
 }
 
 /** One atomic field change. Source mode fills an absent value; a clear remains an owned Core decision. */
+function customFieldStorageSourceValue(array $def,string $key,mixed $value): mixed
+{
+    if(!empty($def['pii'])||customFieldDefinitionRoleList($def,'visible')||customFieldDefinitionRoleList($def,'editable')
+        ||preg_match('/(?:ssn|tax_id|bank|routing|password|credential|token|secret|dob|birth)/i',$key)){
+        throw new InvalidArgumentException('Restricted custom values require their protected owner workflow.');
+    }
+    $value=customFieldTypedValue($def,$value);
+    if($value===null)throw new InvalidArgumentException('An incoming custom value cannot clear Core data.');
+    return $value;
+}
+
 function customFieldStorageWrite(PDO $pdo,int $tenant,string $entity,int $record,string $key,mixed $value,?callable $audit=null,bool $source=false): array
 {
     $outer=$pdo->inTransaction();$savepoint='custom_field_'.bin2hex(random_bytes(6));
     if($outer)$pdo->exec('SAVEPOINT '.$savepoint);else$pdo->beginTransaction();
     try{
         $def=customFieldStorageDefinition($pdo,$tenant,$entity,$record,$key,true);
-        if($source&&(!empty($def['pii'])||customFieldDefinitionRoleList($def,'visible')||customFieldDefinitionRoleList($def,'editable')
-            ||preg_match('/(?:ssn|tax_id|bank|routing|password|credential|token|secret|dob|birth)/i',$key)))
-            throw new InvalidArgumentException('Restricted custom values require their protected owner workflow.');
-        $value=customFieldTypedValue($def,$value);
-        if($source&&$value===null)throw new InvalidArgumentException('An incoming custom value cannot clear Core data.');
+        $value=$source?customFieldStorageSourceValue($def,$key,$value):customFieldTypedValue($def,$value);
         $current=customFieldStorageCurrent($pdo,$tenant,$entity,$record,$def,true);
         if($current['exists']&&$current['value']!==$value&&$source)throw new CustomFieldConflictException('Core already has a different custom value; review the source conflict.');
         $changed=!$current['exists']||$current['value']!==$value;

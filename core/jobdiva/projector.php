@@ -758,21 +758,20 @@ function jobdivaProjectorResolvePartyCompany(int $tenantId, array $payload, arra
 {
     $externalId = trim((string) $evidence['external_id']);
     $name = trim((string) $evidence['name']);
-    $owner = effectiveTenantIdForModule('companies', $tenantId) ?? $tenantId;
     $pdo = getDB();
+    $owner = jobdivaPartyDirectoryScope($pdo,$tenantId)['owner'];
     $mapping = $externalId !== '' ? mappingFindInternal($tenantId, 'jobdiva', 'company', $externalId) : null;
     if ($mapping) {
         if ((string) $mapping['external_id'] !== $externalId) throw new RuntimeException('Company source identity needs exact review.');
-        $s = $pdo->prepare('SELECT id, name, coreflux_source_state FROM companies WHERE tenant_id = :t AND id = :i AND deleted_at IS NULL');
-        $s->execute(['t' => $owner, 'i' => $mapping['internal_entity_id']]);
-        $company = $s->fetch(PDO::FETCH_ASSOC);
+        $identity = companyIdentityResolve($pdo,$owner,(int)$mapping['internal_entity_id']);
+        $company = $identity['source_company']??null;
         $authority=$company?companySourceState($company,'companies')['source']:null;
         $confirmed=$authority!==null&&mappingHash($authority)===mappingHash(['system'=>'jobdiva','workspace_id'=>$tenantId,'external_id'=>$externalId]);
         if($authority!==null&&!$confirmed)throw new RuntimeException('Mapped company has another source authority. Review its existing identity.',409);
         if (!$company || (!$confirmed && $name !== '' && !jobdivaProjectorCompanyNameCompatible($company['name'], $name))) {
             throw new RuntimeException('Mapped company is missing, outside this directory, or has a conflicting source name. Review the existing identity.');
         }
-        return (int) $company['id'];
+        return $identity['id'];
     }
     // Name-only evidence remains unresolved; it cannot establish a provider identity.
     if ($name === '' || $externalId === '') return null;
