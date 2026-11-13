@@ -77,7 +77,7 @@ try {
     fclose($pipes[0]);
     $request = static function(string $path, ?array $body, bool $signedIn = true, int $pinned = 900011, bool $form = false, ?string $method = null) use ($port,$cookie,&$report): array {
         $curl = curl_init('http://127.0.0.1:' . $port . $path);
-        $headers = ['Accept: application/json', 'X-CoreFlux-Tenant-Id: ' . $pinned];
+        $headers = ['Accept: application/json', 'X-CoreFlux-Tenant-Id: ' . $pinned, 'User-Agent: CoreProfileSyntheticTest', 'X-Request-Id: synthetic-profile-http'];
         $options = [CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>1,CURLOPT_TIMEOUT=>15];
         if ($body !== null) {
             $options[CURLOPT_POST] = true;
@@ -173,7 +173,7 @@ try {
     $expect($status===200&&($personView['person']['gender']??null)==='reviewed'&&array_key_exists('marital_status',$personView['person'])&&$personView['person']['marital_status']===null,'Private-authorized read returns exact reviewed values');
     [$status,$history]=$request($privateHistory,null);
     $expect($status===200&&count($history['rows']??[])===2,'Private profile changes and reads are available in the native access history');
-    foreach($history['rows'] as $receipt)$expect($receipt['record_kind']==='person'&&(int)$receipt['target_person_id']===$privatePerson&&$receipt['target_employee_id']===null&&!str_contains($receipt['fields_json'],'reviewed'),'Private access history qualifies person identity and stores field names only');
+    foreach($history['rows'] as $receipt)$expect($receipt['record_kind']==='person'&&(int)$receipt['target_person_id']===$privatePerson&&$receipt['target_employee_id']===null&&!str_contains($receipt['fields_json'],'reviewed')&&$receipt['user_agent']==='CoreProfileSyntheticTest'&&$receipt['request_id']==='synthetic-profile-http','Private access history qualifies person identity, retains request context and stores field names only');
     $expect(($personView['person']['hire_date']??null)==='2026-12-01','Caller-owned private edit transaction includes the employment helper');
     $pdo->prepare('INSERT INTO people_pii_access_log(tenant_id,user_id,employee_id,field,action) VALUES(?,?,?,"ssn","view_full")')->execute([$tenant,$actor,$privatePerson]);
     $legacyAudit=(int)$pdo->lastInsertId();
