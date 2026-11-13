@@ -1,0 +1,173 @@
+{
+  "scope": "Authorized isolated Thunderhawk pilot preparation; source only, not installed",
+  "previous_goal_turn": "Progress: stored-assignment source implementation and evidence were completed and pushed. Current source and CI were revalidated before implementing CSV reconciliation.",
+  "source_commit": "0f8028580fb083339d4d9c479c7a95b8c96b6051",
+  "base_commit": "63ae1a82b05bd8b14d1a0bbcd2eeb79de49a45cf",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "eadbd494c7a72860ab8cb67e8d32aa5bbd5a716c1dd36ea84c2bd762e5c02fc7",
+    "modules/placements/api/jobdiva_reconciliation.php": "2e25e304fffac86e93ba5c4ed6afc6956739c93b412fcb007897909be36011e9",
+    "modules/placements/lib/jobdiva_csv_context.php": "c61d5c6b7713f59601a8cc9121c0dc3bf7309b76861c0d4b9c07075701317de6",
+    "modules/placements/lib/jobdiva_csv_write.php": "1fa2197514b2220a514975a53e2e2633da000b6b75d93fe0da418447a719dff5",
+    "modules/placements/lib/jobdiva_reconciliation.php": "99d7ecd072c6077c7b7c79de8a00be98d87cdb6838893107e8b6a712f45f8524",
+    "tests/company_relationship_concurrency_db.php": "27b3e4b99ad5370a84c4fc576ce7bdec21e2e06fdd4d82ae3cdf53242148058f",
+    "tests/fixtures/source_rule_http_checks.php": "64493c105394c9efae12d9b3c1b91222a58ab1a1205a4f39c240e6dafa9facf0",
+    "tests/jobdiva_controlled_reconciliation_smoke.php": "535ce1e0f269234c6e3acaa7b4dd2ffb25708952b06fa2b372eaa79ca4ccc482",
+    "tests/jobdiva_csv_directory_db_check.php": "64d408b3683ef262be1e7cc3101cc96e53e7f5a5de5a5f9d82c4ea3dee2a88d9",
+    "tests/jobdiva_source_values_mariadb.php": "7d71704c7714a8bf5030ea313a031b06aa7d2315f535b1f48b5727513cc8e074"
+  },
+  "ci": {
+    "run_id": 43466088592,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43466088592",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132025476395,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025476591,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025476656,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025476722,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025476750,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025476789,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025476953,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025477011,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025477012,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025477169,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132025477466,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "csv_assignment_directory": 38,
+    "stored_assignment_directory": 27,
+    "stored_review_transaction": 20,
+    "stored_contract_review": 17,
+    "source_rule_directory": 32,
+    "projection_directory": 40,
+    "independent_connections": 215,
+    "native_core_session_api": 953,
+    "native_placement_contract_http": 440
+  },
+  "csv_concurrency_labels": [
+    "CSV client import is observed waiting on the uncommitted merge",
+    "Waiting CSV import uses the retained client and committed survivor without replacing its profile",
+    "CSV writer holds company and client before COMMIT",
+    "Merge waits for the independent CSV COMMIT",
+    "CSV writer completes its COMMIT decision",
+    "Committed CSV company/client edits invalidate the waiting merge review",
+    "CSV writer holds company and client before ROLLBACK",
+    "Merge waits for the independent CSV ROLLBACK",
+    "CSV writer completes its ROLLBACK decision",
+    "Rolled-back CSV leaves no value and permits the reviewed merge",
+    "CSV assignment waits for companies policy COMMIT",
+    "CSV apply respects current companies scope after COMMIT",
+    "CSV assignment waits for placements policy COMMIT",
+    "CSV apply respects current placements scope after COMMIT",
+    "CSV apply waits for retained provider mapping COMMIT",
+    "CSV revalidates committed source metadata after COMMIT",
+    "CSV apply waits for recipient merge COMMIT",
+    "CSV never silently accepts changed recipients after COMMIT",
+    "CSV apply holds its complete assignment and audit before COMMIT",
+    "Concurrent CSV apply waits for first request COMMIT",
+    "Concurrent CSV requests commit exactly one reviewed change after COMMIT",
+    "CSV assignment waits for companies policy ROLLBACK",
+    "CSV apply respects current companies scope after ROLLBACK",
+    "CSV assignment waits for placements policy ROLLBACK",
+    "CSV apply respects current placements scope after ROLLBACK",
+    "CSV apply waits for retained provider mapping ROLLBACK",
+    "CSV revalidates committed source metadata after ROLLBACK",
+    "CSV apply waits for recipient merge ROLLBACK",
+    "CSV never silently accepts changed recipients after ROLLBACK",
+    "CSV apply holds its complete assignment and audit before ROLLBACK",
+    "Concurrent CSV apply waits for first request ROLLBACK",
+    "Concurrent CSV requests commit exactly one reviewed change after ROLLBACK"
+  ],
+  "csv_http_labels": [
+    "Native CSV preview uses the original child source and keeps shared legacy identities without writes",
+    "Native parent CSV preview cannot adopt a child source assignment or candidate",
+    "Read-only child cannot apply a shared CSV assignment",
+    "Changed native sharing invalidates the CSV review without partial writes",
+    "Required native CSV audit failure rolls back the whole shared assignment",
+    "Native CSV apply updates the shared assignment with original provider and display identities",
+    "Native sparse CSV preserves workers, approved rates, record numbers and every provider pair",
+    "Native CSV audit retains the acting workspace, authenticated actor and shared before/after graph",
+    "Old native CSV token cannot repeat a committed change",
+    "A fresh identical native CSV converges without another write",
+    "Native CSV reconciliation executes no accounting, payroll or payment operations"
+  ],
+  "native_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "contract_cleanup": {
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "installed_runtime_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "installed_read_only_verification": {
+    "checked_at": "2026-11-13T16:42:37+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "deployment_performed": false,
+  "provider_writes_performed": false,
+  "real_financial_execution_performed": false,
+  "remaining_release_gates": [
+    "legacy alignment/report/repair writers",
+    "generic placement CSV current-reference audit",
+    "native job ownership and lifecycle provenance",
+    "AP/current-reference writers",
+    "survivor/history review and stable outbound QuickBooks customer identity",
+    "guarded pilot installation and hosted acceptance"
+  ],
+  "full_goal_status": "active; wider field/portal/onboarding/document/time/approval/payroll-result/reconciliation acceptance remains incomplete"
+}
