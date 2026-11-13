@@ -4995,13 +4995,17 @@ function jobdivaStoredSubcontractCompanyEvidence(int $tid, string $externalId, a
     $bindingEvidence = ['directory_owner_id'=>$owner,'mapping_id'=>$mapped['id']??null,
         'internal_entity_id'=>$mapped['internal_entity_id']??null];
     if ((int) ($mapped['internal_entity_id'] ?? 0) > 0) {
-        $q = getDB()->prepare('SELECT id,name FROM companies WHERE tenant_id=? AND id=? AND deleted_at IS NULL LIMIT 1');
+        $q = getDB()->prepare('SELECT id,name,coreflux_source_state FROM companies WHERE tenant_id=? AND id=? AND deleted_at IS NULL LIMIT 1');
         $q->execute([$owner, (int) $mapped['internal_entity_id']]);
         $company = $q->fetch(PDO::FETCH_ASSOC);
         if ($company && !jobdivaCompanyNameIsPlaceholder((string) $company['name'], $externalId)) {
+            require_once __DIR__.'/../../modules/people/lib/company_source_ownership.php';
+            $ownership=companySourceState($company,'companies');
+            unset($company['coreflux_source_state']);
             return array_replace($result, ['available'=>true, 'company_id'=>(int)$company['id'],
                 'name'=>trim((string)$company['name']), 'source'=>'existing_company',
-                'evidence_hash'=>mappingHash(['binding'=>$bindingEvidence,'company'=>$company]),
+                'evidence_hash'=>mappingHash(['binding'=>$bindingEvidence,'company'=>$company,
+                    'roles'=>companyRoles((int)$company['id']),'ownership_revision'=>$ownership['revision']]),
                 'detail'=>'Existing Core company ' . $company['id'] . ': ' . trim((string)$company['name'])
                     . ' (JobDiva ' . $externalId . ').']);
         }
@@ -5042,12 +5046,13 @@ function jobdivaSyncResolveSubcontractCompany(
 ): ?array {
     $externalId = jobdivaAssignmentCompanyId($externalId);
     if ($tid <= 0 || $externalId === '') return null;
+    require_once __DIR__.'/party_sync.php';
 
     if (JobdivaStoredReviewTransaction::inScope()) {
         $evidence = jobdivaStoredSubcontractCompanyEvidence($tid,$externalId,$storedContract);
         if (!$evidence['available']) throw new RuntimeException($evidence['detail'],409);
         $companyId = $evidence['company_id'];
-        if ($companyId !== null) companiesAddRole($companyId,'vendor');
+        if ($companyId !== null) jobdivaCompanyObserveMappedRoles($tid,$externalId,(int)$companyId,['vendor']);
         else $companyId = jobdivaUpsertCompanyMapped($tid,$externalId,$evidence['name'],
             ['created_by_user_id'=>$userId],$evidence['payload'],$userId,['vendor']);
         return ['id'=>$companyId,'name'=>$evidence['name'],'external_id'=>$externalId];
@@ -5063,13 +5068,13 @@ function jobdivaSyncResolveSubcontractCompany(
                 'SELECT id, name FROM companies
                   WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
             );
-            $st->execute(['t' => $tid, 'id' => $companyId]);
+            $st->execute(['t' => companiesDirectoryTenantId($tid), 'id' => $companyId]);
             $company = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
             if ($company && !jobdivaCompanyNameIsPlaceholder(
                 (string) ($company['name'] ?? ''),
                 $externalId
             )) {
-                companiesAddRole($companyId, 'vendor');
+                jobdivaCompanyObserveMappedRoles($tid,$externalId,$companyId,['vendor']);
                 return [
                     'id' => $companyId,
                     'name' => trim((string) $company['name']),

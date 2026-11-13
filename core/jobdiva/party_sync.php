@@ -19,6 +19,27 @@ function jobdivaPartyMappedFields(int $workspace,string $type,int $id,array $pay
     if($result['errors'])throw new RuntimeException('Company source mappings need review: '.implode('; ',$result['errors']));
 }
 
+/** Assignment evidence can propose roles only through the exact company binding. */
+function jobdivaCompanyObserveMappedRoles(int $workspace,string $external,int $companyId,array $roles): array
+{
+    if($workspace<=0||$external===''||$companyId<=0||!array_is_list($roles)
+        ||array_filter($roles,static fn($role)=>!is_string($role))||array_diff($roles,COMPANY_ROLES)){
+        throw new InvalidArgumentException('An exact company source identity and valid roles are required.');
+    }
+    return jobdivaPartyAtomic(static function(PDO $pdo)use($workspace,$external,$companyId,$roles):array{
+        $owner=companiesDirectoryTenantId($workspace);
+        return companySourceWithRecord($pdo,$owner,'companies',$companyId,static function(array $current)use($pdo,$workspace,$owner,$external,$companyId,$roles):array{
+            $q=$pdo->prepare('SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system="jobdiva" AND internal_entity_type="company" AND external_id=? FOR UPDATE');
+            $q->execute([$workspace,$external]);
+            if((int)$q->fetchColumn()!==$companyId)throw new RuntimeException('Review the exact JobDiva company link before applying source roles.',409);
+            $state=companySourceState($current,'companies');
+            $proposed=array_values(array_unique(array_merge($current['roles'],$state['proposed']['roles']??[],$roles)));sort($proposed);
+            return companySourceObserve($pdo,$owner,'companies',$companyId,['roles'=>$proposed],
+                ['system'=>'jobdiva','workspace_id'=>$workspace,'external_id'=>$external],false,false);
+        });
+    });
+}
+
 function jobdivaCompanyUpsertStable(int $workspace,string $external,string $name,array $patch,array $payload,?int $actor,array $roles): int
 {
     $name=trim($name);if($external===''||$name==='')throw new InvalidArgumentException('Company source identity and name are required.');

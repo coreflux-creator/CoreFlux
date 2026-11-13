@@ -106,6 +106,19 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$tenant,$check,$fa
     $check($companyId!==$foreignCompany&&$q->fetch(PDO::FETCH_ASSOC)===$foreignBefore,'Resolving this tenant company leaves the foreign company unchanged');
     $stable=$snapshot();$mapped=$evidence();
     $check($mapped['source']==='existing_company'&&$mapped['company_id']===$companyId&&$snapshot()===$stable,'Reading a mapped company does not add roles or change records');
+    $ready=$preview();
+    companyNativeFields($pdo,$tenant,companiesDirectoryTenantId($tenant),'companies',$companyId,['roles'=>[]],null);
+    $held=$snapshot();
+    $check(str_contains($failure(fn()=>$apply($ready['dry_run_token'])),'changed after preview')&&$snapshot()===$held,
+        'Changing Core company role ownership invalidates the stored assignment review before writes');
+    $resolved=jobdivaSyncResolveSubcontractCompany($tenant,'99181101');
+    $check($resolved['id']===$companyId&&companyRoles($companyId)===[],
+        'Stored subcontract resolution preserves a native company role removal');
+    $roleReview=companySourceWithRecord($pdo,companiesDirectoryTenantId($tenant),'companies',$companyId,
+        static fn(array $row):array=>companySourceReview($row,'companies'));
+    $check(in_array('vendor',$roleReview['proposed']['roles'],true),'Stored subcontract role evidence remains available for explicit review');
+    companySourceAccept($pdo,$tenant,companiesDirectoryTenantId($tenant),'companies',$companyId,['roles'],$roleReview['review_token'],null);
+    $check(companyRoles($companyId)===['vendor'],'Reviewed source roles are restored without changing the provider company identity');
     $ready=$preview();$pdo->prepare('UPDATE companies SET name=? WHERE tenant_id=? AND id=?')->execute(['CI Renamed Subcontractor',$tenant,$companyId]);
     $afterRename=$snapshot();
     $check(str_contains($failure(fn()=>$apply($ready['dry_run_token'])),'changed after preview')&&$snapshot()===$afterRename,'A canonical company rename invalidates an older assignment review');
