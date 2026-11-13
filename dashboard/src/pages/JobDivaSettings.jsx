@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import JobDivaPersonReview from './JobDivaPersonReview';
 import JobDivaPeopleLifecycleReview from './JobDivaPeopleLifecycleReview';
+import PlacementMergeReview from '../../../modules/placements/ui/PlacementMergeReview';
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, Database, GitBranch, Link2,
   PlugZap, RefreshCw, ShieldCheck, Sparkles, Wrench, X, XCircle,
@@ -35,6 +36,7 @@ export default function JobDivaSettings() {
   const [repairResult, setRepairResult] = useState(null);
   const [expandedAudit, setExpandedAudit] = useState({});
   const [reviewPeople, setReviewPeople] = useState(false);
+  const [reviewPlacements, setReviewPlacements] = useState(false);
 
   const set = (k, v) => setForm(s => ({ ...s, [k]: v }));
   const clear = () => { setMsg(null); setErr(null); };
@@ -61,7 +63,7 @@ export default function JobDivaSettings() {
 
   const onRepairWorkflow = async () => {
     clear(); setRepairResult(null);
-    if (!window.confirm('Run the ordered JobDiva alignment repair? This archives safe duplicate shells, repairs client links, corrects placement lifecycle states, identifies People availability for separate review, and creates source-backed draft rates. Rate approval remains a separate approval step.')) {
+    if (!window.confirm('Run the ordered JobDiva alignment repair? This identifies duplicate placements for separate review, repairs client links, corrects placement lifecycle states, identifies People availability for separate review, and creates source-backed draft rates. Rate approval remains a separate approval step.')) {
       return;
     }
     setBusy(b => ({ ...b, repairWorkflow: true }));
@@ -108,28 +110,7 @@ export default function JobDivaSettings() {
     }
   };
 
-  const onRepairDuplicatePlacements = async (dryRun = true) => {
-    clear(); setRepairResult(null); setBusy(b => ({ ...b, repairDuplicatePlacements: true }));
-    try {
-      if (!dryRun && !window.confirm('Archive duplicate JobDiva/legacy placement rows that have no downstream time, billing, or AP activity?')) {
-        return;
-      }
-      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_duplicate_placements', {
-        dry_run: dryRun,
-      });
-      setRepairResult(r.repair || r);
-      await loadAlignment();
-      const repaired = r.repair?.groups_repaired ?? 0;
-      const archived = r.repair?.placements_archived ?? 0;
-      setMsg(dryRun
-        ? `Duplicate placement cleanup preview: ${repaired} group(s), ${archived} row(s).`
-        : `Duplicate placement cleanup archived ${archived} row(s).`);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(b => ({ ...b, repairDuplicatePlacements: false }));
-    }
-  };
+  const onRepairDuplicatePlacements = () => { clear(); setReviewPlacements(true); };
 
   const onRepairStalePlacements = async (dryRun = true) => {
     clear(); setRepairResult(null); setBusy(b => ({ ...b, repairStalePlacements: true }));
@@ -504,6 +485,7 @@ export default function JobDivaSettings() {
       {data?.connected && <JobDivaPersonReview key={data.tenant_id} workspaceId={data.tenant_id} />}
 
       {reviewPeople && <JobDivaPeopleLifecycleReview key={data?.tenant_id} onClose={() => setReviewPeople(false)} onSaved={loadAlignment} />}
+      {reviewPlacements && <PlacementMergeReview key={data?.tenant_id} onClose={() => setReviewPlacements(false)} onSaved={loadAlignment} />}
 
       <JobDivaMappingAlignmentCard
         data={alignment}
@@ -1233,7 +1215,7 @@ export function JobDivaMappingAlignmentCard({
             <p data-testid="jobdiva-mapping-alignment-repair-result"
                style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
               {'groups_checked' in repairResult
-                ? <>Groups {repairResult.groups_checked ?? 0}; repaired {repairResult.groups_repaired ?? 0}; archived {repairResult.placements_archived ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
+                ? <>Groups checked {repairResult.groups_checked ?? 0}; requiring explicit review {repairResult.review_required ?? 0}.</>
                 : 'inactivated' in repairResult
                   ? <>{repairResult.dry_run ? 'Previewed' : 'Checked'} {repairResult.checked ?? 0}; {repairResult.dry_run ? 'would inactivate' : 'inactivated'} {repairResult.inactivated ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.</>
                 : 'ended' in repairResult
@@ -1301,17 +1283,11 @@ export function JobDivaMappingAlignmentCard({
           Maintenance actions
         </summary>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
+          <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.()}
                   data-testid="jobdiva-mapping-alignment-preview-duplicate-placements" disabled={anyRepairing}
                   style={{ fontSize: 12 }}>
             <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            {repairingDuplicates ? 'Checking...' : 'Preview duplicate placements'}
-          </button>
-          <button type="button" className="btn btn--danger" onClick={() => onRepairDuplicatePlacements?.(false)}
-                  data-testid="jobdiva-mapping-alignment-repair-duplicate-placements" disabled={anyRepairing}
-                  style={{ fontSize: 12 }}>
-            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            {repairingDuplicates ? 'Repairing...' : 'Archive safe duplicates'}
+            {repairingDuplicates ? 'Checking...' : 'Review duplicate placements'}
           </button>
           <button type="button" className="btn btn--ghost" onClick={() => onRepairStalePlacements?.(true)}
                   data-testid="jobdiva-mapping-alignment-preview-stale-placements" disabled={anyRepairing}
@@ -1421,7 +1397,7 @@ function JobDivaWorkflowRepairResult({ repair }) {
       return `projected ${step.projected ?? 0}/${step.checked ?? 0}; mapping writes ${step.mapping_writes ?? 0}; field writes ${step.field_map_writes ?? 0}; failed ${step.failed ?? 0}`;
     }
     if (key === 'duplicate_placements') {
-      return `archived ${step.placements_archived ?? 0}; restored ids ${step.external_ids_restored ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
+      return `${step.review_required ?? 0} group(s) require explicit placement, field and source review`;
     }
     if (key === 'client_links') {
       return `repaired ${step.repaired ?? 0}; skipped ${step.skipped ?? 0}; failed ${step.failed ?? 0}`;
@@ -1530,9 +1506,9 @@ function operatorIssueView(issue) {
       next: 'Run JobDiva sync with job mirrors, then refresh sync health.',
     },
     duplicate_jobdiva_placement_rows: {
-      title: 'Remove duplicate placement rows',
+      title: 'Review duplicate placements',
       impact: 'One JobDiva or legacy external placement identity points at more than one active CoreFlux placement row.',
-      next: 'Preview duplicates first; archive only duplicate rows with no downstream activity.',
+      next: 'Choose the current record, retained field values and future source. Original history and provider links stay on their original records.',
     },
     placement_active_past_end_date: {
       title: 'Repair placement lifecycle',
@@ -1580,7 +1556,7 @@ function IssueAction({ issue, onRepairClientLinks, onRepairRateDrafts, onRepairD
   }
   if (code === 'duplicate_jobdiva_placement_rows') {
     return (
-      <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.(true)}
+      <button type="button" className="btn btn--ghost" onClick={() => onRepairDuplicatePlacements?.()}
               disabled={repairingDuplicates} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
         {repairingDuplicates ? 'Checking...' : 'Preview'}
       </button>

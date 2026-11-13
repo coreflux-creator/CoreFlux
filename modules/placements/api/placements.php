@@ -20,6 +20,7 @@ require_once __DIR__ . '/../lib/ownership.php';
 require_once __DIR__ . '/../lib/commercial_ownership.php';
 require_once __DIR__ . '/../lib/edit.php';
 require_once __DIR__.'/../lib/company_references.php';
+require_once __DIR__.'/../lib/navigation.php';
 require_once __DIR__ . '/../lib/economics.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
 require_once __DIR__ . '/../../staffing/lib/clients.php';
@@ -38,9 +39,17 @@ const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal
 const ALLOWED_REMOTE = ['onsite','hybrid','remote'];
 
 if ($method === 'GET') {
-    $id = (int) api_query('id', 0);
-    if ($id > 0) {
+    $requested=(string)api_query('number',api_query('id',''));
+    if ($requested!==''&&$requested!=='0') {
         rbac_legacy_require($user, 'placements.view');
+        try{$identity=placementNavigation((int)$ctx['tenant_id'],$requested,rbac_legacy_can($user,'placements.financials.view'));}
+        catch(PDOException $e){api_error('Placement history is temporarily unavailable.',503);}
+        catch(InvalidArgumentException|RuntimeException $e){api_error($e->getMessage(),in_array($e->getCode(),[409,422],true)?$e->getCode():409);}
+        if(!$identity)api_error('Not found',404);
+        $identity['can_view_source_history']=rbac_legacy_can_any($user,['tenant_admin.integrations','integrations.jobdiva.view']);
+        // Historical URLs never return a current record's edit controls under an old ID.
+        if($identity['merged'])api_ok(['placement'=>null,'identity'=>$identity]);
+        $id=$identity['source']['id'];
         $row = placementGet($id);
         if (!$row) api_error('Not found', 404);
         $dimensionReadiness = null;
@@ -77,6 +86,7 @@ if ($method === 'GET') {
             ];
         }
         api_ok([
+            'identity'    => $identity,
             'placement'   => $row,
             'dimension_readiness' => $dimensionReadiness,
             'chain'       => placementChain($id),

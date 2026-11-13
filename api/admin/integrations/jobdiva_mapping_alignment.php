@@ -11,8 +11,8 @@
  * with source lifecycle drift as ended, cancelled, pending, or on hold.
  * POST action=repair_stale_people -> review and explicitly save directory
  * availability for linked people; employment and portal access stay separate.
- * POST action=repair_duplicate_placements -> archive duplicate placement
- * rows created by damaged source identity mappings.
+ * POST action=repair_duplicate_placements -> candidate preview only; actual
+ * consolidation uses the explicit placement merge review.
  * POST action=repair_workflow -> run the ordered, safe alignment repair flow.
  */
 declare(strict_types=1);
@@ -118,12 +118,12 @@ if ($method === 'POST' && $action === 'repair_duplicate_placements') {
     ]);
     $body = api_json_body();
     $limit = isset($body['limit']) ? (int) $body['limit'] : 100;
-    $dryRun = array_key_exists('dry_run', $body) ? (bool) $body['dry_run'] : true;
+    if(($body['dry_run']??true)!==true)api_error('Use Review duplicate placements to choose the record, fields and source to keep.',409);
     $result = jobdivaMappingRepairDuplicatePlacements(
         $tid,
         isset($user['id']) ? (int) $user['id'] : null,
         $limit,
-        $dryRun
+        true
     );
     api_ok(['ok' => $result['failed'] === 0, 'repair' => $result]);
 }

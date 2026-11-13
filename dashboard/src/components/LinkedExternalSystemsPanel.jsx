@@ -1894,7 +1894,7 @@ function DetailRow({ mapping, entityType, internalId }) {
   );
 }
 
-export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
+export default function LinkedExternalSystemsPanel({ entityType, internalId, readOnly = false }) {
   const url = (entityType && internalId)
     ? `/api/integrations/mappings.php?action=list_for_internal&entity_type=${encodeURIComponent(entityType)}&internal_id=${encodeURIComponent(internalId)}`
     : null;
@@ -1918,10 +1918,10 @@ export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
         <strong style={{ fontSize: 14 }}>Linked external systems</strong>
       </div>
       <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 12px' }}>
-        Other systems that have a binding to this CoreFlux record. Click the chevron
+        {readOnly ? 'Original provider links retained for this historical placement.' : <>Other systems that have a binding to this CoreFlux record. Click the chevron
         (▸) on a row to see the current field mappings, add or edit overrides
         (e.g. <code>name → title</code> if your placements show as &quot;JobDiva Placement&nbsp;
-        {`{id}`}&quot;), inspect the raw payload, or run AI-suggested mappings.
+        {`{id}`}&quot;), inspect the raw payload, or run AI-suggested mappings.</>}
       </p>
 
       {mappings.length === 0 && (
@@ -1948,16 +1948,16 @@ export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
               const palette = STATUS_PALETTE[m.sync_status] || STATUS_PALETTE.ok;
               const Icon = palette.icon;
               const label = SOURCE_LABEL[m.source_system] || m.source_system;
-              const isOpen = !!expanded[m.id];
+              const isOpen = !readOnly && !!expanded[m.id];
               return (
                 <React.Fragment key={m.id}>
                   <tr
                     data-testid={`linked-systems-row-${m.source_system}`}
-                    onClick={() => setExpanded(s => ({ ...s, [m.id]: !s[m.id] }))}
-                    style={{ cursor: 'pointer' }}
+                    onClick={readOnly ? undefined : () => setExpanded(s => ({ ...s, [m.id]: !s[m.id] }))}
+                    style={{ cursor: readOnly ? 'default' : 'pointer' }}
                   >
                     <td style={{ padding: '8px', textAlign: 'center' }}>
-                      <button
+                      {!readOnly && <button
                         onClick={(e) => { e.stopPropagation(); setExpanded(s => ({ ...s, [m.id]: !s[m.id] })); }}
                         data-testid={`linked-systems-expand-${m.source_system}`}
                         aria-expanded={isOpen}
@@ -1965,7 +1965,7 @@ export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
                         style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', padding: 0 }}
                       >
                         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      </button>
+                      </button>}
                     </td>
                     <td style={{ padding: '8px', fontWeight: 600 }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>

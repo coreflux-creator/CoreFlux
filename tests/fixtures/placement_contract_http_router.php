@@ -11,7 +11,7 @@ if (PHP_SAPI !== 'cli-server' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
 if (!in_array($path, ['/login.php', '/logout.php', '/api/jobdiva.php', '/api/admin/integrations/reindex_jobdiva_subpayloads.php', '/api/admin/integrations/jobdiva_mapping_alignment.php', '/modules/placements/api/economics.php', '/modules/placements/api/corp.php', '/modules/placements/api/cycles.php', '/modules/payroll/api/cycles.php', '/modules/payroll/api/pay_schedules.php',
-    '/modules/placements/api/jobdiva_reconciliation.php', '/modules/placements/api/source_rules.php', '/modules/placements/api/chain.php', '/modules/placements/api/referrals.php', '/modules/placements/api/documents.php', '/modules/people/api/documents.php', '/modules/people/api/merge.php', '/modules/placements/api/rates.php', '/modules/placements/api/placements.php'], true)) { http_response_code(404); exit; }
+    '/modules/placements/api/jobdiva_reconciliation.php', '/modules/placements/api/source_rules.php', '/modules/placements/api/chain.php', '/modules/placements/api/referrals.php', '/modules/placements/api/documents.php', '/modules/people/api/documents.php', '/modules/people/api/merge.php', '/modules/placements/api/merge.php', '/modules/placements/api/rates.php', '/modules/placements/api/placements.php'], true)) { http_response_code(404); exit; }
 if (in_array($path,['/modules/placements/api/documents.php','/modules/people/api/documents.php'],true)) {
     require_once dirname(__DIR__,2).'/core/StorageService.php';
     $storageRoot=getenv('COREFLUX_CONTRACT_HTTP_STORAGE');

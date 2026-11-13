@@ -4,6 +4,8 @@ declare(strict_types=1);
 if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'||getenv('COREFLUX_STANDALONE_DATABASE')!=='coreaccounting_ci'||!in_array('--confirm-disposable-fixture',$argv,true))exit(2);
 putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));putenv('COREFLUX_INTEGRATION_INSTANCE_ID=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 require_once __DIR__.'/../modules/placements/lib/merge_review.php';
+require_once __DIR__.'/../modules/placements/lib/navigation.php';
+require_once __DIR__.'/../core/jobdiva/mapping_alignment.php';
 require_once __DIR__.'/../core/integrations/delivery.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 $owner=(int)$pdo->query('SELECT MIN(id) FROM tenants')->fetchColumn();$workspace=990711;$checks=0;$trigger='fixture_placement_merge_receipt';
@@ -46,6 +48,14 @@ try{
                 'history_policy'=>'retain_original_rows','confirm'=>'MERGE_REVIEWED_PLACEMENTS'];
         };
         $before=$state();$review=$preview();$request=$requestFor($review,(int)$mb['id']);
+        $candidates=jobdivaMappingRepairDuplicatePlacements($workspace,$actor,100,true);
+        $check($before===$state()&&$candidates['dry_run']&&$candidates['placements_archived']===0
+            &&count(array_filter($candidates['candidates'],static fn($group)=>in_array($a,array_column($group['rows'],'id'),true)&&in_array($b,array_column($group['rows'],'id'),true)))===1,
+            'Duplicate queue finds both exact source-linked rows without choosing, archiving or moving anything');
+        $check($fails(fn()=>jobdivaMappingRepairDuplicatePlacements($workspace,$actor,100,false))&&$before===$state(),
+            'Legacy automatic duplicate repair cannot bypass the reviewed merge');
+        $check(count($review['rates']['survivor'])===1&&count($review['rates']['retired'])===1
+            &&(float)$review['rates']['retired'][0]['bill_rate']===100.0,'Merge comparison exposes the separate original rate histories');
         $check($before===$state()&&$review['dry_run'],'Merge preview changes no identities, activity, rates or audit');
         $check($review['placement_owner_id']===$owner&&$review['provider_pairs_retained']===2&&count(array_filter($review['source_options'],static fn($s)=>$s['eligible']))===2,'Shared-directory preview exposes both exact retained source choices');
         $check($review['retained_history']['time_entries']['count']===2&&$review['retained_history']['placement_rates']['count']===2,'Review includes downstream activity on both placements without moving it');
@@ -107,6 +117,7 @@ try{
         $check(!array_diff(placementMergeFields(),placementOwnershipFields($read($a)['coreflux_overridden_fields'])),'Explicit descriptive choices acquire Core ownership');
         $alias=placementIdentityResolve($pdo,$owner,$b,true);
         $check($alias['id']===$a&&$alias['source_id']===$b&&$alias['source_number']===$review['retired_number'],'Old permanent placement number remains a reviewed alias');
+        require __DIR__.'/fixtures/placement_navigation_checks.php';
         $check(!array_diff_key(array_diff_assoc($originalA,$read($a)),array_flip(['title','coreflux_overridden_fields','updated_at']))
             &&!array_diff_key(array_diff_assoc($originalB,$read($b)),array_flip(['deleted_at','updated_at'])),'Current configuration and retired record contents stay on their original rows');
         $protected=array_diff_key($before,array_flip(['placements','core_record_numbers','audit_log']));

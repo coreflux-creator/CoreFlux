@@ -8,6 +8,7 @@ putenv('CF_RBAC_BRIDGE_MODE=dual');
 // This guarded disposable process and its child server share an ephemeral
 // key for the invented provider credential. No hosted key is read or changed.
 putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));
+putenv('COREFLUX_INTEGRATION_INSTANCE_ID=dddddddd-dddd-4ddd-8ddd-dddddddddddd');
 require_once __DIR__ . '/../core/jobdiva/sync.php';
 require_once __DIR__ . '/../modules/placements/lib/economics_edit.php';
 require_once __DIR__ . '/../modules/placements/lib/commercial_ownership.php';
@@ -401,6 +402,7 @@ try {
     require __DIR__.'/fixtures/source_rate_http_checks.php';
     require __DIR__.'/fixtures/joined_index_http_checks.php';
     require __DIR__.'/fixtures/live_contract_http_checks.php';
+    require __DIR__.'/fixtures/placement_merge_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);

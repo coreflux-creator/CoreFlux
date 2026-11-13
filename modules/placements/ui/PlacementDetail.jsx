@@ -15,6 +15,7 @@ import SourceRuleReview from './SourceRuleReview';
 import PartyCompanyReview from './PartyCompanyReview';
 import OneTimeItems from './OneTimeItems';
 import PlacementDocumentsTab from './PlacementDocumentsTab';
+import PlacementHistory, { PlacementHistoryLinks } from './PlacementHistory';
 import RecordCustomFields from '../../../dashboard/src/components/RecordCustomFields';
 
 /**
@@ -33,10 +34,12 @@ export default function PlacementDetail({ session }) {
   const commissions = data?.commissions ?? [];
   const referrals   = data?.referrals ?? [];
   const dimensionReadiness = data?.dimension_readiness ?? null;
+  const identity = data?.identity?.requested === String(pid) ? data.identity : null;
 
   // A same-record refresh must retain the active review and its save receipt.
   // A route change must never render the previous placement's controls.
-  const currentPlacement = placement && String(placement.id) === String(pid);
+  const currentPlacement = placement && (String(placement.id) === String(pid) || (identity && !identity.merged && identity.current.id === placement.id));
+  if (identity?.merged && !loading && !error) return <PlacementHistory identity={identity} />;
   if (loading && !currentPlacement) return <p data-testid="placement-detail-loading">Loading…</p>;
   if (error)   return <p className="error" data-testid="placement-detail-error">Error: {error.message}</p>;
   if (placement && !currentPlacement) return <p data-testid="placement-detail-loading">Loading…</p>;
@@ -92,6 +95,7 @@ export default function PlacementDetail({ session }) {
           </p>
         </div>
       </header>
+      <PlacementHistoryLinks identity={identity} />
 
       <details data-testid="placement-source-system-details" style={{ marginBottom: 12 }}>
         <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
@@ -112,6 +116,7 @@ export default function PlacementDetail({ session }) {
       </nav>
 
       <Routes>
+        <Route path="history" element={identity ? <PlacementHistory identity={identity} /> : <p>Placement history is unavailable.</p>} />
         <Route index             element={<Navigate to="overview" replace />} />
         <Route path="overview"   element={<OverviewTab    placement={placement} dimensionReadiness={dimensionReadiness} reload={reload} />} />
         <Route path="economics"  element={<EconomicsTab   key={placement.id} placement={placement} chain={chain} rates={rates} commissions={commissions} referrals={referrals} reload={reload} />} />

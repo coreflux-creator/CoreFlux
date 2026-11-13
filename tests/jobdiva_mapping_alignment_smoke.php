@@ -99,7 +99,7 @@ $a('repair preserves manual choice and requires stable client source identity',
 $a('duplicate placement detector and repair function exist',
     str_contains($service, 'duplicate_jobdiva_placement_rows')
     && str_contains($service, 'function jobdivaMappingRepairDuplicatePlacements')
-    && str_contains($service, '_jobdivaMappingDuplicatePlacementBlockingChildren'));
+    && str_contains($service, "'reason'=>'explicit_survivor_fields_and_source_required'"));
 $a('duplicate detector catches legacy placeholder JobDiva placement copies',
     str_contains($service, 'function _jobdivaMappingPlacementStartIdFromRow')
     && str_contains($service, "str_starts_with(\$externalId, 'jd:') || isset(\$mapped[\$norm])")
@@ -119,37 +119,18 @@ $a('duplicate detector reconciles the reviewed spreadsheet row conservatively',
     && str_contains($reconcile, 'function jobdivaPlacementReconcilePair')
     && str_contains($reconcile, "'month_day_swap'")
     && str_contains($reconcile, "'name_prefix_alias'"));
-$a('duplicate repair prefers the row carrying downstream workflow activity',
-    str_contains($service, 'function _jobdivaMappingDuplicatePlacementChildCounts')
-    && str_contains($service, 'multiple_rows_have_downstream_activity')
-    && str_contains($service, '$keepId = count($rowsWithChildren) === 1'));
-$a('legacy duplicate repair consolidates source metadata, rates, and configuration',
-    str_contains($service, 'function _jobdivaMappingConsolidateLegacyPlacementPair')
-    && str_contains($service, 'function _jobdivaMappingMergePlacementRates')
-    && str_contains($service, 'function _jobdivaMappingMergePlacementConfiguration')
-    && str_contains($service, 'placementEconomicsReconcile($tenantId, $keepId)')
-    && str_contains($service, 'function _jobdivaMappingRateHasReferences')
-    && str_contains($service, 'JOIN {$parentTable} parent ON parent.id = child.{$parentKey}'));
-$a('duplicate repair blocks every settled downstream placement artifact',
-    str_contains($service, "'time_downstream_feed'")
-    && str_contains($service, "'placement_economic_obligations'")
-    && str_contains($service, "'placement_economic_items'")
-    && str_contains($service, "'ap_bills'"));
-$a('duplicate repair prefers fully projected rows over placeholder shells',
-    str_contains($service, "!preg_match('/^JobDiva\\s+Placement\\s+\\d+$/i', \$title)")
-    && str_contains($service, '$score += 40')
-    && str_contains($service, '$score += 25'));
-$a('duplicate repair rehomes mappings after archiving orphan shells',
-    str_contains($service, 'function _jobdivaMappingRehomePlacementMapping')
-    && str_contains($service, 'DELETE FROM external_entity_mappings')
-    && str_contains($service, 'internal_entity_id <> :keep_id')
-    && strpos($service, '_jobdivaMappingRehomePlacementMapping($pdo, $tenantId, $norm, $keepId, $duplicateIds)') >
-       strpos($service, 'SET deleted_at = NOW(), updated_at = NOW()'));
-$a('duplicate repair avoids repeated PDO placeholders when restoring external ids',
-    str_contains($service, 'external_id = :ext_set')
-    && str_contains($service, 'external_id <> :ext_filter')
-    && str_contains($service, "'ext_set' => \$canonical")
-    && str_contains($service, "'ext_filter' => \$canonical"));
+$merge=$read($root.'/modules/placements/lib/merge_review.php');
+$a('legacy duplicate cleanup is a read-only review queue',
+    str_contains($service, "if(!\$dryRun)throw new RuntimeException")
+    && str_contains($service, "'groups_repaired'=>0,'placements_archived'=>0")
+    && !str_contains($service, 'function _jobdivaMappingConsolidateLegacyPlacementPair')
+    && !str_contains($service, 'function _jobdivaMappingRehomePlacementMapping')
+    && !str_contains($service, 'function _jobdivaMappingMergePlacementRates'));
+$a('reviewed merge preserves physical history and original provider pairs',
+    str_contains($merge, 'retain_original_rows') && str_contains($merge, 'placement.identity_merged')
+    && str_contains($merge, 'coreRecordNumbersMerge(')
+    && !str_contains($merge, 'DELETE FROM external_entity_mappings')
+    && !str_contains($merge, 'UPDATE placement_rates'));
 $a('source-backed placement lifecycle repair is exposed from alignment service',
     str_contains($service, 'placement_active_past_end_date')
     && str_contains($service, "'/placement_lifecycle_repair.php'")
@@ -179,11 +160,11 @@ $a('canonical projection repair is exposed from alignment service',
 $a('ordered repair workflow replays canonical projection before cleanup and rate drafting',
     str_contains($service, 'function jobdivaMappingRepairWorkflow(int $tenantId, array $user')
     && strpos($service, "jobdivaMappingRepairCanonicalProjection(\$tenantId, \$userId, \$limit)") !== false
-    && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") !== false
+    && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), true)") !== false
     && strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)") !== false
     && strpos($service, "jobdivaMappingRepairCanonicalProjection(\$tenantId, \$userId, \$limit)") <
-       strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)")
-    && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), false)") <
+       strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), true)")
+    && strpos($service, "jobdivaMappingRepairDuplicatePlacements(\$tenantId, \$userId, min(500, \$limit), true)") <
        strpos($service, "jobdivaMappingRepairSourceRateDrafts(\$tenantId, \$user, \$limit)")
     && str_contains($service, 'mapping_alignment_repair_workflow'));
 $a('JobDiva placement sync uses the shared source lifecycle normalizer',
@@ -237,9 +218,10 @@ $a('settings has one-click ordered repair workflow',
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-result"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-workflow-errors"')
     && str_contains($ui, 'repairStepLabels'));
-$a('settings has duplicate placement preview + repair buttons',
+$a('settings opens reviewed placement consolidation without automatic archive',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-duplicate-placements"')
-    && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-duplicate-placements"'));
+    && str_contains($ui, '<PlacementMergeReview')
+    && !str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-duplicate-placements"'));
 $a('settings has stale active preview + repair buttons',
     str_contains($ui, 'data-testid="jobdiva-mapping-alignment-preview-stale-placements"')
     && str_contains($ui, 'data-testid="jobdiva-mapping-alignment-repair-stale-placements"')

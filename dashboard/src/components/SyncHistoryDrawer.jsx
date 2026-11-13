@@ -268,7 +268,7 @@ function HistoryRow({ row }) {
   );
 }
 
-export default function SyncHistoryDrawer({ entityType, internalId }) {
+export default function SyncHistoryDrawer({ entityType, internalId, readOnly = false }) {
   const [open, setOpen] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState(null);
@@ -356,9 +356,9 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
                               borderRadius: 8, margin: 18 }}>
                   <strong>Migration pending.</strong>{' '}
                   The sync-history table hasn't been created yet on this environment.
-                  Click below to apply pending migrations (idempotent — safe to retry).
+                  {readOnly ? 'Ask an administrator to complete setup before viewing history.' : 'Click below to apply pending migrations (idempotent — safe to retry).'}
                   <div style={{ marginTop: 8 }}>
-                    <button
+                    {!readOnly && <button
                       onClick={runMigration}
                       disabled={migrating}
                       data-testid="sync-history-run-migration"
@@ -366,7 +366,7 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
                       style={{ fontSize: 12 }}
                     >
                       {migrating ? 'Running…' : 'Run pending migrations'}
-                    </button>
+                    </button>}
                     {migrateMsg && (
                       <span data-testid="sync-history-migration-msg"
                             style={{ marginLeft: 12, fontSize: 12 }}>{migrateMsg}</span>

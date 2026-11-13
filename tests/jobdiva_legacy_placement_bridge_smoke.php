@@ -81,15 +81,7 @@ $pairs = _jobdivaMappingLegacyPlacementBridgePairs([
 ], [920 => '60000003']);
 $assert('parallel people with the same name require compatible client evidence', count($pairs) === 0);
 
-$keeper = _jobdivaMappingChooseDuplicatePlacementKeeper([
-    'canonical_external_id' => 'jd:60000004',
-    'duplicate_basis' => 'jobdiva_start_legacy_import',
-    'rows' => [
-        $row(930, 430, 'jd:60000004', '2026-09-01', 'Morgan', 'Patel'),
-        $row(931, 430, 'placements-xlsx-E', '2026-09-01', 'Morgan', 'Patel'),
-    ],
-]);
-$assert('legacy spreadsheet row wins when neither duplicate owns downstream activity', $keeper === 931);
+$assert('duplicate candidates require explicit keeper selection', !function_exists('_jobdivaMappingChooseDuplicatePlacementKeeper'));
 
 $sync = (string) file_get_contents(dirname(__DIR__) . '/core/jobdiva/sync.php');
 $peopleSync = (string) file_get_contents(dirname(__DIR__) . '/core/jobdiva/sync_placements.php');

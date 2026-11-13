@@ -222,6 +222,7 @@ export default function List() {
           <details className="action-overflow">
             <summary className="btn" aria-label="More placement actions"><MoreHorizontal size={16} aria-hidden="true" /> More</summary>
             <div className="action-overflow__menu">
+              <Link to="../merge" className="action-overflow__item" data-testid="placements-merge-review-btn">Review duplicate placements</Link>
               <Link to="../draft-rates" className="action-overflow__item" data-testid="placements-draft-rates-btn" title="Review and approve draft rates across all placements">
                 <FileSpreadsheet size={15} aria-hidden="true" /> Draft rates queue
               </Link>

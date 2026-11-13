@@ -89,7 +89,8 @@ function placementMergeSnapshot(int $workspace,int $actor,int $survivor,int $ret
                 $valid=is_array($payload)&&!array_is_list($payload)&&preg_match('/^[0-9]+$/D',$external)
                     &&!empty(jobdivaAssignmentValidate(jobdivaAssignmentSanitisePayload($payload,$external),$external)['valid'])&&$m['sync_status']==='ok';
             }catch(Throwable){}
-            $sourceOptions[]=['mapping_id'=>(int)$m['id'],'source_workspace_id'=>(int)$m['tenant_id'],
+            $numberRows=array_values(array_filter($numbers,static fn($n)=>(int)$n['record_id']===(int)$m['internal_entity_id']));
+            $sourceOptions[]=['mapping_id'=>(int)$m['id'],'source_workspace_id'=>(int)$m['tenant_id'],'physical_placement_number'=>$numberRows[0]['record_number']??null,
                 'external_id'=>$m['external_id'],'physical_placement_id'=>(int)$m['internal_entity_id'],'eligible'=>(bool)$valid];
         }
     }
@@ -107,13 +108,17 @@ function placementMergeSnapshot(int $workspace,int $actor,int $survivor,int $ret
     $configuration=[];foreach(['status','start_date','end_date','actual_end_date','engagement_type','accounting_entity_id','client_id','end_client_company_id','staffing_job_id',
         'client_approver_name','client_approver_email','billing_operating_cycle_id','ap_operating_cycle_id','payroll_operating_cycle_id']as$field)
         $configuration[$field]=['survivor'=>$records[$survivor][$field]??null,'retired'=>$records[$retired][$field]??null];
+    $rates=[];foreach(['survivor'=>$survivor,'retired'=>$retired]as$side=>$id){
+        $q=$pdo->prepare('SELECT id,effective_from,effective_to,bill_rate,pay_rate,bill_rate_unit,pay_rate_unit,currency,approved_at FROM placement_rates WHERE tenant_id=? AND placement_id=? ORDER BY effective_from,id FOR UPDATE');
+        $q->execute([$owner,$id]);$rates[$side]=$q->fetchAll(PDO::FETCH_ASSOC);
+    }
     $snapshot=['instance'=>$instance,'workspace'=>$workspace,'actor'=>$actor,'auth'=>$auth,'scope'=>$scope,'records'=>$records,'person'=>$person,
         'numbers'=>$numbers,'mappings'=>$mappings,'deliveries_hash'=>placementMergeRowsHash($deliveries),'history'=>$history,'custom_hash'=>placementMergeRowsHash($custom)];
     return ['hash'=>hash('sha256',serialize($snapshot)),'scope'=>$scope,'records'=>$records,'numbers'=>$numbers,'family'=>$family,'source_options'=>$sourceOptions,
         'history'=>$history,'public'=>['workspace_id'=>$workspace,'placement_owner_id'=>$owner,'survivor_id'=>$survivor,'retired_id'=>$retired,
             'survivor_number'=>$identities[$survivor]['placement_number'],'retired_number'=>$identities[$retired]['placement_number'],
             'person'=>['id'=>(int)$person['id'],'name'=>trim($person['first_name'].' '.$person['last_name'])],
-            'fields'=>$fields,'current_configuration'=>$configuration,'source_options'=>$sourceOptions,
+            'fields'=>$fields,'current_configuration'=>$configuration,'rates'=>$rates,'source_options'=>$sourceOptions,
             'retained_history'=>array_map(static fn($h)=>array_diff_key($h,['hash'=>true]),$history),
             'permanent_alias_count'=>count($family),'provider_pairs_retained'=>count($mappings),'custom_values_retained'=>count(array_filter($custom,static fn($r)=>$r['value_record_id']!==null))]];
 }

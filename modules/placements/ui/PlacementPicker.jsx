@@ -5,7 +5,7 @@ function displayName(row) {
   const person = `${row?.first_name || row?.person_first_name || ''} ${row?.last_name || row?.person_last_name || ''}`.trim();
   const title = row?.title || row?.staffing_job_title || 'Placement';
   const client = row?.end_client_display_name || row?.end_client_name || '';
-  return [`PL-${row?.id}`, person, title, client].filter(Boolean).join(' | ');
+  return [row?.placement_number || `PL-${row?.id}`, person, title, client].filter(Boolean).join(' | ');
 }
 
 export default function PlacementPicker({
@@ -153,7 +153,7 @@ export default function PlacementPicker({
               }}
             >
               <strong style={{ display: 'block', fontSize: 13 }}>
-                {`PL-${row.id} | ${`${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unassigned'}`}
+                {`${row.placement_number || `PL-${row.id}`} | ${`${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unassigned'}`}
               </strong>
               <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'var(--cf-text-secondary, #64748b)' }}>
                 {[row.title || 'Placement', row.end_client_display_name || row.end_client_name, row.status].filter(Boolean).join(' | ')}
