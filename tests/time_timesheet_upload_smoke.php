@@ -79,11 +79,12 @@ $assert('success links to weekly timesheets',              strpos($ui, '/modules
 $assert('success links to review queue',                   strpos($ui, '/modules/time/review') !== false);
 
 $entriesApi = file_get_contents(__DIR__ . '/../modules/time/api/entries.php');
-$assert('bulk_create is capped and validates the whole batch', strpos($entriesApi, "\$action === 'bulk_create'") !== false && strpos($entriesApi, 'Too many entries (max 500 per batch)') !== false);
-$assert('bulk_create uses one database transaction',       strpos($entriesApi, '$pdo->beginTransaction()') !== false && strpos($entriesApi, "'created' => count(\$created)") !== false);
-$assert('bulk_create links every row to a weekly header',   strpos($entriesApi, "'timesheet_id' => \$timesheetId") !== false);
-$assert('bulk_create atomically consumes source document', strpos($entriesApi, 'consumed_entry_count = :count') !== false && strpos($entriesApi, "'atomic' => true") !== false);
-$assert('single-entry create also preserves source_ref_id', strpos($entriesApi, "'source_ref_id' => \$entry['source_ref_id']") !== false);
+$native = file_get_contents(__DIR__ . '/../modules/time/lib/native_entries.php');
+$assert('bulk_create delegates to capped native batch validation', strpos($entriesApi, "\$action === 'bulk_create'") !== false && strpos($native, 'Too many entries (max 500 per batch)') !== false);
+$assert('bulk_create uses the protected native transaction', strpos($entriesApi, 'timeNativeCreate(') !== false && strpos($native, 'StaffingNativeTimeEdit::run(') !== false);
+$assert('bulk_create links every row to a weekly header', strpos($native, "'timesheet_id'=>\$header") !== false);
+$assert('bulk_create atomically consumes source document', strpos($native, 'consumed_entry_count=:count') !== false && strpos($native, "timeNativeRequiredAudit('time.upload.consumed'") !== false);
+$assert('single-entry create also preserves source_ref_id', strpos($native, "'source_ref_id'=>\$ref") !== false && substr_count($entriesApi, 'timeNativeCreate(')===2);
 
 // Bulk mode
 $assert('UI bulk mode radio',                              strpos($ui, 'data-testid="time-upload-mode-bulk"') !== false);

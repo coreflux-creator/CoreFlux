@@ -366,12 +366,16 @@ if ($method === 'GET' && $action === 'detail') {
     $entries = staffingTimeQuery(
         "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
                 te.hours, te.billable, te.payable, te.description, te.status,
+                te.source,te.source_system,te.bill_extracted_at,te.bill_extracted_ref,
+                te.ap_extracted_at,te.ap_extracted_ref,te.payroll_extracted_at,te.payroll_extracted_ref,
+                tp.status AS period_status,pl.id AS placement_record_id,pl.deleted_at AS placement_deleted_at,
                 qi.quanta_entry_id, qi.source_worksite_id, qi.source_worksite_name,
                 qi.source_dimension_values_json, qi.source_approval_json,
                 pl.title AS placement_title,
                 COALESCE(pl.end_client_name, '') AS client_name
            FROM time_entries te
       LEFT JOIN quanta_time_imports qi ON qi.time_entry_id = te.id AND qi.tenant_id = te.tenant_id
+      LEFT JOIN time_periods tp ON tp.id=te.period_id AND tp.tenant_id=te.tenant_id
       LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
           WHERE te.tenant_id = :tenant_id
             AND te.timesheet_id = :tid

@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__.'/../../staffing/lib/time_workspace.php';
 
 const TIME_CATEGORIES = [
     'regular_billable','regular_nonbillable','OT_billable','OT_nonbillable',
@@ -42,13 +43,8 @@ function timeCategoryRowMeta(string $category): array
 /** Resolve the tenant's configured seven-day week for a work date. */
 function timeWeekBounds(string $workDate): array
 {
-    $startsOn = 1;
-    try {
-        $settings = scopedFind('SELECT week_starts_on FROM tenant_staffing_settings WHERE tenant_id = :tenant_id LIMIT 1');
-        $startsOn = (int) ($settings['week_starts_on'] ?? 1);
-    } catch (\Throwable $_) {
-        $startsOn = 1;
-    }
+    $settings=staffingTimeFind('SELECT week_starts_on FROM tenant_staffing_settings WHERE tenant_id=:tenant_id LIMIT 1');
+    $startsOn=(int)($settings['week_starts_on']??1);
     if ($startsOn < 0 || $startsOn > 6) $startsOn = 1;
     $date = new \DateTimeImmutable($workDate);
     $offset = ((int) $date->format('w') - $startsOn + 7) % 7;
@@ -59,7 +55,7 @@ function timeWeekBounds(string $workDate): array
 /** Find or create an open weekly period so entry does not require setup first. */
 function timeOpenPeriodIdForDate(string $workDate): int
 {
-    $period = scopedFind(
+    $period = staffingTimeFind(
         'SELECT id, status FROM time_periods
          WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi
          ORDER BY start_date DESC LIMIT 1',
@@ -74,7 +70,7 @@ function timeOpenPeriodIdForDate(string $workDate): int
 
     [$startDate, $endDate] = timeWeekBounds($workDate);
     try {
-        return (int) scopedInsert('time_periods', [
+        return (int) staffingTimeInsert('time_periods', [
             'period_type' => 'weekly',
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -82,7 +78,7 @@ function timeOpenPeriodIdForDate(string $workDate): int
             'status' => 'open',
         ]);
     } catch (\Throwable $e) {
-        $existing = scopedFind(
+        $existing = staffingTimeFind(
             'SELECT id, status FROM time_periods
              WHERE tenant_id = :tenant_id AND start_date = :sd AND end_date = :ed LIMIT 1',
             ['sd' => $startDate, 'ed' => $endDate]
@@ -94,6 +90,7 @@ function timeOpenPeriodIdForDate(string $workDate): int
 
 function timePlacementGraphTenantId(?int $tenantId = null): ?int
 {
+    if (class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active() && ($tenantId===null || $tenantId===currentTenantId())) return StaffingNativeTimeEdit::owner('placements');
     $tenantId = $tenantId ?? currentTenantId();
     if (!$tenantId) return null;
     try {
@@ -144,7 +141,7 @@ function timeBundleWithinGrace(?string $consumedAt, int $graceDays): bool {
 
 function timeEntryGet(int $id): ?array
 {
-    return scopedFind(
+    return staffingTimeFind(
         'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id',
         ['id' => $id]
     );
@@ -163,7 +160,7 @@ function timeReconcileTimesheetHeader(?int $timesheetId, ?int $actorUserId = nul
 
     require_once __DIR__ . '/../../staffing/lib/timesheets.php';
     $pdo = getDB();
-    $tenantId = (int) effectiveTenantIdForRequest();
+    $tenantId = staffingTimeWorkspace();
     $ownsTxn = cf_tx_begin($pdo);
     $savepoint = 'time_reconcile_' . bin2hex(random_bytes(6));
     if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
@@ -224,7 +221,7 @@ function timeReconcileTimesheetHeader(?int $timesheetId, ?int $actorUserId = nul
                 $changed[$field] = $value;
             }
         }
-        if ($changed) scopedUpdate('staffing_timesheets', $timesheetId, $changed);
+        if ($changed) staffingTimeUpdate('staffing_timesheets', $timesheetId, $changed);
         $header = array_replace($header, $update);
         $artifact = empty($header['artifact_id']) ? null : artifactGet($tenantId, (string) $header['artifact_id']);
         if ($changed || !$artifact
@@ -426,7 +423,7 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
         if (!$current || $current !== $entry) {
             throw new \RuntimeException('The time entry changed during approval. Refresh and review it again.', 409);
         }
-        scopedUpdate('time_entries', $id, [
+        staffingTimeUpdate('time_entries', $id, [
             'status'              => 'approved',
             'rate_snapshot_id'    => (int) $snap['id'],
             'approved_by_user_id' => $user['id'] ?? null,
@@ -468,12 +465,12 @@ function timeRejectEntry(int $id, array $user, string $reason): array
     $savepoint = 'time_reject_' . bin2hex(random_bytes(6));
     if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
     try {
-        $current = scopedFind(
+        $current = staffingTimeFind(
             'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
             ['id' => $id]
         );
         if ($current !== $entry) throw new \RuntimeException('The time entry changed during rejection. Refresh and review it again.', 409);
-        scopedUpdate('time_entries', $id, [
+        staffingTimeUpdate('time_entries', $id, [
             'status' => 'rejected',
             'rejected_reason' => $reason,
         ]);
@@ -515,7 +512,7 @@ function timeEntriesList(array $filters = []): array
     $offset  = ($page - 1) * $perPage;
     $whereSql = implode(' AND ', $where);
 
-    $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM time_entries te WHERE {$whereSql}", $params)['c'] ?? 0);
+    $total = (int) (staffingTimeFind("SELECT COUNT(*) AS c FROM time_entries te WHERE {$whereSql}", $params)['c'] ?? 0);
     // FK joins are bound to the *target module's* effective tenant —
     // not te.tenant_id. People and placements default to `'shared'`
     // sub-tenant scope, so for a sub-tenant the time_entries row lives
@@ -524,7 +521,7 @@ function timeEntriesList(array $filters = []): array
     // operator sees "name + placement: —" in the time entries list.
     $params['people_tid']     = effectiveTenantIdForModule('people')     ?? currentTenantId();
     $params['placements_tid'] = effectiveTenantIdForModule('placements') ?? currentTenantId();
-    $rows  = scopedQuery(
+    $rows  = staffingTimeQuery(
         "SELECT te.*, pe.first_name, pe.last_name, pe.email_primary,
                 pl.title AS placement_title, pl.end_client_name
          FROM time_entries te

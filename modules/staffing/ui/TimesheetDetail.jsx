@@ -64,6 +64,15 @@ function sourceDimensions(value) {
   } catch { return 'Source dimensions unavailable'; }
 }
 
+function entryReadOnlyReason(entry) {
+  if (!['draft', 'pending_review', 'rejected'].includes(entry.status)) return 'Retained approval history. Use a correction.';
+  if (entry.quanta_entry_id || entry.source === 'quanta' || entry.source_system === 'quanta') return 'Quanta time. Review corrections in source time.';
+  if (['bill', 'ap', 'payroll'].some(target => entry[`${target}_extracted_at`] || entry[`${target}_extracted_ref`])) return 'Already used downstream. Review its correction workflow.';
+  if ('period_status' in entry && entry.period_status !== 'open') return 'This time period is locked, closed or unavailable.';
+  if (entry.placement_deleted_at || ('placement_record_id' in entry && !entry.placement_record_id)) return 'Original placement is no longer editable.';
+  return null;
+}
+
 export default function TimesheetDetail({ session }) {
   const { id } = useParams();
   const nav = useNavigate();
@@ -167,7 +176,7 @@ export default function TimesheetDetail({ session }) {
     const byCat = { billable: 0, nonbillable: 0 };
     const byHt = {};
     entries.forEach(e => {
-      const row = { ...e, ...(edits[e.id] || {}) };
+      const row = data?.read_only || READ_ONLY_STATUSES.includes(ts?.status) || entryReadOnlyReason(e) ? e : { ...e, ...(edits[e.id] || {}) };
       const h = Number(row.hours || 0);
       const k = row.placement_id;
       if (!m[k]) m[k] = { title: e.placement_title || `Placement #${k}`, client: e.client_name, hours: 0 };
@@ -183,7 +192,7 @@ export default function TimesheetDetail({ session }) {
       liveByCategory: byCat,
       liveByHourType: byHt,
     };
-  }, [entries, edits]);
+  }, [entries, edits, data?.read_only, ts?.status]);
 
   if (loading) return <p data-testid="timesheet-detail-loading">Loading timesheet…</p>;
   if (error)   return <p className="error" data-testid="timesheet-detail-error">Error: {error.message}</p>;
@@ -200,6 +209,7 @@ export default function TimesheetDetail({ session }) {
   // Submitted + rejected + draft are inline-editable. Approved and
   // downstream-ready sheets are immutable financial source records.
   const canEditRows = !isReadOnly;
+  const canEditEntry = entry => canEditRows && entry && !entryReadOnlyReason(entry);
 
   const act = async (action, extra = {}) => {
     if (isReadOnly) return;
@@ -225,11 +235,13 @@ export default function TimesheetDetail({ session }) {
   // ── inline-edit helpers ──
   const editedRow = (e) => ({ ...e, ...(edits[e.id] || {}) });
   const setField = (entryId, field, value) => {
+    if (!canEditEntry(entries.find(entry => entry.id === entryId))) return;
     setEdits(prev => ({ ...prev, [entryId]: { ...(prev[entryId] || {}), [field]: value } }));
   };
   const isDirty = (entryId) => edits[entryId] && Object.keys(edits[entryId]).length > 0;
 
   const saveRow = async (entry) => {
+    if (!canEditEntry(entry)) return;
     setSavingRowId(entry.id); setSaveError(null);
     const merged = editedRow(entry);
     try {
@@ -251,6 +263,7 @@ export default function TimesheetDetail({ session }) {
   };
 
   const deleteRow = async (entry) => {
+    if (!canEditEntry(entry)) return;
     if (!window.confirm(`Delete entry for ${entry.work_date} (${Number(entry.hours).toFixed(2)}h)? This cannot be undone.`)) return;
     setSavingRowId(entry.id); setSaveError(null);
     try {
@@ -278,7 +291,7 @@ export default function TimesheetDetail({ session }) {
   // per-row, the rest still commit), so a single bad cell doesn't roll
   // back a 40-row save.
   const saveAll = async () => {
-    const dirtyKeys = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0);
+    const dirtyKeys = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0 && canEditEntry(entries.find(entry => String(entry.id) === id)));
     if (dirtyKeys.length === 0) return;
     setBulkSaving(true); setSaveError(null); setBulkResult(null);
     const rows = dirtyKeys.map(idStr => {
@@ -353,7 +366,7 @@ export default function TimesheetDetail({ session }) {
 
   const serverTotal = Number(ts.total_hours || 0);
   const delta = liveTotal - serverTotal;
-  const dirtyIds = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0);
+  const dirtyIds = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0 && canEditEntry(entries.find(entry => String(entry.id) === id)));
   const dirtyCount = dirtyIds.length;
   const hasUnsavedEdits = dirtyCount > 0;
 
@@ -608,14 +621,16 @@ export default function TimesheetDetail({ session }) {
                     data-testid="timesheet-detail-entries-empty">No entries.</td></tr>
           )}
           {entries.map(e => {
-            const row = editedRow(e);
-            const dirty = isDirty(e.id);
+            const rowEditable = canEditEntry(e);
+            const readOnlyReason = entryReadOnlyReason(e);
+            const row = rowEditable ? editedRow(e) : e;
+            const dirty = rowEditable && isDirty(e.id);
             const saving = savingRowId === e.id || bulkSaving;
             return (
               <tr key={e.id} data-testid={`timesheet-detail-entry-${e.id}`}
                   style={{ background: dirty ? '#fffbeb' : undefined }}>
                 <td style={{ fontSize: 12 }}>
-                  {canEditRows ? (
+                  {rowEditable ? (
                     <input type="date" className="input" value={row.work_date}
                            onChange={ev => setField(e.id, 'work_date', ev.target.value)}
                            disabled={saving}
@@ -624,7 +639,7 @@ export default function TimesheetDetail({ session }) {
                   ) : e.work_date}
                 </td>
                 <td style={{ fontSize: 12 }}>
-                  {canEditRows && placements.length > 0 ? (
+                  {rowEditable && placements.length > 0 ? (
                     <select className="input" value={row.placement_id}
                             onChange={ev => setField(e.id, 'placement_id', parseInt(ev.target.value, 10))}
                             disabled={saving}
@@ -659,7 +674,7 @@ export default function TimesheetDetail({ session }) {
                   {e.quanta_entry_id && <QuantaApprovalEvidence value={e.source_approval_json} />}
                 </td>
                 <td style={{ fontSize: 12 }}>
-                  {canEditRows ? (
+                  {rowEditable ? (
                     <select className="input" value={row.hour_type}
                             onChange={ev => setField(e.id, 'hour_type', ev.target.value)}
                             disabled={saving}
@@ -670,7 +685,7 @@ export default function TimesheetDetail({ session }) {
                   ) : e.hour_type}
                 </td>
                 <td>
-                  {canEditRows ? (
+                  {rowEditable ? (
                     <input type="number" step="0.25" min="0" max="24" className="input"
                            value={row.hours}
                            onChange={ev => setField(e.id, 'hours', ev.target.value)}
@@ -681,7 +696,7 @@ export default function TimesheetDetail({ session }) {
                 </td>
                 <td style={{ fontSize: 12 }}>{Number(e.billable) === 1 ? 'Yes' : 'No'}</td>
                 <td style={{ fontSize: 12, color: '#666' }}>
-                  {canEditRows ? (
+                  {rowEditable ? (
                     <input type="text" className="input" value={row.description || ''}
                            onChange={ev => setField(e.id, 'description', ev.target.value)}
                            disabled={saving}
@@ -691,6 +706,7 @@ export default function TimesheetDetail({ session }) {
                 </td>
                 {canEditRows && (
                   <td style={{ fontSize: 12 }}>
+                    {rowEditable ? <>
                     <button type="button" className="btn btn--primary"
                             onClick={() => saveRow(e)} disabled={!dirty || saving}
                             data-testid={`timesheet-detail-entry-${e.id}-save`}
@@ -703,6 +719,7 @@ export default function TimesheetDetail({ session }) {
                             style={{ padding: '2px 8px', fontSize: 11, color: '#dc2626' }}>
                       ×
                     </button>
+                    </> : <span data-testid={`timesheet-detail-entry-${e.id}-read-only`}>{readOnlyReason}</span>}
                   </td>
                 )}
               </tr>

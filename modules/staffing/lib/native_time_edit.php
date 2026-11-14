@@ -61,7 +61,7 @@ function staffingTimeAssertEditableEntry(array $entry): void
     staffingTimeCurrentPlacement((int)$entry['placement_id'],(int)$entry['person_id']);
     $q=getDB()->prepare('SELECT id FROM quanta_time_imports WHERE tenant_id=? AND time_entry_id=? FOR UPDATE');
     $q->execute([staffingTimeWorkspace(),$entry['id']]);
-    if ($q->fetchColumn()) throw new RuntimeException('Use source-time correction review to change imported Quanta time.',409);
+    if ($q->fetchColumn() || ($entry['source']??'')==='quanta' || ($entry['source_system']??'')==='quanta') throw new RuntimeException('Use source-time correction review to change imported Quanta time.',409);
 }
 
 function staffingTimeAssertOpenEntryPeriod(array $entry): void

@@ -14,6 +14,7 @@ $lib = $read('modules/staffing/lib/timesheets.php');
 $api = $read('modules/staffing/api/timesheets.php');
 $ui = $read('modules/staffing/ui/TimesheetWeek.jsx');
 $entries = $read('modules/time/api/entries.php');
+$native = $read('modules/time/lib/native_entries.php');
 $timeLib = $read('modules/time/lib/time.php');
 $rbac = $read('core/rbac/legacy_map.php');
 
@@ -62,17 +63,16 @@ $check('an empty week cannot be submitted',
 
 echo "Atomic time entry safeguards\n";
 $check('direct entry validates dates and positive hours',
-    str_contains($entries, 'function timeApiDate') && str_contains($entries, 'function timeApiHours'));
+    str_contains($native, 'function timeNativeDate') && str_contains($native, 'function timeNativeHours'));
 $check('direct entry auto-creates an open weekly period',
-    str_contains($entries, 'function timeApiOpenPeriodId')
-    && str_contains($entries, 'timeOpenPeriodIdForDate($workDate)')
+    str_contains($native, 'staffingTimeResolveOpenPeriod(')
     && str_contains($timeLib, "'period_type' => 'weekly'"));
 $check('direct edits allow only user-editable fields',
-    str_contains($entries, "\$allowed = ['work_date','category','hours','description','custom_category_id']"));
+    str_contains($native, "\$allowed=['work_date','category','hours','description','custom_category_id']"));
 $check('editing submitted or rejected time returns it to draft',
-    str_contains($entries, "\$update['status'] = 'draft'"));
+    str_contains($native, "'status'=>'draft','rejected_reason'=>null"));
 $check('direct edits block rows already consumed downstream',
-    substr_count($entries, 'timeApiAssertNotSettled') >= 3);
+    str_contains($native, 'staffingTimeAssertEditableEntry($before)') && str_contains($native, 'staffingTimesheetAssertEntryNotSettled($before)'));
 
 echo "\nTimesheet end-to-end guardrails: {$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

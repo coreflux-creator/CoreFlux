@@ -38,9 +38,10 @@ $a('time bundle build reads placement-rate snapshots from placement graph tenant
     && str_contains($time, "'rate_ids' => \$calc['rate_ids']"));
 
 $entriesApi = $c('modules/time/api/entries.php');
+$nativeEntries = $c('modules/time/lib/native_entries.php');
 $a('manual time entry placement validation uses placement graph tenant',
-    str_contains($entriesApi, 'effectiveTenantIdForModule(\'placements\'')
-    && str_contains($entriesApi, 'WHERE tenant_id = :placements_tid AND id = :id'));
+    str_contains($entriesApi, 'timeNativeCreate(')
+    && str_contains($nativeEntries, "placementIdentityResolve(getDB(),(int)StaffingNativeTimeEdit::owner('placements')"));
 
 $staffingLib = $c('modules/staffing/lib/timesheets.php');
 $a('staffing approval locks rate_snapshot_id per entry',

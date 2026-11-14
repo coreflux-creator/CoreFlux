@@ -7,6 +7,7 @@ require_once __DIR__.'/../modules/people/lib/company_merge_review.php';
 require_once __DIR__.'/../modules/staffing/lib/job_write.php';
 require_once __DIR__.'/../modules/staffing/lib/client_write.php';
 require_once __DIR__.'/../modules/staffing/lib/timesheets.php';
+require_once __DIR__.'/../modules/time/lib/native_entries.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/jobdiva/sync_placements.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
@@ -36,6 +37,18 @@ function nativeTimeRaceWrite(array $input): array
     setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('staffing');
     $result=staffingTimeEntrySave($input['actor'],$input['payload']);
     return ['id'=>$result['entry']['id']]+$result;
+}
+
+function genericTimeRaceWrite(array $input): array
+{
+    setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('time');
+    $user=['id'=>$input['actor']];$authorize=static function(int $person):void {};
+    $result=match($input['operation']??'patch') {
+        'create'=>timeNativeCreate($user,$input['rows'],$authorize,(int)($input['document_id']??0),true),
+        'correct'=>timeNativeCorrect($input['entry_id'],$input['payload'],$user),
+        default=>timeNativePatch($input['entry_id'],$input['payload'],$user,$authorize),
+    };
+    return ['id'=>$result['id']??$result['new_entry_id']??$result['entry_ids'][0]]+$result;
 }
 
 function clientSourceRaceWrite(array $input): array
@@ -153,6 +166,7 @@ if(($argv[1]??'')==='worker'){
                 'client_repair'=>jobdivaRepairPlacementClientLink($input['workspace'],$input['mapping_id'],$input['actor']),
                 'native_placement'=>nativePlacementRaceWrite($input),
                 'native_time'=>nativeTimeRaceWrite($input),
+                'generic_time'=>genericTimeRaceWrite($input),
                 'assignment_source'=>assignmentSourceRaceWrite($input),
                 'economic_graph'=>['id'=>$input['placement_id']]+placementEconomicsReconcile($input['workspace'],$input['placement_id']),
                 'source_rules'=>sourceRuleRaceWrite($input),
@@ -740,6 +754,7 @@ try{
     require __DIR__.'/fixtures/placement_terminal_census_concurrency_checks.php';
     require __DIR__.'/fixtures/review_contract_concurrency_checks.php';
     require __DIR__.'/fixtures/native_time_concurrency_checks.php';
+    require __DIR__.'/fixtures/generic_time_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -751,7 +766,7 @@ try{
     foreach($createdTenants as$createdTenant){
         $pdo->prepare('DELETE ma FROM membership_module_access ma JOIN tenant_memberships tm ON tm.id=ma.membership_id WHERE tm.tenant_id=?')->execute([$createdTenant]);
         foreach(['tenant_memberships','jobdiva_connections','payroll_profiles','people_employment_links','people_employees']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
-        foreach(['quanta_time_imports','time_entries','staffing_timesheets','time_periods','artifact_events','artifact_relationships','artifact_objects']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+        foreach(['quanta_time_imports','time_entries','staffing_timesheets','time_periods','time_uploaded_documents','artifact_events','artifact_relationships','artifact_objects']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     }
     foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','ap_vendors_index','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','jobdiva_sync_audit','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);

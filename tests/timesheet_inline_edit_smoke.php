@@ -110,15 +110,15 @@ $a('save button disabled until row is dirty',
 // Live running total — updates as the operator edits, before save.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Live running totals ──\n";
-$a('liveTotal computed from merged (edit + server) rows',
-    str_contains($det, 'const row = { ...e, ...(edits[e.id] || {}) }')
+$a('liveTotal merges edits only for mutable rows',
+    str_contains($det, 'entryReadOnlyReason(e) ? e : { ...e, ...(edits[e.id] || {}) }')
     && str_contains($det, 'total += h'));
 $a('liveByCategory splits billable vs non-billable from HOUR_TYPES table',
     str_contains($det, "byCat[ht.billable ? 'billable' : 'nonbillable']"));
 $a('liveByHourType aggregates per hour_type',
     str_contains($det, 'byHt[row.hour_type] = (byHt[row.hour_type] || 0) + h'));
 $a('useMemo dependency includes edits (live updates as user types)',
-    str_contains($det, '[entries, edits]'));
+    str_contains($det, '[entries, edits, data?.read_only, ts?.status]'));
 $a('delta computed against server total_hours',
     str_contains($det, 'const delta = liveTotal - serverTotal'));
 $a('hasUnsavedEdits flag tracks whether dirtyCount is non-zero',

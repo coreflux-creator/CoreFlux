@@ -72,3 +72,37 @@ test('placement timesheet detail rejects a response for a different workspace', 
   try { assert.match(text(tree.root), /Reload the timesheet/); assert.doesNotMatch(text(tree.root), /Original assignment/); }
   finally { act(() => tree.unmount()); }
 });
+
+for (const [kind,fields] of [
+  ['approved',{status:'approved'}],['superseded',{status:'superseded'}],
+  ['Quanta source',{quanta_entry_id:'quanta-original'}],['unmapped Quanta source',{source_system:'quanta'}],
+  ['used payroll',{payroll_extracted_ref:'original-payroll'}],['closed period',{period_status:'closed'}],
+  ['locked period',{period_status:'locked'}],['retained placement',{placement_deleted_at:'2026-10-20'}],
+  ['missing placement',{placement_record_id:null}],
+]) test(`mixed draft week preserves ${kind} while native pending time stays editable`,async()=>{
+  view=data(false);view.timesheet={...row,status:'draft'};failure=null;pin='2002';
+  view.entries=[{...view.entries[0],...fields},{...view.entries[0],id:52,work_date:'2026-10-06',status:'pending_review'}];
+  const tree=await open(Detail);
+  try {
+    for(const action of ['save','delete','date','hours','hour-type','description']) assert.equal(id(tree,`timesheet-detail-entry-51-${action}`).length,0);
+    assert.equal(id(tree,'timesheet-detail-entry-51-read-only').length,1);
+    assert.equal(id(tree,'timesheet-detail-entry-52-save').length,1);
+    assert.equal(id(tree,'timesheet-detail-entry-52-hours').length,1);
+  } finally {act(()=>tree.unmount());}
+});
+
+test('a refreshed approval removes stale local edits from row controls and totals',async()=>{
+  view=data(false);view.timesheet={...row,status:'draft'};failure=null;pin='2002';
+  const tree=await open(Detail);
+  try {
+    await act(async()=>id(tree,'timesheet-detail-entry-51-hours')[0].props.onChange({target:{value:'12'}}));
+    assert.match(text(id(tree,'timesheet-detail-header-total')[0]),/12.00h/);
+    view={...view,entries:[{...view.entries[0],status:'approved'}]};
+    await act(async()=>tree.update(React.createElement(MemoryRouter,{initialEntries:['/42']},
+      React.createElement(Routes,null,React.createElement(Route,{path:'/:id',element:React.createElement(Detail,{pid:902,placement:{person_id:15}})})))));
+    assert.match(text(id(tree,'timesheet-detail-header-total')[0]),/8.00h/);
+    assert.equal(id(tree,'timesheet-detail-entry-51-save').length,0);
+    assert.equal(id(tree,'timesheet-detail-save-all').length,0);
+    assert.equal(id(tree,'timesheet-detail-entry-51')[0].props.style.background,undefined);
+  } finally {act(()=>tree.unmount());}
+});
