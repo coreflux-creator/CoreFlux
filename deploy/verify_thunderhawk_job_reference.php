@@ -20,6 +20,7 @@ if(hash_file('sha256',dirname(JR_ROOT).'/private_html/coreflux.thunderhawk-pilot
 require_once JR_ROOT.'/core/jobdiva/sync.php';
 require_once JR_ROOT.'/core/integrations/identity.php';
 require_once JR_ROOT.'/core/integrations/staffing_field_contract.php';
+require_once JR_ROOT.'/core/migrate.php';
 require_once __DIR__.'/thunderhawk_time_payroll_schema.php';
 $pdo=getDB();
 if(!$pdo||$pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'||!COREFLUX_STAGING||integrationInstanceId()!=='9f4b6dfb-e52e-464c-9a9d-af7766928ddf'
