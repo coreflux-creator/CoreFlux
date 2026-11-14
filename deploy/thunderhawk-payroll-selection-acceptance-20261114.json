@@ -1,0 +1,478 @@
+{
+  "status": "installed_and_native_roundtrip_accepted",
+  "recorded_at": "2026-11-14T12:11:19.200703+00:00",
+  "previous_goal_turn": "No integration progress: answered standalone accounting production timing. This turn revalidated the current worktree and completed pending installer CI before installation and the native round trip.",
+  "scope": "Thunderhawk isolated simulation company 2002 only",
+  "application_source_commit": "13eb1e59b283c5398c362a55feeed61e9a3e49fe",
+  "application_ci": {
+    "run": 43590812790,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43590812790",
+    "passed_jobs": 11
+  },
+  "installer_ci": {
+    "source_commit": "5a5a5261c9c1bbf8979ba354f1226ebe45f66ce5",
+    "run": 43591558163,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43591558163",
+    "passed_jobs": 11
+  },
+  "installation": {
+    "checked_at": "2026-11-14T11:55:00+00:00",
+    "passed": true,
+    "operation": "d5bd04e5b22a53fce467c9812fc9adf7",
+    "candidate": "13eb1e59b283c5398c362a55feeed61e9a3e49fe",
+    "installed_files_verified": 13,
+    "dependency_pins_verified": 462,
+    "schema": {
+      "tables": 382,
+      "business_records_unchanged": true,
+      "migrations_applied": 0
+    },
+    "current_tables": 382,
+    "current_rows": 35905,
+    "configuration_preserved": true,
+    "maintenance_restored": true,
+    "scheduler_preserved": true,
+    "diagnostic_absent": true,
+    "database_backup_retained": true,
+    "fresh_runtime_loaded": true,
+    "new_entry_24_available": true,
+    "old_entry_17_reserved": true,
+    "production_changed": false,
+    "hosted_verification_writes": 0
+  },
+  "input_acceptance": {
+    "checks": [
+      "Original two-hour approval remains unchanged",
+      "Only the independently approved new 75 minutes are eligible",
+      "All three existing pilot source reservations remain held",
+      "Only the isolated Pure provider is selected",
+      "Synthetic delivery gate enabled: purepayPayrollInputsEnabled",
+      "Other companies cannot use this delivery gate",
+      "Synthetic delivery gate enabled: purepayPayrollAuthorityEnabled",
+      "Other companies cannot use this delivery gate",
+      "Native isolated sign-in succeeds for operator",
+      "The synthetic operator cannot access real Thunderhawk payroll",
+      "Native discovery distinguishes original reserved time from the new approval",
+      "Invalid, reserved or other-person selections are refused without a partial packet",
+      "Invalid, reserved or other-person selections are refused without a partial packet",
+      "Invalid, reserved or other-person selections are refused without a partial packet",
+      "Invalid, reserved or other-person selections are refused without a partial packet",
+      "Native review retains exactly the new entry inside the full biweekly period",
+      "Original Core and provider identities and the exact Quanta source are retained",
+      "The new approval retains its original USD hourly rate",
+      "Unconfirmed delivery is refused",
+      "A stale input review cannot send",
+      "PurePayroll records the selected input for review",
+      "Input replay uses the original receipt without a duplicate",
+      "Reloaded history retains the exact selected source",
+      "Core reserves exactly the new selected source",
+      "Exact reservation replay returns the same authority",
+      "Another request cannot reserve the selected hours again",
+      "PurePayroll acknowledges the reservation without creating or executing payroll",
+      "Fresh provider receipt agrees with the original reservation",
+      "The original reservation remains intact beside the new selected claim",
+      "Neither original nor newly selected time is edited or extracted",
+      "No schema changed during native acceptance",
+      "Every pre-existing Core business row and identity is preserved",
+      "No change in time_entries",
+      "No change in staffing_timesheets",
+      "No change in time_approval_rates",
+      "No change in time_accounting_handoffs",
+      "No change in payroll_provider_results",
+      "No change in payroll_runs",
+      "No change in payroll_line_items",
+      "No change in accounting_events",
+      "No change in accounting_journal_entries",
+      "No change in accounting_journal_entry_lines",
+      "No change in ap_payments",
+      "No change in billing_payments",
+      "Temporary operator credentials and grants are retired"
+    ],
+    "request_statuses": [
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_candidates",
+        "status": 403,
+        "tenant": 2
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_candidates",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_preview",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_preview",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_preview",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_preview",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_preview",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_send",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_send",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_send",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_send",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_input_history",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_reservation_reserve",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_reservation_reserve",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_reservation_reserve",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_reservation_send",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_reservation_reconcile",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "actor": {
+      "user_id": 117,
+      "membership_id": 105
+    },
+    "retired": true
+  },
+  "source": {
+    "core_person_number": "P-387",
+    "core_placement_number": "PL-902",
+    "core_time_entry_id": 24,
+    "source_entry_id": "5e72afa5-07b9-4681-bcc0-7e46379a205c",
+    "hours": "1.25",
+    "approved_pay_rate": "50.0000",
+    "currency": "USD",
+    "payroll_period": [
+      "2026-11-09",
+      "2026-11-22"
+    ],
+    "input_delivery_id": 118,
+    "input_id": "cpi_90030c6ae026f5f88e4f32cdb8e2e1842adee7dca5b2391f6bbd450e035b3d1c",
+    "authority_id": "cpa_066f4ca77a35f8d4046267b19881f30f03d40ddb578c53e5f38525f40b4031cc",
+    "run_id": "run_core_278c999457450641a8a4de74c1cf079154fcf9080764a8dff061131d5bfa3871",
+    "result_observation_id": 8,
+    "result_hash": "6b02debae833c2cb6418eae55a4ce3ea1998f954f51aa616da3e1a150a388a62",
+    "gross": "62.50"
+  },
+  "provider_input_preservation": {
+    "passed": true,
+    "checked_at": "2026-11-14T11:55:33.313652+00:00",
+    "input_id": "cpi_90030c6ae026f5f88e4f32cdb8e2e1842adee7dca5b2391f6bbd450e035b3d1c",
+    "authority_id": "cpa_066f4ca77a35f8d4046267b19881f30f03d40ddb578c53e5f38525f40b4031cc",
+    "source_entry_id": "5e72afa5-07b9-4681-bcc0-7e46379a205c",
+    "core_time_entry_id": 24,
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "hours": "1.25",
+    "pay_rate": "50.0000",
+    "currency": "USD",
+    "gross_source_preview": "62.50",
+    "core_reservation_state": "held",
+    "provider_reservation_state": "available",
+    "original_records_preserved": true,
+    "collections_verified": 26,
+    "added_record_counts": {
+      "coreflux_payroll_authorities": 1,
+      "coreflux_payroll_inputs": 1
+    },
+    "payroll_created": false,
+    "api_keys_credentials_and_permissions_preserved": true,
+    "production_changed": false,
+    "real_payroll_payments_postings": false
+  },
+  "provider_draft": {
+    "checked_at": "2026-11-14T11:57:06.584297+00:00",
+    "phase": "verification",
+    "passed": true,
+    "input_id": "cpi_90030c6ae026f5f88e4f32cdb8e2e1842adee7dca5b2391f6bbd450e035b3d1c",
+    "authority_id": "cpa_066f4ca77a35f8d4046267b19881f30f03d40ddb578c53e5f38525f40b4031cc",
+    "production_changed": false,
+    "real_payroll_payments_postings": false,
+    "synthetic_draft_only": true,
+    "stale_review_refused": true,
+    "replay_same_draft": true,
+    "changed_request_refused": true,
+    "execution_refused": true,
+    "reload_recovers_original_draft": true,
+    "native_session_retired": true,
+    "core_and_quanta_origin_claims_verified": true,
+    "run_id": "run_core_278c999457450641a8a4de74c1cf079154fcf9080764a8dff061131d5bfa3871",
+    "gross": "62.50",
+    "hours": "1.25",
+    "pay_rate": "50.0000",
+    "currency": "USD",
+    "status": "draft",
+    "execution_hold": true,
+    "original_records_preserved": true,
+    "collections_verified": 26,
+    "added_record_counts": {
+      "login_events": 1,
+      "pay_runs": 1,
+      "payroll_time_claims": 2,
+      "sessions": 1
+    },
+    "provider_authority_state": "allocated",
+    "finished_at": "2026-11-14T11:57:09.466054+00:00"
+  },
+  "result_acceptance": {
+    "checks": [
+      "Original two-hour approval remains unchanged",
+      "Only the independently approved new 75 minutes are eligible",
+      "All four existing pilot source reservations remain held",
+      "Only the isolated Pure provider is selected",
+      "Synthetic delivery gate enabled: purepayPayrollInputsEnabled",
+      "Other companies cannot use this delivery gate",
+      "Synthetic delivery gate enabled: purepayPayrollAuthorityEnabled",
+      "Other companies cannot use this delivery gate",
+      "Native isolated sign-in succeeds for operator",
+      "Only the exact delivered selection is observed",
+      "Another company cannot observe this payroll result",
+      "A stale saved input cannot observe the result",
+      "The source remains held and points to its one provider draft",
+      "Core reconciles the held draft and exact 62.50 gross to the selected 75 minutes",
+      "Original source, placement and approved economics survive the result return",
+      "Replaying the result refresh reuses the original observation",
+      "Reloaded result history retains the exact held draft",
+      "Financial observation is encrypted at rest and matches the saved receipt",
+      "All original source reservations are unchanged after result observation",
+      "Neither original nor newly selected time is edited or extracted",
+      "No schema changed during native acceptance",
+      "Every pre-existing Core business row and identity is preserved",
+      "Exactly one held result observation was added",
+      "No change in time_entries",
+      "No change in staffing_timesheets",
+      "No change in time_approval_rates",
+      "No change in time_accounting_handoffs",
+      "No change in payroll_runs",
+      "No change in payroll_line_items",
+      "No change in accounting_events",
+      "No change in accounting_journal_entries",
+      "No change in accounting_journal_entry_lines",
+      "No change in ap_payments",
+      "No change in billing_payments",
+      "Temporary operator credentials and grants are retired"
+    ],
+    "request_statuses": [
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_result_refresh",
+        "status": 403,
+        "tenant": 2
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_result_refresh",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_reservation_reconcile",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_result_refresh",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_result_refresh",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "POST",
+        "path": "/api/purepay_core.php?action=payroll_result_history",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "operator",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "actor": {
+      "user_id": 118,
+      "membership_id": 106
+    },
+    "retired": true,
+    "encrypted_at_rest": true,
+    "replay_uses_original_observation": true,
+    "execution_hold": true,
+    "tax_calculation_validated": false
+  },
+  "browser": {
+    "native_sign_in": true,
+    "user_id": 119,
+    "candidate_unavailable_after_reservation": true,
+    "selected_input_history_verified": true,
+    "provider_allocation_readback_verified": true,
+    "held_result_screen_verified": true,
+    "visual_issue": "Full provider identifiers force the result table to scroll horizontally, concealing source hours and gross on initial view.",
+    "cleanup": {
+      "passed": true,
+      "checked_at": "2026-11-14T12:07:03+00:00",
+      "phase": "retired",
+      "user_id": 119,
+      "business_tables_verified": 16,
+      "business_records_unchanged": true,
+      "active": false,
+      "module_grants": 0,
+      "private_credential_exists": false,
+      "production_changed": false,
+      "arabella_changed": false,
+      "script_sha256": "e9488b14edd7c07cae41375ae6533df1458029df89f2ef9097502fb89b392ecd"
+    }
+  },
+  "visual_followup": {
+    "status": "source_and_local_render_only",
+    "target": "Show Core person/placement numbers and amounts together; retain full provider IDs in expandable details.",
+    "focused_rendered_tests": 22,
+    "frontend_modules_built": 6136,
+    "build_errors": 0,
+    "existing_build_lint_warnings": 64,
+    "production_installed": false,
+    "pilot_installed": false,
+    "local_render_width": 760,
+    "both_tables_scroll_width": 760,
+    "gross_visible_without_horizontal_scroll": true
+  },
+  "evidence_sha256": {
+    "payroll-selection-installed-verification.json": "f122e5256eae453c9ff2712cd22f2a34e0bd8edee95edfdb326915369a087550",
+    "payroll-selection-installer-ci.json": "94c5e470ab0b3cfe4a6f4dc50ee3a0b0a1d0eac5a9b4f510e707d2ef1217a788",
+    "payroll-selection-http-handle-result.json": "64a7ba958ff734919258383ff0fcfdc9b6956fe9f8390358b4f15556e50088eb",
+    "selected-payroll-provider-result.json": "3822dc72d52f85790027b90883004c9fa7edd78e5b85f89684907acfe5947a01",
+    "selected-payroll-draft-result.json": "b45023b05153f51c6faaca4618da31347cf1c14c50520c347c4a80628f62360a",
+    "selected-payroll-result-http-handle-result.json": "3856ad22d867c6517cc8e8debccf789c612f40a6e494921eca67622ba02bfbc6",
+    "selected-payroll-browser-evidence.json": "c03c8ec15c692ae714466f434e28c9ee0b4299b7096c66ef00ba97a46b453b19",
+    "selected-payroll-browser-retire-result.json": "1f786259e2bd8e2cd80cefbbecc9c485f6475f02487bac23d5ae563bf535f782",
+    "selected-payroll-local-layout-evidence.json": "e025bcc69bbedb2a2d9da8cba3514998c5bd0d88427d41990714ef1d23b0097b",
+    "payroll_selection_http_acceptance.php": "004c17d9fcf177d6d5431423029cf413aa377e811cd69245e391794c463f849a",
+    "selected_payroll_result_acceptance.php": "240c6b969e29cb82a58bbee0d25dd58d017fb6a97c087f969ad009f23e7d090a",
+    "create_selected_payroll_draft.py": "ef9c21e8b11a929b7575b17016a373027f985df074a6db3d2a72ce93fd8e2e6e",
+    "check_selected_payroll_provider.py": "64b59844cd97151afb001bf1e747286bd17bf1a5594e00e31ec16dadf12f6772"
+  },
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_or_postings": false,
+  "full_goal_complete": false,
+  "remaining": [
+    "Publish and install the source-only visual follow-up after required checks, then repeat hosted visual acceptance.",
+    "Finish the broader field-ownership, operational lifecycle, financial evidence, provider payment/cash and reconciliation requirements.",
+    "Perform the full requirement-by-requirement integration completion audit."
+  ]
+}

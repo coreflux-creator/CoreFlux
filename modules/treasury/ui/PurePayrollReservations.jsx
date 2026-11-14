@@ -60,7 +60,7 @@ export default function PurePayrollReservations({ delivery, tenantId }) {
       {!history.items.length && <p>No saved reservations on this page.</p>}
       {history.items.map((a, index) => <div key={a.id} style={{ marginTop: 12 }}>
         <p><strong>Reservation {index + 1}: {a.state === 'held' ? 'Hours reserved in Core' : 'Released in Core'}</strong> · {a.components} time entries · {a.created_at}</p>
-        <p>Reference {a.id}. Provider status is unverified until you check its receipt.</p>
+        <p style={{ overflowWrap: 'anywhere' }}>Reference {a.id}.{receipt?.authority?.id !== a.id && ' Provider status is unverified until you check its receipt.'}</p>
         <button className="btn" type="button" disabled={busy} onClick={() => perform('reconcile', a.id)}>Check provider receipt</button>
         {a.state === 'held' && history.changes_enabled && <>
           <button className="btn" type="button" disabled={busy} onClick={() => reviewAction('send', a.id)}>Review sharing reservation</button>

@@ -3,6 +3,8 @@ import { api, getPinnedTenantId } from '../../../dashboard/src/lib/api';
 import PurePayrollResults from './PurePayrollResults';
 import PurePayrollReservations from './PurePayrollReservations';
 
+const reviewCell = { whiteSpace: 'normal', overflowWrap: 'anywhere', verticalAlign: 'top' };
+
 export default function PurePayrollInputReview(props) {
   return <InputReview key={String(props.tenantId)} {...props} />;
 }
@@ -114,9 +116,9 @@ function InputReview({ canSend = false, tenantId }) {
     </button>)}{history.next_before && <button className="btn" disabled={busy} onClick={() => loadHistory(history.next_before)}>Older input reviews</button>}</div>}
     {review && <div>
       <p>Provider company: <strong>{review.organization.name}</strong> · {review.person.number} · {review.packet.period_start} → {review.packet.period_end}</p>
-      <p>{review.selected_entry_ids ? `${review.selected_entry_ids.length} explicitly selected time entries.` : 'Saved review of all approved time in this period.'}</p>
-      <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>Placement</th><th>Provider assignment</th><th>Time / date</th><th>Hours</th><th>Frozen rate</th></tr></thead><tbody>
-        {review.packet.components.map(c => <tr key={c.source.time_entry_id}><td>{c.placement.number}</td><td>{c.assignment_id}</td><td>{c.source.time_entry_id} · {c.source.work_date}<br />{c.source.category}</td><td>{c.source.hours}</td><td>{c.rate.currency} {c.rate.pay_rate} / {c.rate.pay_rate_unit} × {c.rate.multiplier}<br />Snapshot {c.rate.snapshot_id}</td></tr>)}
+      <p>{review.selected_entry_ids ? `${review.selected_entry_ids.length} explicitly selected time ${review.selected_entry_ids.length === 1 ? 'entry' : 'entries'}.` : 'Saved review of all approved time in this period.'}</p>
+      <div style={{ overflowX: 'auto' }}><table className="data-table" style={{ width: '100%', minWidth: 520, tableLayout: 'fixed' }}><thead><tr><th style={reviewCell}>Placement</th><th style={reviewCell}>Time / date</th><th style={reviewCell}>Hours</th><th style={reviewCell}>Frozen rate</th></tr></thead><tbody>
+        {review.packet.components.map(c => <tr key={c.source.time_entry_id}><td style={reviewCell}><strong>{c.placement.number}</strong><details><summary>Provider assignment</summary><small>{c.assignment_id}</small></details></td><td style={reviewCell}>{c.source.time_entry_id} · {c.source.work_date}<br />{c.source.category}</td><td style={reviewCell}>{c.source.hours}</td><td style={reviewCell}>{c.rate.currency} {c.rate.pay_rate} / {c.rate.pay_rate_unit} × {c.rate.multiplier}<br />Snapshot {c.rate.snapshot_id}</td></tr>)}
       </tbody></table></div>
       {review.delivery.state === 'delivered' ? <><p role="status">Inputs received for review in PurePayroll. This receipt describes intake only; check payroll results for later run status. Receipt: {review.delivery.remote_receipt_id}</p><PurePayrollReservations key={`reservation-${tenantId}-${review.delivery.id}`} delivery={review.delivery} tenantId={tenantId} /><PurePayrollResults key={review.delivery.id} delivery={review.delivery} /></>
         : ['sending', 'uncertain'].includes(review.delivery.state) ? <><p role="status">This attempt needs a confirmed receipt. Checking will not resend it.</p><button className="btn" disabled={busy} onClick={() => receipt('reconcile')}>Check input receipt</button></>
