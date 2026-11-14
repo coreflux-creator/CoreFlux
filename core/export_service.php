@@ -132,6 +132,12 @@ function exportTemplateRenderDatasetToStream(
     if ($actorUser !== null && !isset($options['actor_user'])) $options['actor_user'] = $actorUser;
     exportTemplateAssertMappingsVisibleForUser($template, $datasetKey, $tenantId, $actorUser);
     $rows = $rowsOverride ?? exportDatasetFetchRows($tenantId, $datasetKey, $options);
+    $validator = $dataset['template_validator'] ?? null;
+    if ($validator !== null) {
+        if (!is_callable($validator)) throw new ExportServiceException('Dataset template validation is unavailable');
+        if ($rows instanceof Traversable) $rows = iterator_to_array($rows, false);
+        $validator($template, $rows);
+    }
     $rowCount = 0;
     $countedRows = (static function () use ($rows, &$rowCount): Generator {
         foreach ($rows as $row) {
@@ -140,7 +146,7 @@ function exportTemplateRenderDatasetToStream(
         }
     })();
     try {
-        exportTemplateRenderToStream($templateId, $countedRows, $stream, $tenantId);
+        exportTemplateRenderResolvedToStream($template, $countedRows, $stream);
     } catch (ExportTemplateException $e) {
         throw new ExportServiceException($e->getMessage(), 0, $e);
     }
@@ -180,15 +186,24 @@ function exportTemplateStreamDatasetCsv(
     if ($actorUser !== null && !isset($options['actor_user'])) $options['actor_user'] = $actorUser;
     exportTemplateAssertMappingsVisibleForUser($template, $datasetKey, $tenantId, $actorUser);
     $filename = exportTemplateCsvFilename($filenamePrefix, (string) ($template['name'] ?? 'template'), $auditMeta['filename_parts'] ?? []);
-    if (!headers_sent()) {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Cache-Control: no-store');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-    }
-    $out = fopen('php://output', 'w');
-    if ($out === false) throw new ExportServiceException('Could not open output stream');
+    // Validate and finish the file before emitting download headers or any CSV bytes.
+    // A rejected payroll mapping must remain a normal API error, not a partial file.
+    $out = fopen('php://temp/maxmemory:2097152', 'w+');
+    if ($out === false) throw new ExportServiceException('Could not open export buffer');
     try {
-        return exportTemplateRenderDatasetToStream($tenantId, $datasetKey, $templateId, $options, $out, $actorUserId, $targetId, $auditMeta, $template);
+        $result = exportTemplateRenderDatasetToStream($tenantId, $datasetKey, $templateId, $options, $out, $actorUserId, $targetId, $auditMeta, $template);
+        rewind($out);
+        if (!headers_sent()) {
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Cache-Control: no-store');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+        }
+        $destination = fopen('php://output', 'w');
+        if ($destination === false) throw new ExportServiceException('Could not open output stream');
+        try {
+            if (stream_copy_to_stream($out, $destination) === false) throw new ExportServiceException('Could not write export');
+        } finally { fclose($destination); }
+        return $result;
     } finally {
         fclose($out);
     }

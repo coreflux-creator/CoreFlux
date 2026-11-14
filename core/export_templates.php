@@ -232,6 +232,11 @@ function exportTemplateRender(int $tplId, iterable $rows, int $tenantId): string
 
 function exportTemplateRenderToStream(int $tplId, iterable $rows, $fh, int $tenantId): void {
     $tpl = exportTemplateGet($tplId, $tenantId, true);
+    exportTemplateRenderResolvedToStream($tpl, $rows, $fh);
+}
+
+/** Render the exact template already authorized and validated by the export service. */
+function exportTemplateRenderResolvedToStream(array $tpl, iterable $rows, $fh): void {
     $mappings = $tpl['column_mappings'] ?? [];
     if (!is_array($mappings) || !$mappings) {
         throw new ExportTemplateException('Template has no column mappings');

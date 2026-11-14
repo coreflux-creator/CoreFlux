@@ -84,9 +84,8 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
         catch (RuntimeException $e) { api_error($e->getMessage(),409); }
     }
 
-    // Tenant-defined template export (Gusto Payroll Import preset, custom CSV
-    // for a bank portal, etc.). Replaces NACHA fallback per user direction:
-    // when Plaid Transfer can't go live, tenants pick a CSV template instead.
+    // Tenant-defined calculation export. Source hours must retain approved earnings;
+    // a calculation is not a snapshot of reviewed bank payment instructions.
     if ($action === 'export_template') {
         require_once __DIR__ . '/../../../core/export_service.php';
         $tplId = (int) ($_GET['template_id'] ?? 0);
@@ -103,6 +102,7 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
                 ['run_id' => $runId, 'pay_date' => $run['pay_date'] ?? null, 'filename_parts' => [$runId, $run['pay_date'] ?? date('Ymd')]]
             );
         } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
+        catch (RuntimeException $e) { api_error($e->getMessage(), in_array($e->getCode(), [409, 503], true) ? $e->getCode() : 422); }
         exit;
     }
 

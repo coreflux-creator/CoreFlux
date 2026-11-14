@@ -10,6 +10,7 @@ require_once __DIR__.'/../modules/payroll/lib/run_compute.php';
 require_once __DIR__.'/../modules/payroll/lib/workflow_sync.php';
 require_once __DIR__.'/../modules/payroll/lib/approval_settings.php';
 require_once __DIR__.'/../modules/payroll/lib/accounting_posting.php';
+require_once __DIR__.'/../modules/payroll/lib/export.php';
 require_once __DIR__.'/../modules/people/lib/employment_links.php';
 $pdo=getDB();
 if ($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci') throw new RuntimeException('Disposable CI database required.');
@@ -102,8 +103,12 @@ try {
     $check($one('SELECT status FROM payroll_line_items WHERE run_id=?',[$runId])['status']==='approved' && $one('SELECT status FROM workflow_instances WHERE id=?',[$newWorkflow])['status']==='approved','native approval and workflow/line projections commit together');
     $snapshot=$state();$check($refuses(fn()=>workflowAct($tenant,$newWorkflow,$reviewer,'approve'),'current unapproved') && $state()===$snapshot,'repeated approval cannot create a second decision');
     payrollAccountingLoadRun($tenant,$runId);$check(true,'unchanged approved calculation passes the accounting reader without posting');
+    $export=payrollExportRows($tenant,$runId);
+    $check(count($export)===1 && $export[0]['calculation_review_status']==='approved' && $export[0]['computation_sha256']===$saved['approved_computation_sha256'],
+        'payroll export identifies the independently approved calculation without posting or paying it');
     $pdo->exec('SAVEPOINT ci_approved_change');$pdo->prepare('UPDATE payroll_line_items SET net_cents=net_cents+1 WHERE run_id=?')->execute([$runId]);
     $check($refuses(fn()=>payrollAccountingLoadRun($tenant,$runId),'calculation changed'),'changed approved earnings cannot pass into accounting');
+    $check($refuses(fn()=>payrollExportRows($tenant,$runId),'calculation changed'),'changed approved net pay cannot be exported with its prior approval');
     $pdo->exec('ROLLBACK TO SAVEPOINT ci_approved_change');$pdo->exec('RELEASE SAVEPOINT ci_approved_change');
     $secondRun=$newRun();$secondRunRow=payrollCalculationRun($tenant,$secondRun);$secondWorkflow=(int)$secondRunRow['workflow_instance_id'];
     workflowAct($tenant,$secondWorkflow,$reviewer,'reject','Review source time');

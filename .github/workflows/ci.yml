@@ -660,6 +660,7 @@ jobs:
       - name: Exercise native payroll computation from retained approved earnings
         run: |
           php tests/payroll_source_earnings_smoke.php
+          php tests/payroll_export_smoke.php
           php tests/payroll_approved_earnings_db_check.php --confirm-disposable-fixture
           php tests/payroll_calculation_review_db_check.php --confirm-disposable-fixture
           if ! command -v mariadb-dump >/dev/null || ! command -v mariadb >/dev/null; then

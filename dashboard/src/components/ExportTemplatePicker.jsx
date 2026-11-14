@@ -76,6 +76,11 @@ export default function ExportTemplatePicker({
             minWidth: 260, padding: 4,
           }}
         >
+          {dataset === 'payroll_disbursements' && (
+            <p style={{ padding: '4px 12px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Choose Payroll calculation audit to retain approved hours, rates and earnings. Bank payment instructions require the payment workflow.
+            </p>
+          )}
           {templates.map((t) => (
             <a
               key={t.id}

@@ -37,28 +37,46 @@ function exportDatasetRegistry(): array {
             'sensitive_fields'      => ['bank_routing_number', 'bank_account_number'],
             'custom_field_entities' => [],
             'fetcher'               => 'exportDatasetFetchPayrollDisbursements',
+            'template_validator'    => 'exportDatasetAssertPayrollTemplate',
             'fields'                => [
                 'run_id'                => ['label' => 'Payroll run ID',      'sample' => '1047'],
+                'run_status'            => ['label' => 'Run status', 'sample' => 'computed'],
+                'line_item_id'          => ['label' => 'Payroll line ID', 'sample' => '2048'],
+                'calculation_review_status' => ['label' => 'Calculation review', 'sample' => 'awaiting_review'],
+                'computation_revision'  => ['label' => 'Calculation revision', 'sample' => '2'],
+                'computation_sha256'    => ['label' => 'Calculation fingerprint', 'sample' => 'sha256'],
                 'pay_date'              => ['label' => 'Pay date (YYYY-MM-DD)','sample' => '2026-02-14'],
                 'period_start'          => ['label' => 'Period start',        'sample' => '2026-02-01'],
                 'period_end'            => ['label' => 'Period end',          'sample' => '2026-02-14'],
                 'employee_id'           => ['label' => 'Internal employee ID','sample' => '42'],
-                'employee_external_id'  => ['label' => 'External employee ID','sample' => 'E042'],
+                'employee_number'       => ['label' => 'Core employee number', 'sample' => 'E042'],
+                'person_id'             => ['label' => 'Linked Core person ID', 'sample' => '358'],
+                'person_number'         => ['label' => 'Linked Core person number', 'sample' => 'P-358'],
+                'people_owner_tenant_id'=> ['label' => 'People directory company ID', 'sample' => '1'],
+                'employee_external_id'  => ['label' => 'External employee ID (requires provider mapping)', 'sample' => '', 'note' => 'Unavailable in this dataset. Core employee and person numbers are separate fields; neither is a provider ID.'],
                 'employee_first_name'   => ['label' => 'Employee first name', 'sample' => 'Jordan'],
                 'employee_last_name'    => ['label' => 'Employee last name',  'sample' => 'Rivera'],
                 'employee_email'        => ['label' => 'Employee email',      'sample' => 'jordan@…'],
                 'regular_hours'         => ['label' => 'Regular hours',       'sample' => '80.00'],
                 'overtime_hours'        => ['label' => 'Overtime hours',      'sample' => '2.50'],
                 'pto_hours'             => ['label' => 'PTO hours',           'sample' => '8.00'],
+                'doubletime_hours'      => ['label' => 'Double-time hours', 'sample' => '1.0000'],
+                'holiday_hours'         => ['label' => 'Holiday hours', 'sample' => '8.0000'],
+                'sick_hours'            => ['label' => 'Sick hours', 'sample' => '4.0000'],
+                'earnings_basis'        => ['label' => 'Earnings basis', 'sample' => 'approved_time'],
+                'earnings_components_json' => ['label' => 'Earnings details (JSON)', 'sample' => '[]', 'note' => 'Each original earning code, hours, precise source rate, multiplier, amount and source reference.'],
+                'source_time_json'      => ['label' => 'Approved time receipt (JSON)', 'sample' => '{}'],
+                'source_time_sha256'    => ['label' => 'Approved time fingerprint', 'sample' => 'sha256'],
                 'gross_pay_dollars'     => ['label' => 'Gross pay ($)',       'sample' => '4800.00'],
                 'gross_pay_cents'       => ['label' => 'Gross pay (¢)',       'sample' => '480000'],
                 'net_pay_dollars'       => ['label' => 'Net pay ($)',         'sample' => '3624.58'],
                 'net_pay_cents'         => ['label' => 'Net pay (¢)',         'sample' => '362458'],
                 'reimbursement_dollars' => ['label' => 'Reimbursement ($)',   'sample' => '125.00'],
                 'bonus_dollars'         => ['label' => 'Bonus ($)',           'sample' => '0.00'],
-                'bank_routing_number'   => ['label' => 'Bank routing',        'sample' => '021000021'],
-                'bank_account_number'   => ['label' => 'Bank account',        'sample' => '1234567890'],
-                'bank_account_type'     => ['label' => 'Account type',        'sample' => 'checking'],
+                'commission_dollars'    => ['label' => 'Commission ($)', 'sample' => '25.00'],
+                'bank_routing_number'   => ['label' => 'Bank routing (payment instructions required)', 'sample' => '', 'note' => 'Not captured in the reviewed calculation. Use a reviewed payment workflow.'],
+                'bank_account_number'   => ['label' => 'Bank account (payment instructions required)', 'sample' => '', 'note' => 'Not captured in the reviewed calculation. Use a reviewed payment workflow.'],
+                'bank_account_type'     => ['label' => 'Account type (payment instructions required)', 'sample' => ''],
             ],
         ],
 
@@ -668,48 +686,13 @@ function exportDatasetActorUserFromOptions(array $opts): ?array {
 // dataset's fields[]. Missing fields are emitted as '' during render.
 
 function exportDatasetFetchPayrollDisbursements(int $tenantId, array $opts): array {
-    $runId = (int) ($opts['run_id'] ?? 0);
-    if (!$runId) return [];
-    $pdo = getDB();
+    require_once __DIR__.'/../modules/payroll/lib/export.php';
+    return payrollExportRows($tenantId, (int)($opts['run_id'] ?? 0));
+}
 
-    // payroll_line_items + payroll_runs + people_employees join.
-    $stmt = $pdo->prepare("
-        SELECT r.id AS run_id, r.pay_date, r.period_start, r.period_end,
-               e.id   AS employee_id,
-               e.external_id AS employee_external_id,
-               e.first_name  AS employee_first_name,
-               e.last_name   AS employee_last_name,
-               e.email       AS employee_email,
-               COALESCE(l.regular_hours, 0)  AS regular_hours,
-               COALESCE(l.overtime_hours, 0) AS overtime_hours,
-               COALESCE(l.pto_hours, 0)      AS pto_hours,
-               l.gross_pay_cents,
-               l.net_pay_cents,
-               COALESCE(l.reimbursement_cents, 0) AS reimbursement_cents,
-               COALESCE(l.bonus_cents, 0)         AS bonus_cents,
-               l.bank_routing_number, l.bank_account_number, l.bank_account_type
-          FROM payroll_runs r
-          JOIN payroll_line_items l ON l.run_id = r.id
-          JOIN people_employees   e ON e.id    = l.employee_id
-         WHERE r.tenant_id = :t AND r.id = :r
-         ORDER BY e.last_name, e.first_name
-    ");
-    $stmt->execute(['t' => $tenantId, 'r' => $runId]);
-    $out = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $gc = (int) ($row['gross_pay_cents'] ?? 0);
-        $nc = (int) ($row['net_pay_cents'] ?? 0);
-        $rc = (int) ($row['reimbursement_cents'] ?? 0);
-        $bc = (int) ($row['bonus_cents'] ?? 0);
-        $row['gross_pay_dollars']     = sprintf('%.2f', $gc / 100);
-        $row['gross_pay_cents']       = $gc;
-        $row['net_pay_dollars']       = sprintf('%.2f', $nc / 100);
-        $row['net_pay_cents']         = $nc;
-        $row['reimbursement_dollars'] = sprintf('%.2f', $rc / 100);
-        $row['bonus_dollars']         = sprintf('%.2f', $bc / 100);
-        $out[] = $row;
-    }
-    return $out;
+function exportDatasetAssertPayrollTemplate(array $template, array $rows): void {
+    require_once __DIR__.'/../modules/payroll/lib/export.php';
+    payrollExportAssertTemplate($template, $rows);
 }
 
 function exportDatasetFetchApPayments(int $tenantId, array $opts): array {

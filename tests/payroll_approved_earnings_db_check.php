@@ -11,6 +11,7 @@ require_once __DIR__.'/../modules/people/lib/employment_links.php';
 require_once __DIR__.'/../modules/staffing/lib/timesheets.php';
 require_once __DIR__.'/../modules/time/lib/approval_economics.php';
 require_once __DIR__.'/fixtures/payroll_input_approval_evidence.php';
+require_once __DIR__.'/fixtures/payroll_export_checks.php';
 $pdo=getDB();
 if ($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci') throw new RuntimeException('Disposable CI database required.');
 $tenant=(int)$pdo->query('SELECT MIN(id) FROM tenants')->fetchColumn();
@@ -92,11 +93,13 @@ try {
     payrollComputeRun($run,[$employee=>['bonus_cents'=>100,'commission_cents'=>50]],$actor,1);
     $line2=$one('SELECT * FROM payroll_line_items WHERE run_id=?',[$run]);
     $check((int)$line2['gross_cents']===92934 && $line2['source_time_sha256']===$line['source_time_sha256'],'recompute retains source receipt and adds exact supplemental earnings');
+    payrollExportCheckSourceFixture($pdo,$tenant,$run,$person,$employee,$check,$refuses);
     $before=$fingerprint();$main=$pdo;
     $second=new PDO('mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset=utf8mb4',DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]);
     $second->exec('SET SESSION innodb_lock_wait_timeout=1');$pdo=$second;
     try {
         $check($refuses(fn()=>payrollComputeRun($run,[],$actor,2),'Lock wait timeout') && !$second->inTransaction(),'competing computation waits for the original run lock and rolls back on timeout');
+        $check($refuses(fn()=>payrollExportRows($tenant,$run),'Lock wait timeout') && !$second->inTransaction(),'export waits for the native computation lock and rolls back its own failed transaction');
     } finally {$pdo=$main;$second=null;}
     $check($fingerprint()===$before && $pdo->inTransaction(),'competing compute cannot change source earnings or caller transaction');
     foreach(['approved','paid'] as $status){
@@ -113,6 +116,7 @@ try {
     $pdo->prepare('UPDATE people_compensation SET pay_rate_cents=3000,currency="USD" WHERE id=?')->execute([$comp]);
     payrollComputeRun($run,[$employee=>['hours_regular'=>'1.2345']],$actor,3);$ordinary=$one('SELECT * FROM payroll_line_items WHERE run_id=?',[$run]);
     $check($ordinary['earnings_basis']==='compensation' && $ordinary['hours_regular']==='1.2345' && (int)$ordinary['gross_cents']===3704,'compensation-only native payroll retains explicit decimal-hour overrides');
+    payrollExportCheckSharedDirectory($pdo,$tenant,$run,$check,$refuses);
     $pdo->prepare('UPDATE people_compensation SET pay_type="salary",pay_rate_cents=5200000 WHERE id=?')->execute([$comp]);
     payrollComputeRun($run,[],$actor,4);$salary=$one('SELECT * FROM payroll_line_items WHERE run_id=?',[$run]);
     $check((int)$salary['gross_cents']===100000 && $salary['earnings_basis']==='compensation','explicit annual salary remains weekly salary without hourly repricing');
