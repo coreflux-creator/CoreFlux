@@ -1,0 +1,180 @@
+{
+  "candidate_commit": "4ebb0390de6bf6fca22063ca2aa91fad71183585",
+  "ci": {
+    "run_id": 43559123793,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43559123793",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "concurrent_database_checks": 944,
+  "native_session_checks": 953,
+  "native_http_checks": 917,
+  "rendered_ui": {
+    "focused_checks": 67,
+    "all_dashboard_checks": 524,
+    "handoff_checks": 17,
+    "eslint": "passed",
+    "production_asset_build": "passed; not installed"
+  },
+  "native_http_cleanup": {
+    "passed": true,
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true,
+    "production_changed": false,
+    "live_provider_contacted": false
+  },
+  "accepted_journeys": [
+    "41 Quanta correction integration checks passed",
+    "Quanta to PurePayroll MariaDB: 7 passed",
+    "PurePayroll inputs MariaDB: 47 passed",
+    "PurePayroll inputs MariaDB: 47 passed",
+    "PurePayroll source authority MariaDB: 85 passed",
+    "PurePayroll operator reservation MariaDB: 17 passed",
+    "PurePayroll inputs MariaDB: 47 passed",
+    "Source accrual clearing preserved AR/AP accounts and dimensions with either period setting; incomplete and reversed sources blocked.",
+    "Submitted week approved with frozen rate, dimensions, artifact, and one posted journal.",
+    "Weekly email review approved with actual external actor, frozen evidence, one posted journal and unchanged replay.",
+    "Durable approval handoff rolls back atomically, recovers after interruption at original rates, and posts exactly once."
+  ],
+  "new_payroll_checks": [
+    "Master-rate edits leave original approved packets and reviewed identity unchanged",
+    "Two approvals using one rate ID retain distinct values in a single packet",
+    "Missing/foreign/corrupt private evidence and changed reviewers refuse export",
+    "Source claims, uncertain delivery and permanent cancellation remain enforced"
+  ],
+  "operator_policy": "Status reads on open and manual refresh only. Explicit whole-week posting requires server-confirmed time approval and accounting posting rights, displayed revision and confirmation. Placement-only/history views cannot post the whole week. Error/uncertain responses require a fresh status read, with no automatic retry or scheduler.",
+  "file_sha256_at_candidate": {
+    ".deploy-version": "395a017dfe37da9c98d9ecae375c998a5de7ebebe765fb6c9d64f89d9b624068",
+    "core/integrations/purepay_payroll_authority.php": "0ce45aac4f0a39e5d1d522e3a251291f82fd1e8a1a8825f84e6ae90b8b372c83",
+    "core/integrations/purepay_payroll_inputs.php": "d4a56b6dde5e94dd105738d4684633201b983c6edbc0f9769d11f55c3517f2d4",
+    "core/migrations/203_time_approval_economics.sql": "802ea9013d5f1feedd011515f65a9f7a0188ea6451748585cf4f3b7f8e65b4e2",
+    "core/quanta/time_revisions.php": "efa92fb0dbf67a0e7a059b65e4556c7d2c518e58ba7f3d67b7565d7facb218b7",
+    "dashboard/dist/index.html": "407983ac06f1b085acd74c87d974dc4f5daeea43cd3bdc3f9cc6e9dcf3aec25e",
+    "dashboard/tests/accountingHandoff.test.mjs": "29a86d77c908a9467b286a085f911d342ab3925d1d648dac20764af29755789c",
+    "dashboard/tests/placementTimesheetViews.test.mjs": "ff406ca8645190d3d265480615b5409f95c1aa6ff69de3ff9dda4988e8a448cf",
+    "deploy/thunderhawk-approved-time-accounting-preparation-20261113.json": "949cd0304e7c0ff564def1e6887efb19270e1accc4e81fec9340cd268bf20c2e",
+    "deploy/thunderhawk-csv-intake-preparation-20261113.json": "29add296d79e3e857250471a565a5ab81f6f9911ca156f402cc604765bcf4aa1",
+    "docs/thunderhawk-approved-time-accounting.md": "70961f6aeafc6353599825a8a8c45885c5e103a73ffe2d8e956243bff185fe66",
+    "docs/thunderhawk-csv-time-intake.md": "29c5dd22c2400068ae8e6e8aba0b226c10b56eef35904325867ebd65217eaee2",
+    "docs/thunderhawk-integration-remaining-acceptance.md": "a6524327d9837339d464bf2b4739ba897ea0dc970e274aa81207eb35da33793d",
+    "index.html": "407983ac06f1b085acd74c87d974dc4f5daeea43cd3bdc3f9cc6e9dcf3aec25e",
+    "modules/accounting/lib/source_accrual.php": "f6c66f29be03896c944339c79e2549fe8cc80eadba6aabd8865b0a3fa1efabaa",
+    "modules/staffing/lib/timesheets.php": "d26a070a3e27043ff8ef76ed17309ea839a9dc443af62abbaa7d52bd864dea71",
+    "modules/staffing/ui/TimesheetDetail.jsx": "fe82b80b1e6ea331c1c8f849bc14c22e1e8442e43ed516a938a668f8dd575a3d",
+    "modules/time/SPEC.md": "532ccd9f5bdda99470a9da5d7760aff1c33efab70d09e9718efb6573da83fa7c",
+    "modules/time/api/accounting_handoffs.php": "62b493d41276930cf147db9162c53bf28844cea47e6f85e839a9f082c2ed1cc7",
+    "modules/time/lib/accounting_handoff.php": "9cfe66794621150ac1241e8efa2c868097d7daf4d3d56338ef9a1a01b0ea57d6",
+    "modules/time/lib/approval_economics.php": "df76ed6b095e40f606ce8fc65031c9ec45ca4ec2494bbff07de65ca5621b560f",
+    "modules/time/lib/native_entries.php": "d1948ec6f9798c49519b294bdc14a58f4ece30d27dfe1d07534af912d9f27387",
+    "modules/time/lib/native_review.php": "3a512d7294920dae8639ac059e29902db52f04786fb566d7ff58065de3b7bc41",
+    "modules/time/lib/time.php": "1a85d037f4364490148100deaa8e2fd025d162e9165d334f335719340cd02f3e",
+    "modules/time/ui/AccountingHandoff.jsx": "e347cbafc329368eabf457fc3cbff917961d76fe05543cb4eb9e31c6d2466045",
+    "spa-assets/index-Bo3avdo6.js": "e561ba2746dc0b1b136e0df392bd3f9e59a13ec3454b1e9baa2fde461a5d2573",
+    "spa-assets/index-CUjydt0Q.js": "d7df271887b70b971c620827a071a2248d74e1a4974351ace223f85225f852e9",
+    "spa-assets/index.html": "407983ac06f1b085acd74c87d974dc4f5daeea43cd3bdc3f9cc6e9dcf3aec25e",
+    "spa-assets/sw.js": "ebf2fdb11a15931c42f3b1a7405b46889a2aed999fc9274cabbdebe29857d930",
+    "tests/company_relationship_concurrency_db.php": "902cc3fdddec171c9632881aa981928fca42e3a34081b2f174c962eaac6fc9d4",
+    "tests/fixtures/native_time_concurrency_checks.php": "834ce3245cfc84dce7e13eaa926d0547c878311c0023c77d379610041c91f136",
+    "tests/fixtures/payroll_input_approval_evidence.php": "7b6f6c855c9d375f397f2106afbd8f69280355c9971ba8088c8c2cfb702faf7b",
+    "tests/fixtures/placement_contract_http_router.php": "b075d4e1b31d1fe417f808616728c4994166c3210fb8ac76c92abd2ebfa4ed67",
+    "tests/fixtures/time_accounting_handoff_concurrency_checks.php": "7cc7e3386bcfbdcb2053605914f44aae63c1617b894f7fe03fb85e5526911fc1",
+    "tests/fixtures/time_approval_alignment_http_checks.php": "53c299776b27ed925a8e04f87dbf0ea7e1e0172d91b1fff9d0604fd2d895722e",
+    "tests/fixtures/time_approval_economics_http_checks.php": "0793817cc1dfa1f30a0c9aa4acc047b1646df66b8550508288115fd6e73e04c9",
+    "tests/purepay_payroll_authority_mariadb.php": "d99132ce79cf118d74890fffb4188100748b28f3b5c5a9ed33a39f72795fd9ff",
+    "tests/purepay_payroll_inputs_mariadb.php": "5a8fac454620aeb44c86efba08d35338293c2d7fad3a68018d2ab3a459d9304c",
+    "tests/quanta_payroll_inputs_mariadb.php": "a4b91da561f928b6561182edd337b29e563719e79a17490a7a54b5de23a4da7c",
+    "tests/quanta_time_revisions_mariadb.php": "5409621a21f828e26404eee44ebc5cda83d8d768b4d9c3756cab20f13b65aa60",
+    "tests/referral_engagement_smoke.php": "1eef1c582070219eaa192b709f217a84bf96918042550cbe7cc0e9ce62a1950a",
+    "tests/staffing_approval_live.php": "a9cd1fc1d035eb6f25f6fe5e6e26496141a122e5bc50449908ffa66a70f69e4d",
+    "tests/staffing_dimensions_smoke.php": "44588008aed90e0f8f23aee929bc1b1a8326bce93f408c29bd5c7add52ddbf25",
+    "tests/staffing_je_auto_booking_smoke.php": "5e292c49134ee5f1d5a5610fbc7ea8d10665472a224d43f6e2f7e832e2c416dd",
+    "tests/staffing_phase2_wave2_smoke.php": "4359c3c88aeb9d90fa420baad88021310f54f98ffd977718f451627d02e1d034",
+    "tests/staffing_posting_live.php": "6f4e721d06d8e995a1572aa66855b2b06625e5544922ae176abc43e15c5a0302",
+    "tests/time_approval_economics_smoke.php": "e89184d12da3a369300531147c9c90a4d3343b3b8917fa18ed936e3901dbf5dd",
+    "tests/time_approval_projection_db_check.php": "3941785d9b9ac191bc1864ec7696252843f93d2a691be540fe126e8e52fdcefb",
+    "tests/workflow_graph_alignment_smoke.php": "98b54a0316526fb1003efa015c8db48855133f081af1197e5ae20134a1c9b22c"
+  },
+  "installed": false,
+  "migration_203_installed": false,
+  "installed_pilot_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+  "pilot_read_only_verification": {
+    "checked_at": "2026-11-14T05:04:15+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "earlier_candidates": [
+    {
+      "commit": "fecfb54e",
+      "ci_run_id": 43557721672,
+      "result": "All eleven jobs passed for base accounting intent/rate retention before these follow-ups."
+    },
+    {
+      "commit": "1f21a4ea",
+      "ci_run_id": 43558416200,
+      "result": "Input and provenance checks passed; later reservation fixture attempted a no-op hours update. Corrected all such probes to change eight hours to nine; original restore remains eight."
+    }
+  ],
+  "remaining": [
+    "Billing/AP, period-bundle and native payroll retained-rate readers",
+    "Original-time ownership, category/units/currency and weekly/multi-period economics",
+    "Posted financial correction/reversal and historical provenance",
+    "Remaining field/reference alignment",
+    "Guarded full pilot installation with required migrations",
+    "Hosted operator screen and signed-in Quanta/PurePay/PurePayroll full round trip"
+  ],
+  "production_changed": false,
+  "provider_changed": false,
+  "arabella_changed": false
+}

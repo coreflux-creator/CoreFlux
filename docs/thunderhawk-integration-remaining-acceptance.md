@@ -2,6 +2,18 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 retained payroll rates and accounting review — source accepted, not installed
+
+Exact source `4ebb0390` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43559123793): **944 independent-connection checks**, **953 native-session checks**, and **917 native HTTP checks**, with temporary-access cleanup verified. The local frontend build and all **524 rendered UI checks** passed, including **17 accounting-card checks**. [Pinned source and evidence](../deploy/thunderhawk-approved-time-accounting-preparation-20261114.json).
+
+PurePayroll input preparation and source reservation consume each time entry's retained rate values. Actual disposable database checks preserve separate prices for two approvals using the same rate ID; reject missing/corrupt/foreign evidence and changed reviewers; and retain lost-response, replay, reservation and cancellation protections. The provider packet and held-input contract are unchanged. The suite passed 47 input, 85 authority, 17 operator-reservation and 7 Quanta-to-PurePayroll checks.
+
+The weekly detail shows pending, failed, posted and withdrawn accounting requests. Posting is an explicitly confirmed whole-week action requiring both time-approval and accounting-post permission, the displayed revision, and current workspace. A placement-only/history view cannot initiate it. Opening and refreshing read status only; failures require a fresh status read. No unattended retry or scheduler was added. [Behavior and limits](thunderhawk-approved-time-accounting.md).
+
+Read-only hosted verification at **2026-11-14T05:04:15+00:00** confirmed pilot `4bc10bb0`, 367 runtime file pins, 378 tables and **35,304 rows unchanged**, with private configuration and temporary-access cleanup intact. The new source, screen and migration 203 are **not installed**.
+
+Next convert the remaining Billing/AP, period-bundle and native payroll rate readers. Original-company financial ownership, category/unit/currency/weekly semantics, paired posted corrections and historical provenance, remaining field/reference alignment, required migrations, guarded installation and the complete signed-in Quanta/PurePay/PurePayroll round trip remain required. Production, providers and Arabella are unchanged. The full integration goal remains active and incomplete.
+
 ## November 13 approved-time accounting — source accepted, complete pilot pending
 
 Exact source `fecfb54e` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43557721672): **944 independent-connection checks**, **953 native-session checks** and **915 native HTTP checks**. Temporary actor, server and private-session cleanup passed. Actual disposable-ledger tests verified atomic approval/retained rates, delayed processing after commit, later master-rate changes, interrupted delivery, all-segment rollback and exactly-once retry. Reviewed native and Quanta corrections withdraw unposted requests while preserving the old evidence. [Pinned source and evidence](../deploy/thunderhawk-approved-time-accounting-preparation-20261113.json).
