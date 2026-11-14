@@ -60,13 +60,15 @@ $assert('event payload carries dimensions and vendor',
     str_contains($timesheets, "'dimensions'      => \$dimensionContext['dimensions']")
     && str_contains($timesheets, "'vendor_dimension'=> \$dimensionContext['vendor_dimension']"));
 $assert('time approval preflights assignment completeness',
-    str_contains($timesheets, 'Complete placement #{$placementId} before approving time')
-    && str_contains($timesheets, 'staffingDimensionMissingLabels($missing)'));
+    str_contains($timesheets, 'timeNativeApprovalSnapshot(')
+    && str_contains($review = $read(__DIR__ . '/../modules/time/lib/native_review.php'), 'Complete this placement before approving time')
+    && str_contains($review, 'staffingDimensionMissingLabels($missing)'));
 $assert('reporting gaps are distinct from transaction blockers',
     str_contains($dimensions, "'reporting_gaps' => \$reportingGaps")
     && str_contains($dimensions, 'function staffingDimensionBlockingMissing'));
 $assert('time accounting blocks only purpose-required dimensions',
-    substr_count($timesheets, "staffingDimensionBlockingMissing(\$dimensionContext, 'time')") >= 2
+    str_contains($timesheets, "staffingDimensionBlockingMissing(\$dimensionContext, 'time')")
+    && str_contains($review, "staffingDimensionBlockingMissing(\$context,'time')")
     && str_contains($timesheets, 'missing dimensions required for time accounting'));
 
 $engine = $read(__DIR__ . '/../core/posting_engine/process.php');

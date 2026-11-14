@@ -44,10 +44,13 @@ $a('manual time entry placement validation uses placement graph tenant',
     && str_contains($nativeEntries, "placementIdentityResolve(getDB(),(int)StaffingNativeTimeEdit::owner('placements')"));
 
 $staffingLib = $c('modules/staffing/lib/timesheets.php');
+$nativeReview = $c('modules/time/lib/native_review.php');
 $a('staffing approval locks rate_snapshot_id per entry',
-    str_contains($staffingLib, 'timeResolveRateSnapshot((int) $entry[\'placement_id\'], (string) $entry[\'work_date\'], $tenantId)')
-    && str_contains($staffingLib, 'rate_snapshot_id = :rid')
-    && str_contains($staffingLib, 'has no approved rate covering'));
+    str_contains($staffingLib, 'timeNativeApprovalSnapshot(')
+    && str_contains($staffingLib, 'timeNativeWriteApproval(')
+    && str_contains($nativeReview, 'timeResolveRateSnapshot((int)$entry[\'placement_id\'],(string)$entry[\'work_date\'],$workspace)')
+    && str_contains($nativeReview, 'rate_snapshot_id=?')
+    && str_contains($nativeReview, 'No approved rate covers this entry.'));
 $a('staffing week and posting event use placement graph joins',
     str_contains($staffingLib, 'p.tenant_id = :placements_tid')
     && str_contains($staffingLib, 'pl.tenant_id = :placements_tid'));
