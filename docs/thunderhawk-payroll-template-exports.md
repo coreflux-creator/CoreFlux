@@ -45,6 +45,17 @@ ownership, immediate isolation changes, foreign-run refusal, changed earnings,
 independent calculation approval, competing computation locks and failure with
 no partial output or success audit.
 
-Full CI/database validation and installation of this correction are pending.
-The isolated pilot remains on its recorded November 14 installed application;
-no production, Arabella, provider, payroll execution or payment state was changed.
+Application `6773f17f` passed all eleven jobs in [CI 43579273318](https://github.com/coreflux-creator/CoreFlux/actions/runs/43579273318).
+The actual database job passed 40 native earnings checks and 34 exact-calculation
+review checks, including all the new export paths, rollback and contention cases.
+Its synthetic records were rolled back. The 17 focused export checks also passed
+in that environment, and the complete frontend build and other release lanes passed.
+
+A fresh read-only pilot preflight matched all 458 installed pins and private
+configuration. The prepared package contains 16 files and retains 447 dependency
+pins; its only new migration adds the audit export preset. Current provider and
+tenant settings were not changed. [Pinned release evidence](../deploy/thunderhawk-payroll-export-preparation-20261114.json).
+
+Guarded installation and hosted export acceptance are still pending. The isolated
+pilot remains on its recorded November 14 installed application. No production,
+Arabella, provider, payroll execution or payment state was changed.

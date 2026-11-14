@@ -1,0 +1,181 @@
+{
+  "date": "2026-11-14",
+  "status": "validated_prepared_not_installed",
+  "application_commit": "6773f17f9db9242f2757387985e86e2083040b90",
+  "ci": {
+    "run": 43579273318,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43579273318",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Full-Core actual native writer observation",
+        "id": 132400302302,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "id": 132400302442,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "id": 132400302445,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "id": 132400302458,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "id": 132400302478,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "id": 132400302484,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "id": 132400302505,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "id": 132400302506,
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "id": 132400302511,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "id": 132400302526,
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "id": 132400302529,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "checks": {
+    "payroll_export": 17,
+    "native_approved_earnings_database": 40,
+    "exact_calculation_review_database": 34,
+    "existing_export_template_local": 182,
+    "database_fixtures_rolled_back": true,
+    "browser_acceptance": false,
+    "hosted_export_acceptance": false
+  },
+  "pilot_preflight": {
+    "checked_at": "2026-11-14T09:18:26+00:00",
+    "root": "/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html",
+    "database": "muzqvdvqbx",
+    "verified_installed_pins": 458,
+    "configuration_preserved": true,
+    "existing_audit_templates": []
+  },
+  "package": {
+    "package_sha256": "68fbc3341743c3de00e96e2659740d5d0d1dd87a0620c0f26f506cbb61a33be7",
+    "artifact_sha256": "98fc06c64faf37bde09822886185d1751803f544375be814dff71c2032c885b6",
+    "artifact_manifest_sha256": "6f237bd490f66b963b21828cb559abe63f61345665a8ef18329436fd16bf5077",
+    "files": {
+      ".deploy-version": {
+        "sha256": "73bb56b8f5354d82f4520fd97ef759b49e92a6b5fdb4447585f848125ff13a74",
+        "before_sha256": "a3dba024d046428d8c4e98099a8dd9f990ea2d56255ce232333391b739bb019f"
+      },
+      "core/export_datasets.php": {
+        "sha256": "6bb0d8df2e58092b1d95e8f6b15992301ff7f5302b9b870f25ac0cae5523f005",
+        "before_sha256": "b79a152f78068f35fe8b078589a701d3ae631fd7412bcbfd63f1644d3ac56aa3"
+      },
+      "core/export_service.php": {
+        "sha256": "8f472035bc071df30165ffe92569171a38b9244b2b89ca0112f55da2a3ef44b7",
+        "before_sha256": "533c22b636b359c5be6879c32cf72562fe384ae481a4113b33515c491d0ec4fa"
+      },
+      "core/export_templates.php": {
+        "sha256": "3618af89b2e43d0ffcce4030d465963af06c62bf7e79d2f1b1d5af95d8a6198b",
+        "before_sha256": "655da657d0380184aaeee570be700c8dcd6f8b3f5d9d4433c5ab1fa26a25f701"
+      },
+      "core/migrations/204_payroll_calculation_export_template.sql": {
+        "sha256": "6c192647facda7ced9c085c285d7def56fe2a1917835564fccfe1ef54f9a4e71",
+        "before_sha256": null
+      },
+      "dashboard/dist/index.html": {
+        "sha256": "16c1d37a5c0af9c9b54ff145538b3e2f3ebf34417ffa84251bce46e7c23c7742",
+        "before_sha256": "001f368903d6892c096cb138b5e47636c3d010599e1b44f821fd07b60c276de1"
+      },
+      "dashboard/src/components/ExportTemplatePicker.jsx": {
+        "sha256": "010f6b339e525ed220f36ab8b65592907b6a5beec1bf440017d3be0c03cc8d89",
+        "before_sha256": "52c4274f057358aa9fc65ee4d93cf4891d10958c4b1bca6727796d5a9a624448"
+      },
+      "index.html": {
+        "sha256": "16c1d37a5c0af9c9b54ff145538b3e2f3ebf34417ffa84251bce46e7c23c7742",
+        "before_sha256": "001f368903d6892c096cb138b5e47636c3d010599e1b44f821fd07b60c276de1"
+      },
+      "modules/payroll/api/runs.php": {
+        "sha256": "9e263527e2a04b74d29a89a0eadc13be7faedcd766facc561a120deeaa952244",
+        "before_sha256": "9cb74ef566fa854c45b89dea016544812b29f191ce2fe9fb1376234dcd424732"
+      },
+      "modules/payroll/lib/export.php": {
+        "sha256": "399b25529bc2b0f68843298dcb1722a7bedf1738349ab46848c1cc12a9ba4d3b",
+        "before_sha256": null
+      },
+      "spa-assets/index-BzO77ov5.js": {
+        "sha256": "43ee007caa4893f0d62640499d2c71b01c13ecc2e1ae7f742f09f7acddd97bb8",
+        "before_sha256": null
+      },
+      "spa-assets/index-CYcM0MSD.css": {
+        "sha256": "34076d40e2e528e51f4313b79dc1942a93b9c629e9f426fadd5f8b795d28d9fc",
+        "before_sha256": "34076d40e2e528e51f4313b79dc1942a93b9c629e9f426fadd5f8b795d28d9fc"
+      },
+      "spa-assets/index-Cxg7vUbW.js": {
+        "sha256": "bb41d6832fe693631eba5e0da1e59f864ae824567cb3645b7561776143c7063b",
+        "before_sha256": null
+      },
+      "spa-assets/index-SRkxIh9x.css": {
+        "sha256": "e4a8bde4c3c6f480a044435c9c2ff93c61eaef47fad8471d791d3df9fb5976e8",
+        "before_sha256": "e4a8bde4c3c6f480a044435c9c2ff93c61eaef47fad8471d791d3df9fb5976e8"
+      },
+      "spa-assets/index.html": {
+        "sha256": "16c1d37a5c0af9c9b54ff145538b3e2f3ebf34417ffa84251bce46e7c23c7742",
+        "before_sha256": "001f368903d6892c096cb138b5e47636c3d010599e1b44f821fd07b60c276de1"
+      },
+      "spa-assets/sw.js": {
+        "sha256": "d46dba9471026d59194ab93719bbbdd4079fedce89c8a715cc6c04dba1fdc4d5",
+        "before_sha256": "37ed9cfa415168cfe7f00ed2d321ce908475027030f4b91aaca002a97c2ac322"
+      }
+    },
+    "ui_assets": [
+      "index-BzO77ov5.js",
+      "index-CYcM0MSD.css",
+      "index-Cxg7vUbW.js",
+      "index-SRkxIh9x.css"
+    ]
+  },
+  "retained_dependency_count": 447,
+  "pending_migrations": [
+    "core/migrations/204_payroll_calculation_export_template.sql"
+  ],
+  "evidence_sha256": {
+    "payroll-export-6773f17f-ci.json": "1f12ed77bb097004c784ed0571afe9a6916bd1ade390937ae5933125cf2a3d36",
+    "payroll-export-6773f17f-db-ci.log": "60d58875080f2c05891c94a95d383b99e7a5d3f2945df20c6340ded1acdb09f7",
+    "payroll-export-pilot-inspection.json": "882c1b70c707bca4550859d79cf422ef9f3f15295a0b6306e3a83307c81bdf10",
+    "payroll-export-application-package-receipt.json": "9431a4acc73fe6452674516f47c580711d1018239347b7d7a3ca5ae544cd138a"
+  },
+  "hosted_changes": false,
+  "provider_requests": false,
+  "real_payroll_or_payments": false,
+  "production_cutover": false,
+  "arabella_changed": false,
+  "remaining": [
+    "Guarded pilot installation and hosted export acceptance",
+    "Reviewed bank instruction snapshots and provider execution/cash reconciliation",
+    "The outstanding full Thunderhawk field, portal, correction and integration acceptance requirements"
+  ]
+}
