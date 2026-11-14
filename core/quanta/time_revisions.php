@@ -231,6 +231,9 @@ function quantaTimeRevisionApply(int $tenant,int $actor,string $id,string $hash,
     if ($pdo->inTransaction()) throw new LogicException('Correction apply requires its own transaction.');
     $pdo->beginTransaction();
     try {
+        require_once __DIR__.'/../../modules/people/lib/company_relationships.php';
+        companyRelationshipScope($pdo,$tenant,'placements');
+        companyRelationshipScope($pdo,$tenant,'people');
         // Serialize attempts before looking up an absent unique receipt, avoiding
         // competing gap locks. Local receipt recovery does not need an active key.
         $connectionLock=$pdo->prepare('SELECT id FROM quanta_connections WHERE tenant_id=? FOR UPDATE');
@@ -244,6 +247,8 @@ function quantaTimeRevisionApply(int $tenant,int $actor,string $id,string $hash,
         $p=quantaTimeRevisionSnapshot($pdo,$tenant,$actor,$id);
         if (!hash_equals($p['review_hash'],$hash)) throw new RuntimeException('The source, Core time, company connection or affected week changed. Review the correction again.');
         $entry=$p['entry']; $route=$p['route']; $before=$p['snapshot'];
+        require_once __DIR__.'/../../modules/time/lib/accounting_handoff.php';
+        $withdrawn=timeAccountingHandoffWithdraw($tenant,array_keys($before['headers']),$actor,$reason);
         $sheet=staffingTimesheetUpsert((int)$route['person_id'],$p['week_start'],$p['week_end'],
             ['tenant_id'=>$tenant,'source'=>'quanta','source_system'=>'quanta','created_by_user_id'=>$actor]);
         $period=timeOpenPeriodIdForDate($entry['work_date']); $new=[];
@@ -273,12 +278,12 @@ function quantaTimeRevisionApply(int $tenant,int $actor,string $id,string $hash,
         }
         $sheets=array_values(array_unique([...array_keys($before['headers']),(int)$sheet['id']]));
         foreach ($sheets as $sheetId) {
-            timeReconcileTimesheetHeader($sheetId,$actor);
+            StaffingNativeTimeEdit::runForWorkspace($tenant,static function()use($sheetId,$actor):void {timeReconcileTimesheetHeader($sheetId,$actor);});
             staffingTimesheetRecordArtifactEvent($sheetId,'timesheet.source_corrected',$actor,
                 ['source'=>'quanta','source_entry_id'=>$id,'review_hash'=>$hash,'reason'=>$reason,'new_entry_ids'=>array_values($new)],$tenant);
         }
         $after=['new_entry_ids'=>$new,'superseded_entry_ids'=>array_map(static fn(array $r):int=>(int)$r['id'],$p['active']),
-            'timesheet_ids'=>$sheets,'status'=>'pending_review'];
+            'timesheet_ids'=>$sheets,'status'=>'pending_review','cancelled_accounting_handoff_ids'=>$withdrawn];
         $pdo->prepare('INSERT INTO quanta_time_revisions(tenant_id,source_entry_id,review_hash,request_hash,actor_user_id,reason,before_ct,after_ct,source_ct) VALUES(?,?,?,?,?,?,?,?,?)')
             ->execute([$tenant,$id,$hash,$request,$actor,$reason,encryptField(integrationDeliveryJson($before)),
                 encryptField(integrationDeliveryJson($after)),encryptField(integrationDeliveryJson(['entry'=>$entry,'observations'=>$p['observations']]))]);

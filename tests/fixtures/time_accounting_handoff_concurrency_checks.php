@@ -20,3 +20,16 @@ try {
     $check($a['ok']&&$b['ok']&&!empty($a['result']['warning'])&&!empty($b['result']['warning'])&&$after['status']==='failed'&&(int)$after['attempts']===2,'Concurrent failed deliveries retain both attempts without losing the request: '.json_encode([$a,$b]));
     $check($after['id']===$intent['id']&&$after['events_hash']===$intent['events_hash']&&$after['events_json']===$intent['events_json']&&$approvalFinancialState()===$financialBefore,'Concurrent retries preserve one immutable intent and leave no partial financial results');
 } finally {if($pdo->inTransaction())$pdo->rollBack();}
+$correction=timeNativeCorrectionReview($ha_entry);
+$pdo->beginTransaction();
+try {
+    $pdo->prepare('SELECT id FROM tenants WHERE id=? FOR UPDATE')->execute([$tenant]);
+    $writer=$spawn(['mode'=>'native','entity'=>'generic_time','operation'=>'correct','workspace'=>$tenant,'actor'=>$actor,'entry_id'=>$ha_entry,
+        'payload'=>['hours'=>7,'review_revision'=>$correction['revision'],'correction_reason'=>'Synthetic concurrent corrected time']]);
+    $processor=$spawn($input);
+    $check($waiting($writer)&&$waiting($processor),'Correction and accounting retry both wait for the original company lock');
+    $pdo->commit();$changed=$finish($writer);$retried=$finish($processor);
+    $q->execute([$tenant,$ha_sheet]);$after=$q->fetch(PDO::FETCH_ASSOC);
+    $check($changed['ok']&&$retried['ok']&&!empty($retried['result']['warning'])&&$after['status']==='cancelled'&&$after['is_current']===null
+        &&$after['events_json']===$intent['events_json']&&$approvalFinancialState()===$financialBefore,'Concurrent correction withdraws the old intent without delivering it or erasing its evidence: '.json_encode([$changed,$retried]));
+} finally {if($pdo->inTransaction())$pdo->rollBack();}

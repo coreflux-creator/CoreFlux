@@ -22,11 +22,15 @@ CREATE TABLE IF NOT EXISTS time_accounting_handoffs (
     accounting_tenant_id BIGINT UNSIGNED NOT NULL,
     events_hash CHAR(64) NOT NULL,
     events_json LONGTEXT NOT NULL,
-    status ENUM('pending','posted','failed') NOT NULL DEFAULT 'pending',
+    status ENUM('pending','posted','failed','cancelled') NOT NULL DEFAULT 'pending',
+    is_current TINYINT UNSIGNED NULL DEFAULT 1,
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
     last_error TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME NULL,
-    UNIQUE KEY uq_time_accounting_handoff (tenant_id,timesheet_id),
+    cancelled_at DATETIME NULL,
+    cancelled_by_user_id BIGINT UNSIGNED NULL,
+    cancellation_reason VARCHAR(500) NULL,
+    UNIQUE KEY uq_time_accounting_handoff (tenant_id,timesheet_id,is_current),
     KEY idx_time_accounting_pending (tenant_id,status,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

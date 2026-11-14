@@ -7,6 +7,7 @@ require_once __DIR__.'/../core/quanta/time_revisions.php';
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE,PDO::FETCH_ASSOC); // Match the application's real connection.
 // This disposable database is removed below before the next review fixture starts.
 $migrate('191_quanta_time_revisions.sql');
+$migrate('203_time_approval_economics.sql');
 setRequestTenantId(1); putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);
 $applyFile=static function(string $path)use($pdo):void{foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../'.$path))as$sql)$pdo->exec($sql);};
 $pdo->exec('DELETE FROM quanta_time_imports WHERE quanta_entry_id<>"entry-1"');
@@ -63,6 +64,12 @@ $pdo->exec('CREATE TABLE placement_referrals(id BIGINT,tenant_id BIGINT,placemen
 $pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,effective_from DATE,effective_to DATE,
     bill_rate DECIMAL(12,2),pay_rate DECIMAL(12,2),bill_rate_unit VARCHAR(32),pay_rate_unit VARCHAR(32),currency CHAR(3),ot_multiplier DECIMAL(5,2),dt_multiplier DECIMAL(5,2),approved_at DATETIME)');
 $pdo->exec('INSERT INTO placement_rates VALUES(81,1,42,"2026-09-01",NULL,100,50,"hour","hour","USD",1.5,2,NOW())');
+$legacyRate=$pdo->query('SELECT * FROM placement_rates WHERE id=81')->fetch(PDO::FETCH_ASSOC);
+$legacyContext=staffingAssignmentDimensionContext(1,42,0,'2026-10-01');
+$legacyDimensions=array_intersect_key($legacyContext,array_flip(['dimensions','vendor_dimension','vendor_economic_party_id','vendor_company_id','vendor_ap_id','event_entity_id','missing']))+[
+    'engagement_type'=>'w2','referral_fee_per_hour'=>null,'source_rate_hash'=>hash('sha256',staffingDimensionSnapshotCanonicalJson($legacyRate)),
+];
+$legacyJson=staffingDimensionSnapshotCanonicalJson($legacyDimensions);
 $remote=$validRemote; $remoteCalls=0; $mode='approved';
 $GLOBALS['__quanta_transport']=static function($method,$url)use(&$remote,&$remoteCalls,&$mode,$context):array {
     if(str_ends_with(parse_url($url,PHP_URL_PATH),'/context'))return ['status'=>200,'body'=>json_encode($context)];
@@ -78,6 +85,7 @@ foreach($entry['components'] as $component=>$hours) {
 }
 $pdo->exec('UPDATE time_entries SET status="approved",created_by_user_id=7,approved_by_user_id=8,approved_at="2026-10-03 12:00:00",approved_via="manual",rate_snapshot_id=81,dimension_snapshot_json="{}"');
 $pdo->prepare('UPDATE time_entries SET dimension_snapshot_hash=?')->execute([hash('sha256','{}')]);
+$pdo->prepare('UPDATE time_entries SET dimension_snapshot_json=?,dimension_snapshot_hash=?')->execute([$legacyJson,hash('sha256',$legacyJson)]);
 $pdo->exec('INSERT INTO time_periods(id,tenant_id,start_date,end_date,label) VALUES(1,1,"2026-09-28","2026-10-04","Synthetic original week")');
 $sheet=staffingTimesheetUpsert(19,'2026-09-28','2026-10-04',['tenant_id'=>1,'source'=>'quanta','created_by_user_id'=>7]);
 $pdo->exec('UPDATE time_entries SET timesheet_id='.(int)$sheet['id']);
@@ -87,12 +95,12 @@ $sibling=scopedInsert('time_entries',['tenant_id'=>1,'person_id'=>19,'placement_
     'timesheet_id'=>(int)$sheet['id'],'work_date'=>'2026-10-01','hours'=>1,'hour_type'=>'regular','category'=>'regular_billable',
     'billable'=>1,'payable'=>1,'source'=>'manual_entry','source_system'=>'manual','status'=>'approved','created_by_user_id'=>7,
     'approved_by_user_id'=>12,'approved_at'=>'2026-10-03 11:00:00','approved_via'=>'manual','rate_snapshot_id'=>81,
-    'dimension_snapshot_json'=>'{}','dimension_snapshot_hash'=>hash('sha256','{}')]);
+    'dimension_snapshot_json'=>$legacyJson,'dimension_snapshot_hash'=>hash('sha256',$legacyJson)]);
 $siblingBefore=timeEntryGet($sibling);
 timeReconcileTimesheetHeader((int)$sheet['id'],8);
 $passed=0;
 $fails=static function(callable $fn,string $part=''):bool{try{$fn();return false;}catch(Throwable $e){if($part!==''&&!str_contains($e->getMessage(),$part))throw$e;return true;}};
-$snapshot=static function()use($pdo):array{$out=[];foreach(['time_entries','quanta_time_imports','quanta_time_approval_evidence','quanta_time_revisions','staffing_timesheets','time_periods','artifact_objects','artifact_events','artifact_relationships','audit_log']as$table)$out[$table]=$pdo->query('SELECT * FROM '.$table.' ORDER BY 1')->fetchAll(PDO::FETCH_ASSOC);return$out;};
+$snapshot=static function()use($pdo):array{$out=[];foreach(['time_entries','time_approval_rates','time_accounting_handoffs','quanta_time_imports','quanta_time_approval_evidence','quanta_time_revisions','staffing_timesheets','time_periods','artifact_objects','artifact_events','artifact_relationships','audit_log']as$table)$out[$table]=$pdo->query('SELECT * FROM '.$table.' ORDER BY 1')->fetchAll(PDO::FETCH_ASSOC);return$out;};
 $preview=static fn()=>quantaTimeRevisionPreview(1,7,'entry-1');
 $save=static fn(array $p,string $reason='Corrected source hours')=>quantaTimeRevisionApply(1,7,'entry-1',$p['review_hash'],$reason);
 $original=$snapshot();
@@ -154,12 +162,19 @@ $check($fails(fn()=>staffingTimesheetApprovalPlan(7,staffingTimesheetRow(1,(int)
 $plan=staffingTimesheetApprovalPlan(9,staffingTimesheetRow(1,(int)$sheet['id'],true),1);
 $check(array_keys($plan)===[$new]&&(int)$plan[$new]['rate_id']===81,'native weekly plan resolves replacement rate/dimensions and excludes already approved siblings');
 staffingTimesheetApplyApproval(9,(int)$sheet['id'],$plan,['tenant_id'=>1]);$pdo->commit();
+$pendingHandoff=timeAccountingHandoffStatus(1,(int)$sheet['id']);
+$check($pendingHandoff&&$pendingHandoff['status']==='pending','Approved Quanta replacement retains a pending accounting handoff');
 $check(timeEntryGet($new)['status']==='approved'&&(int)timeEntryGet($new)['approved_by_user_id']===9,'native approval writes a new independent reviewer and frozen evidence');
 $check(timeEntryGet($sibling)===$siblingBefore&&staffingTimesheetRow(1,(int)$sheet['id'])['approved_by_user_id']===null,
     'unchanged approved sibling keeps its evidence and mixed reviewers are not replaced by one header approver');
 // Add a component back and move the source into a different open week.
 $remote['regular_hours']=6;$remote['overtime_hours']=2;$remote['hours']=8;$remote['work_date']='2026-10-05';$remote['updated_at']='2026-10-06T10:00:00Z';
 $p2=$preview();$r2=$save($p2,'Corrected date and overtime');
+$q=$pdo->prepare('SELECT * FROM time_accounting_handoffs WHERE id=?');$q->execute([$pendingHandoff['id']]);$cancelled=$q->fetch(PDO::FETCH_ASSOC);
+$check($cancelled['status']==='cancelled'&&$cancelled['is_current']===null&&(int)$cancelled['cancelled_by_user_id']===7
+    &&in_array((int)$pendingHandoff['id'],$r2['result']['cancelled_accounting_handoff_ids'],true),'A reviewed Quanta correction withdraws the old pending request and retains its actor and receipt');
+$remainingHandoff=timeAccountingHandoffStatus(1,(int)$sheet['id']);
+$check($remainingHandoff['status']==='pending'&&$remainingHandoff['id']!==$pendingHandoff['id'],'The unchanged approved sibling receives its own replacement accounting intent');
 $check(count($r2['result']['new_entry_ids'])===2&&count($r2['result']['timesheet_ids'])===2,'date move reconciles both weeks and restores a previously removed component');
 $current=quantaImportLookup(1,['entry-1'])['entry-1'];
 $check((int)$current['overtime']['is_current']===1&&$current['regular']['work_date']==='2026-10-05','reinstated component retains provider ID and the corrected date');

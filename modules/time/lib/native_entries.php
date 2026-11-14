@@ -280,10 +280,12 @@ function timeNativeCorrect(int $id,array $body,array $user): array
         staffingTimesheetAssertDailyHours($person,$values['work_date'],$values['hours'],$id);
         [$start,$end]=timeWeekBounds($values['work_date']);$period=staffingTimeResolveOpenPeriod($values['work_date'],$start,$end);
         $target=timeNativeDraftHeader($person,$values['work_date'],$actor,'manual_entry',true);
+        require_once __DIR__.'/accounting_handoff.php';
+        $withdrawn=timeAccountingHandoffWithdraw(staffingTimeWorkspace(),[$oldHeader,$target],$actor,$reason);
         $new=staffingTimeInsert('time_entries',$values+['placement_id'=>(int)$before['placement_id'],'person_id'=>$person,'period_id'=>$period,'timesheet_id'=>$target,'source'=>'manual_entry','status'=>'draft','correction_reason'=>$reason,'created_by_user_id'=>$actor]);
         staffingTimeUpdate('time_entries',$id,['status'=>'superseded','superseded_by_id'=>$new]);
         timeNativeReconcile([$oldHeader,$target],$actor);
-        timeNativeRequiredAudit('time.entry.superseded',$id,['before'=>$before,'after'=>timeEntryGet($id),'replacement'=>timeEntryGet($new),'by_entry_id'=>$new,'reason'=>$reason],$actor);
+        timeNativeRequiredAudit('time.entry.superseded',$id,['before'=>$before,'after'=>timeEntryGet($id),'replacement'=>timeEntryGet($new),'by_entry_id'=>$new,'reason'=>$reason,'cancelled_accounting_handoff_ids'=>$withdrawn],$actor);
         return ['ok'=>true,'workspace_id'=>staffingTimeWorkspace(),'superseded_entry_id'=>$id,'new_entry_id'=>$new,'timesheet_id'=>$target,'original_timesheet_id'=>$oldHeader];
     });
 }

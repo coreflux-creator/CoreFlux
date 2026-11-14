@@ -113,7 +113,7 @@ function timeAccountingHandoffEnqueue(int $tenant,int $headerId): array
     $owner=StaffingNativeTimeEdit::lockOwner('accounting');
     $json=staffingDimensionSnapshotCanonicalJson(timeStaffingAccountingEvents($tenant,$headerId));
     $hash=hash('sha256',$json);
-    $q=getDB()->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=? FOR UPDATE');
+    $q=getDB()->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=? AND is_current=1 FOR UPDATE');
     $q->execute([$tenant,$headerId]);$row=$q->fetch(PDO::FETCH_ASSOC);
     if ($row) {
         if ((int)$row['accounting_tenant_id']!==$owner || !hash_equals($row['events_hash'],$hash) || $row['events_json']!==$json) throw new RuntimeException('This week already has different accounting intent. Use its correction workflow.',409);
@@ -133,7 +133,7 @@ function timeAccountingHandoffDispatch(int $tenant,int $headerId,?string $review
         return StaffingNativeTimeEdit::runForWorkspace($tenant,static function()use($tenant,$headerId,$reviewRevision,$actor):?string {
             timeApprovalEconomicsRequireSchema();
             $pdo=getDB();
-            $q=$pdo->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=? FOR UPDATE');
+            $q=$pdo->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=? AND is_current=1 FOR UPDATE');
             $q->execute([$tenant,$headerId]);$row=$q->fetch(PDO::FETCH_ASSOC);
             if ($reviewRevision!==null && (!$row || !hash_equals(timeAccountingHandoffRevision($row),$reviewRevision))) throw new RuntimeException('The accounting handoff changed. Refresh its status before retrying.',409);
             // Explicit replay of older verified approvals can establish intent.
@@ -181,12 +181,36 @@ function timeAccountingHandoffRevision(array $row): string
 function timeAccountingHandoffStatus(int $tenant,int $headerId,bool $canReadAccounting=false): ?array
 {
     timeApprovalEconomicsRequireSchema();
-    $q=getDB()->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=?');
+    $q=getDB()->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=? ORDER BY id DESC LIMIT 1');
     $q->execute([$tenant,$headerId]);$row=$q->fetch(PDO::FETCH_ASSOC);
     if (!$row) return null;
     $revision=timeAccountingHandoffRevision($row);
     if (!$canReadAccounting && $row['last_error']!==null) $row['last_error']='Accounting needs attention. Ask an accounting reviewer to inspect this handoff.';
-    return array_intersect_key($row,array_flip(['id','timesheet_id','accounting_tenant_id','status','attempts','last_error','created_at','completed_at']))+[
+    return array_intersect_key($row,array_flip(['id','timesheet_id','accounting_tenant_id','status','attempts','last_error','created_at','completed_at','cancelled_at','cancelled_by_user_id','cancellation_reason']))+[
         'workspace_id'=>$tenant,'review_revision'=>$revision,
     ];
+}
+
+/** Only a reviewed, unconsumed time correction may withdraw an unposted intent.
+ * Its immutable payload remains in history; the correction receipt and these
+ * changes share the caller's transaction. Callers hold the original owner locks.
+ */
+function timeAccountingHandoffWithdraw(int $tenant,array $headerIds,int $actor,string $reason): array
+{
+    $pdo=getDB();
+    if (!$pdo->inTransaction() || $tenant<=0 || $actor<=0 || trim($reason)==='') throw new LogicException('A reviewed correction transaction is required.');
+    timeApprovalEconomicsRequireSchema();
+    $ids=array_values(array_unique(array_filter(array_map('intval',$headerIds))));sort($ids,SORT_NUMERIC);$withdrawn=[];
+    foreach($ids as $headerId) {
+        $q=$pdo->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=? AND is_current=1 FOR UPDATE');
+        $q->execute([$tenant,$headerId]);$row=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$row) continue;
+        if (!in_array($row['status'],['pending','failed'],true)) throw new RuntimeException('This week has completed accounting. Use its downstream correction workflow.',409);
+        $q=$pdo->prepare('SELECT id FROM accounting_events WHERE tenant_id=? AND source_module="staffing" AND event_type="staffing.worker_hours.approved" AND (source_record_id LIKE ? OR source_record_id LIKE ?) LIMIT 1 FOR UPDATE');
+        $q->execute([$row['accounting_tenant_id'],$headerId.':%','timesheet:'.$headerId.':placement:%']);
+        if ($q->fetchColumn()) throw new RuntimeException('This week has accounting history. Reconcile it before withdrawing the request.',409);
+        $pdo->prepare('UPDATE time_accounting_handoffs SET status="cancelled",is_current=NULL,cancelled_at=NOW(),cancelled_by_user_id=?,cancellation_reason=? WHERE tenant_id=? AND id=? AND is_current=1')->execute([$actor,$reason,$tenant,$row['id']]);
+        $withdrawn[]=(int)$row['id'];
+    }
+    return $withdrawn;
 }

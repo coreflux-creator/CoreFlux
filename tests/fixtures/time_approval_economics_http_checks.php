@@ -57,5 +57,18 @@ try {
     $message=staffingEmitWorkerHoursApprovedEvent($workspace,$sheet);
     $expect(str_contains((string)$message,'until the approval transaction commits')&&$snapshot($tables)===$before,'Nested accounting delivery is deferred without early journals or state changes');
 } finally {$pdo->rollBack();}
+$beforeCorrection=$snapshot($tables);
+$pdo->beginTransaction();
+try {
+    StaffingNativeTimeEdit::runForWorkspace($workspace,static function()use($ids,$creator,$workspace,$sheet,$expect,$pdo):void {
+        $review=timeNativeCorrectionReview($ids[0]);
+        $result=timeNativeCorrect($ids[0],['hours'=>3,'review_revision'=>$review['revision'],'correction_reason'=>'Synthetic corrected approved hours'],['id'=>$creator]);
+        $handoff=timeAccountingHandoffStatus($workspace,$sheet);
+        $expect($handoff['status']==='cancelled'&&(int)$handoff['cancelled_by_user_id']===$creator&&timeEntryGet($result['new_entry_id'])['status']==='draft','A reviewed native correction withdraws only its unprocessed accounting intent');
+        $q=$pdo->prepare('SELECT COUNT(*) FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?');$q->execute([$workspace,$ids[0]]);
+        $expect((int)$q->fetchColumn()===1,'Correcting time retains the original private rate archive');
+    });
+} finally {$pdo->rollBack();}
+$expect($snapshot($tables)===$beforeCorrection,'An outer correction rollback restores the accounting request, source time and receipts together');
 if ($parentTimeAccess) RBACResolver::grantModule($parentMembership,'time',$parentTimeAccess['access_level'],json_decode($parentTimeAccess['sub_tenant_scope']??'null',true),$actor);
 else RBACResolver::revokeModule($parentMembership,'time',$actor);

@@ -14,6 +14,8 @@ The existing weekly dispatcher now consumes the retained request. It refuses to 
 
 An older approval with a rate fingerprint can be replayed only if the exact hashed rate row still exists. Missing or changed evidence is held for review. A legacy aggregate journal blocks a new assignment-level posting until reconciled; it is not silently replaced or double-booked. Correction/reversal behavior still needs its separate implementation.
 
+Reviewed native and Quanta corrections withdraw a pending/failed, unposted request in the same transaction as the source replacement. The old payload, actor, reason and cancellation date remain in history. The current approved remainder, or a later independently approved replacement, gets a new request. Owner locks serialize correction against delivery; posted accounting still requires the downstream reversal/correction workflow.
+
 `GET /modules/time/api/accounting_handoffs.php?timesheet_id=...` requires native sign-in and `time.view` in the original workspace. It returns status and a review revision, never rate JSON or event payloads. Detailed processing errors also require accounting read access. `POST` requires `time.approve`, `accounting.je.post`, native request protections and the displayed revision. The service rechecks that revision under its delivery lock and records a successful operator retry receipt. These are internal-ledger actions, not payroll execution or payment-rail instructions.
 
 ## Remaining work before installation and full acceptance
