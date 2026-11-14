@@ -156,6 +156,12 @@ try {
         'approved_by_user_id' => $users['alpha']['id'], 'approved_at' => '2026-11-10 12:00:00',
     ]);
     scopedUpdate('time_entries', $entryIds[1], ['status' => 'pending_review']);
+    $before = $read();
+    $pendingBefore = timeEntryGet($entryIds[1]);
+    $refused(static fn() => timeRejectEntry($entryIds[1], $users['beta'], 'CI test correction'), 409);
+    $assert($read() === $before && timeEntryGet($entryIds[1]) === $pendingBefore,
+        'rejection cannot silently reopen a completed week with inconsistent rows');
+    scopedUpdate('staffing_timesheets', $sheetId, ['status' => 'submitted']);
     timeRejectEntry($entryIds[1], $users['beta'], 'CI test correction');
     $assertState('rejected', 'rejected', null);
     $assert($read()[0]['approved_at'] === null, 'rejection clears stale weekly approval evidence');

@@ -40,7 +40,7 @@ export default function TimeDecisionReview({ kind, ids, decision, reason: initia
   const ready = review?.requestKey === key && sameWorkspace(review.workspace_id);
   const save = async event => {
     event.preventDefault();
-    if (!ready || busy || pending.current || (decision === 'reject' && !reason.trim())) return;
+    if (!ready || !sameWorkspace(review.workspace_id) || busy || pending.current || (decision === 'reject' && !reason.trim())) return;
     pending.current = true; setBusy(true); setError('');
     try {
       const result = await api.post(`${endpoint}?action=decision_commit`, {

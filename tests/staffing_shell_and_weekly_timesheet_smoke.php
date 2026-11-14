@@ -74,16 +74,18 @@ $a('submitted or rejected sheets can return to draft for correction',
 $a('approved, downstream-ready, and locked sheets require a downstream correction first',
    str_contains($lib, "['approved','payroll_ready','billing_ready','locked']")
    && str_contains($lib, 'Reverse or correct the downstream records'));
-$a('submit() flips header + cascades rows',      str_contains($lib, "staffingTimeUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
+$submission = $read(__DIR__.'/../modules/time/lib/native_submission.php');
+$decisions = $read(__DIR__.'/../modules/time/lib/native_decisions.php');
+$a('submit() flips header + cascades rows', str_contains($lib, 'timeNativeApplySubmission(') && str_contains($submission, 'status="pending_review"') && str_contains($submission, 'timeReconcileTimesheetHeader('));
 $a('approve() guards two-eye control',           str_contains($lib, 'Two-eye control'));
-$a('reject() requires reason on header',         str_contains($lib, "'rejection_reason'    => \$reason"));
+$a('reject() requires reason on header', str_contains($lib, "timeNativeDecisionCommit(\$userId,'weeks'") && str_contains($decisions, 'timeNativeRejectionReason($reason)') && str_contains($decisions, "'rejection_reason'=>\$reason"));
 
 echo "\nAPI /modules/staffing/api/timesheets.php\n";
 $api = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');
 $a('endpoint requires auth',                     str_contains($api, '$ctx    = api_require_auth()'));
 $a('action=week returns timesheet + entries + settings', str_contains($api, "'timesheet' =>") && str_contains($api, "'entries'") && str_contains($api, "'settings'"));
 $a('action=bulk_save dispatches to lib',         str_contains($api, "staffingTimesheetBulkSave((int) (\$user['id'] ?? 0), \$body)"));
-$a('action=submit / approve / reject all handled', str_contains($api, "in_array(\$action, ['submit','approve','reject']"));
+$a('action=submit / approve / reject all handled', str_contains($api, "\$action === 'submit'") && str_contains($api, "'approve','reject'") && str_contains($api, 'timeNativeDecisionCommit('));
 $a('action=settings supports GET + POST',        str_contains($api, "\$action === 'settings'") && str_contains($api, "if (\$method === 'GET')") && str_contains($api, "if (\$method === 'POST')"));
 $a('settings upsert uses ON DUPLICATE KEY',      str_contains($api, 'ON DUPLICATE KEY UPDATE'));
 $a('list endpoint joins people for worker name', str_contains($api, 'LEFT JOIN people p'));
