@@ -52,5 +52,5 @@ $reject(static fn()=>placementSourceRuleInput('commission',['currency'=>'XYZ']),
 $reject(static fn()=>placementSourceRuleInput('commission',['due_month'=>'2026-08-01']),'Exact date cannot silently replace source month precision');
 $check(str_contains(staffingFieldContractRules('placement_commissions','plan_id')['write_policy'],'new_nonempty_plan_binding_refused'),'Unconfigured plans remain an explicit limitation');
 $check(str_contains(staffingFieldContractRules('placement_corp_details','corp_name')['write_policy'],'preserve_legacy_alias'),'Legacy name is not a second authoritative payee');
-$check(staffingFieldContractRules('payroll_runs','gross_total_cents')['disposition']==='review_required','Unrelated unresolved financial fields are not relabeled');
+$check(staffingFieldContractRules('ap_bills','total')['disposition']==='review_required','Unrelated unresolved financial fields are not relabeled');
 echo "Staffing commercial fields: {$passed} checks passed\n";

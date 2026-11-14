@@ -30,8 +30,17 @@ $check(staffingFieldContractRules('placements','external_id')['disposition']==='
     'provider references remain connector-owned');
 $check(staffingFieldContractRules('people','ssn_ct')['disposition']==='restricted',
     'private identity fields remain restricted');
-$check(staffingFieldContractRules('payroll_runs','gross_total_cents')['disposition']==='review_required',
-    'unmapped financial fields are not declared exchanged merely because their table is familiar');
+$nativePayroll=staffingFieldContractRules('payroll_runs','gross_total_cents');
+$check($nativePayroll['owner']==='core_native_payroll'&&$nativePayroll['unit']==='USD-cents',
+    'Native payroll calculation has its own owner and amount unit');
+foreach($nativePayroll['remote_contracts'] as $remote)$check($remote['status']==='core_internal_only'&&$remote['path']===null&&$remote['sync_enabled_by_dictionary']===false,
+    'Native gross cannot masquerade as a provider result or enable mirroring');
+$check(staffingFieldContractRules('payroll_runs','future_field')['disposition']==='review_required',
+    'New payroll fields do not inherit the reviewed definitions');
+$check(staffingFieldContractRules('payroll_line_items','source_time_json')['disposition']==='restricted',
+    'Original payroll source evidence remains private');
+$check(staffingFieldContractRules('ap_bills','total')['disposition']==='review_required',
+    'Unrelated financial fields retain their unresolved decisions');
 $check(staffingFieldExchangeOwnership('people',['quanta'=>['path'=>'workers.full_name','status'=>'schema_only']])===null,
     'a schema hint without an implemented adapter cannot establish ownership');
 $check(staffingFieldContractRules('placement_rates','approved_at')['write_policy']==='specialized_workflow_only',

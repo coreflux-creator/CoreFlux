@@ -44,6 +44,6 @@ $check(str_contains($rules('time_downstream_feed.total_amount_pay')['unit'],'cur
 $check($rules('quanta_time_imports.is_current')['owner']==='quanta_source_evidence'
     &&str_contains($rules('quanta_time_imports.is_current')['definition'],'explicit reviewed correction'),
     'Removed component ownership is covered by the correction workflow');
-$check(staffingFieldContractRules('payroll_runs','gross_total_cents')['disposition']==='review_required',
+$check(staffingFieldContractRules('ap_bills','total')['disposition']==='review_required',
     'Time review does not relabel unreviewed financial fields');
 echo "Staffing time field contract: {$passed} passed\n";
