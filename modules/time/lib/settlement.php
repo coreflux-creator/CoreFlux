@@ -327,7 +327,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
                    FROM payroll_runs r
                    JOIN payroll_pay_periods pp
                      ON pp.tenant_id = r.tenant_id AND pp.id = r.pay_period_id
-                  WHERE r.tenant_id = :tenant_id AND r.id = :id',
+                  WHERE r.tenant_id = :tenant_id AND r.id = :id FOR UPDATE',
                 ['id' => $targetRef]
             );
             if (!$targetRow) {
@@ -385,10 +385,13 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
     $place = implode(',', array_fill(0, count($entryIds), '?'));
 
     $ownsTxn = cf_tx_begin($pdo);
+    if (!$ownsTxn) $pdo->exec('SAVEPOINT time_settlement_release');
     try {
+        $reviewedPayrollRefs = $target === 'payroll'
+            ? timePayrollReleaseLockRuns($pdo,(int)$tenantId,$entryIds) : [];
         $stmt = $pdo->prepare(
-            "SELECT id, {$cols['at']} AS already_at FROM time_entries
-             WHERE tenant_id = ? AND id IN ($place) FOR UPDATE"
+            "SELECT id, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref FROM time_entries
+             WHERE tenant_id = ? AND id IN ($place) ORDER BY id FOR UPDATE"
         );
         $stmt->execute(array_merge([$tenantId], $entryIds));
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -399,6 +402,9 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
             if (empty($r['already_at'])) {
                 throw new TimeSettlementException("Entry #{$r['id']} is not extracted to $target");
             }
+            if ($target === 'payroll' && (string)$r['already_ref'] !== ($reviewedPayrollRefs[(int)$r['id']] ?? null)) {
+                throw new TimeSettlementException('Payroll source assignment changed. Review the current run before releasing time.');
+            }
         }
         $upd = $pdo->prepare(
             "UPDATE time_entries
@@ -406,8 +412,18 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
              WHERE tenant_id = ? AND id IN ($place)"
         );
         $upd->execute(array_merge([$tenantId], $entryIds));
+        if ($target === 'payroll') {
+            $pdo->prepare('INSERT INTO audit_log(tenant_id,actor_user_id,event,target_id,meta_json,ip_address,created_at)
+                VALUES (?, ?, "time.payroll.sources_released", NULL, ?, ?, NOW())')
+                ->execute([$tenantId,$actorUserId,json_encode(['reason'=>$reason,'sources'=>$rows],JSON_THROW_ON_ERROR),$_SERVER['REMOTE_ADDR']??null]);
+        }
+        if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT time_settlement_release');
         cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
+        if (!$ownsTxn && $pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK TO SAVEPOINT time_settlement_release');
+            $pdo->exec('RELEASE SAVEPOINT time_settlement_release');
+        }
         cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
@@ -416,6 +432,45 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
         'count' => count($entryIds), 'reason' => $reason, 'ids' => $entryIds, 'actor_user_id' => $actorUserId,
     ]);
     return ['unextracted_count' => count($entryIds), 'ids' => $entryIds];
+}
+
+/** Lock payroll before time, matching the posting writer; recheck discovered refs afterward. */
+function timePayrollReleaseLockRuns(PDO $pdo,int $tenant,array $entryIds): array
+{
+    if (!$pdo->inTransaction()) throw new LogicException('Payroll source release requires a transaction.');
+    $marks=implode(',',array_fill(0,count($entryIds),'?'));
+    $q=$pdo->prepare('SELECT id,payroll_extracted_ref FROM time_entries WHERE tenant_id=? AND id IN ('.$marks.') ORDER BY id');
+    $q->execute([$tenant,...$entryIds]);$entries=$q->fetchAll(PDO::FETCH_ASSOC);
+    if (count($entries)!==count($entryIds)) throw new TimeSettlementException('Some entry ids not found');
+    $refs=[];$runs=[];
+    foreach ($entries as $entry) {
+        $ref=(string)$entry['payroll_extracted_ref'];
+        if (!preg_match('/^(?:payroll:run#)?([1-9][0-9]*)$/D',$ref,$match)) {
+            throw new TimeSettlementException('Time has no valid original payroll run. Review its source history before releasing it.');
+        }
+        $runs[(int)$match[1]]=true;$refs[(int)$entry['id']]=$ref;
+    }
+    ksort($runs,SORT_NUMERIC);
+    foreach (array_keys($runs) as $runId) {
+        $q=$pdo->prepare('SELECT * FROM payroll_runs WHERE tenant_id=? AND id=? FOR UPDATE');
+        $q->execute([$tenant,$runId]);$run=$q->fetch(PDO::FETCH_ASSOC);
+        if (!$run || $run['status']!=='draft' || !empty($run['journal_entry_id'])
+            || !empty($run['cash_journal_entry_id']) || !empty($run['approved_at'])
+            || !empty($run['computed_at']) || !empty($run['paid_at']) || !empty($run['workflow_instance_id'])) {
+            throw new TimeSettlementException('Only an uncomputed draft payroll run can release time. Use the payroll correction workflow for approved or posted runs.');
+        }
+        $q=$pdo->prepare('SELECT id FROM payroll_line_items WHERE tenant_id=? AND run_id=? ORDER BY id FOR UPDATE');
+        $q->execute([$tenant,$runId]);
+        if ($q->fetchColumn()) throw new TimeSettlementException('Computed payroll earnings still use this time. Review the run before releasing its sources.');
+        $q=$pdo->prepare('SELECT id FROM accounting_events WHERE tenant_id=? AND source_module="payroll"
+            AND source_record_id IN (?,?) ORDER BY id FOR UPDATE');
+        $q->execute([$tenant,'payroll_run:'.$runId.':accrual','payroll_run:'.$runId.':cash']);
+        if ($q->fetchColumn()) throw new TimeSettlementException('This payroll run has accounting history. Reconcile its correction before releasing time.');
+        $q=$pdo->prepare('SELECT id FROM placement_economic_obligations WHERE tenant_id=? AND payroll_ref_id=? ORDER BY id FOR UPDATE');
+        $q->execute([$tenant,$runId]);
+        if ($q->fetchColumn()) throw new TimeSettlementException('Payroll still includes linked placement earnings. Reconcile those obligations before releasing time.');
+    }
+    return $refs;
 }
 
 /**

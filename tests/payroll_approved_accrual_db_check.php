@@ -4,12 +4,15 @@ declare(strict_types=1);
 if (PHP_SAPI!=='cli' || getenv('COREFLUX_ENV')!=='coreaccounting'
     || getenv('COREFLUX_STANDALONE_DATABASE')!=='coreaccounting_ci'
     || !in_array('--confirm-disposable-fixture',$argv,true)) exit(2);
+putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32)));
+putenv('COREFLUX_INTEGRATION_INSTANCE_ID=381e452a-5d11-4e2e-9daa-e9427501898a');
 require_once __DIR__.'/../modules/payroll/lib/payroll.php';
 require_once __DIR__.'/../modules/payroll/lib/accounting_posting.php';
 require_once __DIR__.'/../modules/people/lib/employment_links.php';
 require_once __DIR__.'/../modules/staffing/lib/timesheets.php';
 require_once __DIR__.'/../modules/staffing/lib/posting_rules_seed.php';
 require_once __DIR__.'/../modules/time/lib/accounting_handoff.php';
+require_once __DIR__.'/../modules/time/lib/settlement.php';
 require_once __DIR__.'/../core/posting_engine/seed_defaults.php';
 require_once __DIR__.'/fixtures/payroll_input_approval_evidence.php';
 $pdo=getDB();
@@ -112,6 +115,34 @@ try {
     $pdo->prepare('UPDATE accounting_events SET status="failed" WHERE id=?')->execute([$source['event_id']]);
     $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'not posted'),'failed staffing event is not treated as unaccrued payroll expense');
     $pdo->exec('ROLLBACK TO SAVEPOINT changed_source');
+    $pdo->prepare('UPDATE accounting_journal_entry_lines SET credit=credit-1 WHERE je_id=? AND credit>0')->execute([$sourceJournal]);
+    $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'recorded staffing liability'),
+        'changed source liability cannot authorize clearing its original amount');
+    $pdo->exec('ROLLBACK TO SAVEPOINT changed_source');
+    $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI protected approved run',$actor),'uncomputed draft')
+        && (int)$scalar('SELECT payroll_extracted_ref FROM time_entries WHERE id=?',[$entry])===$run,
+        'approved payroll cannot release time for a second payroll run');
+    $pdo->exec('SAVEPOINT draft_release');
+    $draft=$makeRun();
+    $pdo->prepare('UPDATE payroll_runs SET status="draft",approved_at=NULL,approved_by=NULL WHERE id=?')->execute([$draft]);
+    $pdo->prepare('UPDATE time_entries SET payroll_extracted_ref=? WHERE id=?')->execute([$draft,$entry]);
+    $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI retained computed lines',$actor),'Computed payroll earnings'),
+        'a draft label cannot release sources while computed employee earnings remain');
+    $pdo->prepare('DELETE FROM payroll_line_items WHERE run_id=?')->execute([$draft]);
+    $pdo->prepare('UPDATE payroll_runs SET computed_at=NOW() WHERE id=?')->execute([$draft]);
+    $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI retained computation history',$actor),'uncomputed draft'),
+        'retained computation history still prevents blind release after lines are removed');
+    $pdo->prepare('UPDATE payroll_runs SET computed_at=NULL WHERE id=?')->execute([$draft]);
+    $release=timeSettlementUnExtract([$entry],'payroll','CI reviewed uncomputed draft release',$actor);
+    $check($release['unextracted_count']===1 && $pdo->inTransaction()
+        && !$scalar('SELECT payroll_extracted_ref FROM time_entries WHERE id=?',[$entry]),
+        'uncomputed draft releases its exact source without committing caller work');
+    $receipt=json_decode((string)$scalar('SELECT meta_json FROM audit_log WHERE tenant_id=? AND event="time.payroll.sources_released" ORDER BY id DESC LIMIT 1',[$tenant]),true);
+    $check((int)$receipt['sources'][0]['already_ref']===$draft && $receipt['reason']==='CI reviewed uncomputed draft release',
+        'release retains its original run and operator reason in the same transaction');
+    $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI repeated release',$actor),'valid original payroll run'),
+        'released time cannot be released a second time');
+    $pdo->exec('ROLLBACK TO SAVEPOINT draft_release');
     $pdo->prepare('UPDATE payroll_runs SET notes="CI force accrual failure" WHERE id=?')->execute([$run]);
     $before=$counts();
     $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'CI mandatory payroll link failure')
@@ -130,6 +161,8 @@ try {
         'payroll clears original labor liability once and recognizes net, tax and deduction payables without duplicate expense');
     $before=$counts();$replay=payrollPostRunAccrual($tenant,$run,$actor);
     $check($replay['je_id']===$journal && $replay['idempotent_replay'] && $counts()===$before,'exact posting replay retains one event and journal');
+    $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI posted run release',$actor),'uncomputed draft')
+        && $counts()===$before,'posted payroll retains its source and ledger when release is attempted');
     $pdo->exec('SAVEPOINT changed_payroll');
     $pdo->prepare('UPDATE accounting_journal_entries SET status="reversed" WHERE id=?')->execute([$journal]);
     $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'no longer posted'),'a reversed payroll journal cannot be reported as a successful replay');
