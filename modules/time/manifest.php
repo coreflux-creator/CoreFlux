@@ -93,6 +93,7 @@ return [
         'time.settlement.unextracted_billing',
         'time.settlement.unextracted_ap',
         'time.settlement.unextracted_payroll',
+        'time.payroll.sources_released',
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
