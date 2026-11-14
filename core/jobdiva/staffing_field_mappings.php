@@ -22,6 +22,29 @@ function jobdivaStaffingFieldMappings(): array
     $start = '/apiv2/jobdiva/searchStart';
     $detail = '/apiv2/bi/EmployeeAssignmentRecordsDetail';
     $candidate = '/apiv2/jobdiva/searchCandidate';
+    foreach([
+        'title'=>['title',['jobTitle','job_title','job title','positionTitle','position_title','role','roleName','reqTitle','requisitionTitle'],'trimmed_text_max_255; absent_preserves_existing'],
+        'company_id'=>['companyId',['company_id','company id','customerId','customer_id','clientId','client_id'],'exact_workspace_company_mapping_then_reviewed_canonical_alias; never_copy_provider_ID'],
+        'client_id'=>['companyId',['company_id','company id','customerId','customer_id','clientId','client_id'],'derive_only_one_existing_active_client_for_exact_company_in_current_placements_directory; no_creation_or_assignment_bill_to_inference'],
+        'status'=>['status',['jobStatus','job_status'],'recognized_job_lifecycle_aliases; unknown_rejected; absent_preserves_existing'],
+        'description'=>['description',['jobDescription','job_description'],'trimmed_optional_text; blank_preserves_existing'],
+        'department'=>['department',['dept','division'],'trimmed_text_max_120; blank_preserves_existing'],
+        'location_city'=>['city',['jobCity','job_city','worksiteCity'],'trimmed_text_max_120; blank_preserves_existing'],
+        'location_state'=>['state',['jobState','job_state','worksiteState'],'trimmed_text_max_60; blank_preserves_existing'],
+        'location_country'=>['country',['jobCountry','job_country','worksiteCountry'],'recognized_source_country_to_alpha_2; reject_unknown; no_truncation_or_US_default'],
+        'remote_policy'=>['remotePolicy',['remote_policy','workLocation','locationType'],'recognized_onsite_hybrid_remote_aliases; unknown_rejected'],
+        'opened_at'=>['openDate',['openedAt','dateOpened','startDate'],'supported_calendar_date_or_epoch; invalid_rejected; missing_preserves_existing'],
+        'closed_at'=>['closedDate',['closedAt','dateClosed','endDate'],'supported_calendar_date_or_epoch; invalid_rejected; missing_preserves_existing'],
+    ]as$field=>[$path,$aliases,$transform]){
+        $add('staffing_jobs.'.$field,'/apiv2/jobdiva/searchJob',$path,$transform,
+            'exact_source_workspace; native_Core_owned_fields_held_as_proposals; explicit_reviewed_ownership_decision',
+            'modules/staffing/lib/jobs.php',[
+                'accepted_aliases'=>$aliases,'additional_source_routes'=>['/apiv2/bi/NewUpdatedJobRecords'],
+                'contract_version'=>'core-job-adapter-2026-11-14.1',
+                'source_evidence'=>['core'=>'modules/staffing/lib/jobs.php','ownership'=>'modules/staffing/lib/job_source.php','fixture'=>'tests/staffing_job_source_db.php'],
+                'known_limitations'=>['No generic outbound job-field transport to Quanta, PurePay or PurePayroll; placement fields remain separate.'],
+            ]);
+    }
     $identityPolicy = 'existing_specialized_identity_resolver; never_assign_Core_business_numbers_from_provider_IDs';
     $contractPolicy = 'exact_Start_assignment_contract_before_tenant_enrichment; preserve_approved_rate_history; normal_Core_approval_still_required';
     foreach (['client_approver_name'=>'approverName', 'client_approver_email'=>'approverEmail'] as $column=>$path) {

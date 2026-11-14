@@ -181,6 +181,7 @@ if(($argv[1]??'')==='worker'){
                 'job_source'=>staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['external'],$input['payload'],$input['actor']),
                 'job_edit'=>staffingJobSaveNative($input['workspace'],$input['job_id'],$input['patch'],$input['actor'],$input['revision']),
                 'job_decide'=>staffingJobSourceDecide($input['workspace'],$input['job_id'],$input['fields'],$input['decision'],$input['review_token'],$input['actor']),
+                'job_links'=>['id'=>$input['job_id'],'written'=>staffingJobLinkPlacementsByJobDivaId($input['workspace'],$input['external'],$input['job_id'],$input['actor'])],
                 'client'=>staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision']),
                 'client_csv'=>['id'=>staffingClientImportNative($input['workspace'],$input['row'],$input['actor'],true)],
                 'client_source'=>clientSourceRaceWrite($input),

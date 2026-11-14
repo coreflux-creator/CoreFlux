@@ -6,8 +6,16 @@ require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/integrations/field_map_apply.php';
 require_once __DIR__.'/../modules/staffing/lib/job_write.php';
 require_once __DIR__.'/../core/migrate.php';
+require_once __DIR__.'/../core/integrations/staffing_field_contract.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 $checks=[];$check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException($label);$checks[]=$label;};
+foreach(staffingJobNativeFields()as$field){
+    $rule=staffingFieldContractRules('staffing_jobs',$field);
+    $check($rule['definition_status']==='reviewed_core_definition'&&$rule['owner']==='core_job_directory'&&$rule['remote_contracts']['jobdiva']['direction']==='jobdiva_to_core','Job field has an explicit native owner and implemented inbound contract: '.$field);
+    foreach(['quanta','purepay','purepayroll']as$provider)$check($rule['remote_contracts'][$provider]['status']==='unsupported_with_gap'&&empty($rule['remote_contracts'][$provider]['mappings'])&&!$rule['remote_contracts'][$provider]['sync_enabled_by_dictionary'],'Unimplemented '.$provider.' requisition receiver is still an explicit gap: '.$field);
+}
+$check(staffingFieldContractRules('staffing_clients','coreflux_source_state')['disposition']==='restricted','Client ownership receipts are private workflow state');
+$check(staffingFieldContractRules('staffing_jobs','future_field')['disposition']==='review_required','Unreviewed new job fields do not inherit verified metadata');
 $fails=static function(callable $f,?int $code=null):bool{try{$f();return false;}catch(Throwable $e){return$code===null||(int)$e->getCode()===$code;}};
 $read=static function(int $id)use($pdo):array{$q=$pdo->prepare('SELECT * FROM staffing_jobs WHERE id=?');$q->execute([$id]);return$q->fetch(PDO::FETCH_ASSOC)?:[];};
 $all=static fn(string $t):array=>$pdo->query('SELECT * FROM '.$t.' ORDER BY 1')->fetchAll(PDO::FETCH_ASSOC);
@@ -78,5 +86,7 @@ try{
         $pdo->exec('DROP TEMPORARY TABLE audit_log');$shadow=false;
     }
     $check([$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries'),$all('placements')]===$protected,'Job source reviews never change financial, time or placement records');
+    require __DIR__.'/fixtures/job_reference_alignment_checks.php';
+    $check([$all('accounting_events'),$all('accounting_journal_entries'),$all('time_entries'),$all('placements')]===$protected,'Job reference fixture retains all original financial, time and placement records');
     echo json_encode(['passed'=>true,'checks'=>count($checks),'labels'=>$checks,'provider_calls'=>0,'financial_execution'=>false],JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR).PHP_EOL;
 }finally{if($shadow)$pdo->exec('DROP TEMPORARY TABLE audit_log');if($pdo->inTransaction())$pdo->rollBack();}

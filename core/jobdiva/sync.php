@@ -551,16 +551,20 @@ function jobdivaEnsureStaffingClientForCompany(int $tid, int $companyId, string 
 
 function jobdivaBridgeStaffingJobFromPayload(int $tid, string $jobdivaJobId, array $payload, ?int $userId, bool $assignmentWrite = false): ?int
 {
+    require_once __DIR__.'/party_sync.php';
     $jobdivaJobId = trim($jobdivaJobId);
     if ($jobdivaJobId === '') return null;
     try {
-        $job = staffingJobEnsureFromJobDivaPayload($tid, $jobdivaJobId, $payload, $userId);
-        $staffingJobId = (int) ($job['id'] ?? 0);
-        if ($staffingJobId > 0) {
-            mappingBindStable($tid, 'jobdiva', 'staffing_job', $jobdivaJobId, $staffingJobId, $payload, 'pull', $userId);
-            if (!$assignmentWrite) staffingJobLinkPlacementsByJobDivaId($tid, $jobdivaJobId, $staffingJobId);
-            return $staffingJobId;
-        }
+        return jobdivaPartyAtomic(static function(PDO $pdo)use($tid,$jobdivaJobId,$payload,$userId,$assignmentWrite):?int{
+            $job = staffingJobEnsureFromJobDivaPayload($tid, $jobdivaJobId, $payload, $userId);
+            $staffingJobId = (int) ($job['id'] ?? 0);
+            if ($staffingJobId > 0) {
+                mappingBindStable($tid, 'jobdiva', 'staffing_job', $jobdivaJobId, $staffingJobId, $payload, 'pull', $userId);
+                if (!$assignmentWrite) staffingJobLinkPlacementsByJobDivaId($tid, $jobdivaJobId, $staffingJobId, $userId);
+                return $staffingJobId;
+            }
+            return null;
+        });
     } catch (\Throwable $e) {
         if ($assignmentWrite) throw $e;
         error_log('[jobdiva job sync] staffing job bridge failed: ' . $e->getMessage());

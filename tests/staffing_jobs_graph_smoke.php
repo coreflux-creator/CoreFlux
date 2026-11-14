@@ -37,7 +37,7 @@ $a('exports JobDiva ensure helper', str_contains($lib, 'function staffingJobEnsu
 $a('exports source lookup helper', str_contains($lib, 'function staffingJobFindBySource('));
 $a('exports placement link helper', str_contains($lib, 'function staffingJobLinkPlacementsByJobDivaId('));
 $a('links a job only to an existing assignment client',
-    str_contains($lib, 'staffingClientFindForCompany($tenantId, $companyId)')
+    str_contains($lib, '$clientScope[\'owner\'],$companyId')
     && !str_contains($lib, 'staffingClientEnsureForCompany($tenantId, $companyId'));
 
 echo "\nJobDiva sync bridge\n";

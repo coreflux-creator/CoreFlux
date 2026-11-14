@@ -74,6 +74,7 @@ function staffingPartyFieldDefinitions(): array
             'notes'=>['Internal address context.','restricted-internal-text'],
         ],
         'staffing_clients'=>[
+            'coreflux_source_state'=>['Private client source identities, observed proposals, ownership and review revisions. Managed by the client source-review workflow; never published as customer data.','restricted-source-ownership'],
             'company_id'=>['Canonical company underlying the separate client/bill-to profile; never inferred from placement end-client identity.','reference:company'],
             'name'=>['Client display name; used for customer publication only when legal_name is empty.','text'],
             'legal_name'=>['Client legal name preferred by the existing PurePay customer publication contract.','nullable-text'],

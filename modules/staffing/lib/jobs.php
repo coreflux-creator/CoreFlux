@@ -124,8 +124,15 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     // A requisition's company is not necessarily the assignment's bill-to
     // company. Jobs may reference an existing client, but only an exact
     // assignment BILLING.COMPANY contract may create a client consumer row.
-    $client = staffingClientFindForCompany($tenantId, $companyId);
-    if($client && (int)$client['tenant_id']!==companyRelationshipScope(getDB(),$owner,'placements')['owner'])throw new RuntimeException('This shared job cannot use a private client directory.',409);
+    $clientScope=companyRelationshipScope(getDB(),$tenantId,'placements');
+    $client=null;
+    if($companyId!==null){
+        $q=getDB()->prepare('SELECT * FROM staffing_clients WHERE tenant_id=? AND company_id=? AND status="active" ORDER BY id FOR UPDATE');
+        $q->execute([$clientScope['owner'],$companyId]);$clients=$q->fetchAll(PDO::FETCH_ASSOC);
+        if(count($clients)>1)throw new RuntimeException('Multiple active clients reference this job company. Review the client identities.',409);
+        $client=$clients[0]??null;
+    }
+    if($client && $clientScope['owner']!==companyRelationshipScope(getDB(),$owner,'placements')['owner'])throw new RuntimeException('This shared job cannot use a private client directory.',409);
     $clientId = $client ? (int) $client['id'] : null;
 
     $countryRaw = staffingJobPluck($payload, ['country', 'jobCountry', 'job_country', 'worksiteCountry']);
@@ -174,21 +181,42 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     return staffingJobSourceProject($pdo, $tenantId, $owner, $externalId, $existing, $values, $actorUserId);
 }
 
-function staffingJobLinkPlacementsByJobDivaId(int $tenantId, string $jobdivaJobId, int $staffingJobId): int
+function staffingJobLinkPlacementsByJobDivaId(int $tenantId, string $jobdivaJobId, int $staffingJobId, ?int $actorUserId = null): int
 {
     if (trim($jobdivaJobId) === '' || $staffingJobId <= 0) return 0;
-    try {
-        $st = getDB()->prepare(
-            'UPDATE placements
-                SET staffing_job_id = :sj
-              WHERE tenant_id = :t
-                AND jobdiva_job_id = :jd
-                AND (staffing_job_id IS NULL OR staffing_job_id != :sj2)'
-        );
-        $st->execute(['sj' => $staffingJobId, 't' => $tenantId, 'jd' => $jobdivaJobId, 'sj2' => $staffingJobId]);
-        return $st->rowCount();
-    } catch (\Throwable $e) {
-        error_log('[staffing jobs] placement link failed: ' . $e->getMessage());
-        return 0;
-    }
+    require_once __DIR__.'/../../placements/lib/source_identity.php';
+    require_once __DIR__.'/../../placements/lib/ownership.php';
+    $pdo=getDB();
+    return companyRelationshipAtomic($pdo,static function()use($pdo,$tenantId,$jobdivaJobId,$staffingJobId,$actorUserId):int{
+        $placements=companyRelationshipScope($pdo,$tenantId,'placements');
+        $jobs=companyRelationshipScope($pdo,$tenantId,'staffing');
+        if(companyRelationshipScope($pdo,$placements['owner'],'staffing')['owner']!==$jobs['owner'])throw new RuntimeException('This shared placement cannot use a private job directory.',409);
+        $q=$pdo->prepare('SELECT * FROM staffing_jobs WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$jobs['owner'],$staffingJobId]);$job=$q->fetch(PDO::FETCH_ASSOC);
+        if(!$job||$job['source_system']!=='jobdiva'||$job['external_id']!==$jobdivaJobId)throw new RuntimeException('The job source identity changed before placement linking.',409);
+        $state=staffingJobSourceState($job);
+        if($state['source']!==['system'=>'jobdiva','workspace_id'=>$tenantId,'external_id'=>$jobdivaJobId])throw new RuntimeException('An observed job from this source workspace is required.',409);
+        // tenant-leak-allow: globally unique job ID in the authorized directory constrains the conflict lookup; no foreign source is returned.
+        $q=$pdo->prepare('SELECT tenant_id,external_id FROM external_entity_mappings WHERE source_system="jobdiva" AND internal_entity_type="staffing_job" AND internal_entity_id=? FOR UPDATE');$q->execute([$staffingJobId]);$links=$q->fetchAll(PDO::FETCH_ASSOC);
+        if(count($links)!==1||(int)$links[0]['tenant_id']!==$tenantId||$links[0]['external_id']!==$jobdivaJobId)throw new RuntimeException('Review the exact job source link before linking placements.',409);
+        $q=$pdo->prepare('SELECT * FROM placements WHERE tenant_id=? AND jobdiva_job_id=? AND deleted_at IS NULL AND (staffing_job_id IS NULL OR staffing_job_id<>?) ORDER BY id FOR UPDATE');
+        $q->execute([$placements['owner'],$jobdivaJobId,$staffingJobId]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);$written=0;
+        foreach($rows as$row){
+            if($row['jobdiva_job_id']!==$jobdivaJobId)continue;
+            $owned=placementOwnershipFields($row['coreflux_overridden_fields']??null);
+            if(in_array('staffing_job_id',$owned,true))continue;
+            $family=placementJobdivaSourceFamily($pdo,$placements['owner'],(int)$row['id']);
+            if((int)$family['placement']['id']!==(int)$row['id'])continue;
+            $source=placementJobdivaSourceIdentity($pdo,$row);
+            // A bare job number or legacy display label does not grant another
+            // workspace's connector authority over a placement or merged family.
+            if(!$source||$source['source_workspace_id']!==$tenantId||!$source['mapping_id'])continue;
+            $update=$pdo->prepare('UPDATE placements SET staffing_job_id=? WHERE tenant_id=? AND id=?');
+            $update->execute([$staffingJobId,$placements['owner'],$row['id']]);
+            companySourceAudit($pdo,$tenantId,$placements['owner'],'placements',(int)$row['id'],'placement.job.source_linked',['staffing_job_id'],$actorUserId,
+                ['source'=>$source,'job_source'=>$state['source'],'before'=>['staffing_job_id'=>$row['staffing_job_id']===null?null:(int)$row['staffing_job_id']],
+                    'after'=>['staffing_job_id'=>$staffingJobId]]);
+            $written++;
+        }
+        return$written;
+    });
 }

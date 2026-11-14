@@ -1,5 +1,9 @@
 # Job source ownership and review
 
+Candidate follow-up, not installed: job-mirror placement linking now uses locked current directory policies, the exact observed job/source binding and the placement's retained Start owner. It preserves native job-link choices and clears, ignores unrelated or retired records, and requires an atomic before/after audit. The bridge saves the job, provider binding and related placement links in one transaction. Client lookup now uses the resolved client directory, requires an unambiguous existing active profile, and creates no client from a requisition company. Database regression and independent-session cases are pending CI acceptance.
+
+The candidate dictionary defines all twelve requisition business fields and their existing inbound JobDiva paths, and marks client ownership state private. Quanta, PurePay and PurePayroll requisition-field receivers remain `unsupported_with_gap`: existing assignment packets carry placement values, not a job mirror. These definitions do not establish end-to-end delivery, reduce the scope of the integration, enable sync or change current installed inventory counts.
+
 Installed and functionally accepted November 14, 2026 in the isolated pilot. Current application `ff88d483` preserves the preceding payroll acceptance. The standalone Arabella accounting release is separate. [Installation and hosted evidence](../deploy/thunderhawk-job-source-acceptance-20261114.json).
 
 The JobDiva job mirror and Mapping Studio job writes now share one ownership boundary. New source jobs follow observed fields; existing jobs without ownership history keep every Core field. A native edit claims the fields actually submitted, including an intentional empty value. Subsequent source changes remain available as proposals. Missing source title/status/country no longer replace the current title, reopen a closed job or truncate a country name.
