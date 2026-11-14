@@ -14,7 +14,7 @@
             $company=$insert('companies',['tenant_id'=>$companyOwner,'name'=>'Reference company '.$mode]);
             mappingBindStable($child,'jobdiva','company',$companyExternal,$company,[],'pull',$actor);
             $client=$insert('staffing_clients',['tenant_id'=>$owner,'name'=>'Reference client '.$mode,'company_id'=>$company,'status'=>'active']);
-            $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Job reference '.$mode]);
+            $person=$insert('people',['tenant_id'=>$owner,'first_name'=>'Synthetic','last_name'=>'Job reference '.$mode,'email_primary'=>'job-reference-'.str_replace('/','-',$mode).'@example.invalid']);
             $otherJob=$insert('staffing_jobs',['tenant_id'=>$owner,'title'=>'Reviewed other job '.$mode]);
             $cases=[];
             foreach(['follow','owned','clear','manual','foreign','deleted']as$case){

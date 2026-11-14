@@ -23,7 +23,7 @@ $check($first['ok']&&$second['ok']&&$first['result']['replayed']!==$second['resu
 
 // The independent job mirror must honor the same placement ownership as the Start importer.
 $job=jobdivaBridgeStaffingJobFromPayload($tenant,'race-placement-job',['title'=>'Source association job'],$actor,true);$jobId=$job;
-$pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name) VALUES(?,"Synthetic","Job association race")')->execute([$tenant]);$person=(int)$pdo->lastInsertId();
+$pdo->prepare('INSERT INTO people(tenant_id,first_name,last_name,email_primary) VALUES(?,"Synthetic","Job association race","job-association-race@example.invalid")')->execute([$tenant]);$person=(int)$pdo->lastInsertId();
 $pdo->prepare('INSERT INTO placements(tenant_id,person_id,title,start_date,external_id,jobdiva_job_id) VALUES(?,?,"Job reference race","2026-11-01","jd:race-job-start","race-placement-job")')->execute([$tenant,$person]);$placement=(int)$pdo->lastInsertId();
 mappingBindStable($tenant,'jobdiva','placement','race-job-start',$placement,['id'=>'race-job-start','jobId'=>'race-placement-job'],'pull',$actor);
 $sourceInput=['mode'=>'native','entity'=>'job_links','workspace'=>$tenant,'actor'=>$actor,'job_id'=>$jobId,'external'=>'race-placement-job'];
