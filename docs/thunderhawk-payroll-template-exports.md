@@ -74,3 +74,12 @@ business records. A recorded operation is observed by its existing handle and
 never automatically repeated after an observation timeout. New deployment tooling
 must pass the complete CI suite, including the populated migration/recovery test,
 before it can be used on the pilot.
+
+The first deployment-tool rehearsal (`87eddfb5`) stopped in CI, before any hosted
+operation. The scope check required the recovery DELETE to explicitly identify
+the platform preset. MariaDB also required the duplicate-existence subquery to
+use its own locked table alias. The installer now derives that single alias from
+the hash-pinned migration, retains every value and predicate, locks the alias,
+and journals both the original and executed statement fingerprints. The canonical
+migration file and its ledger fingerprint are unchanged. This follows the
+[native table-lock alias requirement](https://dev.mysql.com/doc/refman/8.0/en/lock-tables.html).

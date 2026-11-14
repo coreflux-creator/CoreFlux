@@ -18,7 +18,14 @@ function thunderhawkPayrollExportPlan(string $root): array
         throw new RuntimeException('Reviewed template mapping is unavailable');
     }
     $mappings=json_decode($match[1],true,512,JSON_THROW_ON_ERROR);
-    return ['filename'=>basename(TH_PAYROLL_EXPORT_MIGRATION),'sha256'=>$hash,'sql'=>$statements[0],
+    // LOCK TABLES requires a separately locked alias for the existence subquery.
+    // This changes only that table reference, never the reviewed values/predicate.
+    // https://dev.mysql.com/doc/refman/8.0/en/lock-tables.html
+    $needle='FROM export_templates';
+    if(substr_count($statements[0],$needle)!==1)throw new RuntimeException('Reviewed existence lookup differs');
+    $execution=str_replace($needle,'FROM export_templates AS payroll_export_existing',$statements[0]);
+    return ['filename'=>basename(TH_PAYROLL_EXPORT_MIGRATION),'sha256'=>$hash,'sql'=>$execution,
+        'source_statement_sha256'=>hash('sha256',$statements[0]),'execution_statement_sha256'=>hash('sha256',$execution),
         'template'=>['scope'=>'platform','tenant_id'=>null,'dataset'=>'payroll_disbursements','name'=>'Payroll calculation audit',
             'delimiter'=>',','quote_char'=>'"','has_header_row'=>1,'encoding'=>'utf-8','column_mappings'=>$mappings,
             'based_on_template_id'=>null,'is_active'=>1,'is_system'=>1,'created_by_user_id'=>null]];
@@ -50,6 +57,7 @@ function thunderhawkPayrollExportLock(PDO $pdo): void
         if(!preg_match('/^[A-Za-z0-9_]+$/D',$table))throw new RuntimeException('Unexpected table lock');
         $locks[]='`'.$table.'` '.(in_array($table,['export_templates','_migrations'],true)?'WRITE':'READ');
     }
+    $locks[]='`export_templates` AS `payroll_export_existing` READ';
     $pdo->exec('SET SESSION lock_wait_timeout=10');$pdo->exec('SET autocommit=0');
     try{$pdo->exec('LOCK TABLES '.implode(',',$locks));}
     catch(Throwable $e){$pdo->exec('SET autocommit=1');throw $e;}
@@ -92,7 +100,8 @@ function thunderhawkPayrollExportApply(PDO $pdo,array $plan,array $before,callab
     if((int)$pdo->query('SELECT @@autocommit')->fetchColumn()!==0)throw new RuntimeException('Native migration writer guard is required');
     if(thunderhawkTimePayrollTableState($pdo)!==$before['tables'])throw new RuntimeException('Original records changed before the migration lock');
     try{
-        $journal(['phase'=>'migration_start','filename'=>$plan['filename'],'sha256'=>$plan['sha256']]);
+        $journal(['phase'=>'migration_start','filename'=>$plan['filename'],'sha256'=>$plan['sha256'],
+            'source_statement_sha256'=>$plan['source_statement_sha256'],'execution_statement_sha256'=>$plan['execution_statement_sha256']]);
         if($pdo->exec($plan['sql'])!==1)throw new RuntimeException('Expected exactly one audit template');
         $journal(['phase'=>'template_inserted']);
         $pdo->prepare('INSERT INTO _migrations(filename,sha256,last_error,duration_ms) VALUES(?,?,NULL,0)')->execute([$plan['filename'],$plan['sha256']]);
@@ -110,7 +119,9 @@ function thunderhawkPayrollExportRecover(PDO $pdo,array $before,array $plan): vo
     $proof=thunderhawkPayrollExportPreserved($pdo,$before,$plan,true);
     try{
         if($proof['added_templates']===1){
-            $q=$pdo->prepare('DELETE FROM export_templates WHERE id=?');$q->execute([$proof['template_id']]);
+            $q=$pdo->prepare('DELETE FROM export_templates WHERE id=? AND tenant_id IS NULL AND scope="platform"
+                AND dataset="payroll_disbursements" AND name="Payroll calculation audit" AND is_system=1');
+            $q->execute([$proof['template_id']]);
             if($q->rowCount()!==1)throw new RuntimeException('Audit template recovery differs');
             $q=$pdo->prepare('DELETE FROM _migrations WHERE filename=? AND sha256=?');$q->execute([$plan['filename'],$plan['sha256']]);
             if($q->rowCount()!==1)throw new RuntimeException('Migration recovery differs');
