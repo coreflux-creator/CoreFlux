@@ -13,7 +13,7 @@ $a('weekly issue and decision require durable receipts',str_contains($service,"t
 $a('public form confirms a revision over POST',str_contains($page,'method="post"')&&str_contains($page,'name="review_revision"')&&!str_contains($page,'confirm=1'));
 $a('public responses prevent caching and referrer disclosure',str_contains($page,'Cache-Control: private, no-store')&&str_contains($page,'Referrer-Policy: no-referrer'));
 $a('dispatcher requires actual staffing approval permission',str_contains($api,"api_require_legacy_permission(\$ctx,'staffing.time.approve')"));
-$a('dispatcher uses provider delivery result',str_contains($api,'cf_mail_bootstrap()->send')&&str_contains($api,"!=='log'"));
+$a('dispatcher uses tenant-aware delivery result',str_contains($api,'mailerSend(')&&str_contains($api,"!=='log'")&&str_contains($api,"'outbox_redactions'"));
 $a('response contains no secret link',!str_contains(substr($api,strrpos($api,'api_ok(')),"approve_url")&&!str_contains(substr($api,strrpos($api,'api_ok(')),"reject_url"));
 $a('screen does not offer approver impersonation',!str_contains($ui,'emailResult.approve_url')&&!str_contains($ui,'staffing-email-approver-fallback'));
 $a('accounting handoff follows committed decision',strpos($helper,'staffingEmailApprovalDecide(')<strpos($helper,'staffingEmitWorkerHoursApprovedEvent(')&&str_contains($helper,'getDB()->inTransaction()'));

@@ -17,6 +17,10 @@ foreach(['approval-worker@example.invalid','approval-preparer@example.invalid']a
 }
 $before=$snapshot($weeklyTables);
 $expect($nativeRequest('POST',$weeklyPath,['timesheet_id'=>2147483000]+$weeklyBody,true,$workspace)[0]===404&&$snapshot($weeklyTables)===$before,'Weekly dispatch refuses unavailable original-workspace records');
+$mute=$insert('tenant_mail_senders',['tenant_id'=>$workspace,'purpose'=>'timesheets','enabled'=>0]);
+$outboxBefore=$snapshot(['mail_outbox']);
+try {[$status,$muted]=$nativeRequest('POST',$weeklyPath,$weeklyBody,true,$workspace);$expect($status===202&&$muted['sent']===false&&$snapshot(['mail_outbox'])===$outboxBefore,'Weekly email honors the original workspace Timesheets delivery mute');}
+finally {$pdo->prepare('DELETE FROM tenant_mail_senders WHERE id=?')->execute([$mute]);}
 [$status,$receipt]=$nativeRequest('POST',$weeklyPath,$weeklyBody,true,$workspace);
 $expect($status===202&&$receipt['sent']===false&&!isset($receipt['approve_url'],$receipt['reject_url'],$receipt['token'])&&isset($receipt['token_id']),'Weekly log-only delivery is not reported sent and exposes no reviewer secret');
 $issueWeek=static fn()=>staffingEmailReviewIssue($workspace,$actor,$weeklySheet,$clientEmail,'Synthetic manager');
