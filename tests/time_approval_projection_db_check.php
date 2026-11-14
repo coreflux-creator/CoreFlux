@@ -172,6 +172,22 @@ try {
     timeReconcileTimesheetHeader($sheetId, $users['creator']['id']);
     $assertState('submitted', 'review', null);
 
+    // Completing the week must first reject the deliberately incomplete legacy
+    // sibling above, without changing either its historical evidence or the pending row.
+    $before = $read();
+    $pendingBefore = timeEntryGet($entryIds[1]);
+    $legacyBefore = timeEntryGet($entryIds[0]);
+    $refused(static fn() => timeApproveEntry($entryIds[1], $users['beta']), 409);
+    $assert($read() === $before && timeEntryGet($entryIds[1]) === $pendingBefore
+        && timeEntryGet($entryIds[0]) === $legacyBefore,
+        'last-entry approval cannot complete a week over missing prior approval evidence');
+    // Restore this synthetic sibling's actual earlier receipt values so the next
+    // scenario reaches artifact synchronization rather than the earlier evidence gate.
+    scopedUpdate('time_entries', $entryIds[0], [
+        'approved_by_user_id' => $entryBefore[0]['approved_by_user_id'],
+        'approved_at' => $entryBefore[0]['approved_at'],
+    ]);
+
     // A closed artifact refuses synchronization. Both review mutations must roll back even
     // when an outer importer catches the error and keeps its transaction alive.
     artifactTransition($tenantId, $artifactId, 'archived', $users['creator']['id']);
