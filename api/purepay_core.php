@@ -179,10 +179,18 @@ try {
             if(!is_string($body['person_number']??null) || (isset($body['before'])&&!is_int($body['before'])))api_error('Choose a person number for history.',422);
             $owners=purepayCoreApiPeopleOwners($user,$tenantId);
             $result=purepayPeopleInputHistory($pdo,$tenantId,$instance,$owners,strtoupper(trim($body['person_number'])),$body['before']??null);break;
+        case 'payroll_input_candidates':
         case 'payroll_input_preview':
             if(!is_string($body['person_number']??null) || !is_string($body['period_start']??null) || !is_string($body['period_end']??null))api_error('Choose a person number and payroll input period.',422);
             $owners=purepayCoreApiPayrollOwners($user,$tenantId);
-            $result=purepayPayrollInputPreview($pdo,$tenantId,(int)$user['id'],$instance,$owners,strtoupper(trim($body['person_number'])),$body['period_start'],$body['period_end']);break;
+            header('Cache-Control: no-store, private');
+            if($action==='payroll_input_candidates'){
+                if(isset($body['after'])&&(!is_int($body['after'])||$body['after']<=0))api_error('Invalid time entry page.',422);
+                $result=purepayPayrollInputCandidates($pdo,$tenantId,$instance,$owners,strtoupper(trim($body['person_number'])),$body['period_start'],$body['period_end'],$body['after']??null);
+            }else{
+                if(array_key_exists('entry_ids',$body)&&!is_array($body['entry_ids']))api_error('Choose the approved time entries to review.',422);
+                $result=purepayPayrollInputPreview($pdo,$tenantId,(int)$user['id'],$instance,$owners,strtoupper(trim($body['person_number'])),$body['period_start'],$body['period_end'],$body['entry_ids']??null);
+            }break;
         case 'payroll_input_send':
         case 'payroll_input_reconcile':
             if(!is_int($body['delivery_id']??null) || $body['delivery_id']<=0 || !is_string($body['review_hash']??null))api_error('A current payroll input review is required.',422);

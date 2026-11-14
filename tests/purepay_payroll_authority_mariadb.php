@@ -86,6 +86,7 @@ $check($denied($pdo,'UPDATE time_entries SET hours=9 WHERE id=1'),'elapsed time 
 foreach(['core/migrations/166_payroll_source_authority.sql','modules/time/migrations/011_payroll_source_authority.sql','modules/placements/migrations/008_payroll_source_authority.sql']as$path)$migrate($path);
 $check((int)$pdo->query('SELECT COUNT(*) FROM payroll_source_claims')->fetchColumn()===2 && $denied($pdo,'UPDATE time_entries SET hours=9 WHERE id=1'),'migration replay preserves active reservations and guards');
 // Provider-bound handshake: the source remains locked through all uncertain outcomes.
+require __DIR__.'/fixtures/payroll_selected_authority.php';
 $context['payroll_authority_contract_version']=PUREPAY_PAYROLL_AUTHORITY_VERSION;
 $context['capabilities'][]='write:payroll_authority';
 $review=purepayCoreReview($pdo,1,$instance);

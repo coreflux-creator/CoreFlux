@@ -11,7 +11,7 @@ $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
 $db='coreflux_ppinput_'.(defined('COREFLUX_RESULT_FIXTURE')?'result_':(defined('COREFLUX_AUTHORITY_FIXTURE')?'authority_':'')).($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
-foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql','203_time_approval_economics.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
+foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql','166_payroll_source_authority.sql','203_time_approval_economics.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
 $pdo->exec('CREATE TABLE people(id BIGINT PRIMARY KEY,tenant_id BIGINT,first_name VARCHAR(50),last_name VARCHAR(50),email_primary VARCHAR(100),status VARCHAR(20),deleted_at DATETIME NULL)');
 $pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,title VARCHAR(100),person_id BIGINT,client_id BIGINT,engagement_type VARCHAR(20),status VARCHAR(20),start_date DATE,end_date DATE,actual_end_date DATE,deleted_at DATETIME NULL)');
 $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(32),record_id BIGINT,canonical_record_id BIGINT,record_number VARCHAR(64))');
@@ -151,6 +151,7 @@ $bad=$context;$bad['capabilities']=['read:coreflux','write:payroll_inputs'];$che
 $history=purepayPayrollInputHistory($pdo,1,$instance,$owners,'P-1');
 $check(count($history['items'])>=4 && count(array_filter($history['items'],static fn($item)=>$item['delivery']['state']==='uncertain'))===1,'input history recovers held attempts after reload');
 $check(!str_contains(json_encode($history),'payload_ct') && !str_contains(json_encode($history),'api_key'),'input history omits secrets');
+require __DIR__.'/fixtures/payroll_input_selection.php';
 $context['payroll_input_contract_version']='future';$check($fails($preview),'changed input contract invalidates company review');
 unset($GLOBALS['__purepay_transport']);putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY');
 echo "PurePayroll inputs MariaDB: {$passed} passed\n";

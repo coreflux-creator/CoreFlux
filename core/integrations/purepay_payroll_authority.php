@@ -86,7 +86,7 @@ function purepayPayrollAuthorityReserve(PDO $pdo,int $tenant,int $actor,string $
             $s=$pdo->prepare('SELECT id FROM integration_deliveries WHERE tenant_id=? AND provider="purepay" AND connection_ref=? AND entity_type=? AND entity_tenant_id=? AND entity_id IN ('.$place.') AND operation="record.link" ORDER BY id FOR UPDATE');
             $s->execute(array_merge([$tenant,(string)$access['connection']['id'],$kind,$owner],$recordIds));$s->fetchAll();
         }
-        $fresh=purepayPayrollInputBuild($pdo,$tenant,$instance,$owners,$access,$number,$body['period_start'],$body['period_end']);
+        $fresh=purepayPayrollInputBuild($pdo,$tenant,$instance,$owners,$access,$number,$body['period_start'],$body['period_end'],purepayPayrollInputSavedSelection($payload));
         if(integrationDeliveryHash($fresh['body'])!==$contentHash)throw new RuntimeException('Core approval, source time, rates or links changed. Review a fresh input packet.');
         $authority=['contract_version'=>PUREPAY_PAYROLL_AUTHORITY_VERSION,'id'=>$id,'instance_id'=>$instance,
             'organization_id'=>$payload['organization_id'],'time_tenant_id'=>$owners['time'],'input_id'=>$inputId,'content_hash'=>$contentHash,

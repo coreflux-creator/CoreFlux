@@ -27,6 +27,71 @@ function purepayPayrollInputDecimal(mixed $value,int $scale,int $digits,bool $po
     return $value;
 }
 
+/** Null retains legacy whole-period reviews; an explicit selection is never empty. */
+function purepayPayrollInputSelection(?array $ids): ?array
+{
+    if($ids===null)return null;
+    if(!array_is_list($ids)||!$ids||count($ids)>200)throw new InvalidArgumentException('Select between 1 and 200 approved time entries.');
+    foreach($ids as$id)if(!is_int($id)||$id<=0)throw new InvalidArgumentException('Choose valid approved time entries.');
+    if(count(array_unique($ids))!==count($ids))throw new InvalidArgumentException('A time entry may be selected only once.');
+    sort($ids,SORT_NUMERIC);return $ids;
+}
+
+function purepayPayrollInputScope(array $owners,string $start,string $end): void
+{
+    $from=purepayPayrollInputDate($start);$to=purepayPayrollInputDate($end);
+    if($to<$from||$from->diff($to)->days>62)throw new InvalidArgumentException('Review no more than 63 days at a time.');
+    foreach(['time','people','placements']as$module)if(!isset($owners[$module])||!is_int($owners[$module])||$owners[$module]<=0)throw new InvalidArgumentException('Authorized module owners are required.');
+}
+
+/** Reservation ownership is global to the authorized time directory, not the viewer's company. */
+function purepayPayrollInputClaims(PDO $pdo,int $timeOwner,array $ids,bool $lock=false): array
+{
+    if(!$ids)return [];
+    $s=$pdo->prepare('SELECT time_entry_id FROM payroll_source_claims WHERE time_tenant_id=? AND time_entry_id IN ('.implode(',',array_fill(0,count($ids),'?')).') ORDER BY time_entry_id'.($lock?' FOR UPDATE':''));
+    $s->execute([$timeOwner,...$ids]);return array_map('intval',$s->fetchAll(PDO::FETCH_COLUMN));
+}
+
+/** Local discovery only. Source/provider verification still occurs in preview and send. */
+function purepayPayrollInputCandidates(PDO $pdo,int $tenant,string $instance,array $owners,string $number,string $start,string $end,?int $after=null): array
+{
+    purepayPayrollInputScope($owners,$start,$end);
+    if($after!==null&&$after<=0)throw new InvalidArgumentException('Invalid time entry page.');
+    $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$number);
+    $s=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND person_id=? AND work_date BETWEEN ? AND ? AND status="approved"'
+        .($after!==null?' AND id>?':'').' ORDER BY id LIMIT 101');
+    $s->execute([$owners['time'],$person['entity_id'],$start,$end,...($after!==null?[$after]:[])]);$found=$s->fetchAll(PDO::FETCH_ASSOC);
+    $entries=array_slice($found,0,100);$claimed=purepayPayrollInputClaims($pdo,$owners['time'],array_column($entries,'id'));$rows=[];
+    foreach($entries as$entry){
+        $id=(int)$entry['id'];$reason=null;$placement=null;
+        try{
+            $placement=purepayCorePlacementHistorySource($pdo,$instance,$owners['placements'],(int)$entry['placement_id']);
+            if((int)$placement['record']['person_id']!==$person['entity_id']||$placement['record']['engagement_type']!=='w2')throw new RuntimeException('This entry has no matching W-2 placement.');
+            if(in_array($id,$claimed,true))throw new RuntimeException('Already reserved for payroll. Check its existing input history.');
+            if(!empty($entry['payroll_extracted_at'])||!empty($entry['payroll_extracted_ref']))throw new RuntimeException('Already extracted for payroll.');
+            if(empty($entry['approved_at'])||!empty($entry['superseded_by_id'])||(int)($entry['payable']??1)!==1)throw new RuntimeException('Review the original approval and payable status.');
+            $rate=timeApprovedRate($entry,$owners['time']);
+            if((int)$rate['tenant_id']!==$owners['placements'])throw new RuntimeException('The original rate belongs to another placement directory.');
+        }catch(PDOException $e){throw $e;}catch(RuntimeException|InvalidArgumentException $e){$reason=$e->getMessage();}
+        $rows[]=['id'=>$id,'placement_number'=>$placement['reference']['number']??null,'work_date'=>$entry['work_date'],
+            'category'=>$entry['category'],'hours'=>$entry['hours'],'source_system'=>$entry['source_system']??$entry['source'],
+            'timesheet_id'=>isset($entry['timesheet_id'])?(int)$entry['timesheet_id']:null,'available'=>$reason===null,'reason'=>$reason];
+    }
+    return ['tenant_id'=>$tenant,'person'=>$person['reference'],'period_start'=>$start,'period_end'=>$end,'rows'=>$rows,
+        'next_after'=>count($found)>100?(int)$entries[99]['id']:null];
+}
+
+/** Selection is private review evidence; the existing provider packet stays unchanged. */
+function purepayPayrollInputSavedSelection(array $payload): ?array
+{
+    if(!array_key_exists('selected_entry_ids',$payload))return null;
+    if(!is_array($payload['selected_entry_ids']))throw new RuntimeException('The saved payroll source selection is invalid.');
+    $ids=purepayPayrollInputSelection($payload['selected_entry_ids']);
+    $components=array_map(static fn($c)=>(int)($c['source']['time_entry_id']??0),$payload['body']['components']??[]);
+    if($ids!==$payload['selected_entry_ids']||$ids!==$components)throw new RuntimeException('The saved selection does not match its payroll packet.');
+    return $ids;
+}
+
 /** A delivered, immutable identity match is required before any source data can leave Core. */
 function purepayPayrollInputLink(PDO $pdo,int $tenant,array $connection,array $source,string $org): array
 {
@@ -44,18 +109,19 @@ function purepayPayrollInputLink(PDO $pdo,int $tenant,array $connection,array $s
 }
 
 /** Caller resolves every owner through module scope. No directory or time owner comes from the browser. */
-function purepayPayrollInputBuild(PDO $pdo,int $tenant,string $instance,array $owners,array $access,string $number,string $start,string $end): array
+function purepayPayrollInputBuild(PDO $pdo,int $tenant,string $instance,array $owners,array $access,string $number,string $start,string $end,?array $selectedIds=null): array
 {
-    $from=purepayPayrollInputDate($start);$to=purepayPayrollInputDate($end);
-    if($to<$from || $from->diff($to)->days>62)throw new InvalidArgumentException('Review no more than 63 days at a time.');
-    foreach(['time','people','placements']as$module)if(!isset($owners[$module]) || !is_int($owners[$module]) || $owners[$module]<=0)throw new InvalidArgumentException('Authorized module owners are required.');
+    purepayPayrollInputScope($owners,$start,$end);$selectedIds=purepayPayrollInputSelection($selectedIds);
     $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$number);
     $org=$access['review']['organization']['id'];
     $personLink=purepayPayrollInputLink($pdo,$tenant,$access['connection'],$person,$org);
-    $s=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=:t AND person_id=:p AND work_date BETWEEN :s AND :e AND status="approved" ORDER BY id LIMIT 201 FOR UPDATE');
-    $s->execute(['t'=>$owners['time'],'p'=>$person['entity_id'],'s'=>$start,'e'=>$end]);$entries=$s->fetchAll(PDO::FETCH_ASSOC);
+    $selection=$selectedIds!==null?' AND id IN ('.implode(',',array_fill(0,count($selectedIds),'?')).')':'';
+    $s=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND person_id=? AND work_date BETWEEN ? AND ? AND status="approved"'.$selection.' ORDER BY id LIMIT 201 FOR UPDATE');
+    $s->execute([$owners['time'],$person['entity_id'],$start,$end,...($selectedIds??[])]);$entries=$s->fetchAll(PDO::FETCH_ASSOC);
+    if($selectedIds!==null&&array_map('intval',array_column($entries,'id'))!==$selectedIds)throw new RuntimeException('Every selected entry must still be approved for this person, company and period.');
     if(!$entries)throw new RuntimeException('No approved time was found for this person and period.');
     if(count($entries)>200)throw new RuntimeException('This review exceeds 200 time entries. Choose a shorter period.');
+    if($selectedIds!==null&&purepayPayrollInputClaims($pdo,$owners['time'],$selectedIds,true))throw new RuntimeException('Some selected hours are already reserved for payroll. Check their existing input history.');
     require_once __DIR__.'/../quanta/time_current.php';
     quantaTimeAssertCurrent($pdo,$owners['time'],array_column($entries,'id'));
     $components=[];$sourceState=[];
@@ -97,31 +163,33 @@ function purepayPayrollInputBuild(PDO $pdo,int $tenant,string $instance,array $o
     $body=['contract_version'=>PUREPAY_PAYROLL_INPUT_VERSION,'instance_id'=>$instance,'time_tenant_id'=>$owners['time'],
         'period_start'=>$start,'period_end'=>$end,'components'=>$components];
     if(strlen(integrationDeliveryJson($body))>60000)throw new RuntimeException('The input packet is too large. Choose a shorter period.');
-    return ['person'=>$person,'body'=>$body,'source_hash'=>integrationDeliveryHash([$owners,$person,$personLink,$sourceState])];
+    $evidence=[$owners,$person,$personLink,$sourceState];if($selectedIds!==null)$evidence[]=['selected_entry_ids'=>$selectedIds];
+    return ['person'=>$person,'body'=>$body,'source_hash'=>integrationDeliveryHash($evidence)];
 }
 
-function purepayPayrollInputSnapshot(PDO $pdo,int $tenant,string $instance,array $owners,string $number,string $start,string $end): array
+function purepayPayrollInputSnapshot(PDO $pdo,int $tenant,string $instance,array $owners,string $number,string $start,string $end,?array $selectedIds=null): array
 {
+    $selectedIds=purepayPayrollInputSelection($selectedIds);
     $access=purepayCoreLinkAccess($pdo,$tenant,$instance,'person',false);
     if(($access['review']['payroll_input_contract_version']??null)!==PUREPAY_PAYROLL_INPUT_VERSION
         || !in_array('write:payroll_inputs',$access['review']['capabilities'],true))throw new RuntimeException('The provider needs the current payroll input contract and explicit input-review capability.');
     if($pdo->inTransaction())throw new LogicException('Payroll source review needs its own consistent read.');
     $pdo->beginTransaction();
-    try {$build=purepayPayrollInputBuild($pdo,$tenant,$instance,$owners,$access,$number,$start,$end);$pdo->commit();}
+    try {$build=purepayPayrollInputBuild($pdo,$tenant,$instance,$owners,$access,$number,$start,$end,$selectedIds);$pdo->commit();}
     catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
     $context=['provider'=>'purepayroll','connection_ref'=>(string)$access['connection']['id'],'binding_hash'=>$access['review']['review_hash'],
         'entity_type'=>'person','entity_tenant_id'=>$owners['people'],'entity_id'=>$build['person']['entity_id'],'operation'=>'payroll.inputs',
         'source_hash'=>$build['source_hash'],'remote_hash'=>integrationDeliveryHash($access['review'])];
     return $build+['access'=>$access,'context'=>$context,'payload'=>['organization_id'=>$access['review']['organization']['id'],
-        'owners'=>$owners,'body'=>$build['body']]];
+        'owners'=>$owners,'body'=>$build['body']]+($selectedIds!==null?['selected_entry_ids'=>$selectedIds]:[])];
 }
 
-function purepayPayrollInputPreview(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,string $number,string $start,string $end): array
+function purepayPayrollInputPreview(PDO $pdo,int $tenant,int $actor,string $instance,array $owners,string $number,string $start,string $end,?array $selectedIds=null): array
 {
-    $snapshot=purepayPayrollInputSnapshot($pdo,$tenant,$instance,$owners,$number,$start,$end);
+    $snapshot=purepayPayrollInputSnapshot($pdo,$tenant,$instance,$owners,$number,$start,$end,$selectedIds);
     $row=integrationDeliveryPreview($pdo,$tenant,$actor,$snapshot['context'],$snapshot['payload']);
-    return ['person'=>$snapshot['person']['reference'],'packet'=>$snapshot['body'],'organization'=>$snapshot['access']['review']['organization'],
+    return ['tenant_id'=>$tenant,'selected_entry_ids'=>purepayPayrollInputSavedSelection($snapshot['payload']),'person'=>$snapshot['person']['reference'],'packet'=>$snapshot['body'],'organization'=>$snapshot['access']['review']['organization'],
         'delivery_enabled'=>purepayPayrollInputsEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
 }
 
@@ -130,6 +198,7 @@ function purepayPayrollInputEnvelope(PDO $pdo,int $tenant,int $id,string $hash,s
     $row=integrationDeliveryGet($pdo,$tenant,$id);
     if($row['provider']!=='purepayroll' || $row['operation']!=='payroll.inputs' || $row['entity_type']!=='person' || !hash_equals($row['review_hash'],$hash))throw new InvalidArgumentException('A current payroll input review is required.');
     $payload=json_decode((string)decryptField($row['payload_ct']),true,64,JSON_THROW_ON_ERROR);
+    purepayPayrollInputSavedSelection($payload);
     if($payload['owners']!==integrationDeliveryCanonical($owners) || $payload['body']['instance_id']!==$instance || (int)$row['entity_tenant_id']!==$owners['people'])throw new RuntimeException('The input review belongs to different module owners.');
     $number=$payload['body']['components'][0]['person']['number'];
     $person=purepayCoreLinkSource($pdo,$instance,$owners['people'],'person',$number);
@@ -158,11 +227,11 @@ function purepayPayrollInputHistory(PDO $pdo,int $tenant,string $instance,array 
     foreach(array_slice($rows,0,25)as$row) {
         [$row,$payload]=purepayPayrollInputEnvelope($pdo,$tenant,(int)$row['id'],$row['review_hash'],$instance,$owners);
         if($payload['organization_id']!==$access['review']['organization']['id'])throw new RuntimeException('Input history belongs to another provider organization.');
-        $items[]=['person'=>$person['reference'],'packet'=>$payload['body'],'organization'=>$access['review']['organization'],
+        $items[]=['tenant_id'=>$tenant,'selected_entry_ids'=>purepayPayrollInputSavedSelection($payload),'person'=>$person['reference'],'packet'=>$payload['body'],'organization'=>$access['review']['organization'],
             'delivery_enabled'=>purepayPayrollInputsEnabled($tenant),'delivery'=>integrationDeliverySummary($row)];
     }
     purepayCoreLinkAccessUnchanged($pdo,$tenant,$access);
-    return ['items'=>$items,'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
+    return ['tenant_id'=>$tenant,'items'=>$items,'next_before'=>count($rows)>25?(int)$rows[24]['id']:null];
 }
 
 function purepayPayrollInputComplete(PDO $pdo,int $tenant,array $row,array $receipt,?string $claim,?callable $audit): array
@@ -177,7 +246,7 @@ function purepayPayrollInputSend(PDO $pdo,int $tenant,int $actor,string $instanc
     [$row,$payload,$number]=purepayPayrollInputEnvelope($pdo,$tenant,$id,$hash,$instance,$owners);
     if($row['state']==='delivered')return integrationDeliverySummary($row);
     if(!in_array($row['state'],['preview','approved'],true))throw new RuntimeException('Check the receipt for this input attempt before continuing.');
-    $snapshot=purepayPayrollInputSnapshot($pdo,$tenant,$instance,$owners,$number,$payload['body']['period_start'],$payload['body']['period_end']);
+    $snapshot=purepayPayrollInputSnapshot($pdo,$tenant,$instance,$owners,$number,$payload['body']['period_start'],$payload['body']['period_end'],purepayPayrollInputSavedSelection($payload));
     if(integrationDeliveryHash($snapshot['payload'])!==integrationDeliveryHash($payload))throw new RuntimeException('Approved time, rates or links changed. Review a fresh input packet.');
     if($row['state']==='preview')integrationDeliveryApprove($pdo,$tenant,$id,$actor,$hash);
     $claim=integrationDeliveryClaim($pdo,$tenant,$id,array_intersect_key($snapshot['context'],array_flip(['binding_hash','source_hash','remote_hash'])));

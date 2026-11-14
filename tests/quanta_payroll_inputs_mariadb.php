@@ -7,7 +7,7 @@ require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
 putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);
 setRequestTenantId(1);
 $quantaContext=$context;
-foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql','203_time_approval_economics.sql']as$file)$migrate($file);
+foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql','166_payroll_source_authority.sql','203_time_approval_economics.sql']as$file)$migrate($file);
 $pdo->exec('ALTER TABLE people ADD status VARCHAR(20) DEFAULT "active"');
 $pdo->exec('ALTER TABLE placements ADD client_id BIGINT DEFAULT 1');
 $pdo->exec('ALTER TABLE core_record_numbers ADD canonical_record_id BIGINT');
@@ -68,6 +68,15 @@ $mode='current';$result=$send();
 $check($result['state']==='delivered'&&$posts===1,'current Quanta approval permits one held input receipt');
 $check($send()===$result&&$posts===1,'held input replay does not transmit twice');
 $check($before===$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'held receipt preserves source time and leaves financial extraction unset');
+$selected=purepayPayrollInputPreview($pdo,1,7,$instance,$owners,'P-19','2026-10-01','2026-10-15',[2]);
+$check($selected['selected_entry_ids']===[2]&&count($selected['packet']['components'])===1
+    &&$selected['packet']['components'][0]===$components[1]&&$selected['packet']['period_start']===$p['packet']['period_start']
+    &&$selected['packet']['period_end']===$p['packet']['period_end'],'explicit split selection retains its source component, original rate and actual pay period');
+$selectedSend=static fn():array=>purepayPayrollInputSend($pdo,1,7,$instance,$owners,(int)$selected['delivery']['id'],$selected['delivery']['review_hash']);
+$mode='unavailable';$check($fails($selectedSend)&&$posts===1,'explicit selection cannot bypass a revoked Quanta approval');
+$mode='current';$selectedResult=$selectedSend();
+$check($selectedResult['state']==='delivered'&&$posts===2&&$selectedSend()===$selectedResult&&$posts===2,
+    'selected current Quanta component delivers once and retains exact input replay');
 unset($GLOBALS['__quanta_transport'],$GLOBALS['__purepay_transport']);
 putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY');putenv('COREFLUX_INTEGRATION_INSTANCE_ID');setRequestTenantId(null);
 echo "Quanta to PurePayroll MariaDB: {$passed} passed\n";
