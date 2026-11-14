@@ -1,0 +1,203 @@
+{
+  "candidate_commit": "311567fb0a2fd13a50c0158705b17ff93b6fb7e9",
+  "previous_goal_turn": "No integration progress: answered standalone accounting production timing. Revalidated source, completed weekly email review, corrected tenant mail control compatibility and verified native HTTP, concurrent sessions and the synthetic accounting journey.",
+  "ci": {
+    "run_id": 43550038483,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43550038483",
+    "jobs": [
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "concurrency": {
+    "checks": 898,
+    "weekly_email_checks": [
+      "Weekly email decision waits for approve hours COMMIT",
+      "Committed hours refuses client approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The issued week, worker or assignment has changed. Request a new approval link.\"}",
+      "Weekly email decision waits for approve revoke COMMIT",
+      "Committed revoke refuses client approve without writes: {\"ok\":false,\"code\":409,\"error\":\"This approval link has already been used or replaced.\"}",
+      "Weekly email decision waits for approve period COMMIT",
+      "Committed period refuses client approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Weekly email decision waits for approve recipient COMMIT",
+      "Committed recipient refuses client approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The issued week, worker or assignment has changed. Request a new approval link.\"}",
+      "Weekly email decision waits for approve rate COMMIT",
+      "Committed rate refuses client approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The displayed week or approval evidence changed. Reload and review the week again.\"}",
+      "Weekly email decision waits for approve hours ROLLBACK",
+      "Rolled-back hours permits client approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"approved\",\"timesheet_id\":154,\"workspace_id\":990671,\"message\":\"Approval recorded.\"}}",
+      "Weekly email decision waits for approve revoke ROLLBACK",
+      "Rolled-back revoke permits client approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"approved\",\"timesheet_id\":155,\"workspace_id\":990671,\"message\":\"Approval recorded.\"}}",
+      "Weekly email decision waits for approve period ROLLBACK",
+      "Rolled-back period permits client approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"approved\",\"timesheet_id\":156,\"workspace_id\":990671,\"message\":\"Approval recorded.\"}}",
+      "Weekly email decision waits for approve recipient ROLLBACK",
+      "Rolled-back recipient permits client approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"approved\",\"timesheet_id\":157,\"workspace_id\":990671,\"message\":\"Approval recorded.\"}}",
+      "Weekly email decision waits for approve rate ROLLBACK",
+      "Rolled-back rate permits client approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"approved\",\"timesheet_id\":158,\"workspace_id\":990671,\"message\":\"Approval recorded.\"}}",
+      "Weekly email decision waits for reject hours COMMIT",
+      "Committed hours refuses client reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The issued week, worker or assignment has changed. Request a new approval link.\"}",
+      "Weekly email decision waits for reject revoke COMMIT",
+      "Committed revoke refuses client reject without writes: {\"ok\":false,\"code\":409,\"error\":\"This approval link has already been used or replaced.\"}",
+      "Weekly email decision waits for reject period COMMIT",
+      "Committed period refuses client reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Weekly email decision waits for reject recipient COMMIT",
+      "Committed recipient refuses client reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The issued week, worker or assignment has changed. Request a new approval link.\"}",
+      "Weekly email decision waits for reject hours ROLLBACK",
+      "Rolled-back hours permits client reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"rejected\",\"timesheet_id\":163,\"workspace_id\":990671,\"message\":\"Rejection recorded. The reason is available in Core.\"}}",
+      "Weekly email decision waits for reject revoke ROLLBACK",
+      "Rolled-back revoke permits client reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"rejected\",\"timesheet_id\":164,\"workspace_id\":990671,\"message\":\"Rejection recorded. The reason is available in Core.\"}}",
+      "Weekly email decision waits for reject period ROLLBACK",
+      "Rolled-back period permits client reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"rejected\",\"timesheet_id\":165,\"workspace_id\":990671,\"message\":\"Rejection recorded. The reason is available in Core.\"}}",
+      "Weekly email decision waits for reject recipient ROLLBACK",
+      "Rolled-back recipient permits client reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"state\":\"rejected\",\"timesheet_id\":166,\"workspace_id\":990671,\"message\":\"Rejection recorded. The reason is available in Core.\"}}",
+      "Weekly email races create no financial execution"
+    ],
+    "provider_calls": 0,
+    "financial_execution": false
+  },
+  "native_http": {
+    "checks": 865,
+    "weekly_email_checks": [
+      "Weekly email issuance requires native sign-in",
+      "Staffing readers cannot delegate weekly approval",
+      "Weekly link cannot authorize its own worker or preparer",
+      "Weekly link cannot authorize its own worker or preparer",
+      "Weekly dispatch refuses unavailable original-workspace records",
+      "Weekly email honors the original workspace Timesheets delivery mute",
+      "Weekly log-only delivery is not reported sent and exposes no reviewer secret",
+      "Weekly delivery history redacts both plain and HTML-escaped reviewer credentials",
+      "Weekly issue audit failure preserves the previous credential and complete time state",
+      "Weekly GET including legacy confirmation displays exact identities and hours without writes",
+      "Weekly public review shows its original workspace and complete week without internal rates",
+      "Weekly decision requires the displayed review revision",
+      "Weekly approval review cannot authorize rejection",
+      "Unknown weekly link reveals no time",
+      "Weekly legacy links need a newly issued complete week",
+      "Weekly approval refuses changed time_entries.hours without consuming its link",
+      "Weekly approval refuses changed time_periods.status without consuming its link",
+      "Weekly approval refuses changed people.email_primary without consuming its link",
+      "Weekly approval refuses changed placements.title without consuming its link",
+      "Weekly approval refuses changed approval_tokens.actor_email without consuming its link",
+      "Weekly approval refuses changed placement_rates.pay_rate without consuming its link",
+      "Weekly approval refuses a newly added unreviewed entry",
+      "Superseded weekly credential cannot decide or expose its entries",
+      "Expired weekly review is read-only and discloses no entries",
+      "Weekly review distinguishes retained approved hours from the pending decision",
+      "Weekly final audit failure restores token, entries, header and artifact together",
+      "Weekly accounting wrapper refuses an uncommitted outer transaction",
+      "Weekly pure decision retains the actual external actor, frozen dimensions and prior approved sibling",
+      "Weekly repeated approval does not duplicate a decision or receipt",
+      "Weekly rejection requires an explicit reason",
+      "Weekly rejection audit failure restores its entire issued set",
+      "Weekly rejection records its reason without requiring an approved pay rate or pretending to notify the worker",
+      "Weekly review and decision service tests create no financial execution"
+    ],
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "native_sessions": 953,
+  "disposable_business_journeys": [
+    "Submitted week approved with frozen rate, dimensions, artifact, and one posted journal.",
+    "Weekly email review approved with actual external actor, frozen evidence, one posted journal and unchanged replay.",
+    "CSV time -> timesheet -> independent invoice approval -> ledger -> logged email -> bank receipt -> paid invoice passed.",
+    "Bank receipt matched, reversed, and corrected without stale reconciliation links."
+  ],
+  "local_checks": {
+    "rendered_dispatch_behaviors": 6,
+    "weekly_source": 14,
+    "artifact_source": 29,
+    "mail_shim": 48,
+    "tenant_mail_settings": 84,
+    "recursive_bundle": 15
+  },
+  "runtime_file_pins": {
+    ".deploy-version": "4f93da8dd50749f298ab6d35063e04d91e1ab2fe94ae32ba38a259ec1e90bf33",
+    "api/staffing/approve_timesheet_by_email.php": "6ab3f58a00a8e199da011339f97dfbb67352fca098abab2a3330a40c292adf9f",
+    "core/migrations/201_staffing_email_review_basis.sql": "f1cd6b4b224695f6ec1909362be90c0cfb7439f8fb1c81320901e3b1b5c559c7",
+    "core/staffing_email_approval.php": "1a3aeee7c4bf980a8e32375754988c01c4dd199d0cfa62f64fd8738c27d12662",
+    "core/staffing_email_review.php": "8912093c87cef5dc58e7af9fdef0fd98e3ce7769a23d749667e4f313ab81cc0b",
+    "dashboard/dist/index.html": "543a8b3703dac9cda64bf9955d820fa6ac7563dbdeeea2cfba962170c8ec380f",
+    "index.html": "543a8b3703dac9cda64bf9955d820fa6ac7563dbdeeea2cfba962170c8ec380f",
+    "modules/staffing/api/timesheet_email_approver.php": "f1f2bd102e06607978705dbc477421617190f4b02a635f0c7e7eacf68b14b318",
+    "modules/staffing/ui/StaffingApprovals.jsx": "23d16f51d08c19a7ca09a31596642ad915d624096bb75cefb5e0713430a25d24",
+    "spa-assets/index-DFNhJLNd.js": "3312df705fcf587c3944042fe37fbe55426f1012a90fb4a1f535e1929b109ef9",
+    "spa-assets/index-Dyp0rBLy.js": "c7ac46f5c8c76b66d2b68dea1d01ef85b8fe0c377ff16caac8e2647af9141b2a",
+    "spa-assets/index.html": "543a8b3703dac9cda64bf9955d820fa6ac7563dbdeeea2cfba962170c8ec380f",
+    "spa-assets/sw.js": "8d6f833d8333a3873794ae6c009e1b8253fb46d31ea8b759a90d92603b9ec3a8"
+  },
+  "installed": false,
+  "installed_pilot_read_only_verification": {
+    "checked_at": "2026-11-14T03:03:30+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "prior_runs": [
+    {
+      "run_id": 43549482306,
+      "result": "Module mail compatibility checks failed; database, HTTP, races and synthetic journal journeys passed."
+    },
+    {
+      "run_id": 43549893297,
+      "result": "Cancelled after a newer candidate added HTML-escaped credential redaction and its native HTTP check."
+    }
+  ],
+  "remaining": [
+    "preapproved CSV import with external evidence and independent Core review",
+    "durable financial handoff and frozen-rate enforcement",
+    "financial corrections and original aggregate provenance",
+    "remaining field/reference/category/period semantics",
+    "required migrations and guarded pilot installation",
+    "complete signed-in Quanta/PurePay/PurePayroll round trip"
+  ],
+  "production_changed": false,
+  "provider_changed": false,
+  "arabella_changed": false
+}

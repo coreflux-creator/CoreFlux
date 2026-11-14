@@ -2,6 +2,16 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 weekly external time review — source accepted, full pilot still pending
+
+Exact source `311567fb` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43550038483): **898 independent-connection checks**, including **37 weekly-email checks**; **953 native-session checks**; and **865 native HTTP checks**, including **33 weekly-email checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-weekly-email-review-preparation-20261113.json). This source is not installed.
+
+Weekly email links now preserve the complete issued week, display exact identities and hours, and require explicit POST confirmation of the current review. Actual external actors and prior approved siblings are retained. The dispatcher cannot impersonate the recipient through a returned secret link; tenant mail controls and outbox redaction are preserved. [Behavior and remaining limits](thunderhawk-weekly-email-review.md).
+
+Read-only verification at **2026-11-14T03:03:30+00:00** confirmed pilot `4bc10bb0`, 367 pinned files, 378 tables and all 35,304 rows unchanged.
+
+Preapproved CSV, durable financial handoff and frozen-rate enforcement remain open, along with full financial corrections/provenance, remaining field/reference/category/period semantics, required migrations, guarded installation and the complete signed-in Quanta/PurePay/PurePayroll round trip. The full integration goal remains active and incomplete.
+
 ## November 13 reviewed client time links — source accepted, full pilot still pending
 
 Exact source `603b036d` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43546950036): **861 independent-connection checks**, including **37 client-link checks**; **953 native-session checks**; and **832 native HTTP checks**, including **36 client-link checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-client-time-links-preparation-20261113.json). This source is not installed. [Behavior and remaining limits](thunderhawk-client-time-links.md).
