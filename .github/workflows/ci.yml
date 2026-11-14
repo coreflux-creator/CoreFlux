@@ -451,7 +451,8 @@ jobs:
         run: php tests/cash_reversal_live.php
 
   coreaccounting-clean-install:
-    runs-on: ubuntu-latest
+    # Keep the native dump/restore client on the pilot's MariaDB 10.11 family.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     name: CoreAccounting standalone empty-database install
 

@@ -123,6 +123,13 @@ try{
     $restored=thunderhawkPilotDatabaseRestore($pdo,$backup);
     $check($restored['native_restore_completed']&&$restored['backup_sha256']===$backup['sha256'],'native restore completes from the exact pre-upgrade backup');
     $check(thunderhawkTimePayrollSchemaBaseline($pdo,$plan)===$baseline,'restored schema and all rows exactly match the original baseline after partial DDL');
+}catch(Throwable $error){
+    // This fixture is restricted above to disposable synthetic CI databases.
+    if($backupDirectory!==null)foreach(glob($backupDirectory.'/*.stderr')?:[]as$diagnostic){
+        $message=file_get_contents($diagnostic);
+        if(is_string($message)&&trim($message)!=='')fwrite(STDERR,'CI native database diagnostic: '.substr($message,0,1200)."\n");
+    }
+    throw $error;
 }finally{
     if($locked&&$pdo)thunderhawkTimePayrollUnlock($pdo);
     $pdo=null;
