@@ -68,9 +68,9 @@ try{
   $tenant=$insert('tenants',['name'=>$marker,'parent_id'=>2002,'tenant_type'=>'sub','is_active'=>1,'is_simulation'=>1]);$report['tenant_id']=$tenant;
   foreach(['companies',...$modules]as$module)$insert('tenant_module_scope',['tenant_id'=>$tenant,'module_key'=>$module,'scope_mode'=>'isolated']);
   setRequestTenantId($tenant);setRequestModuleScope('staffing');$secrets=[];
-  foreach(['editor','viewer']as$name){$email='job-'.$name.'-'.bin2hex(random_bytes(8)).'@example.invalid';$password=bin2hex(random_bytes(32));$hash=password_hash($password,PASSWORD_DEFAULT);
-   $id=$insert('users',['tenant_id'=>$tenant,'name'=>$marker.' '.$name,'email'=>$email,'password'=>$hash,'password_hash'=>$hash,'role'=>'tenant_admin','is_active'=>1,'is_global_admin'=>0]);
-   $mid=(int)provisionMembership($id,$tenant,'tenant_admin',['is_primary'=>true,'status'=>'active'])['membership_id'];
+  foreach(['editor','viewer']as$name){$email='job-'.$name.'-'.bin2hex(random_bytes(8)).'@example.invalid';$password=bin2hex(random_bytes(32));$hash=password_hash($password,PASSWORD_DEFAULT);$role=$name==='editor'?'admin':'employee';
+   $id=$insert('users',['tenant_id'=>$tenant,'name'=>$marker.' '.$name,'email'=>$email,'password'=>$hash,'password_hash'=>$hash,'role'=>$role,'is_active'=>1,'is_global_admin'=>0]);
+   $mid=(int)provisionMembership($id,$tenant,$role,['is_primary'=>true,'status'=>'active'])['membership_id'];
    foreach($modules as$module)RBACResolver::grantModule($mid,$module,$name==='editor'?'write':'read',[$tenant],$id);
    $actors[$name]=['user_id'=>$id,'membership_id'=>$mid];$secrets[$name]=[$email,$password];
   }
@@ -99,7 +99,7 @@ try{
  $expect($request('editor','POST',$url.'update',['id'=>$job,'title'=>'Core reviewed role','status'=>'closed','location_city'=>'','edit_revision'=>$revision])[0]===200,'Native edit claims title, closed status and intentional city clear');
  $incoming=['title'=>'Incoming source role','status'=>'active','city'=>'Princeton','department'=>'Engineering'];
  staffingJobEnsureFromJobDivaPayload($tenant,$external,$incoming,$editor);$detail=$get($job);$review=$detail['source_review'];
- $expect($detail['job']['title']==='Core reviewed role'&&$detail['job']['status']==='closed'&&$detail['job']['location_city']===null&&$detail['job']['department']==='Engineering','Source refresh preserves Core edits and clear while updating an unowned field');
+ $expect($detail['job']['title']==='Core reviewed role'&&$detail['job']['status']==='closed'&&$detail['job']['location_city']===''&&$detail['job']['department']==='Engineering','Source refresh preserves Core edits and clear while updating an unowned field');
  $expect($review['proposed']['title']==='Incoming source role'&&$review['proposed']['status']==='active'&&$review['proposed']['location_city']==='Princeton','Incoming values remain available for explicit review');
  $decision=['id'=>$job,'fields'=>['title'],'mode'=>'use_once','review_token'=>$review['review_token'],'confirm_source'=>true];
  $viewer=$get($job,'viewer');$expect($viewer['can_manage']===false&&$viewer['source_review']===null,'Read-only user receives no source decision payload');
@@ -126,7 +126,7 @@ try{
  staffingJobEnsureFromJobDivaPayload($tenant,$external,['title'=>'Final held source role'],$editor);$detail=$get($job);
  $expect($detail['job']['title']==='Final Core role'&&$detail['source_review']['proposed']['title']==='Final held source role','Later source changes are held after Core reclaims title');
  $decision=['id'=>$job,'fields'=>['location_city'],'mode'=>'keep_core','review_token'=>$detail['source_review']['review_token'],'confirm_source'=>true];
- $expect($request('editor','POST',$url.'source_decide',$decision)[0]===200&&$read($job)['location_city']===null,'Keep Core explicitly retains an intentional empty city');
+ $expect($request('editor','POST',$url.'source_decide',$decision)[0]===200&&$read($job)['location_city']==='','Keep Core explicitly retains an intentional empty city');
  $replayBefore=$read($job);staffingJobEnsureFromJobDivaPayload($tenant,$external,['title'=>'Final held source role'],$editor);
  $expect($read($job)===$replayBefore,'Repeated source observation changes no job values or ownership revision');
 
