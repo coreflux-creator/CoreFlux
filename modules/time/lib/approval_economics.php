@@ -44,6 +44,13 @@ function timeApprovedRate(array $entry,int $tenant): array
     if ($tenant<=0 || (int)($entry['tenant_id']??0)!==$tenant || !in_array($entry['status']??'', ['approved','locked','billing_ready','payroll_ready'],true)) {
         throw new RuntimeException('Approved time is unavailable in this workspace.',409);
     }
+    $via=(string)($entry['approved_via']??'');
+    if (empty($entry['approved_at']) || !in_array($via,['manual','bulk_pre_approved','tokenized_client_email'],true)
+        || ($via==='tokenized_client_email'
+            ? !filter_var($entry['client_approver_email']??'',FILTER_VALIDATE_EMAIL)
+            : (int)($entry['approved_by_user_id']??0)<=0)) {
+        throw new RuntimeException('The original time approval has incomplete reviewer evidence. Resolve it before accounting.',409);
+    }
     $json=(string)($entry['dimension_snapshot_json']??'');
     $snapshot=json_decode($json,true);
     if (!is_array($snapshot) || !hash_equals((string)($entry['dimension_snapshot_hash']??''),hash('sha256',$json))

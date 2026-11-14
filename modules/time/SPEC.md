@@ -38,7 +38,7 @@ daily work. Full aggregate approval remains unfinished. See
 
 ## 2. Core principles (locked by HARD_RULES)
 
-1. **Rate snapshot at approval (option b)** — when a time entry is approved, it stores the `placement_rates.id` that was effective on its `work_date`. Subsequent rate changes do not retroactively affect the entry. Margin/billing/payroll math uses the snapshot.
+1. **Rate snapshot at approval (option b)** — an approval retains both the effective `placement_rates.id` and its private, immutable values per original-workspace time entry. A rate ID alone is not an immutable snapshot. Subsequent master-rate changes must not restate approved economics. The November 13 implementation captures the values and binds them to the actual approval evidence; staffing accounting and source-accrual allocation consume them. Migration of the remaining margin, billing and payroll readers is still required before this invariant is fully implemented. See `docs/thunderhawk-approved-time-accounting.md`.
 2. **Standard time categories** (HARD_RULES, exact list):
    - `regular_billable`
    - `regular_nonbillable`
@@ -108,7 +108,7 @@ Indexes: `(tenant_id, start_date, end_date)` UNIQUE, `(tenant_id, status)`.
 
 Indexes: `(tenant_id, period_id, status)`, `(tenant_id, placement_id, work_date)`, `(tenant_id, person_id, work_date)`, `(status, source)` for review queue.
 
-Constraint: a row in `approved` status MUST have `rate_snapshot_id`, `approved_by_user_id`, `approved_at` set. Once approved, `hours`, `category`, `work_date` are immutable — corrections happen via supersede.
+Constraint: an approved row requires its rate evidence, approval timestamp and actual reviewer: a user ID for internal review or the identified external email for tokenized client review. An external approval must not invent an internal user ID. Once approved, its economic facts and review provenance are immutable; corrections preserve the original approval and create a replacement through the correction workflow.
 
 ### 3.3 `tenant_time_categories` (per-tenant additions)
 

@@ -14,12 +14,13 @@ try {
 } finally {
     $cols=array_keys($rateBefore);$pdo->prepare('UPDATE placement_rates SET '.implode(',',array_map(static fn($c)=>'`'.$c.'`=?',$cols)).' WHERE id=?')->execute([...array_values($rateBefore),$rate]);
 }
-foreach(['missing','corrupt','time_changed','approver_changed'] as $case) {
+foreach(['missing','corrupt','time_changed','approver_changed','approval_stamp_missing'] as $case) {
     $pdo->beginTransaction();
     try {
         if ($case==='missing') $pdo->prepare('DELETE FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?')->execute([$workspace,$ids[0]]);
         elseif ($case==='corrupt') $pdo->prepare('UPDATE time_approval_rates SET rate_json="{}" WHERE tenant_id=? AND time_entry_id=?')->execute([$workspace,$ids[0]]);
         elseif ($case==='approver_changed') $pdo->prepare('UPDATE time_entries SET approved_by_user_id=? WHERE tenant_id=? AND id=?')->execute([$creator,$workspace,$ids[0]]);
+        elseif ($case==='approval_stamp_missing') $pdo->prepare('UPDATE time_entries SET approved_at=NULL WHERE tenant_id=? AND id=?')->execute([$workspace,$ids[0]]);
         else $pdo->prepare('UPDATE time_entries SET hours=3 WHERE tenant_id=? AND id=?')->execute([$workspace,$ids[0]]);
         $refused=false;try{timeStaffingAccountingEvents($workspace,$sheet);}catch(RuntimeException $e){$refused=$e->getCode()===409;}
         $expect($refused,'Accounting refuses '.$case.' approved evidence instead of substituting a current rate');

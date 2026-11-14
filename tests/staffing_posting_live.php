@@ -36,11 +36,12 @@ $insert = $pdo->prepare(
     "INSERT INTO time_entries
         (id, tenant_id, placement_id, person_id, period_id, timesheet_id,
          work_date, category, hour_type, billable, payable, hours, status,
-         rate_snapshot_id, dimension_snapshot_json, dimension_snapshot_hash)
+         rate_snapshot_id, dimension_snapshot_json, dimension_snapshot_hash,
+         approved_at,approved_by_user_id,approved_via)
      VALUES
         (:id, :tenant_id, 9401, 9401, 1, 9401,
          :work_date, 'regular_billable', 'regular', 1, 1, :hours, 'approved',
-         9401, :snapshot, :snapshot_hash)"
+         9401, :snapshot, :snapshot_hash,'2026-01-12 12:00:00',1,'manual')"
 );
 foreach ([
     [9401, '2026-01-06', 4, 'East'],
