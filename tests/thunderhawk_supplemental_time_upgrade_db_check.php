@@ -19,7 +19,8 @@ try{
     $binary="\0\xff keep original approval ' \" ;\n";$pdo->prepare('INSERT INTO pilot_original_rows VALUES(1,?)')->execute([$binary]);
     $before=thunderhawkSupplementBaseline($pdo,$plan);$check($before['tables']['staffing_timesheets']['rows']===2&&count($plan['statements'])===20,'pinned migration starts from populated original headers in two companies');
     $directory=sys_get_temp_dir().'/supplement-upgrade-'.bin2hex(random_bytes(12));if(!mkdir($directory,0700))throw new RuntimeException('Private backup path failed');
-    thunderhawkSupplementLock($pdo);$locked=true;$backup=thunderhawkPilotDatabaseCapture($pdo,$directory.'/before.sql');
+    $pdo->exec('SET autocommit=0');$pdo->exec('LOCK TABLES '.implode(',',array_map(static fn($table)=>'`'.$table.'` READ',array_keys($before['tables']))));$locked=true;
+    $backup=thunderhawkPilotDatabaseCapture($pdo,$directory.'/before.sql');
     $check($backup['bytes']>100&&(fileperms($backup['path'])&0777)===0600&&thunderhawkTimePayrollTableState($pdo)===$before['tables'],'native private backup preserves original header and binary evidence');
     thunderhawkTimePayrollUnlock($pdo);$locked=false;
     $pdo->exec('UPDATE pilot_original_rows SET payload="Changed" WHERE id=1');thunderhawkSupplementLock($pdo);$locked=true;
