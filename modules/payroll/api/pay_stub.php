@@ -25,9 +25,9 @@ $line = scopedFind(
      FROM payroll_line_items li
      JOIN payroll_runs r ON r.id = li.run_id AND r.tenant_id = li.tenant_id
      JOIN payroll_pay_periods pp ON pp.id = r.pay_period_id AND pp.tenant_id = r.tenant_id
-     JOIN people_employees e ON e.id = li.employee_id AND e.tenant_id = li.tenant_id
+     JOIN people_employees e ON e.id = li.employee_id AND e.tenant_id = :people_owner
      WHERE li.tenant_id = :tenant_id AND li.id = :id",
-    ['id' => $lineId]
+    ['id' => $lineId,'people_owner'=>effectiveTenantIdForModule('people',(int)currentTenantId())]
 );
 if (!$line) api_error('Not found', 404);
 

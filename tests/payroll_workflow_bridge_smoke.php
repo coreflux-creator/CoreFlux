@@ -44,7 +44,8 @@ $checks = [
     'runs loads the legacy RBAC class used by the compatibility read gate' =>
         str_contains($runs, "../../../core/RBAC.php")
         && is_file("{$root}/core/RBAC.php"),
-    'computed runs start a workflow' => str_contains($runs, 'payrollRunWorkflowStart('),
+    'computed runs start a workflow' => str_contains($runs, 'payrollComputeRunForReview(')
+        && str_contains((string)file_get_contents(__DIR__.'/../modules/payroll/lib/run_compute.php'),'payrollRunWorkflowStart('),
     'approvals act through WorkflowGraph' => str_contains($runs, 'payrollRunWorkflowAct('),
     'workflow uses People Graph approver resolution' => str_contains($workflow, "domainPeopleGraphWorkflowApproverResolution('payroll', 'run'"),
     'payroll run is registered for People Graph approval' =>

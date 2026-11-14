@@ -166,6 +166,17 @@ function payrollComputeLine(array $ctx): array {
             'amount_cents' => $regCents,
             'taxable' => 1,
         ];
+    } elseif (array_key_exists('approved_time_earnings',$ctx)) {
+        $sourceGross=0;
+        foreach ($ctx['approved_time_earnings'] as $earning) {
+            if (!is_int($earning['amount_cents']??null) || $earning['amount_cents']<0
+                || !isset($earning['source_rate'],$earning['source_multiplier'],$earning['source_entry_ids_json'],$earning['source_snapshot_hash'])) {
+                throw new InvalidArgumentException('Approved payroll earnings are incomplete.');
+            }
+            $sourceGross+=$earning['amount_cents'];
+            $earnings[]=$earning;
+        }
+        if ($sourceGross!==($ctx['approved_time_gross_cents']??null)) throw new InvalidArgumentException('Approved payroll earnings do not match their source total.');
     } else {
         $rate = (int) $ctx['pay_rate_cents'];
         $regHours = (float) ($ctx['hours_regular'] ?? 0);

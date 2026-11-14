@@ -76,6 +76,7 @@ export default function PayStub() {
       <div className="pay-stub__grid">
         <section>
           <h3>Earnings</h3>
+          {line.earnings_basis === 'approved_time' && <p className="muted">Rates and hours retained from approved time.</p>}
           <table className="data-table">
             <thead><tr><th>Type</th><th>Hours</th><th>Rate</th><th>Amount</th></tr></thead>
             <tbody>
@@ -83,7 +84,9 @@ export default function PayStub() {
                 <tr key={e.id}>
                   <td>{EARN_LABEL[e.code] || e.code}</td>
                   <td>{e.hours ?? '—'}</td>
-                  <td>{e.rate_cents ? fmtMoney(e.rate_cents) : '—'}</td>
+                  <td>{e.source_rate != null
+                    ? `$${e.source_rate}${Number(e.source_multiplier) !== 1 ? ` × ${e.source_multiplier}` : ''}`
+                    : (e.rate_cents != null ? fmtMoney(e.rate_cents) : '—')}</td>
                   <td>{fmtMoney(e.amount_cents)}</td>
                 </tr>
               ))}

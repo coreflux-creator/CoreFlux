@@ -44,7 +44,7 @@ export default function PayrollRunDetail() {
   const compute = async () => {
     setBusy('compute'); setError(null); setWarning(null); setNotice(null);
     try {
-      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'compute' });
+      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'compute', expected_computation_revision: data?.run?.computation_revision });
       await load();
       await loadAnomalies();
     } catch (e) { setError(e.message); } finally { setBusy(null); }

@@ -78,6 +78,11 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
     if (!$detail['run']) api_error('Run not found', 404);
     $run   = $detail['run'];
     $lines = $detail['lines'];
+    if ($action === 'export_gusto') {
+        require_once __DIR__.'/../lib/source_earnings.php';
+        try { payrollAssertHoursOnlyExport($lines); }
+        catch (RuntimeException $e) { api_error($e->getMessage(),409); }
+    }
 
     // Tenant-defined template export (Gusto Payroll Import preset, custom CSV
     // for a bank portal, etc.). Replaces NACHA fallback per user direction:
@@ -125,7 +130,7 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
             $bonus = 0.0; $commission = 0.0; $reimbursement = 0.0;
             foreach (($l['earnings'] ?? []) as $e) {
                 $cents = (int) ($e['amount_cents'] ?? 0);
-                $kind  = strtolower((string) ($e['kind'] ?? ''));
+                $kind  = strtolower((string) ($e['code'] ?? ''));
                 if (in_array($kind, ['bonus','spot_bonus','signing_bonus'], true))      $bonus         += $cents / 100;
                 elseif (in_array($kind, ['commission','referral'], true))                $commission    += $cents / 100;
                 elseif (in_array($kind, ['reimbursement','expense'], true))              $reimbursement += $cents / 100;
@@ -146,7 +151,7 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
         // Full pre-calc audit dump — every dollar we calculated, signed.
         $headers = [
             'run_id','pay_date','employee_number','legal_first_name','legal_last_name',
-            'work_state','pay_type','pay_rate','pay_frequency',
+            'work_state','pay_type','pay_rate','pay_frequency','earnings_basis',
             'hours_regular','hours_overtime',
             'gross','pretax_deductions','taxable','employee_taxes','posttax_deductions','net',
             'employer_taxes','payment_method','status',
@@ -159,9 +164,10 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
                 $l['employee_number'] ?? '',
                 $l['legal_first_name'] ?? '', $l['legal_last_name'] ?? '',
                 $l['work_state'] ?? '', $l['pay_type'] ?? '',
-                $cents($l['pay_rate_cents'] ?? 0), $l['pay_frequency'] ?? '',
-                number_format((float) ($l['hours_regular']  ?? 0), 2, '.', ''),
-                number_format((float) ($l['hours_overtime'] ?? 0), 2, '.', ''),
+                ($l['earnings_basis'] ?? '') === 'approved_time' ? '' : $cents($l['pay_rate_cents'] ?? 0), $l['pay_frequency'] ?? '',
+                $l['earnings_basis'] ?? 'compensation',
+                number_format((float) ($l['hours_regular']  ?? 0), 4, '.', ''),
+                number_format((float) ($l['hours_overtime'] ?? 0), 4, '.', ''),
                 $cents($l['gross_cents']          ?? 0),
                 $cents($l['pretax_cents']         ?? 0),
                 $cents($l['taxable_cents']        ?? 0),
@@ -266,19 +272,16 @@ switch (api_method()) {
             _payrollRequireStatus($run, ['draft', 'computed'], 'Compute');
             $approval = payrollRunApprovalReadiness((int) currentTenantId(), (int) ($user['id'] ?? 0), $runId);
             if (!$approval['ready']) api_error($approval['message'], 409);
-            if (($run['status'] ?? '') === 'computed') {
-                payrollRunWorkflowCancelPending(currentTenantId(), $runId, (int) ($user['id'] ?? 0), 'recompute');
-            }
-            _payrollComputeRun($runId, $body['hours_overrides'] ?? [], (int) ($user['id'] ?? 0));
+            $expectedRevision=$body['expected_computation_revision'] ?? null;
+            if ($expectedRevision===null || !ctype_digit((string)$expectedRevision)) api_error('Refresh payroll before computing.',409);
+            if (isset($body['hours_overrides']) && !is_array($body['hours_overrides'])) api_error('Payroll overrides must identify employees and earnings.',422);
+            require_once __DIR__.'/../lib/run_compute.php';
+            $workflowInstanceId=payrollComputeRunForReview($runId,$body['hours_overrides']??[],(int)$user['id'],(int)$expectedRevision);
             // Auto-run anomaly cross-checks immediately after a successful
             // compute so the run-detail page has fresh findings to surface.
             // Best-effort: never blocks the response.
             try { payrollAnomaliesDetect($runId, false); }
             catch (\Throwable $e) { error_log('[payroll.runs] anomaly detect skipped: ' . $e->getMessage()); }
-            $workflowInstanceId = payrollRunWorkflowStart(currentTenantId(), $runId, (int) ($user['id'] ?? 0));
-            if (!$workflowInstanceId) {
-                api_error('Could not start payroll approval workflow', 503);
-            }
             payrollAudit('payroll.run.built', [
                 'run_id' => $runId,
                 'action' => 'compute',
@@ -681,10 +684,10 @@ function _payrollRunDetail(int $runId): array {
                 e.legal_first_name, e.legal_last_name, e.preferred_name, e.employee_number
          FROM payroll_line_items li
          JOIN people_employees e
-           ON e.id = li.employee_id AND e.tenant_id = li.tenant_id
+           ON e.id = li.employee_id AND e.tenant_id = :people_owner
          WHERE li.tenant_id = :tenant_id AND li.run_id = :rid
          ORDER BY e.legal_last_name, e.legal_first_name",
-        ['rid' => $runId]
+        ['rid' => $runId,'people_owner'=>effectiveTenantIdForModule('people',(int)currentTenantId())]
     );
 
     // Pull components for all line ids in one shot
@@ -776,126 +779,7 @@ function _payrollDenySameActor(int $blockedActorId, array $user, string $message
  * $hoursOverrides: optional array keyed by employee_id with
  *   [ 'hours_regular' => float, 'hours_overtime' => float, 'bonus_cents' => int ]
  */
-function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorUserId = null): void {
-    $tenant = currentTenantId();
-    $run = scopedFind(
-        'SELECT r.*, pp.schedule_id, pp.cycle_id, pp.period_start, pp.period_end, pp.pay_date
-         FROM payroll_runs r
-         JOIN payroll_pay_periods pp ON pp.id = r.pay_period_id AND pp.tenant_id = r.tenant_id
-         WHERE r.tenant_id = :tenant_id AND r.id = :id',
-        ['id' => $runId]
-    );
-    if (!$run) throw new RuntimeException('Run not found');
-    $period = [
-        'period_start' => $run['period_start'],
-        'period_end'   => $run['period_end'],
-        'pay_date'     => $run['pay_date'],
-    ];
-
-    $settings = payrollGetTenantSettings();
-    $emps = payrollEmployeesForSchedule(
-        (int) $run['schedule_id'],
-        !empty($run['cycle_id']) ? (int) $run['cycle_id'] : null
-    );
-    $settledHours = payrollRunExtractedHours($runId);
-    $economicEarnings = payrollRunEconomicEarnings($runId);
-    $sourceRoster = payrollRunSourceEmployees($emps,$settledHours,$economicEarnings);
-    $emps = $sourceRoster['employees'];
-    $economicOnly = $sourceRoster['economic_only'];
-    if (!$emps) {
-        throw new RuntimeException('No enabled payroll profiles are assigned to this pay cycle');
-    }
-
-    $pdo = getDB();
-    if (!$pdo) throw new RuntimeException('No database');
-
-    $pdo->beginTransaction();
-    try {
-        // Wipe previous line items + components for this run (idempotent recompute)
-        $oldLines = $pdo->prepare(
-            'SELECT id FROM payroll_line_items WHERE tenant_id = :t AND run_id = :r'
-        );
-        $oldLines->execute(['t' => $tenant, 'r' => $runId]);
-        $oldIds = array_map(fn($r) => (int) $r['id'], $oldLines->fetchAll());
-        if ($oldIds) {
-            $in = implode(',', array_map('intval', $oldIds));
-            $pdo->exec("DELETE FROM payroll_earnings   WHERE line_item_id IN ($in)");
-            $pdo->exec("DELETE FROM payroll_taxes      WHERE line_item_id IN ($in)");
-            $pdo->exec("DELETE FROM payroll_deductions WHERE line_item_id IN ($in)");
-            $pdo->exec("DELETE FROM payroll_line_items WHERE id IN ($in)");
-        }
-
-        $totals = ['gross'=>0,'taxes'=>0,'ded'=>0,'net'=>0,'er'=>0,'count'=>0];
-        foreach ($emps as $e) {
-            $empId = (int) $e['employee_id'];
-            $extras = $settledHours[$empId] ?? [];
-            foreach (($hoursOverrides[$empId] ?? []) as $key => $value) $extras[$key] = $value;
-            $extras['commission_cents'] = (int) ($extras['commission_cents'] ?? 0)
-                + (int) ($economicEarnings[$empId] ?? 0);
-            if (!empty($economicOnly[$empId])) {
-                $extras['hours_regular'] = 0;
-                $extras['hours_overtime'] = 0;
-                $extras['suppress_regular_earnings'] = true;
-            }
-            $cctx = payrollBuildComputeContext($empId, $period, $settings, $extras);
-            if (!$cctx) {
-                $employeeLabel = $e['employee_number'] ?? ('ID ' . $empId);
-                throw new RuntimeException(
-                    "Employee {$employeeLabel} is missing an active compensation, federal tax, or payroll profile record"
-                );
-            }
-
-            $result = payrollComputeLine($cctx);
-
-            $lineId = scopedInsert('payroll_line_items', [
-                'run_id'              => $runId,
-                'employee_id'         => $empId,
-                'work_state'          => $cctx['work_state'],
-                'pay_type'            => $cctx['pay_type'],
-                'pay_rate_cents'      => $cctx['pay_rate_cents'],
-                'pay_frequency'       => $cctx['pay_frequency'],
-                'hours_regular'       => $cctx['hours_regular'],
-                'hours_overtime'      => $cctx['hours_overtime'],
-                'gross_cents'         => $result['gross_cents'],
-                'pretax_cents'        => $result['pretax_cents'],
-                'taxable_cents'       => $result['taxable_cents'],
-                'employee_taxes_cents'=> $result['employee_taxes_cents'],
-                'posttax_cents'       => $result['posttax_cents'],
-                'net_cents'           => $result['net_cents'],
-                'employer_taxes_cents'=> $result['employer_taxes_cents'],
-                'payment_method'      => $e['payment_method'] ?? 'direct_deposit',
-                'status'              => 'computed',
-            ]);
-
-            foreach ($result['earnings']   as $row) scopedInsert('payroll_earnings',   $row + ['line_item_id' => $lineId]);
-            foreach ($result['taxes']      as $row) scopedInsert('payroll_taxes',      $row + ['line_item_id' => $lineId]);
-            foreach ($result['deductions'] as $row) scopedInsert('payroll_deductions', $row + ['line_item_id' => $lineId]);
-
-            $totals['gross'] += $result['gross_cents'];
-            $totals['taxes'] += $result['employee_taxes_cents'];
-            $totals['ded']   += $result['pretax_cents'] + $result['posttax_cents'];
-            $totals['net']   += $result['net_cents'];
-            $totals['er']    += $result['employer_taxes_cents'];
-            $totals['count']++;
-        }
-
-        scopedUpdate('payroll_runs', $runId, [
-            'status'                 => 'computed',
-            'employee_count'         => $totals['count'],
-            'gross_total_cents'      => $totals['gross'],
-            'taxes_total_cents'      => $totals['taxes'],
-            'deductions_total_cents' => $totals['ded'],
-            'net_total_cents'        => $totals['net'],
-            'employer_taxes_cents'   => $totals['er'],
-            'computed_at'            => date('Y-m-d H:i:s'),
-            'computed_by_user_id'    => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
-        ]);
-
-        payrollRunSyncArtifact($tenant, $runId, $actorUserId);
-
-        $pdo->commit();
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
+function _payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorUserId = null, ?int $expectedRevision = null): void {
+    require_once __DIR__.'/../lib/run_compute.php';
+    payrollComputeRun($runId,$hoursOverrides,$actorUserId,$expectedRevision);
 }

@@ -40,6 +40,9 @@ $run = scopedFind(
     ['id' => $runId]
 );
 if (!$run) api_error('Run not found', 404);
+require_once __DIR__.'/../lib/source_earnings.php';
+try { payrollAssertHoursOnlyExport(scopedQuery('SELECT earnings_basis FROM payroll_line_items WHERE tenant_id=:tenant_id AND run_id=:run',['run'=>$runId])); }
+catch (RuntimeException $e) { api_error($e->getMessage(),409); }
 if (!in_array($run['status'], ['approved', 'paid'], true)) {
     api_error('Run must be approved before submitting to Gusto (current: ' . $run['status'] . ')', 409);
 }

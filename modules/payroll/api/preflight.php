@@ -76,6 +76,15 @@ if ($runId > 0) {
     }
 }
 $periodEnd = (string) $period['period_end'];
+$approvedSourceTime=[];
+$sourceEmployeeIds=[];
+if ($runId>0) {
+    try {
+        $approvedSourceTime=payrollRunApprovedTime($runId);
+        $sourceEmployeeIds=array_unique(array_merge(array_keys($approvedSourceTime),array_keys(payrollRunEconomicEarnings($runId))));
+    }
+    catch (RuntimeException $e) { api_error($e->getMessage(),409); }
+}
 
 // ── 2) Enrolled W2 employees for this cycle. Legacy unbound profiles
 //      are included only when the schedule has one active cycle.
@@ -85,7 +94,7 @@ $periodEnd = (string) $period['period_end'];
 //      payroll-grade PII like ssn_cipher / hire_date.
 $cycleId = !empty($period['cycle_id']) ? (int) $period['cycle_id'] : null;
 $cycleWhere = '';
-$employeeParams = ['sched' => (int) $period['schedule_id']];
+$employeeParams = ['sched' => (int) $period['schedule_id'],'people_owner'=>$peopleTenantId];
 if ($cycleId !== null) {
     $cycleWhere = ' AND (
         pp.cycle_id = :cycle_id
@@ -102,6 +111,8 @@ if ($cycleId !== null) {
     $employeeParams['cycle_id'] = $cycleId;
     $employeeParams['cycle_schedule'] = (int) $period['schedule_id'];
 }
+$enrollmentWhere='((pp.schedule_id = :sched OR pp.schedule_id IS NULL) '.$cycleWhere.')';
+if ($sourceEmployeeIds) $enrollmentWhere.=' OR pp.employee_id IN ('.implode(',',array_map('intval',$sourceEmployeeIds)).')';
 $emps = scopedQuery(
     "SELECT  pp.id            AS profile_id,
              pp.employee_id   AS employee_id,
@@ -123,12 +134,11 @@ $emps = scopedQuery(
              e.hire_date        AS hire_date,
              e.status           AS person_status
        FROM payroll_profiles pp
-       JOIN people_employees e ON e.id = pp.employee_id AND e.tenant_id = pp.tenant_id
+       JOIN people_employees e ON e.id = pp.employee_id AND e.tenant_id = :people_owner
       WHERE pp.tenant_id   = :tenant_id
         AND pp.enabled     = 1
-        AND e.status       = 'active'
-        AND (pp.schedule_id = :sched OR pp.schedule_id IS NULL)
-        {$cycleWhere}
+        AND e.status IN ('active','on_leave')
+        AND ({$enrollmentWhere})
       ORDER BY e.legal_last_name, e.legal_first_name",
     $employeeParams
 );
@@ -178,14 +188,14 @@ foreach ($emps as $e) {
     }
 
     // Federal W-4 ────────────────────────────────────────────────────
-    $tf = scopedFind(
+    $tf = payrollReadPeople(static fn()=>scopedFind(
         "SELECT id, filing_status, effective_date
            FROM people_tax_federal
           WHERE tenant_id = :tenant_id AND employee_id = :eid
             AND effective_date <= :pe
           ORDER BY effective_date DESC LIMIT 1",
         ['eid' => $empId, 'pe' => $periodEnd]
-    );
+    ));
     if (!$tf || empty($tf['filing_status'])) {
         $blockers[] = [
             'id' => 'w4_federal', 'label' => 'Federal W-4 filing status',
@@ -195,13 +205,13 @@ foreach ($emps as $e) {
 
     // State tax (only if work_state populated) ───────────────────────
     if (!empty($e['work_state'])) {
-        $ts = scopedFind(
+        $ts = payrollReadPeople(static fn()=>scopedFind(
             "SELECT id, filing_status FROM people_tax_state
               WHERE tenant_id = :tenant_id AND employee_id = :eid
                 AND state_code = :sc AND effective_date <= :pe
               ORDER BY effective_date DESC LIMIT 1",
             ['eid' => $empId, 'sc' => $e['work_state'], 'pe' => $periodEnd]
-        );
+        ));
         if (!$ts) {
             $warnings[] = [
                 'id' => 'state_tax', 'label' => 'State tax setup for ' . $e['work_state'],
@@ -217,7 +227,7 @@ foreach ($emps as $e) {
 
     // Banking — only required if direct_deposit ──────────────────────
     if ($e['payment_method'] === 'direct_deposit') {
-        if (!peopleActiveBankAccounts($empId)) {
+        if (!payrollReadPeople(static fn()=>peopleActiveBankAccounts($empId))) {
             $warnings[] = [
                 'id' => 'banking', 'label' => 'Banking on file (direct deposit)',
                 'hint' => 'Set the payment method to check or add an active bank account in People. Direct deposit cannot be originated without it.',
@@ -225,9 +235,18 @@ foreach ($emps as $e) {
         }
     }
 
-    // Compensation is the source the gross-to-net engine actually uses.
-    $compensation = peopleActiveCompensation($empId, $periodEnd);
-    if (!$compensation || (int) ($compensation['pay_rate_cents'] ?? 0) <= 0) {
+    // Compensation declares salary/hourly; retained approved time supplies hourly rates.
+    $compensation = payrollReadPeople(static fn()=>peopleActiveCompensation($empId, $periodEnd));
+    $usesApprovedTime=$compensation && ($compensation['pay_type']??'')==='hourly' && array_key_exists($empId,$approvedSourceTime);
+    if ($usesApprovedTime) {
+        require_once __DIR__.'/../lib/source_earnings.php';
+        try {
+            payrollApprovedHourlyEarnings($approvedSourceTime[$empId]);
+            $info[]=['id'=>'compensation_ok','label'=>'Hourly earnings use retained approved time and rates'];
+        } catch (RuntimeException $e) {
+            $blockers[]=['id'=>'approved_time','label'=>'Approved earnings need review','hint'=>$e->getMessage()];
+        }
+    } elseif (!$compensation || (int) ($compensation['pay_rate_cents'] ?? 0) <= 0) {
         $blockers[] = [
             'id' => 'compensation', 'label' => 'Active compensation with a positive pay rate',
             'hint' => 'Open People → Compensation and add an effective salary or hourly rate for this employee.',

@@ -108,6 +108,15 @@ function payrollReadPeople(callable $read): mixed {
 
 /** Hours explicitly extracted from Time. Unresolved sources cannot silently disappear. */
 function payrollRunExtractedHours(int $runId): array {
+    $result=[];
+    foreach (payrollRunApprovedTime($runId) as $employeeId=>$source) {
+        $result[$employeeId]=['hours_regular'=>$source['hours_regular'],'hours_overtime'=>$source['hours_overtime']];
+    }
+    return $result;
+}
+
+/** Retain the verified rows as well as their hours for native source earnings. */
+function payrollRunApprovedTime(int $runId): array {
     require_once __DIR__ . '/../../placements/lib/economics.php';
     $ref = (string)$runId;
     $tenantId = currentTenantId();
@@ -117,7 +126,7 @@ function payrollRunExtractedHours(int $runId): array {
         'SELECT te.*
            FROM time_entries te
           WHERE te.tenant_id = :time_tenant_id AND CAST(te.payroll_extracted_ref AS CHAR) IN (:ref,:legacy_ref)
-          ORDER BY te.id'
+          ORDER BY te.id'.(getDB()->inTransaction()?' FOR UPDATE':'')
     );
     $stmt->execute([
         'time_tenant_id' => $tenantId,
@@ -132,13 +141,17 @@ function payrollRunExtractedHours(int $runId): array {
         $rate = $ratesByEntry[(int)$row['id']];
         payrollAssertSourceCurrency($rate['currency'], $label);
         $person = (int) $row['person_id'];
-        if (!array_key_exists($person, $recipients)) $recipients[$person] = placementEconomicsPayrollEmployee($tenantId, ['person_id'=>$person]);
+        if (!array_key_exists($person, $recipients)) $recipients[$person] = placementEconomicsPayrollEmployee($tenantId, ['person_id'=>$person], getDB()->inTransaction());
         $employee = $recipients[$person];
         if (!$employee) throw new RuntimeException($label . ' requires a reviewed person/employment link and an enabled payroll profile.');
         $id = (int) $employee['employee_id'];
-        $result[$id] ??= ['hours_regular'=>0.0,'hours_overtime'=>0.0];
-        $key = payrollSourceIsOvertime((string)$row['category']) ? 'hours_overtime' : 'hours_regular';
-        $result[$id][$key] += (float) $row['hours'];
+        $result[$id] ??= ['hours_regular'=>0.0,'hours_overtime'=>0.0,'entries'=>[],'rates'=>[]];
+        $result[$id]['entries'][]=$row;
+        $result[$id]['rates'][(int)$row['id']]=$rate;
+        if ((int)$row['payable']===1) {
+            $key = in_array($row['hour_type'],['overtime','doubletime'],true) ? 'hours_overtime' : 'hours_regular';
+            $result[$id][$key] += (float) $row['hours'];
+        }
     }
     return $result;
 }
@@ -152,7 +165,7 @@ function payrollRunEconomicEarnings(int $runId): array {
         'SELECT o.*,CAST(ROUND(o.amount * 100) AS SIGNED) AS commission_cents
            FROM placement_economic_obligations o
           WHERE o.tenant_id = :obligation_tenant_id AND o.payroll_ref_id = :run_id
-            AND o.status IN ("payroll","paid") ORDER BY o.id'
+            AND o.status IN ("payroll","paid") ORDER BY o.id'.(getDB()->inTransaction()?' FOR UPDATE':'')
     );
     $stmt->execute([
         'obligation_tenant_id' => $tenantId,
@@ -231,7 +244,7 @@ function payrollYTDWages(int $employeeId, string $asOfDate): array {
  * Reads everything from People + payroll_profile + tenant settings.
  * Returns null if the employee isn't payroll-ready.
  */
-function payrollBuildComputeContext(int $employeeId, array $period, array $tenantSettings, array $extras = []): ?array {
+function payrollBuildComputeContext(int $employeeId, array $period, array $tenantSettings, array $extras = [], ?array $approvedTime = null): ?array {
     [$emp,$comp,$fed] = payrollReadPeople(static fn() => [
         peopleGetEmployee($employeeId),
         peopleActiveCompensation($employeeId, (string) $period['period_end']),
@@ -239,14 +252,18 @@ function payrollBuildComputeContext(int $employeeId, array $period, array $tenan
     ]);
     if (!$emp) return null;
     if (!$comp) return null;
-    payrollAssertSourceCurrency($comp['currency'] ?? null, 'Employee compensation');
+    $sourcePlan=null;
+    if ($approvedTime!==null && $comp['pay_type']==='hourly' && empty($extras['suppress_regular_earnings'])) {
+        require_once __DIR__.'/source_earnings.php';
+        $sourcePlan=payrollApprovedHourlyEarnings($approvedTime);
+    } else payrollAssertSourceCurrency($comp['currency'] ?? null, 'Employee compensation');
     if (!$fed) return null;
     $profile = payrollGetProfile($employeeId);
     if (!$profile) return null;
 
     $ytd = payrollYTDWages($employeeId, $period['pay_date']);
 
-    return [
+    $context = [
         'pay_type'       => $comp['pay_type'],
         'pay_rate_cents' => (int) $comp['pay_rate_cents'],
         'pay_frequency'  => $comp['pay_frequency'],
@@ -277,6 +294,17 @@ function payrollBuildComputeContext(int $employeeId, array $period, array $tenan
         'suta_rate_bps'             => (int) ($tenantSettings['suta_rate_bps'] ?? 340),
         'futa_credit_rate_bps'      => (int) ($tenantSettings['futa_credit_rate_bps'] ?? 540),
     ];
+    if ($sourcePlan!==null) {
+        $context['approved_time_earnings']=$sourcePlan['earnings'];
+        $context['approved_time_gross_cents']=$sourcePlan['gross_cents'];
+        $context['source_time_json']=$sourcePlan['receipt_json'];
+        $context['source_time_sha256']=$sourcePlan['receipt_sha256'];
+        $context['earnings_basis']='approved_time';
+        $context['pay_rate_cents']=0; // No single compensation rate represents these earnings.
+        $context['hours_regular']=$approvedTime['hours_regular'];
+        $context['hours_overtime']=$approvedTime['hours_overtime'];
+    } else $context['earnings_basis']='compensation';
+    return $context;
 }
 
 /**

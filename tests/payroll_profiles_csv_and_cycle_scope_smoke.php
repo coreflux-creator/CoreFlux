@@ -75,7 +75,7 @@ $check('run creation returns the existing same-type run',
     str_contains($runs, 'status <> \'voided\'')
     && str_contains($runs, "'existing' => true"));
 $check('compute fails loudly instead of silently dropping employees',
-    str_contains($runs, 'is missing an active compensation, federal tax, or payroll profile record'));
+    str_contains((string) file_get_contents("{$root}/modules/payroll/lib/run_compute.php"), 'is missing an active compensation, federal tax, or payroll profile record'));
 $check('cycle advance records the creating user on the draft',
     str_contains((string) file_get_contents("{$root}/modules/payroll/lib/cycles.php"), "'created_by_user_id' => \$actorUserId"));
 $check('period API exposes cycle and existing run',
