@@ -14,11 +14,12 @@ try {
 } finally {
     $cols=array_keys($rateBefore);$pdo->prepare('UPDATE placement_rates SET '.implode(',',array_map(static fn($c)=>'`'.$c.'`=?',$cols)).' WHERE id=?')->execute([...array_values($rateBefore),$rate]);
 }
-foreach(['missing','corrupt','time_changed'] as $case) {
+foreach(['missing','corrupt','time_changed','approver_changed'] as $case) {
     $pdo->beginTransaction();
     try {
         if ($case==='missing') $pdo->prepare('DELETE FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?')->execute([$workspace,$ids[0]]);
         elseif ($case==='corrupt') $pdo->prepare('UPDATE time_approval_rates SET rate_json="{}" WHERE tenant_id=? AND time_entry_id=?')->execute([$workspace,$ids[0]]);
+        elseif ($case==='approver_changed') $pdo->prepare('UPDATE time_entries SET approved_by_user_id=? WHERE tenant_id=? AND id=?')->execute([$creator,$workspace,$ids[0]]);
         else $pdo->prepare('UPDATE time_entries SET hours=3 WHERE tenant_id=? AND id=?')->execute([$workspace,$ids[0]]);
         $refused=false;try{timeStaffingAccountingEvents($workspace,$sheet);}catch(RuntimeException $e){$refused=$e->getCode()===409;}
         $expect($refused,'Accounting refuses '.$case.' approved evidence instead of substituting a current rate');
@@ -35,6 +36,14 @@ $expect($nativeRequest('POST',$economicsPath,['review_revision'=>$handoff['revie
 RBACResolver::grantModule($member,'accounting','admin',[$workspace],$actor);
 $expect($nativeRequest('POST',$economicsPath,[],true,$workspace)[0]===409,'Posting retry requires the displayed handoff revision');
 $expect($nativeRequest('POST',$economicsPath,['review_revision'=>str_repeat('0',64)],true,$workspace)[0]===409&&$snapshot($tables)===$stateBefore,'A stale reviewed accounting handoff has no posting effects');
+$finBefore=$snapshot($financialTables);
+[$retryStatus,$retryResult]=$nativeRequest('POST',$economicsPath,['review_revision'=>$handoff['review_revision']],true,$workspace);
+$retried=timeAccountingHandoffStatus($workspace,$sheet);
+$expect($retryStatus===409&&$retried['status']==='failed'&&(int)$retried['attempts']===1&&$snapshot($financialTables)===$finBefore,'An authorized retry with missing posting setup retains a failed request without partial journals: '.json_encode($retryResult));
+$q=$pdo->prepare('SELECT actor_user_id FROM audit_log WHERE tenant_id=? AND event="time.accounting_handoff.failed" AND target_id=? ORDER BY id DESC LIMIT 1');
+$q->execute([$workspace,$sheet]);
+$expect((int)$q->fetchColumn()===$actor,'A failed operator retry retains its actual authenticated actor');
+$expect($retried['last_error']==='Accounting needs attention. Ask an accounting reviewer to inspect this handoff.','A time-only status read redacts detailed accounting failures');
 // Restore the fixture's original accounting grant; later tests review time only.
 RBACResolver::grantModule($member,'accounting','read',[$workspace],$actor);
 $pdo->beginTransaction();

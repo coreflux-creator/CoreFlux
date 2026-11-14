@@ -20,6 +20,6 @@ $check($referral['cost']===160.0&&$referral['revenue']===1176.0,'Referral payout
 $c2c=timeApprovedEntryAmounts($entry,$rate,['engagement_type'=>'c2c']);
 $check($c2c['cost']===562.0&&$c2c['wage_cost']===0.0,'C2C includes overhead without creating employee wages');
 $hash=timeApprovedEntryFactsHash($entry);
-foreach(['hours'=>9,'tenant_id'=>11,'id'=>21,'person_id'=>31,'placement_id'=>41,'period_id'=>51,'timesheet_id'=>61,'work_date'=>'2026-10-06','category'=>'holiday','hour_type'=>'overtime','billable'=>0,'payable'=>0] as $field=>$value) $check($hash!==timeApprovedEntryFactsHash(array_replace($entry,[$field=>$value])),'Approved evidence binds '.$field);
+foreach(['hours'=>9,'tenant_id'=>11,'id'=>21,'person_id'=>31,'placement_id'=>41,'period_id'=>51,'timesheet_id'=>61,'work_date'=>'2026-10-06','category'=>'holiday','hour_type'=>'overtime','billable'=>0,'payable'=>0,'approved_at'=>'2026-10-10 12:00:00','approved_by_user_id'=>99,'approved_via'=>'manual','client_approver_email'=>'different@example.invalid'] as $field=>$value) $check($hash!==timeApprovedEntryFactsHash(array_replace($entry,[$field=>$value])),'Approved evidence binds '.$field);
 $check($hash===timeApprovedEntryFactsHash($entry+['status'=>'locked','bill_extracted_ref'=>'invoice:1']),'Extraction markers do not rewrite approved facts');
 echo $count." approved-economics checks passed.\n";

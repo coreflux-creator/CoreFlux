@@ -106,6 +106,7 @@ try {
     timeReconcileTimesheetHeader($sheetId, $users['creator']['id']);
     $assertState('submitted', 'review', null);
     $refused(static fn() => timeApproveEntry($entryIds[0], $users['creator']), 403);
+    $pdo->exec('SAVEPOINT projection_before_approvals');
     timeApproveEntry($entryIds[0], $users['alpha']);
     $assertState('submitted', 'review', null);
     $assert($read()[0]['approved_at'] === null, 'partial approval does not approve the weekly header');
@@ -188,6 +189,11 @@ try {
         'approved_at' => $entryBefore[0]['approved_at'],
     ]);
 
+    // Start the artifact-failure scenario from genuinely pending synthetic time.
+    // Rewinding this disposable fixture preserves the earlier test's meaning;
+    // previously it reset an already-approved entry and tried to approve it again.
+    $pdo->exec('ROLLBACK TO SAVEPOINT projection_before_approvals');
+    timeApproveEntry($entryIds[0], $users['alpha']);
     // A closed artifact refuses synchronization. Both review mutations must roll back even
     // when an outer importer catches the error and keeps its transaction alive.
     artifactTransition($tenantId, $artifactId, 'archived', $users['creator']['id']);

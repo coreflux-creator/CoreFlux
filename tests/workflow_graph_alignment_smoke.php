@@ -51,9 +51,9 @@ $a('staffing approval locks rate_snapshot_id per entry',
     && str_contains($nativeReview, 'timeResolveRateSnapshot((int)$entry[\'placement_id\'],(string)$entry[\'work_date\'],$workspace)')
     && str_contains($nativeReview, 'rate_snapshot_id=?')
     && str_contains($nativeReview, 'No approved rate covers this entry.'));
-$a('staffing week and posting event use placement graph joins',
+$a('staffing week uses placement graph and posting uses approved archives',
     str_contains($staffingLib, 'p.tenant_id = :placements_tid')
-    && str_contains($staffingLib, 'pl.tenant_id = :placements_tid'));
+    && str_contains($c('modules/time/lib/accounting_handoff.php'),'timeApprovedRate($entry,$tenantId)'));
 
 $tokens = $c('modules/time/api/approval_tokens.php');
 $tokenReview = $c('modules/time/lib/client_token_review.php');

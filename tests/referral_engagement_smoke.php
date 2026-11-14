@@ -47,8 +47,9 @@ $assert('billing requires a positive rate independently', str_contains($settleme
 $ap = $read('modules/ap/lib/ap.php');
 $assert('zero placement pay rate is valid without a primary AP party', str_contains($ap, 'if ($party && $base <= 0)'));
 
-$timesheets = $read('modules/staffing/lib/timesheets.php');
-$assert('approved referral hours use the hourly referral payout', str_contains($timesheets, 'placement_referrals') && str_contains($timesheets, "ref.fee_basis = 'per_hour'"));
+$timesheets = $read('modules/time/lib/accounting_handoff.php');
+$review=$read('modules/time/lib/native_review.php');
+$assert('approved referral hours use the frozen hourly payout',str_contains($review,'placement_referrals') && str_contains($review,'fee_basis="per_hour"') && str_contains($read('modules/time/lib/approval_economics.php'),"['referral_fee_per_hour']"));
 $assert('event marks referral hours explicitly', str_contains($timesheets, "'is_referral'"));
 
 $rules = $read('modules/staffing/lib/posting_rules_seed.php');

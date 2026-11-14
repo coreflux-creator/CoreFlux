@@ -1,6 +1,7 @@
 <?php
 /** Private approved rate values, separate from the public time/dimension record. */
 declare(strict_types=1);
+require_once __DIR__.'/../../staffing/lib/dimension_snapshot.php';
 
 function timeApprovalEconomicsRequireSchema(): void
 {
@@ -11,7 +12,7 @@ function timeApprovalEconomicsRequireSchema(): void
 function timeApprovedEntryFactsHash(array $entry): string
 {
     $facts=[];
-    foreach (['tenant_id','id','person_id','placement_id','period_id','timesheet_id','work_date','hours','category','hour_type','billable','payable'] as $field) {
+    foreach (['tenant_id','id','person_id','placement_id','period_id','timesheet_id','work_date','hours','category','hour_type','billable','payable','approved_at','approved_by_user_id','approved_via','client_approver_email'] as $field) {
         $facts[$field]=$field==='hours'?number_format((float)($entry[$field]??0),4,'.',''):(string)($entry[$field]??'');
     }
     return hash('sha256',staffingDimensionSnapshotCanonicalJson($facts));
@@ -23,6 +24,9 @@ function timeArchiveApprovedRate(array $entry,array $snapshot): void
     if (!StaffingNativeTimeEdit::active() || !getDB()->inTransaction()) throw new LogicException('Approved rates require the protected approval transaction.');
     timeApprovalEconomicsRequireSchema();
     $tenant=staffingTimeWorkspace();
+    $existing=getDB()->prepare('SELECT id FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=? FOR UPDATE');
+    $existing->execute([$tenant,$entry['id']]);
+    if ($existing->fetchColumn()) throw new RuntimeException('This entry already has retained approval evidence. Use its correction workflow.',409);
     $rate=timeResolveRateSnapshot((int)$entry['placement_id'],(string)$entry['work_date'],$tenant);
     $json=staffingDimensionSnapshotCanonicalJson($rate??[]);
     if (!$rate || (int)$rate['id']!==(int)$snapshot['rate_id']
@@ -63,6 +67,7 @@ function timeApprovedRate(array $entry,int $tenant): array
         if (($snapshot['approved_rate_version']??null)!==null) throw new RuntimeException('The archived approval rate is missing. Restore its original evidence before accounting.',409);
         // Older hashed approvals can be read only while the exact original row
         // still exists. Never manufacture a historical rate from today's values.
+        require_once __DIR__.'/time.php';
         $q=getDB()->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=? AND placement_id=?');
         $q->execute([timePlacementGraphTenantId($tenant),$entry['rate_snapshot_id'],$entry['placement_id']]);$rate=$q->fetch(PDO::FETCH_ASSOC);
         if (!$rate || !hash_equals($snapshot['source_rate_hash'],hash('sha256',staffingDimensionSnapshotCanonicalJson($rate)))) {

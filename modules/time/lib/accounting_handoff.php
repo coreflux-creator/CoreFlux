@@ -163,6 +163,7 @@ function timeAccountingHandoffDispatch(int $tenant,int $headerId,?string $review
                 $pdo->exec('RELEASE SAVEPOINT time_accounting_delivery');
                 $error=substr($e->getMessage(),0,2000);
                 $pdo->prepare('UPDATE time_accounting_handoffs SET status="failed",attempts=attempts+1,last_error=? WHERE tenant_id=? AND id=?')->execute([$error,$tenant,$row['id']]);
+                if ($actor!==null) timeNativeRequiredAudit('time.accounting_handoff.failed',$headerId,['handoff_id'=>(int)$row['id'],'events_hash'=>$row['events_hash']],$actor);
                 return $error;
             }
         });
@@ -177,13 +178,15 @@ function timeAccountingHandoffRevision(array $row): string
     return hash('sha256',staffingDimensionSnapshotCanonicalJson($row));
 }
 
-function timeAccountingHandoffStatus(int $tenant,int $headerId): ?array
+function timeAccountingHandoffStatus(int $tenant,int $headerId,bool $canReadAccounting=false): ?array
 {
     timeApprovalEconomicsRequireSchema();
     $q=getDB()->prepare('SELECT * FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=?');
     $q->execute([$tenant,$headerId]);$row=$q->fetch(PDO::FETCH_ASSOC);
     if (!$row) return null;
+    $revision=timeAccountingHandoffRevision($row);
+    if (!$canReadAccounting && $row['last_error']!==null) $row['last_error']='Accounting needs attention. Ask an accounting reviewer to inspect this handoff.';
     return array_intersect_key($row,array_flip(['id','timesheet_id','accounting_tenant_id','status','attempts','last_error','created_at','completed_at']))+[
-        'workspace_id'=>$tenant,'review_revision'=>timeAccountingHandoffRevision($row),
+        'workspace_id'=>$tenant,'review_revision'=>$revision,
     ];
 }

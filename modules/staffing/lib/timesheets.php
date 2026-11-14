@@ -964,8 +964,8 @@ function staffingTimesheetRequirePositiveEntries(int $headerId, string $action, 
 /** Emit `staffing.worker_hours.approved` events to the accounting posting
  *  engine. One event PER (timesheet x placement) keeps every revenue and
  *  direct-cost posting on the assignment that generated it. Posting rules
- *  still route the event by engagement type. Best-effort: failures don't
- *  roll back the approval. */
+ *  still route the event by engagement type. Failed delivery retains the
+ *  committed approval and its durable request for an explicit retry. */
 function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): ?string {
     require_once __DIR__.'/../../time/lib/accounting_handoff.php';
     return timeAccountingHandoffDispatch($tenantId,$headerId);
