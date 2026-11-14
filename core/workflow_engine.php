@@ -428,7 +428,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     return $result;
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) {
-            if ($ownsTx) $pdo->rollBack();
+            if ($ownsTx) cf_tx_rollback($pdo, $ownsTx);
             else {$pdo->exec('ROLLBACK TO SAVEPOINT workflow_action');$pdo->exec('RELEASE SAVEPOINT workflow_action');}
         }
         throw $e;
@@ -437,7 +437,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
 /** @internal */
 function _workflowActCommit(\PDO $pdo, bool $ownsTx, array $result): array {
-    if ($ownsTx) cf_tx_commit($pdo, true);
+    if ($ownsTx) cf_tx_commit($pdo, $ownsTx);
     else $pdo->exec('RELEASE SAVEPOINT workflow_action');
     return $result;
 }
