@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 native payroll accruals and source release — source accepted, not installed
+
+Exact candidate `8006adbc` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43565875451): **31 actual payroll-accrual database checks**, **65 payroll source-identity checks**, **944 independent-connection checks**, **953 native-session checks** and **917 native HTTP checks**. Fixture and temporary-access cleanup passed. [Pinned evidence](../deploy/thunderhawk-native-payroll-accrual-preparation-20261114.json). [Behavior and limits](thunderhawk-native-payroll-accruals.md).
+
+Payroll accounting uses canonical person/employment links and original per-entry approval economics. It validates posted staffing liabilities and dimensions, rejects missing/reversed/overlapping coverage, preserves the original event on replay and rolls back late mandatory-link failures with the journal. Source release is limited to uncomputed drafts and retains original references and reason atomically; computed/approved/posted runs cannot blindly release time into a second payroll. Two-connection contention and failed audit receipts preserve the source stamps.
+
+No hosted install was performed. The last verified pilot remains `4bc10bb0`; migration 203 and these newer changes are not installed. Native gross/compute authority, financial-owner and contract propagation, full financial correction/provenance, period and Billing/AP source handling, remaining field/reference and portal/onboarding alignment, required migrations, guarded installation and the complete signed-in integration round trip remain open. Production, provider runtimes and Arabella are unchanged. The full goal remains active and incomplete.
+
 ## November 14 native financial pricing — source accepted, not installed
 
 Exact candidate `39a9f5c2` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43561565593), including **40 actual financial database checks**, **53 native payroll source-identity checks**, **944 independent-connection checks**, **953 native-session checks**, and **917 native HTTP checks** with temporary-access cleanup verified. Local approved-economics checks passed 33 cases. [Pinned source and evidence](../deploy/thunderhawk-approved-rate-readers-preparation-20261114.json). [Behavior and limits](thunderhawk-approved-rate-readers.md).

@@ -1,10 +1,14 @@
 # Native payroll approved-time accruals
 
-## Validation in progress — November 14, 2026
+## Source accepted, not installed — November 14, 2026
 
-This change is being validated in disposable databases. It is not installed in
-the hosted pilot or production. It does not compute or execute a real payroll,
-send a payment, or post to a real company's ledger.
+Exact candidate `8006adbc` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43565875451), including
+**31 real payroll-accrual database checks**, **65 payroll source-identity checks**,
+**944 independent-connection checks**, **953 native-session checks** and
+**917 native HTTP checks**. Temporary-access and fixture cleanup passed.
+[Pinned evidence](../deploy/thunderhawk-native-payroll-accrual-preparation-20261114.json).
+It is not installed in the hosted pilot or production. Validation used disposable
+records only; no real payroll, payment or accounting posting was executed.
 
 Payroll posting now obtains each employee's person identity from the saved
 employment link in the original company's current People directory. Matching
