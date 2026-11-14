@@ -1,13 +1,24 @@
 # Native payroll earnings from approved time
 
-## Source accepted, not installed — November 14, 2026
+## Installed and native-session accepted — November 14, 2026
+
+This behavior and Payroll migration 010 are installed in the combined `846e8620`
+pilot release. The native-session walkthrough created and approved four synthetic
+hours at 60, reserved them to payroll and computed gross 240.00 despite the
+employee compensation rate of 30. An independent reviewer approved the saved
+calculation; stale, repeated, self and foreign-company decisions were refused.
+The 31-check walkthrough preserved all pre-existing records, produced no financial
+postings or payments and retired its synthetic access. [Installed evidence and
+scope](thunderhawk-time-payroll-upgrade.md).
+
+## Source validation
 
 Exact candidate `aab5c933` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43568369321).
 [Pinned evidence](../deploy/thunderhawk-native-payroll-source-earnings-preparation-20261114.json). The new disposable
 database suite passed 22 checks, the exact-arithmetic suite passed 36 checks,
 and the local interface suite passed all 528 tests, including four new rendered
-payroll checks. The frontend build passed. This source and Payroll migration
-010 are not installed. The last verified hosted pilot remains `4bc10bb0`.
+payroll checks. The frontend build passed. Subsequent installation and native
+HTTP acceptance are recorded above.
 
 ## Implemented behavior
 
@@ -60,10 +71,9 @@ that owner while retaining the original payroll company.
 
 ## Required remaining work
 
-This is source-computation acceptance, not completion of the payroll lifecycle
-or the full integration. Independently approving the exact displayed computation
-through every native/generic workflow entry point, successful review/recompute
-turnover, period/effective-compensation semantics, legacy category handling and
+This is computation and review acceptance, not completion of the payroll lifecycle
+or the full integration. Broader hosted native/generic workflow coverage,
+review/recompute turnover, period/effective-compensation semantics, legacy category handling and
 historical import replacement still need dedicated acceptance. The generic
 tenant-template payroll exporter uses a separate legacy dataset and needs its
 own canonical field/category and source-rate review. It is not covered by the
@@ -73,7 +83,8 @@ Original-company financial ownership, client/vendor contracts and additional
 charges; complete financial provenance and paired corrections; period
 serialization, consumed-bundle corrections and Billing/AP source release;
 remaining field/reference, portal/onboarding, documents, callbacks and financial
-result reconciliation; required migrations, guarded installation and the full
-signed-in Quanta/PurePay/PurePayroll round trip remain open. Production cutover
+result reconciliation; browser acceptance and the full
+signed-in Quanta/PurePay/PurePayroll round trip remain open. The reviewed migrations
+and combined pilot release are installed. Production cutover
 and real financial execution are not authorized by this source preparation.
 Arabella's accounting pilot remains separate and unchanged.

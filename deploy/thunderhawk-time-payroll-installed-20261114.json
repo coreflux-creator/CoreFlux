@@ -1,0 +1,327 @@
+{
+  "installed": true,
+  "application_source_commit": "846e86204d188c6ec10d8a5b4537c6a79150f1ce",
+  "installer_source_commit": "6e2ac9e08c5f35146b5deb74e755c7bd2f9e3612",
+  "installer_ci": {
+    "run_id": 43576895462,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43576895462",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "rehearsals": {
+    "distinct_account_native_web_checks": 17,
+    "populated_database_upgrade_recovery_checks": 35,
+    "exact_payroll_review_database_checks": 32,
+    "approved_earnings_database_checks": 22
+  },
+  "package_sha256": "13bac5006a44c836d066fd9a812df6fd6f115ef04bf8c0a545822e1abb46c5cb",
+  "tools_sha256": "d2712a5d349fffe449cc605d4f0de580b52bbb5848016523883aa33ad89d22a7",
+  "installation": {
+    "checked_at": "2026-11-14T08:50:47+00:00",
+    "passed": true,
+    "operation": "ccfb4a0aba16f80e034763b042ed5d45",
+    "candidate": "846e86204d188c6ec10d8a5b4537c6a79150f1ce",
+    "installed_files_verified": 149,
+    "dependency_pins_verified": 309,
+    "schema": {
+      "preserved_tables": 378,
+      "preserved_rows": 35304,
+      "new_evidence_tables": 4,
+      "applied_migrations": 7
+    },
+    "current_tables": 382,
+    "current_rows": 35311,
+    "configuration_preserved": true,
+    "maintenance_restored": true,
+    "scheduler_preserved": true,
+    "diagnostic_absent": true,
+    "database_backup_retained": true,
+    "fresh_runtime_loaded": true,
+    "production_changed": false,
+    "hosted_verification_writes": 0
+  },
+  "native_http_acceptance": {
+    "status": "finished",
+    "pid": 378409,
+    "started_at": "2026-11-14T08:51:48+00:00",
+    "candidate": "846e86204d188c6ec10d8a5b4537c6a79150f1ce",
+    "checks": [
+      "Synthetic payroll accounting execution is disabled",
+      "Native sign-in succeeds for maker",
+      "Native sign-in succeeds for reviewer",
+      "Native API creates two synthetic draft entries",
+      "Preparer submits the complete time selection",
+      "Repeated submission cannot duplicate receipts",
+      "Independent reviewer receives the current time revision",
+      "Preparer cannot approve their own time",
+      "Stale time review is refused",
+      "Independent time decision succeeds",
+      "Approved entry retains reviewer and source rate: 20",
+      "Approved entry retains reviewer and source rate: 21",
+      "Repeated time approval cannot add a second decision",
+      "Preparer creates a synthetic payroll draft",
+      "Approved time is reserved through the native payroll handoff",
+      "Payroll retains approved rate 60 and four hours instead of compensation rate 30",
+      "Payroll preparer cannot approve their calculation",
+      "Payroll rejects a different displayed calculation",
+      "Synthetic reviewer has no access through the parent company pin",
+      "Independent reviewer approves the exact native calculation",
+      "Saved payroll approval matches its reviewer and fingerprint",
+      "Repeated payroll approval is refused",
+      "Acceptance changes no schema",
+      "All pre-existing rows are preserved",
+      "No financial execution in accounting_events",
+      "No financial execution in accounting_journal_entries",
+      "No financial execution in accounting_journal_entry_lines",
+      "No financial execution in ap_payments",
+      "No financial execution in billing_payments",
+      "Synthetic access and credentials retired for maker",
+      "Synthetic access and credentials retired for reviewer"
+    ],
+    "requests": [
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=bulk_create",
+        "status": 201,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=bulk_submit",
+        "status": 200,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=bulk_submit",
+        "status": 409,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_review",
+        "status": 200,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 403,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 409,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 200,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 409,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 201,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/settlement.php?action=extract",
+        "status": 200,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 200,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 403,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 409,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?id=4",
+        "status": 403,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 200,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 409,
+        "tenant": 1002004
+      },
+      {
+        "actor": "maker",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 1002004
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 1002004
+      }
+    ],
+    "actors": {
+      "maker": {
+        "user_id": 110,
+        "membership_id": 98
+      },
+      "reviewer": {
+        "user_id": 111,
+        "membership_id": 99
+      }
+    },
+    "passed": true,
+    "browser_test": false,
+    "provider_requests": 0,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "marker": "Synthetic native time/payroll 96b302618a22",
+    "tenant_id": 1002004,
+    "fixture": {
+      "person_id": 395,
+      "placement_id": 911,
+      "rate_id": 32,
+      "pay_period_id": 18
+    },
+    "entry_ids": [
+      20,
+      21
+    ],
+    "run_id": 4,
+    "session_removed": {
+      "maker": true,
+      "reviewer": true
+    },
+    "fixture_retired": true,
+    "completed_at": "2026-11-14T08:51:53+00:00"
+  },
+  "native_http_verifier_sha256": "b3b15317a6e3ab6f48980c0b7b35f479d02cb35a9786bb9430090510e9caf599",
+  "first_acceptance_observation": {
+    "assertion_used_wrong_response_field": true,
+    "response_status": 200,
+    "saved_approval_verified_read_only": true,
+    "run_id": 3,
+    "tenant_id": 1002003,
+    "fixture_retired": true,
+    "source_change_required": false
+  },
+  "browser_visual_acceptance": false,
+  "provider_roundtrip_completed": false,
+  "full_integration_complete": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_payroll_payments_postings": false,
+  "evidence_sha256": {
+    "time-payroll-install-6e2ac9e0-ci.json": "dd661b6d57dfd010d022bb307e8178458611647200ed3f357464fecc0ad3c09c",
+    "time-payroll-channel-6e2ac9e0-ci.log": "03a6b9080f94534c70c0f608db6d0d812482fa41c6f23b0d62fc8b5400afe7a6",
+    "time-payroll-install-6e2ac9e0-ci.log": "417a8278e82087686be7ad40ff5759400b11f2ff7a4c6f03a4e4246de15ff43c",
+    "time-payroll-installed-verification.json": "25b05ed55ee1dde7a8602cadf031d2d84b141ca845a5c8f56c872501e6bcffa6",
+    "time-payroll-http-v2-handle-result.json": "f8138f0b9a892232eca0a7093105ea5fc410e1fd36f8dd44bd999a337ff465e1",
+    "time-payroll-http-first-outcome.json": "f1d5aea899340ca5e846c29f8239cecea2a875fcf812347486453629c115a517"
+  }
+}

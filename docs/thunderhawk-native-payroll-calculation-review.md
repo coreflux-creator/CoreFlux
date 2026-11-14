@@ -1,6 +1,17 @@
 # Independent review of the saved payroll calculation
 
-## Source accepted, not installed — November 14, 2026
+## Installed and native-session accepted — November 14, 2026
+
+The combined `846e8620` package and Payroll migration 011 are installed on the
+isolated pilot. Independent verification checked 149 installed files, 309 retained
+dependencies and all seven applied migrations, preserving the original records.
+The hosted synthetic walkthrough passed 31 checks: separate native logins,
+approved time and retained-rate payroll computation, refusal of self-approval,
+stale/repeated decisions and foreign-company access, followed by approval of the
+exact calculation. All temporary access was retired. No payroll, payment or
+financial posting was executed. [Installation and acceptance](thunderhawk-time-payroll-upgrade.md).
+
+## Source validation
 
 Exact candidate `846e8620` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43570265181),
 including **32 actual payroll-review database checks**, the earlier 22 native
@@ -8,8 +19,8 @@ source-earnings checks, 36 arithmetic checks and 65 payroll source-identity chec
 The broader suites passed 944 independent-connection, 953 native-session and
 917 native HTTP checks, with fixture and temporary-access cleanup verified.
 [Pinned evidence](../deploy/thunderhawk-native-payroll-calculation-review-preparation-20261114.json). All 530 local
-interface tests and the frontend build passed. This source and Payroll migration
-011 are not installed. The last verified hosted pilot remains `4bc10bb0`.
+interface tests and the frontend build passed. The subsequent guarded installation
+and its retained evidence are recorded above.
 
 ## Implemented behavior
 
@@ -47,7 +58,7 @@ are preserved; this change does not perform payroll execution or deployment.
 
 ## Required remaining work
 
-Hosted signed-in acceptance and the complete integration round trip remain
+Browser visual acceptance and the complete integration round trip remain
 required. Historical payroll import/replacement, period and effective-compensation
 semantics, legacy categories, the generic tenant-template payroll dataset,
 remaining financial owner/client/vendor/charge alignment, complete financial
@@ -56,7 +67,7 @@ field/reference, portal/onboarding/document/callback reconciliation are open.
 Payment and provider-execution routes require their own lifecycle acceptance;
 the calculation review tests do not establish those outcomes.
 
-Payroll migrations 010/011, time-approval migration 203 and the newer prepared
-source still require guarded pilot installation. No production cutover, real
+Payroll migrations 010/011, time-approval migration 203 and the reviewed source
+are installed in the isolated pilot. No production cutover, real
 payroll, payment or real-company financial posting was performed. Arabella's
 accounting pilot remains separate and unchanged.
