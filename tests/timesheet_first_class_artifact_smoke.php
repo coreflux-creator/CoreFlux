@@ -33,7 +33,7 @@ $nativeEntries = $read('modules/time/lib/native_entries.php');
 $csvApi = $read('modules/time/api/csv_import.php');
 $jobdiva = $read('core/jobdiva/sync_time.php');
 $tokenApi = $read('modules/staffing/api/timesheet_email_approver.php');
-$tokenConsumer = $read('core/staffing_email_approval.php');
+$tokenConsumer = $read('core/staffing_email_review.php');
 $listUi = $read('modules/staffing/ui/TimesheetsList.jsx');
 $detailUi = $read('modules/staffing/ui/TimesheetDetail.jsx');
 $deployPath = $root . '/.github/workflows/deploy-light-workspace.yml';
@@ -101,11 +101,10 @@ $assert('JobDiva uses canonical materializer with integration provenance',
 
 echo "\nApproval credentials and safe API metadata\n";
 $assert('approval link issuance is attached to weekly header and recorded',
-    str_contains($tokenApi, 'staffingTimesheetEnsureArtifact($header')
-    && str_contains($tokenApi, 'array_merge($header, staffingTimesheetEnsureArtifact')
-    && str_contains($tokenApi, "'timesheet.approval_token_issued'")
-    && str_contains($tokenApi, "'token_id' => (int) \$tokens['token_id']")
-    && str_contains($tokenApi, "consumed_via_action = 'superseded'"));
+    str_contains($tokenApi, 'staffingEmailApprovalMint(')
+    && str_contains($tokenConsumer, 'staffingTimesheetEnsureArtifact(')
+    && str_contains($tokenConsumer, "'timesheet.approval_token_issued'")
+    && str_contains($tokenConsumer, 'consumed_via_action="superseded"'));
 $assert('approval link use is captured in artifact history',
     str_contains($tokenConsumer, "'timesheet.approval_token_consumed'")
     && str_contains($tokenConsumer, "'approval_token_id'")
@@ -134,6 +133,7 @@ foreach ([
     'core/ai/artifacts.php',
     'core/jobdiva/sync_time.php',
     'core/staffing_email_approval.php',
+    'core/staffing_email_review.php',
     'modules/staffing/api/timesheet_email_approver.php',
     'modules/staffing/api/timesheets.php',
     'modules/staffing/lib/timesheets.php',

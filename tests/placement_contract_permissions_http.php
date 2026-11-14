@@ -118,7 +118,7 @@ try {
         $data=is_string($raw)?json_decode($raw,true):null;
         if ($path!=='/fixture-ready') $report['requests'][]=['method'=>$method,'path'=>preg_replace('/([?&]t=)[^&]+/','$1[redacted]',$path),'status'=>$status,'pinned_tenant'=>$pin,
             'error'=>is_array($data)?($data['error']??null):null];
-        return [$status,$data,$location];
+        return [$status,$data,$location,$raw];
     };
     $ready=false;
     for ($i=0;$i<40;$i++) { if ($request('GET','/fixture-ready',null,false)[0]===200) { $ready=true; break; } if (!proc_get_status($server)['running']) throw new RuntimeException('Native HTTP server stopped'); usleep(100000); }
@@ -442,7 +442,7 @@ try {
         } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $report['passed']=false; $report['retirement_failed']=true; }
     }
     if (is_resource($server)) { proc_terminate($server); proc_close($server); $report['owned_server_stopped']=true; }
-    if (!$report['passed'] && is_file($directory.'/http.log')) $report['server_log']=substr((string)file_get_contents($directory.'/http.log'),-12000);
+    if (!$report['passed'] && is_file($directory.'/http.log')) $report['server_log']=preg_replace('/([?&]t=)[a-f0-9]{64}/','$1[redacted]',substr((string)file_get_contents($directory.'/http.log'),-12000));
     if (is_dir($documentRoot)&&!is_link($documentRoot)&&realpath($documentRoot)===$directory.'/objects') {
         $entries=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($documentRoot,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
         foreach($entries as$entry){if($entry->isDir()&&!$entry->isLink())rmdir($entry->getPathname());else unlink($entry->getPathname());}rmdir($documentRoot);

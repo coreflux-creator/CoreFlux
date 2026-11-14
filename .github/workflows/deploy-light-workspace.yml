@@ -138,6 +138,8 @@ jobs:
             core/seeds/posting_rules_seed_all.php \
             core/storage_register.php \
             core/staffing_email_approval.php \
+            core/staffing_email_review.php \
+            core/migrations/201_staffing_email_review_basis.sql \
             core/tx_helpers.php \
             core/treasury/liquidity_projection.php \
             core/workflow_engine.php \

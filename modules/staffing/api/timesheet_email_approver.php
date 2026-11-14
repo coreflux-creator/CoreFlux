@@ -1,154 +1,36 @@
 <?php
-/**
- * /api/staffing/timesheet_email_approver — Send a one-tap approval email to
- * an external manager (typically the client-side approver) for a submitted
- * staffing timesheet.
- *
- *   POST { timesheet_id, approver_email, approver_name? }
- *     → mints a 72h single-use approve+reject token pair, formats the email
- *       body, sends via `mailerSend` if configured, returns the dispatch
- *       receipt.
- *
- * Auth: in-app session (the dispatcher must be a CoreFlux user). The
- * recipient (the approver) does NOT need a CoreFlux account.
- */
+/** Authorized dispatch of a complete weekly review to an independent external recipient. */
 declare(strict_types=1);
-
-require_once __DIR__ . '/../../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../../core/sub_tenants.php';
-require_once __DIR__ . '/../../../core/staffing_email_approval.php';
-require_once __DIR__ . '/../lib/timesheets.php';
-
-$ctx    = api_require_auth();
-$method = api_method();
-if ($method !== 'POST') api_error('Method not allowed', 405);
-
-$body          = api_json_body();
-$tsId          = (int) ($body['timesheet_id'] ?? 0);
-$approverEmail = trim((string) ($body['approver_email'] ?? ''));
-$approverName  = trim((string) ($body['approver_name']  ?? ''));
-
-if ($tsId <= 0) api_error('timesheet_id required', 422);
-if ($approverEmail === '' || !filter_var($approverEmail, FILTER_VALIDATE_EMAIL)) {
-    api_error('approver_email must be a valid email', 422);
-}
-
-$tenantId = currentTenantId();
-$peopleTenantId = effectiveTenantIdForModule('people', (int) $tenantId) ?? $tenantId;
-$pdo      = getDB();
-
-// Load header + verify it's submitted (only submitted timesheets can be
-// emailed for external approval).
-$h = $pdo->prepare(
-    "SELECT t.*,
-            COALESCE(NULLIF(CONCAT_WS(' ', p.first_name, p.last_name), ' '), p.email_primary) AS worker_name
-       FROM staffing_timesheets t
-       LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
-      WHERE t.tenant_id = :t AND t.id = :id LIMIT 1"
-);
-$h->execute(['t' => $tenantId, 'id' => $tsId, 'people_tid' => $peopleTenantId]);
-$header = $h->fetch(\PDO::FETCH_ASSOC);
-if (!$header) api_error('Timesheet not found', 404);
-if (($header['status'] ?? '') !== 'submitted') {
-    api_error("Timesheet is {$header['status']} — only submitted timesheets can be sent for external approval", 409);
-}
-$header = array_merge($header, staffingTimesheetEnsureArtifact($header, [
-    'tenant_id' => (int) $tenantId,
-    'created_by_user_id' => (int) ($ctx['user']['id'] ?? 0),
-]));
-
-// Pull total hours + revenue snapshot so the email shows what the approver
-// is being asked to sign off on.
-$totals = $pdo->prepare(
-    "SELECT COALESCE(SUM(te.hours), 0)                              AS hours,
-            COALESCE(SUM(te.hours * COALESCE(pr.bill_rate, 0)), 0)  AS revenue
-       FROM time_entries te
-       LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
-      WHERE te.tenant_id = :t AND te.timesheet_id = :id AND te.status != 'superseded'"
-);
-$totals->execute(['t' => $tenantId, 'id' => $tsId]);
-$totRow = $totals->fetch(\PDO::FETCH_ASSOC) ?: ['hours' => 0, 'revenue' => 0];
-
+require_once __DIR__.'/../../../core/api_bootstrap.php';
+require_once __DIR__.'/../../../core/staffing_email_approval.php';
+require_once __DIR__.'/../../../core/mail_bootstrap.php';
+require_once __DIR__.'/../../../core/tenant_mail.php';
+$ctx=api_require_auth();
+api_require_legacy_permission($ctx,'staffing.time.approve');
+$method=api_method();
+if ($method !== 'POST') api_error('Method not allowed',405);
+header('Cache-Control: private, no-store');
+$body=api_json_body();$tsId=(int)($body['timesheet_id']??0);
+$email=trim((string)($body['approver_email']??''));$name=trim((string)($body['approver_name']??''));
+if ($tsId<=0 || !filter_var($email,FILTER_VALIDATE_EMAIL)) api_error('Choose a timesheet and valid approver email.',422);
+$tenantId=(int)$ctx['tenant_id'];
+try {$tokens=staffingEmailApprovalMint($tenantId,$tsId,$email,$name?:null,72,(int)$ctx['user']['id']);}
+catch(Throwable $error) {$failure=staffingEmailApprovalFailure($error);api_error($failure['message'],$failure['status_code']);}
+$header=$tokens['header'];
+$html=staffingEmailApprovalBodyHtml($header,$tokens['worker_name'].' ('.$tokens['person_number'].')',(float)$tokens['total_hours'],0,$name?:$email,$tokens['approve_url'],$tokens['reject_url'],staffingEmailApprovalBaseUrl().'/modules/staffing/approvals?focus='.$tsId);
+$subject='Timesheet awaiting review — '.$tokens['worker_name'].', week of '.$header['period_start'];
+$sent=false;$errorMessage=null;
 try {
-    $ownsTxn = cf_tx_begin($pdo);
-    $closePrior = $pdo->prepare(
-        "UPDATE approval_tokens
-            SET consumed_at = NOW(), consumed_via_action = 'superseded'
-          WHERE tenant_id = :tenant_id
-            AND subject_type = 'staffing_timesheet'
-            AND subject_id = :subject_id
-            AND consumed_at IS NULL"
-    );
-    $closePrior->execute(['tenant_id' => $tenantId, 'subject_id' => $tsId]);
-    $tokens = staffingEmailApprovalMint($tenantId, $tsId, $approverEmail, $approverName ?: null);
-    $header = staffingTimesheetRecordArtifactEvent(
-        $tsId,
-        'timesheet.approval_token_issued',
-        (int) ($ctx['user']['id'] ?? 0),
-        [
-            'token_id' => (int) $tokens['token_id'],
-            'approver_email' => $approverEmail,
-            'expires_at' => $tokens['expires_at'],
-            'prior_tokens_closed' => $closePrior->rowCount(),
-        ],
-        (int) $tenantId
-    );
-    cf_tx_commit($pdo, $ownsTxn);
-} catch (\Throwable $e) {
-    if (isset($ownsTxn)) cf_tx_rollback($pdo, $ownsTxn);
-    api_error('Could not mint approval token: ' . $e->getMessage(), 500);
-}
-
-$base = staffingEmailApprovalBaseUrl();
-$threadUrl = "{$base}/modules/staffing/approvals?focus={$tsId}";
-
-$html = staffingEmailApprovalBodyHtml(
-    $header,
-    (string) ($header['worker_name'] ?? 'Worker'),
-    (float)  $totRow['hours'],
-    (float)  $totRow['revenue'],
-    $approverName ?: $approverEmail,
-    $tokens['approve_url'],
-    $tokens['reject_url'],
-    $threadUrl
-);
-
-$subject = sprintf(
-    'Timesheet awaiting approval — %s, week of %s',
-    (string) ($header['worker_name'] ?? 'Worker'),
-    (string) ($header['period_start'] ?? '')
-);
-
-$sent = false; $err = null;
-try {
-    if (function_exists('mailerSend')) {
-        mailerSend([
-            'to'        => $approverEmail,
-            'subject'   => $subject,
-            'body_html' => $html,
-            'module'    => 'staffing',
-            'purpose'   => 'timesheets',
-            'tenant_id' => $tenantId,
+    $sender=cf_tenant_mail_sender($tenantId,'staffing');
+    $result=cf_mail_bootstrap()->send($tenantId,'staffing','timesheet_approval_request',[$email],$subject,
+        'Review the complete week and confirm your decision: '.$tokens['approve_url']."\n".'To review rejection: '.$tokens['reject_url'],$html,[],[
+            'from'=>$sender['from'],'from_name'=>$sender['from_name'],'reply_to'=>$sender['reply_to'],'idempotency_key'=>'staffing-week-token-'.$tokens['token_id'],
         ]);
-        $sent = true;
-    } else {
-        $err = 'mailer not configured';
-    }
-} catch (\Throwable $e) {
-    $err = $e->getMessage();
+    $sent=($result['status']??'failed')==='sent' && ($result['driver']??'')!=='log';
+    if (!$sent) $errorMessage='The approval email was not delivered. Check email setup before requesting a new link.';
+} catch(Throwable $error) {
+    error_log('[staffing-email-approval] delivery failed: '.get_class($error));
+    $errorMessage='Email delivery could not be confirmed. Check delivery history before requesting another link.';
 }
-
-api_ok([
-    'sent'           => $sent,
-    'error'          => $err ? substr($err, 0, 500) : null,
-    'approver_email' => $approverEmail,
-    'token_id'       => (int) $tokens['token_id'],
-    'expires_at'     => $tokens['expires_at'],
-    'timesheet_id'   => $tsId,
-    'timesheet_display_id' => $header['display_id'],
-    'artifact_id'    => $header['artifact_id'],
-    // Surface the URLs so the dispatcher (or QA) can verify the link in the
-    // common case where the mailer isn't wired up locally.
-    'approve_url'    => $tokens['approve_url'],
-    'reject_url'     => $tokens['reject_url'],
-]);
+api_ok(['sent'=>$sent,'error'=>$errorMessage,'approver_email'=>$email,'token_id'=>(int)$tokens['token_id'],
+    'expires_at'=>$tokens['expires_at'],'timesheet_id'=>$tsId,'timesheet_display_id'=>$header['display_id'],'artifact_id'=>$header['artifact_id']],$sent?201:202);

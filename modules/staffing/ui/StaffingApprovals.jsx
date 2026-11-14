@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, CheckSquare2, CircleAlert, ExternalLink, Loader2, Mail, X } from 'lucide-react';
 import TimeDecisionReview from '../../time/ui/TimeDecisionReview';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { api, getPinnedTenantId, useApi } from '../../../dashboard/src/lib/api';
 
 function approvalBlocker(row) {
   if (Number(row.worker_is_reviewer) > 0 || Number(row.reviewer_entry_count) > 0) {
@@ -43,6 +43,7 @@ export default function StaffingApprovals() {
   const [approverEmail, setApproverEmail] = useState('');
   const [approverName, setApproverName] = useState('');
   const [emailResult, setEmailResult] = useState(null);
+  const emailInFlight = useRef(false);
 
   useEffect(() => {
     setSelected(new Set());
@@ -82,7 +83,9 @@ export default function StaffingApprovals() {
   };
 
   const sendApproverEmail = async (row) => {
-    if (!approverEmail.trim()) return;
+    if (!approverEmail.trim() || emailInFlight.current) return;
+    emailInFlight.current = true;
+    const workspace = getPinnedTenantId();
     setBusyId(row.id);
     setEmailResult(null);
     setActionError('');
@@ -92,13 +95,16 @@ export default function StaffingApprovals() {
         approver_email: approverEmail.trim(),
         approver_name: approverName.trim() || undefined,
       });
+      if (getPinnedTenantId() !== workspace) return;
       setEmailResult({ row_id: row.id, ...response });
       setEmailing(null);
       setApproverEmail('');
       setApproverName('');
     } catch (requestError) {
+      if (getPinnedTenantId() !== workspace) return;
       setEmailResult({ row_id: row.id, sent: false, error: requestError?.message || String(requestError) });
     } finally {
+      emailInFlight.current = false;
       setBusyId(null);
     }
   };
@@ -346,7 +352,7 @@ export default function StaffingApprovals() {
                             className="btn btn--ghost"
                             disabled={rowBusy || bulkBusy}
                             onClick={() => { setEmailing(row.id); setApproverEmail(''); setApproverName(''); }}
-                            title="Send a one-tap approval link to an external manager"
+                            title="Send the complete week to an external manager for review"
                             data-testid={`staffing-email-approver-${row.id}`}
                           >
                             <Mail size={14} aria-hidden="true" /> Email approver
@@ -403,13 +409,7 @@ export default function StaffingApprovals() {
                           >
                             {emailResult.sent
                               ? `Link sent to ${emailResult.approver_email}, expires ${emailResult.expires_at}.`
-                              : 'Mailer offline. '}
-                            {!emailResult.sent && emailResult.approve_url && (
-                              <a href={emailResult.approve_url} target="_blank" rel="noopener noreferrer" data-testid={`staffing-email-approver-fallback-${row.id}`}>
-                                Open approval link
-                              </a>
-                            )}
-                            {emailResult.error && !emailResult.sent && !emailResult.approve_url && <span>{emailResult.error}</span>}
+                              : emailResult.error || 'Delivery could not be confirmed. Check delivery history before requesting another link.'}
                           </div>
                         )}
                       </div>

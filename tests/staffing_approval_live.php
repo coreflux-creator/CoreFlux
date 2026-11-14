@@ -124,3 +124,25 @@ if (count($event->fetchAll(PDO::FETCH_ASSOC)) !== 1) {
     throw new RuntimeException('Replaying an approved week after an assignment edit duplicated its journal');
 }
 echo "Submitted week approved with frozen rate, dimensions, artifact, and one posted journal.\n";
+
+require_once __DIR__.'/../core/staffing_email_approval.php';
+$pdo->prepare("INSERT INTO staffing_timesheets (id,tenant_id,person_id,period_start,period_end,status,total_hours,origin_source,created_by_user_id) VALUES (9602,?,9601,'2026-01-19','2026-01-25','submitted',6,'bulk_upload',2)")->execute([$tenantId]);
+$pdo->prepare("INSERT INTO time_periods (id,tenant_id,start_date,end_date,label,status) VALUES (9602,?,'2026-01-19','2026-01-25','CI weekly email review','open')")->execute([$tenantId]);
+$pdo->prepare("INSERT INTO time_entries (id,tenant_id,placement_id,person_id,period_id,timesheet_id,work_date,category,hour_type,billable,payable,hours,status,source,created_by_user_id) VALUES (9602,?,9601,9601,9602,9602,'2026-01-20','regular_billable','regular',1,1,6,'pending_review','bulk_upload',2)")->execute([$tenantId]);
+$external='independent-weekly-reviewer@example.invalid';
+$issued=staffingEmailReviewIssue($tenantId,1,9602,$external);
+$review=staffingEmailApprovalReview($issued['token'],'approve');
+$result=staffingEmailApprovalConsume($issued['token'],'approve','Reviewed six hours','127.0.0.1',$review['revision']);
+if (!$result['ok'] || isset($result['posting_warning'])) throw new RuntimeException('Weekly email approval did not complete its accounting handoff: '.json_encode($result));
+$q=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND id=9602');$q->execute([$tenantId]);$row=$q->fetch(PDO::FETCH_ASSOC);
+$dim=json_decode($row['dimension_snapshot_json'],true,512,JSON_THROW_ON_ERROR);
+if ($row['status']!=='approved' || $row['approved_by_user_id']!==null || $row['client_approver_email']!==$external || (int)$row['rate_snapshot_id']!==9601 || $dim['dimensions']['branch']!=='West') throw new RuntimeException('Weekly email approval lost external actor, rate or current dimensions');
+$q=$pdo->prepare("SELECT status,journal_entry_id,payload FROM accounting_events WHERE tenant_id=? AND event_type='staffing.worker_hours.approved' AND source_record_id LIKE 'timesheet:9602:placement:9601:w2:segment:%'");
+$q->execute([$tenantId]);$events=$q->fetchAll(PDO::FETCH_ASSOC);
+if (count($events)!==1 || $events[0]['status']!=='posted' || (int)$events[0]['journal_entry_id']<=0) throw new RuntimeException('Weekly email approval did not post exactly one journal');
+$payload=json_decode($events[0]['payload'],true,512,JSON_THROW_ON_ERROR);
+if ((float)$payload['hours']!==6.0 || (float)$payload['revenue']!==600.0 || (float)$payload['cost']!==360.0 || $payload['dimensions']['branch']!=='West') throw new RuntimeException('Weekly email journal economics disagree with the approved week');
+$repeat=staffingEmailApprovalConsume($issued['token'],'approve','Repeated click','127.0.0.1',$review['revision']);
+$q->execute([$tenantId]);
+if ($repeat['ok'] || $repeat['status_code']!==409 || $q->fetchAll(PDO::FETCH_ASSOC)!==$events) throw new RuntimeException('Repeated weekly email decision changed its journal');
+echo "Weekly email review approved with actual external actor, frozen evidence, one posted journal and unchanged replay.\n";

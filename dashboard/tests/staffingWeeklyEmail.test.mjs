@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
+const require=createRequire(import.meta.url),React=require('react'),{create,act}=require('react-test-renderer'),{MemoryRouter}=require('react-router-dom');
+let pin,calls,post;
+const data={rows:[{id:12,display_id:'TS-12',worker_name:'Synthetic worker',person_id:15,period_start:'2026-11-02',period_end:'2026-11-08',total_hours:4,pending_entry_count:2,status:'submitted'}]};
+const fixture={getPinnedTenantId:()=>pin,useApi:()=>({data,loading:false,error:null,reload(){}}),api:{post:(...args)=>{calls.push(args);return post(...args);}}};
+const built=await build({entryPoints:[fileURLToPath(new URL('../../modules/staffing/ui/StaffingApprovals.jsx',import.meta.url))],bundle:true,platform:'node',format:'cjs',write:false,external:['react','react-router-dom','lucide-react'],plugins:[{name:'fixture',setup(b){b.onResolve({filter:/lib\/api$/},()=>({path:'fixture-api',external:true}));}}]});
+const module={exports:{}};new Function('require','module','exports',built.outputFiles[0].text)(id=>id==='fixture-api'?fixture:require(id),module,module.exports);const Screen=module.exports.default;
+const find=(t,id)=>t.root.findAllByProps({'data-testid':id});
+const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
+async function open(){pin='2002';calls=[];let t;await act(async()=>{t=create(React.createElement(MemoryRouter,null,React.createElement(Screen)));});await act(async()=>find(t,'staffing-email-approver-12')[0].props.onClick());await act(async()=>find(t,'staffing-email-approver-email-12')[0].props.onChange({target:{value:'reviewer@example.invalid'}}));return t;}
+const send=t=>find(t,'staffing-email-approver-send-12')[0].props.onClick();
+test('weekly dispatch sends selected week and designated recipient once',async()=>{post=async()=>({sent:true,approver_email:'reviewer@example.invalid',expires_at:'2026-11-05'});const t=await open();try{await act(async()=>send(t));assert.equal(calls.length,1);assert.equal(calls[0][1].timesheet_id,12);assert.equal(calls[0][1].approver_email,'reviewer@example.invalid');assert.match(text(t.root),/Link sent to reviewer/);}finally{act(()=>t.unmount());}});
+test('failed delivery never renders a returned secret link or claims success',async()=>{post=async()=>({sent:false,error:'Email setup needs attention.',approve_url:'https://example.invalid/secret'});const t=await open();try{await act(async()=>send(t));assert.match(text(t.root),/Email setup needs attention/);assert.equal(t.root.findAllByType('a').filter(a=>String(a.props.href).includes('secret')).length,0);assert.doesNotMatch(text(t.root),/Link sent/);}finally{act(()=>t.unmount());}});
+test('double dispatch while pending creates only one request',async()=>{let resolve;post=()=>new Promise(r=>resolve=r);const t=await open();try{let pending;await act(async()=>{pending=send(t);send(t);});assert.equal(calls.length,1);assert.equal(find(t,'staffing-email-approver-send-12')[0].props.disabled,true);await act(async()=>{resolve({sent:false,error:'No delivery'});await pending;});}finally{act(()=>t.unmount());}});
+test('a late response after workspace change is not displayed as current delivery',async()=>{let resolve;post=()=>new Promise(r=>resolve=r);const t=await open();try{let pending;await act(async()=>{pending=send(t);});pin='999';await act(async()=>{resolve({sent:true,approver_email:'old@example.invalid'});await pending;});assert.equal(find(t,'staffing-email-approver-result-12').length,0);}finally{act(()=>t.unmount());}});
+test('delivery exception is shown without automatically sending another credential',async()=>{post=async()=>{throw new Error('Delivery state unknown');};const t=await open();try{await act(async()=>send(t));assert.equal(calls.length,1);assert.match(text(t.root),/Delivery state unknown/);}finally{act(()=>t.unmount());}});
+test('cancelling recipient form sends no mail request',async()=>{post=async()=>{throw new Error('Unexpected request');};const t=await open();try{await act(async()=>find(t,'staffing-email-approver-cancel-12')[0].props.onClick());assert.equal(calls.length,0);assert.equal(find(t,'staffing-email-approver-form-12').length,0);}finally{act(()=>t.unmount());}});
