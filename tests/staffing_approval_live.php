@@ -50,11 +50,15 @@ $pdo->prepare(
              6, 'bulk_upload', 2)"
 )->execute(['tenant_id' => $tenantId]);
 $pdo->prepare(
+    "INSERT INTO time_periods (id, tenant_id, start_date, end_date, label, status)
+     VALUES (9601, :tenant_id, '2026-01-12', '2026-01-18', 'CI submitted approval week', 'open')"
+)->execute(['tenant_id' => $tenantId]);
+$pdo->prepare(
     "INSERT INTO time_entries
         (id, tenant_id, placement_id, person_id, period_id, timesheet_id,
          work_date, category, hour_type, billable, payable, hours, status,
          source, created_by_user_id)
-     VALUES (9601, :tenant_id, 9601, 9601, 1, 9601,
+     VALUES (9601, :tenant_id, 9601, 9601, 9601, 9601,
              '2026-01-13', 'regular_billable', 'regular', 1, 1, 6, 'pending_review',
              'bulk_upload', 2)"
 )->execute(['tenant_id' => $tenantId]);
