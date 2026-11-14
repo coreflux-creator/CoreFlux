@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api, useApi, bustApiCachePrefix, getPinnedTenantId } from '../../../dashboard/src/lib/api';
 import TimeDecisionReview from '../../time/ui/TimeDecisionReview';
+import AccountingHandoff from '../../time/ui/AccountingHandoff';
 import QuantaApprovalEvidence from '../../../dashboard/src/pages/QuantaApprovalEvidence';
 
 /**
@@ -460,6 +461,9 @@ export default function TimesheetDetail({ session }) {
           )}
         </div>
       </header>
+
+      <AccountingHandoff timesheetId={ts.id} workspaceId={data.workspace_id} refreshKey={`${ts.status}:${ts.updated_at || ''}`}
+        allowActions={!placementId && !data.read_only} />
 
       {rejecting && !isReadOnly && (
         <div style={{ background: '#fff7ed', border: '1px solid #fdba74', padding: 12, borderRadius: 6, marginBottom: 16 }}

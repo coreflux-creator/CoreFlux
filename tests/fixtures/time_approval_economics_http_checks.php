@@ -37,8 +37,12 @@ $expect($foreignStatus===404,'An authorized parent time reader cannot read a chi
 $expect($status===200&&$handoff['status']==='pending'&&$handoff['workspace_id']===$workspace&&!isset($handoff['events_json'])&&!isset($handoff['rate_json']),'Time review shows pending accounting without exposing private pay-rate or journal payloads');
 $expect($snapshot($tables)===$stateBefore,'Handoff inspection creates no financial or operational writes');
 RBACResolver::grantModule($member,'accounting','read',[$workspace],$actor);
+$readonlyHandoff=$nativeRequest('GET',$economicsPath,null,true,$workspace)[1];
+$expect($readonlyHandoff['can_retry']===false,'Accounting read access never advertises a ledger-posting action');
 $expect($nativeRequest('POST',$economicsPath,['review_revision'=>$handoff['review_revision']],true,$workspace)[0]===403,'A time approver with read-only accounting access cannot retry posting');
 RBACResolver::grantModule($member,'accounting','admin',[$workspace],$actor);
+$postingHandoff=$nativeRequest('GET',$economicsPath,null,true,$workspace)[1];
+$expect($postingHandoff['can_retry']===true,'An authorized time and accounting reviewer can review a pending ledger posting');
 $expect($nativeRequest('POST',$economicsPath,[],true,$workspace)[0]===409,'Posting retry requires the displayed handoff revision');
 $expect($nativeRequest('POST',$economicsPath,['review_revision'=>str_repeat('0',64)],true,$workspace)[0]===409&&$snapshot($tables)===$stateBefore,'A stale reviewed accounting handoff has no posting effects');
 $finBefore=$snapshot($financialTables);

@@ -10,7 +10,7 @@ let view, failure = null, pin = '2002';
 const apiFixture = {
   useApi: path => ({ data: path?.includes('placements.php') ? { rows: [] } : view, loading: false, error: failure, reload: () => {}, mutate: () => {} }),
   getPinnedTenantId: () => pin,
-  api: { post: () => { throw new Error('History must never write'); } }, bustApiCachePrefix: () => {},
+  api: { get: async () => { throw Object.assign(new Error('No handoff in this fixture'), { status: 404 }); }, post: () => { throw new Error('History must never write'); } }, bustApiCachePrefix: () => {},
 };
 async function component(path) {
   const compiled = await build({ entryPoints: [fileURLToPath(new URL(path, import.meta.url))], bundle: true, platform: 'node', format: 'cjs', write: false,

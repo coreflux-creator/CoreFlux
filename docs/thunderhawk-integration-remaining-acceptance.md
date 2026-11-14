@@ -2,6 +2,16 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 approved-time accounting — source accepted, complete pilot pending
+
+Exact source `fecfb54e` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43557721672): **944 independent-connection checks**, **953 native-session checks** and **915 native HTTP checks**. Temporary actor, server and private-session cleanup passed. Actual disposable-ledger tests verified atomic approval/retained rates, delayed processing after commit, later master-rate changes, interrupted delivery, all-segment rollback and exactly-once retry. Reviewed native and Quanta corrections withdraw unposted requests while preserving the old evidence. [Pinned source and evidence](../deploy/thunderhawk-approved-time-accounting-preparation-20261113.json).
+
+This source and migration 203 are **not installed**. Read-only verification at **2026-11-14T04:49:49+00:00** confirmed pilot `4bc10bb0`, 367 file pins, 378 tables and all 35,304 rows preserved, with private configuration and temporary-access cleanup intact.
+
+Follow-up `1f21a4ea` converts PurePayroll input preparation and source reservations to original per-entry approval values; its CI was still running at this checkpoint. The operator accounting-status and reviewed-retry screen is being completed. Neither follow-up is accepted or installed by the evidence above.
+
+Remaining requirements include Billing/AP, period-bundle and native payroll consumption of the retained rates; original-company financial ownership; earning/category/unit/currency/weekly semantics; paired posted corrections and historical provenance; remaining field/reference alignment; migrations and guarded installation; and the complete signed-in Quanta/PurePay/PurePayroll round trip. Production, providers and Arabella are unchanged. The full integration goal remains active and incomplete.
+
 ## November 13 CSV time source evidence — source accepted, full pilot still pending
 
 Exact source `0055ef4d` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43553724077): **938 independent-connection checks**, including **40 CSV checks**; **953 native-session checks**; and **893 native HTTP checks**, including **28 CSV checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-csv-intake-preparation-20261113.json). This source is not installed.
