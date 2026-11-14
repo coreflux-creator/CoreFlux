@@ -73,7 +73,9 @@
         $pdo->prepare('UPDATE staffing_timesheets SET status="approved",approved_by_user_id=?,approved_at="2026-10-26 12:00:00" WHERE id=?')->execute([$actor,$approvedHeader]);
         $original=$read('time_entries',$approved);$siblingBefore=$read('time_entries',$sibling);$before=$snapshot($tables);
         $expect($request('PATCH',$api.'?id='.$approved,['hours'=>1],true,$workspace)[0]===409&&$snapshot($tables)===$before,'Generic PATCH cannot edit an approved entry directly');
-        $correction=['hours'=>1.5,'correction_reason'=>'Synthetic corrected paper hours'];
+        [$reviewStatus,$review]=$request('GET',$api.'?action=correction_review&id='.$approved,null,true,$workspace);
+        $expect($reviewStatus===200&&(int)$review['entry']['id']===$approved&&strlen($review['revision'])===64,'Approved native time exposes a read-only correction review');
+        $correction=['hours'=>1.5,'correction_reason'=>'Synthetic corrected paper hours','review_revision'=>$review['revision']];
         $pdo->exec("CREATE TRIGGER cf_http_generic_time_audit BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.tenant_id=900019 AND NEW.event='time.entry.superseded' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic private correction receipt failure'; END IF; END");
         try {$expect($request('POST',$api.'?action=correct&id='.$approved,$correction,true,$workspace)[0]===503&&$snapshot($tables)===$before,'Correction receipt failure restores the original approval, replacement, weekly totals and artifacts');}
         finally {$pdo->exec('DROP TRIGGER cf_http_generic_time_audit');}
@@ -84,6 +86,7 @@
         $expect($siblingBefore===$read('time_entries',$sibling)&&$read('staffing_timesheets',$approvedHeader)['status']==='draft'&&(float)$read('staffing_timesheets',$approvedHeader)['total_hours']===4.5,'Correction preserves approved siblings and recomputes the week without superseded hours');
         $before=$snapshot($tables);
         $expect($request('POST',$api.'?action=correct&id='.$approved,$correction,true,$workspace)[0]===409&&$snapshot($tables)===$before,'Repeated manual correction cannot create another replacement');
+        require __DIR__.'/time_correction_review_http_checks.php';
         $pdo->prepare('UPDATE time_entries SET source="quanta",source_system="quanta" WHERE id=?')->execute([$id]);$before=$snapshot($tables);
         $expect($request('PATCH',$api.'?id='.$id,['hours'=>6],true,$workspace)[0]===409&&$snapshot($tables)===$before,'Quanta source flags still protect time when its import mapping is unavailable');
         $pdo->prepare('UPDATE time_entries SET status="approved" WHERE id=?')->execute([$id]);$before=$snapshot($tables);

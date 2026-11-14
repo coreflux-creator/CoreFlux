@@ -106,3 +106,20 @@ test('a refreshed approval removes stale local edits from row controls and total
     assert.equal(id(tree,'timesheet-detail-entry-51')[0].props.style.background,undefined);
   } finally {act(()=>tree.unmount());}
 });
+
+for(const mode of ['eligible','no-authority','Quanta','extracted','locked-period','retired-placement','historical','locked-week'])test(`approved correction navigation respects ${mode}`,async()=>{
+  view=data(false);view.timesheet={...row,status:'approved'};view.permissions={time_history:true,correct_time:true};failure=null;pin='2002';
+  view.entries=[{...view.entries[0],status:'approved',period_status:'open',placement_record_id:902}];
+  if(mode==='no-authority')view.permissions.correct_time=false;
+  if(mode==='Quanta')view.entries[0].source_system='quanta';
+  if(mode==='extracted')view.entries[0].ap_extracted_ref='retained-bill';
+  if(mode==='locked-period')view.entries[0].period_status='locked';
+  if(mode==='retired-placement')view.entries[0].placement_deleted_at='2026-10-20';
+  if(mode==='historical')view.read_only=true;
+  if(mode==='locked-week')view.timesheet.status='locked';
+  const tree=await open(Detail);try{
+    assert.equal(id(tree,'timesheet-detail-entry-51-correct').filter(node=>node.type==='a').length,mode==='eligible'?1:0);
+    assert.equal(id(tree,'timesheet-detail-entry-51-history').filter(node=>node.type==='a').length,1);
+    assert.equal(id(tree,'timesheet-detail-entry-51-save').length,0);
+  }finally{act(()=>tree.unmount());}
+});

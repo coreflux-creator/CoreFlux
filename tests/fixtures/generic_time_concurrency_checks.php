@@ -49,7 +49,9 @@ foreach(['COMMIT','ROLLBACK']as$decision) {
     $fixture=$nativeSeed('generic correction '.$decision);extract($fixture,EXTR_PREFIX_ALL,'gt');
     $pdo->prepare('UPDATE time_entries SET status="approved",approved_by_user_id=?,approved_at="2026-10-12 11:00:00" WHERE id=?')->execute([$actor,$gt_entry]);
     $pdo->prepare('UPDATE staffing_timesheets SET status="approved" WHERE id=?')->execute([$gt_sheet]);
-    $input=['mode'=>'hold','entity'=>'generic_time','operation'=>'correct','workspace'=>$tenant,'actor'=>$actor,'entry_id'=>$gt_entry,'payload'=>['hours'=>6,'correction_reason'=>'Synthetic concurrent correction']];
+    setRequestTenantId($tenant);$_SESSION['tenant_id']=$tenant;
+    $review=timeNativeCorrectionReview($gt_entry);
+    $input=['mode'=>'hold','entity'=>'generic_time','operation'=>'correct','workspace'=>$tenant,'actor'=>$actor,'entry_id'=>$gt_entry,'payload'=>['hours'=>6,'correction_reason'=>'Synthetic concurrent correction','review_revision'=>$review['revision']]];
     $first=$spawn($input);$saved=$line($workers[$first]['pipes'][1]);
     $check(!empty($saved['saved'])&&!empty($saved['in_transaction']),'First generic correction holds original, replacement, week and audit '.$decision);
     $second=$spawn(array_replace($input,['mode'=>'native']));$check($waiting($second),'Second generic correction waits for original approval '.$decision);

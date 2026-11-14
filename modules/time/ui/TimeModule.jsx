@@ -9,6 +9,8 @@ import TimeSettlement from './TimeSettlement';
 import TimesheetUpload from './TimesheetUpload';
 import IntakeQueue from './IntakeQueue';
 import TimeWorkspaceNav from './TimeWorkspaceNav';
+import TimeEntryCorrection from './TimeEntryCorrection';
+import TimeEntryHistory from './TimeEntryHistory';
 
 /**
  * Time Module routes.
@@ -21,6 +23,8 @@ export default function TimeModule({ session }) {
         <Route index            element={<Navigate to="/modules/staffing/timesheets" replace />} />
         <Route path="overview"  element={<Navigate to="/modules/staffing/timesheets" replace />} />
         <Route path="entries"   element={<Navigate to="/modules/staffing/timesheets" replace />} />
+        <Route path="entries/:entryId/correct" element={<TimeEntryCorrection />} />
+        <Route path="entries/:entryId/history" element={<TimeEntryHistory />} />
         <Route path="upload"    element={<TimesheetUpload />} />
         <Route path="intake"    element={<IntakeQueue />} />
         <Route path="review"    element={<ReviewQueue session={session} />} />

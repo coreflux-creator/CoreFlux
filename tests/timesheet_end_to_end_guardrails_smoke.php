@@ -72,7 +72,9 @@ $check('direct edits allow only user-editable fields',
 $check('editing submitted or rejected time returns it to draft',
     str_contains($native, "'status'=>'draft','rejected_reason'=>null"));
 $check('direct edits block rows already consumed downstream',
-    str_contains($native, 'staffingTimeAssertEditableEntry($before)') && str_contains($native, 'staffingTimesheetAssertEntryNotSettled($before)'));
+    str_contains($native, 'staffingTimeAssertEditableEntry($before)')
+    && str_contains($native, '$context=timeNativeCorrectionContext($id)')
+    && str_contains($native, 'staffingTimesheetAssertEntryNotSettled($entry)'));
 
 echo "\nTimesheet end-to-end guardrails: {$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

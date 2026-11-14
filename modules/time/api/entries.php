@@ -42,6 +42,14 @@ function timeApiFailure(Throwable $error): array
     return ['message'=>$error->getMessage(),'status'=>in_array($status,[403,404,409,422,503],true)?$status:422];
 }
 
+if ($method==='GET' && in_array($action,['correction_review','entry_history'],true)) {
+    rbac_legacy_require($user,$action==='correction_review'?'time.entry.manage':'time.view');
+    $id=(int)api_query('id',0);if($id<=0)api_error('id required',422);
+    header('Cache-Control: private, no-store');
+    try {api_ok($action==='correction_review'?timeNativeCorrectionReview($id):timeNativeEntryHistory($id));}
+    catch(Throwable $e){$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
+}
+
 // ─── Actions (POST) ───
 if ($method === 'POST' && $action !== '') {
     if ($action === 'bulk_create') {

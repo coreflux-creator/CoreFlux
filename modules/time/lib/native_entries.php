@@ -156,24 +156,124 @@ function timeNativePatch(int $id,array $body,array $user,callable $authorize): a
     });
 }
 
+/** Financial source links remain authoritative even when extraction flags are absent. */
+function timeNativeAssertNoFinancialHistory(array $entry): void
+{
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('Financial history review requires the protected transaction.');
+    $pdo=getDB();$workspace=staffingTimeWorkspace();
+    // A parent-owned ledger can retain the original facts after a sharing change.
+    // Restrict discovery to the original workspace and its immediate parent.
+    $q=$pdo->prepare('SELECT parent_id FROM tenants WHERE id=? FOR UPDATE');$q->execute([$workspace]);
+    $owners=array_values(array_unique(array_filter([$workspace,(int)$q->fetchColumn()])));
+    $marks=implode(',',array_fill(0,count($owners),'?'));
+    foreach([['billing_invoice_lines','billing_invoices','invoice_id'],['ap_bill_lines','ap_bills','bill_id']]as[$lines,$documents,$foreign]) {
+        // `time` identifies a downstream bundle, not an individual entry.
+        $q=$pdo->prepare('SELECT l.id FROM '.$lines.' l JOIN '.$documents.' d ON d.id=l.'.$foreign.' WHERE d.tenant_id IN ('.$marks.') AND l.source_type="time_entry" AND l.source_ref_id=? FOR UPDATE');
+        $q->execute([...$owners,$entry['id']]);
+        if($q->fetchColumn())throw new RuntimeException('This time has a linked invoice or vendor bill. Use its downstream correction workflow.',409);
+    }
+    $q=$pdo->prepare('SELECT id,entries_json,status,consumed_at,consumed_ref_id FROM time_downstream_feed WHERE tenant_id=? AND period_id=? AND placement_id=? FOR UPDATE');
+    $q->execute([$workspace,$entry['period_id'],$entry['placement_id']]);
+    foreach($q->fetchAll(PDO::FETCH_ASSOC)as$bundle) {
+        $payload=json_decode((string)$bundle['entries_json'],true);
+        if(!is_array($payload) || !is_array($payload['entry_ids']??null)
+            || array_filter($payload['entry_ids'],static fn($id)=>filter_var($id,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]])===false)) throw new RuntimeException('Review this period’s downstream source evidence before correcting time.',409);
+        if(!in_array((int)$entry['id'],array_map('intval',$payload['entry_ids']),true)) continue;
+        if(in_array($bundle['status'],['consumed','locked'],true) || !empty($bundle['consumed_at']) || !empty($bundle['consumed_ref_id'])) throw new RuntimeException('This time has a consumed downstream bundle. Review its downstream correction workflow.',409);
+        foreach([['billing_invoice_lines','billing_invoices','invoice_id'],['ap_bill_lines','ap_bills','bill_id']]as[$lines,$documents,$foreign]) {
+            $linked=$pdo->prepare('SELECT l.id FROM '.$lines.' l JOIN '.$documents.' d ON d.id=l.'.$foreign.' WHERE d.tenant_id IN ('.$marks.') AND l.source_type IN ("time","time_bundle","economic_party") AND l.source_ref_id=? FOR UPDATE');
+            $linked->execute([...$owners,$bundle['id']]);
+            if($linked->fetchColumn())throw new RuntimeException('This time bundle has a linked invoice or vendor bill. Use its downstream correction workflow.',409);
+        }
+        // Even an unconsumed ready bundle carries frozen amounts, and can already
+        // have an accrual journal. Ordinary replacement must not leave it payable.
+        throw new RuntimeException('Downstream preparation must be reviewed before this time can be corrected.',409);
+    }
+    $header=(int)($entry['timesheet_id']??0);
+    if($header>0) {
+        $q=$pdo->prepare('SELECT id FROM accounting_events WHERE tenant_id IN ('.$marks.') AND source_module="staffing" AND (source_record_id=? OR source_record_id LIKE ? OR source_record_id LIKE ?) FOR UPDATE');
+        $q->execute([...$owners,(string)$header,$header.':%','timesheet:'.$header.':placement:%']);
+        if($q->fetchColumn())throw new RuntimeException('This week has accounting history. Use its downstream correction workflow to preserve the ledger.',409);
+    }
+}
+
+/** The revision is a comparison token, never an access credential. */
+function timeNativeCorrectionContext(int $id): array
+{
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('Correction review requires the protected transaction.');
+    $entry=timeEntryGet($id);if(!$entry) throw new RuntimeException('Time entry not found',404);
+    if($entry['status']!=='approved') throw new RuntimeException('Only approved entries can be corrected',409);
+    staffingTimesheetAssertEntryNotSettled($entry);staffingTimeAssertOpenEntryPeriod($entry);
+    timeNativeAssertNoFinancialHistory($entry);
+    $q=getDB()->prepare('SELECT id FROM quanta_time_imports WHERE tenant_id=? AND time_entry_id=? FOR UPDATE');$q->execute([staffingTimeWorkspace(),$id]);
+    if($q->fetchColumn() || ($entry['source']??'')==='quanta' || ($entry['source_system']??'')==='quanta') throw new RuntimeException('Review the corrected source in Quanta time settings. Its original source and approval history must be retained.',409);
+    $placement=staffingTimeCurrentPlacement((int)$entry['placement_id'],(int)$entry['person_id']);
+    [$start,$end]=timeWeekBounds((string)$entry['work_date']);staffingTimesheetValidateWeek((int)$entry['person_id'],$start,$end);
+    $q=getDB()->prepare('SELECT id,first_name,last_name FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([StaffingNativeTimeEdit::owner('people'),$entry['person_id']]);$worker=$q->fetch(PDO::FETCH_ASSOC);
+    $header=null;$headerId=(int)($entry['timesheet_id']??0);
+    if($headerId>0) {
+        $header=staffingTimesheetRow(staffingTimeWorkspace(),$headerId,true);
+        if(!$header || (int)$header['person_id']!==(int)$entry['person_id'] || in_array($header['status'],['payroll_ready','billing_ready','locked'],true)) throw new RuntimeException('Review or reverse the original downstream timesheet before correcting it',409);
+    }
+    $revision=hash('sha256',json_encode(['workspace'=>staffingTimeWorkspace(),'people_owner'=>StaffingNativeTimeEdit::owner('people'),'placement_owner'=>StaffingNativeTimeEdit::owner('placements'),'entry'=>$entry,'header'=>$header,'placement'=>$placement,'worker'=>$worker],JSON_THROW_ON_ERROR));
+    return ['workspace_id'=>staffingTimeWorkspace(),'entry'=>$entry,'timesheet'=>$header,'worker'=>$worker,
+        'placement'=>array_intersect_key($placement,array_flip(['id','title','start_date','end_date','actual_end_date'])),
+        'revision'=>$revision];
+}
+
+function timeNativeCorrectionReview(int $id): array
+{
+    return StaffingNativeTimeEdit::run(static function()use($id):array {
+        return timeNativeCorrectionContext($id)+['custom_categories'=>staffingTimeQuery('SELECT id,label,parent_bucket,is_overtime FROM tenant_time_categories WHERE tenant_id=:tenant_id AND active=1 ORDER BY label,id')];
+    });
+}
+
+/** Read original and replacement rows without reassigning historical identities. */
+function timeNativeEntryHistory(int $id): array
+{
+    return companyRelationshipAtomic(getDB(),static function()use($id):array {
+        $pdo=getDB();$workspace=staffingTimeWorkspace();
+        $read=static function(int $entryId)use($pdo,$workspace):?array {
+            $q=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([$workspace,$entryId]);return $q->fetch(PDO::FETCH_ASSOC)?:null;
+        };
+        $selected=$read($id);if(!$selected) throw new RuntimeException('Time entry not found',404);
+        $seen=[];$ancestors=[];$cursor=$selected;
+        $sameIdentity=static function(array $row)use($selected):void {
+            if((int)$row['person_id']!==(int)$selected['person_id'] || (int)$row['placement_id']!==(int)$selected['placement_id']) throw new RuntimeException('Correction history has inconsistent worker or assignment identities. Review its source evidence.',409);
+        };
+        while(true) {
+            $seen[(int)$cursor['id']]=true;
+            $q=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND superseded_by_id=? ORDER BY id FOR UPDATE');$q->execute([$workspace,$cursor['id']]);$prior=$q->fetchAll(PDO::FETCH_ASSOC);
+            if(!$prior)break;
+            if(count($prior)!==1 || isset($seen[(int)$prior[0]['id']]) || count($seen)>=100) throw new RuntimeException('Correction history is ambiguous or cyclic. Review its source evidence.',409);
+            $cursor=$prior[0];$sameIdentity($cursor);
+            if($cursor['status']!=='superseded')throw new RuntimeException('Correction history has an inconsistent original status. Review its source evidence.',409);
+            $ancestors[]=$cursor;
+        }
+        $rows=[...array_reverse($ancestors),$selected];$cursor=$selected;
+        while((int)($cursor['superseded_by_id']??0)>0) {
+            if($cursor['status']!=='superseded')throw new RuntimeException('Correction history has an inconsistent original status. Review its source evidence.',409);
+            $next=(int)$cursor['superseded_by_id'];
+            if(isset($seen[$next]) || count($seen)>=100) throw new RuntimeException('Correction history is ambiguous or cyclic. Review its source evidence.',409);
+            $q=$pdo->prepare('SELECT id FROM time_entries WHERE tenant_id=? AND superseded_by_id=? ORDER BY id FOR UPDATE');$q->execute([$workspace,$next]);
+            if(array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN))!==[(int)$cursor['id']])throw new RuntimeException('Correction history is ambiguous. Review its source evidence.',409);
+            $cursor=$read($next);if(!$cursor)throw new RuntimeException('A correction replacement is unavailable in this workspace. Review its source evidence.',409);
+            $sameIdentity($cursor);$seen[$next]=true;$rows[]=$cursor;
+        }
+        return ['workspace_id'=>$workspace,'entry_id'=>$id,'entries'=>$rows];
+    });
+}
+
 function timeNativeCorrect(int $id,array $body,array $user): array
 {
     $reason=trim((string)($body['correction_reason']??''));
     if($reason==='' || strlen($reason)>500) throw new RuntimeException('Provide a correction reason of no more than 500 characters',422);
     return StaffingNativeTimeEdit::run(static function()use($id,$body,$user,$reason):array {
-        $before=timeEntryGet($id);if(!$before) throw new RuntimeException('Time entry not found',404);
-        if($before['status']!=='approved') throw new RuntimeException('Only approved entries can be corrected',409);
-        staffingTimesheetAssertEntryNotSettled($before);staffingTimeAssertOpenEntryPeriod($before);
-        // Lock the source relationship, including its absent key, before any manual replacement.
-        $q=getDB()->prepare('SELECT id FROM quanta_time_imports WHERE tenant_id=? AND time_entry_id=? FOR UPDATE');$q->execute([staffingTimeWorkspace(),$id]);
-        if($q->fetchColumn() || ($before['source']??'')==='quanta' || ($before['source_system']??'')==='quanta') throw new RuntimeException('Review the corrected source in Quanta time settings. Its original source and approval history must be retained.',409);
+        $context=timeNativeCorrectionContext($id);$before=$context['entry'];
+        if(!is_string($body['review_revision']??null) || !hash_equals($context['revision'],$body['review_revision'])) throw new RuntimeException('The approved time or its assignment changed. Reload the correction review before saving.',409);
         $values=timeNativeValues($body,$before);$person=(int)$before['person_id'];$actor=(int)$user['id'];
         timeNativePlacement((int)$before['placement_id'],$values['work_date'],$person);
         $oldHeader=(int)($before['timesheet_id']??0);
-        if($oldHeader>0) {
-            $header=staffingTimesheetRow(staffingTimeWorkspace(),$oldHeader,true);
-            if(!$header || (int)$header['person_id']!==$person || in_array($header['status'],['payroll_ready','billing_ready','locked'],true)) throw new RuntimeException('Review or reverse the original downstream timesheet before correcting it',409);
-        }
         staffingTimesheetAssertDailyHours($person,$values['work_date'],$values['hours'],$id);
         [$start,$end]=timeWeekBounds($values['work_date']);$period=staffingTimeResolveOpenPeriod($values['work_date'],$start,$end);
         $target=timeNativeDraftHeader($person,$values['work_date'],$actor,'manual_entry',true);
@@ -181,6 +281,6 @@ function timeNativeCorrect(int $id,array $body,array $user): array
         staffingTimeUpdate('time_entries',$id,['status'=>'superseded','superseded_by_id'=>$new]);
         timeNativeReconcile([$oldHeader,$target],$actor);
         timeNativeRequiredAudit('time.entry.superseded',$id,['before'=>$before,'after'=>timeEntryGet($id),'replacement'=>timeEntryGet($new),'by_entry_id'=>$new,'reason'=>$reason],$actor);
-        return ['ok'=>true,'superseded_entry_id'=>$id,'new_entry_id'=>$new];
+        return ['ok'=>true,'workspace_id'=>staffingTimeWorkspace(),'superseded_entry_id'=>$id,'new_entry_id'=>$new,'timesheet_id'=>$target,'original_timesheet_id'=>$oldHeader];
     });
 }

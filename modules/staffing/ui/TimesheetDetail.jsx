@@ -198,8 +198,8 @@ export default function TimesheetDetail({ session }) {
   if (error)   return <p className="error" data-testid="timesheet-detail-error">Error: {error.message}</p>;
   if (!ts)     return <p data-testid="timesheet-detail-empty">Timesheet not found.</p>;
   const pinnedWorkspace = getPinnedTenantId();
-  if (placementId && (Number(data.placement_id) !== Number(placementId)
-    || (pinnedWorkspace && String(data.workspace_id) !== String(pinnedWorkspace)))) {
+  if ((placementId && Number(data.placement_id) !== Number(placementId))
+    || (pinnedWorkspace && data.workspace_id != null && String(data.workspace_id) !== String(pinnedWorkspace))) {
     return <p className="error">Reload the timesheet for this placement and workspace.</p>;
   }
 
@@ -210,6 +210,10 @@ export default function TimesheetDetail({ session }) {
   // downstream-ready sheets are immutable financial source records.
   const canEditRows = !isReadOnly;
   const canEditEntry = entry => canEditRows && entry && !entryReadOnlyReason(entry);
+  const canViewHistory = data.permissions?.time_history === true;
+  const canCorrectEntry = entry => data.permissions?.correct_time === true && !isHistorical
+    && !['locked', 'payroll_ready', 'billing_ready'].includes(ts.status) && entry.status === 'approved'
+    && !entryReadOnlyReason({ ...entry, status: 'draft' });
 
   const act = async (action, extra = {}) => {
     if (isReadOnly) return;
@@ -613,11 +617,12 @@ export default function TimesheetDetail({ session }) {
             <th>Billable</th>
             <th>Description</th>
             {canEditRows && <th style={{ width: 130 }}></th>}
+            {canViewHistory && <th>History and corrections</th>}
           </tr>
         </thead>
         <tbody>
           {entries.length === 0 && (
-            <tr><td colSpan={canEditRows ? 7 : 6} style={{ color: '#999' }}
+            <tr><td colSpan={6 + Number(canEditRows) + Number(canViewHistory)} style={{ color: '#999' }}
                     data-testid="timesheet-detail-entries-empty">No entries.</td></tr>
           )}
           {entries.map(e => {
@@ -722,6 +727,11 @@ export default function TimesheetDetail({ session }) {
                     </> : <span data-testid={`timesheet-detail-entry-${e.id}-read-only`}>{readOnlyReason}</span>}
                   </td>
                 )}
+                {canViewHistory && <td style={{ fontSize: 12 }}>
+                  <Link to={`/modules/time/entries/${e.id}/history`} data-testid={`timesheet-detail-entry-${e.id}-history`}>View history</Link>
+                  {canCorrectEntry(e) && <Link to={`/modules/time/entries/${e.id}/correct`}
+                    style={{ display: 'block', marginTop: 6 }} data-testid={`timesheet-detail-entry-${e.id}-correct`}>Correct approved time</Link>}
+                </td>}
               </tr>
             );
           })}
