@@ -7,8 +7,8 @@ const require = createRequire(import.meta.url), React = require('react');
 const { create, act } = require('react-test-renderer');
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../../modules/staffing/ui/Jobs.jsx', import.meta.url))], bundle: true, platform: 'node', format: 'cjs', jsx: 'automatic', write: false, external: ['react', 'react/jsx-runtime', 'react-router-dom'], plugins: [{ name: 'fixture', setup(b) { b.onResolve({ filter: /lib\/api$/ }, () => ({ path: 'fixture-api', external: true })); } }] });
 const text = n => typeof n === 'string' ? n : (n.children || []).map(text).join('');
-async function fixture({ canManage = true, error = null } = {}) {
-  const job = { id: 17, title: 'Reviewed Core role', status: 'closed', location_city: 'Hamilton', source_system: 'jobdiva', external_id: 'jd-job-1', edit_revision: 'observed-job-version' };
+async function fixture({ canManage = true, error = null, status = 'closed' } = {}) {
+  const job = { id: 17, title: 'Reviewed Core role', status, location_city: 'Hamilton', source_system: 'jobdiva', external_id: 'jd-job-1', edit_revision: 'observed-job-version' };
   const review = { job_id: 17, source: { system: 'jobdiva', external_id: 'jd-job-1' }, current: { title: job.title }, proposed: { title: 'Incoming source role' }, owned_fields: ['title'], review_token: 'observed-source-version' };
   const calls = [], module = { exports: {} }; let reloads = 0;
   const api = { api: { get: async () => ({ job, placements: [], can_manage: canManage, source_review: canManage ? review : null }), post: async (path, body) => { calls.push({ path, body }); if (error) throw new Error(error); return { replayed: false }; } }, useApi: () => ({ data: { rows: [job], can_manage: canManage }, loading: false, reload: () => reloads++ }) };
@@ -61,4 +61,12 @@ test('job viewers have read-only fields and no native or source mutation control
     for (const id of ['staffing-jobs-new', 'staffing-job-save', 'staffing-job-close', 'job-source-review']) assert.equal(f.tree.root.findAllByProps({ 'data-testid': id }).length, 0);
     assert.equal(f.tree.root.findByType('fieldset').props.disabled, true);
   } finally { f.close(); }
+});
+test('closing a job submits the displayed version through the same protected edit workflow', async () => {
+  const previous = globalThis.confirm; globalThis.confirm = () => true;
+  const f = await fixture({ status: 'open' }); try {
+    await act(async () => f.find('staffing-job-close').props.onClick());
+    assert.equal(f.calls[0].path, '/modules/staffing/api/jobs.php?action=close');
+    assert.deepEqual(f.calls[0].body, { id: 17, edit_revision: 'observed-job-version' });
+  } finally { f.close(); globalThis.confirm = previous; }
 });

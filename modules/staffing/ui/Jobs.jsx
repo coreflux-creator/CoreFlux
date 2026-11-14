@@ -160,13 +160,14 @@ export default function Jobs() {
           saving={saving}
           error={error}
           sourceSaved={async () => { await openEdit(drawer.job); reload(); }}
+          refreshJob={() => openEdit(drawer.job)}
         />
       )}
     </section>
   );
 }
 
-function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error, sourceSaved }) {
+function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error, sourceSaved, refreshJob }) {
   const job = drawer.job;
   const set = (key, value) => setDrawer(d => ({ ...d, job: { ...d.job, [key]: value } }));
   const dirty = drawer.mode === 'edit' && Object.keys(EMPTY_JOB).some(key => String(job[key] ?? '') !== String(drawer.original[key] ?? ''));
@@ -186,7 +187,10 @@ function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error, sourceSav
             <h3 style={{ margin: 0 }}>{drawer.mode === 'new' ? 'New Job' : job.title}</h3>
             {job.source_system === 'jobdiva' && <p style={{ margin:'4px 0 0', color:'var(--cf-text-muted)' }}>JobDiva {job.external_id}</p>}
           </div>
-          <button type="button" onClick={() => setDrawer(null)} style={{ background:'none', border:'none', fontSize:'1.5em', cursor:'pointer', color:'var(--cf-text-muted)' }} data-testid="staffing-job-drawer-close">x</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {drawer.mode === 'edit' && <button type="button" className="btn" disabled={saving || dirty} onClick={refreshJob} data-testid="staffing-job-refresh">Refresh job</button>}
+            <button type="button" aria-label="Close job details" onClick={() => setDrawer(null)} style={{ background:'none', border:'none', fontSize:'1.5em', cursor:'pointer', color:'var(--cf-text-muted)' }} data-testid="staffing-job-drawer-close">x</button>
+          </div>
         </header>
 
         <fieldset disabled={!drawer.canManage || saving} style={{ border: 0, padding: 0, minWidth: 0 }}>
