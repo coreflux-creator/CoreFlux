@@ -15,6 +15,7 @@ require_once __DIR__ . '/staffing_people_field_contract.php';
 require_once __DIR__ . '/staffing_party_field_contract.php';
 require_once __DIR__ . '/staffing_native_payroll_field_contract.php';
 require_once __DIR__ . '/staffing_job_field_contract.php';
+require_once __DIR__ . '/staffing_compensation_field_contract.php';
 
 function staffingFieldContractTables(): array
 {
@@ -126,6 +127,7 @@ function staffingFieldContractRules(string $table, string $field): array
     $rules = staffingPartyFieldRules($table, $field, $rules);
     $rules = staffingNativePayrollFieldRules($table, $field, $rules);
     $rules = staffingJobFieldRules($table, $field, $rules);
+    $rules = staffingCompensationFieldRules($table, $field, $rules);
     return staffingPayrollRecipientFieldRules($table,$field,staffingDocumentFieldRules($table,$field,staffingEmploymentFieldRules($table,$field,staffingTimeFieldRules($table, $field, $rules))));
 }
 
@@ -169,7 +171,7 @@ function staffingFieldContractInventory(PDO $pdo, int $tenantId): array
     }
     $fields = array_merge($fields, staffingWorkflowPayloadFields($columns));
     return [
-        'contract_version' => '2026-11-14.1', 'tenant_id' => $tenantId,
+        'contract_version' => '2026-11-14.2', 'tenant_id' => $tenantId,
         'status' => 'inventory_for_mapping_review', 'activates_sync' => false,
         'identity_scope' => 'Core instance + directory owner tenant + entity type + immutable number',
         'source_identity_scope' => 'provider + connection/workspace + entity type + external ID',

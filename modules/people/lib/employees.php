@@ -60,16 +60,9 @@ function peopleGetEmployee(int $employeeId): ?array {
  * Return the currently-active compensation row for an employee (or null).
  */
 function peopleActiveCompensation(int $employeeId, ?string $asOfDate = null): ?array {
-    $asOfDate ??= date('Y-m-d');
-    return scopedFind(
-        'SELECT * FROM people_compensation
-         WHERE tenant_id = :tenant_id AND employee_id = :emp
-           AND effective_from <= :as_of_start
-           AND (effective_to IS NULL OR effective_to > :as_of_end)
-         ORDER BY effective_from DESC
-         LIMIT 1',
-        ['emp' => $employeeId, 'as_of_start' => $asOfDate, 'as_of_end' => $asOfDate]
-    );
+    require_once __DIR__.'/compensation.php';
+    $pdo=getDB();if(!$pdo)return null;
+    return peopleCompensationActive($pdo,(int)currentTenantId(),$employeeId,$asOfDate??date('Y-m-d'));
 }
 
 /**

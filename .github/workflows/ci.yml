@@ -217,6 +217,9 @@ jobs:
       - name: Verify job source ownership, reviewed decisions and atomic audit
         run: php tests/staffing_job_source_db.php
 
+      - name: Verify compensation history, payroll dates and atomic changes
+        run: php tests/people_compensation_db.php
+
       - name: Verify exact assignment client repair and read-only catalog review
         run: php tests/jobdiva_client_link_repair_db.php
 

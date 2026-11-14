@@ -105,7 +105,9 @@ try {
     foreach ($actions as $action) $expect($call($action,[],false)[0]===401,'Anonymous session denied: ' . $action);
     $expect($reads()===0,'Anonymous requests never reach the provider');
     $employment='/modules/people/api/employment_link.php';
-    $setup='/modules/people/api/employment_setup.php';$employees='/modules/people/api/employees.php';
+    $setup='/modules/people/api/employment_setup.php';$employees='/modules/people/api/employees.php';$compensation='/modules/people/api/compensation.php';
+    $expect($request($compensation.'?employee_id=1',null,false)[0]===401,'Anonymous compensation history denied');
+    $expect($request($compensation,[],false)[0]===401,'Anonymous compensation mutation denied');
     foreach([$setup.'?employee_id=1',$employees.'?id=1']as$route)$expect($request($route,null,false)[0]===401,'Anonymous employee access denied: '.$route);
     $expect($request($setup.'?action=apply',['confirm_setup'=>true,'review_token'=>'invalid'],false)[0]===401,'Anonymous setup mutation denied');
     $expect($request($employment.'?person_id=1',null,false)[0]===401,'Anonymous employment directory denied');
@@ -115,6 +117,8 @@ try {
     $expect($status===302 && !str_contains($location,'error='),'Native password login creates a real session cookie');
     foreach ($actions as $action) $expect($call($action)[0]===403,'Ungranted reviewer denied: ' . $action);
     $expect($request($employment.'?person_id=1',null)[0]===403,'Missing people grant cannot read employment links');
+    $expect($request($compensation.'?employee_id=1',null)[0]===403,'Missing People grant cannot read compensation');
+    $expect($request($compensation,[])[0]===403,'Missing People grant cannot change compensation');
     foreach([$setup.'?employee_id=1',$employees.'?id=1']as$route)$expect($request($route,null)[0]===403,'Missing people grant cannot inspect employment: '.$route);
     RBACResolver::grantModule($membership,'integrations','read',[$tenant],$actor);
     RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
@@ -126,6 +130,7 @@ try {
     $expect($request($employment.'?person_id=0',null)[0]===422,'People read admits employment lookup before validating identity');
     $expect($request($setup.'?employee_id=0',null)[0]===422,'People read admits setup lookup before validating employment');
     $expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'Creation'])[0]===403,'People read cannot create employment');
+    $expect($request($compensation,[])[0]===403,'People read cannot append compensation');
     foreach(['preview','apply']as$action)$expect($request($setup.'?action='.$action,[])[0]===403,'People read cannot change employment setup: '.$action);
     $expect($request($setup.'?action=history&employee_id=1',null)[0]===403,'Setup review history requires People manage permission');
     foreach(['preview','apply']as$action)$expect($request($employment.'?action='.$action,[])[0]===403,'People read cannot change employment identity: '.$action);
@@ -135,6 +140,7 @@ try {
     RBACResolver::grantModule($membership,'people','write',[$tenant],$actor);
     $expect($request($employment.'?action=preview',[])[0]===422,'People write admits employment review and validates its fields');
     $expect($request($setup.'?action=preview',[])[0]===422,'People write admits setup review and validates its fields');
+    require __DIR__.'/fixtures/people_compensation_http_checks.php';
     foreach([false,1,'true',null]as$confirmation)$expect($request($setup.'?action=apply',['confirm_setup'=>$confirmation,'review_token'=>'invalid'])[0]===422,'Employment setup requires literal confirmation');
     $expect($request($setup.'?employee_id=1',null,true,999)[0]===403,'Foreign pinned company cannot inspect employment setup');
     foreach(['date_of_birth'=>'2000-01-01','ssn'=>'111223333']as$field=>$value)$expect($request($employees,['legal_first_name'=>'Blocked','legal_last_name'=>'PII',$field=>$value])[0]===403,'People write cannot create restricted identity field: '.$field);
