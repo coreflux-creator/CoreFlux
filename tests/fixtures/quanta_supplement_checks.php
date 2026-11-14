@@ -77,6 +77,12 @@ $week=staffingTimesheetWeek(19,'2026-09-28','2026-10-04');
 $check((int)$week['timesheet']['id']===(int)$sheet['id']&&array_column($week['entries'],'id')==[$sibling]
     &&array_column($week['supplements'],'id')==[$supplement],'weekly grid retains primary rows and links the separate supplement');
 $check((int)staffingTimesheetUpsert(19,'2026-09-28','2026-10-04',['tenant_id'=>1])['id']===(int)$sheet['id'],'primary upsert cannot select or replace the supplemental header');
+$late=array_replace($late,['description'=>'Updated synthetic late source','updated_at'=>'2026-10-06T10:00:00Z']);$sources['late-1']=$late;
+$pendingPreview=$latePreview([$late]);$pendingUpdate=$lateImport([$late]);
+$check($pendingPreview['counts']['update']===1&&$pendingUpdate['updated']===1
+    &&(int)timeEntryGet($first)['timesheet_id']===$supplement&&$preserved()===$original,'unapproved source update retains its supplement and all primary evidence');
+$tooMuch=array_replace($late,['id'=>'late-over-capacity','hours'=>23,'regular_hours'=>23]);$p=$latePreview([$tooMuch]);$before=$snapshot();
+$check($fails(fn()=>$lateImport([$tooMuch],array_column($p['rows'],'destination_review_hash','id'),true),'24 hours')&&$snapshot()===$before,'daily capacity includes other review units and rolls back an excessive supplement');
 $before=$snapshot();
 $check($fails(fn()=>timeApproveEntry($first,['id'=>7]),'cannot approve your own')&&$snapshot()===$before,'source importer cannot approve its new time');
 $pdo->beginTransaction();
