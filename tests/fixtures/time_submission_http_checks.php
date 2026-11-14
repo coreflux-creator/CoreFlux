@@ -36,7 +36,7 @@
             ['time_periods',$period,'status','locked','open'],
             ['time_entries',$ids[1],'work_date','2026-10-12','2026-10-06'],
             ['time_entries',$ids[1],'hours',25,8],
-            ['time_entries',$ids[1],'payroll_extracted_ref','synthetic-held-reference',null],
+            ['time_entries',$ids[1],'payroll_extracted_ref',900020,null],
             ['staffing_timesheets',$header,'status','locked','draft'],
         ]as[$table,$id,$field,$changed,$original]) {
             $pdo->prepare('UPDATE '.$table.' SET '.$field.'=? WHERE id=?')->execute([$changed,$id]);$before=$snapshot($tables);
