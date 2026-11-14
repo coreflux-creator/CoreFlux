@@ -56,9 +56,32 @@ configuration. The prepared package contains 16 files and retains 447 dependency
 pins; its only new migration adds the audit export preset. Current provider and
 tenant settings were not changed. [Pinned release evidence](../deploy/thunderhawk-payroll-export-preparation-20261114.json).
 
-Guarded installation and hosted export acceptance are still pending. The isolated
-pilot remains on its recorded November 14 installed application. No production,
-Arabella, provider, payroll execution or payment state was changed.
+The guarded installation is now complete. Operation
+`65188ded4bb6bab2eac8cc803a92aeae` installed all 16 files and the audit preset
+(template 9) at 09:44:09 UTC. Installer `cf1ccd99` passed all eleven jobs in
+[CI 43581212253](https://github.com/coreflux-creator/CoreFlux/actions/runs/43581212253),
+including 16 populated migration/recovery checks. Independent readback at 09:44:25
+verified the 16 files, 447 retained dependencies, canonical migration, private
+configuration, restored web/scheduler state, removed diagnostic and fresh loaded
+runtime. All original values in 382 tables and 35,651 rows were preserved; only
+one export preset and its migration receipt were added. Private backups remain.
+
+A fresh synthetic company then passed **42 checks through 28 native-session HTTP
+requests**. Person P-396 / placement 912 supplied four approved hours at 60 to
+native payroll run 5. Its approved 240.00 gross, person identity, original earning
+components, source receipt and calculation fingerprint round-tripped through the
+26-column audit CSV. A repeated download was identical. The Gusto preset and a
+custom hours-only copy returned 409 JSON conflicts; bank projections were also
+refused. Net-only reporting remained available. Parent-company and anonymous
+downloads returned 403 and 401. The exports left the approved run unchanged.
+
+The fixture company 1002005 was retired; preparer 112 and reviewer 113 had access
+revoked, credentials cleared and sessions removed. Every pre-existing row was
+preserved, and observed financial-event, journal and payment tables were unchanged.
+The synthetic run is approved but unpaid and unposted; do not execute it. This
+was native-session HTTP acceptance, not browser visual acceptance or the complete
+provider round trip. [Installed evidence](../deploy/thunderhawk-payroll-export-installed-20261114.json).
+No production, Arabella, provider, real payroll execution or payment state changed.
 
 The isolated installer is `deploy/install_thunderhawk_payroll_export.php`, invoked
 through `deploy/run_thunderhawk_payroll_export_install.py`. It is bound to the

@@ -1,0 +1,467 @@
+{
+  "date": "2026-11-14",
+  "status": "installed_native_session_accepted",
+  "application_commit": "6773f17f9db9242f2757387985e86e2083040b90",
+  "installer_commit": "cf1ccd99c5a416e5df36e9e1f2e79bd02a97e0a3",
+  "installation_operation": "65188ded4bb6bab2eac8cc803a92aeae",
+  "ci": {
+    "run": 43581212253,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43581212253",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "id": 132406131523,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "id": 132406131666,
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "id": 132406131667,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "id": 132406131684,
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "id": 132406131685,
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "id": 132406131689,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "id": 132406131727,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "id": 132406131735,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "id": 132406131809,
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "id": 132406131849,
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "id": 132406131881,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "rehearsal": {
+    "migration_recovery_checks": 16,
+    "native_approved_earnings_checks": 40,
+    "exact_review_checks": 34,
+    "payroll_export_checks": 17
+  },
+  "installed_verification": {
+    "checked_at": "2026-11-14T09:44:25+00:00",
+    "passed": true,
+    "operation": "65188ded4bb6bab2eac8cc803a92aeae",
+    "candidate": "6773f17f9db9242f2757387985e86e2083040b90",
+    "installed_files_verified": 16,
+    "dependency_pins_verified": 447,
+    "schema": {
+      "preserved_tables": 382,
+      "preserved_rows": 35651,
+      "added_templates": 1,
+      "template_id": 9,
+      "applied_migrations": 1
+    },
+    "current_tables": 382,
+    "current_rows": 35653,
+    "configuration_preserved": true,
+    "maintenance_restored": true,
+    "scheduler_preserved": true,
+    "diagnostic_absent": true,
+    "database_backup_retained": true,
+    "fresh_runtime_loaded": true,
+    "production_changed": false,
+    "hosted_verification_writes": 0
+  },
+  "native_session_acceptance": {
+    "status": "finished",
+    "pid": 391442,
+    "started_at": "2026-11-14T09:44:36+00:00",
+    "candidate": "6773f17f9db9242f2757387985e86e2083040b90",
+    "checks": [
+      "Synthetic payroll accounting execution is disabled",
+      "Native sign-in succeeds for maker",
+      "Native sign-in succeeds for reviewer",
+      "Native API creates two synthetic draft entries",
+      "Preparer submits the complete time selection",
+      "Repeated submission cannot duplicate receipts",
+      "Independent reviewer receives the current time revision",
+      "Preparer cannot approve their own time",
+      "Stale time review is refused",
+      "Independent time decision succeeds",
+      "Approved entry retains reviewer and source rate: 22",
+      "Approved entry retains reviewer and source rate: 23",
+      "Repeated time approval cannot add a second decision",
+      "Preparer creates a synthetic payroll draft",
+      "Approved time is reserved through the native payroll handoff",
+      "Payroll retains approved rate 60 and four hours instead of compensation rate 30",
+      "Payroll preparer cannot approve their calculation",
+      "Payroll rejects a different displayed calculation",
+      "Synthetic reviewer has no access through the parent company pin",
+      "Independent reviewer approves the exact native calculation",
+      "Saved payroll approval matches its reviewer and fingerprint",
+      "Repeated payroll approval is refused",
+      "Native approved payroll export returns a CSV download",
+      "Downloaded row matches the native approved run, reviewed person number, exact cents and calculation seal",
+      "Downloaded source rates and complete approved time receipt reconcile to the saved gross",
+      "Repeated native download returns identical calculation data",
+      "Native Gusto template returns a clear JSON conflict rather than a misleading hours download",
+      "A custom hours template cannot bypass the same approved-earnings rule",
+      "Native download refuses unreviewed bank instructions",
+      "Authorized net-only reporting remains available",
+      "A parent company pin cannot expose the child payroll export",
+      "An anonymous request cannot download payroll data",
+      "Exports leave the approved run unchanged and do not initiate execution",
+      "Acceptance changes no schema",
+      "All pre-existing rows are preserved",
+      "No financial execution in accounting_events",
+      "No financial execution in accounting_journal_entries",
+      "No financial execution in accounting_journal_entry_lines",
+      "No financial execution in ap_payments",
+      "No financial execution in billing_payments",
+      "Synthetic access and credentials retired for maker",
+      "Synthetic access and credentials retired for reviewer"
+    ],
+    "requests": [
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 1002005,
+        "content_type": "text/html; charset=UTF-8",
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 1002005,
+        "content_type": "text/html; charset=UTF-8",
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=bulk_create",
+        "status": 201,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "bd466699325febb6400ba747e3926b71875e152c091badb21d7ea65a34420cf4"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=bulk_submit",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "cd34fa6b1ae502fcac321976fc37dbcda39c037a44d7750154fbf51ab37766c6"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=bulk_submit",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "65a268f8f66a42bc748a853b4b103b42b690f14605fca9b20701fa7a97a444c2"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_review",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "8ebe111e0dddab09669f755736a085f86ddb178a95fb265402ab254e6c0cab89"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 403,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "c896a930ae76ce94d0004671740f388834e1e106938e5a040b11c6c3b1432fd9"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "6c572909829cf69ae7e2368e7ba6cb0db0d8e6c48f2eee246d7e44a721dde196"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "318d3b6f2f47e2179619471e20081830bb0129e62049ce10180d34ebb1a58b97"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "16bbfb91b1ce5a6f9d24ad96b78da29da20baebf4081a9004bd6ba9a24d49eeb"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 201,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "dae8c2ee7dd103ab43acdb7cc45fa988a232f9bfbd21f22b48d95407b1db21c5"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/settlement.php?action=extract",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "6726a568cbda664942121ac6cc0caa9391d23dcebfc321cc248d405240441fc8"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "49621a3b0c3fc4ed444847765a4bb4e260f2d66bc3bac3875ee51f88ec144c88"
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 403,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "48d2ef71eadabeedc1bbe267d626562ec28c2766c31d45d4f1dbe2ffb3b5b11e"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "8e756f84c0bc925d7313b4d53a503b15108ed8465eb456f9bd9c4beba079164c"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?id=5",
+        "status": 403,
+        "tenant": 2002,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "29e3982eccabac0a8429382027bac24dcdd1a81892c17eb2cb65720f2ccc19a8"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "5030e1613e085246ea9fe7c6ccf6bc7f5c6500eff95522646a7a24f5adfeb502"
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/payroll/api/runs.php",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "2f23d0967974f337e7a1de78522145016acd7e08f0f71621cee4dacf8683e70f"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=9",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "text/csv; charset=utf-8",
+        "body_sha256": "de02092b7c05a26fb9368591e328748ec2d4b0ceb6c72e5494f877605dec5724"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=9",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "text/csv; charset=utf-8",
+        "body_sha256": "de02092b7c05a26fb9368591e328748ec2d4b0ceb6c72e5494f877605dec5724"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=1",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "44cace6e87b1ec8d60c4e27cacadbea7a8745724f5dabc9408633a7cc2f9d858"
+      },
+      {
+        "actor": "maker",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=10",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "44cace6e87b1ec8d60c4e27cacadbea7a8745724f5dabc9408633a7cc2f9d858"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=11",
+        "status": 409,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "a7403db2d1b56dace2df71c3288d28448f59c79806b2988a4e60cf69a7b66d4b"
+      },
+      {
+        "actor": "maker",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=12",
+        "status": 200,
+        "tenant": 1002005,
+        "content_type": "text/csv; charset=utf-8",
+        "body_sha256": "9e1b050c79b630dc6f111c08559d2612f1f72e60d56f48d8260dc01fc764a182"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=9",
+        "status": 403,
+        "tenant": 2002,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "29e3982eccabac0a8429382027bac24dcdd1a81892c17eb2cb65720f2ccc19a8"
+      },
+      {
+        "actor": "anonymous",
+        "method": "GET",
+        "path": "/modules/payroll/api/runs.php?action=export_template&id=5&template_id=9",
+        "status": 401,
+        "tenant": 1002005,
+        "content_type": "application/json; charset=utf-8",
+        "body_sha256": "78f71c3292c62624779cdf8a53dd50d7b5d22a3b894c31544f9417ce8a13b1c5"
+      },
+      {
+        "actor": "maker",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 1002005,
+        "content_type": "text/html; charset=UTF-8",
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 1002005,
+        "content_type": "text/html; charset=UTF-8",
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "actors": {
+      "maker": {
+        "user_id": 112,
+        "membership_id": 100
+      },
+      "reviewer": {
+        "user_id": 113,
+        "membership_id": 101
+      }
+    },
+    "passed": true,
+    "browser_test": false,
+    "provider_requests": 0,
+    "production_changed": false,
+    "arabella_changed": false,
+    "real_payroll_payments_postings": false,
+    "marker": "Synthetic native time/payroll 521da41df240",
+    "tenant_id": 1002005,
+    "fixture": {
+      "person_id": 396,
+      "placement_id": 912,
+      "rate_id": 33,
+      "pay_period_id": 19
+    },
+    "entry_ids": [
+      22,
+      23
+    ],
+    "run_id": 5,
+    "payroll_export": {
+      "template_id": 9,
+      "rows": 1,
+      "columns": 26,
+      "csv_sha256": "de02092b7c05a26fb9368591e328748ec2d4b0ceb6c72e5494f877605dec5724",
+      "run_id": 5,
+      "person_number": "P-396",
+      "gross_cents": 24000,
+      "calculation_sha256": "3cbc35dab5b501303a57dd0f5f5c536999af0737dd8242c99242c4f310c3392c",
+      "source_sha256": "4ced58b89f51af9e129ed192cb36326b61d60f89c4c3aad209324ffed62942f9"
+    },
+    "session_removed": {
+      "maker": true,
+      "reviewer": true
+    },
+    "fixture_retired": true,
+    "completed_at": "2026-11-14T09:44:42+00:00"
+  },
+  "package_sha256": "68fbc3341743c3de00e96e2659740d5d0d1dd87a0620c0f26f506cbb61a33be7",
+  "tools_sha256": "64bdb9bd55a0163c8debbb74c7eab35083969b39dc99ae472fb816b79d81bafe",
+  "evidence_sha256": {
+    "payroll-export-installer-cf1ccd99-ci.json": "9087fd39cd08c31ecf2fa3ed4198b1936e25ff58abfb00a39f58fbc3e71de786",
+    "payroll-export-installer-cf1ccd99-db-ci.log": "5a665a228246295080b72ae3405c211c9593e453c0bb7978ab492d60bbf7ca7a",
+    "payroll-export-installed-verification.json": "a871f7e7b2b2d7ba7a802bc7d0041ab8b9070817f400ea2f2a7939db61a9e746",
+    "payroll-export-http-handle-result.json": "e817c60f4371044defbd5f45d5be9d47d86347e08324712c6084fbfaa1e713ed",
+    "payroll-export-approved-synthetic.csv": "de02092b7c05a26fb9368591e328748ec2d4b0ceb6c72e5494f877605dec5724",
+    "payroll_export_http_acceptance.php": "87bd4d28db0da31d3005f70c289570af64dfb39de056986c79f825e33f1af53b"
+  },
+  "browser_acceptance": false,
+  "full_integration_complete": false,
+  "remaining": [
+    "Complete held Quanta/PurePay/PurePayroll round trip and reconciliation",
+    "Reviewed bank instructions and provider execution/cash lifecycle",
+    "Outstanding field, ownership, history/correction, portal and document acceptance requirements"
+  ]
+}
