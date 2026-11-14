@@ -73,6 +73,12 @@ function tpFinishProbe(array $state): void {
     $path=tpPath($state['channel']['path']);
     if(!is_file($path)||hash_file('sha256',$path)!==$state['channel_file_sha256']||!unlink($path))throw new RuntimeException('Diagnostic cleanup requires review');
 }
+function tpProcessIdentity(): array {
+    $stat=file_get_contents('/proc/'.getmypid().'/stat');
+    $fields=preg_split('/\s+/',trim(substr($stat,strrpos($stat,') ')+2)));
+    if(!ctype_digit($fields[19]??''))throw new RuntimeException('Native process identity unavailable');
+    return ['pid'=>getmypid(),'pid_start_ticks'=>$fields[19]];
+}
 function tpPreservedBusiness(PDO $pdo,array $baseline): void {
     $current=thunderhawkTimePayrollTableState($pdo,$baseline['tables']);
     foreach($baseline['tables']as$t=>$value)if($t!=='_migrations'&&$current[$t]!==$value)throw new RuntimeException('Business records changed; automatic recovery is unavailable');
@@ -123,7 +129,8 @@ try{
     foreach($package['dependencies']as$f=>$h)if(hash('sha256',str_replace("\r\n","\n",file_get_contents(tpPath($f))))!==$h)throw new RuntimeException('Installed dependency changed: '.$f);
     if($argv[1]==='recover'){
         $state=json_decode(tpRead($stateFile),true,512,JSON_THROW_ON_ERROR);
-        if(($state['package_sha256']??null)!==$argv[2]||in_array($state['phase']??'',['completed','recovered'],true))throw new RuntimeException('Recovery identity or phase differs');
+        if(($state['package_sha256']??null)!==$argv[2]||in_array($state['phase']??'',['completed','recovered','aborted_before_schema'],true))throw new RuntimeException('Recovery identity or phase differs');
+        $state=array_replace($state,tpProcessIdentity());$state['interrupted_phase']=$state['phase'];$state['phase']='recovering';$save();
         $maintenance->assertHeld($state['operation']);tpChannel($state,['action'=>'status']);
         if(!isset($state['baseline']))throw new RuntimeException('Inspect pre-backup maintenance recovery separately');
         tpPreservedBusiness($pdo,$state['baseline']);
@@ -165,8 +172,8 @@ try{
         'root'=>TP_ROOT,'private_directory'=>__DIR__,'host'=>TP_HOST,'pool'=>'muzqvdvqbx-82','issued_at'=>time(),'expires'=>time()+14400];
     $probe=fullCoreMaintenanceChannelRender($spec);
     $state=['operation'=>$operation,'candidate'=>$package['application_source_commit'],'package_sha256'=>$argv[2],
-        'tools_sha256'=>$argv[3],'phase'=>'prepared','started_at'=>gmdate('c'),'pid'=>getmypid(),
-        'channel'=>$spec,'channel_token'=>$token,'channel_file_sha256'=>hash('sha256',$probe),'production_changed'=>false];$save();
+        'tools_sha256'=>$argv[3],'phase'=>'prepared','started_at'=>gmdate('c'),
+        'channel'=>$spec,'channel_token'=>$token,'channel_file_sha256'=>hash('sha256',$probe),'production_changed'=>false]+tpProcessIdentity();$save();
     $journal=thunderhawkPilotPrivateStream(__DIR__.'/installation-journal.jsonl');
     tpWrite($path,$probe,null);
     $state['phase']='holding';$save();
@@ -211,6 +218,20 @@ try{
         'installed_files'=>149,'retained_dependency_pins'=>309,'configuration_preserved'=>true,'diagnostic_removed'=>true,
         'maintenance_restored'=>true,'production_changed'=>false,'provider_requests'=>0])."\n";
 }catch(Throwable $error){
+    // Before schema work, restore ingress only after proving every application preimage.
+    // Later failures retain the hold and require the explicit paired recovery action.
+    if($state!==null&&in_array($state['phase'],['prepared','holding','backing_up'],true)){
+        try{
+            if($locked){thunderhawkTimePayrollUnlock($pdo);$locked=false;}
+            foreach($package['files']as$f=>$e){$p=tpPath($f);if((is_file($p)?hash_file('sha256',$p):null)!==$e['before_sha256'])throw new RuntimeException('Pre-schema application changed');}
+            if(hash_file('sha256',TP_FEATURE)!==$package['feature_sha256'])throw new RuntimeException('Pre-schema configuration changed');
+            $receipt=TP_PRIVATE.'/maintenance-'.$state['operation'].'/receipt.json';
+            if(is_file($receipt))$maintenance->restore($state['operation']);
+            elseif($maintenance->webSnapshot()!==$web||hash('sha256',$maintenance->crontab())!==$host['scheduler_sha256'])throw new RuntimeException('Unrecorded maintenance state requires review');
+            if(is_file(tpPath($state['channel']['path'])))tpFinishProbe($state);
+            $state['phase']='aborted_before_schema';$state['maintenance_restored']=true;
+        }catch(Throwable $recovery){$state['pre_schema_recovery_failure']=$recovery->getMessage();}
+    }
     if($state!==null){$state['failure']=$error->getMessage();$state['failed_at']=gmdate('c');$save();}
     fwrite(STDERR,json_encode(['passed'=>false,'phase'=>$state['phase']??'preflight','failure'=>$error->getMessage(),
         'operation'=>$state['operation']??null,'retry_automatically'=>false])."\n");$exitCode=1;
