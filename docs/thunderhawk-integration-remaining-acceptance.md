@@ -2,6 +2,16 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 native time approval — source accepted, full review lifecycle remains open
+
+The previous user-facing turn answered standalone-accounting timing and made no integration change. This continuation revalidated and completed the shared native approval candidate. Exact source `da3f504f` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43542984361): **775 independent-connection checks** (**65 new approval checks**), **953 native Core-session checks** and **772 placement-contract HTTP checks** (**25 new approval checks**). Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-time-approval-preparation-20261113.json). This source is not installed. [Behavior and limits](thunderhawk-time-approval-alignment.md).
+
+Individual and weekly service approval now resolve current original-workspace identities, rates and accounting dimensions under locks. Whole-week plans refuse stale, incomplete or substituted evidence; approved siblings retain their evidence; independent external review retains the actual email actor. Required decision receipts, header projections and artifacts commit together.
+
+Read-only verification at **2026-11-14T01:53:26+00:00** confirmed installed pilot `4bc10bb0`, 367 file pins, 378 tables and 35,304 rows unchanged, with configuration and temporary-access cleanup preserved.
+
+Browser-reviewed revisions, rejection, generic client tokens, preapproved CSV and durable downstream financial handoff remain unfinished. The rate fingerprint is recorded but downstream consumption is not yet enforced. Remaining ownership/field semantics, migrations, guarded full pilot upgrade and the signed-in integration round trip are still required. No production, provider, real payroll/payment/posting or Arabella change occurred. The full goal remains active.
+
 ## November 13 original-workspace time submission — source accepted, remaining review lifecycle open
 
 The prior standalone-accounting status reply made no integration progress. This continuation implemented shared, atomic row and weekly submission against current original-workspace records. Exact source `000c6beb` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43539728932): **710 independent-connection checks** (**56 new submission checks**), **953 native Core-session checks** and **747 placement-contract HTTP checks** (**40 new submission checks**). Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-time-submission-preparation-20261113.json). The source is not installed. [Behavior and limits](thunderhawk-time-submission.md).
