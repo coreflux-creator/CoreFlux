@@ -47,7 +47,7 @@ $a('detail retains captured source approval with tenant-scoped source identity',
     str_contains($detailSource, 'qi.source_approval_json')
     && str_contains($detailSource, 'qi.time_entry_id = te.id AND qi.tenant_id = te.tenant_id'));
 $a('detail filters out superseded entries',
-    preg_match("/'GET' && \\\$action === 'detail'[\s\S]{0,1900}te\\.status != 'superseded'/", $api) === 1);
+    str_contains($detailSource, "te.status != 'superseded'"));
 $a('detail 404s when timesheet not found',
     str_contains($api, "api_error('timesheet not found', 404)"));
 

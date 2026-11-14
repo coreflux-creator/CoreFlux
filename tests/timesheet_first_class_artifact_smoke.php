@@ -29,6 +29,7 @@ $artifacts = $read('core/ai/artifacts.php');
 $timesheets = $read('modules/staffing/lib/timesheets.php');
 $staffingApi = $read('modules/staffing/api/timesheets.php');
 $entryApi = $read('modules/time/api/entries.php');
+$nativeEntries = $read('modules/time/lib/native_entries.php');
 $csvApi = $read('modules/time/api/csv_import.php');
 $jobdiva = $read('core/jobdiva/sync_time.php');
 $tokenApi = $read('modules/staffing/api/timesheet_email_approver.php');
@@ -86,9 +87,9 @@ $assert('weekly editor uses canonical materializer',
     str_contains($timesheets, "'source' => 'manual_entry'")
     && str_contains($timesheets, 'staffingTimesheetUpsert($personId, $periodStart, $periodEnd'));
 $assert('single-entry and document APIs use canonical materializer',
-    str_contains($entryApi, 'timeApiEnsureDraftTimesheet(')
-    && str_contains($entryApi, 'staffingTimesheetUpsert($personId, $start, $end')
-    && str_contains($entryApi, "'document_import' : 'bulk_create'"));
+    substr_count($entryApi, 'timeNativeCreate(')===2
+    && str_contains($nativeEntries, 'staffingTimesheetUpsert($person,$start,$end')
+    && str_contains($nativeEntries, 'timeNativeDraftHeader($person,$values[\'work_date\'],$actor,$source)'));
 $assert('CSV import uses canonical materializer and returns artifact identities',
     str_contains($csvApi, 'staffingTimesheetUpsert($personId, $bounds')
     && str_contains($csvApi, "'source' => 'bulk_upload'")
