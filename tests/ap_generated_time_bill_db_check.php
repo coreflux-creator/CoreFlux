@@ -336,6 +336,7 @@ try {
     ]);
     $laterEntry=(int)$pdo->lastInsertId();
     payrollInputFixtureApprovalEvidence($pdo,[$laterEntry],['engagement_type'=>'1099']);
+    $pdo->prepare('UPDATE staffing_timesheets SET total_hours=12 WHERE tenant_id=? AND id=?')->execute([$tenantId,$timesheetId]);
     $pdo->prepare('UPDATE placement_rates SET pay_rate=400,bill_rate=800 WHERE id=?')->execute([$rateIds[0]]);
     $twoApprovals=[$entryIds[0],$laterEntry];
     $twoBills=apBuildDraftFromTimeEntries($tenantId,$twoApprovals,'per_day');
@@ -344,6 +345,30 @@ try {
         'two approvals sharing a mutable rate ID retain their distinct original pay rates');
     $assert((float)$twoInvoices[0]['invoice']['subtotal']===460.0 && count($twoInvoices[0]['lines'])===2,
         'two approvals sharing a mutable rate ID retain their distinct original bill rates');
+
+    $pdo->prepare('INSERT INTO accounting_settings(tenant_id,multi_period_split_enabled) VALUES(?,0) ON DUPLICATE KEY UPDATE multi_period_split_enabled=0')->execute([$tenantId]);
+    $built=timeBuildBundlesForPeriod($periodId);
+    $assert(count($built)===8,'period build creates or updates four bundle types for each original placement');
+    $bundleRows=static function()use($pdo,$tenantId,$periodId):array{
+        $q=$pdo->prepare('SELECT * FROM time_downstream_feed WHERE tenant_id=? AND period_id=? ORDER BY id');
+        $q->execute([$tenantId,$periodId]);return $q->fetchAll(PDO::FETCH_ASSOC);
+    };
+    $savedBundles=$bundleRows();
+    $apTotal=0.0;$billTotal=0.0;
+    foreach($savedBundles as $bundle){
+        if($bundle['bundle_type']==='ap')$apTotal+=(float)$bundle['total_amount_pay'];
+        if($bundle['bundle_type']==='ar')$billTotal+=(float)$bundle['total_amount_bill'];
+    }
+    $assert(round($apTotal,2)===283.02 && round($billTotal,2)===600.0,
+        'persisted period bundles match the sum of per-entry approved bill and pay amounts');
+    timeBuildBundlesForPeriod($periodId);
+    $assert($savedBundles===$bundleRows(),'rebuilding ready bundles preserves their IDs and exact amounts');
+    $pdo->exec('SAVEPOINT period_missing_approval');
+    $pdo->prepare('DELETE FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?')->execute([$tenantId,$laterEntry]);
+    $refuses(fn()=>timeBuildBundlesForPeriod($periodId),'archived approval rate is missing');
+    $assert($savedBundles===$bundleRows(),'a missing approval stops the entire period before the first bundle write');
+    $pdo->exec('ROLLBACK TO SAVEPOINT period_missing_approval');
+    $pdo->exec('RELEASE SAVEPOINT period_missing_approval');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     unset($GLOBALS['__cf_request_tenant_id']);
