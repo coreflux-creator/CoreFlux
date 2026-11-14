@@ -1,0 +1,193 @@
+{
+  "candidate_commit": "000c6bebac712563f11b575c9347c7dfc433320c",
+  "ci": {
+    "run_id": 43539728932,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43539728932",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "concurrency": {
+    "checks": 710,
+    "new_submission_checks": 56,
+    "cases": [
+      "Submission waits for concurrent submit entry COMMIT",
+      "Committed entry refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"Only draft entries can be submitted: #60 is superseded\"}",
+      "Submission waits for concurrent submit header COMMIT",
+      "Committed header refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"The original week is unavailable or already complete. Review its correction workflow.\"}",
+      "Submission waits for concurrent submit period COMMIT",
+      "Committed period refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Submission waits for concurrent submit placement COMMIT",
+      "Committed placement refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"2026-10-05 is after placement #324 ends\"}",
+      "Submission waits for concurrent submit person COMMIT",
+      "Committed person refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"Person #261 was not found\"}",
+      "Submission waits for concurrent submit daily_total COMMIT",
+      "Committed daily_total refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"Total hours for 2026-10-05 would exceed 24\"}",
+      "Submission waits for concurrent submit bundle COMMIT",
+      "Committed bundle refuses stale submit without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"Downstream preparation must be reviewed before this time can be corrected.\"}",
+      "Submission waits for concurrent submit entry ROLLBACK",
+      "Rolled-back entry permits original submit: {\"ok\":true,\"result\":{\"id\":68,\"submitted\":1,\"entry_ids\":[68],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit header ROLLBACK",
+      "Rolled-back header permits original submit: {\"ok\":true,\"result\":{\"id\":69,\"submitted\":1,\"entry_ids\":[69],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit period ROLLBACK",
+      "Rolled-back period permits original submit: {\"ok\":true,\"result\":{\"id\":70,\"submitted\":1,\"entry_ids\":[70],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit placement ROLLBACK",
+      "Rolled-back placement permits original submit: {\"ok\":true,\"result\":{\"id\":71,\"submitted\":1,\"entry_ids\":[71],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit person ROLLBACK",
+      "Rolled-back person permits original submit: {\"ok\":true,\"result\":{\"id\":72,\"submitted\":1,\"entry_ids\":[72],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit daily_total ROLLBACK",
+      "Rolled-back daily_total permits original submit: {\"ok\":true,\"result\":{\"id\":73,\"submitted\":1,\"entry_ids\":[73],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit bundle ROLLBACK",
+      "Rolled-back bundle permits original submit: {\"ok\":true,\"result\":{\"id\":75,\"submitted\":1,\"entry_ids\":[75],\"workspace_id\":990671}}",
+      "Submission waits for concurrent submit_week entry COMMIT",
+      "Committed entry refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"Add at least one positive-hour entry before submitting this timesheet.\"}",
+      "Submission waits for concurrent submit_week header COMMIT",
+      "Committed header refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"This week changed or is already submitted. Refresh and review it again.\"}",
+      "Submission waits for concurrent submit_week period COMMIT",
+      "Committed period refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Submission waits for concurrent submit_week placement COMMIT",
+      "Committed placement refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"2026-10-05 is after placement #338 ends\"}",
+      "Submission waits for concurrent submit_week person COMMIT",
+      "Committed person refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"Person #275 was not found\"}",
+      "Submission waits for concurrent submit_week daily_total COMMIT",
+      "Committed daily_total refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":0,\"error\":\"Total hours for 2026-10-05 would exceed 24\"}",
+      "Submission waits for concurrent submit_week bundle COMMIT",
+      "Committed bundle refuses stale submit_week without partial state or receipts: {\"ok\":false,\"code\":409,\"error\":\"Downstream preparation must be reviewed before this time can be corrected.\"}",
+      "Submission waits for concurrent submit_week entry ROLLBACK",
+      "Rolled-back entry permits original submit_week: {\"ok\":true,\"result\":{\"id\":68,\"timesheet\":{\"id\":68,\"artifact_id\":\"f2b8ebf2-0f8a-4e57-bd19-d83d0dc98ed1\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":278,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:02\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:02\",\"updated_at\":\"2026-11-14 01:22:02\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-68\"},\"entries\":[{\"id\":84,\"placement_id\":342,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week entry ROLLBACK\",\"client_name\":\"\"}]}}",
+      "Submission waits for concurrent submit_week header ROLLBACK",
+      "Rolled-back header permits original submit_week: {\"ok\":true,\"result\":{\"id\":69,\"timesheet\":{\"id\":69,\"artifact_id\":\"30aa1267-4b6f-42ab-8ec5-2a3c779bcf15\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":279,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:03\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:02\",\"updated_at\":\"2026-11-14 01:22:03\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-69\"},\"entries\":[{\"id\":85,\"placement_id\":343,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week header ROLLBACK\",\"client_name\":\"\"}]}}",
+      "Submission waits for concurrent submit_week period ROLLBACK",
+      "Rolled-back period permits original submit_week: {\"ok\":true,\"result\":{\"id\":70,\"timesheet\":{\"id\":70,\"artifact_id\":\"3e7abed4-dfaa-4dcf-9e31-0013b9e5eab7\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":280,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:03\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:03\",\"updated_at\":\"2026-11-14 01:22:03\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-70\"},\"entries\":[{\"id\":86,\"placement_id\":344,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week period ROLLBACK\",\"client_name\":\"\"}]}}",
+      "Submission waits for concurrent submit_week placement ROLLBACK",
+      "Rolled-back placement permits original submit_week: {\"ok\":true,\"result\":{\"id\":71,\"timesheet\":{\"id\":71,\"artifact_id\":\"89488afa-dcf6-4a44-bd76-232b7b2084f9\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":281,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:03\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:03\",\"updated_at\":\"2026-11-14 01:22:03\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-71\"},\"entries\":[{\"id\":87,\"placement_id\":345,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week placement ROLLBACK\",\"client_name\":\"\"}]}}",
+      "Submission waits for concurrent submit_week person ROLLBACK",
+      "Rolled-back person permits original submit_week: {\"ok\":true,\"result\":{\"id\":72,\"timesheet\":{\"id\":72,\"artifact_id\":\"e392c278-c2e5-4541-bf79-d6dc5b6200a6\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":282,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:04\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:03\",\"updated_at\":\"2026-11-14 01:22:04\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-72\"},\"entries\":[{\"id\":88,\"placement_id\":346,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week person ROLLBACK\",\"client_name\":\"\"}]}}",
+      "Submission waits for concurrent submit_week daily_total ROLLBACK",
+      "Rolled-back daily_total permits original submit_week: {\"ok\":true,\"result\":{\"id\":73,\"timesheet\":{\"id\":73,\"artifact_id\":\"96e019a9-d4ee-409c-8552-6dd3e469240b\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":283,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:04\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:04\",\"updated_at\":\"2026-11-14 01:22:04\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-73\"},\"entries\":[{\"id\":89,\"placement_id\":347,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week daily_total ROLLBACK\",\"client_name\":\"\"}]}}",
+      "Submission waits for concurrent submit_week bundle ROLLBACK",
+      "Rolled-back bundle permits original submit_week: {\"ok\":true,\"result\":{\"id\":74,\"timesheet\":{\"id\":74,\"artifact_id\":\"dcc11f9a-5a29-43a3-b777-2bbcab46f1a8\",\"tenant_id\":990671,\"worker_user_id\":null,\"person_id\":284,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"submitted_at\":\"2026-11-14 01:22:04\",\"approved_at\":null,\"approved_by_user_id\":null,\"rejected_at\":null,\"rejected_by_user_id\":null,\"rejection_reason\":null,\"locked_at\":null,\"total_hours\":\"8.00\",\"notes\":null,\"workflow_instance_id\":null,\"origin_source\":\"manual_entry\",\"origin_system\":null,\"created_by_user_id\":null,\"created_at\":\"2026-11-14 01:22:04\",\"updated_at\":\"2026-11-14 01:22:04\",\"approved_via\":\"internal_app\",\"external_approver_email\":null,\"external_approver_name\":null,\"approval_note\":null,\"display_id\":\"TS-74\"},\"entries\":[{\"id\":91,\"placement_id\":348,\"work_date\":\"2026-10-05\",\"hour_type\":\"regular\",\"category\":\"regular_billable\",\"hours\":\"8.00\",\"billable\":1,\"payable\":1,\"description\":null,\"status\":\"pending_review\",\"placement_title\":\"Native time race submission submit_week bundle ROLLBACK\",\"client_name\":\"\"}]}}"
+    ],
+    "provider_calls": 0,
+    "financial_execution": false
+  },
+  "native_session_checks": 953,
+  "http": {
+    "checks": 747,
+    "new_submission_checks": 40,
+    "cases": [
+      "Submission setup creates two native draft entries",
+      "Submission requires a native signed-in session",
+      "Malformed submission IDs cannot silently select or skip records",
+      "Malformed submission IDs cannot silently select or skip records",
+      "Malformed submission IDs cannot silently select or skip records",
+      "Both submission routes retain all rows after people.deleted_at changes: [422,{\"error\":\"Person #325 was not found\",\"status\":422}]",
+      "Both submission routes retain all rows after people.deleted_at changes: [422,{\"error\":\"Person #325 was not found\",\"status\":422}]",
+      "Both submission routes retain all rows after placements.deleted_at changes: [404,{\"error\":\"Placement not found in this workspace directory\",\"status\":404}]",
+      "Both submission routes retain all rows after placements.deleted_at changes: [404,{\"error\":\"Placement not found in this workspace directory\",\"status\":404}]",
+      "Both submission routes retain all rows after placements.actual_end_date changes: [422,{\"error\":\"2026-10-06 is after placement #393 ends\",\"status\":422}]",
+      "Both submission routes retain all rows after placements.actual_end_date changes: [422,{\"error\":\"2026-10-06 is after placement #393 ends\",\"status\":422}]",
+      "Both submission routes retain all rows after time_periods.status changes: [409,{\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\",\"status\":409}]",
+      "Both submission routes retain all rows after time_periods.status changes: [409,{\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\",\"status\":409}]",
+      "Both submission routes retain all rows after time_entries.work_date changes: [409,{\"error\":\"The entry date is outside its original time period. Review the entry before submitting.\",\"status\":409}]",
+      "Both submission routes retain all rows after time_entries.work_date changes: [409,{\"error\":\"The entry date is outside its original time period. Review the entry before submitting.\",\"status\":409}]",
+      "Both submission routes retain all rows after time_entries.hours changes: [422,{\"error\":\"hours must be greater than 0 and no more than 24\",\"status\":422}]",
+      "Both submission routes retain all rows after time_entries.hours changes: [422,{\"error\":\"hours must be greater than 0 and no more than 24\",\"status\":422}]",
+      "Both submission routes retain all rows after time_entries.payroll_extracted_ref changes: [422,{\"error\":\"This time entry is already used in payroll. Correct or reverse the downstream record before changing the source time.\",\"status\":422}]",
+      "Both submission routes retain all rows after time_entries.payroll_extracted_ref changes: [422,{\"error\":\"This time entry is already used in payroll. Correct or reverse the downstream record before changing the source time.\",\"status\":422}]",
+      "Both submission routes retain all rows after staffing_timesheets.status changes: [409,{\"error\":\"The original week is unavailable or already complete. Review its correction workflow.\",\"status\":409}]",
+      "Both submission routes retain all rows after staffing_timesheets.status changes: [409,{\"error\":\"This week changed or is already submitted. Refresh and review it again.\",\"status\":409}]",
+      "Submission uses current people directory rather than a prior shared owner",
+      "Submission uses current people directory rather than a prior shared owner",
+      "Submission uses current placements directory rather than a prior shared owner",
+      "Submission uses current placements directory rather than a prior shared owner",
+      "Required time.entry.submitted failure rolls back entries, header, artifacts and earlier receipts",
+      "Required time.entry.submitted failure rolls back entries, header, artifacts and earlier receipts",
+      "Required time.timesheet.submitted failure rolls back entries, header, artifacts and earlier receipts",
+      "Required time.timesheet.submitted failure rolls back entries, header, artifacts and earlier receipts",
+      "Generic bulk submission updates its original child header and reports the exact submitted set",
+      "Submission preserves original hours, source, placement, person and approval evidence",
+      "Submission preserves original hours, source, placement, person and approval evidence",
+      "Submitting the same reviewed set twice cannot duplicate receipts",
+      "Weekly resubmission clears its rejection while retaining the approved sibling exactly",
+      "Resubmitting rejected Quanta time preserves its complete source facts",
+      "Self-service permission cannot submit another worker\u2019s time",
+      "Self-service permission cannot submit another worker\u2019s time",
+      "Self-service submission resolves the current account in the shared people directory",
+      "The same self-service identity can submit its week",
+      "Submission and resubmission create no financial event, posting, payment or payroll run"
+    ],
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "source_sha256": {
+    "modules/staffing/api/timesheets.php": "afa05644f2ac04d507e385e25128c7e932aa54c9976ea1eb53513ad9b7dff412",
+    "modules/staffing/lib/timesheets.php": "a8db2a985c70cc807f964a2bf1481a8d6a697e6e181a085252b7a1a26d0502a9",
+    "modules/time/api/entries.php": "ff73f317ff14aee53d538c0d95cc1a3405d75f98f5fc891f27f812bd6990443a",
+    "modules/time/lib/native_submission.php": "2e4705f0070dd81fb3bd1dee55a7bb251d09d4ca09c77dc32c00709a42bda8c4",
+    "modules/time/lib/time.php": "344b4138fe8e23e53e5f43144c26661b7a529c54fb66c128c07ac9571e20f85d",
+    "tests/company_relationship_concurrency_db.php": "66dc4dc61ad39e0672dc70c27f493bcc7e2e712a1af32c952b85a8bcf7b561ec",
+    "tests/fixtures/placement_contract_http_router.php": "bbd3ac8203142dd640e1a545841f37601ad48ea44ecc567592be2fb906f38ec2",
+    "tests/fixtures/time_submission_concurrency_checks.php": "7aa0db2f845d6182f01b7d9e91310d78953df8623d3a08e149a31e418ce84740",
+    "tests/fixtures/time_submission_http_checks.php": "a95779a4831087b12619a190b3196067ba74297e26d75530098e73413077bdcd",
+    "tests/operational_workflow_ease_smoke.php": "6a5289b665350aef8862ebfcffc25411c90bd13176e39a902b5f64d9e9ad04cd",
+    "tests/placement_contract_permissions_http.php": "98fb6bdf04d7a09fff85eb86b6df75c0715ff1b5b0d96dfae6de063452c05218"
+  },
+  "installed": false,
+  "production_changed": false,
+  "provider_changed": false,
+  "arabella_changed": false,
+  "remaining": [
+    "Rejection and approval across generic, weekly, token and preapproved CSV entrypoints",
+    "Explicit original-workspace scope for unauthenticated client tokens",
+    "Frozen rates/dimensions and required approval receipts",
+    "Durable account-person binding",
+    "Category/setup/period/CSV semantics",
+    "Financial reversal/replacement and aggregate provenance",
+    "Remaining field ownership, migrations, full guarded pilot upgrade and signed-in end-to-end integration audit"
+  ]
+}
