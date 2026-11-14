@@ -668,6 +668,7 @@ jobs:
             sudo apt-get install -y --no-install-recommends mariadb-client
           fi
           php tests/thunderhawk_time_payroll_upgrade_db_check.php --confirm-disposable-fixture
+          php tests/thunderhawk_payroll_export_upgrade_db_check.php --confirm-disposable-fixture
 
       - name: Exercise atomic time approval and weekly artifact reconciliation
         run: php tests/time_approval_projection_db_check.php --confirm-disposable-fixture

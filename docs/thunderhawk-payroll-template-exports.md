@@ -59,3 +59,18 @@ tenant settings were not changed. [Pinned release evidence](../deploy/thunderhaw
 Guarded installation and hosted export acceptance are still pending. The isolated
 pilot remains on its recorded November 14 installed application. No production,
 Arabella, provider, payroll execution or payment state was changed.
+
+The isolated installer is `deploy/install_thunderhawk_payroll_export.php`, invoked
+through `deploy/run_thunderhawk_payroll_export_install.py`. It is bound to the
+accepted application commit, 16-file package, 447 retained pins and the exact
+one-statement preset migration. It uses the established owner-preserving file
+replacement, scoped maintenance, native web-pool drain and cache refresh controls.
+It captures private file and native SQL backups while all database writers are
+held. The preset and migration ledger insert commit together under native table
+locks; existing rows are compared before activation. Explicit recovery verifies
+every original value and the unchanged new preset, then removes only that preset
+and migration receipt while retaining native locks. It does not restore over
+business records. A recorded operation is observed by its existing handle and
+never automatically repeated after an observation timeout. New deployment tooling
+must pass the complete CI suite, including the populated migration/recovery test,
+before it can be used on the pilot.
