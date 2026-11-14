@@ -1,0 +1,107 @@
+{
+  "checked_at": "2026-11-14T12:35:09+00:00",
+  "scope": "isolated Thunderhawk simulation tenant 2002",
+  "application_source_commit": "8e092ce93a626f518f758b719488da5611f26287",
+  "installer_source_commit": "627ce975103b6f81cbe9a056e6f30724ce356fdb",
+  "ci": [
+    {
+      "commit": "8e092ce93a626f518f758b719488da5611f26287",
+      "run": 43593699208,
+      "jobs_passed": 11
+    },
+    {
+      "commit": "627ce975103b6f81cbe9a056e6f30724ce356fdb",
+      "run": 43594459456,
+      "jobs_passed": 11
+    }
+  ],
+  "installation": {
+    "phase": "completed",
+    "operation": "c8f68077e865b4c2e25866930fdc0b58",
+    "candidate": "8e092ce93a626f518f758b719488da5611f26287",
+    "process_alive": false,
+    "pid": 418080,
+    "failure": null,
+    "schema": {
+      "tables": 382,
+      "business_records_unchanged": true,
+      "migrations_applied": 0
+    },
+    "completed_at": "2026-11-14T12:30:53+00:00"
+  },
+  "verification": {
+    "checked_at": "2026-11-14T12:31:11+00:00",
+    "passed": true,
+    "operation": "c8f68077e865b4c2e25866930fdc0b58",
+    "candidate": "8e092ce93a626f518f758b719488da5611f26287",
+    "installed_files_verified": 15,
+    "dependency_pins_verified": 464,
+    "schema": {
+      "tables": 382,
+      "business_records_unchanged": true,
+      "migrations_applied": 0
+    },
+    "current_tables": 382,
+    "current_rows": 35962,
+    "configuration_preserved": true,
+    "maintenance_restored": true,
+    "scheduler_preserved": true,
+    "diagnostic_absent": true,
+    "database_backup_retained": true,
+    "fresh_runtime_loaded": true,
+    "new_entry_24_reserved": true,
+    "old_entry_17_reserved": true,
+    "saved_result_8_preserved": true,
+    "saved_delivery_118_preserved": true,
+    "all_four_claims_preserved": true,
+    "production_changed": false,
+    "hosted_verification_writes": 0
+  },
+  "application_package_sha256": "6f05291433defde71a31a3fdae510fb63081722fa1d7aa9364ab06f665f0b4d5",
+  "browser": {
+    "native_sign_in": true,
+    "reviewed_delivery": 118,
+    "saved_observation": 8,
+    "source_time": 24,
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "hours": "1.25",
+    "approved_rate": "50.0000",
+    "currency": "USD",
+    "gross": "62.50",
+    "provider_run_held": true,
+    "source_identity_details_visible": true,
+    "screenshot_visually_accepted": true,
+    "table_width": 786,
+    "table_scroll_width": 786,
+    "all_tables_fit_container": true,
+    "stale_unverified_reservation_message_absent": true,
+    "sign_out_observed": true,
+    "actor_retirement": {
+      "passed": true,
+      "checked_at": "2026-11-14T12:35:09+00:00",
+      "phase": "retired",
+      "user_id": 120,
+      "business_tables_verified": 16,
+      "business_records_unchanged": true,
+      "active": false,
+      "module_grants": 0,
+      "private_credential_exists": false,
+      "production_changed": false,
+      "arabella_changed": false,
+      "script_sha256": "69c2216e13bb8e75cf712f858b9fded2186afeacfacbb66cec53feae1b2f7e40"
+    }
+  },
+  "evidence_files": {
+    "payroll-presentation-install-status.json": "6a5ae7832010db36aea3e6bd7cc59eb48508c57534569b95c7c462d1d9766db6",
+    "payroll-presentation-installed-verification.json": "7c5270cb9d8075b27b61988860999d79fd3f9caac0c8c2e7972bab0f8116ab2a",
+    "payroll-presentation-browser-evidence.json": "ccefac681dfc29e31bd585e51f5234e170ca8e11ca5e94c920b7a92f08e50ae8",
+    "payroll-presentation-browser-retire-result.json": "0129026a3fd1088a62d8d26b6a1b54bed5687b95d078f6f3d9982466dd96a34e",
+    "payroll-presentation-application-package-receipt.json": "71839f79de6412999d9a9cddfcd7a9e7936dc2044f9efcaed36cd8e800c507f8"
+  },
+  "provider_draft_created_by_this_release": false,
+  "payroll_payment_or_posting_executed": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "remaining_scope": "Field-by-field ownership and destinations, remaining portal/lifecycle journeys, financial allocation/reconciliation and full requirement audit remain open."
+}

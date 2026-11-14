@@ -1,0 +1,97 @@
+{
+  "source_commit": "f10509194df33511e72da4be5e8953a2058401e4",
+  "ci_run": 43595020783,
+  "ci_jobs": [
+    {
+      "name": "Full-Core maintenance Apache rehearsal",
+      "conclusion": "success"
+    },
+    {
+      "name": "Sim scenario dry-runs (determinism)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (ui)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Full-Core guarded upgrade and paired recovery",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (modules)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Full-Core actual native writer observation",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (core)",
+      "conclusion": "success"
+    },
+    {
+      "name": "Live business graph simulation",
+      "conclusion": "success"
+    },
+    {
+      "name": "CoreAccounting standalone release package",
+      "conclusion": "success"
+    },
+    {
+      "name": "CoreAccounting standalone empty-database install",
+      "conclusion": "success"
+    },
+    {
+      "name": "Smoke (harness)",
+      "conclusion": "success"
+    }
+  ],
+  "scope": "metadata-only definitions for native Core payroll; no sync or execution enabled",
+  "candidate": {
+    "checked_at": "2026-11-14T12:27:54+00:00",
+    "baseline_at": "2026-11-14T12:23:08+00:00",
+    "metadata_only": true,
+    "installed": false,
+    "fields": 2143,
+    "reviewed_native_payroll_fields": 60,
+    "remaining_decisions": 193,
+    "unrelated_dispositions_unchanged": true,
+    "provider_writes_enabled": false,
+    "schema_or_business_records_changed": false
+  },
+  "remaining_by_table": {
+    "ap_bills": 38,
+    "ap_payments": 22,
+    "billing_invoices": 36,
+    "billing_payments": 15,
+    "external_entity_mappings": 9,
+    "people_compensation": 11,
+    "people_employees": 16,
+    "placement_economic_items": 2,
+    "placement_economic_obligations": 13,
+    "placement_rates": 7,
+    "placements": 11,
+    "staffing_clients": 1,
+    "staffing_jobs": 12
+  },
+  "source_sha256": {
+    "core/integrations/staffing_native_payroll_field_contract.php": "6e55f965523b67aa58f55e1f9eae3ec3d78cb7df1eb04692b299e05bd1956f6d",
+    "core/integrations/staffing_field_contract.php": "8f6a47aac6f96155a7863e2d8a2a54341be9d57bada206c08e4bdb66b490c5f6"
+  },
+  "local_checks": {
+    "field_ownership": 118,
+    "time_field_contract": 164,
+    "commercial_field_contract": 643
+  },
+  "evidence_sha256": {
+    "current-custom-field-coverage-20261114.json": "1dccc4347bbe109e9c32a28cfbf1e2921d1466bff2b9faa16d2da3069e5c55cf",
+    "current-custom-field-coverage-summary-20261114.json": "36233564e07aa02f2467ebecae5113fcbd0e95cce074e070ee8fe21cc9f83854",
+    "native-payroll-field-candidate-20261114.json": "518edf60d7b14a7ade61c66a57fadf642270390a14997255c8d83d78be97ee94"
+  },
+  "installed": false,
+  "business_records_changed": false,
+  "provider_requests": false,
+  "production_changed": false,
+  "arabella_changed": false
+}
