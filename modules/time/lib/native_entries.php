@@ -2,6 +2,7 @@
 /** Native atomic time writes. Callers supply their existing worker authorization. */
 declare(strict_types=1);
 require_once __DIR__.'/../../staffing/lib/timesheets.php';
+require_once __DIR__.'/../../../core/record_numbers.php';
 
 function timeNativeDate(mixed $value): string
 {
@@ -210,6 +211,8 @@ function timeNativeCorrectionContext(int $id): array
     $placement=staffingTimeCurrentPlacement((int)$entry['placement_id'],(int)$entry['person_id']);
     [$start,$end]=timeWeekBounds((string)$entry['work_date']);staffingTimesheetValidateWeek((int)$entry['person_id'],$start,$end);
     $q=getDB()->prepare('SELECT id,first_name,last_name FROM people WHERE tenant_id=? AND id=? FOR UPDATE');$q->execute([StaffingNativeTimeEdit::owner('people'),$entry['person_id']]);$worker=$q->fetch(PDO::FETCH_ASSOC);
+    $worker=coreRecordNumbersAttach(getDB(),(int)StaffingNativeTimeEdit::owner('people'),'person',[$worker])[0];
+    $placement=coreRecordNumbersAttach(getDB(),(int)StaffingNativeTimeEdit::owner('placements'),'placement',[$placement])[0];
     $header=null;$headerId=(int)($entry['timesheet_id']??0);
     if($headerId>0) {
         $header=staffingTimesheetRow(staffingTimeWorkspace(),$headerId,true);
@@ -217,7 +220,7 @@ function timeNativeCorrectionContext(int $id): array
     }
     $revision=hash('sha256',json_encode(['workspace'=>staffingTimeWorkspace(),'people_owner'=>StaffingNativeTimeEdit::owner('people'),'placement_owner'=>StaffingNativeTimeEdit::owner('placements'),'entry'=>$entry,'header'=>$header,'placement'=>$placement,'worker'=>$worker],JSON_THROW_ON_ERROR));
     return ['workspace_id'=>staffingTimeWorkspace(),'entry'=>$entry,'timesheet'=>$header,'worker'=>$worker,
-        'placement'=>array_intersect_key($placement,array_flip(['id','title','start_date','end_date','actual_end_date'])),
+        'placement'=>array_intersect_key($placement,array_flip(['id','placement_number','title','start_date','end_date','actual_end_date'])),
         'revision'=>$revision];
 }
 

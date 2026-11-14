@@ -385,7 +385,7 @@ if ($method === 'GET' && $action === 'detail') {
     );
     $enriched = staffingApiEnrichTimesheetRows([$header], $tenantId);
     api_ok(['workspace_id'=>$tenantId,'timesheet' => $enriched[0] ?? $header, 'entries' => $entries,
-        'permissions'=>['correct_time'=>rbac_legacy_can($user,'time.entry.manage'),'time_history'=>rbac_legacy_can($user,'time.view')]]);
+        'permissions'=>['correct_time'=>staffingApiCanPermission($ctx,'time.entry.manage'),'time_history'=>staffingApiCanPermission($ctx,'time.view')]]);
 }
 
 // Placement-scoped reads keep their original workspace and physical identity.
@@ -404,7 +404,7 @@ if ($method === 'GET' && in_array($action, ['list_for_placement','detail_for_pla
                 $personId===staffingApiOwnPersonId($user)?'staffing.time.view':'staffing.time.approve'),
             'staffingApiEnrichTimesheetRows');
         header('Cache-Control: private, no-store');
-        $result['permissions']=['correct_time'=>rbac_legacy_can($user,'time.entry.manage'),'time_history'=>rbac_legacy_can($user,'time.view')];
+        $result['permissions']=['correct_time'=>staffingApiCanPermission($ctx,'time.entry.manage'),'time_history'=>staffingApiCanPermission($ctx,'time.view')];
         api_ok($result);
     } catch (PDOException $e) {
         error_log('[placement timesheets] '.$e->getCode());

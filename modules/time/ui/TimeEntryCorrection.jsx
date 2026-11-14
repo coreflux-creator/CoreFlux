@@ -57,7 +57,7 @@ export default function TimeEntryCorrection() {
   };
   return <section className="people-directory" data-testid="time-entry-correction">
     <h2>Correct approved time</h2>
-    <p>{[data.worker?.first_name, data.worker?.last_name].filter(Boolean).join(' ')} · {data.placement?.title}</p>
+    <p>{data.worker?.person_number} · {[data.worker?.first_name, data.worker?.last_name].filter(Boolean).join(' ')} · {data.placement?.placement_number} · {data.placement?.title}</p>
     <p>A correction retains the original approval and creates a draft replacement for separate approval.</p>
     <div data-testid="time-correction-original" style={{ background: 'var(--cf-surface, #f8fafc)', padding: 16, marginBottom: 16 }}>
       <strong>Original approved entry</strong>

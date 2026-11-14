@@ -16,7 +16,7 @@
     [$status,$detail]=$request('GET','/modules/staffing/api/timesheets.php?action=detail&id='.$approvedHeader,null,true,$workspace);
     $expect($status===200&&$detail['permissions']['correct_time']===true&&(int)$detail['workspace_id']===$workspace,'Time managers receive correction navigation in the original workspace');
     [$status,$review]=$request('GET',$reviewPath,null,true,$workspace);
-    $expect($status===200&&(int)$review['workspace_id']===$workspace&&(int)$review['worker']['id']===$person&&(int)$review['placement']['id']===$placement&&$snapshot($all)===$before,'Correction review reads source and current identities without creating or changing records');
+    $expect($status===200&&(int)$review['workspace_id']===$workspace&&(int)$review['worker']['id']===$person&&(int)$review['placement']['id']===$placement&&!empty($review['worker']['person_number'])&&!empty($review['placement']['placement_number'])&&$snapshot($all)===$before,'Correction review reads source and current permanent identities without creating or changing records');
     $savePath=$api.'?action=correct&id='.$sibling;
     $body=['hours'=>2.5,'work_date'=>'2026-10-27','category'=>'OT_nonbillable','description'=>'Synthetic corrected day','correction_reason'=>'Reviewed paper correction','review_revision'=>$review['revision']];
     $missing=$body;unset($missing['review_revision']);

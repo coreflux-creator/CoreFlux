@@ -15,7 +15,7 @@ async function component(path){const result=await build({entryPoints:[fileURLToP
 const Correction=await component('../../modules/time/ui/TimeEntryCorrection.jsx'),History=await component('../../modules/time/ui/TimeEntryHistory.jsx');
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 const ids=(tree,id)=>tree.root.findAllByProps({'data-testid':id});
-const data=()=>({workspace_id:2002,revision:'a'.repeat(64),entry:{id:51,work_date:'2026-10-05',hours:'8.00',category:'regular_billable',description:'Original hours',status:'approved',source:'ai_inbox',source_ref_id:17,approved_at:'2026-10-12 12:00:00',approved_via:'manual'},worker:{first_name:'Synthetic',last_name:'Worker'},placement:{id:902,title:'Invented assignment'},custom_categories:[{id:3,label:'Training'}]});
+const data=()=>({workspace_id:2002,revision:'a'.repeat(64),entry:{id:51,work_date:'2026-10-05',hours:'8.00',category:'regular_billable',description:'Original hours',status:'approved',source:'ai_inbox',source_ref_id:17,approved_at:'2026-10-12 12:00:00',approved_via:'manual'},worker:{person_number:'P-15',first_name:'Synthetic',last_name:'Worker'},placement:{id:902,placement_number:'PL-902',title:'Invented assignment'},custom_categories:[{id:3,label:'Training'}]});
 function reset(){view=data();failure=null;pin='2002';calls=[];reloads=0;post=async()=>({ok:true,workspace_id:2002,superseded_entry_id:51,new_entry_id:52,timesheet_id:43});}
 const render=Component=>React.createElement(MemoryRouter,{initialEntries:['/51']},React.createElement(Routes,null,React.createElement(Route,{path:'/:entryId',element:React.createElement(Component)})));
 async function open(Component=Correction){let tree;await act(async()=>{tree=create(render(Component));});return tree;}
@@ -23,6 +23,7 @@ async function field(tree,key,value){await act(async()=>ids(tree,`time-correctio
 const submit=tree=>ids(tree,'time-correction-form')[0].props.onSubmit({preventDefault(){}});
 test('correction review displays original approval and source without permitting identity edits',async()=>{reset();const tree=await open();try{
   assert.match(text(ids(tree,'time-correction-original')[0]),/8.00 hours/);assert.match(text(tree.root),/source record 17/);assert.match(text(tree.root),/2026-10-12 12:00:00/);
+  assert.match(text(tree.root),/P-15/);assert.match(text(tree.root),/PL-902/);
   assert.equal(ids(tree,'time-correction-submit')[0].props.disabled,true);assert.equal(tree.root.findAll(n=>n.props.name==='placement_id'||n.props.name==='person_id').length,0);assert.equal(calls.length,0);
 }finally{act(()=>tree.unmount());}});
 test('saving sends the reviewed replacement and offers the resulting week and history',async()=>{reset();const tree=await open();try{
