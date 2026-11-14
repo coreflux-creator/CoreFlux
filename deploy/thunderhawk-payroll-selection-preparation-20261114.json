@@ -1,0 +1,52 @@
+{
+  "status": "prepared_not_installed",
+  "checked_at": "2026-11-14T11:44:48+00:00",
+  "application_source_commit": "13eb1e59b283c5398c362a55feeed61e9a3e49fe",
+  "application_ci_run": 43590812790,
+  "application_ci_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43590812790",
+  "application_ci_jobs_passed": 11,
+  "local_ui_tests_passed": 548,
+  "input_delivery_db_checks": 82,
+  "source_authority_db_checks": 93,
+  "quanta_payroll_checks": 10,
+  "code_upgrade_checks": 15,
+  "compiled_frontend_modules": 6136,
+  "package_sha256": "acf749fc2e4bd90c1262b9f023654e521a8eb513a3cb34bfe6ca6779b0f0b822",
+  "artifact_sha256": "a143b2e3487a9f7f8b9c80ecc916df0119006331418bd006bb8a1bf2ff902440",
+  "artifact_manifest_sha256": "5ce821f9579647ea0868ea483863e6e3dd0bc1aaab59d6683c28b285ed76c62b",
+  "installed_files_to_update": 13,
+  "retained_dependency_pins": 462,
+  "current_installed_pins_verified": 471,
+  "new_migrations": 0,
+  "source_entry_id": "5e72afa5-07b9-4681-bcc0-7e46379a205c",
+  "person_number": "P-387",
+  "placement_number": "PL-902",
+  "new_core_entry_id": 24,
+  "new_timesheet_id": 12,
+  "parent_timesheet_id": 8,
+  "approved_hours": "1.25",
+  "intended_pay_period": [
+    "2026-11-09",
+    "2026-11-22"
+  ],
+  "existing_reserved_time_ids": [
+    2,
+    3,
+    17
+  ],
+  "installer_source_commit": "5a5a5261",
+  "installer_ci_pending": true,
+  "hosted_application_changed": false,
+  "provider_requests": 0,
+  "real_payroll_payments_or_postings": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "remaining": [
+    "final installer CI",
+    "private staging and inspect",
+    "owner-preserving pilot code install and independent readback",
+    "native selected input and reservation acceptance",
+    "held provider draft and returned result",
+    "browser acceptance and full integration requirements"
+  ]
+}
