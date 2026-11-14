@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
+import JobSourceReview from './JobSourceReview';
 
 const EMPTY_JOB = {
   title: '',
@@ -10,9 +11,11 @@ const EMPTY_JOB = {
   department: '',
   location_city: '',
   location_state: '',
-  location_country: 'US',
+  location_country: '',
   remote_policy: '',
   description: '',
+  opened_at: '',
+  closed_at: '',
 };
 
 export default function Jobs() {
@@ -37,14 +40,16 @@ export default function Jobs() {
   });
 
   const openNew = () => {
-    setDrawer({ mode: 'new', job: { ...EMPTY_JOB }, placements: [] });
+    setDrawer({ mode: 'new', job: { ...EMPTY_JOB }, placements: [], canManage: data?.can_manage === true });
     setError(null);
   };
 
   const openEdit = async (row) => {
     setError(null);
-    const res = await api.get(`/modules/staffing/api/jobs.php?action=get&id=${row.id}`);
-    setDrawer({ mode: 'edit', job: res.job, placements: res.placements ?? [] });
+    try {
+      const res = await api.get(`/modules/staffing/api/jobs.php?action=get&id=${row.id}`);
+      setDrawer({ mode: 'edit', job: res.job, original: res.job, placements: res.placements ?? [], review: res.source_review, canManage: res.can_manage === true });
+    } catch (e) { setError(e.message || 'Could not open this job.'); }
   };
 
   const save = async (evt) => {
@@ -52,14 +57,12 @@ export default function Jobs() {
     setSaving(true);
     setError(null);
     try {
-      const body = { ...drawer.job };
-      ['client_id', 'company_id'].forEach((key) => {
-        if (body[key] === '' || body[key] === undefined) body[key] = null;
-      });
+      const body = Object.fromEntries(Object.entries(drawer.job).filter(([key, value]) => Object.hasOwn(EMPTY_JOB, key) && (drawer.mode === 'new' || String(value ?? '') !== String(drawer.original[key] ?? ''))));
       if (drawer.mode === 'new') {
         await api.post('/modules/staffing/api/jobs.php?action=create', body);
       } else {
-        await api.post('/modules/staffing/api/jobs.php?action=update', body);
+        if (!Object.keys(body).length) { setDrawer(null); return; }
+        await api.post('/modules/staffing/api/jobs.php?action=update', { ...body, id: drawer.job.id, edit_revision: drawer.original.edit_revision });
       }
       setDrawer(null);
       reload();
@@ -76,7 +79,7 @@ export default function Jobs() {
     setSaving(true);
     setError(null);
     try {
-      await api.post('/modules/staffing/api/jobs.php?action=close', { id: drawer.job.id });
+      await api.post('/modules/staffing/api/jobs.php?action=close', { id: drawer.job.id, edit_revision: drawer.original.edit_revision });
       setDrawer(null);
       reload();
     } catch (e) {
@@ -115,10 +118,11 @@ export default function Jobs() {
             </select>
           </div>
         </div>
-        <button className="btn btn--primary" onClick={openNew} data-testid="staffing-jobs-new">New Job</button>
+        {data?.can_manage === true && <button className="btn btn--primary" onClick={openNew} data-testid="staffing-jobs-new">New Job</button>}
       </header>
 
       {loading && <p className="empty">Loading jobs...</p>}
+      {!drawer && error && <p role="alert">{error}</p>}
       {!loading && rows.length === 0 && <p className="empty" data-testid="staffing-jobs-empty">No jobs found.</p>}
       {rows.length > 0 && (
         <table className="data-table" data-testid="staffing-jobs-table">
@@ -155,15 +159,17 @@ export default function Jobs() {
           closeJob={closeJob}
           saving={saving}
           error={error}
+          sourceSaved={async () => { await openEdit(drawer.job); reload(); }}
         />
       )}
     </section>
   );
 }
 
-function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error }) {
+function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error, sourceSaved }) {
   const job = drawer.job;
   const set = (key, value) => setDrawer(d => ({ ...d, job: { ...d.job, [key]: value } }));
+  const dirty = drawer.mode === 'edit' && Object.keys(EMPTY_JOB).some(key => String(job[key] ?? '') !== String(drawer.original[key] ?? ''));
 
   return (
     <div
@@ -183,6 +189,7 @@ function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error }) {
           <button type="button" onClick={() => setDrawer(null)} style={{ background:'none', border:'none', fontSize:'1.5em', cursor:'pointer', color:'var(--cf-text-muted)' }} data-testid="staffing-job-drawer-close">x</button>
         </header>
 
+        <fieldset disabled={!drawer.canManage || saving} style={{ border: 0, padding: 0, minWidth: 0 }}>
         <Field label="Title"><input required value={job.title || ''} onChange={e => set('title', e.target.value)} data-testid="staffing-job-title" /></Field>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'var(--cf-space-2)' }}>
           <Field label="Status">
@@ -211,6 +218,12 @@ function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error }) {
           </select>
         </Field>
         <Field label="Description"><textarea rows="5" value={job.description || ''} onChange={e => set('description', e.target.value)} data-testid="staffing-job-description" /></Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <Field label="Opened"><input type="date" value={job.opened_at || ''} onChange={e => set('opened_at', e.target.value)} /></Field>
+          <Field label="Closed"><input type="date" value={job.closed_at || ''} onChange={e => set('closed_at', e.target.value)} /></Field>
+        </div>
+        </fieldset>
+        {drawer.canManage && <JobSourceReview key={drawer.review?.review_token || 'none'} review={drawer.review} disabled={saving || dirty} onSaved={sourceSaved} />}
 
         {drawer.mode === 'edit' && (
           <section style={{ marginTop:'var(--cf-space-3)', paddingTop:'var(--cf-space-3)', borderTop:'1px solid var(--cf-border, #e5e7eb)' }} data-testid="staffing-job-placements">
@@ -233,12 +246,12 @@ function JobDrawer({ drawer, setDrawer, save, closeJob, saving, error }) {
 
         {error && <div className="error" style={{ color:'#dc2626', fontSize:'0.9em' }} data-testid="staffing-job-save-error">{error}</div>}
         <footer style={{ display:'flex', gap:'var(--cf-space-2)', justifyContent:'space-between', marginTop:'var(--cf-space-4)', paddingTop:'var(--cf-space-3)', borderTop:'1px solid var(--cf-border, #e5e7eb)' }}>
-          {drawer.mode === 'edit' && job.status !== 'closed'
+          {drawer.canManage && drawer.mode === 'edit' && job.status !== 'closed'
             ? <button type="button" onClick={closeJob} className="btn btn--ghost" disabled={saving} data-testid="staffing-job-close">Close job</button>
             : <span />}
           <div style={{ display:'flex', gap:'var(--cf-space-2)' }}>
             <button type="button" onClick={() => setDrawer(null)} className="btn" data-testid="staffing-job-cancel">Cancel</button>
-            <button type="submit" className="btn btn--primary" disabled={saving} data-testid="staffing-job-save">{saving ? 'Saving...' : 'Save'}</button>
+            {drawer.canManage && <button type="submit" className="btn btn--primary" disabled={saving} data-testid="staffing-job-save">{saving ? 'Saving...' : 'Save'}</button>}
           </div>
         </footer>
       </form>

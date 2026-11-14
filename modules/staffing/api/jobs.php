@@ -17,6 +17,23 @@ $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
 $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
+$canManage = rbac_legacy_can($user, 'staffing.jobs.manage');
+
+function staffingJobPublicRow(array $row,int $workspace): array
+{
+    $state=staffingJobSourceState($row);
+    if(($row['source_system']??null)==='jobdiva'&&($state['source']['workspace_id']??null)!==$workspace)$row['external_id']=null;
+    unset($row['coreflux_source_state']);return$row;
+}
+
+if($action==='source_decide'){
+    rbac_legacy_require($user,'staffing.jobs.manage');
+    if($method!=='POST')api_error('Method not allowed',405);
+    $body=api_json_body();
+    if(($body['confirm_source']??null)!==true||!is_array($body['fields']??null)||!is_string($body['mode']??null)||!is_string($body['review_token']??null))api_error('Review and confirm the selected source decision.',422);
+    try{api_ok(staffingJobSourceDecide($tenantId,(int)($body['id']??0),$body['fields'],$body['mode'],$body['review_token'],(int)$actorUserId));}
+    catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
+}
 
 function staffingJobApiAllowedFields(): array
 {
@@ -63,7 +80,7 @@ if ($method === 'GET' && $action === 'list') {
         ? "{$sortExpr} {$sortDir}, sj.title ASC, sj.id DESC"
         : "{$sortExpr} {$sortDir}, sj.id DESC";
     $sql = 'SELECT sj.id, sj.client_id, sj.company_id, sj.title, sj.status,
-                   sj.external_id, sj.source_system, sj.department,
+                   sj.external_id, sj.source_system, sj.coreflux_source_state, sj.department,
                    sj.location_city, sj.location_state, sj.location_country,
                    sj.remote_policy, sj.opened_at, sj.closed_at, sj.updated_at,
                    c.name AS client_name,
@@ -79,7 +96,8 @@ if ($method === 'GET' && $action === 'list') {
              WHERE ' . implode(' AND ', $where) . '
           ORDER BY ' . $orderSql . '
              LIMIT ' . $limit;
-    api_ok(['rows' => scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId,'client_tenant'=>$placementsTenantId]))]);
+    $rows=scopedQuery($sql, array_merge($params, ['placements_tid' => $placementsTenantId,'client_tenant'=>$placementsTenantId]));
+    api_ok(['rows'=>array_map(static fn($row)=>staffingJobPublicRow($row,$tenantId),$rows),'can_manage'=>$canManage]);
 }
 
 if ($method === 'GET' && $action === 'get') {
@@ -106,13 +124,17 @@ if ($method === 'GET' && $action === 'get') {
     );
     $stmt->execute(['id' => $id, 'placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId]);
     $placements = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    api_ok(['job' => $job, 'placements' => $placements]);
+    $review=staffingJobSourceReview($tenantId,$id);
+    // The editable values and version must come from the same read, even if
+    // a source refresh committed after the earlier joined detail query.
+    $job=array_replace(staffingJobPublicRow($job,$tenantId),$review['current']);$job['edit_revision']=$review['edit_revision'];
+    api_ok(['job' => $job, 'placements' => $placements,'can_manage'=>$canManage,'source_review'=>$canManage?$review:null]);
 }
 
 if ($method === 'POST' && $action === 'create') {
     rbac_legacy_require($user, 'staffing.jobs.manage');
     $body = api_json_body();
-    try{api_ok(['job'=>staffingJobSaveNative($tenantId,null,array_intersect_key($body,array_flip(staffingJobNativeFields())),(int)$actorUserId)]);}
+    try{api_ok(['job'=>staffingJobPublicRow(staffingJobSaveNative($tenantId,null,array_intersect_key($body,array_flip(staffingJobNativeFields())),(int)$actorUserId),$tenantId)]);}
     catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
 }
 
@@ -121,7 +143,7 @@ if ($method === 'POST' && $action === 'update') {
     $body = api_json_body();
     $id = (int) ($body['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    try{api_ok(['job'=>staffingJobSaveNative($tenantId,$id,array_intersect_key($body,array_flip(staffingJobNativeFields())),(int)$actorUserId)]);}
+    try{api_ok(['job'=>staffingJobPublicRow(staffingJobSaveNative($tenantId,$id,array_intersect_key($body,array_flip(staffingJobNativeFields())),(int)$actorUserId,is_string($body['edit_revision']??null)?$body['edit_revision']:null),$tenantId)]);}
     catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
 }
 
@@ -130,10 +152,10 @@ if ($method === 'POST' && $action === 'close') {
     $body = api_json_body();
     $id = (int) ($body['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    $existing = scopedFind('SELECT * FROM staffing_jobs WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    if (!$existing) api_error('Not found', 404);
-    scopedUpdate('staffing_jobs', $id, ['status' => 'closed', 'closed_at' => date('Y-m-d')]);
-    api_ok(['ok' => true, 'closed_id' => $id]);
+    try{
+        staffingJobSaveNative($tenantId,$id,['status'=>'closed','closed_at'=>date('Y-m-d')],(int)$actorUserId,is_string($body['edit_revision']??null)?$body['edit_revision']:null);
+        api_ok(['ok'=>true,'closed_id'=>$id]);
+    }catch(Throwable $e){$code=(int)$e->getCode();api_error($e->getMessage(),in_array($code,[404,409],true)?$code:($e instanceof InvalidArgumentException?422:500));}
 }
 
 api_error('Unknown action', 404);

@@ -36,6 +36,7 @@ function staffingFieldContractRules(string $table, string $field): array
     $key = $table . '.' . $field;
     $workflow = in_array($table, staffingWorkflowFieldTables(), true);
     $definitions = [
+        'staffing_jobs.coreflux_source_state' => ['Private job source identity, observed proposals, Core ownership and review revision. Use the permission-checked job review workflow; never copy this state to a provider.', 'restricted-source-ownership'],
         'placements.person_id' => ['Canonical person assigned to this placement.', 'reference:person'],
         'placements.engagement_type' => ['Explicit assignment classification. JobDiva SALARY category takes priority; a reviewed source mapping may fill missing evidence. Conflicts require review. Cost profiles, negative flags and missing values never imply W2, C2C or 1099.', 'verified-enum'],
         'placements.end_client_company_id' => ['Company receiving the work; distinct from the bill-to client.', 'reference:company'],
@@ -70,7 +71,8 @@ function staffingFieldContractRules(string $table, string $field): array
         'people_employees.employment_type' => ['Reviewed employment type. New person-linked records preserve unknown as null until employment setup.', 'nullable-enum'],
         'people_employees.flsa_class' => ['Reviewed overtime classification. W-2 alone does not establish exemption status; new person-linked records preserve unknown as null.', 'nullable-enum'],
     ];
-    $restricted = preg_match('/(?:ssn|tax_id|bank|routing|account_number|password|credential|token|secret|dob|birth|_ct$)/i', $field)
+    $restricted = ($table === 'staffing_jobs' && $field === 'coreflux_source_state')
+        || preg_match('/(?:ssn|tax_id|bank|routing|account_number|password|credential|token|secret|dob|birth|_ct$)/i', $field)
         || in_array($table, ['people_banking', 'people_tax', 'people_bank_accounts', 'people_tax_federal', 'people_tax_state', 'people_i9'], true)
         || ($workflow && (str_ends_with($field, '_json') || in_array($field, ['storage_key','storage_identity'], true)));
     $system = in_array($field, ['id', 'tenant_id', 'created_at', 'updated_at', 'deleted_at', 'created_by_user_id', 'updated_by_user_id'], true);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/clients.php';
+require_once __DIR__ . '/job_source.php';
 
 function staffingJobPluck(array $payload, array $keys): string
 {
@@ -29,14 +30,16 @@ function staffingJobNormalizeDate(string $raw): ?string
 {
     $raw = trim($raw);
     if ($raw === '' || $raw === '0' || strtolower($raw) === 'null') return null;
-    if (ctype_digit($raw)) {
+    if (preg_match('/^\d{10}(?:\d{3})?$/D', $raw)) {
         $n = (int) $raw;
         if ($n >= 1_000_000_000_000) $n = (int) ($n / 1000);
         if ($n >= 100_000_000) return gmdate('Y-m-d', $n);
     }
-    $ts = strtotime($raw);
-    if ($ts !== false) return gmdate('Y-m-d', $ts);
-    return preg_match('/^\d{4}-\d{2}-\d{2}/', $raw) ? substr($raw, 0, 10) : null;
+    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/D', $raw, $m)
+        && checkdate((int)$m[2], (int)$m[3], (int)$m[1])) return $m[1].'-'.$m[2].'-'.$m[3];
+    if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/D', $raw, $m)
+        && checkdate((int)$m[1], (int)$m[2], (int)$m[3])) return sprintf('%04d-%02d-%02d', $m[3], $m[1], $m[2]);
+    throw new InvalidArgumentException('JobDiva returned an unrecognized job date. Review its source value.');
 }
 
 function staffingJobNormalizeStatus(string $raw): string
@@ -105,7 +108,6 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
         'title', 'jobTitle', 'job_title', 'job title', 'positionTitle', 'position_title',
         'role', 'roleName', 'reqTitle', 'requisitionTitle',
     ]);
-    if ($title === '') $title = 'JobDiva Job ' . $externalId;
 
     $companyExtId = staffingJobPluck($payload, [
         'companyId', 'company_id', 'company id', 'customerId', 'customer_id', 'clientId', 'client_id',
@@ -126,16 +128,22 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     if($client && (int)$client['tenant_id']!==companyRelationshipScope(getDB(),$owner,'placements')['owner'])throw new RuntimeException('This shared job cannot use a private client directory.',409);
     $clientId = $client ? (int) $client['id'] : null;
 
-    $country = strtoupper(staffingJobPluck($payload, ['country', 'jobCountry', 'job_country', 'worksiteCountry']));
-    if ($country === '') $country = null;
-    if (is_string($country) && strlen($country) > 2) $country = substr($country, 0, 2);
+    $countryRaw = staffingJobPluck($payload, ['country', 'jobCountry', 'job_country', 'worksiteCountry']);
+    $country = integrationSourceCountry($countryRaw);
+    if ($countryRaw !== '' && $country === null) throw new InvalidArgumentException('JobDiva returned an unrecognized job country. Review its source value.');
+    $statusRaw = staffingJobPluck($payload, ['status', 'jobStatus', 'job_status']);
+    $statusKey = str_replace([' ', '-'], '_', strtolower(trim($statusRaw)));
+    if ($statusRaw !== '' && !in_array($statusKey, ['open','active','hold','on_hold','paused','filled','placed','fulfilled','closed','inactive','expired','cancelled','canceled'], true)) throw new InvalidArgumentException('JobDiva returned an unrecognized job status. Review its source value.');
+    $remoteRaw = staffingJobPluck($payload, ['remotePolicy', 'remote_policy', 'workLocation', 'locationType']);
+    $remote = staffingJobNormalizeRemotePolicy($remoteRaw);
+    if ($remoteRaw !== '' && $remote === null) throw new InvalidArgumentException('JobDiva returned an unrecognized remote policy. Review its source value.');
 
     $row = [
         'tenant_id'          => $owner,
         'client_id'          => $clientId,
         'company_id'         => $companyId,
         'title'              => $title,
-        'status'             => staffingJobNormalizeStatus(staffingJobPluck($payload, ['status', 'jobStatus', 'job_status'])),
+        'status'             => $statusRaw === '' ? null : staffingJobNormalizeStatus($statusRaw),
         'external_id'        => $externalId,
         'source_system'      => 'jobdiva',
         'description'        => staffingJobPluck($payload, ['description', 'jobDescription', 'job_description']),
@@ -143,7 +151,7 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
         'location_city'      => staffingJobPluck($payload, ['city', 'jobCity', 'job_city', 'worksiteCity']),
         'location_state'     => staffingJobPluck($payload, ['state', 'jobState', 'job_state', 'worksiteState']),
         'location_country'   => $country,
-        'remote_policy'      => staffingJobNormalizeRemotePolicy(staffingJobPluck($payload, ['remotePolicy', 'remote_policy', 'workLocation', 'locationType'])),
+        'remote_policy'      => $remote,
         'opened_at'          => staffingJobNormalizeDate(staffingJobPluck($payload, ['openDate', 'openedAt', 'dateOpened', 'startDate'])),
         'closed_at'          => staffingJobNormalizeDate(staffingJobPluck($payload, ['closedDate', 'closedAt', 'dateClosed', 'endDate'])),
         'created_by_user_id' => $actorUserId,
@@ -162,36 +170,8 @@ function staffingJobEnsureFromJobDivaPayloadLocked(int $tenantId, string $extern
     $q=$pdo->prepare("SELECT internal_entity_id FROM external_entity_mappings WHERE tenant_id=? AND source_system='jobdiva' AND internal_entity_type='staffing_job' AND external_id=? FOR UPDATE");
     $q->execute([$tenantId,$externalId]);$mapped=$q->fetchColumn();
     if($mapped!==false&&(!$existing||(int)$mapped!==(int)$existing['id']))throw new RuntimeException('The retained JobDiva job link does not match the current directory. Review its identity.',409);
-    if ($existing) {
-        $patch = [];
-        foreach ($row as $key => $value) {
-            if (in_array($key, ['tenant_id', 'external_id', 'source_system', 'created_by_user_id'], true)) continue;
-            if ($value === null || $value === '') continue;
-            if (!array_key_exists($key, $existing) || (string) ($existing[$key] ?? '') !== (string) $value) {
-                $patch[$key] = $value;
-            }
-        }
-        if ($patch) {
-            $sets = [];
-            $params = ['t' => $owner, 'id' => (int) $existing['id']];
-            foreach ($patch as $key => $value) {
-                $sets[] = "`{$key}` = :{$key}";
-                $params[$key] = $value;
-            }
-            $sets[] = 'updated_at = NOW()';
-            $pdo->prepare('UPDATE staffing_jobs SET ' . implode(', ', $sets) . ' WHERE tenant_id = :t AND id = :id')
-                ->execute($params);
-        }
-        return staffingJobFindBySource($owner, 'jobdiva', $externalId) ?: $existing;
-    }
-
-    $insert = array_filter($row, static fn($value) => $value !== null && $value !== '');
-    $cols = array_keys($insert);
-    $placeholders = array_map(static fn($col) => ":{$col}", $cols);
-    $pdo->prepare(
-        'INSERT INTO staffing_jobs (`' . implode('`, `', $cols) . '`) VALUES (' . implode(', ', $placeholders) . ')'
-    )->execute($insert);
-    return staffingJobFindBySource($owner, 'jobdiva', $externalId) ?: ['id' => (int) $pdo->lastInsertId()] + $insert;
+    $values = array_filter(array_intersect_key($row, array_flip(staffingJobNativeFields())), static fn($v) => $v !== null && $v !== '');
+    return staffingJobSourceProject($pdo, $tenantId, $owner, $externalId, $existing, $values, $actorUserId);
 }
 
 function staffingJobLinkPlacementsByJobDivaId(int $tenantId, string $jobdivaJobId, int $staffingJobId): int

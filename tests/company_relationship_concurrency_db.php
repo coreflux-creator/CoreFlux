@@ -178,6 +178,9 @@ if(($argv[1]??'')==='worker'){
                 if(trim((string)fgets(STDIN))!=='CONTINUE')throw new RuntimeException('Snapshot worker was not released');
             }
             $result=match($input['entity']??'job'){
+                'job_source'=>staffingJobEnsureFromJobDivaPayload($input['workspace'],$input['external'],$input['payload'],$input['actor']),
+                'job_edit'=>staffingJobSaveNative($input['workspace'],$input['job_id'],$input['patch'],$input['actor'],$input['revision']),
+                'job_decide'=>staffingJobSourceDecide($input['workspace'],$input['job_id'],$input['fields'],$input['decision'],$input['review_token'],$input['actor']),
                 'client'=>staffingClientSaveNative($input['workspace'],$input['client_id'],['primary_contact_phone'=>'Concurrent client change'],$input['actor'],$input['edit_revision']),
                 'client_csv'=>['id'=>staffingClientImportNative($input['workspace'],$input['row'],$input['actor'],true)],
                 'client_source'=>clientSourceRaceWrite($input),
@@ -782,6 +785,7 @@ try{
     require __DIR__.'/fixtures/time_csv_intake_concurrency_checks.php';
     require __DIR__.'/fixtures/time_correction_review_concurrency_checks.php';
     require __DIR__.'/fixtures/time_accounting_handoff_concurrency_checks.php';
+    require __DIR__.'/fixtures/job_source_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);

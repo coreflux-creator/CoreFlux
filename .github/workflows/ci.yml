@@ -214,6 +214,9 @@ jobs:
       - name: Verify exact client source identities and native ownership
         run: php tests/staffing_client_source_db.php
 
+      - name: Verify job source ownership, reviewed decisions and atomic audit
+        run: php tests/staffing_job_source_db.php
+
       - name: Verify exact assignment client repair and read-only catalog review
         run: php tests/jobdiva_client_link_repair_db.php
 

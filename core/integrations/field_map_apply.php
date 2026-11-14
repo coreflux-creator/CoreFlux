@@ -1436,6 +1436,14 @@ function integrationFieldMapApplyAll(
         if (!empty($b['set'])) {
             try {
                 $tableLower = strtolower((string) ($b['table'] ?? ''));
+                if ($tableLower === 'staffing_jobs') {
+                    require_once __DIR__.'/../../modules/staffing/lib/job_source.php';
+                    if($integration!=='jobdiva')throw new RuntimeException('This job source requires a reviewed ownership contract.');
+                    $write=staffingJobMappedSourceWrite($tid,$writeOwner,(int)$b['id'],$b['set']);
+                    $summary['written']+=$write['written'];
+                    foreach($write['skipped']as$column)integrationFieldMapSkip($summary,$b['maps'][$column],'core_owned_job_field');
+                    continue;
+                }
                 if (in_array($tableLower,['companies','company_contacts'],true)) {
                     require_once __DIR__.'/../../modules/people/lib/companies.php';
                     require_once __DIR__.'/../../modules/people/lib/company_source_ownership.php';
