@@ -53,7 +53,7 @@ try {
     $apply('core/migrations/203_time_approval_economics.sql');
     $pdo->exec("ALTER TABLE time_entries ADD period_id BIGINT DEFAULT 1,ADD timesheet_id BIGINT DEFAULT 77,ADD billable INT DEFAULT 1,ADD payable INT DEFAULT 1,ADD hour_type VARCHAR(20) DEFAULT 'regular',ADD approved_at DATETIME DEFAULT '2026-11-11 12:00:00',ADD approved_via VARCHAR(30) DEFAULT 'manual',ADD approved_by_user_id BIGINT DEFAULT 7,ADD client_approver_email VARCHAR(200) NULL,ADD dimension_snapshot_json LONGTEXT NULL,ADD dimension_snapshot_hash CHAR(64) NULL");
     $pdo->exec("UPDATE time_entries SET hour_type='overtime' WHERE id=2");
-    $pdo->exec('ALTER TABLE placement_rates ADD adder_pct DECIMAL(6,4) DEFAULT 0,ADD workers_comp_pct DECIMAL(6,4) DEFAULT 0,ADD benefits_load_pct DECIMAL(6,4) DEFAULT 0,ADD other_cost_per_hour DECIMAL(12,2) DEFAULT 0');
+    $pdo->exec('ALTER TABLE placement_rates ADD adder_pct DECIMAL(6,4) DEFAULT 0,ADD workers_comp_pct DECIMAL(6,4) DEFAULT 0,ADD benefits_load_pct DECIMAL(6,4) DEFAULT 0,ADD other_cost_per_hour DECIMAL(12,2) DEFAULT 0,ADD pay_rate_unit VARCHAR(20) DEFAULT "hour"');
     payrollInputFixtureApprovalEvidence($pdo,[1,2,3,4]);
     // Reset only these disposable scenario fixtures when testing a different original approval.
     $resetApproval=static function()use($pdo):void{$pdo->exec('DELETE FROM time_approval_rates');payrollInputFixtureApprovalEvidence($pdo,[1,2,3,4]);};
@@ -171,11 +171,55 @@ try {
     require_once __DIR__.'/../modules/payroll/lib/accounting_posting.php';
     $pdo->exec("ALTER TABLE placements ADD engagement_type VARCHAR(20) DEFAULT 'w2'");
     $pdo->exec('CREATE TABLE accounting_events(id BIGINT PRIMARY KEY,tenant_id BIGINT,entity_id BIGINT,event_type VARCHAR(100),status VARCHAR(20),source_record_id VARCHAR(200),payload LONGTEXT)');
-    $pdo->prepare("INSERT INTO accounting_events VALUES(1,10,1,'staffing.worker_hours.approved','posted','77:w2',?)")->execute([json_encode(['dimensions'=>['placement'=>['id'=>100],'worker'=>['id'=>1]]])]);
+    $pdo->prepare("INSERT INTO accounting_events VALUES(1,10,1,'staffing.worker_hours.approved','posted','77:w2',?)")->execute([json_encode(['wage_cost'=>175,'cost'=>175,'dimensions'=>['placement'=>100,'worker'=>1]])]);
+    $pdo->exec('ALTER TABLE accounting_events ADD source_module VARCHAR(30) DEFAULT "staffing", ADD journal_entry_id BIGINT DEFAULT 1');
+    $pdo->exec('CREATE TABLE accounting_journal_entries(id BIGINT PRIMARY KEY,tenant_id BIGINT,entity_id BIGINT,status VARCHAR(20))');
+    $pdo->exec('CREATE TABLE accounting_accounts(id BIGINT PRIMARY KEY,tenant_id BIGINT,code VARCHAR(20))');
+    $pdo->exec('CREATE TABLE accounting_journal_entry_lines(id BIGINT PRIMARY KEY,tenant_id BIGINT,je_id BIGINT,account_id BIGINT,debit DECIMAL(16,2),credit DECIMAL(16,2),dim_json LONGTEXT)');
+    $pdo->exec('INSERT INTO accounting_journal_entries VALUES(1,10,1,"posted")');
+    $pdo->exec('INSERT INTO accounting_accounts VALUES(1,10,"2150")');
+    $pdo->prepare('INSERT INTO accounting_journal_entry_lines VALUES(1,10,1,1,0,175,?)')->execute([json_encode(['placement'=>100,'worker'=>1])]);
     $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'legacy aggregate staffing accrual'),'numeric native run still detects legacy accrual coverage before any posting');
     $pdo->exec("UPDATE accounting_events SET source_record_id='timesheet:77:placement:100:w2'");
     $coverage=payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]);
     $check(count($coverage)===1&&$coverage[0]['accrued_wage_cents']===17500,'numeric run reference retains assignment accrual coverage without posting again');
+    $pdo->exec('UPDATE placement_rates SET pay_rate=999,adder_pct=0.9,other_cost_per_hour=100 WHERE id=1');
+    $check(payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]])===$coverage,
+        'payroll clearing retains approved wages and burdens after current master rates change');
+    $pdo->exec("UPDATE placement_rates SET currency='INR',pay_rate_unit='month' WHERE id=1");
+    $check(payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]])===$coverage,
+        'later currency and rate-unit edits do not relabel original USD hourly accruals');
+    $pdo->exec("UPDATE placements SET engagement_type='c2c',deleted_at=NOW() WHERE id=100");
+    $check(payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]])===$coverage,
+        'later assignment classification and retirement preserve original employee accrual evidence');
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1],21=>['person_id'=>1]]),'multiple payroll employees'),
+        'a duplicated employee/person mapping cannot clear one source twice');
+    $pdo->exec('UPDATE time_entries SET hours=3 WHERE id=1');
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'original approved time or rate evidence changed'),
+        'changed approved source hours cannot reprice payroll clearing');
+    $pdo->exec('UPDATE time_entries SET hours=2 WHERE id=1');
+    $pdo->exec("UPDATE time_entries SET status='draft' WHERE id=1");
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'unavailable in this workspace'),
+        'unapproved extracted sources cannot silently disappear from accrual coverage');
+    $pdo->exec("UPDATE time_entries SET status='approved' WHERE id=1");
+    $originalEvent=$pdo->query('SELECT payload FROM accounting_events WHERE id=1')->fetchColumn();
+    $pdo->prepare('UPDATE accounting_events SET payload=? WHERE id=1')->execute([json_encode(['dimensions'=>['placement'=>100,'worker'=>2]])]);
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'different or missing assignment snapshot'),
+        'an accounting event for another worker cannot supply clearing coverage');
+    $pdo->prepare('UPDATE accounting_events SET payload=? WHERE id=1')->execute([$originalEvent]);
+    $hash=(string)$pdo->query('SELECT dimension_snapshot_hash FROM time_entries WHERE id=1')->fetchColumn();
+    $pdo->prepare("INSERT INTO accounting_events(id,tenant_id,entity_id,event_type,status,source_record_id,payload) VALUES(2,10,1,'staffing.worker_hours.approved','posted',?,?)")
+        ->execute(['timesheet:77:placement:100:w2:segment:'.substr($hash,0,24),$originalEvent]);
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'Overlapping staffing accrual events'),
+        'overlapping assignment and segment events require reconciliation before clearing');
+    $pdo->exec("UPDATE accounting_events SET source_record_id='77:w2' WHERE id=2");
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'legacy aggregate staffing accrual'),
+        'a legacy aggregate alongside an assignment event cannot be ignored');
+    $pdo->exec('DELETE FROM accounting_events WHERE id=2');
+    setRequestTenantId(11);
+    $check(payrollAccountingStaffingAccrualGroups(11,7,[20=>['person_id'=>1]])===[],
+        'a shared accounting directory does not borrow another time workspace assignment accrual');
+    setRequestTenantId(10);
     // Older installations used text references: preserve those reads without rewriting them.
     $pdo->exec('ALTER TABLE time_entries MODIFY payroll_extracted_ref VARCHAR(100) NULL');
     $pdo->prepare("UPDATE time_entries SET payroll_extracted_ref=? WHERE tenant_id=10 AND payroll_extracted_ref=?")->execute(['payroll:run#'.$run,(string)$run]);

@@ -651,6 +651,9 @@ jobs:
       - name: Exercise approved-time AP bills with mixed locked rates
         run: php tests/ap_generated_time_bill_db_check.php --confirm-disposable-fixture
 
+      - name: Exercise native payroll clearing of retained approved-time accruals
+        run: php tests/payroll_approved_accrual_db_check.php --confirm-disposable-fixture
+
       - name: Exercise atomic time approval and weekly artifact reconciliation
         run: php tests/time_approval_projection_db_check.php --confirm-disposable-fixture
 

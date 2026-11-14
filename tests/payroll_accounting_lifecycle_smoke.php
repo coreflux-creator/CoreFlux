@@ -53,6 +53,10 @@ payroll_lifecycle_assert('approved staffing cost is reclassified instead of expe
 payroll_lifecycle_assert('legacy aggregate accruals stop payroll rather than risk duplicate labor',
     str_contains($posting, 'legacy aggregate staffing accrual')
     && str_contains($posting, 'otherwise labor would be counted twice'));
+payroll_lifecycle_assert('staffing clearing uses verified per-entry rates without a mutable rate join',
+    str_contains($posting, 'timeApprovedRatesByEntry($entries,$tenantId)')
+    && str_contains($posting, 'timeApprovedEntryAmounts($entry,$rate,$snapshot)')
+    && !str_contains($posting, 'JOIN placement_rates'));
 payroll_lifecycle_assert('cross-entity payroll is split before posting',
     str_contains($posting, 'spans multiple legal entities')
     && str_contains($posting, 'one payroll run per entity'));

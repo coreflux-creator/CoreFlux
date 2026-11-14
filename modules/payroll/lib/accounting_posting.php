@@ -146,7 +146,7 @@ function payrollAccountingAppendLine(
     $lines[$key]['credit'] += $creditCents / 100;
 }
 
-function payrollAccountingStampLink(int $tenantId, int $runId, int $journalEntryId, string $kind): void
+function payrollAccountingStampLink(int $tenantId, int $runId, int $journalEntryId, string $kind, bool $required = false): void
 {
     try {
         getDB()->prepare(
@@ -160,6 +160,7 @@ function payrollAccountingStampLink(int $tenantId, int $runId, int $journalEntry
             'kind' => $kind,
         ]);
     } catch (\Throwable $e) {
+        if ($required) throw $e;
         error_log('[payroll accounting link] ' . $e->getMessage());
     }
 }
@@ -228,55 +229,30 @@ function payrollAccountingRunEntityId(int $tenantId, array $run): int
 /** @return array<int,array<string,mixed>> keyed by payroll employee id */
 function payrollAccountingRunEmployeeRows(int $tenantId, int $runId): array
 {
-    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-    $stmt = getDB()->prepare(
-        'SELECT li.*, e.user_id, e.employee_number, e.legal_first_name,
-                e.legal_last_name, e.work_email, e.personal_email,
-                e.department, e.location
+    require_once __DIR__ . '/../../people/lib/employment_links.php';
+    $pdo=getDB();
+    if (!peopleEmploymentSchema($pdo)) throw new RuntimeException('Payroll posting needs the reviewed employment-link update.',503);
+    $peopleTenantId=peopleEmploymentOwner($tenantId,$pdo->inTransaction());
+    $stmt=$pdo->prepare(
+        'SELECT li.*, e.employee_number, e.legal_first_name, e.legal_last_name,
+                e.department, e.location, p.id AS person_id, l.id AS employment_link_id
            FROM payroll_line_items li
-           JOIN people_employees e
-             ON e.tenant_id = li.tenant_id AND e.id = li.employee_id
-          WHERE li.tenant_id = :tenant_id AND li.run_id = :run_id
-          ORDER BY li.employee_id'
+      LEFT JOIN people_employees e ON e.tenant_id=:people_owner AND e.id=li.employee_id
+      LEFT JOIN people_employment_links l ON l.tenant_id=e.tenant_id AND l.employee_id=e.id
+      LEFT JOIN people p ON p.tenant_id=l.tenant_id AND p.id=l.person_id
+          WHERE li.tenant_id=:tenant_id AND li.run_id=:run_id
+          ORDER BY li.employee_id,li.id'.($pdo->inTransaction()?' FOR UPDATE':'')
     );
-    $stmt->execute(['tenant_id' => $tenantId, 'run_id' => $runId]);
-
-    $personLookup = getDB()->prepare(
-        'SELECT id
-           FROM people
-          WHERE tenant_id = :people_tenant_id
-            AND ((:user_gate > 0 AND user_id = :user_id)
-              OR (:work_gate <> "" AND LOWER(email_primary) = LOWER(:work_email))
-              OR (:personal_gate <> "" AND LOWER(email_primary) = LOWER(:personal_email)))
-          ORDER BY CASE WHEN :user_order > 0 AND user_id = :user_match THEN 0 ELSE 1 END, id
-          LIMIT 1'
-    );
-    $rows = [];
-    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
-        $userId = (int) ($row['user_id'] ?? 0);
-        $workEmail = trim((string) ($row['work_email'] ?? ''));
-        $personalEmail = trim((string) ($row['personal_email'] ?? ''));
-        $personLookup->execute([
-            'people_tenant_id' => $peopleTenantId,
-            'user_gate' => $userId,
-            'user_id' => $userId,
-            'work_gate' => $workEmail,
-            'work_email' => $workEmail,
-            'personal_gate' => $personalEmail,
-            'personal_email' => $personalEmail,
-            'user_order' => $userId,
-            'user_match' => $userId,
-        ]);
-        $personId = (int) ($personLookup->fetchColumn() ?: 0);
-        if ($personId <= 0) {
-            $label = trim((string) ($row['legal_first_name'] ?? '') . ' ' . (string) ($row['legal_last_name'] ?? ''));
-            throw new \RuntimeException(
-                'Payroll employee ' . ($label !== '' ? $label : ('#' . $row['employee_id']))
-                . ' is not linked to a People record. Link the employee before posting payroll.'
-            );
+    $stmt->execute(['people_owner'=>$peopleTenantId,'tenant_id'=>$tenantId,'run_id'=>$runId]);
+    $rows=[];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $employeeId=(int)$row['employee_id'];
+        if ((int)($row['person_id']??0)<=0 || (int)($row['employment_link_id']??0)<=0) {
+            throw new RuntimeException('Payroll employee #'.$employeeId.' needs a reviewed person/employment link before posting.',409);
         }
-        $row['person_id'] = $personId;
-        $rows[(int) $row['employee_id']] = $row;
+        if (isset($rows[$employeeId])) throw new RuntimeException('Payroll contains duplicate employee line items. Review the run before posting.',409);
+        $row['person_id']=(int)$row['person_id'];
+        $rows[$employeeId]=$row;
     }
     return $rows;
 }
@@ -294,138 +270,125 @@ function payrollAccountingStaffingAccrualGroups(
     array $employeeRows
 ): array {
     if (!$employeeRows) return [];
-    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
+    require_once __DIR__ . '/../../time/lib/approval_economics.php';
     $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
-    $ref = (string)$runId;
+    $pdo = getDB();
+    $lock = $pdo->inTransaction() ? ' FOR UPDATE' : '';
+    $sources = $pdo->prepare(
+        'SELECT * FROM time_entries WHERE tenant_id=? AND person_id=?
+           AND CAST(payroll_extracted_ref AS CHAR) IN (?,?) ORDER BY id'.$lock
+    );
+    $events = $pdo->prepare(
+        "SELECT id,entity_id,source_record_id,payload,status,journal_entry_id FROM accounting_events
+          WHERE tenant_id=? AND event_type='staffing.worker_hours.approved'
+            AND source_module='staffing' AND source_record_id IN (?,?,?) ORDER BY id".$lock
+    );
     $groups = [];
-    $engagementExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(te.dimension_snapshot_json, '$.engagement_type')), pl.engagement_type)";
-
-    $legacyCheck = getDB()->prepare(
-        "SELECT COUNT(*)
-           FROM time_entries te
-           JOIN placements pl
-             ON pl.tenant_id = :placements_tenant_id AND pl.id = te.placement_id
-           JOIN accounting_events legacy_event
-             ON legacy_event.tenant_id = :accounting_tenant_id
-            AND legacy_event.event_type = 'staffing.worker_hours.approved'
-            AND legacy_event.status = 'posted'
-            AND legacy_event.source_record_id = CONCAT(te.timesheet_id, ':', {$engagementExpr})
-      LEFT JOIN accounting_events assignment_event
-             ON assignment_event.tenant_id = :accounting_tenant_id_2
-            AND assignment_event.event_type = 'staffing.worker_hours.approved'
-            AND assignment_event.status = 'posted'
-            AND assignment_event.source_record_id IN (
-                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr}),
-                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr},
-                    ':segment:', LEFT(te.dimension_snapshot_hash, 24))
-            )
-          WHERE te.tenant_id = :time_tenant_id
-            AND te.person_id = :person_id
-            AND CAST(te.payroll_extracted_ref AS CHAR) IN (:payroll_ref,:legacy_payroll_ref)
-            AND te.payable = 1
-            AND te.status = 'approved'
-            AND assignment_event.id IS NULL"
-    );
-    $coverage = getDB()->prepare(
-        "SELECT te.placement_id, te.timesheet_id, {$engagementExpr} AS engagement_type,
-                event.id AS accounting_event_id, event.entity_id,
-                MAX(CAST(event.payload AS CHAR)) AS event_payload,
-                MAX(te.work_date) AS as_of_date,
-                ROUND(SUM(
-                    te.hours * COALESCE(pr.pay_rate, 0)
-                    * CASE te.hour_type
-                        WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
-                        WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
-                        ELSE 1.00
-                      END
-                ) * 100) AS accrued_wage_cents,
-                ROUND(SUM(
-                    te.hours * (
-                        COALESCE(pr.pay_rate, 0)
-                        * CASE te.hour_type
-                            WHEN 'overtime' THEN COALESCE(pr.ot_multiplier, 1.50)
-                            WHEN 'doubletime' THEN COALESCE(pr.dt_multiplier, 2.00)
-                            ELSE 1.00
-                          END
-                        * (1 + COALESCE(pr.adder_pct, 0)
-                             + COALESCE(pr.workers_comp_pct, 0)
-                             + COALESCE(pr.benefits_load_pct, 0))
-                        + COALESCE(pr.other_cost_per_hour, 0)
-                    )
-                ) * 100) AS accrued_total_cents
-           FROM time_entries te
-           JOIN placements pl
-             ON pl.tenant_id = :placements_tenant_id AND pl.id = te.placement_id
-           JOIN placement_rates pr
-             ON pr.tenant_id = :rates_tenant_id AND pr.id = te.rate_snapshot_id
-           JOIN accounting_events event
-             ON event.tenant_id = :accounting_tenant_id
-            AND event.event_type = 'staffing.worker_hours.approved'
-            AND event.status = 'posted'
-            AND event.source_record_id IN (
-                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr}),
-                CONCAT('timesheet:', te.timesheet_id, ':placement:', te.placement_id, ':', {$engagementExpr},
-                    ':segment:', LEFT(te.dimension_snapshot_hash, 24))
-            )
-          WHERE te.tenant_id = :time_tenant_id
-            AND te.person_id = :person_id
-            AND CAST(te.payroll_extracted_ref AS CHAR) IN (:payroll_ref,:legacy_payroll_ref)
-            AND te.payable = 1
-            AND te.status = 'approved'
-            AND {$engagementExpr} IN ('w2','temp_to_perm','internal')
-          GROUP BY te.placement_id, te.timesheet_id, engagement_type,
-                   event.id, event.entity_id"
-    );
-
+    $seenEntries = [];
     foreach ($employeeRows as $employeeId => $employee) {
-        $params = [
-            'placements_tenant_id' => $placementsTenantId,
-            'accounting_tenant_id' => $accountingTenantId,
-            'accounting_tenant_id_2' => $accountingTenantId,
-            'time_tenant_id' => $tenantId,
-            'person_id' => (int) $employee['person_id'],
-            'payroll_ref' => $ref,
-            'legacy_payroll_ref' => 'payroll:run#'.$runId,
-        ];
-        $legacyCheck->execute($params);
-        if ((int) $legacyCheck->fetchColumn() > 0) {
-            throw new \RuntimeException(
-                'Payroll run #' . $runId . ' includes time booked by a legacy aggregate staffing accrual. '
-                . 'Rebuild that timesheet posting by assignment before posting payroll; otherwise labor would be counted twice.'
-            );
+        if ((int)$employeeId<=0 || (int)($employee['person_id']??0)<=0) {
+            throw new RuntimeException('Payroll accrual requires the reviewed employee/person identity.',409);
         }
-
-        $coverage->execute([
-            'placements_tenant_id' => $placementsTenantId,
-            'rates_tenant_id' => $placementsTenantId,
-            'accounting_tenant_id' => $accountingTenantId,
-            'time_tenant_id' => $tenantId,
-            'person_id' => (int) $employee['person_id'],
-            'payroll_ref' => $ref,
-            'legacy_payroll_ref' => 'payroll:run#'.$runId,
-        ]);
-        foreach ($coverage->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $group) {
-            $payload = json_decode((string) ($group['event_payload'] ?? ''), true);
-            $dimensions = is_array($payload['dimensions'] ?? null) ? $payload['dimensions'] : [];
-            if (!$dimensions || empty($dimensions['placement']) || empty($dimensions['worker'])) {
-                throw new \RuntimeException(
-                    'Staffing accrual event #' . (int) $group['accounting_event_id']
-                    . ' has no assignment snapshot. Repair it before posting payroll.'
-                );
+        $sources->execute([$tenantId,(int)$employee['person_id'],(string)$runId,'payroll:run#'.$runId]);
+        $entries = $sources->fetchAll(PDO::FETCH_ASSOC);
+        // Verify the complete selection, including sources with no posted event.
+        // Dropping changed/unapproved rows here would falsely increase new labor expense.
+        $rates = timeApprovedRatesByEntry($entries,$tenantId);
+        foreach ($entries as $entry) {
+            $entryId=(int)$entry['id'];
+            if (isset($seenEntries[$entryId])) throw new RuntimeException('One approved time source maps to multiple payroll employees. Review its identity before posting.',409);
+            $seenEntries[$entryId]=true;
+            if ((int)$entry['payable']!==1) continue;
+            $rate=$rates[$entryId];
+            $snapshot=json_decode((string)$entry['dimension_snapshot_json'],true);
+            $engagement=(string)($snapshot['engagement_type']??'');
+            if (!in_array($engagement,['w2','temp_to_perm','internal'],true)) {
+                throw new RuntimeException('The approved payroll source has no employee engagement evidence. Review it before posting.',409);
             }
-            $groups[] = [
-                'employee_id' => (int) $employeeId,
-                'placement_id' => (int) $group['placement_id'],
-                'timesheet_id' => (int) $group['timesheet_id'],
-                'accounting_event_id' => (int) $group['accounting_event_id'],
-                'entity_id' => (int) $group['entity_id'],
-                'accrued_wage_cents' => max(0, (int) $group['accrued_wage_cents']),
-                'accrued_total_cents' => max(0, (int) $group['accrued_total_cents']),
-                'dimensions' => $dimensions,
+            if (strtoupper(trim((string)($rate['currency']??'')))!=='USD'
+                || ($rate['pay_rate_unit']??'')!=='hour') {
+                throw new RuntimeException('Approved payroll accrual needs an explicit USD hourly source rate. Review its original currency and unit.',409);
+            }
+            $timesheetId=(int)($entry['timesheet_id']??0);
+            $placementId=(int)$entry['placement_id'];
+            if ($timesheetId<=0 || $placementId<=0) throw new RuntimeException('The approved payroll source has no original timesheet or placement.',409);
+            $base='timesheet:'.$timesheetId.':placement:'.$placementId.':'.$engagement;
+            $legacy=$timesheetId.':'.$engagement;
+            $events->execute([$accountingTenantId,$base,$base.':segment:'.substr((string)$entry['dimension_snapshot_hash'],0,24),$legacy]);
+            $matches=$events->fetchAll(PDO::FETCH_ASSOC);
+            if (!$matches) continue;
+            if (array_filter($matches,static fn(array $event):bool=>$event['source_record_id']===$legacy)) {
+                throw new RuntimeException('Payroll run #'.$runId.' includes time booked by a legacy aggregate staffing accrual. '
+                    .'Reconcile that timesheet posting by assignment before posting payroll; otherwise labor would be counted twice.',409);
+            }
+            if (count($matches)!==1) throw new RuntimeException('Overlapping staffing accrual events cover the same approved time. Reconcile them before posting payroll.',409);
+            $event=$matches[0];
+            $payload=json_decode((string)$event['payload'],true);
+            $dimensions=is_array($payload['dimensions']??null)?$payload['dimensions']:[];
+            if (!is_scalar($dimensions['placement']??null) || !is_scalar($dimensions['worker']??null)
+                || (string)$dimensions['placement']!==(string)$placementId
+                || (string)$dimensions['worker']!==(string)$entry['person_id']
+                || (int)$event['entity_id']<=0) {
+                throw new RuntimeException('Staffing accrual event #'.(int)$event['id'].' has a different or missing assignment snapshot. Review it before posting payroll.',409);
+            }
+            $key=(int)$event['id'];
+            $group=$groups[$key]??[
+                'employee_id'=>(int)$employeeId,'placement_id'=>$placementId,'timesheet_id'=>$timesheetId,
+                'accounting_event_id'=>$key,'entity_id'=>(int)$event['entity_id'],'dimensions'=>$dimensions,
+                '_amounts'=>[], '_event'=>$event,
             ];
+            if ($group['employee_id']!==(int)$employeeId || $group['placement_id']!==$placementId || $group['timesheet_id']!==$timesheetId) {
+                throw new RuntimeException('A staffing accrual event covers conflicting payroll source identities.',409);
+            }
+            $amounts=timeApprovedEntryAmounts($entry,$rate,$snapshot);
+            foreach (['wage_cost','employer_load_cost','workers_comp_cost','benefits_cost','other_direct_cost'] as $field) {
+                $group['_amounts'][$field]=($group['_amounts'][$field]??0)+$amounts[$field];
+            }
+            $groups[$key]=$group;
         }
     }
-    return $groups;
+    ksort($groups,SORT_NUMERIC);
+    foreach ($groups as &$group) {
+        // Match the original emitter's component rounding, including employer burdens.
+        $components=array_map(static fn(float $amount):int=>(int)round($amount*100),$group['_amounts']);
+        $group['accrued_wage_cents']=max(0,$components['wage_cost']);
+        $group['accrued_total_cents']=max(0,array_sum($components));
+        payrollAccountingVerifySourceAccrual($pdo,$accountingTenantId,$group['_event'],$group);
+        unset($group['_amounts'],$group['_event']);
+    }
+    unset($group);
+    return array_values($groups);
+}
+
+/** A source event label alone cannot establish an active liability to clear. */
+function payrollAccountingVerifySourceAccrual(PDO $pdo,int $owner,array $event,array $group): void
+{
+    if ($event['status']!=='posted' || (int)$event['journal_entry_id']<=0) {
+        throw new RuntimeException('The staffing accrual is not posted. Resolve its accounting request before payroll posting.',409);
+    }
+    $q=$pdo->prepare('SELECT status,entity_id FROM accounting_journal_entries WHERE tenant_id=? AND id=?'.($pdo->inTransaction()?' FOR UPDATE':''));
+    $q->execute([$owner,$event['journal_entry_id']]);$journal=$q->fetch(PDO::FETCH_ASSOC);
+    if (!$journal || $journal['status']!=='posted' || (int)$journal['entity_id']!==(int)$event['entity_id']) {
+        throw new RuntimeException('The staffing accrual journal is missing, reversed or belongs to another entity. Reconcile it before payroll posting.',409);
+    }
+    $q=$pdo->prepare('SELECT l.credit,l.debit,l.dim_json FROM accounting_journal_entry_lines l
+        JOIN accounting_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id
+        WHERE l.tenant_id=? AND l.je_id=? AND a.code="2150" ORDER BY l.id'.($pdo->inTransaction()?' FOR UPDATE':''));
+    $q->execute([$owner,$event['journal_entry_id']]);$available=0;
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $line) {
+        $dimensions=json_decode((string)$line['dim_json'],true);
+        if ($dimensions!==$group['dimensions'] && $dimensions!=$group['dimensions']) {
+            throw new RuntimeException('The staffing accrual journal dimensions differ from its approved source.',409);
+        }
+        $available+=(int)round(((float)$line['credit']-(float)$line['debit'])*100);
+    }
+    $payload=json_decode((string)$event['payload'],true);
+    if (!isset($payload['wage_cost'],$payload['cost']) || $available<=0
+        || $available!==(int)round((float)$payload['cost']*100)
+        || $group['accrued_total_cents']>$available
+        || $group['accrued_wage_cents']>(int)round((float)$payload['wage_cost']*100)) {
+        throw new RuntimeException('The approved payroll source exceeds or differs from its recorded staffing liability. Reconcile it before posting.',409);
+    }
 }
 
 /** @return array<int,int> */
@@ -458,6 +421,28 @@ function payrollAccountingAllocateCents(int $total, array $weights): array
 
 function payrollPostRunAccrual(int $tenantId, int $runId, ?int $actorUserId): array
 {
+    $pdo=getDB();$owns=cf_tx_begin($pdo);
+    if (!$owns) $pdo->exec('SAVEPOINT payroll_accrual_post');
+    try {
+        $lock=$pdo->prepare('SELECT id FROM payroll_runs WHERE tenant_id=? AND id=? FOR UPDATE');
+        $lock->execute([$tenantId,$runId]);
+        if (!$lock->fetchColumn()) throw new RuntimeException('Payroll run not found',404);
+        $result=payrollPostRunAccrualLocked($tenantId,$runId,$actorUserId);
+        if ($owns) $pdo->commit(); else $pdo->exec('RELEASE SAVEPOINT payroll_accrual_post');
+        return $result;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            if ($owns) $pdo->rollBack();
+            else {$pdo->exec('ROLLBACK TO SAVEPOINT payroll_accrual_post');$pdo->exec('RELEASE SAVEPOINT payroll_accrual_post');}
+        }
+        throw $error;
+    }
+}
+
+/** Run, line items, approved sources and recorded accruals remain locked through posting. */
+function payrollPostRunAccrualLocked(int $tenantId, int $runId, ?int $actorUserId): array
+{
+    if (!getDB()->inTransaction()) throw new LogicException('Payroll accrual requires its source transaction.');
     $run = payrollAccountingLoadRun($tenantId, $runId);
     if (!in_array((string) $run['status'], ['approved', 'paid'], true)) {
         throw new \RuntimeException('Payroll accrual can only post after final approval');
@@ -663,11 +648,18 @@ function payrollPostRunAccrual(int $tenantId, int $runId, ?int $actorUserId): ar
     ], $actorUserId);
     $result = payrollAccountingPostedEventResult($eventResult, 'Payroll accrual');
 
+    $journalCheck=getDB()->prepare('SELECT status,entity_id FROM accounting_journal_entries WHERE tenant_id=? AND id=? FOR UPDATE');
+    $journalCheck->execute([$tenantId,(int)$result['je_id']]);
+    $journal=$journalCheck->fetch(PDO::FETCH_ASSOC);
+    if (!$journal || $journal['status']!=='posted' || (int)$journal['entity_id']!==$entityId) {
+        throw new RuntimeException('The payroll accrual journal is no longer posted. Review its correction before retrying.',409);
+    }
+
     getDB()->prepare(
         'UPDATE payroll_runs SET journal_entry_id = :je, updated_at = NOW()
           WHERE tenant_id = :t AND id = :id'
     )->execute(['je' => (int) $result['je_id'], 't' => $tenantId, 'id' => $runId]);
-    payrollAccountingStampLink($tenantId, $runId, (int) $result['je_id'], 'accrual');
+    payrollAccountingStampLink($tenantId, $runId, (int) $result['je_id'], 'accrual', true);
     payrollAudit('payroll.run.posted', [
         'run_id' => $runId,
         'journal_entry_id' => (int) $result['je_id'],
@@ -749,7 +741,7 @@ function payrollAccountingLoadRun(int $tenantId, int $runId): array
            FROM payroll_runs r
            JOIN payroll_pay_periods pp ON pp.id = r.pay_period_id AND pp.tenant_id = r.tenant_id
           WHERE r.tenant_id = :t AND r.id = :id
-          LIMIT 1'
+          LIMIT 1'.(getDB()->inTransaction() ? ' FOR UPDATE' : '')
     );
     $stmt->execute(['t' => $tenantId, 'id' => $runId]);
     $run = $stmt->fetch(\PDO::FETCH_ASSOC);
