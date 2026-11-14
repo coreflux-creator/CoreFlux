@@ -107,11 +107,13 @@ $package=json_decode($packageBytes,true,512,JSON_THROW_ON_ERROR);$tools=json_dec
 foreach($tools['files']as$file=>$hash)if(hash('sha256',tpRead(__DIR__.'/'.$file))!==$hash)throw new RuntimeException('Installation tool changed');
 if(($package['root']??null)!==TP_ROOT||($package['application_source_commit']??null)!=='846e86204d188c6ec10d8a5b4537c6a79150f1ce'
     ||count($package['files']??[])!==149||count($package['dependencies']??[])!==309)exit(2);
-$host=json_decode(tpRead(__DIR__.'/host-preparation.json'),true,512,JSON_THROW_ON_ERROR);
 $lock=fopen(TP_PRIVATE.'/contact-install.lock','c');if(!$lock||!flock($lock,LOCK_EX|LOCK_NB))exit(2);
 require_once TP_ROOT.'/core/db.php';require_once TP_ROOT.'/core/integrations/identity.php';require_once TP_ROOT.'/core/migrate.php';
 require_once __DIR__.'/full_core_maintenance_host.php';require_once __DIR__.'/full_core_maintenance_channel.php';
 require_once __DIR__.'/thunderhawk_time_payroll_schema.php';require_once __DIR__.'/thunderhawk_pilot_backup.php';
+// The application bootstrap uses global variables, including $host for PDO.
+// Load operation inputs afterward and keep their names separate from that scope.
+$tpHostPreparation=json_decode(tpRead(__DIR__.'/host-preparation.json'),true,512,JSON_THROW_ON_ERROR);
 $pdo=getDB();
 if(!$pdo||$pdo->query('SELECT DATABASE()')->fetchColumn()!=='muzqvdvqbx'||!COREFLUX_STAGING
     ||integrationInstanceId()!=='9f4b6dfb-e52e-464c-9a9d-af7766928ddf'||COREFLUX_INTEGRATION_DELIVERY_TENANTS!=='2002'
@@ -160,9 +162,9 @@ try{
     }
     if($pdo->query('SELECT * FROM _migrations ORDER BY filename')->fetchAll(PDO::FETCH_ASSOC)!==$package['migration_ledger'])throw new RuntimeException('Migration ledger changed');
     thunderhawkTimePayrollSchemaBaseline($pdo,$plan);
-    $web=$maintenance->webSnapshot();$expected=$host['web_preimages']['.htaccess'];$expected['mode']=octdec($expected['mode']);
-    if($web!==$expected||hash('sha256',$maintenance->crontab())!==$host['scheduler_sha256'])throw new RuntimeException('Hosting state changed');
-    $review=[];foreach($host['scheduler_jobs']as$j){if($j['pilot_reference']||!$j['production_reference'])throw new RuntimeException('Scheduler needs explicit disposition');$review[$j['line']]=['sha256'=>$j['sha256'],'action'=>'keep'];}
+    $web=$maintenance->webSnapshot();$expected=$tpHostPreparation['web_preimages']['.htaccess'];$expected['mode']=octdec($expected['mode']);
+    if($web!==$expected||hash('sha256',$maintenance->crontab())!==$tpHostPreparation['scheduler_sha256'])throw new RuntimeException('Hosting state changed');
+    $review=[];foreach($tpHostPreparation['scheduler_jobs']as$j){if($j['pilot_reference']||!$j['production_reference'])throw new RuntimeException('Scheduler needs explicit disposition');$review[$j['line']]=['sha256'=>$j['sha256'],'action'=>'keep'];}
     if((int)$pdo->query("SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA=DATABASE()")->fetchColumn()!==0)throw new RuntimeException('Database events require separate hold');
     if($argv[1]==='inspect'){echo json_encode(['ready'=>true,'files'=>149,'dependencies'=>309,'migrations'=>7,'application_changed'=>false,'private_tools_staged'=>true])."\n";exit;}
     $operation=bin2hex(random_bytes(16));$token=bin2hex(random_bytes(32));$path='core-maintenance-'.$operation.'-'.bin2hex(random_bytes(16)).'.php';
@@ -177,7 +179,7 @@ try{
     $journal=thunderhawkPilotPrivateStream(__DIR__.'/installation-journal.jsonl');
     tpWrite($path,$probe,null);
     $state['phase']='holding';$save();
-    $maintenance->pause($operation,$web,$host['scheduler_sha256'],$review,$path);
+    $maintenance->pause($operation,$web,$tpHostPreparation['scheduler_sha256'],$review,$path);
     foreach(['api/workflow.php','modules/time/api/entries.php']as$url)if(tpHttp($url,'POST')['status']!==503)throw new RuntimeException('Pilot ingress is not held');
     $state['drain']=tpChannel($state,['action'=>'status']);$state['phase']='backing_up';$save();
     if(!mkdir(__DIR__.'/backup',0700)||!mkdir(__DIR__.'/backup/files',0700))throw new RuntimeException('Private backup directory unavailable');
@@ -227,14 +229,15 @@ try{
             if(hash_file('sha256',TP_FEATURE)!==$package['feature_sha256'])throw new RuntimeException('Pre-schema configuration changed');
             $receipt=TP_PRIVATE.'/maintenance-'.$state['operation'].'/receipt.json';
             if(is_file($receipt))$maintenance->restore($state['operation']);
-            elseif($maintenance->webSnapshot()!==$web||hash('sha256',$maintenance->crontab())!==$host['scheduler_sha256'])throw new RuntimeException('Unrecorded maintenance state requires review');
+            elseif($maintenance->webSnapshot()!==$web||hash('sha256',$maintenance->crontab())!==$tpHostPreparation['scheduler_sha256'])throw new RuntimeException('Unrecorded maintenance state requires review');
             if(is_file(tpPath($state['channel']['path'])))tpFinishProbe($state);
             $state['phase']='aborted_before_schema';$state['maintenance_restored']=true;
         }catch(Throwable $recovery){$state['pre_schema_recovery_failure']=$recovery->getMessage();}
     }
     if($state!==null){$state['failure']=$error->getMessage();$state['failed_at']=gmdate('c');$save();}
     fwrite(STDERR,json_encode(['passed'=>false,'phase'=>$state['phase']??'preflight','failure'=>$error->getMessage(),
-        'operation'=>$state['operation']??null,'retry_automatically'=>false])."\n");$exitCode=1;
+        'operation'=>$state['operation']??null,'failure_file'=>basename($error->getFile()),'failure_line'=>$error->getLine(),
+        'retry_automatically'=>false])."\n");$exitCode=1;
 }finally{
     if($locked)thunderhawkTimePayrollUnlock($pdo);
     if(is_resource($journal))fclose($journal);
