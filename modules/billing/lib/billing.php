@@ -310,6 +310,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
 
     require_once __DIR__ . '/../../placements/lib/placements.php';
     require_once __DIR__ . '/../../time/lib/time.php';
+    require_once __DIR__ . '/../../time/lib/approval_economics.php';
 
     $pdo = getDB();
     $tenant = $pdo->prepare('SELECT billing_tax_rate_pct, billing_invoice_terms FROM tenants WHERE id = :id');
@@ -325,13 +326,11 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
         $placeholders[] = ':' . $k;
         $params[$k] = $id;
     }
-    timeRepairApprovedRateSnapshots($tenantId, ['ids' => $ids], count($ids));
     $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
     $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-    $entries = scopedQuery(
-        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
-                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id,
-                te.bill_extracted_at, te.bill_extracted_ref, te.dimension_snapshot_hash,
+    if ($tenantId!==staffingTimeWorkspace()) throw new RuntimeException("Review time in its original workspace.",409);
+    $entries = staffingTimeQuery(
+        'SELECT te.*,
                 p.title AS placement_title, p.end_client_name,
                 pe.first_name, pe.last_name
            FROM time_entries te
@@ -342,6 +341,7 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
           ORDER BY te.placement_id, te.work_date, te.id',
         array_merge($params, ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId])
     );
+    if (count($entries)!==count($ids)) throw new RuntimeException('Some selected time is missing or belongs to another workspace. Review the complete selection again.',409);
     if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
 
     // Validate every entry is approved + billable. Non-billable rows are
@@ -368,13 +368,13 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
 
     // Approved time must price from its locked approval snapshot, not from
     // whatever placement rate happens to be current when billing runs.
-    $ratesById = timeRateSnapshotsById(array_column($billable, 'rate_snapshot_id'), $tenantId);
+    $ratesByEntry = timeApprovedRatesByEntry($billable, $tenantId);
     foreach ($billable as &$e) {
         $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
-        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        $rate = $ratesByEntry[(int)$e['id']] ?? null;
         if (!$rate || empty($rate['id'])) {
             throw new \RuntimeException(
-                "Entry #{$e['id']} is approved but has no locked bill-rate snapshot. Repair approved time snapshots first."
+                "Entry #{$e['id']} is approved but has no locked bill-rate snapshot. Review the retained approval evidence first."
             );
         }
         $base = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
@@ -557,6 +557,7 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
 {
     require_once __DIR__ . '/../../placements/lib/placements.php';
     require_once __DIR__ . '/../../time/lib/time.php';
+    require_once __DIR__ . '/../../time/lib/approval_economics.php';
     $pdo = getDB();
 
     // Resolve the placement (and quietly fail if it doesn't exist or
@@ -596,9 +597,9 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
         'te.bill_extracted_at IS NULL',
     ];
     $params = ['pid' => $placementId];
-    timeRepairApprovedRateSnapshots($tenantId, ['placement_id' => $placementId], 5000);
-    $entries = scopedQuery(
-        'SELECT te.id, te.work_date, te.category, te.hour_type, te.hours, te.person_id, te.description, te.rate_snapshot_id,
+    if ($tenantId!==staffingTimeWorkspace()) throw new RuntimeException("Review time in its original workspace.",409);
+    $entries = staffingTimeQuery(
+        'SELECT te.*,
                 p.first_name, p.last_name
            FROM time_entries te
       LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = :people_tid
@@ -609,16 +610,16 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
     );
 
     // Preview from the same locked snapshots invoice creation will use.
-    $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
+    $ratesByEntry = timeApprovedRatesByEntry($entries, $tenantId);
     $totalHours = 0.0; $estSubtotal = 0.0;
     $workersSeen = [];
     $minDate = null; $maxDate = null;
     foreach ($entries as $e) {
         $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
-        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        $rate = $ratesByEntry[(int)$e['id']] ?? null;
         if (!$rate || empty($rate['id'])) {
             throw new \RuntimeException(
-                "Entry #{$e['id']} is approved but has no locked bill-rate snapshot. Repair approved time snapshots first."
+                "Entry #{$e['id']} is approved but has no locked bill-rate snapshot. Review the retained approval evidence first."
             );
         }
         $base = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
@@ -707,7 +708,7 @@ function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int
             'distinct_days' => $distinctDays,
             'worker_count'  => $workerCount,
         ],
-        'candidate_entries'    => $entries,
+        'candidate_entries'    => array_map(static fn(array $entry):array=>array_intersect_key($entry,array_flip(['id','work_date','category','hour_type','hours','person_id','description','rate_snapshot_id','first_name','last_name'])),$entries),
         'candidate_entry_ids'  => array_map(static fn ($e) => (int) $e['id'], $entries),
         'total_hours'          => round($totalHours, 2),
         'estimated_subtotal'   => round($estSubtotal, 2),

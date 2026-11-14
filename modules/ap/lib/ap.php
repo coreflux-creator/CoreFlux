@@ -490,6 +490,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
     require_once __DIR__ . '/../../placements/lib/placements.php';
     require_once __DIR__ . '/../../time/lib/time.php';
+    require_once __DIR__ . '/../../time/lib/approval_economics.php';
 
     $pdo = getDB();
     $tenant = $pdo->prepare('SELECT ap_default_terms FROM tenants WHERE id = :id');
@@ -506,12 +507,11 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
         $placeholders[] = ':' . $k;
         $params[$k] = $id;
     }
-    timeRepairApprovedRateSnapshots($tenantId, ['ids' => $ids], count($ids));
     $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
     $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-    $entries = scopedQuery(
-        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.category, te.hour_type,
-                te.hours, te.billable, te.payable, te.status, te.description, te.rate_snapshot_id, te.dimension_snapshot_hash,
+    if ($tenantId!==staffingTimeWorkspace()) throw new RuntimeException("Review time in its original workspace.",409);
+    $entries = staffingTimeQuery(
+        'SELECT te.*,
                 p.title AS placement_title, p.engagement_type, p.accounting_entity_id,
                 pcd.corp_name,
                 pe.first_name, pe.last_name
@@ -524,6 +524,7 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
           ORDER BY te.placement_id, te.work_date, te.id',
         array_merge($params, ['placements_tid' => $placementsTenantId, 'people_tid' => $peopleTenantId])
     );
+    if (count($entries)!==count($ids)) throw new RuntimeException('Some selected time is missing or belongs to another workspace. Review the complete selection again.',409);
     if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
 
     $activeEntityIds = apGeneratedActiveEntityIds($tenantId);
@@ -545,13 +546,13 @@ function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string 
 
     // Approved time must pay from its locked approval snapshot, not from
     // a later placement-rate correction.
-    $ratesById = timeRateSnapshotsById(array_column($payable, 'rate_snapshot_id'), $tenantId);
+    $ratesByEntry = timeApprovedRatesByEntry($payable, $tenantId);
     foreach ($payable as &$e) {
         $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
-        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        $rate = $ratesByEntry[(int)$e['id']] ?? null;
         if (!$rate || empty($rate['id'])) {
             throw new \RuntimeException(
-                "Entry #{$e['id']} is approved but has no locked pay-rate snapshot. Repair approved time snapshots first."
+                "Entry #{$e['id']} is approved but has no locked pay-rate snapshot. Review the retained approval evidence first."
             );
         }
         $party = placementEconomicsPrimaryPayable(

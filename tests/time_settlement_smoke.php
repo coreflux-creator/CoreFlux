@@ -58,8 +58,8 @@ $a('only allows status=approved on extract',
     $c($lib, "\$r['status'] !== 'approved'"));
 $a('extract refuses approved rows without locked snapshots',
     $c($lib, "is approved but has no locked rate snapshot"));
-$a('extract repairs legacy approved rows before validating',
-    $c($lib, 'timeRepairApprovedRateSnapshots((int) $tenantId, [\'ids\' => $entryIds]'));
+$a('extract verifies retained approval evidence before consuming time',
+    $c($lib, 'timeApprovedRatesByEntry($rows, (int)$tenantId)'));
 $a('idempotent guard: refuses if already extracted',
     $c($lib, 'already extracted to'));
 $a('FOR UPDATE row lock on extract',         $c($lib, 'FOR UPDATE'));
@@ -202,9 +202,9 @@ $a('payroll: records commission/referral obligations against the run',
                                                   $c($cr, 'placementEconomicsPayrollCharges')
                                                   && $c($cr, '\'payroll_ref_id\' => (int) $recipientRun[\'run_id\']'));
 $a('groups entries by placement_id',              $c($cr, '$byPlacement[(int) $e[\'placement_id\']]'));
-$a('auto-create repairs legacy approved rows first',
-                                                  $c($cr, 'timeRepairApprovedRateSnapshots((int) $tenantId'));
-$a('auto-create loads locked rate snapshots by id',$c($cr, 'timeRateSnapshotsById(array_column($entries, \'rate_snapshot_id\')'));
+$a('auto-create verifies retained approval evidence first',
+                                                  $c($cr, 'timeApprovedRatesByEntry($entries, $tenantId)'));
+$a('auto-create loads retained rates by entry',$c($cr, 'timeApprovedRatesByEntry($entries, $tenantId)'));
 $a('auto-create refuses approved rows without snapshots',
                                                   $c($cr, 'is approved but has no locked rate snapshot'));
 $a('billing uses adjusted bill rate',              $c($cr, "\$rate['adjusted_bill_rate'] ?? \$rate['bill_rate']"));

@@ -22,4 +22,20 @@ $check($c2c['cost']===562.0&&$c2c['wage_cost']===0.0,'C2C includes overhead with
 $hash=timeApprovedEntryFactsHash($entry);
 foreach(['hours'=>9,'tenant_id'=>11,'id'=>21,'person_id'=>31,'placement_id'=>41,'period_id'=>51,'timesheet_id'=>61,'work_date'=>'2026-10-06','category'=>'holiday','hour_type'=>'overtime','billable'=>0,'payable'=>0,'approved_at'=>'2026-10-10 12:00:00','approved_by_user_id'=>99,'approved_via'=>'manual','client_approver_email'=>'different@example.invalid'] as $field=>$value) $check($hash!==timeApprovedEntryFactsHash(array_replace($entry,[$field=>$value])),'Approved evidence binds '.$field);
 $check($hash===timeApprovedEntryFactsHash($entry+['status'=>'locked','bill_extracted_ref'=>'invoice:1']),'Extraction markers do not rewrite approved facts');
+require_once __DIR__.'/../modules/time/lib/time.php';
+$entries=[
+    array_replace($entry,['id'=>1,'hours'=>2,'rate_snapshot_id'=>90]),
+    array_replace($entry,['id'=>2,'hours'=>3,'rate_snapshot_id'=>90,'billable'=>0,'category'=>'regular_nonbillable']),
+    array_replace($entry,['id'=>3,'hours'=>1,'rate_snapshot_id'=>90,'billable'=>0,'category'=>'vacation','hour_type'=>'pto']),
+    array_replace($entry,['id'=>4,'hours'=>4,'rate_snapshot_id'=>90,'billable'=>0,'payable'=>0,'category'=>'unpaid_leave','hour_type'=>'unpaid']),
+];
+$rates=[1=>$rate,2=>array_replace($rate,['pay_rate'=>70]),3=>$rate,4=>$rate];
+$totals=timeEntrySnapshotFinancialTotals($entries,$rates);
+$check($totals['amount_bill']===196.0 && $totals['amount_pay']===405.0,'period amounts honor billability, paid nonbillable time, PTO and unpaid flags separately');
+$check($totals['totals']===['billable'=>2.0,'nonbillable'=>3.0,'pto'=>1.0,'unpaid'=>4.0,'custom'=>0.0],'period hour buckets remain visible independently of financial flags');
+$referralEntry=array_replace($entry,['id'=>5,'rate_snapshot_id'=>90,'hours'=>2,'hour_type'=>'overtime','dimension_snapshot_json'=>json_encode(['engagement_type'=>'referral','referral_fee_per_hour'=>20])]);
+$referralTotal=timeEntrySnapshotFinancialTotals([$referralEntry],[5=>$rate]);
+$check($referralTotal['amount_pay']===40.0 && $referralTotal['amount_bill']===294.0,'period referral uses approved flat hourly payout without live contract reads');
+$missing=timeEntrySnapshotFinancialTotals([$entries[0]],[]);
+$check($missing['missing_rate_entry_ids']===[1] && $missing['amount_bill']===0.0,'missing per-entry rates cannot fall back to a shared rate ID');
 echo $count." approved-economics checks passed.\n";

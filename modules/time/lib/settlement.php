@@ -29,6 +29,7 @@ require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/time.php';
+require_once __DIR__ . '/approval_economics.php';
 
 const TIME_SETTLEMENT_TARGETS = ['billing','ap','payroll'];
 
@@ -68,12 +69,6 @@ function timeSettlementCandidates(string $target, array $filters = []): array
 function _timeSettlementCandidates(string $target, array $filters, bool $readyOnly): array
 {
     $cols = _settlementColumns($target);
-    timeRepairApprovedRateSnapshots((int) currentTenantId(), [
-        'placement_id' => $filters['placement_id'] ?? null,
-        'person_id' => $filters['person_id'] ?? null,
-        'from' => $filters['from'] ?? null,
-        'to' => $filters['to'] ?? null,
-    ], 5000);
     $where  = ["te.tenant_id = :tenant_id", "te.status = 'approved'", "te.{$cols['at']} IS NULL"];
     $params = ['tenant_id' => currentTenantId()];
     $params['placements_tid'] = effectiveTenantIdForModule('placements', (int) currentTenantId()) ?? currentTenantId();
@@ -279,13 +274,12 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     $tenantId = currentTenantId();
     $pdo = getDB();
     $place = implode(',', array_fill(0, count($entryIds), '?'));
-    timeRepairApprovedRateSnapshots((int) $tenantId, ['ids' => $entryIds], count($entryIds));
 
     $ownsTxn = cf_tx_begin($pdo);
     try {
         // Lock + validate the batch.
         $stmt = $pdo->prepare(
-            "SELECT id, status, work_date, rate_snapshot_id, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref
+            "SELECT *, {$cols['at']} AS already_at, {$cols['ref']} AS already_ref
              FROM time_entries
              WHERE tenant_id = ? AND id IN ($place)
              FOR UPDATE"
@@ -307,6 +301,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
             }
         }
 
+        timeApprovedRatesByEntry($rows, (int)$tenantId);
         require_once __DIR__.'/../../../core/quanta/time_current.php';
         $sourceCheck = quantaTimeAssertCurrent($pdo, (int)$tenantId, $entryIds);
         $storedTargetRef = (string) $targetRef;

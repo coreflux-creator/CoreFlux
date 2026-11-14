@@ -87,6 +87,19 @@ function timeApprovedRate(array $entry,int $tenant): array
     return $rate;
 }
 
+/** Prices are keyed by time entry, because one rate ID can have several approvals. */
+function timeApprovedRatesByEntry(array $entries,int $tenant): array
+{
+    $rates=[];
+    usort($entries,static fn(array $a,array $b):int=>(int)$a['id']<=>(int)$b['id']);
+    foreach ($entries as $entry) {
+        $id=(int)($entry['id']??0);
+        if ($id<=0 || isset($rates[$id])) throw new RuntimeException('The time selection contains missing or repeated identities. Review it again.',409);
+        $rates[$id]=timeApprovedRate($entry,$tenant);
+    }
+    return $rates;
+}
+
 /** Preserve the existing staffing cost breakdown using approved values only. */
 function timeApprovedEntryAmounts(array $entry,array $rate,array $snapshot): array
 {

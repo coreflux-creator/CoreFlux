@@ -112,27 +112,25 @@ function payrollRunExtractedHours(int $runId): array {
     $ref = (string)$runId;
     $tenantId = currentTenantId();
     if (!$tenantId) return [];
-    $placementOwner = effectiveTenantIdForModule('placements', $tenantId);
+    require_once __DIR__ . '/../../time/lib/approval_economics.php';
     $stmt = getDB()->prepare(
-        'SELECT te.id,te.person_id,te.category,te.hours,te.status,r.currency,r.approved_at
+        'SELECT te.*
            FROM time_entries te
-      LEFT JOIN placement_rates r ON r.tenant_id=:placement_owner
-            AND r.id=te.rate_snapshot_id AND r.placement_id=te.placement_id
           WHERE te.tenant_id = :time_tenant_id AND CAST(te.payroll_extracted_ref AS CHAR) IN (:ref,:legacy_ref)
           ORDER BY te.id'
     );
     $stmt->execute([
-        'placement_owner' => $placementOwner,
         'time_tenant_id' => $tenantId,
         'ref' => $ref,
         'legacy_ref' => 'payroll:run#'.$runId,
     ]);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    $ratesByEntry = timeApprovedRatesByEntry($rows, (int)$tenantId);
     $result = []; $recipients = [];
     foreach ($rows as $row) {
         $label = 'Extracted time #' . $row['id'];
-        if ($row['status'] !== 'approved' || empty($row['approved_at'])) throw new RuntimeException($label . ' no longer has approved time and rate evidence.');
-        payrollAssertSourceCurrency($row['currency'], $label);
+        $rate = $ratesByEntry[(int)$row['id']];
+        payrollAssertSourceCurrency($rate['currency'], $label);
         $person = (int) $row['person_id'];
         if (!array_key_exists($person, $recipients)) $recipients[$person] = placementEconomicsPayrollEmployee($tenantId, ['person_id'=>$person]);
         $employee = $recipients[$person];

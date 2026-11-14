@@ -15,6 +15,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/settlement.php';
+require_once __DIR__ . '/approval_economics.php';
 require_once __DIR__ . '/../../placements/lib/economics.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';
 require_once __DIR__ . '/../../ap/lib/pwp.php';
@@ -44,7 +45,6 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
     $placementsTenantId = effectiveTenantIdForModule('placements', (int) $tenantId) ?? $tenantId;
     $pdo      = getDB();
     $place    = implode(',', array_fill(0, count($entryIds), '?'));
-    timeRepairApprovedRateSnapshots((int) $tenantId, ['ids' => $entryIds], count($entryIds));
 
     $cols = match ($target) {
         'billing' => ['at' => 'bill_extracted_at',     'ref' => 'bill_extracted_ref',     'by' => 'bill_extracted_by_user_id'],
@@ -71,8 +71,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
     try {
         // 1) Pull entries + placement context, lock with FOR UPDATE.
         $stmt = $pdo->prepare(
-            "SELECT te.id, te.placement_id, te.person_id, te.work_date,
-                    te.category, te.hours, te.description, te.status, te.rate_snapshot_id,
+            "SELECT te.*,
                     te.{$cols['at']} AS already_at,
                     p.title AS placement_title, p.engagement_type, p.end_client_name
              FROM time_entries te
@@ -103,7 +102,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
         // 2) Group by placement_id.
         $byPlacement = [];
         foreach ($entries as $e) $byPlacement[(int) $e['placement_id']][] = $e;
-        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $tenantId);
+        $ratesByEntry = timeApprovedRatesByEntry($entries, $tenantId);
 
         // 3) Per placement: price each row from its locked rate snapshot.
         $created = [];
@@ -113,7 +112,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             $lines = [];
             foreach ($rows as $e) {
                 $rateId = (int) ($e['rate_snapshot_id'] ?? 0);
-                $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+                $rate = $ratesByEntry[(int)$e['id']] ?? null;
                 if (!$rate) {
                     throw new TimeSettlementException("Entry #{$e['id']} references missing rate snapshot #{$rateId}");
                 }
@@ -525,8 +524,7 @@ function _settleTimeIntoPayroll(
     try {
         // Lock selected source rows before validating their saved rate and employment identity.
         $stmt = $pdo->prepare(
-            "SELECT te.id, te.person_id, te.placement_id, te.work_date,
-                    te.category, te.hours, te.description, te.status, te.rate_snapshot_id,
+            "SELECT te.*,
                     te.{$cols['at']} AS already_at,
                     pe.user_id AS person_user_id,
                     pe.email_primary AS person_email,
@@ -563,9 +561,9 @@ function _settleTimeIntoPayroll(
         $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, $entryIds);
 
         // Rate currency is checked before creating any draft run or source stamp.
-        $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'), $placementsTenantId);
+        $ratesByEntry = timeApprovedRatesByEntry($entries, $tenantId);
         foreach ($entries as $entry) {
-            $rate = $ratesById[(int)$entry['rate_snapshot_id']] ?? null;
+            $rate = $ratesByEntry[(int)$entry['id']] ?? null;
             if (!$rate || (int)$rate['placement_id'] !== (int)$entry['placement_id'] || empty($rate['approved_at'])) {
                 throw new TimeSettlementException("Entry #{$entry['id']} has no approved rate for its placement");
             }
@@ -696,7 +694,7 @@ function _settleTimeIntoPayroll(
                 foreach ($entriesByRate as $rateSnapshotId => $snapshotEntries) {
                     $hours = 0.0; $billAmount = 0.0; $payAmount = 0.0; $workDates = [];
                     foreach ($snapshotEntries as $entry) {
-                        $rate = $ratesById[$rateSnapshotId] ?? null;
+                        $rate = $ratesByEntry[(int)$entry['id']] ?? null;
                         if (!$rate) continue;
                         $entryHours = (float) $entry['hours'];
                         $multiplier = timeRateCategoryMultiplier($rate, (string) $entry['category']);
@@ -723,7 +721,7 @@ function _settleTimeIntoPayroll(
                         $economicItemId = (int) ($charge['economic_item_id'] ?? 0);
                         if ($economicItemId > 0 && isset($seenPayrollItems[$economicItemId])) continue;
                         if ($economicItemId > 0) $seenPayrollItems[$economicItemId] = true;
-                        $chargeCurrency = $charge['currency'] ?? ($ratesById[$rateSnapshotId]['currency'] ?? null);
+                        $chargeCurrency = $charge['currency'] ?? ($ratesByEntry[(int)$snapshotEntries[0]['id']]['currency'] ?? null);
                         payrollAssertSourceCurrency($chargeCurrency, 'Commission or referral for placement #'.$placementId);
                         $recipient = placementEconomicsPayrollEmployee($tenantId, $charge);
                         if (!$recipient) {

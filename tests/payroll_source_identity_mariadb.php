@@ -10,6 +10,8 @@ require_once __DIR__.'/../modules/people/lib/employment_links.php';
 require_once __DIR__.'/../modules/payroll/lib/payroll.php';
 require_once __DIR__.'/../modules/time/lib/settlement_create.php';
 require_once __DIR__.'/../core/migrate.php';
+require_once __DIR__.'/../modules/time/lib/approval_economics.php';
+require_once __DIR__.'/fixtures/payroll_input_approval_evidence.php';
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
 $db='coreflux_payroll_identity_'.($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db.' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');$pdo->exec('USE '.$db);
 $passed=0;$checks=[];
@@ -48,6 +50,13 @@ try {
     $apply('core/migrations/197_payroll_obligation_recipients.sql');
     $pdo->exec('CREATE TABLE audit_log(id BIGINT AUTO_INCREMENT PRIMARY KEY,tenant_id BIGINT NULL,actor_user_id BIGINT NULL,event VARCHAR(100),target_id BIGINT NULL,meta_json LONGTEXT,ip_address VARCHAR(50),created_at DATETIME)');
     $pdo->exec("INSERT INTO time_entries VALUES(1,10,1,100,'2026-11-09','regular_billable',2,'Synthetic','approved',1,NOW(),7,7),(2,10,1,100,'2026-11-10','OT_billable',1,'Synthetic','approved',1,NOW(),7,7),(3,11,1,101,'2026-11-09','regular_billable',3,'Shared','approved',2,NOW(),7,7),(4,10,2,100,'2026-11-09','regular_billable',4,'Unlinked','approved',1,NULL,NULL,NULL)");
+    $apply('core/migrations/203_time_approval_economics.sql');
+    $pdo->exec("ALTER TABLE time_entries ADD period_id BIGINT DEFAULT 1,ADD timesheet_id BIGINT DEFAULT 77,ADD billable INT DEFAULT 1,ADD payable INT DEFAULT 1,ADD hour_type VARCHAR(20) DEFAULT 'regular',ADD approved_at DATETIME DEFAULT '2026-11-11 12:00:00',ADD approved_via VARCHAR(30) DEFAULT 'manual',ADD approved_by_user_id BIGINT DEFAULT 7,ADD client_approver_email VARCHAR(200) NULL,ADD dimension_snapshot_json LONGTEXT NULL,ADD dimension_snapshot_hash CHAR(64) NULL");
+    $pdo->exec("UPDATE time_entries SET hour_type='overtime' WHERE id=2");
+    $pdo->exec('ALTER TABLE placement_rates ADD adder_pct DECIMAL(6,4) DEFAULT 0,ADD workers_comp_pct DECIMAL(6,4) DEFAULT 0,ADD benefits_load_pct DECIMAL(6,4) DEFAULT 0,ADD other_cost_per_hour DECIMAL(12,2) DEFAULT 0');
+    payrollInputFixtureApprovalEvidence($pdo,[1,2,3,4]);
+    // Reset only these disposable scenario fixtures when testing a different original approval.
+    $resetApproval=static function()use($pdo):void{$pdo->exec('DELETE FROM time_approval_rates');payrollInputFixtureApprovalEvidence($pdo,[1,2,3,4]);};
     $pdo->exec("INSERT INTO placement_economic_obligations(id,tenant_id,placement_id,economic_party_id,payroll_ref_id,amount,currency,status,source_type,source_ref_id) VALUES(1,10,100,1,7,12.34,'USD','payroll','manual',1),(2,10,100,1,7,0.01,'USD','payroll','manual',2),(3,11,101,2,8,99.99,'USD','payroll','manual',3)");
     $check($fails(fn()=>payrollRunEconomicEarnings(7),'no saved payroll recipient'),'unreceipted historical earnings are not silently adopted from current identity');
     // These are invented source rows. Exercise capture at first extraction, not a legacy adoption path.
@@ -65,12 +74,12 @@ try {
     $pdo->exec("UPDATE time_entries SET payroll_extracted_ref=7 WHERE id=4");
     $check($fails(fn()=>payrollRunExtractedHours(7),'reviewed person/employment link'),'unlinked extracted source raises a review error instead of disappearing or using email');
     $pdo->exec('UPDATE time_entries SET payroll_extracted_ref=NULL WHERE id=4');
-    foreach(['INR','CAD','']as$currency){$pdo->prepare('UPDATE placement_rates SET currency=? WHERE id=1')->execute([$currency]);$check($fails(fn()=>payrollRunExtractedHours(7),'explicit USD currency'),'non-USD or missing source rate is not relabelled: '.$currency);}
-    $pdo->exec("UPDATE placement_rates SET currency='USD',approved_at=NULL WHERE id=1");
-    $check($fails(fn()=>payrollRunExtractedHours(7),'approved time and rate'),'unapproved snapshot cannot be consumed');
-    $pdo->exec('UPDATE placement_rates SET approved_at=NOW() WHERE id=1');
+    foreach(['INR','CAD','']as$currency){$pdo->prepare('UPDATE placement_rates SET currency=? WHERE id=1')->execute([$currency]);$check(payrollRunExtractedHours(7)===$hours,'later master currency changes preserve original USD approval: '.$currency);$resetApproval();$check($fails(fn()=>payrollRunExtractedHours(7),'explicit USD currency'),'original non-USD or missing approval currency is not relabelled: '.$currency);$pdo->exec("UPDATE placement_rates SET currency='USD' WHERE id=1");$resetApproval();}
+    $pdo->exec("UPDATE placement_rates SET currency='USD',approved_at=NULL WHERE id=1");$resetApproval();
+    $check($fails(fn()=>payrollRunExtractedHours(7),'approved rate does not identify'),'unapproved snapshot cannot be consumed');
+    $pdo->exec('UPDATE placement_rates SET approved_at=NOW() WHERE id=1');$resetApproval();
     $pdo->exec('UPDATE time_entries SET rate_snapshot_id=2 WHERE id=1');
-    $check($fails(fn()=>payrollRunExtractedHours(7),'approved time and rate'),'foreign rate snapshot cannot satisfy a native source');
+    $check($fails(fn()=>payrollRunExtractedHours(7),'original approved time or rate evidence changed'),'foreign rate snapshot cannot satisfy a native source');
     $pdo->exec('UPDATE time_entries SET rate_snapshot_id=1 WHERE id=1');
     $pdo->exec("UPDATE placement_economic_obligations SET currency='INR' WHERE id=1");
     $check($fails(fn()=>payrollRunEconomicEarnings(7),'explicit USD currency'),'foreign commission remains outside USD earnings');
@@ -140,10 +149,11 @@ try {
     $pdo->exec('UPDATE time_entries SET payroll_extracted_at=NULL,payroll_extracted_ref=NULL,payroll_extracted_by_user_id=NULL WHERE tenant_id=10');
     $cols=['at'=>'payroll_extracted_at','ref'=>'payroll_extracted_ref','by'=>'payroll_extracted_by_user_id'];
     $settle=static fn(array $ids)=>_settleTimeIntoPayroll($ids,$cols,7,10,10,$pdo,implode(',',array_fill(0,count($ids),'?')));
-    $pdo->exec("UPDATE placement_rates SET currency='INR' WHERE id=1");
+    $pdo->exec("UPDATE placement_rates SET currency='INR' WHERE id=1");$resetApproval();
     $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
     $check($fails(fn()=>$settle([1,2]),'explicit USD currency')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===2&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'currency failure leaves the entire source batch and draft runs unchanged');
-    $pdo->exec("UPDATE placement_rates SET currency='USD' WHERE id=1");
+    $pdo->exec("UPDATE placement_rates SET currency='USD' WHERE id=1");$resetApproval();
+    $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
     $pdo->exec("INSERT INTO placement_economic_items(tenant_id,placement_id,economic_party_id,description,settlement_channel,amount,currency,apply_on) VALUES(10,100,1,'Synthetic foreign one-time item','payroll',7500,'INR','2026-11-01')");
     $itemBefore=$pdo->query('SELECT * FROM placement_economic_items')->fetchAll();
     $check($fails(fn()=>$settle([1,2]),'explicit USD currency')&&(int)$pdo->query('SELECT COUNT(*) FROM payroll_runs')->fetchColumn()===2&&$pdo->query('SELECT * FROM placement_economic_items')->fetchAll()===$itemBefore&&$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,'foreign one-time commission rolls back draft creation and retains original source terms');
@@ -160,9 +170,6 @@ try {
     $check((string)$pdo->query('SELECT payroll_extracted_ref FROM time_entries WHERE id=1')->fetchColumn()===(string)$run,'actual BIGINT extraction column retains the numeric native run identity');
     require_once __DIR__.'/../modules/payroll/lib/accounting_posting.php';
     $pdo->exec("ALTER TABLE placements ADD engagement_type VARCHAR(20) DEFAULT 'w2'");
-    $pdo->exec("ALTER TABLE time_entries ADD dimension_snapshot_json LONGTEXT NULL,ADD dimension_snapshot_hash CHAR(64) NULL,ADD timesheet_id BIGINT DEFAULT 77,ADD payable INT DEFAULT 1,ADD hour_type VARCHAR(20) DEFAULT 'regular'");
-    $pdo->exec("UPDATE time_entries SET hour_type='overtime' WHERE id=2");
-    $pdo->exec('ALTER TABLE placement_rates ADD adder_pct DECIMAL(6,4) DEFAULT 0,ADD workers_comp_pct DECIMAL(6,4) DEFAULT 0,ADD benefits_load_pct DECIMAL(6,4) DEFAULT 0,ADD other_cost_per_hour DECIMAL(12,2) DEFAULT 0');
     $pdo->exec('CREATE TABLE accounting_events(id BIGINT PRIMARY KEY,tenant_id BIGINT,entity_id BIGINT,event_type VARCHAR(100),status VARCHAR(20),source_record_id VARCHAR(200),payload LONGTEXT)');
     $pdo->prepare("INSERT INTO accounting_events VALUES(1,10,1,'staffing.worker_hours.approved','posted','77:w2',?)")->execute([json_encode(['dimensions'=>['placement'=>['id'=>100],'worker'=>['id'=>1]]])]);
     $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]]),'legacy aggregate staffing accrual'),'numeric native run still detects legacy accrual coverage before any posting');

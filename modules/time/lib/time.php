@@ -411,210 +411,6 @@ function timeResolveRateSnapshot(int $placementId, string $workDate, ?int $tenan
     return $row ?: null;
 }
 
-/**
- * Backfill legacy approved entries that predate the snapshot-at-approval gate.
- * This is intentionally conservative: it only fills NULL rate_snapshot_id on
- * rows already approved, and only when an approved placement rate covered the
- * entry work_date.
- *
- * @param array{ids?:int[], period_id?:int, placement_id?:int, person_id?:int, from?:string, to?:string} $filters
- * @return array{checked:int,repaired:int,missing:int,failed:int,failures:array<int,string>}
- */
-function timeRepairApprovedRateSnapshots(?int $tenantId = null, array $filters = [], int $limit = 1000): array
-{
-    $tenantId = $tenantId ?? currentTenantId();
-    $pdo = getDB();
-    if (!$pdo || !$tenantId) {
-        return ['checked' => 0, 'repaired' => 0, 'missing' => 0, 'failed' => 0, 'failures' => []];
-    }
-
-    $where = [
-        'tenant_id = :tenant_id',
-        "status IN ('approved','locked','billing_ready','payroll_ready')",
-        'rate_snapshot_id IS NULL',
-        'placement_id IS NOT NULL',
-        'work_date IS NOT NULL',
-    ];
-    $params = ['tenant_id' => $tenantId];
-
-    if (!empty($filters['period_id'])) {
-        $where[] = 'period_id = :period_id';
-        $params['period_id'] = (int) $filters['period_id'];
-    }
-    if (!empty($filters['placement_id'])) {
-        $where[] = 'placement_id = :placement_id';
-        $params['placement_id'] = (int) $filters['placement_id'];
-    }
-    if (!empty($filters['person_id'])) {
-        $where[] = 'person_id = :person_id';
-        $params['person_id'] = (int) $filters['person_id'];
-    }
-    if (!empty($filters['from'])) {
-        $where[] = 'work_date >= :from';
-        $params['from'] = (string) $filters['from'];
-    }
-    if (!empty($filters['to'])) {
-        $where[] = 'work_date <= :to';
-        $params['to'] = (string) $filters['to'];
-    }
-    $ids = array_values(array_unique(array_filter(array_map('intval', $filters['ids'] ?? []))));
-    if ($ids) {
-        $idPlaceholders = [];
-        foreach ($ids as $idx => $id) {
-            $key = 'id_' . $idx;
-            $idPlaceholders[] = ':' . $key;
-            $params[$key] = $id;
-        }
-        $where[] = 'id IN (' . implode(',', $idPlaceholders) . ')';
-    }
-
-    $limit = max(1, min(5000, $limit));
-    $stmt = $pdo->prepare(
-        'SELECT id, placement_id, work_date
-           FROM time_entries
-          WHERE ' . implode(' AND ', $where) . '
-          ORDER BY work_date, id
-          LIMIT ' . (int) $limit
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-
-    $out = ['checked' => count($rows), 'repaired' => 0, 'missing' => 0, 'failed' => 0, 'failures' => []];
-    if (!$rows) return $out;
-
-    $upd = $pdo->prepare(
-        "UPDATE time_entries
-            SET rate_snapshot_id = :rate_snapshot_id
-          WHERE tenant_id = :tenant_id
-            AND id = :id
-            AND status IN ('approved','locked','billing_ready','payroll_ready')
-            AND rate_snapshot_id IS NULL"
-    );
-    foreach ($rows as $row) {
-        try {
-            $snap = timeResolveRateSnapshot((int) $row['placement_id'], (string) $row['work_date'], $tenantId);
-            if (!$snap || empty($snap['id'])) {
-                $out['missing']++;
-                continue;
-            }
-            $upd->execute([
-                'rate_snapshot_id' => (int) $snap['id'],
-                'tenant_id' => $tenantId,
-                'id' => (int) $row['id'],
-            ]);
-            if ($upd->rowCount() > 0) $out['repaired']++;
-        } catch (\Throwable $e) {
-            $out['failed']++;
-            if (count($out['failures']) < 5) {
-                $out['failures'][] = "Entry #{$row['id']}: " . $e->getMessage();
-            }
-        }
-    }
-    return $out;
-}
-
-function timeRateSnapshotsById(array $rateIds, ?int $tenantId = null): array
-{
-    $rateIds = array_values(array_unique(array_filter(array_map('intval', $rateIds))));
-    if (!$rateIds) return [];
-
-    $tenantId = timePlacementGraphTenantId($tenantId);
-    $pdo = getDB();
-    if (!$pdo || !$tenantId) return [];
-
-    $params = ['tenant_id' => $tenantId];
-    $placeholders = [];
-    foreach ($rateIds as $idx => $id) {
-        $key = 'rate_' . $idx;
-        $placeholders[] = ':' . $key;
-        $params[$key] = $id;
-    }
-    $stmt = $pdo->prepare(
-        'SELECT *
-           FROM placement_rates
-          WHERE tenant_id = :tenant_id
-            AND approved_at IS NOT NULL
-            AND id IN (' . implode(',', $placeholders) . ')'
-    );
-    $stmt->execute($params);
-    $rows = [];
-    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-        $rows[(int) $row['id']] = $row;
-    }
-    return $rows;
-}
-
-/**
- * Decorate referral-only entries with the dated hourly vendor payout that
- * replaces worker pay for profitability and period-close totals.
- *
- * A null referral_pay_rate deliberately marks an incomplete referral graph;
- * the bundle calculation will surface that entry as a financial blocker.
- */
-function timeAttachReferralPayoutRates(array $entries, ?int $tenantId = null): array
-{
-    $placementIds = array_values(array_unique(array_filter(array_map(
-        static fn(array $entry): int => (int) ($entry['placement_id'] ?? 0),
-        $entries
-    ))));
-    if (!$placementIds) return $entries;
-
-    $tenantId = timePlacementGraphTenantId($tenantId);
-    $pdo = getDB();
-    if (!$pdo || !$tenantId) return $entries;
-
-    $params = ['tenant_id' => $tenantId];
-    $placeholders = [];
-    foreach ($placementIds as $idx => $placementId) {
-        $key = 'placement_' . $idx;
-        $placeholders[] = ':' . $key;
-        $params[$key] = $placementId;
-    }
-    $stmt = $pdo->prepare(
-        'SELECT p.id AS placement_id, ref.start_date, ref.end_date, ref.fee_flat
-           FROM placements p
-      LEFT JOIN placement_referrals ref
-             ON ref.tenant_id = p.tenant_id
-            AND ref.placement_id = p.id
-            AND ref.fee_basis = "per_hour"
-          WHERE p.tenant_id = :tenant_id
-            AND p.engagement_type = "referral"
-            AND p.id IN (' . implode(',', $placeholders) . ')
-          ORDER BY p.id, ref.start_date, ref.id'
-    );
-    $stmt->execute($params);
-
-    $windowsByPlacement = [];
-    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-        $placementId = (int) $row['placement_id'];
-        $windowsByPlacement[$placementId] ??= [];
-        if ($row['start_date'] !== null) {
-            $windowsByPlacement[$placementId][] = [
-                'start_date' => (string) $row['start_date'],
-                'end_date' => $row['end_date'] !== null ? (string) $row['end_date'] : null,
-                'rate' => (float) ($row['fee_flat'] ?? 0),
-            ];
-        }
-    }
-
-    foreach ($entries as &$entry) {
-        $placementId = (int) ($entry['placement_id'] ?? 0);
-        if (!array_key_exists($placementId, $windowsByPlacement)) continue;
-
-        $workDate = (string) ($entry['work_date'] ?? '');
-        $payoutRate = 0.0;
-        foreach ($windowsByPlacement[$placementId] as $window) {
-            if ($workDate < $window['start_date']) continue;
-            if ($window['end_date'] !== null && $workDate > $window['end_date']) continue;
-            if ($window['rate'] > 0) $payoutRate += $window['rate'];
-        }
-        $entry['referral_pay_rate'] = $payoutRate > 0 ? $payoutRate : null;
-    }
-    unset($entry);
-
-    return $entries;
-}
-
 function timeRateCategoryMultiplier(array $rate, string $category): float
 {
     $category = strtolower(trim($category));
@@ -632,7 +428,7 @@ function timeRateCategoryMultiplier(array $rate, string $category): float
  *
  * @return array{totals:array<string,float>,amount_bill:float,amount_pay:float,rate_ids:int[],primary_rate_id:?int,missing_rate_entry_ids:int[]}
  */
-function timeEntrySnapshotFinancialTotals(array $entries, array $ratesById): array
+function timeEntrySnapshotFinancialTotals(array $entries, array $ratesByEntry): array
 {
     $totals = ['billable' => 0.0, 'nonbillable' => 0.0, 'pto' => 0.0, 'unpaid' => 0.0, 'custom' => 0.0];
     $amountBill = 0.0;
@@ -646,32 +442,30 @@ function timeEntrySnapshotFinancialTotals(array $entries, array $ratesById): arr
         $bucket = timeBucket($category);
         $totals[$bucket] = ($totals[$bucket] ?? 0.0) + $hours;
 
-        if ($bucket !== 'billable') continue;
-
         $rateId = (int) ($entry['rate_snapshot_id'] ?? 0);
-        $rate = $rateId > 0 ? ($ratesById[$rateId] ?? null) : null;
+        $rate = $ratesByEntry[(int)($entry['id'] ?? 0)] ?? null;
         if (!$rate) {
             $missing[] = (int) ($entry['id'] ?? 0);
             continue;
         }
         $rateIds[] = $rateId;
-        $multiplier = timeRateCategoryMultiplier($rate, $category);
+        $multiplier = timeRateCategoryMultiplier($rate, (string)($entry['hour_type'] ?? $category));
         $billBase = (float) ($rate['adjusted_bill_rate'] ?? $rate['bill_rate'] ?? 0);
-        $amountBill += $billBase * $multiplier * $hours;
+        if ((int)($entry['billable'] ?? 0) === 1) $amountBill += round(round($billBase * $multiplier, 4) * $hours, 2);
 
-        if (array_key_exists('referral_pay_rate', $entry)) {
-            if ($entry['referral_pay_rate'] === null || (float) $entry['referral_pay_rate'] <= 0) {
-                $missing[] = (int) ($entry['id'] ?? 0);
+        if ((int)($entry['payable'] ?? 0) !== 1) continue;
+        $dimensions = json_decode((string)($entry['dimension_snapshot_json'] ?? ''), true);
+        if (($dimensions['engagement_type'] ?? null) === 'referral') {
+            if (!isset($dimensions['referral_fee_per_hour']) || !is_numeric($dimensions['referral_fee_per_hour'])) {
+                $missing[] = (int) $entry['id'];
                 continue;
             }
-            // Referral payouts are a flat amount per worked hour. They do not
-            // inherit the worker-rate overtime multiplier.
-            $amountPay += (float) $entry['referral_pay_rate'] * $hours;
+            $amountPay += round((float) $dimensions['referral_fee_per_hour'] * $hours, 2);
             continue;
         }
 
         $payBase = (float) ($rate['pay_rate'] ?? 0);
-        $amountPay += $payBase * $multiplier * $hours;
+        $amountPay += round(round($payBase * $multiplier, 4) * $hours, 2);
     }
 
     $rateIds = array_values(array_unique(array_filter($rateIds)));
@@ -704,18 +498,17 @@ function timeBucket(string $category): string
  */
 function timeBuildBundlesForPeriod(int $periodId): array
 {
-    $period = scopedFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
+    $period = staffingTimeFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
     if (!$period) throw new \RuntimeException("Period {$periodId} not found");
 
-    timeRepairApprovedRateSnapshots(currentTenantId(), ['period_id' => $periodId], 5000);
+    require_once __DIR__ . '/approval_economics.php';
 
-    $entries = scopedQuery(
+    $entries = staffingTimeQuery(
         'SELECT * FROM time_entries
          WHERE tenant_id = :tenant_id AND period_id = :pid AND status = "approved"
          ORDER BY placement_id, work_date',
         ['pid' => $periodId]
     );
-    $entries = timeAttachReferralPayoutRates($entries, currentTenantId());
 
     // Group by placement_id
     $byPlacement = [];
@@ -725,9 +518,9 @@ function timeBuildBundlesForPeriod(int $periodId): array
 
     $built = [];
     $pdo = getDB();
-    $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'));
+    $ratesByEntry = timeApprovedRatesByEntry($entries, staffingTimeWorkspace());
     foreach ($byPlacement as $placementId => $group) {
-        $calc = timeEntrySnapshotFinancialTotals($group, $ratesById);
+        $calc = timeEntrySnapshotFinancialTotals($group, $ratesByEntry);
         if ($calc['missing_rate_entry_ids']) {
             throw new \RuntimeException(
                 'Approved entries are missing locked rate snapshots: ' . implode(', ', $calc['missing_rate_entry_ids'])
@@ -751,7 +544,7 @@ function timeBuildBundlesForPeriod(int $periodId): array
             ];
 
             // Find existing bundle
-            $existing = scopedFind(
+            $existing = staffingTimeFind(
                 'SELECT id, status, consumed_at FROM time_downstream_feed
                  WHERE tenant_id = :tenant_id AND period_id = :pid AND placement_id = :plid AND bundle_type = :bt',
                 ['pid' => $periodId, 'plid' => $placementId, 'bt' => $bundleType]
@@ -783,16 +576,18 @@ function timeBuildBundlesForPeriod(int $periodId): array
                 );
                 $stmt->execute(['tenant_id' => currentTenantId(), 'id' => $existing['id']]);
                 $newId = scopedInsert('time_downstream_feed', array_merge([
-                    'period_id' => $periodId, 'placement_id' => $placementId,
+                    'tenant_id' => staffingTimeWorkspace(), 'period_id' => $periodId, 'placement_id' => $placementId,
                     'bundle_type' => $bundleType, 'status' => 'ready',
                 ], $payload));
                 $built[] = ['id' => $newId, 'placement_id' => $placementId, 'bundle_type' => $bundleType, 'status' => 'ready', 'superseded_prior' => $existing['id']];
             } else if ($existing) {
-                scopedUpdate('time_downstream_feed', (int) $existing['id'], array_merge(['status' => 'ready'], $payload));
+                $sets = implode(',', array_map(static fn(string $key): string => '`'.$key.'`=?', array_keys($payload)));
+                $pdo->prepare('UPDATE time_downstream_feed SET status="ready",'.$sets.' WHERE tenant_id=? AND id=?')
+                    ->execute([...array_values($payload), staffingTimeWorkspace(), (int)$existing['id']]);
                 $built[] = ['id' => (int) $existing['id'], 'placement_id' => $placementId, 'bundle_type' => $bundleType, 'status' => 'ready'];
             } else {
                 $newId = scopedInsert('time_downstream_feed', array_merge([
-                    'period_id' => $periodId, 'placement_id' => $placementId,
+                    'tenant_id' => staffingTimeWorkspace(), 'period_id' => $periodId, 'placement_id' => $placementId,
                     'bundle_type' => $bundleType, 'status' => 'ready',
                 ], $payload));
                 $built[] = ['id' => $newId, 'placement_id' => $placementId, 'bundle_type' => $bundleType, 'status' => 'ready'];
@@ -854,13 +649,13 @@ function timeBuildBundlesForPeriod(int $periodId): array
  */
 function timePreviewBundlesForPeriod(int $periodId): array
 {
-    $period = scopedFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
+    $period = staffingTimeFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
     if (!$period) throw new \RuntimeException("Period {$periodId} not found");
 
-    timeRepairApprovedRateSnapshots(currentTenantId(), ['period_id' => $periodId], 5000);
+    require_once __DIR__ . '/approval_economics.php';
 
     // Blockers + informational counts
-    $statusCounts = scopedQuery(
+    $statusCounts = staffingTimeQuery(
         'SELECT status, COUNT(*) AS c FROM time_entries
          WHERE tenant_id = :tenant_id AND period_id = :pid GROUP BY status',
         ['pid' => $periodId]
@@ -869,7 +664,7 @@ function timePreviewBundlesForPeriod(int $periodId): array
     foreach ($statusCounts as $r) { $byStatus[$r['status']] = (int) $r['c']; }
 
     // Approved entries (the only thing that bundles)
-    $entries = scopedQuery(
+    $entries = staffingTimeQuery(
         'SELECT te.*, pl.title AS placement_title, pl.end_client_name
          FROM time_entries te
          LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
@@ -877,7 +672,6 @@ function timePreviewBundlesForPeriod(int $periodId): array
          ORDER BY te.placement_id, te.work_date',
         ['pid' => $periodId, 'placements_tid' => effectiveTenantIdForModule('placements') ?? currentTenantId()]
     );
-    $entries = timeAttachReferralPayoutRates($entries, currentTenantId());
 
     $byPlacement = [];
     foreach ($entries as $e) { $byPlacement[$e['placement_id']][] = $e; }
@@ -885,17 +679,17 @@ function timePreviewBundlesForPeriod(int $periodId): array
     $bundles = [];
     $sum = ['placements' => 0, 'bundles' => 0, 'hours_billable' => 0.0, 'hours_pto' => 0.0, 'amount_bill' => 0.0, 'amount_pay' => 0.0];
 
-    $ratesById = timeRateSnapshotsById(array_column($entries, 'rate_snapshot_id'));
+    $ratesByEntry = timeApprovedRatesByEntry($entries, staffingTimeWorkspace());
     foreach ($byPlacement as $placementId => $group) {
         $sum['placements']++;
-        $calc = timeEntrySnapshotFinancialTotals($group, $ratesById);
+        $calc = timeEntrySnapshotFinancialTotals($group, $ratesByEntry);
         $totals = $calc['totals'];
 
         $title  = $group[0]['placement_title']  ?? null;
         $client = $group[0]['end_client_name']  ?? null;
 
         foreach (['ar','ap','payroll','revrec'] as $bundleType) {
-            $existing = scopedFind(
+            $existing = staffingTimeFind(
                 'SELECT id, status FROM time_downstream_feed
                  WHERE tenant_id = :tenant_id AND period_id = :pid AND placement_id = :plid AND bundle_type = :bt',
                 ['pid' => $periodId, 'plid' => $placementId, 'bt' => $bundleType]

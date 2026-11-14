@@ -12,6 +12,8 @@ if (PHP_SAPI !== 'cli' || getenv('COREFLUX_ENV') !== 'coreaccounting'
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../modules/ap/lib/ap.php';
 require_once __DIR__ . '/../modules/staffing/lib/timesheets.php';
+require_once __DIR__ . '/../modules/time/lib/approval_economics.php';
+require_once __DIR__ . '/fixtures/payroll_input_approval_evidence.php';
 
 $pdo = getDB();
 if ((string) $pdo->query('SELECT DATABASE()')->fetchColumn() !== 'coreaccounting_ci') {
@@ -84,11 +86,11 @@ try {
     $entryInsert = $pdo->prepare(
         'INSERT INTO time_entries
             (tenant_id, placement_id, person_id, period_id, timesheet_id, work_date,
-             category, hour_type, hours, billable, payable, status, rate_snapshot_id, approved_at)
+             category, hour_type, hours, billable, payable, status, rate_snapshot_id, approved_at, approved_via, approved_by_user_id)
          VALUES
             (:tenant_id, :placement_id, :person_id, :period_id, :timesheet_id, "2026-10-06",
              "regular_billable", "regular", :hours, 1, 1, "approved", :rate_snapshot_id,
-             "2026-10-06 12:00:00")'
+             "2026-10-06 12:00:00", "manual", 1)'
     );
     $entryIds = [];
     foreach ([[3, $rateIds[0]], [4, $rateIds[1]], [1, $rateIds[2]], [1, $rateIds[2]]] as [$hours, $rateId]) {
@@ -109,6 +111,9 @@ try {
         $timesheetId, 'timesheet.approved', null, ['source' => 'ci_fixture'], $tenantId
     );
 
+    // Synthetic approval fixtures; production approvals are tested through the native HTTP suite.
+    payrollInputFixtureApprovalEvidence($pdo,$entryIds,['engagement_type'=>'1099']);
+    $pdo->prepare('UPDATE placement_rates SET pay_rate=99,bill_rate=200 WHERE id=?')->execute([$rateIds[0]]);
     $drafts = apBuildDraftFromTimeEntries($tenantId, $entryIds, 'per_day');
     $assert(count($drafts) === 1, 'approved entries on one day produce one AP bill');
     $draft = apPrepareGeneratedDraftVendor($tenantId, $drafts[0]);
@@ -226,6 +231,7 @@ try {
         'timesheet_id' => $timesheetId, 'hours' => 1, 'rate_snapshot_id' => $secondRateId,
     ]);
     $secondEntryId = (int) $pdo->lastInsertId();
+    payrollInputFixtureApprovalEvidence($pdo,[$secondEntryId],['engagement_type'=>'1099']);
     $pdo->prepare(
         'UPDATE staffing_timesheets SET total_hours = 10 WHERE tenant_id = :t AND id = :id'
     )->execute(['t' => $tenantId, 'id' => $timesheetId]);
@@ -280,6 +286,59 @@ try {
     sort($expectedEntities);
     $assert(count($bundleByVendor) === 2 && $bundleEntities === $expectedEntities,
         'per-vendor time bundles also stay separate by legal entity');
+
+    require_once __DIR__ . '/../modules/billing/lib/billing.php';
+    $refuses = static function(callable $read, string $fragment) use ($assert): void {
+        try { $read(); } catch (RuntimeException $error) {
+            $assert(str_contains($error->getMessage(),$fragment), 'review failure identifies '.$fragment);
+            return;
+        }
+        throw new RuntimeException('Expected review refusal: '.$fragment);
+    };
+    $invoices = billingBuildDraftFromTimeEntries($tenantId,$entryIds,'per_day');
+    $assert(round((float)$invoices[0]['invoice']['subtotal'],2)===180.0,
+        'invoice preview retains the original bill rates after live rate edits');
+    $beforePreview=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    $preview=timePreviewBundlesForPeriod($periodId);
+    $assert($preview['totals']['amount_bill']===200.0 && $preview['totals']['amount_pay']===85.02,
+        'period preview uses approved rates across both placements');
+    $assert($beforePreview===$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),
+        'period preview does not backfill or rewrite approval records');
+    foreach (['billingBuildDraftFromTimeEntries','apBuildDraftFromTimeEntries'] as $builder) {
+        $refuses(fn()=>$builder($tenantId,[$entryIds[0],999999999]),'complete selection');
+    }
+    $fullEntry=$pdo->query('SELECT * FROM time_entries WHERE id='.(int)$entryIds[0])->fetch(PDO::FETCH_ASSOC);
+    $refuses(fn()=>timeApprovedRatesByEntry([$fullEntry],$tenantId+1000000),'unavailable in this workspace');
+    $refuses(fn()=>timeApprovedRatesByEntry([$fullEntry,$fullEntry],$tenantId),'repeated identities');
+    $pdo->prepare('UPDATE time_entries SET hours=99 WHERE id=?')->execute([$entryIds[0]]);
+    $refuses(fn()=>billingBuildDraftFromTimeEntries($tenantId,[$entryIds[0]]),'original approved time or rate evidence changed');
+    $pdo->prepare('UPDATE time_entries SET hours=3 WHERE id=?')->execute([$entryIds[0]]);
+    $pdo->exec('SAVEPOINT missing_approval_evidence');
+    $pdo->prepare('DELETE FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?')->execute([$tenantId,$entryIds[0]]);
+    $refuses(fn()=>apBuildDraftFromTimeEntries($tenantId,[$entryIds[0]]),'archived approval rate is missing');
+    $pdo->exec('ROLLBACK TO SAVEPOINT missing_approval_evidence');
+    $pdo->exec('RELEASE SAVEPOINT missing_approval_evidence');
+    $pdo->exec('SAVEPOINT historical_no_rate');
+    $pdo->prepare('UPDATE time_entries SET rate_snapshot_id=NULL WHERE id=?')->execute([$entryIds[0]]);
+    $refuses(fn()=>timePreviewBundlesForPeriod($periodId),'original approved time or rate evidence changed');
+    $assert($pdo->query('SELECT rate_snapshot_id FROM time_entries WHERE id='.(int)$entryIds[0])->fetchColumn()===null,
+        'an incomplete historical approval stays unresolved after preview');
+    $pdo->exec('ROLLBACK TO SAVEPOINT historical_no_rate');
+    $pdo->exec('RELEASE SAVEPOINT historical_no_rate');
+    $entryInsert->execute([
+        'tenant_id'=>$tenantId,'placement_id'=>$placementId,'person_id'=>$personId,
+        'period_id'=>$periodId,'timesheet_id'=>$timesheetId,'hours'=>2,'rate_snapshot_id'=>$rateIds[0],
+    ]);
+    $laterEntry=(int)$pdo->lastInsertId();
+    payrollInputFixtureApprovalEvidence($pdo,[$laterEntry],['engagement_type'=>'1099']);
+    $pdo->prepare('UPDATE placement_rates SET pay_rate=400,bill_rate=800 WHERE id=?')->execute([$rateIds[0]]);
+    $twoApprovals=[$entryIds[0],$laterEntry];
+    $twoBills=apBuildDraftFromTimeEntries($tenantId,$twoApprovals,'per_day');
+    $twoInvoices=billingBuildDraftFromTimeEntries($tenantId,$twoApprovals,'per_day');
+    $assert((float)$twoBills[0]['bill']['total']===228.0 && count($twoBills[0]['lines'])===2,
+        'two approvals sharing a mutable rate ID retain their distinct original pay rates');
+    $assert((float)$twoInvoices[0]['invoice']['subtotal']===460.0 && count($twoInvoices[0]['lines'])===2,
+        'two approvals sharing a mutable rate ID retain their distinct original bill rates');
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     unset($GLOBALS['__cf_request_tenant_id']);

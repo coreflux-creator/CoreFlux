@@ -40,7 +40,7 @@ $a('billing helper enforces max 500 entries',
 $a('billing helper rejects non-approved entries',
     str_contains($billLib, 'only approved entries can be invoiced'));
 $a('billing helper resolves each entry through its locked rate snapshot',
-    str_contains($billLib, 'timeRateSnapshotsById(')
+    str_contains($billLib, 'timeApprovedRatesByEntry(')
     && str_contains($billLib, "\$e['_rate_snapshot_id']")
     && !str_contains($billLib, 'placementCurrentRate((int) $e[\'placement_id\']'));
 $a('billing helper applies OT/DT multipliers per hour_type',
