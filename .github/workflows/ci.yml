@@ -659,6 +659,7 @@ jobs:
           php tests/payroll_source_earnings_smoke.php
           php tests/payroll_approved_earnings_db_check.php --confirm-disposable-fixture
           php tests/payroll_calculation_review_db_check.php --confirm-disposable-fixture
+          php tests/thunderhawk_time_payroll_upgrade_db_check.php --confirm-disposable-fixture
 
       - name: Exercise atomic time approval and weekly artifact reconciliation
         run: php tests/time_approval_projection_db_check.php --confirm-disposable-fixture
