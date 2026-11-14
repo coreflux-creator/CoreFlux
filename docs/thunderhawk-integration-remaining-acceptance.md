@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 native source earnings — source accepted, not installed
+
+Exact candidate `aab5c933` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43568369321): **22 actual native computation database checks**, **36 exact-arithmetic checks**, **65 payroll source-identity checks**, **944 independent-connection checks**, **953 native-session checks** and **917 native HTTP checks**. Fixture/temporary-access cleanup passed. All **528 local interface tests**, including four new rendered payroll checks, and the frontend build passed. [Pinned evidence](../deploy/thunderhawk-native-payroll-source-earnings-preparation-20261114.json). [Behavior and limits](thunderhawk-native-payroll-source-earnings.md).
+
+Hourly payroll retains approved per-entry rates, overtime/double-time multipliers, earning categories and source receipts. Nonpayable sources cannot become default hours; request overrides cannot replace approved time or internal compute inputs. Persisted precision, segment rounding, exact cents and explicit salary behavior are tested. Computation locks the run and requires the displayed revision; late earning or approval-request failures restore prior state. A competing connection waits and leaves original records intact. Dedicated hours-only Gusto paths refuse source earnings; the generic template dataset remains a separate unfinished path.
+
+No hosted installation occurred. The last verified pilot remains `4bc10bb0`; migration 203, Payroll migration 010 and this newer source are not installed. Exact-computation approval across all workflow paths, period/legacy/import/template semantics, financial ownership and full corrections/provenance, remaining field/reference and portal/onboarding/document/callback reconciliation, required migrations, guarded installation and the full signed-in integration round trip remain open. Production, providers and Arabella are unchanged. The complete goal remains active and incomplete.
+
 ## November 14 native payroll accruals and source release — source accepted, not installed
 
 Exact candidate `8006adbc` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43565875451): **31 actual payroll-accrual database checks**, **65 payroll source-identity checks**, **944 independent-connection checks**, **953 native-session checks** and **917 native HTTP checks**. Fixture and temporary-access cleanup passed. [Pinned evidence](../deploy/thunderhawk-native-payroll-accrual-preparation-20261114.json). [Behavior and limits](thunderhawk-native-payroll-accruals.md).
